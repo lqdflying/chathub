@@ -4,6 +4,7 @@ import AnthropicProvider from './anthropic';
 import AzureProvider from './azure';
 import AzureAIProvider from './azureai';
 import GoogleProvider from './google';
+import MinimaxProvider from './minimax';
 import OpenAIProvider from './openai';
 
 /**
@@ -21,6 +22,7 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   AzureAIProvider,
   AnthropicProvider,
   GoogleProvider,
+  MinimaxProvider,
 ];
 
 export const filterEnabledModels = (provider: ModelProviderCard) => {
@@ -37,4 +39,5 @@ export { default as AzureProviderCard } from './azure';
 export { default as AzureAIProviderCard } from './azureai';
 export { default as GoogleProviderCard } from './google';
 export { default as LobeHubProviderCard } from './lobehub';
+export { default as MinimaxProviderCard } from './minimax';
 export { default as OpenAIProviderCard } from './openai';
