@@ -3,5 +3,6 @@ export enum ModelProvider {
   Azure = 'azure',
   AzureAI = 'azureai',
   Google = 'google',
+  Minimax = 'minimax',
   OpenAI = 'openai',
 }
