@@ -18,16 +18,28 @@ export const GET = checkAuth(async (req, { params, jwtPayload }) => {
 
     return NextResponse.json(list);
   } catch (e) {
-    const {
-      errorType = ChatErrorType.InternalServerError,
-      error: errorContent,
-      ...res
-    } = e as ChatCompletionErrorPayload;
+    const chatError = e as ChatCompletionErrorPayload;
 
+    // If the provider doesn't support listing models (e.g., MiniMax API doesn't have /models endpoint),
+    // return an empty list so builtin models are still displayed
+    const errorStatus = (chatError.error as any)?.status;
+    if (errorStatus === 404) {
+      console.error(
+        `Route: [${provider}] 404 (provider may not support /models endpoint):`,
+        chatError.error,
+      );
+      return NextResponse.json([]);
+    }
+
+    const { errorType: et, error: errorContent, ...res } = chatError;
     const error = errorContent || e;
     // track the error at server side
-    console.error(`Route: [${provider}] ${errorType}:`, error);
+    console.error(`Route: [${provider}] ${et}:`, error);
 
-    return createErrorResponse(errorType, { error, ...res, provider });
+    return createErrorResponse(et || ChatErrorType.InternalServerError, {
+      error,
+      ...res,
+      provider,
+    });
   }
 });

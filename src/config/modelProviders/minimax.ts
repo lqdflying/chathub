@@ -74,6 +74,7 @@ const Minimax: ModelProviderCard = {
   ],
   description:
     'MiniMax is a Chinese AI company providing advanced large language models with strong reasoning and coding capabilities.',
+  disableBrowserRequest: true,
   enabled: true,
   id: 'minimax',
   modelList: { showModelFetcher: false },
