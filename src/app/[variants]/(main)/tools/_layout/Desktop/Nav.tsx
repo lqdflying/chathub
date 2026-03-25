@@ -38,8 +38,8 @@ const Nav = memo(() => {
       compact
       items={items}
       onClick={({ key }) => router.push(`/tools/${key}`)}
-      selectedKeys={[activeKey]}
       selectable
+      selectedKeys={[activeKey]}
     />
   );
 });

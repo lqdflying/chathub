@@ -118,11 +118,11 @@ const Minimax: ModelProviderCard = {
   modelList: { showModelFetcher: false },
   name: 'MiniMax',
   proxyUrl: {
-    placeholder: 'https://api.minimax.chat/v1',
+    placeholder: 'https://api.minimax.io/v1',
   },
   settings: {
     proxyUrl: {
-      placeholder: 'https://api.minimax.chat/v1',
+      placeholder: 'https://api.minimax.io/v1',
     },
     sdkType: 'openai',
   },

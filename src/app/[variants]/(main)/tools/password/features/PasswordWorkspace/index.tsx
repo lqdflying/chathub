@@ -1,7 +1,18 @@
 'use client';
 
 import { ActionIcon } from '@lobehub/ui';
-import { App, Button, Checkbox, Divider, InputNumber, Slider, Tag, Tooltip, Typography, Input } from 'antd';
+import {
+  App,
+  Button,
+  Checkbox,
+  Divider,
+  Input,
+  InputNumber,
+  Slider,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
 import { createStyles } from 'antd-style';
 import { Check, Copy, RefreshCw } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
@@ -12,36 +23,40 @@ const UPPERCASE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const LOWERCASE = 'abcdefghijklmnopqrstuvwxyz';
 const NUMBERS = '0123456789';
 const SYMBOLS = '!@#$%^&*()_+-=[]{}|;:,.<>?';
-const AMBIGUOUS = /[0Ol1I]/g;
+const AMBIGUOUS = /[01IOl]/g;
 
 const useStyles = createStyles(({ css, token }) => ({
   card: css`
-    background: ${token.colorBgContainer};
+    padding: 24px;
     border: 1px solid ${token.colorBorderSecondary};
     border-radius: ${token.borderRadiusLG}px;
-    padding: 24px;
+    background: ${token.colorBgContainer};
   `,
   label: css`
     min-width: 140px;
-    color: ${token.colorTextSecondary};
     font-size: 13px;
+    color: ${token.colorTextSecondary};
   `,
   output: css`
+    cursor: default;
+    user-select: all;
+
+    padding-block: 12px !important;
+    padding-inline: 16px !important;
+    border-radius: ${token.borderRadius}px;
+
     font-family: ${token.fontFamilyCode};
     font-size: 15px;
     letter-spacing: 0.04em;
+
     background: ${token.colorFillTertiary} !important;
-    border-radius: ${token.borderRadius}px;
-    padding: 12px 16px !important;
-    cursor: default;
-    user-select: all;
   `,
   strength: css`
     font-size: 12px;
     font-weight: 500;
   `,
   title: css`
-    margin-bottom: 0 !important;
+    margin-block-end: 0 !important;
   `,
 }));
 
@@ -50,8 +65,8 @@ const getStrength = (password: string): { color: string; label: string } => {
   const len = password.length;
   const hasUpper = /[A-Z]/.test(password);
   const hasLower = /[a-z]/.test(password);
-  const hasNum = /[0-9]/.test(password);
-  const hasSym = /[^A-Za-z0-9]/.test(password);
+  const hasNum = /\d/.test(password);
+  const hasSym = /[^\dA-Za-z]/.test(password);
   const variety = [hasUpper, hasLower, hasNum, hasSym].filter(Boolean).length;
 
   if (len >= 20 && variety >= 4) return { color: 'success', label: 'Very Strong' };
@@ -75,13 +90,15 @@ const generatePassword = (opts: {
   if (opts.useUpper) charset += UPPERCASE;
   if (opts.useLower) charset += LOWERCASE;
   if (opts.useNumbers) charset += NUMBERS;
-  if (opts.useSymbols) charset += opts.useCustomSymbols && opts.customSymbols ? opts.customSymbols : SYMBOLS;
-  if (opts.excludeAmbiguous) charset = charset.replace(AMBIGUOUS, '');
+  if (opts.useSymbols)
+    charset += opts.useCustomSymbols && opts.customSymbols ? opts.customSymbols : SYMBOLS;
+  if (opts.excludeAmbiguous) charset = charset.replaceAll(AMBIGUOUS, '');
   if (!charset) return [''];
 
   return Array.from({ length: opts.count }, () =>
-    Array.from({ length: opts.length }, () =>
-      charset[Math.floor(Math.random() * charset.length)],
+    Array.from(
+      { length: opts.length },
+      () => charset[Math.floor(Math.random() * charset.length)],
     ).join(''),
   );
 };
@@ -117,7 +134,17 @@ const PasswordWorkspace = memo(() => {
     });
     setPasswords(result);
     setCopied(false);
-  }, [count, customSymbols, excludeAmbiguous, length, useCustomSymbols, useLower, useNumbers, useSymbols, useUpper]);
+  }, [
+    count,
+    customSymbols,
+    excludeAmbiguous,
+    length,
+    useCustomSymbols,
+    useLower,
+    useNumbers,
+    useSymbols,
+    useUpper,
+  ]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(passwords.join('\n'));
@@ -135,7 +162,6 @@ const PasswordWorkspace = memo(() => {
       </Typography.Title>
 
       <Flexbox className={styles.card} gap={20}>
-
         {/* Length */}
         <Flexbox align={'center'} gap={16} horizontal>
           <span className={styles.label}>{t('password.length')}</span>
@@ -232,7 +258,7 @@ const PasswordWorkspace = memo(() => {
             <Flexbox align={'center'} gap={8} horizontal>
               <Typography.Text strong>{t('password.result')}</Typography.Text>
               {passwords.length === 1 && strength.label && (
-                <Tag color={strength.color as any} className={styles.strength}>
+                <Tag className={styles.strength} color={strength.color as any}>
                   {strength.label}
                 </Tag>
               )}

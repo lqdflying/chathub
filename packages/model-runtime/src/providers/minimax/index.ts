@@ -10,7 +10,7 @@ export const getMinimaxMaxOutputs = (modelId: string): number | undefined => {
 };
 
 export const LobeMinimaxAI = createOpenAICompatibleRuntime({
-  baseURL: 'https://api.minimaxi.com/v1',
+  baseURL: 'https://api.minimax.io/v1',
   chatCompletion: {
     handlePayload: (payload) => {
       const { enabledSearch, max_tokens, messages, temperature, tools, top_p, ...params } = payload;
