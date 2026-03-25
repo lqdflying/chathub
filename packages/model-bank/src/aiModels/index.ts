@@ -3,6 +3,7 @@ import { default as anthropic } from './anthropic';
 import { default as azure } from './azure';
 import { default as azureai } from './azureai';
 import { default as google } from './google';
+import { default as minimax } from './minimax';
 import { default as openai } from './openai';
 
 type ModelsMap = Record<string, AiFullModelCard[]>;
@@ -29,6 +30,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   azure,
   azureai,
   google,
+  minimax,
   openai,
 });
 
@@ -36,4 +38,5 @@ export { default as anthropic } from './anthropic';
 export { default as azure } from './azure';
 export { default as azureai } from './azureai';
 export { default as google } from './google';
+export { default as minimax } from './minimax';
 export { gptImage1ParamsSchema, default as openai, openaiChatModels } from './openai';

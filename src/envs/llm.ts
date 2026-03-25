@@ -39,6 +39,7 @@ export const getLLMConfig = () => {
 
       ENABLED_MINIMAX: z.boolean(),
       MINIMAX_API_KEY: z.string().optional(),
+      MINIMAX_PROXY_URL: z.string().optional(),
 
       ENABLED_MISTRAL: z.boolean(),
       MISTRAL_API_KEY: z.string().optional(),
@@ -245,6 +246,7 @@ export const getLLMConfig = () => {
 
       ENABLED_MINIMAX: !!process.env.MINIMAX_API_KEY,
       MINIMAX_API_KEY: process.env.MINIMAX_API_KEY,
+      MINIMAX_PROXY_URL: process.env.MINIMAX_PROXY_URL,
 
       ENABLED_MISTRAL: !!process.env.MISTRAL_API_KEY,
       MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
