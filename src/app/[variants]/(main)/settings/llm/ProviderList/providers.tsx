@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 
-import { AnthropicProviderCard, GoogleProviderCard } from '@/config/modelProviders';
+import {
+  AnthropicProviderCard,
+  GoogleProviderCard,
+  MinimaxProviderCard,
+} from '@/config/modelProviders';
 
 import { ProviderItem } from '../type';
 import { useAzureProvider } from './Azure';
@@ -11,7 +15,13 @@ export const useProviderList = (): ProviderItem[] => {
   const OpenAIProvider = useOpenAIProvider();
 
   return useMemo(
-    () => [OpenAIProvider, AzureProvider, AnthropicProviderCard, GoogleProviderCard],
+    () => [
+      OpenAIProvider,
+      AzureProvider,
+      AnthropicProviderCard,
+      GoogleProviderCard,
+      MinimaxProviderCard,
+    ],
     [AzureProvider, OpenAIProvider],
   );
 };
