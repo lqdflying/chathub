@@ -5,6 +5,29 @@ const Minimax: ModelProviderCard = {
     {
       contextWindowTokens: 204_800,
       description:
+        'The latest flagship model with self-evolution capabilities. Excels at complex task decomposition, Agent workflows, coding, and Office automation.',
+      displayName: 'MiniMax M2.7',
+      enabled: true,
+      functionCall: true,
+      id: 'MiniMax-M2.7',
+      maxOutput: 131_072,
+      reasoning: true,
+      releasedAt: '2026-03-01',
+    },
+    {
+      contextWindowTokens: 204_800,
+      description: 'Same capabilities as M2.7 with significantly faster inference speed.',
+      displayName: 'MiniMax M2.7 Highspeed',
+      enabled: true,
+      functionCall: true,
+      id: 'MiniMax-M2.7-highspeed',
+      maxOutput: 131_072,
+      reasoning: true,
+      releasedAt: '2026-03-01',
+    },
+    {
+      contextWindowTokens: 204_800,
+      description:
         'Optimized for code generation and refactoring, delivering peak performance with ultimate value to master complex tasks.',
       displayName: 'MiniMax M2.5',
       enabled: true,
@@ -60,6 +83,18 @@ const Minimax: ModelProviderCard = {
       maxOutput: 131_072,
       reasoning: true,
       releasedAt: '2025-12-23',
+    },
+    {
+      contextWindowTokens: 204_800,
+      description:
+        'Specialized for multi-character immersive roleplay and handling long conversation scenarios with natural dialogue.',
+      displayName: 'MiniMax M2-Her',
+      enabled: true,
+      functionCall: true,
+      id: 'MiniMax-M2-Her',
+      maxOutput: 131_072,
+      reasoning: true,
+      releasedAt: '2026-02-20',
     },
     {
       contextWindowTokens: 204_800,
