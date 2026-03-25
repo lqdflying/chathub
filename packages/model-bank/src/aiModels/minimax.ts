@@ -32,7 +32,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     contextWindowTokens: 204_800,
     description: 'Same capabilities as M2.7 with significantly faster inference speed.',
     displayName: 'MiniMax M2.7 Highspeed',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2.7-highspeed',
     maxOutput: 131_072,
     pricing: {
@@ -55,7 +55,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     description:
       'Optimized for code generation and refactoring, delivering peak performance with ultimate value to master complex tasks.',
     displayName: 'MiniMax M2.5',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2.5',
     maxOutput: 131_072,
     pricing: {
@@ -77,7 +77,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     contextWindowTokens: 204_800,
     description: 'Same performance as M2.5 with significantly faster inference.',
     displayName: 'MiniMax M2.5 Highspeed',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2.5-highspeed',
     maxOutput: 131_072,
     pricing: {
@@ -100,7 +100,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     description:
       'Powerful multilingual programming capabilities, comprehensively upgraded programming experience.',
     displayName: 'MiniMax M2.1',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2.1',
     maxOutput: 131_072,
     pricing: {
@@ -123,7 +123,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     description:
       'Powerful multilingual programming capabilities with faster and more efficient inference.',
     displayName: 'MiniMax M2.1 Highspeed',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2.1-highspeed',
     maxOutput: 131_072,
     pricing: {
@@ -146,7 +146,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     description:
       'Powerful multilingual programming capabilities with faster and more efficient inference.',
     displayName: 'MiniMax M2.1 Lightning',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2.1-Lightning',
     maxOutput: 131_072,
     pricing: {
@@ -169,7 +169,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     description:
       'Specialized for multi-character immersive roleplay and handling long conversation scenarios with natural dialogue.',
     displayName: 'MiniMax M2-Her',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2-Her',
     maxOutput: 131_072,
     pricing: {
@@ -192,7 +192,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     contextWindowTokens: 204_800,
     description: 'Built for efficient coding and agent workflows.',
     displayName: 'MiniMax M2',
-    enabled: true,
+    enabled: false,
     id: 'MiniMax-M2-Stable',
     maxOutput: 131_072,
     pricing: {
