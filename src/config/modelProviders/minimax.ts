@@ -13,6 +13,8 @@ const Minimax: ModelProviderCard = {
       maxOutput: 131_072,
       reasoning: true,
       releasedAt: '2026-03-01',
+      vision: true,
+      search: true,
     },
     {
       contextWindowTokens: 204_800,
