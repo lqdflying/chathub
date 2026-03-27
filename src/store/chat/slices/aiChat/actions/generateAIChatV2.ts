@@ -117,16 +117,18 @@ export const generateAIChatV2: StateCreator<
       !!chatConfig.enableAutoCreateTopic &&
       messages.length + 2 >= autoCreateThreshold;
 
-    // 构造服务端模式临时消息的本地媒体预览（优先使用 S3 URL）
-    // Note: MiniMax token URLs (agent.minimax.io) are browser-scoped and inaccessible from
-    // server. Use base64Url instead when fileUrl is a MiniMax token URL.
+    // 构造服务端模式临时消息的本地媒体预览（优先使用 base64Url）
+    // Note: base64Url is a self-contained data URL that requires no network fetch.
+    // fileUrl is an S3/OSS URL that the server may not be able to fetch (network/credentials).
+    // Always prefer base64Url when available to ensure VisionRoutingProcessor can access it.
     const filesInStore = getFileStoreState().chatUploadFileList;
     const getImageUrl = (f: (typeof filesInStore)[0]): string => {
-      // If fileUrl is a MiniMax token/preload URL, use base64Url instead (server cannot fetch token URLs)
-      if (f.fileUrl?.includes('agent.minimax.io') && f.base64Url) {
+      // Prefer base64Url: self-contained, no network fetch needed
+      if (f.base64Url) {
         return f.base64Url;
       }
-      return f.fileUrl || f.base64Url || f.previewUrl || '';
+      // Fall back to fileUrl (S3/OSS URL) - may not be accessible from server
+      return f.fileUrl || f.previewUrl || '';
     };
     const tempImages: ChatImageItem[] = filesInStore
       .filter((f) => f.file?.type?.startsWith('image'))
