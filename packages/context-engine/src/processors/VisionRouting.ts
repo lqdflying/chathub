@@ -34,18 +34,23 @@ interface ImageItem {
 const fetchImageAsDataUrl = async (imageUrl: string): Promise<string> => {
   // If already a data URL, return as-is
   if (imageUrl.trim().startsWith('data:')) {
+    log('Image URL is already a data URL');
     return imageUrl.trim();
   }
 
+  log('Fetching image from URL: %s', imageUrl);
   const response = await fetch(imageUrl);
   if (!response.ok) {
+    log.extend('error')('Failed to fetch image: %s %s', response.status, response.statusText);
     throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
   }
 
   const arrayBuffer = await response.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const contentType = response.headers.get('content-type') || 'image/jpeg';
+  const sizeKb = Math.round(buffer.length / 1024);
 
+  log('Fetched image: contentType=%s, size=%dKB', contentType, sizeKb);
   return `data:${contentType};base64,${buffer.toString('base64')}`;
 };
 
@@ -60,6 +65,8 @@ const callVisionModel = async (
   baseUrl: string,
 ): Promise<string> => {
   const dataUrl = await fetchImageAsDataUrl(imageUrl);
+  const dataUrlSizeKb = Math.round(Buffer.from(dataUrl).length / 1024);
+  log('Calling VL API with dataUrl size: %dKB', dataUrlSizeKb);
 
   const url = `${baseUrl}/coding_plan/vlm`;
 
@@ -71,22 +78,42 @@ const callVisionModel = async (
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      // MiniMax API requires this header to identify the calling service
+      'MM-API-Source': 'LobeHub',
     },
     method: 'POST',
   });
 
   if (!response.ok) {
+    const text = await response.text();
+    log.extend('error')(
+      'VL API error: %s %s, body: %s',
+      response.status,
+      response.statusText,
+      text,
+    );
     throw new Error(`Vision API error: ${response.status} ${response.statusText}`);
   }
 
   const data = await response.json();
 
   // MiniMax VL response: { base_resp: { status_code: 0, status_msg: "success" }, content: "..." }
+  // Check API-level status code (separate from HTTP status)
+  const baseResp = data.base_resp as { status_code?: number; status_msg?: string } | undefined;
+  const apiCode = baseResp?.status_code;
+  if (apiCode !== undefined && apiCode !== 0) {
+    const msg = baseResp?.status_msg?.trim() || 'Unknown error';
+    log.extend('error')('VL API error: code=%d, msg=%s', apiCode, msg);
+    throw new Error(`Vision API error (${apiCode}): ${msg}`);
+  }
+
   const content = data.content?.trim();
   if (!content) {
+    log.extend('error')('VL API returned empty content, full response: %s', JSON.stringify(data));
     throw new Error('Vision API returned empty content');
   }
 
+  log('VL API description: %s', content.slice(0, 100));
   return content;
 };
 

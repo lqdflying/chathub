@@ -138,6 +138,7 @@ describe('VisionRoutingProcessor', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
     const vlCall = global.fetch.mock.calls[1];
     expect(vlCall[0]).toBe('https://api.minimax.io/v1/coding_plan/vlm');
+    expect(vlCall[1].headers['MM-API-Source']).toBe('LobeHub');
     expect(vlCall[1]).toMatchObject({
       method: 'POST',
       headers: {
