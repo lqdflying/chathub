@@ -5,7 +5,6 @@ import type { PipelineContext, ProcessorOptions } from '../types';
 
 const log = debug('context-engine:processor:VisionRoutingProcessor');
 
-const VISION_MODEL_ID = 'MiniMaxAI/MiniMax-VL-01';
 const VISION_PROMPT =
   'Describe this image in detail. Include any text, charts, diagrams, or important visual elements.';
 
@@ -28,25 +27,46 @@ interface ImageItem {
   url: string;
 }
 
+/**
+ * Fetch an image and convert it to a base64 data URL.
+ * Supports http(s) URLs and data URLs.
+ */
+const fetchImageAsDataUrl = async (imageUrl: string): Promise<string> => {
+  // If already a data URL, return as-is
+  if (imageUrl.trim().startsWith('data:')) {
+    return imageUrl.trim();
+  }
+
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const contentType = response.headers.get('content-type') || 'image/jpeg';
+
+  return `data:${contentType};base64,${buffer.toString('base64')}`;
+};
+
+/**
+ * Call MiniMax VL endpoint to get image description.
+ * MiniMax VL uses /v1/coding_plan/vlm (NOT /v1/chat/completions).
+ * The image must be sent as a base64 data URL.
+ */
 const callVisionModel = async (
   imageUrl: string,
   apiKey: string,
   baseUrl: string,
 ): Promise<string> => {
-  const url = `${baseUrl}/chat/completions`;
+  const dataUrl = await fetchImageAsDataUrl(imageUrl);
+
+  const url = `${baseUrl}/coding_plan/vlm`;
 
   const response = await fetch(url, {
     body: JSON.stringify({
-      messages: [
-        {
-          content: [
-            { image_url: { url: imageUrl }, type: 'image_url' },
-            { text: VISION_PROMPT, type: 'text' },
-          ],
-          role: 'user',
-        },
-      ],
-      model: VISION_MODEL_ID,
+      image_url: dataUrl,
+      prompt: VISION_PROMPT,
     }),
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -60,8 +80,14 @@ const callVisionModel = async (
   }
 
   const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-  return typeof content === 'string' ? content.trim() : '';
+
+  // MiniMax VL response: { base_resp: { status_code: 0, status_msg: "success" }, content: "..." }
+  const content = data.content?.trim();
+  if (!content) {
+    throw new Error('Vision API returned empty content');
+  }
+
+  return content;
 };
 
 export class VisionRoutingProcessor extends BaseProcessor {

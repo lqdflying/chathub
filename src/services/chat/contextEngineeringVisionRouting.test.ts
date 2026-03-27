@@ -58,13 +58,20 @@ describe('contextEngineering vision routing', () => {
     // Mock isCanUseVision to return false for MiniMax
     vi.spyOn(helpers, 'isCanUseVision').mockReturnValue(false);
 
-    // Mock the VL API call
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: 'A terminal showing git worktree removal commands' } }],
-      }),
-    });
+    // Chain fetch calls: first returns image as blob, second returns VL description
+    global.fetch = vi
+      .fn()
+      // First call: fetch image URL
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Map([['content-type', 'image/png']]),
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })
+      // Second call: VL API returns description
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'A terminal showing git worktree removal commands' }),
+      });
 
     const messages = [
       {
@@ -81,13 +88,20 @@ describe('contextEngineering vision routing', () => {
       provider: 'minimax',
     });
 
-    // Verify VL was called
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.minimax.io/v1/chat/completions',
-      expect.objectContaining({
-        body: expect.stringContaining('MiniMaxAI/MiniMax-VL-01'),
-      }),
-    );
+    // Verify VL API was called with correct endpoint and format
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const vlCall = global.fetch.mock.calls[1];
+    expect(vlCall[0]).toBe('https://api.minimax.io/v1/coding_plan/vlm');
+    expect(vlCall[1]).toMatchObject({
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer test-minimax-key',
+        'Content-Type': 'application/json',
+      },
+    });
+    const body = JSON.parse(vlCall[1].body);
+    expect(body.prompt).toBeTruthy();
+    expect(body.image_url).toMatch(/^data:image\/png;base64,/);
 
     // Verify description was injected
     expect(result[0].content).toContain('A terminal showing git worktree removal commands');

@@ -21,12 +21,11 @@ describe('VisionRoutingProcessor', () => {
     mockGetApiKey.mockReturnValue('test-api-key');
     mockGetBaseUrl.mockReturnValue('https://api.minimax.io/v1');
 
-    // Reset fetch to original before each test, then assign fresh mock
-    global.fetch = vi.fn();
+    // Reset fetch to a no-op that returns network error by default
+    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
   });
 
   afterAll(() => {
-    // Restore original fetch
     global.fetch = originalFetch;
   });
 
@@ -118,26 +117,38 @@ describe('VisionRoutingProcessor', () => {
       metadata: {},
     };
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: 'A cat sitting on a table' } }],
-      }),
-    });
+    // Chain fetch calls: first returns image data, second returns VL response
+    global.fetch = vi
+      .fn()
+      // First call: fetch image URL -> returns image as blob
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Map([['content-type', 'image/png']]),
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })
+      // Second call: VL API -> returns description
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'A cat sitting on a table' }),
+      });
 
     const result = await processor.process(context as any);
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.minimax.io/v1/chat/completions',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          'Authorization': 'Bearer test-api-key',
-          'Content-Type': 'application/json',
-        }),
-        body: expect.stringContaining('MiniMaxAI/MiniMax-VL-01'),
-      }),
-    );
+    // Verify VL API was called with correct endpoint and format
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const vlCall = global.fetch.mock.calls[1];
+    expect(vlCall[0]).toBe('https://api.minimax.io/v1/coding_plan/vlm');
+    expect(vlCall[1]).toMatchObject({
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer test-api-key',
+        'Content-Type': 'application/json',
+      },
+    });
+    // Body should have prompt and image_url (base64 data URL)
+    const body = JSON.parse(vlCall[1].body);
+    expect(body.prompt).toBeTruthy();
+    expect(body.image_url).toMatch(/^data:image\/png;base64,/);
 
     expect(result.messages[0].content).toBe(
       'What is this?\n\n[Image 1 description: A cat sitting on a table]',
@@ -165,7 +176,15 @@ describe('VisionRoutingProcessor', () => {
       metadata: {},
     };
 
-    global.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+    // Chain: first fetch succeeds, second (VL API) fails
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Map([['content-type', 'image/png']]),
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })
+      .mockRejectedValueOnce(new Error('Network error'));
 
     const result = await processor.process(context as any);
 
@@ -200,16 +219,33 @@ describe('VisionRoutingProcessor', () => {
       metadata: {},
     };
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: 'A cat' } }],
-      }),
-    });
+    // Chain: first fetch for image, second VL API call, third fetch for second image, fourth VL API
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Map([['content-type', 'image/png']]),
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'A cat' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: new Map([['content-type', 'image/png']]),
+        arrayBuffer: async () => new ArrayBuffer(8),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ content: 'Another image' }),
+      });
 
     await processor.process(context as any);
 
-    // Only user message should trigger fetch
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    // Only user message should trigger VL call (2 fetch calls: image + VL)
+    // Assistant message should be skipped (4 total calls if both were processed)
+    // But actually only user message has imageList checked
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 });

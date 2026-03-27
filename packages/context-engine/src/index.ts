@@ -18,6 +18,7 @@ export {
 } from './providers';
 
 // Processors
+export type { VisionRoutingConfig } from './processors';
 export {
   GroupMessageFlattenProcessor,
   HistoryTruncateProcessor,
