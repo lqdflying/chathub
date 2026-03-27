@@ -27,6 +27,7 @@ export {
   PlaceholderVariablesProcessor,
   ToolCallProcessor,
   ToolMessageReorder,
+  VisionRoutingProcessor,
 } from './processors';
 
 // Tools Engine
