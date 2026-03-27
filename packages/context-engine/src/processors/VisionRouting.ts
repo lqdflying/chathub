@@ -132,6 +132,14 @@ export class VisionRoutingProcessor extends BaseProcessor {
 
     const { model, provider, isCanUseVision, getApiKey, getBaseUrl } = this.config;
 
+    log('VisionRoutingProcessor.doProcess: model=%s provider=%s', model, provider);
+    log('VisionRoutingProcessor.doProcess: isCanUseVision=%s', isCanUseVision(model, provider));
+    log(
+      'VisionRoutingProcessor.doProcess: apiKey=%s baseUrl=%s',
+      !!getApiKey(provider),
+      getBaseUrl(provider),
+    );
+
     // Skip if model already supports vision
     if (isCanUseVision(model, provider)) {
       log('Model %s supports vision, skipping routing', model);
@@ -155,9 +163,17 @@ export class VisionRoutingProcessor extends BaseProcessor {
       if (message.role !== 'user') continue;
 
       const imageList: ImageItem[] = message.imageList;
-      if (!imageList?.length) continue;
+      if (!imageList?.length) {
+        log('No images in message %s, skipping', message.id);
+        continue;
+      }
 
-      log('Processing %d images for message %s', imageList.length, message.id);
+      log(
+        'Processing %d images for message %s: %o',
+        imageList.length,
+        message.id,
+        imageList.map((i) => ({ id: i.id, url: i.url.slice(0, 80) })),
+      );
 
       try {
         const descriptions = await Promise.all(
