@@ -1,10 +1,4 @@
-import {
-  INBOX_GUIDE_SYSTEMROLE,
-  INBOX_SESSION_ID,
-  isDeprecatedEdition,
-  isDesktop,
-  isServerMode,
-} from '@lobechat/const';
+import { INBOX_GUIDE_SYSTEMROLE, INBOX_SESSION_ID, isDesktop, isServerMode } from '@lobechat/const';
 import {
   ContextEngine,
   HistorySummaryProvider,
@@ -19,7 +13,6 @@ import {
   ToolMessageReorder,
   ToolNameResolver,
   ToolSystemRoleProvider,
-  VisionRoutingProcessor,
 } from '@lobechat/context-engine';
 import { historySummaryPrompt } from '@lobechat/prompts';
 import { OpenAIChatMessage, UIChatMessage } from '@lobechat/types';
@@ -27,7 +20,6 @@ import { VARIABLE_GENERATORS } from '@lobechat/utils/client';
 
 import { isCanUseFC } from '@/helpers/isCanUseFC';
 import { lambdaClient } from '@/libs/trpc/client';
-import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { getToolStoreState } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 
@@ -62,26 +54,6 @@ const resolveProxyImageUrls = async (messages: UIChatMessage[]): Promise<UIChatM
       return { ...message, imageList: resolvedImageList } as UIChatMessage;
     }),
   );
-};
-
-/** Get the API key for a provider from the user key vaults */
-const getProviderApiKey = (provider: string): string | undefined => {
-  // TODO: remove isDeprecatedEdition condition in V2.0
-  if (isDeprecatedEdition) {
-    return undefined; // Not supported in deprecated edition
-  }
-  const keyVaults = aiProviderSelectors.providerKeyVaults(provider)(getAiInfraStoreState());
-  return keyVaults?.apiKey;
-};
-
-/** Get the base URL for a provider from the user key vaults */
-const getProviderBaseUrl = (provider: string): string | undefined => {
-  // TODO: remove isDeprecatedEdition condition in V2.0
-  if (isDeprecatedEdition) {
-    return undefined;
-  }
-  const keyVaults = aiProviderSelectors.providerKeyVaults(provider)(getAiInfraStoreState());
-  return keyVaults?.baseURL || 'https://api.minimax.io/v1';
 };
 
 interface ContextEngineeringContext {
@@ -156,16 +128,7 @@ export const contextEngineering = async ({
       // 7. Placeholder variables processing
       new PlaceholderVariablesProcessor({ variableGenerators: VARIABLE_GENERATORS }),
 
-      // 8. Vision routing (before MessageContentProcessor — must run before image content is processed)
-      new VisionRoutingProcessor({
-        getApiKey: getProviderApiKey,
-        getBaseUrl: getProviderBaseUrl,
-        isCanUseVision,
-        model,
-        provider,
-      }),
-
-      // 9. Message content processing
+      // 8. Message content processing
       new MessageContentProcessor({
         fileContext: { enabled: isServerMode, includeFileUrl: !isDesktop },
         isCanUseVideo,
