@@ -7,7 +7,7 @@ import { getToolStoreState } from '@/store/tool';
 import { MinimaxVisionExecutionRuntime } from '@/tools/minimax-vision/ExecutionRuntime';
 
 export interface MinimaxVisionAction {
-  minimaxVision: (
+  analyzeImage: (
     id: string,
     params: { imageUrl: string; prompt?: string },
     aiSummary?: boolean,
@@ -34,7 +34,7 @@ export const minimaxVisionSlice: StateCreator<
   [],
   MinimaxVisionAction
 > = (set, get) => ({
-  minimaxVision: async (id, params, aiSummary = true) => {
+  analyzeImage: async (id, params, aiSummary = true) => {
     const { internal_updateMessageContent, internal_updatePluginError } = get();
 
     getToolStoreState().toggleBuiltinToolLoading('minimaxVision', true);
