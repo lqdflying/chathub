@@ -1,7 +1,6 @@
 import { BuiltinServerRuntimeOutput } from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
-import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { ChatStore } from '@/store/chat/store';
 import { getToolStoreState } from '@/store/tool';
 import { MinimaxVisionExecutionRuntime } from '@/tools/minimax-vision/ExecutionRuntime';
@@ -14,18 +13,10 @@ export interface MinimaxVisionAction {
   ) => Promise<boolean | undefined>;
 }
 
-const getMinimaxVisionRuntime = (): MinimaxVisionExecutionRuntime | undefined => {
-  const aiInfraState = getAiInfraStoreState();
-  const keyVaults = aiProviderSelectors.providerKeyVaults('minimax')(aiInfraState);
-  const apiKey = keyVaults?.apiKey;
-  const baseURL = keyVaults?.baseURL || 'https://api.minimax.io/v1';
-
-  if (!apiKey) {
-    console.warn('[minimaxVision] No MiniMax API key found in key vault');
-    return undefined;
-  }
-
-  return new MinimaxVisionExecutionRuntime({ apiKey, baseUrl: baseURL });
+const getMinimaxVisionRuntime = (): MinimaxVisionExecutionRuntime => {
+  // API key and base URL are read server-side from Docker env vars
+  // via the tools.minimaxVision tRPC endpoint
+  return new MinimaxVisionExecutionRuntime();
 };
 
 export const minimaxVisionSlice: StateCreator<
@@ -40,17 +31,6 @@ export const minimaxVisionSlice: StateCreator<
     getToolStoreState().toggleBuiltinToolLoading('minimaxVision', true);
 
     const runtime = getMinimaxVisionRuntime();
-
-    if (!runtime) {
-      const errorContent = {
-        errorMessage:
-          'MiniMax API key is not configured. Please add your MiniMax API key in settings.',
-        errorType: 'ConfigurationError',
-      };
-      await internal_updateMessageContent(id, JSON.stringify(errorContent));
-      getToolStoreState().toggleBuiltinToolLoading('minimaxVision', false);
-      return aiSummary;
-    }
 
     try {
       const result: BuiltinServerRuntimeOutput = await runtime.analyzeImage(params);
