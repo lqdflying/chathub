@@ -118,12 +118,21 @@ export const generateAIChatV2: StateCreator<
       messages.length + 2 >= autoCreateThreshold;
 
     // 构造服务端模式临时消息的本地媒体预览（优先使用 S3 URL）
+    // Note: MiniMax token URLs (agent.minimax.io) are browser-scoped and inaccessible from
+    // server. Use base64Url instead when fileUrl is a MiniMax token URL.
     const filesInStore = getFileStoreState().chatUploadFileList;
+    const getImageUrl = (f: (typeof filesInStore)[0]): string => {
+      // If fileUrl is a MiniMax token/preload URL, use base64Url instead (server cannot fetch token URLs)
+      if (f.fileUrl?.includes('agent.minimax.io') && f.base64Url) {
+        return f.base64Url;
+      }
+      return f.fileUrl || f.base64Url || f.previewUrl || '';
+    };
     const tempImages: ChatImageItem[] = filesInStore
       .filter((f) => f.file?.type?.startsWith('image'))
       .map((f) => ({
         id: f.id,
-        url: f.fileUrl || f.base64Url || f.previewUrl || '',
+        url: getImageUrl(f),
         alt: f.file?.name || f.id,
       }));
     const tempVideos: ChatVideoItem[] = filesInStore
@@ -502,9 +511,8 @@ export const generateAIChatV2: StateCreator<
       if (isDesktop) {
         try {
           // 动态导入桌面通知服务，避免在非桌面端环境中导入
-          const { desktopNotificationService } = await import(
-            '@/services/electron/desktopNotification'
-          );
+          const { desktopNotificationService } =
+            await import('@/services/electron/desktopNotification');
 
           await desktopNotificationService.showNotification({
             body: content,
