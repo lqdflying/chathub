@@ -8,7 +8,7 @@ export const MinimaxVisionManifest: BuiltinToolManifest = {
   api: [
     {
       description:
-        'Analyze an image and return a detailed description of its content, including any text, charts, diagrams, or important visual elements. Use this tool when you need to understand or describe what is shown in an image.',
+        "Analyze an image and return a description. To save time and get a focused answer, always pass the user's specific question into the `prompt` parameter instead of asking for a generic detailed description.",
       name: MinimaxVisionApiName.analyzeImage,
       parameters: {
         properties: {
@@ -18,10 +18,8 @@ export const MinimaxVisionManifest: BuiltinToolManifest = {
             type: 'string',
           },
           prompt: {
-            default:
-              'Describe this image in detail. Include any text, charts, diagrams, or important visual elements.',
             description:
-              'The prompt to guide the image analysis. Defaults to a standard description request.',
+              'The specific question or instruction about the image. Pass the exact question from the user for faster, targeted analysis (e.g. "What is the text in the red box?"). If not specified, the API will generate a slow, full detailed description.',
             type: 'string',
           },
         },
@@ -35,6 +33,7 @@ export const MinimaxVisionManifest: BuiltinToolManifest = {
     avatar: '🖼️',
     title: 'MiniMax Vision',
   },
-  systemRole: `You are a vision analysis assistant. When given an image URL, call the analyzeImage tool to get a detailed description of the image content. Return the description to the user in a clear, structured way.`,
+  systemRole: `You are a vision analysis assistant. When given an image URL, call the analyzeImage tool to gather information from the image. 
+CRITICAL: For faster response, always pass a specific, focused query into the 'prompt' parameter of the tool based on what the user wants to know, rather than leaving it empty. Do not ask for full descriptions unless explicitly requested. Return the gathered information to the user in a clear, structured way.`,
   type: 'builtin',
 };

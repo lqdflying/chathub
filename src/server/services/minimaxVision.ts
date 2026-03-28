@@ -1,5 +1,5 @@
 const VISION_PROMPT =
-  'Describe this image in detail. Include any text, charts, diagrams, or important visual elements.';
+  'Please provide a brief and concise description of the main subjects in this image.';
 
 /**
  * Fetch an image and convert it to a base64 data URL.
