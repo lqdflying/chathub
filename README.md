@@ -12,7 +12,7 @@ LobeHub is a private distribution of LobeChat tailored for self-hosted server de
 | ----------------- | ------------------------- | -------------------------------------------------- |
 | Deployment target | Vercel / Docker / Desktop | Docker + PostgreSQL only                           |
 | Versioning        | v1.x                      | v3.x (independent)                                 |
-| Model bank        | Upstream releases         | Extended: Claude 4.x, GPT-5.x, Gemini 3.x          |
+| Model bank        | Upstream releases         | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x, MiniMax |
 | Tools Hub         | Not present               | Built-in (Picbed, API Tester + extensible sidebar) |
 | Picbed            | Not present               | Image hosting with S3, auto URL copy               |
 | API Tester        | Not present               | Browser-based REST API client at `/tools/apitest`  |
@@ -24,11 +24,11 @@ LobeHub is a private distribution of LobeChat tailored for self-hosted server de
 
 ### Core (inherited from LobeChat)
 
-- Multi-model chat — OpenAI, Anthropic, Google, Ollama, and 40+ providers
+- Multi-model chat — OpenAI, Anthropic, Google, Moonshot/Kimi, MiniMax, Ollama, and 40+ providers
 - Knowledge base with RAG (file upload, chunking, vector search)
 - MCP plugin system with one-click installation
 - Multi-user management with NextAuth / OIDC / Clerk
-- AI image generation
+- AI image generation (DALL-E, GPT-Image, Gemini Image)
 - Chain-of-thought, branching conversations, artifacts support
 - TTS / STT voice conversation
 - Real-time search integration
@@ -47,7 +47,7 @@ LobeHub is a private distribution of LobeChat tailored for self-hosted server de
   - Request headers editor, body editor with JSON formatter
   - Response viewer with status code, timing, pretty-printed JSON, raw toggle
   - Stateless — no database required
-- **Extended model bank** — latest Claude (4.5, 4.6, Opus), GPT-5.x series, Gemini 3.x, realtime and image models with accurate pricing
+- **Extended model bank** — latest Claude (4.5, 4.6 Opus), GPT-5.x series (5.1, 5.2, 5.3, 5.4 / pro / chat / codex / mini / nano), Gemini 3.x (pro, flash), Kimi K2.x (k2.5, k2-thinking, k2-turbo), MiniMax with accurate pricing
 
 ---
 
@@ -69,6 +69,8 @@ services:
       # LLM API keys:
       # OPENAI_API_KEY=...
       # ANTHROPIC_API_KEY=...
+      # MOONSHOT_API_KEY=... (for Kimi K2.x models)
+      # MINIMAX_API_KEY=...
       # S3_ACCESS_KEY_ID=... (required for Picbed)
     ports:
       - '3210:3210'
@@ -156,8 +158,13 @@ bun run db:studio   # open Drizzle Studio
 Releases are automated via GitHub Actions on version tags:
 
 ```bash
-# Bump version in package.json, then:
+# 1. Verify all intended files are staged
+git status
+
+# 2. Bump version in package.json, then:
 git add package.json && git commit -m "🔖 chore: bump version to vX.X.X"
+
+# 3. Tag and push — GitHub Actions builds and pushes to Docker Hub
 git tag vX.X.X && git push origin HEAD:main && git push origin vX.X.X
 ```
 
