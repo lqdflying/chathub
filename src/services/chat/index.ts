@@ -242,10 +242,7 @@ class ChatService {
     let model = res.model || DEFAULT_AGENT_CONFIG.model;
 
     // if the provider is Azure, get the deployment name as the request model
-    const providersWithDeploymentName = [
-      ModelProvider.Azure,
-      ModelProvider.AzureAI,
-    ] as string[];
+    const providersWithDeploymentName = [ModelProvider.Azure, ModelProvider.AzureAI] as string[];
 
     if (providersWithDeploymentName.includes(provider)) {
       model = findDeploymentName(model, provider);
@@ -274,6 +271,12 @@ class ChatService {
     if (payload.top_p === null) payload.top_p = undefined;
     if (payload.presence_penalty === null) payload.presence_penalty = undefined;
     if (payload.frequency_penalty === null) payload.frequency_penalty = undefined;
+
+    // Kimi Coding Plan API only accepts top_p: 0.95, so we must not send top_p at all
+    // to let the API use its default of 0.95
+    if (provider === 'kimicodingplan') {
+      payload.top_p = undefined;
+    }
 
     const sdkType = resolveRuntimeProvider(provider);
 
