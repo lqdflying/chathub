@@ -35,8 +35,6 @@ export interface UserKeyVaults extends SearchEngineKeyVaults {
   azureai?: AzureOpenAIKeyVault;
   comfyui?: ComfyUIKeyVault;
   google?: OpenAICompatibleKeyVault;
-  kimiCodingPlan?: OpenAICompatibleKeyVault;
-  kimicodingplan?: OpenAICompatibleKeyVault;
   minimax?: OpenAICompatibleKeyVault;
   moonshot?: OpenAICompatibleKeyVault;
   openai?: OpenAICompatibleKeyVault;

@@ -4,7 +4,6 @@ import AnthropicProvider from './anthropic';
 import AzureProvider from './azure';
 import AzureAIProvider from './azureai';
 import GoogleProvider from './google';
-import KimiCodingPlanProvider from './kimiCodingPlan';
 import MinimaxProvider from './minimax';
 import MoonshotProvider from './moonshot';
 import OpenAIProvider from './openai';
@@ -24,7 +23,6 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   AzureAIProvider,
   AnthropicProvider,
   GoogleProvider,
-  KimiCodingPlanProvider,
   MinimaxProvider,
   MoonshotProvider,
 ];
@@ -42,7 +40,6 @@ export { default as AnthropicProviderCard } from './anthropic';
 export { default as AzureProviderCard } from './azure';
 export { default as AzureAIProviderCard } from './azureai';
 export { default as GoogleProviderCard } from './google';
-export { default as KimiCodingPlanProviderCard } from './kimiCodingPlan';
 export { default as LobeHubProviderCard } from './lobehub';
 export { default as MinimaxProviderCard } from './minimax';
 export { default as MoonshotProviderCard } from './moonshot';

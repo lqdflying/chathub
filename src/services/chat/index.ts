@@ -286,12 +286,6 @@ class ChatService {
     if (payload.presence_penalty === null) payload.presence_penalty = undefined;
     if (payload.frequency_penalty === null) payload.frequency_penalty = undefined;
 
-    // Kimi Coding Plan API only accepts top_p: 0.95, so we must not send top_p at all
-    // to let the API use its default of 0.95
-    if (provider === 'kimicodingplan') {
-      payload.top_p = undefined;
-    }
-
     // Moonshot kimi-k2.5 only accepts temperature=1, frequency_penalty=0, and top_p=0.95
     // Force these values to avoid API errors
     if (provider === 'moonshot' && model === 'kimi-k2.5') {
