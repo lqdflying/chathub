@@ -58,6 +58,12 @@ export const convertOpenAIUsage = (
   const finalData = {};
 
   Object.entries(data).forEach(([key, value]) => {
+    // For Moonshot, when inputCachedTokens is defined, keep inputCacheMissTokens even if 0
+    if (key === 'inputCacheMissTokens' && payload?.provider === 'moonshot' && data.inputCachedTokens !== undefined) {
+      // @ts-ignore
+      finalData[key] = value;
+      return;
+    }
     if (!!value) {
       // @ts-ignore
       finalData[key] = value;
