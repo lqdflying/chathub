@@ -15,12 +15,18 @@ import { usePicbedUpload } from './usePicbedUpload';
 
 const useStyles = createStyles(({ css, token }) => ({
   dropZone: css`
+    cursor: pointer;
+
+    padding-block: 40px;
+    padding-inline: 24px;
     border: 2px dashed ${token.colorBorder};
     border-radius: ${token.borderRadiusLG}px;
-    padding: 40px 24px;
+
     text-align: center;
-    cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
+
+    transition:
+      border-color 0.2s,
+      background 0.2s;
 
     &:hover,
     &.dragging {
@@ -34,7 +40,7 @@ const useStyles = createStyles(({ css, token }) => ({
     gap: 12px;
   `,
   title: css`
-    margin-bottom: 0 !important;
+    margin-block-end: 0 !important;
   `,
 }));
 

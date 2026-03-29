@@ -11,24 +11,29 @@ import { Flexbox } from 'react-layout-kit';
 
 const useStyles = createStyles(({ css, token }) => ({
   card: css`
+    overflow: hidden;
     border: 1px solid ${token.colorBorderSecondary};
     border-radius: ${token.borderRadiusLG}px;
-    overflow: hidden;
     background: ${token.colorBgContainer};
   `,
   footer: css`
-    padding: 6px 10px;
     gap: 6px;
+    padding-block: 6px;
+    padding-inline: 10px;
   `,
   image: css`
+    cursor: zoom-in;
+
+    display: block;
+
     width: 100%;
     height: 112px;
+
     object-fit: cover;
-    display: block;
-    cursor: zoom-in;
   `,
   timestamp: css`
-    padding: 0 10px 4px;
+    padding-block: 0 4px;
+    padding-inline: 10px;
     font-size: 11px;
     color: ${token.colorTextTertiary};
   `,
