@@ -142,8 +142,19 @@ class ChatService {
       )(aiInfraStoreState);
       // if model has extended params, then we need to check if the model can use reasoning
 
+      // Moonshot kimi-k2.5 has a limitation: when thinking is enabled, ALL historical
+      // assistant tool call messages must have reasoning_content. If the conversation
+      // has messages generated without thinking mode, they won't have reasoning_content
+      // and the API will reject the request. So we disable automatic thinking for
+      // Moonshot kimi-k2.5 unless explicitly forced.
+      const isMoonshotWithThinkingIssue =
+        payload.provider === 'moonshot' &&
+        (payload.model === 'kimi-k2.5' || payload.model === 'moonshot-v1-128k');
+
       if (modelExtendParams!.includes('enableReasoning')) {
-        if (chatConfig.enableReasoning) {
+        // Only enable thinking if user explicitly enabled it AND it's not Moonshot
+        // with the reasoning_content compatibility issue
+        if (chatConfig.enableReasoning && !isMoonshotWithThinkingIssue) {
           extendParams.thinking = {
             budget_tokens: chatConfig.reasoningBudgetToken || 1024,
             type: 'enabled',
@@ -154,7 +165,10 @@ class ChatService {
             type: 'disabled',
           };
         }
-      } else if (modelExtendParams!.includes('reasoningBudgetToken')) {
+      } else if (
+        modelExtendParams!.includes('reasoningBudgetToken') &&
+        !isMoonshotWithThinkingIssue
+      ) {
         // For models that only have reasoningBudgetToken without enableReasoning
         extendParams.thinking = {
           budget_tokens: chatConfig.reasoningBudgetToken || 1024,
@@ -276,6 +290,14 @@ class ChatService {
     // to let the API use its default of 0.95
     if (provider === 'kimicodingplan') {
       payload.top_p = undefined;
+    }
+
+    // Moonshot kimi-k2.5 only accepts temperature=1, frequency_penalty=0, and top_p=0.95
+    // Force these values to avoid API errors
+    if (provider === 'moonshot' && model === 'kimi-k2.5') {
+      payload.temperature = 1;
+      payload.frequency_penalty = 0;
+      payload.top_p = 0.95;
     }
 
     const sdkType = resolveRuntimeProvider(provider);

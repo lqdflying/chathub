@@ -3,6 +3,7 @@ import { LobeAzureOpenAI } from './providers/azureOpenai';
 import { LobeAzureAI } from './providers/azureai';
 import { LobeGoogleAI } from './providers/google';
 import { LobeMinimaxAI } from './providers/minimax';
+import { LobeMoonshotAI } from './providers/moonshot';
 import { LobeOpenAI } from './providers/openai';
 
 export const providerRuntimeMap = {
@@ -11,5 +12,6 @@ export const providerRuntimeMap = {
   azureai: LobeAzureAI,
   google: LobeGoogleAI,
   minimax: LobeMinimaxAI,
+  moonshot: LobeMoonshotAI,
   openai: LobeOpenAI,
 };
