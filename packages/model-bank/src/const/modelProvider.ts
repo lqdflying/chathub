@@ -3,6 +3,8 @@ export enum ModelProvider {
   Azure = 'azure',
   AzureAI = 'azureai',
   Google = 'google',
+  KimiCodingPlan = 'kimicodingplan',
   Minimax = 'minimax',
+  Moonshot = 'moonshot',
   OpenAI = 'openai',
 }
