@@ -2,6 +2,32 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Naming Conventions (Critical)
+
+When modifying existing resources, **ALWAYS match existing variable/function naming patterns**. Check for conventions before creating new names:
+
+- AI provider variables: `minimax_*`, `kimi_*`, `openai_*` — match the provider's config file pattern
+- Databricks/SPN credentials: `databricks_spn_client_id`, `databricks_spn_client_secret`, `databricks_spn_tenant_id`, `databricks_dev_spn_object_id`
+- Database/ORM: use `camelCase` for DB columns (Drizzle convention)
+- React components: `PascalCase.tsx`
+- Hooks: `use*.ts`
+- Test files: `__tests__/` directories or `.test.ts` suffix
+
+## Git Workflow
+
+- **Before merge**: show `git status` and `git branch -a`
+- **After merge / push**: always run `git fetch --prune` before assuming branch cleanup is complete — this verifies remote branch was actually deleted
+- **After merge**: verify with `git log --oneline -3`
+- **For stash**: run `git stash list` before push/pop
+- Commit messages must be prefixed with a gitmoji
+
+## Windows Password Complexity
+
+When generating passwords or configuring Windows/Ansible systems:
+- Ensure passwords meet Windows complexity: **3 of 4 categories** (uppercase, lowercase, numbers, special characters)
+- Avoid shell escaping issues with special characters — use a proven password generator
+- This rule applies to all Ansible playbooks, Terraform Windows configs, and any automated password generation
+
 ## Project Overview
 
 **LobeHub** is a custom fork/distribution of LobeChat, maintained independently starting at v3.0.0. It targets self-hosted Docker + PostgreSQL deployments only. Docker image: `docker.io/lqdflying/lobehub`.
