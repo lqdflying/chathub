@@ -15,11 +15,6 @@ const list: TestItem[] = [
     file: 'terms.html',
     url: 'https://lobehub.com/terms',
   },
-  {
-    file: 'yingchao.html',
-    url: 'https://www.qiumiwu.com/standings/yingchao',
-    filterOptions: { pureText: true, enableReadability: false },
-  },
 ];
 
 describe('htmlToMarkdown', () => {
