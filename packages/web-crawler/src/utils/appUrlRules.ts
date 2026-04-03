@@ -10,7 +10,12 @@ export const applyUrlRules = (
 } => {
   for (const rule of urlRules) {
     // 转换为正则表达式
-    const regex = new RegExp(rule.urlPattern);
+    let regex: RegExp;
+    try {
+      regex = new RegExp(rule.urlPattern); // nosemgrep: detect-non-literal-regexp
+    } catch {
+      continue; // skip rules with invalid regex patterns
+    }
     const match = url.match(regex);
 
     if (match) {

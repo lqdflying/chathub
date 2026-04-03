@@ -737,7 +737,7 @@ export const chatAiGroupChat: StateCreator<
         // This prevents infinite loops of agent responses
         // Supervisor decisions should only be triggered after user messages or when all agents complete
       } catch (error) {
-        console.error(`Failed to process message for agent ${agentId}:`, error);
+        console.error(`Failed to process message for agent ${agentId}:`, error); // nosemgrep: unsafe-formatstring
 
         // Create supervisor error message to show the error to users
         await get().internal_createSupervisorErrorMessage(
@@ -822,7 +822,7 @@ export const chatAiGroupChat: StateCreator<
         try {
           await internal_triggerSupervisorDecision(groupId, scheduledTopicId, false); // false = automatic trigger
         } catch (error) {
-          console.error(`Failed to execute supervisor decision for group ${groupId}:`, error);
+          console.error(`Failed to execute supervisor decision for group ${groupId}:`, error); // nosemgrep: unsafe-formatstring
         }
       }, debounceThreshold);
 

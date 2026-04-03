@@ -144,7 +144,7 @@ export class BaseModel<N extends keyof BrowserDBSchema = any, T = BrowserDBSchem
     } catch (error) {
       const bulkError = error as BulkError;
       // Handle bulkAdd errors here
-      console.error(`[${this.db.name}][${this._tableName}] Bulk add error:`, bulkError);
+      console.error(`[${this.db.name}][${this._tableName}] Bulk add error:`, bulkError); // nosemgrep: unsafe-formatstring
       // Return the number of successfully added records and errors
       return {
         added: validatedData.length - skips.length - bulkError.failures.length,

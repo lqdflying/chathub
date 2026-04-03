@@ -38,7 +38,7 @@ describe('usePWAInstall', () => {
   });
 
   it('should return canInstall based on canInstall state when support PWA', () => {
-    document.body.innerHTML = `<div id="${PWA_INSTALL_ID}"></div>`;
+    document.body.innerHTML = `<div id="${PWA_INSTALL_ID}"></div>`; // nosemgrep: insecure-document-method -- static test DOM setup
     vi.mocked(usePlatform).mockReturnValue({ isSupportInstallPWA: true, isPWA: false } as any);
 
     const { result, rerender } = renderHook(() => usePWAInstall());
@@ -64,7 +64,7 @@ describe('usePWAInstall', () => {
 
   it('should call pwa.showDialog when install is called', () => {
     const mockShowDialog = vi.fn();
-    document.body.innerHTML = `<div id="${PWA_INSTALL_ID}"></div>`;
+    document.body.innerHTML = `<div id="${PWA_INSTALL_ID}"></div>`; // nosemgrep: insecure-document-method -- static test DOM setup
     const pwaElement: any = document.querySelector(`#${PWA_INSTALL_ID}`);
     pwaElement.showDialog = mockShowDialog;
 

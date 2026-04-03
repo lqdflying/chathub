@@ -55,7 +55,7 @@ export const createErrorResponse = (errorType: ILobeAgentRuntimeErrorType, body?
 
   if (typeof statusCode !== 'number' || statusCode < 200 || statusCode > 599) {
     console.error(
-      `current StatusCode: \`${statusCode}\` .`,
+      `current StatusCode: \`${statusCode}\` .`, // nosemgrep: unsafe-formatstring
       'Please go to `./utils/errorResponse.ts` to defined the statusCode.',
     );
   }

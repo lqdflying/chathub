@@ -133,7 +133,7 @@ export class DataExporterRepos {
       const result = await this.db.query[table].findMany({ where });
 
       // 只对使用 userId 查询的表移除 userId 字段
-      console.log(`Successfully exported table: ${table}, count: ${result.length}`);
+      console.log(`Successfully exported table: ${table}, count: ${result.length}`); // nosemgrep: unsafe-formatstring
       return config.relations ? result : this.removeUserId(result);
     } catch (error) {
       console.error(`Error querying table ${table}:`, error);
@@ -157,7 +157,7 @@ export class DataExporterRepos {
       const result = await this.db.query[table].findMany({ where });
 
       // 只对使用 userId 查询的表移除 userId 字段
-      console.log(`Successfully exported table: ${table}, count: ${result.length}`);
+      console.log(`Successfully exported table: ${table}, count: ${result.length}`); // nosemgrep: unsafe-formatstring
       return this.removeUserId(result);
     } catch (error) {
       console.error(`Error querying table ${table}:`, error);

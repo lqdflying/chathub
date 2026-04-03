@@ -39,7 +39,7 @@ export const getCacheFiles = async (): Promise<NextCacheFileData[]> => {
     } catch (error) {
       if (error instanceof ZodError) {
         const issues = error.issues;
-        console.error(`File ${file} do not match the schema`, issues);
+        console.error(`File ${file} do not match the schema`, issues); // nosemgrep: unsafe-formatstring
       }
       console.error(`Error parsing ${file}`);
       return false;

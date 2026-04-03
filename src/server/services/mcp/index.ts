@@ -201,7 +201,7 @@ export class MCPService {
       }
 
       console.error(
-        `Error calling tool "${toolName}" for params %O:`,
+        `Error calling tool "${toolName}" for params %O:`, // nosemgrep: unsafe-formatstring
         this.sanitizeForLogging(params),
         error,
       );

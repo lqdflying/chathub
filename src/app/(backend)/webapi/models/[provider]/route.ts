@@ -25,7 +25,7 @@ export const GET = checkAuth(async (req, { params, jwtPayload }) => {
     const errorStatus = (chatError.error as any)?.status;
     if (errorStatus === 404) {
       console.error(
-        `Route: [${provider}] 404 (provider may not support /models endpoint):`,
+        `Route: [${provider}] 404 (provider may not support /models endpoint):`, // nosemgrep: unsafe-formatstring
         chatError.error,
       );
       return NextResponse.json([]);
@@ -34,7 +34,7 @@ export const GET = checkAuth(async (req, { params, jwtPayload }) => {
     const { errorType: et, error: errorContent, ...res } = chatError;
     const error = errorContent || e;
     // track the error at server side
-    console.error(`Route: [${provider}] ${et}:`, error);
+    console.error(`Route: [${provider}] ${et}:`, error); // nosemgrep: unsafe-formatstring
 
     return createErrorResponse(et || ChatErrorType.InternalServerError, {
       error,

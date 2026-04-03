@@ -41,7 +41,7 @@ export const desktopRemoteRPCFetch = async (input: string, init?: RequestInit) =
 
       if (!response.ok) {
         console.warn(
-          `[lambda] ${url} IPC proxy response indicates an error:`,
+          `[lambda] ${url} IPC proxy response indicates an error:`, // nosemgrep: unsafe-formatstring
           response.status,
           response.statusText,
         );
@@ -49,7 +49,7 @@ export const desktopRemoteRPCFetch = async (input: string, init?: RequestInit) =
 
       return response;
     } catch (error) {
-      console.error(`[lambda] Error during ${url} IPC proxy call:`, error);
+      console.error(`[lambda] Error during ${url} IPC proxy call:`, error); // nosemgrep: unsafe-formatstring
       return new Response(
         `IPC Proxy Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         {

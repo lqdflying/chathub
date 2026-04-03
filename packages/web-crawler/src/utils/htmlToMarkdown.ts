@@ -29,7 +29,7 @@ export const htmlToMarkdown = (
   const window = new Window({ url });
 
   const document = window.document;
-  document.body.innerHTML = html;
+  document.body.innerHTML = html; // nosemgrep: insecure-document-method -- happy-dom is a server-side virtual DOM, no JS execution
 
   // @ts-expect-error reason: Readability expects a Document type
   const parsedContent = new Readability(document).parse();

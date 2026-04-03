@@ -218,7 +218,7 @@ class OIDCAdapter {
       log('[%s] Successfully upserted record: %s', this.name, id);
     } catch (error) {
       log('[%s] ERROR upserting record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error upserting ${this.name}:`, error);
+      console.error(`[OIDC Adapter] Error upserting ${this.name}:`, error); // nosemgrep: unsafe-formatstring
       throw error;
     }
   }
@@ -292,7 +292,7 @@ class OIDCAdapter {
       return model.data;
     } catch (error) {
       log('[%s] ERROR finding record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error finding ${this.name}:`, error);
+      console.error(`[OIDC Adapter] Error finding ${this.name}:`, error); // nosemgrep: unsafe-formatstring
       return undefined;
     }
   }
@@ -446,7 +446,7 @@ class OIDCAdapter {
       log('[%s] Successfully destroyed record: %s', this.name, id);
     } catch (error) {
       log('[%s] ERROR destroying record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error destroying ${this.name}:`, error);
+      console.error(`[OIDC Adapter] Error destroying ${this.name}:`, error); // nosemgrep: unsafe-formatstring
       throw error;
     }
   }
@@ -473,7 +473,7 @@ class OIDCAdapter {
       log('[%s] Successfully consumed record: %s', this.name, id);
     } catch (error) {
       log('[%s] ERROR consuming record: %O', this.name, error);
-      console.error(`[OIDC Adapter] Error consuming ${this.name}:`, error);
+      console.error(`[OIDC Adapter] Error consuming ${this.name}:`, error); // nosemgrep: unsafe-formatstring
       throw error;
     }
   }

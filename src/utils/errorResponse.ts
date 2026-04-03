@@ -61,7 +61,7 @@ export const createErrorResponse = (
 
   if (typeof statusCode !== 'number' || statusCode < 200 || statusCode > 599) {
     console.error(
-      `current StatusCode: \`${statusCode}\` .`,
+      `current StatusCode: \`${statusCode}\` .`, // nosemgrep: unsafe-formatstring
       'Please go to `./src/app/api/errorResponse.ts` to defined the statusCode.',
     );
   }

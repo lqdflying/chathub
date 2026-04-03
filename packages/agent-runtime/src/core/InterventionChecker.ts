@@ -105,7 +105,11 @@ export class InterventionChecker {
         return this.matchPattern(pattern, strValue);
       }
       case 'regex': {
-        return new RegExp(pattern).test(strValue);
+        try {
+          return new RegExp(pattern).test(strValue); // nosemgrep: detect-non-literal-regexp
+        } catch {
+          return false; // invalid regex pattern
+        }
       }
       default: {
         return false;
@@ -134,7 +138,7 @@ export class InterventionChecker {
       .replaceAll(/[$()+.?[\\\]^{|}]/g, '\\$&') // Escape special chars
       .replaceAll('*', '.*'); // Replace * with .*
 
-    return new RegExp(`^${regexPattern}$`).test(value);
+    return new RegExp(`^${regexPattern}$`).test(value); // nosemgrep: detect-non-literal-regexp -- pattern is fully escaped above
   }
 
   /**

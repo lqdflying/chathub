@@ -103,7 +103,7 @@ export class PdfLoader implements FileLoaderInterface {
       const error = e as Error;
       log('Error encountered while loading PDF file');
       console.error(
-        `Error loading PDF file ${filePath} using pdfjs-dist: ${error.message}`,
+        `Error loading PDF file ${filePath} using pdfjs-dist: ${error.message}`, // nosemgrep: unsafe-formatstring
         error.stack,
       );
       const errorPage: DocumentPage = {

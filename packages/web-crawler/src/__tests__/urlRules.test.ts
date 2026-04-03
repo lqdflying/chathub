@@ -198,7 +198,7 @@ describe('urlRules', () => {
     it('should have valid regex patterns that can be compiled', () => {
       crawUrlRules.forEach((rule, index) => {
         expect(() => {
-          new RegExp(rule.urlPattern);
+          new RegExp(rule.urlPattern); // nosemgrep: detect-non-literal-regexp -- deliberately testing that patterns compile
         }).not.toThrow(`Rule at index ${index} should have valid regex pattern`);
       });
     });

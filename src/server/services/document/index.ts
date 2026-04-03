@@ -57,7 +57,7 @@ export class DocumentService {
 
       return document as LobeDocument;
     } catch (error) {
-      console.error(`${logPrefix} 文件解析失败:`, error);
+      console.error(`${logPrefix} 文件解析失败:`, error); // nosemgrep: unsafe-formatstring
       throw error;
     } finally {
       cleanup();

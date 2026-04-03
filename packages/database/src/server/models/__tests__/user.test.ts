@@ -21,7 +21,7 @@ const userModel = new UserModel(serverDB, userId);
 beforeEach(async () => {
   await serverDB.delete(users);
   await serverDB.delete(userSettings);
-  process.env.KEY_VAULTS_SECRET = 'ofQiJCXLF8mYemwfMWLOHoHimlPu91YmLfU7YZ4lreQ=';
+  process.env.KEY_VAULTS_SECRET = 'ofQiJCXLF8mYemwfMWLOHoHimlPu91YmLfU7YZ4lreQ='; // nosemgrep: detected-generic-secret -- test-only encryption key
 });
 
 afterEach(async () => {
