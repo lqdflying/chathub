@@ -31,13 +31,13 @@ export class DocumentService {
     const { filePath, file, cleanup } = await this.fileService.downloadFileToLocal(fileId);
 
     const logPrefix = `[${file.name}]`;
-    log(`${logPrefix} 开始解析文件, 路径: ${filePath}`);
+    log('[document:parseFile] 开始解析文件, 路径: %s %s', logPrefix, filePath);
 
     try {
       // 使用loadFile加载文件内容
       const fileDocument = await loadFile(filePath);
 
-      log(`${logPrefix} 文件解析成功 %O`, {
+      log('[document:parseFile] 文件解析成功 %s %O', logPrefix, {
         fileType: fileDocument.fileType,
         size: fileDocument.content.length,
       });
@@ -57,7 +57,7 @@ export class DocumentService {
 
       return document as LobeDocument;
     } catch (error) {
-      console.error(logPrefix, '文件解析失败:', error);
+      console.error('[document:parseFile] 文件解析失败:', logPrefix, error);
       throw error;
     } finally {
       cleanup();
