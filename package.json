@@ -35,7 +35,7 @@
     "postbuild": "npm run build-sitemap && npm run build-migrate-db",
     "build:analyze": "NODE_OPTIONS=--max-old-space-size=6144 ANALYZE=true next build",
     "prebuild:docker": "tsx scripts/prebuild.mts && npm run lint:ts && npm run lint:style && npm run lint:circular",
-    "build:docker": "npm run prebuild:docker && NODE_OPTIONS=--max-old-space-size=6144 DOCKER=true next build && npm run build-sitemap",
+    "build:docker": "npm run prebuild:docker && NODE_OPTIONS=--max-old-space-size=6144 DOCKER=true next build",
     "prebuild:electron": "cross-env NEXT_PUBLIC_IS_DESKTOP_APP=1 tsx scripts/prebuild.mts",
     "build:electron": "cross-env NODE_OPTIONS=--max-old-space-size=6144 NEXT_PUBLIC_IS_DESKTOP_APP=1 NEXT_PUBLIC_SERVICE_MODE=server next build",
     "build-migrate-db": "bun run db:migrate",
