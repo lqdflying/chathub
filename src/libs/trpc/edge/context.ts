@@ -2,7 +2,7 @@ import { ClientSecretPayload } from '@lobechat/types';
 import { User } from 'next-auth';
 import { NextRequest } from 'next/server';
 
-import { LOBE_CHAT_AUTH_HEADER, enableClerk, enableNextAuth } from '@/const/auth';
+import { LOBE_CHAT_AUTH_HEADER, TOKEN_AUTH_USER_HEADER, enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
 import { ClerkAuth, IClerkAuth } from '@/libs/clerk-auth';
 
 export interface AuthContext {
@@ -42,6 +42,14 @@ export const createEdgeContext = async (request: NextRequest): Promise<EdgeConte
 
   let userId;
   let auth;
+
+  // Token-based auth (static bearer token, no OAuth required)
+  if (enableTokenAuth) {
+    const tokenAuthUserId = request.headers.get(TOKEN_AUTH_USER_HEADER);
+    if (tokenAuthUserId) {
+      return createContextInner({ authorizationHeader: authorization, userId: tokenAuthUserId });
+    }
+  }
 
   if (enableClerk) {
     const clerkAuth = new ClerkAuth();

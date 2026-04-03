@@ -23,6 +23,7 @@ import {
   sendPayloadToPlugin,
   sendPluginSettingsToPlugin,
   sendPluginStateToPlugin,
+  getTargetOrigin,
 } from '../utils/postMessage';
 
 // just to simplify code a little, don't use this pattern everywhere
@@ -42,6 +43,7 @@ const IFrameRender = memo<IFrameRenderProps>(({ url, id, payload, width = 600, h
   const [loading, setLoading] = useState(true);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const targetOrigin = getTargetOrigin(url);
 
   // when payload change，send content to plugin
   useOnPluginReadyForInteraction(() => {
@@ -52,7 +54,7 @@ const IFrameRender = memo<IFrameRenderProps>(({ url, id, payload, width = 600, h
       const message = getMessage(id);
       const state = message?.pluginState;
 
-      sendPayloadToPlugin(iframeWin, { payload, settings, state });
+      sendPayloadToPlugin(iframeWin, { payload, settings, state }, targetOrigin);
     }
   }, [payload]);
 
@@ -71,7 +73,7 @@ const IFrameRender = memo<IFrameRenderProps>(({ url, id, payload, width = 600, h
         props.content = message.content || '';
       }
 
-      sendMessageContentToPlugin(iframeWin, props);
+      sendMessageContentToPlugin(iframeWin, props, targetOrigin);
     }
   }, []);
 
@@ -89,7 +91,7 @@ const IFrameRender = memo<IFrameRenderProps>(({ url, id, payload, width = 600, h
       const message = getMessage(id);
       if (!message) return;
 
-      sendPluginStateToPlugin(iframeWin, key, message.pluginState?.[key]);
+      sendPluginStateToPlugin(iframeWin, key, message.pluginState?.[key], targetOrigin);
     }
   });
 
@@ -108,7 +110,7 @@ const IFrameRender = memo<IFrameRenderProps>(({ url, id, payload, width = 600, h
 
       const settings = getSettings(payload.identifier);
 
-      sendPluginSettingsToPlugin(iframeWin, settings);
+      sendPluginSettingsToPlugin(iframeWin, settings, targetOrigin);
     }
   });
 

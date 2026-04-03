@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
 import urlJoin from 'url-join';
 
-import { OAUTH_AUTHORIZED } from '@/const/auth';
+import { OAUTH_AUTHORIZED, TOKEN_AUTH_USER_HEADER } from '@/const/auth';
 import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { LOBE_THEME_APPEARANCE } from '@/const/theme';
 import { appEnv } from '@/envs/app';
@@ -301,8 +301,49 @@ logDefault('Middleware configuration: %O', {
   enableOIDC: oidcEnv.ENABLE_OIDC,
 });
 
+// Token-based auth middleware for database mode without OAuth
+const tokenAuthMiddleware = (request: NextRequest) => {
+  const logTokenAuth = debug('middleware:token-auth');
+  logTokenAuth('Processing request: %s %s', request.method, request.url);
+
+  const response = defaultMiddleware(request);
+
+  const authHeader = request.headers.get('Authorization');
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const expectedToken = process.env.AUTH_TOKEN!;
+
+  // Always clear the header first to prevent injection
+  response.headers.delete(TOKEN_AUTH_USER_HEADER);
+
+  if (bearerToken && bearerToken === expectedToken) {
+    const userId = process.env.AUTH_USER_ID || 'default_user';
+    logTokenAuth('Token auth successful, userId: %s', userId);
+    response.headers.set(TOKEN_AUTH_USER_HEADER, userId);
+  } else {
+    const url = new URL(request.url);
+    const isProtected = appEnv.ENABLE_AUTH_PROTECTION
+      ? !isPublicRoute(request)
+      : isProtectedRoute(request);
+
+    logTokenAuth(
+      'Token auth failed or missing, path: %s, isProtected: %s',
+      url.pathname,
+      isProtected,
+    );
+
+    // Only block protected routes; let public routes through unauthenticated
+    if (isProtected) {
+      return new NextResponse('Unauthorized', { status: 401 });
+    }
+  }
+
+  return response;
+};
+
 export default authEnv.NEXT_PUBLIC_ENABLE_CLERK_AUTH
   ? clerkAuthMiddleware
   : authEnv.NEXT_PUBLIC_ENABLE_NEXT_AUTH
     ? nextAuthMiddleware
-    : defaultMiddleware;
+    : process.env.AUTH_TOKEN
+      ? tokenAuthMiddleware
+      : defaultMiddleware;

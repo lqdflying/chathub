@@ -16,6 +16,7 @@
     "jsx": "preserve",
     "incremental": true,
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "types": ["vitest/globals", "@serwist/next/typings"],
     "paths": {
       "@/database/*": ["./packages/database/src/*", "./src/database/*"],

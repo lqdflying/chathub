@@ -42,6 +42,8 @@ tmp/
 .env.development
 venv/
 .venv/
+.vscode/
+.claude/
 
 # Dependencies
 node_modules/

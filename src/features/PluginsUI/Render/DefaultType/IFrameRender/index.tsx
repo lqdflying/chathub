@@ -4,7 +4,7 @@ import { memo, useRef, useState } from 'react';
 
 import { useOnPluginReadyForInteraction } from '../../utils/iframeOnReady';
 import { useOnPluginFetchMessage } from '../../utils/listenToPlugin';
-import { sendMessageContentToPlugin } from '../../utils/postMessage';
+import { getTargetOrigin, sendMessageContentToPlugin } from '../../utils/postMessage';
 
 interface IFrameRenderProps extends PluginRenderProps {
   height?: number;
@@ -15,13 +15,14 @@ interface IFrameRenderProps extends PluginRenderProps {
 const IFrameRender = memo<IFrameRenderProps>(({ url, width = 800, height = 300, ...props }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loading, setLoading] = useState(true);
+  const targetOrigin = getTargetOrigin(url);
 
   // 当 props 发生变化时，主动向 iframe 发送数据
   useOnPluginReadyForInteraction(() => {
     const iframeWin = iframeRef.current?.contentWindow;
 
     if (iframeWin) {
-      sendMessageContentToPlugin(iframeWin, props);
+      sendMessageContentToPlugin(iframeWin, props, targetOrigin);
     }
   }, [props]);
 
@@ -29,7 +30,7 @@ const IFrameRender = memo<IFrameRenderProps>(({ url, width = 800, height = 300, 
   useOnPluginFetchMessage(() => {
     const iframeWin = iframeRef.current?.contentWindow;
     if (iframeWin) {
-      sendMessageContentToPlugin(iframeWin, props);
+      sendMessageContentToPlugin(iframeWin, props, targetOrigin);
     }
   }, [props]);
 

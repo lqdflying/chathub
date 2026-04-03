@@ -118,7 +118,53 @@ ON CONFLICT DO NOTHING;" < user > -d < db > -c
 
 ---
 
-## Adding a New Tool
+## Authentication Modes
+
+LobeHub supports three authentication modes. Only one should be active at a time.
+
+### 1. No Auth (default)
+
+No environment variables needed. Anyone who can reach the URL can use the app. Suitable for local-only deployments.
+
+Optionally restrict access with a shared passcode:
+
+```env
+ACCESS_CODE=your-passcode
+```
+
+### 2. Token Auth (recommended for single-user self-hosted)
+
+A static Bearer token — no OAuth provider required. All requests map to a single user ID stored in PostgreSQL.
+
+```env
+AUTH_TOKEN=your-secret-token        # required — clients must send this
+AUTH_USER_ID=default_user           # optional — defaults to "default_user"
+```
+
+The client must send the token in every request:
+```
+Authorization: Bearer your-secret-token
+```
+
+Protected routes return `401 Unauthorized` if the token is missing or wrong. Public API routes (`/trpc`, `/webapi`, etc.) are always reachable.
+
+### 3. NextAuth / OAuth (multi-user)
+
+Configure an OAuth provider (Auth0, GitHub, Authentik, Zitadel, etc.) via NextAuth:
+
+```env
+NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
+NEXT_AUTH_SECRET=<your-secret>
+NEXT_AUTH_SSO_PROVIDERS=auth0        # or github, authentik, zitadel, ...
+# Provider-specific vars (example: Auth0)
+AUTH_AUTH0_ID=...
+AUTH_AUTH0_SECRET=...
+AUTH_AUTH0_ISSUER=https://your-domain.auth0.com
+```
+
+---
+
+
 
 1. Create `src/app/[variants]/(main)/tools/<tool-name>/page.tsx`
 2. Add i18n keys to `src/locales/default/tools.ts` + `locales/en-US/tools.json` + `locales/zh-CN/tools.json`

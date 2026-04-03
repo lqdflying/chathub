@@ -7,8 +7,10 @@ import { NextRequest } from 'next/server';
 import {
   LOBE_CHAT_AUTH_HEADER,
   LOBE_CHAT_OIDC_AUTH_HEADER,
+  TOKEN_AUTH_USER_HEADER,
   enableClerk,
   enableNextAuth,
+  enableTokenAuth,
 } from '@/const/auth';
 import { oidcEnv } from '@/envs/oidc';
 import { ClerkAuth, IClerkAuth } from '@/libs/clerk-auth';
@@ -105,6 +107,15 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
   let userId;
   let auth;
   let oidcAuth = null;
+
+  // Token-based auth (static bearer token, no OAuth required)
+  if (enableTokenAuth) {
+    const tokenAuthUserId = request.headers.get(TOKEN_AUTH_USER_HEADER);
+    if (tokenAuthUserId) {
+      log('Token auth detected, userId: %s', tokenAuthUserId);
+      return createContextInner({ ...commonContext, userId: tokenAuthUserId });
+    }
+  }
 
   // Prioritize checking for OIDC authentication (both standard Authorization and custom Oidc-Auth headers)
   if (oidcEnv.ENABLE_OIDC) {

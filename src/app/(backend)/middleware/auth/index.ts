@@ -12,6 +12,7 @@ import {
   LOBE_CHAT_AUTH_HEADER,
   LOBE_CHAT_OIDC_AUTH_HEADER,
   OAUTH_AUTHORIZED,
+  TOKEN_AUTH_USER_HEADER,
   enableClerk,
 } from '@/const/auth';
 import { ClerkAuth } from '@/libs/clerk-auth';
@@ -45,6 +46,8 @@ export const checkAuth =
       // get Authorization from header
       const authorization = req.headers.get(LOBE_CHAT_AUTH_HEADER);
       const oauthAuthorized = !!req.headers.get(OAUTH_AUTHORIZED);
+      const tokenAuthUser = req.headers.get(TOKEN_AUTH_USER_HEADER);
+      const tokenAuthAuthorized = !!tokenAuthUser;
 
       if (!authorization) throw AgentRuntimeError.createError(ChatErrorType.Unauthorized);
 
@@ -79,6 +82,7 @@ export const checkAuth =
           apiKey: jwtPayload.apiKey,
           clerkAuth,
           nextAuthAuthorized: oauthAuthorized,
+          tokenAuthAuthorized,
         });
     } catch (e) {
       const params = await options.params;

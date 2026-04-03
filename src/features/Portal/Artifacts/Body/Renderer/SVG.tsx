@@ -77,7 +77,7 @@ const SVGRenderer = ({ content }: SVGRendererProps) => {
     >
       <Center
         className={cx(svgContainer)}
-        dangerouslySetInnerHTML={{ __html: sanitizedContent }}
+        dangerouslySetInnerHTML={{ __html: sanitizedContent }} // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml -- content is sanitized by sanitizeSVGContent()
         id={DOM_ID}
       />
       <Flexbox className={cx(actions)}>

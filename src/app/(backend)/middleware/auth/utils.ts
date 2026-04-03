@@ -2,7 +2,7 @@ import { type AuthObject } from '@clerk/backend';
 import { AgentRuntimeError } from '@lobechat/model-runtime';
 import { ChatErrorType } from '@lobechat/types';
 
-import { enableClerk, enableNextAuth } from '@/const/auth';
+import { enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
 
 interface CheckAuthParams {
@@ -10,6 +10,7 @@ interface CheckAuthParams {
   apiKey?: string;
   clerkAuth?: AuthObject;
   nextAuthAuthorized?: boolean;
+  tokenAuthAuthorized?: boolean;
 }
 /**
  * Check if the provided access code is valid, a user API key should be used or the OAuth 2 header is provided.
@@ -22,6 +23,7 @@ interface CheckAuthParams {
 export const checkAuthMethod = ({
   apiKey,
   nextAuthAuthorized,
+  tokenAuthAuthorized,
   accessCode,
   clerkAuth,
 }: CheckAuthParams) => {
@@ -36,6 +38,9 @@ export const checkAuthMethod = ({
 
   // if next auth handler is provided
   if (enableNextAuth && nextAuthAuthorized) return;
+
+  // if token auth handler is provided
+  if (enableTokenAuth && tokenAuthAuthorized) return;
 
   // if apiKey exist
   if (apiKey) return;
