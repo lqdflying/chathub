@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "packages/**/*.test.ts",
+    "packages/**/*.test.tsx",
+    "packages/**/__tests__/**/*.ts",
+    "packages/**/__tests__/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "public/sw.js",
+    "apps/desktop",
+    "apps/mobile",
+    "tmp",
+    "temp",
+    ".temp",
+    "e2e",
+    "packages/obervability-otel",
+    "packages/python-interpreter",
+    "packages/ssrf-safe-fetch",
+    "packages/web-crawler"
+  ]
+}
