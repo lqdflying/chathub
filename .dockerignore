@@ -23,7 +23,6 @@ renovate.json
 netlify.toml
 vercel.json
 vitest.config.mts
-pnpm-workspace.yaml
 apps/desktop
 docs
 changelog
