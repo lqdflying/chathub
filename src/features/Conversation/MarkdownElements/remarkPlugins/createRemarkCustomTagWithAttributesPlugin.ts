@@ -18,11 +18,13 @@ const parseAttributes = (attributeString: string): Record<string, string | boole
   return attributes;
 };
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const createRemarkCustomTagWithAttributesPlugin = (tag: string) => () => {
   return (tree: any) => {
     visit(tree, 'html', (node, index, parent) => {
       // Match opening tags with or without attributes
-      const openTagRegex = new RegExp(`^<${tag}(\\s+[^>]+)?>$`);
+      const openTagRegex = new RegExp(`^<${escapeRegExp(tag)}(\\s+[^>]+)?>$`);
       const match = node.value.match(openTagRegex);
 
       if (match) {

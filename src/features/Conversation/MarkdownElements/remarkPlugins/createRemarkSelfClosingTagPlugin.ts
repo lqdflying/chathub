@@ -21,13 +21,16 @@ const parseAttributes = (attributeString: string): Record<string, string | boole
   return attributes;
 };
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const createRemarkSelfClosingTagPlugin =
   (tagName: string): Plugin<[], any> =>
   () => {
+    const safeTag = escapeRegExp(tagName);
     // Regex for the specific tag, ensure it matches the entire string for HTML check
-    const exactTagRegex = new RegExp(`^<${tagName}(\\s+[^>]*?)?\\s*\\/>$`);
+    const exactTagRegex = new RegExp(`^<${safeTag}(\\s+[^>]*?)?\\s*\\/>$`);
     // Regex for finding tags within text
-    const textTagRegex = new RegExp(`<${tagName}(\\s+[^>]*?)?\\s*\\/>`, 'g');
+    const textTagRegex = new RegExp(`<${safeTag}(\\s+[^>]*?)?\\s*\\/>`, 'g');
 
     return (tree) => {
       // --- DEBUG LOG START (Before Visit) ---

@@ -68,7 +68,7 @@ export const parseModelString = async (
     }
 
     if (capabilities.length > 0) {
-      const [maxTokenStr, ...capabilityList] = capabilities[0].replace('>', '').split(':');
+      const [maxTokenStr, ...capabilityList] = capabilities[0].replaceAll('>', '').split(':');
       model.contextWindowTokens = parseInt(maxTokenStr, 10) || undefined;
 
       for (const capability of capabilityList) {
