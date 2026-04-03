@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.json",
+  "include": ["**/*.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "next-env.d.ts"],
+  "exclude": [
+    "node_modules",
+    "public/sw.js",
+    "apps/desktop",
+    "apps/mobile",
+    "tmp",
+    "temp",
+    ".temp",
+    "e2e",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/__tests__/**",
+    "packages/obervability-otel",
+    "packages/python-interpreter",
+    "packages/ssrf-safe-fetch",
+    "packages/web-crawler",
+    "packages/utils/src/client/sanitize.ts",
+    "packages/utils/tests",
+    "packages/file-loaders/test",
+    "packages/file-loaders/src/utils/parser-utils.ts",
+    "packages/fetch-sse/src/parseError.ts"
+  ]
+}
