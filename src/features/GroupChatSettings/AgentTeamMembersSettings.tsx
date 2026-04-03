@@ -109,7 +109,7 @@ const AgentTeamMembersSettings = memo(() => {
       // Refresh session data to reflect the changes
       await refreshSessions();
     } catch (error) {
-      console.error(`Failed to ${action} agent ${action === 'add' ? 'to' : 'from'} group:`, error); // nosemgrep: unsafe-formatstring
+      console.error('Failed to', action, 'agent', action === 'add' ? 'to' : 'from', 'group:', error);
     } finally {
       // Clear loading state
       setLoadingAgentId(null);

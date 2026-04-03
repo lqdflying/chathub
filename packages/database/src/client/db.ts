@@ -356,7 +356,7 @@ export class DatabaseManager {
       // eslint-disable-next-line unicorn/prefer-add-event-listener
       request.onerror = (event) => {
         const error = (event.target as IDBOpenDBRequest)?.error;
-        console.error(`❌ Error resetting database '${dbName}':`, error); // nosemgrep: unsafe-formatstring
+        console.error('❌ Error resetting database:', dbName, error);
         reject(
           new Error(
             `Failed to reset database '${dbName}'. Error: ${error?.message || 'Unknown error'}`,
@@ -367,8 +367,7 @@ export class DatabaseManager {
       request.onblocked = (event) => {
         // 当其他打开的连接阻止数据库删除时，会触发此事件
         console.warn(
-          `Deletion of database '${dbName}' is blocked. This usually means other connections (e.g., in other tabs) are still open. Event:`, // nosemgrep: unsafe-formatstring
-          event,
+          'Deletion of database is blocked (other connections open). Database:', dbName, 'Event:', event,
         );
         reject(
           new Error(

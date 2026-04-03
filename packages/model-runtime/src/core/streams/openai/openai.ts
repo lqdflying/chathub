@@ -429,8 +429,8 @@ const transformOpenAIStream = (
     };
   } catch (e) {
     const errorName = 'StreamChunkError';
-    console.error(`[${errorName}]`, e); // nosemgrep: unsafe-formatstring
-    console.error(`[${errorName}] raw chunk:`, chunk); // nosemgrep: unsafe-formatstring
+    console.error('[StreamChunkError]', e);
+    console.error('[StreamChunkError] raw chunk:', chunk);
 
     const err = e as Error;
 

@@ -144,7 +144,7 @@ export class PptxLoader implements FileLoaderInterface {
       // This catches errors from extractFiles or other unexpected issues
       log('Error loading or processing PPTX file');
       const errorMessage = `Failed to load or process PPTX file: ${error instanceof Error ? error.message : String(error)}`;
-      console.error(errorMessage, { filePath }); // nosemgrep: unsafe-formatstring
+      console.error('Failed to load or process PPTX file:', error, { filePath });
       return [this.createErrorPage(errorMessage, sourceFileName)];
     }
   }

@@ -201,8 +201,7 @@ export class MCPService {
       }
 
       console.error(
-        `Error calling tool "${toolName}" for params %O:`, // nosemgrep: unsafe-formatstring
-        this.sanitizeForLogging(params),
+        'Error calling tool:', toolName, 'for params:', this.sanitizeForLogging(params),
         error,
       );
       // Propagate a TRPCError

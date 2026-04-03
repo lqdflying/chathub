@@ -26,7 +26,7 @@ export const POST = checkAuth(async (req, { params, jwtPayload }) => {
 
     const error = errorContent || e;
     // track the error at server side
-    console.error(`Route: [${provider}] ${errorType}:`, error); // nosemgrep: unsafe-formatstring
+    console.error('Route:', provider, errorType, error);
 
     return createErrorResponse(errorType, { error, ...res, provider });
   }

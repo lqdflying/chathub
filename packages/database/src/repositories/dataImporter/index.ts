@@ -691,7 +691,7 @@ export class DataImporterRepos {
             }
           }
         } catch (error) {
-          console.error(`Error batch inserting ${tableName}:`, error); // nosemgrep: unsafe-formatstring
+          console.error('Error batch inserting:', tableName, error);
 
           // 处理错误并记录
           if ((error as any).code === '23505') {
@@ -713,7 +713,7 @@ export class DataImporterRepos {
 
       return result;
     } catch (error) {
-      console.error(`Error importing table ${tableName}:`, error); // nosemgrep: unsafe-formatstring
+      console.error('Error importing table:', tableName, error);
       result.errors = tableData.length;
       return result;
     }

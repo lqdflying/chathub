@@ -62,7 +62,7 @@ export class ContentChunk {
         // If this is the last service, throw the error
         if (service === services.at(-1)) throw error;
         // Otherwise continue to next service
-        console.error(`Chunking failed with service ${service}:`, error); // nosemgrep: unsafe-formatstring
+        console.error('Chunking failed with service:', service, error);
       }
     }
 
