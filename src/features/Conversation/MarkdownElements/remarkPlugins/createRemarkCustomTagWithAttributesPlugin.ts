@@ -18,13 +18,14 @@ const parseAttributes = (attributeString: string): Record<string, string | boole
   return attributes;
 };
 
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SAFE_TAG_RE = /^[a-zA-Z][\w-]*$/;
 
 export const createRemarkCustomTagWithAttributesPlugin = (tag: string) => () => {
+  if (!SAFE_TAG_RE.test(tag)) throw new Error(`Invalid tag name: ${tag}`);
   return (tree: any) => {
     visit(tree, 'html', (node, index, parent) => {
       // Match opening tags with or without attributes
-      const openTagRegex = new RegExp(`^<${escapeRegExp(tag)}(\\s+[^>]+)?>$`);
+      const openTagRegex = new RegExp(`^<${tag}(\\s+[^>]+)?>$`); // nosemgrep: detect-non-literal-regexp
       const match = node.value.match(openTagRegex);
 
       if (match) {
