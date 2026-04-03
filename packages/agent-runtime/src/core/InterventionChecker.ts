@@ -1,3 +1,5 @@
+import vm from 'node:vm';
+
 import type {
   ArgumentMatcher,
   HumanInterventionPolicy,
@@ -105,15 +107,26 @@ export class InterventionChecker {
         return this.matchPattern(pattern, strValue);
       }
       case 'regex': {
-        try {
-          return new RegExp(pattern).test(strValue); // nosemgrep: detect-non-literal-regexp
-        } catch {
-          return false; // invalid regex pattern
-        }
+        return InterventionChecker.safeRegexTest(pattern, strValue);
       }
       default: {
         return false;
       }
+    }
+  }
+
+  /**
+   * Safely tests a string against a regex pattern with a timeout to prevent ReDoS.
+   * Runs the match inside a VM context so V8 can terminate execution if it exceeds
+   * the timeout (avoids catastrophic backtracking on adversarial input).
+   */
+  private static safeRegexTest(pattern: string, value: string, timeoutMs = 100): boolean {
+    try {
+      const script = new vm.Script('re.test(value)');
+      const context = vm.createContext({ re: new RegExp(pattern), value });
+      return script.runInContext(context, { timeout: timeoutMs }) as boolean;
+    } catch {
+      return false;
     }
   }
 

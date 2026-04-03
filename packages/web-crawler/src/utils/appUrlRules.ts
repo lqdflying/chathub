@@ -1,4 +1,25 @@
+import vm from 'node:vm';
+
 import { CrawlUrlRule } from '../type';
+
+/**
+ * Safely matches a string against a regex pattern with a timeout to prevent ReDoS.
+ * urlPattern is user/admin-configurable, so we run the match inside a VM context
+ * with a time limit to guard against catastrophic backtracking.
+ */
+const safeRegexMatch = (
+  pattern: string,
+  input: string,
+  timeoutMs = 100,
+): RegExpMatchArray | null => {
+  try {
+    const script = new vm.Script('input.match(re)');
+    const context = vm.createContext({ input, re: new RegExp(pattern) });
+    return script.runInContext(context, { timeout: timeoutMs }) as RegExpMatchArray | null;
+  } catch {
+    return null;
+  }
+};
 
 export const applyUrlRules = (
   url: string,
@@ -9,14 +30,7 @@ export const applyUrlRules = (
   transformedUrl: string;
 } => {
   for (const rule of urlRules) {
-    // 转换为正则表达式
-    let regex: RegExp;
-    try {
-      regex = new RegExp(rule.urlPattern); // nosemgrep: detect-non-literal-regexp
-    } catch {
-      continue; // skip rules with invalid regex patterns
-    }
-    const match = url.match(regex);
+    const match = safeRegexMatch(rule.urlPattern, url);
 
     if (match) {
       if (rule.urlTransform) {
