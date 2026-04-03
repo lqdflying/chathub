@@ -126,11 +126,13 @@ LobeHub supports three authentication modes. Only one should be active at a time
 
 No environment variables needed. Anyone who can reach the URL can use the app. Suitable for local-only deployments.
 
-Optionally restrict access with a shared passcode:
+Optionally restrict LLM API access with a shared passcode:
 
 ```env
 ACCESS_CODE=your-passcode
 ```
+
+> **⚠️ DB mode caveat:** `ACCESS_CODE` is a passcode for LLM API calls only — it does **not** protect the UI from being accessed, and it does **not** create separate users. In database mode, everyone who enters the correct code shares the **same single user's data** (chat history, files, settings). If you want real access control and data isolation for a personal self-hosted instance, use **Token Auth** (mode 2) instead.
 
 ### 2. Token Auth (recommended for single-user self-hosted)
 
