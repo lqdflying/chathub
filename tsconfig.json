@@ -56,6 +56,5 @@
     "packages/file-loaders/src/utils/parser-utils.ts",
     "packages/fetch-sse/src/parseError.ts"
   ],
-  "include": ["**/*.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "next-env.d.ts"],
-  "references": [{"path": "./tsconfig.test.json"}]
+  "include": ["**/*.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "next-env.d.ts"]
 }
