@@ -1,0 +1,2 @@
+# HTML test fixtures — not served by the app, no SRI needed
+packages/web-crawler/src/utils/html/
