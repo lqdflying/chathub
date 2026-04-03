@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 export const useOnPluginFetchMessage = (onRequest: (data: any) => void, deps: any[] = []) => {
   useEffect(() => {
     const fn = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
       if (e.data.type === PluginChannel.fetchPluginMessage) {
         onRequest(e.data);
       }
@@ -19,6 +20,7 @@ export const useOnPluginFetchMessage = (onRequest: (data: any) => void, deps: an
 export const useOnPluginFetchPluginState = (onRequest: (key: string) => void) => {
   useEffect(() => {
     const fn = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
       if (e.data.type === PluginChannel.fetchPluginState) {
         onRequest(e.data.key);
       }
@@ -36,6 +38,7 @@ export const useOnPluginFillContent = (
 ) => {
   useEffect(() => {
     const fn = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
       if (e.data.type === PluginChannel.fillStandalonePluginContent) {
         const data = e.data.content;
         const triggerAiMessage = e.data.triggerAiMessage;
@@ -55,6 +58,7 @@ export const useOnPluginFillContent = (
 export const useOnPluginFetchPluginSettings = (onRequest: () => void) => {
   useEffect(() => {
     const fn = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
       if (e.data.type === PluginChannel.fetchPluginSettings) {
         onRequest();
       }
@@ -70,6 +74,7 @@ export const useOnPluginFetchPluginSettings = (onRequest: () => void) => {
 export const useOnPluginTriggerAIMessage = (callback: (id: string) => void) => {
   useEffect(() => {
     const fn = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
       if (e.data.type === PluginChannel.triggerAIMessage) {
         callback(e.data.id);
       }
@@ -85,6 +90,7 @@ export const useOnPluginTriggerAIMessage = (callback: (id: string) => void) => {
 export const useOnPluginCreateAssistantMessage = (callback: (content: string) => void) => {
   useEffect(() => {
     const fn = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
       if (e.data.type === PluginChannel.createAssistantMessage) {
         callback(e.data.content);
       }

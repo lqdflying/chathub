@@ -5,6 +5,7 @@ export const useOnPluginReadyForInteraction = (onReady: () => void, deps: any[] 
   const [readyForRender, setReady] = useState(false);
   useEffect(() => {
     const fn = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
       if (e.data.type === PluginChannel.pluginReadyForRender) {
         setReady(true);
       }
