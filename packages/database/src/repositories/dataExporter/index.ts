@@ -111,9 +111,7 @@ export class DataExporterRepos {
 
         // 如果源数据为空，这个表可能无法查询到任何数据
         if (sourceData.length === 0) {
-          console.log(
-            `Source table ${relation.sourceTable} has no data, skipping query for ${table}`,
-          );
+          console.log('Source table', relation.sourceTable, 'has no data, skipping query for', table);
           return [];
         }
 
@@ -136,7 +134,7 @@ export class DataExporterRepos {
       console.log('Successfully exported table:', table, 'count:', result.length); // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
       return config.relations ? result : this.removeUserId(result);
     } catch (error) {
-      console.error(`Error querying table ${table}:`, error);
+      console.error('Error querying table', table, ':', error);
       return [];
     }
   }
@@ -160,7 +158,7 @@ export class DataExporterRepos {
       console.log('Successfully exported table:', table, 'count:', result.length); // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
       return this.removeUserId(result);
     } catch (error) {
-      console.error(`Error querying table ${table}:`, error);
+      console.error('Error querying table', table, ':', error);
       return [];
     }
   }
@@ -192,7 +190,7 @@ export class DataExporterRepos {
         );
 
         if (!allSourcesHaveData) {
-          console.log(`Skipping table ${config.table} as some source tables have no data`);
+          console.log('Skipping table', config.table, 'as some source tables have no data');
           return { data: [], table: config.table };
         }
 
