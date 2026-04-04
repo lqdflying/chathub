@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'crypto';
 
 import Credentials from 'next-auth/providers/credentials';
 
