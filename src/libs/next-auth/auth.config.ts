@@ -28,6 +28,12 @@ export const initSSOProviders = () => {
     : [];
 };
 
+const hasCredentialsProvider = () => {
+  return NEXT_AUTH_SSO_PROVIDERS.split(/[,，]/)
+    .map((p) => p.trim())
+    .includes('credentials');
+};
+
 // Notice this is only an object, not a full Auth.js instance
 export default {
   adapter: NEXT_PUBLIC_ENABLED_SERVER_SERVICE ? LobeNextAuthDbAdapter() : undefined,
@@ -60,8 +66,12 @@ export default {
   providers: initSSOProviders(),
   secret: NEXT_AUTH_SECRET,
   session: {
-    // Force use JWT if server service is disabled
-    strategy: NEXT_PUBLIC_ENABLED_SERVER_SERVICE ? NEXT_AUTH_SSO_SESSION_STRATEGY : 'jwt',
+    // Credentials provider only supports JWT strategy
+    // Also force JWT if server service is disabled
+    strategy:
+      hasCredentialsProvider() || !NEXT_PUBLIC_ENABLED_SERVER_SERVICE
+        ? 'jwt'
+        : NEXT_AUTH_SSO_SESSION_STRATEGY,
   },
   trustHost: process.env?.AUTH_TRUST_HOST ? process.env.AUTH_TRUST_HOST === 'true' : true,
 } satisfies NextAuthConfig;

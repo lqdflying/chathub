@@ -53,6 +53,14 @@ export const createAuthSlice: StateCreator<
       const { signIn } = await import('next-auth/react');
       // Check if only one provider is available
       const providers = get()?.oAuthSSOProviders;
+
+      // Always show signin page when credentials provider is enabled (needs form)
+      const hasCredentials = providers?.includes('credentials');
+      if (hasCredentials) {
+        signIn();
+        return;
+      }
+
       if (providers && providers.length === 1) {
         signIn(providers[0]);
         return;

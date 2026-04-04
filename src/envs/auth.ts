@@ -210,6 +210,10 @@ export const getAuthConfig = () => {
 
       // Casdoor
       CASDOOR_WEBHOOK_SECRET: z.string().optional(),
+
+      // Credentials Auth
+      AUTH_CREDENTIALS_USERNAME: z.string().optional(),
+      AUTH_CREDENTIALS_PASSWORD: z.string().optional(),
     },
 
     runtimeEnv: {
@@ -273,6 +277,10 @@ export const getAuthConfig = () => {
 
       // Casdoor
       CASDOOR_WEBHOOK_SECRET: process.env.CASDOOR_WEBHOOK_SECRET,
+
+      // Credentials Auth
+      AUTH_CREDENTIALS_USERNAME: process.env.AUTH_CREDENTIALS_USERNAME,
+      AUTH_CREDENTIALS_PASSWORD: process.env.AUTH_CREDENTIALS_PASSWORD,
     },
   });
 };
