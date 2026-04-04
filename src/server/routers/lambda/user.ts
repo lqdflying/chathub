@@ -89,6 +89,15 @@ export const userRouter = router({
             pino.info('create desktop user');
             continue;
           }
+
+          // fallback: auto-create user for NextAuth credentials / other providers
+          // The Credentials provider does not trigger the adapter's createUser,
+          // so the DB row must be created here on first login.
+          else {
+            await UserModel.makeSureUserExist(ctx.serverDB, ctx.userId);
+            pino.info('create nextauth user for userId: %s', ctx.userId);
+            continue;
+          }
         }
 
         console.error('getUserState:', error);
