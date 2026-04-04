@@ -401,7 +401,8 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "@vercel/speed-insights"
+      "@vercel/speed-insights",
+      "re2"
     ],
     "overrides": {
       "mdast-util-gfm-autolink-literal": "2.0.0"
