@@ -210,5 +210,19 @@ describe('getAuthConfig', () => {
     expect(authConfig.AUTH_TOKEN).toBe('access-token');
     expect(authConfig.AUTH_USER_ID).toBe('user-1');
   });
+
+  it('should expose custom session max age days', () => {
+    process.env.AUTH_SESSION_MAX_AGE_DAYS = '7';
+
+    const authConfig = getAuthConfig();
+
+    expect(authConfig.AUTH_SESSION_MAX_AGE_DAYS).toBe(7);
+  });
+
+  it('should default session max age days to 30', () => {
+    const authConfig = getAuthConfig();
+
+    expect(authConfig.AUTH_SESSION_MAX_AGE_DAYS).toBe(30);
+  });
   // Remove end
 });

@@ -8,6 +8,7 @@ import { LobeNextAuthDbAdapter } from './adapter';
 import { ssoProviders } from './sso-providers';
 
 const {
+  AUTH_SESSION_MAX_AGE_DAYS,
   NEXT_AUTH_DEBUG,
   NEXT_AUTH_SECRET,
   NEXT_AUTH_SSO_SESSION_STRATEGY,
@@ -65,6 +66,7 @@ export default {
   providers: initSSOProviders(),
   secret: NEXT_AUTH_SECRET,
   session: {
+    maxAge: AUTH_SESSION_MAX_AGE_DAYS * 24 * 60 * 60,
     // Credentials provider only supports JWT strategy
     // Also force JWT if server service is disabled
     strategy:

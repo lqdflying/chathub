@@ -132,12 +132,15 @@ LobeHub requires `DATABASE_URL` + `DATABASE_DRIVER` (PostgreSQL). Auth is **requ
 
 A built-in username/password or token login page, powered by NextAuth's Credentials provider. No external OAuth service required — ideal for personal self-hosted instances.
 
+NextAuth browser sessions persist in a cookie. Use `AUTH_SESSION_MAX_AGE_DAYS` to control how long that login cookie remains valid. Default is `30` days.
+
 **Option A — Username & Password:**
 
 ```env
 NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
 NEXT_AUTH_SECRET=<your-secret>
 NEXT_AUTH_SSO_PROVIDERS=credentials
+AUTH_SESSION_MAX_AGE_DAYS=7
 AUTH_CREDENTIALS_USERNAME=admin
 AUTH_CREDENTIALS_PASSWORD=your-strong-password
 AUTH_USER_ID=default_user           # optional — defaults to "credentials_user"
@@ -149,6 +152,7 @@ AUTH_USER_ID=default_user           # optional — defaults to "credentials_user
 NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
 NEXT_AUTH_SECRET=<your-secret>
 NEXT_AUTH_SSO_PROVIDERS=credentials
+AUTH_SESSION_MAX_AGE_DAYS=7
 AUTH_TOKEN=your-secret-token
 AUTH_USER_ID=default_user           # optional — defaults to "credentials_user"
 ```
@@ -159,6 +163,7 @@ AUTH_USER_ID=default_user           # optional — defaults to "credentials_user
 NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
 NEXT_AUTH_SECRET=<your-secret>
 NEXT_AUTH_SSO_PROVIDERS=credentials
+AUTH_SESSION_MAX_AGE_DAYS=7
 AUTH_CREDENTIALS_USERNAME=admin
 AUTH_CREDENTIALS_PASSWORD=your-strong-password
 AUTH_TOKEN=your-secret-token
@@ -168,6 +173,12 @@ AUTH_USER_ID=default_user
 Open the app in a browser → you'll see a credentials login page. The Password and Access Token tabs are both shown when the credentials provider is enabled, but each tab only works if its corresponding env vars are configured.
 
 > **Note:** `AUTH_TOKEN` can also be used for machine-to-machine API access (send `Authorization: Bearer <token>` in API requests). The same token works for both browser login and API calls.
+
+`AUTH_SESSION_MAX_AGE_DAYS` applies to NextAuth browser sessions, including credentials login and OAuth login. Examples:
+
+- `AUTH_SESSION_MAX_AGE_DAYS=1` → expire after 1 day
+- `AUTH_SESSION_MAX_AGE_DAYS=7` → expire after 7 days
+- `AUTH_SESSION_MAX_AGE_DAYS=30` → default
 
 See [doc/credentials-login-flow.md](doc/credentials-login-flow.md) for the detailed credentials login flow, post-login behavior, and Mermaid diagram.
 
@@ -179,6 +190,7 @@ You can enable credentials alongside OAuth providers. The login page will show b
 NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
 NEXT_AUTH_SECRET=<your-secret>
 NEXT_AUTH_SSO_PROVIDERS=credentials,github
+AUTH_SESSION_MAX_AGE_DAYS=7
 AUTH_CREDENTIALS_USERNAME=admin
 AUTH_CREDENTIALS_PASSWORD=your-strong-password
 GITHUB_CLIENT_ID=...
@@ -193,6 +205,7 @@ Configure an OAuth provider (Auth0, GitHub, Authentik, Zitadel, etc.) via NextAu
 NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
 NEXT_AUTH_SECRET=<your-secret>
 NEXT_AUTH_SSO_PROVIDERS=auth0        # or github, authentik, zitadel, ...
+AUTH_SESSION_MAX_AGE_DAYS=7          # optional, default 30
 # Provider-specific vars (example: Auth0)
 AUTH_AUTH0_ID=...
 AUTH_AUTH0_SECRET=...

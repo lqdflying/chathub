@@ -16,6 +16,8 @@ declare global {
 
       NEXT_AUTH_SSO_PROVIDERS?: string;
 
+      AUTH_SESSION_MAX_AGE_DAYS?: string;
+
       NEXT_AUTH_DEBUG?: string;
 
       NEXT_AUTH_SSO_SESSION_STRATEGY?: string;
@@ -166,6 +168,7 @@ export const getAuthConfig = () => {
       // NEXT-AUTH
       NEXT_AUTH_SECRET: z.string().optional(),
       NEXT_AUTH_SSO_PROVIDERS: z.string().optional().default('auth0'),
+      AUTH_SESSION_MAX_AGE_DAYS: z.coerce.number().int().positive().optional().default(30),
       NEXT_AUTH_DEBUG: z.boolean().optional().default(false),
       NEXT_AUTH_SSO_SESSION_STRATEGY: z.enum(['jwt', 'database']).optional().default('jwt'),
 
@@ -234,6 +237,7 @@ export const getAuthConfig = () => {
       // Next Auth
       NEXT_PUBLIC_ENABLE_NEXT_AUTH: process.env.NEXT_PUBLIC_ENABLE_NEXT_AUTH === '1',
       NEXT_AUTH_SSO_PROVIDERS: process.env.NEXT_AUTH_SSO_PROVIDERS,
+      AUTH_SESSION_MAX_AGE_DAYS: process.env.AUTH_SESSION_MAX_AGE_DAYS,
       NEXT_AUTH_SECRET: process.env.NEXT_AUTH_SECRET,
       NEXT_AUTH_DEBUG: !!process.env.NEXT_AUTH_DEBUG,
       NEXT_AUTH_SSO_SESSION_STRATEGY: process.env.NEXT_AUTH_SSO_SESSION_STRATEGY || 'jwt',
