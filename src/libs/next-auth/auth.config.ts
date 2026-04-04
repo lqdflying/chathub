@@ -3,6 +3,7 @@ import type { NextAuthConfig } from 'next-auth';
 import { getServerDBConfig } from '@/config/db';
 import { getAuthConfig } from '@/envs/auth';
 
+import { parseAuthProviders } from './parseAuthProviders';
 import { LobeNextAuthDbAdapter } from './adapter';
 import { ssoProviders } from './sso-providers';
 
@@ -18,8 +19,8 @@ const { NEXT_PUBLIC_ENABLED_SERVER_SERVICE } = getServerDBConfig();
 
 export const initSSOProviders = () => {
   return NEXT_PUBLIC_ENABLE_NEXT_AUTH
-    ? NEXT_AUTH_SSO_PROVIDERS.split(/[,，]/).map((provider) => {
-        const validProvider = ssoProviders.find((item) => item.id === provider.trim());
+    ? parseAuthProviders(NEXT_AUTH_SSO_PROVIDERS).map((provider) => {
+        const validProvider = ssoProviders.find((item) => item.id === provider);
 
         if (validProvider) return validProvider.provider;
 
@@ -29,9 +30,7 @@ export const initSSOProviders = () => {
 };
 
 const hasCredentialsProvider = () => {
-  return NEXT_AUTH_SSO_PROVIDERS.split(/[,，]/)
-    .map((p) => p.trim())
-    .includes('credentials');
+  return parseAuthProviders(NEXT_AUTH_SSO_PROVIDERS).includes('credentials');
 };
 
 // Notice this is only an object, not a full Auth.js instance

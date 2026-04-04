@@ -5,6 +5,7 @@ import { fileEnv } from '@/envs/file';
 import { imageEnv } from '@/envs/image';
 import { knowledgeEnv } from '@/envs/knowledge';
 import { langfuseEnv } from '@/envs/langfuse';
+import { parseAuthProviders } from '@/libs/next-auth/parseAuthProviders';
 import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
 import { GlobalServerConfig } from '@/types/serverConfig';
 import { cleanObject } from '@/utils/object';
@@ -46,7 +47,7 @@ export const getServerGlobalConfig = async () => {
         withDeploymentName: true,
       },
     }),
-    oAuthSSOProviders: authEnv.NEXT_AUTH_SSO_PROVIDERS.trim().split(/[,，]/),
+    oAuthSSOProviders: parseAuthProviders(authEnv.NEXT_AUTH_SSO_PROVIDERS),
     systemAgent: parseSystemAgent(appEnv.SYSTEM_AGENT),
     telemetry: {
       langfuse: langfuseEnv.ENABLE_LANGFUSE,
