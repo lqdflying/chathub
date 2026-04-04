@@ -119,17 +119,11 @@ COPY . .
 RUN npm run build:docker
 
 # Copy re2 native binary into standalone output (file tracing misses dynamic require paths)
-RUN python3 -c "
-import os, shutil
-for root, dirs, files in os.walk('/app/node_modules/.pnpm'):
-    for f in files:
-        if f == 're2.node':
-            src = os.path.join(root, f)
-            dst = src.replace('/app/node_modules/', '/app/.next/standalone/node_modules/')
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
-            print('Copied re2.node ->', dst)
-"
+RUN find /app/node_modules/.pnpm -name "re2.node" | while read src; do \
+    dst=$(echo "$src" | sed 's|/app/node_modules/|/app/.next/standalone/node_modules/|'); \
+    mkdir -p "$(dirname "$dst")"; \
+    cp "$src" "$dst" && echo "Copied re2.node to $dst"; \
+    done
 
 ## Application image, copy all the files for production
 FROM busybox:latest AS app
