@@ -11,6 +11,7 @@ import {
   NextAuth,
   Zitadel,
 } from '@lobehub/ui/icons';
+import { LockKeyhole } from 'lucide-react';
 import React from 'react';
 
 const iconComponents: { [key: string]: React.ElementType } = {
@@ -19,6 +20,7 @@ const iconComponents: { [key: string]: React.ElementType } = {
   'authentik': Authentik.Color,
   'casdoor': Casdoor.Color,
   'cloudflare': Cloudflare.Color,
+  'credentials': LockKeyhole,
   'default': NextAuth.Color,
   'github': Github,
   'google': Google.Color,

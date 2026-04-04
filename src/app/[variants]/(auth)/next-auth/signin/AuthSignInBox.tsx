@@ -3,7 +3,7 @@
 import { BRANDING_NAME, DOCUMENTS_REFER_URL, PRIVACY_URL, TERMS_URL } from '@lobechat/const';
 import { Button, Text } from '@lobehub/ui';
 import { LobeHub } from '@lobehub/ui/brand';
-import { Col, Flex, Row, Skeleton } from 'antd';
+import { Col, Divider, Flex, Row, Skeleton } from 'antd';
 import { createStyles } from 'antd-style';
 import { AuthError } from 'next-auth';
 import { signIn } from 'next-auth/react';
@@ -14,6 +14,8 @@ import { useTranslation } from 'react-i18next';
 import BrandWatermark from '@/components/BrandWatermark';
 import AuthIcons from '@/components/NextAuth/AuthIcons';
 import { useUserStore } from '@/store/user';
+
+import CredentialsForm from './CredentialsForm';
 
 const useStyles = createStyles(({ css, token }) => ({
   button: css`
@@ -105,6 +107,9 @@ export default memo(() => {
     { href: TERMS_URL, id: 2, label: t('footerPageLink__terms') },
   ];
 
+  const hasCredentials = oAuthSSOProviders?.includes('credentials');
+  const oAuthProviders = oAuthSSOProviders?.filter((p) => p !== 'credentials');
+
   return (
     <div className={styles.container}>
       <div className={styles.contentCard}>
@@ -125,17 +130,25 @@ export default memo(() => {
           {/* Content */}
           <Flex gap="small" vertical>
             {oAuthSSOProviders ? (
-              oAuthSSOProviders.map((provider) => (
-                <Button
-                  className={styles.button}
-                  icon={AuthIcons(provider, 16)}
-                  key={provider}
-                  loading={loadingProvider === provider}
-                  onClick={() => handleSignIn(provider)}
-                >
-                  {provider}
-                </Button>
-              ))
+              <>
+                {hasCredentials && <CredentialsForm callbackUrl={callbackUrl} />}
+                {hasCredentials && oAuthProviders && oAuthProviders.length > 0 && (
+                  <Divider plain style={{ margin: '4px 0' }}>
+                    {t('dividerText')}
+                  </Divider>
+                )}
+                {oAuthProviders?.map((provider) => (
+                  <Button
+                    className={styles.button}
+                    icon={AuthIcons(provider, 16)}
+                    key={provider}
+                    loading={loadingProvider === provider}
+                    onClick={() => handleSignIn(provider)}
+                  >
+                    {provider}
+                  </Button>
+                ))}
+              </>
             ) : (
               <BtnListLoading />
             )}

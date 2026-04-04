@@ -148,4 +148,20 @@ export default {
     security: '安全',
     stats: '数据统计',
   },
+
+  credentials: {
+    errorEmpty: '请输入用户名和密码',
+    errorEmptyToken: '请输入访问令牌',
+    errorInvalid: '用户名或密码不正确',
+    errorInvalidToken: '访问令牌无效',
+    password: '密码',
+    passwordPlaceholder: '请输入密码',
+    signIn: '登录',
+    tabPassword: '密码登录',
+    tabToken: '令牌登录',
+    token: '访问令牌',
+    tokenPlaceholder: '请输入访问令牌',
+    username: '用户名',
+    usernamePlaceholder: '请输入用户名',
+  },
 };
