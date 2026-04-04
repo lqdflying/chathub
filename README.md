@@ -1,22 +1,23 @@
 # LobeHub
 
-> A self-hosted, production-ready AI chat platform — customized and extended from [LobeChat](https://github.com/lobehub/lobe-chat).
+> A self-hosted, production-ready AI chat platform — built on [LobeChat](https://github.com/lobehub/lobe-chat), significantly extended for real-world self-hosted deployments.
 
-LobeHub is a private distribution of LobeChat tailored for self-hosted server deployments. It ships as a single Docker image with PostgreSQL, includes curated model definitions, and adds utility tooling not found in upstream.
+LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It ships as a single Docker image targeting PostgreSQL deployments, adds built-in authentication that requires no external OAuth service, ships a broader model bank, and includes utility tools not present upstream.
 
 ---
 
 ## What's Different from Upstream LobeChat
 
-| Area              | Upstream LobeChat         | LobeHub                                            |
-| ----------------- | ------------------------- | -------------------------------------------------- |
-| Deployment target | Vercel / Docker / Desktop | Docker + PostgreSQL only                           |
-| Versioning        | v1.x                      | v3.x (independent)                                 |
-| Model bank        | Upstream releases         | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x, MiniMax |
-| Tools Hub         | Not present               | Built-in (Picbed, API Tester + extensible sidebar) |
-| Picbed            | Not present               | Image hosting with S3, auto URL copy               |
-| API Tester        | Not present               | Browser-based REST API client at `/tools/apitest`  |
-| Changelog page    | Enabled                   | Disabled (skips external fetch at build time)      |
+| Area | Upstream LobeChat | LobeHub |
+| ---- | ----------------- | ------- |
+| Deployment target | Vercel / Docker / Desktop | Docker + PostgreSQL only |
+| Versioning | v1.x | v3.x (independent) |
+| Browser login (no OAuth) | ❌ Not supported | ✅ Username/password or token login page built-in |
+| Model bank | Upstream releases | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x, MiniMax |
+| Tools Hub | ❌ Not present | ✅ Built-in (Picbed, API Tester + extensible sidebar) |
+| Picbed | ❌ Not present | ✅ Image hosting with S3, auto URL copy |
+| API Tester | ❌ Not present | ✅ Browser-based REST API client at `/tools/apitest` |
+| Changelog page | Enabled | Disabled (skips external fetch at build time) |
 
 ---
 
@@ -35,7 +36,12 @@ LobeHub is a private distribution of LobeChat tailored for self-hosted server de
 
 ### LobeHub Additions
 
-- **Tools Hub** — a dedicated left-sidebar section (Wrench icon) for utility tools, with its own sub-navigation panel
+- **Built-in credentials login** — username/password or token login page, no external OAuth service needed:
+  - Password mode: set `AUTH_CREDENTIALS_USERNAME` + `AUTH_CREDENTIALS_PASSWORD`
+  - Token mode: set `AUTH_TOKEN` (also works for API Bearer auth)
+  - Both can be enabled simultaneously; can be combined with OAuth providers on the same login page
+  - Upstream LobeChat only supports OAuth — credentials login is unique to LobeHub
+- **Tools Hub** — dedicated left-sidebar section (Wrench icon) for utility tools, with its own sub-navigation panel
 - **Picbed** — image hosting tool at `/tools/picbed`:
   - Upload via paste, drag-and-drop, or file select
   - Auto-copies URL to clipboard on upload
@@ -120,19 +126,21 @@ ON CONFLICT DO NOTHING;" < user > -d < db > -c
 
 ## Authentication Modes
 
-LobeHub supports three authentication modes. Only one should be active at a time.
+LobeHub requires `DATABASE_URL` + `DATABASE_DRIVER` (PostgreSQL). Without authentication, **anyone who can reach the URL has full access to the database** — all chat history, files, and settings. Auth is strongly recommended for any non-localhost deployment.
 
-### 1. No Auth (default)
+### 1. ⚠️ No Auth (not recommended)
 
-No environment variables needed. Anyone who can reach the URL can use the app. Suitable for local-only deployments.
+No `NEXT_PUBLIC_ENABLE_NEXT_AUTH` set. The app starts and is fully accessible without login.
 
-Optionally restrict LLM API access with a shared passcode:
+This is **unsafe for any publicly reachable deployment** — there is no login prompt and no access control. Running without auth should be limited to isolated local development only.
+
+If you must restrict LLM API key usage without full auth, you can add a shared passcode:
 
 ```env
 ACCESS_CODE=your-passcode
 ```
 
-> **⚠️ DB mode caveat:** `ACCESS_CODE` is a passcode for LLM API calls only — it does **not** protect the UI from being accessed, and it does **not** create separate users. In database mode, everyone who enters the correct code shares the **same single user's data** (chat history, files, settings). If you want real access control for a self-hosted instance, use **NextAuth** (mode 3) with a lightweight OAuth provider (GitHub, Authentik, etc.).
+> **⚠️ Warning:** `ACCESS_CODE` only gates LLM API calls — it does **not** require login, does **not** protect the UI, and does **not** isolate users. In database mode, all traffic shares the **same single user's data**. Do not expose this to untrusted networks. Use credentials login (mode 2) or OAuth (mode 4) instead.
 
 ### 2. Credentials Login (browser — single-user, no OAuth needed)
 

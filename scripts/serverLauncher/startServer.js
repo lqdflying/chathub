@@ -122,10 +122,54 @@ const runServer = async () => {
   return runScript(SERVER_SCRIPT_PATH);
 };
 
+// Validate that at least one authentication method is configured.
+// LobeHub is PostgreSQL-only — running without auth exposes all user data to anyone
+// who can reach the URL. Fail fast rather than silently run in an insecure state.
+const checkAuthConfig = () => {
+  const hasNextAuth = process.env.NEXT_PUBLIC_ENABLE_NEXT_AUTH === '1';
+  const hasClerk = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const hasToken = !!process.env.AUTH_TOKEN;
+
+  if (hasNextAuth || hasClerk || hasToken) return; // at least one method configured
+
+  console.error('');
+  console.error('❌  AUTH CONFIGURATION REQUIRED');
+  console.error('');
+  console.error('   LobeHub requires at least one authentication method to be configured.');
+  console.error('   Without auth, ALL routes are publicly accessible — anyone who can');
+  console.error('   reach this URL can read and modify all data in the database.');
+  console.error('');
+  console.error('   Choose one of the following options:');
+  console.error('');
+  console.error('   Option 1 — Username/password login (recommended for single-user):');
+  console.error('     NEXT_PUBLIC_ENABLE_NEXT_AUTH=1');
+  console.error('     NEXT_AUTH_SECRET=<random-secret>');
+  console.error('     NEXT_AUTH_SSO_PROVIDERS=credentials');
+  console.error('     AUTH_CREDENTIALS_USERNAME=<your-username>');
+  console.error('     AUTH_CREDENTIALS_PASSWORD=<your-password>');
+  console.error('');
+  console.error('   Option 2 — Token auth (API + browser login):');
+  console.error('     NEXT_PUBLIC_ENABLE_NEXT_AUTH=1');
+  console.error('     NEXT_AUTH_SECRET=<random-secret>');
+  console.error('     NEXT_AUTH_SSO_PROVIDERS=credentials');
+  console.error('     AUTH_TOKEN=<your-token>');
+  console.error('');
+  console.error('   Option 3 — OAuth provider (GitHub, Auth0, Authentik, etc.):');
+  console.error('     NEXT_PUBLIC_ENABLE_NEXT_AUTH=1');
+  console.error('     NEXT_AUTH_SECRET=<random-secret>');
+  console.error('     NEXT_AUTH_SSO_PROVIDERS=github  # or auth0, authentik, etc.');
+  console.error('');
+  console.error('   See README.md → Authentication Modes for full configuration details.');
+  console.error('');
+  process.exit(1);
+};
+
 // Main execution block
 (async () => {
   console.log('🌐 DNS Server:', dns.getServers());
   console.log('-------------------------------------');
+
+  checkAuthConfig();
 
   if (process.env.DATABASE_DRIVER) {
     try {
