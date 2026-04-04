@@ -86,6 +86,10 @@ WORKDIR /app
 # Install native addon build tools required by packages such as re2
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
+# Force native addons (e.g. re2) to always build from source rather than
+# trying to download a prebuilt binary that may not exist for this Node version.
+ENV npm_config_build_from_source=true
+
 COPY package.json pnpm-workspace.yaml ./
 COPY .npmrc ./
 COPY packages ./packages
