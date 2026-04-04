@@ -205,8 +205,11 @@ const nextAuthMiddleware = NextAuth.auth((req) => {
 
   const response = defaultMiddleware(req);
 
-  // when enable auth protection, only public route is not protected, others are all protected
-  const isProtected = appEnv.ENABLE_AUTH_PROTECTION ? !isPublicRoute(req) : isProtectedRoute(req);
+  // Protect all non-public routes by default when auth is enabled.
+  // ENABLE_AUTH_PROTECTION=0 can opt back to the legacy narrow list (settings/knowledge only).
+  const isProtected = appEnv.ENABLE_AUTH_PROTECTION === false
+    ? isProtectedRoute(req)
+    : !isPublicRoute(req);
 
   logNextAuth('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
 
@@ -258,8 +261,11 @@ const clerkAuthMiddleware = clerkMiddleware(
   async (auth, req) => {
     logClerk('Clerk middleware processing request: %s %s', req.method, req.url);
 
-    // when enable auth protection, only public route is not protected, others are all protected
-    const isProtected = appEnv.ENABLE_AUTH_PROTECTION ? !isPublicRoute(req) : isProtectedRoute(req);
+    // Protect all non-public routes by default when auth is enabled.
+    // ENABLE_AUTH_PROTECTION=0 can opt back to the legacy narrow list (settings/knowledge only).
+    const isProtected = appEnv.ENABLE_AUTH_PROTECTION === false
+      ? isProtectedRoute(req)
+      : !isPublicRoute(req);
 
     logClerk('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
 
@@ -321,9 +327,11 @@ const tokenAuthMiddleware = (request: NextRequest) => {
     response.headers.set(TOKEN_AUTH_USER_HEADER, userId);
   } else {
     const url = new URL(request.url);
-    const isProtected = appEnv.ENABLE_AUTH_PROTECTION
-      ? !isPublicRoute(request)
-      : isProtectedRoute(request);
+    // Protect all non-public routes by default when auth is enabled.
+    // ENABLE_AUTH_PROTECTION=0 can opt back to the legacy narrow list (settings/knowledge only).
+    const isProtected = appEnv.ENABLE_AUTH_PROTECTION === false
+      ? isProtectedRoute(request)
+      : !isPublicRoute(request);
 
     logTokenAuth(
       'Token auth failed or missing, path: %s, isProtected: %s',
