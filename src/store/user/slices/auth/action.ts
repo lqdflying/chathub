@@ -1,8 +1,12 @@
 import { StateCreator } from 'zustand/vanilla';
 
 import { enableAuth, enableClerk, enableNextAuth } from '@/const/auth';
+import { normalizeAuthRedirect } from '@/helpers/normalizeAuthRedirect';
 
 import type { UserStore } from '../../store';
+
+const NEXT_AUTH_SIGN_IN_PATH = '/next-auth/signin';
+const NEXT_AUTH_SIGN_OUT_REDIRECT = '/next-auth/signin';
 
 export interface UserAuthAction {
   enableAuth: () => boolean;
@@ -34,7 +38,8 @@ export const createAuthSlice: StateCreator<
 
     if (enableNextAuth) {
       const { signOut } = await import('next-auth/react');
-      signOut();
+      const result = await signOut({ redirect: false, redirectTo: NEXT_AUTH_SIGN_OUT_REDIRECT });
+      window.location.assign(normalizeAuthRedirect(result?.url, NEXT_AUTH_SIGN_OUT_REDIRECT));
     }
   },
   openLogin: async () => {
@@ -57,7 +62,10 @@ export const createAuthSlice: StateCreator<
       // Always show signin page when credentials provider is enabled (needs form)
       const hasCredentials = providers?.includes('credentials');
       if (hasCredentials) {
-        signIn();
+        const callbackUrl = `${location.pathname}${location.search}${location.hash}` || '/';
+        const signInUrl = new URL(NEXT_AUTH_SIGN_IN_PATH, location.origin);
+        signInUrl.searchParams.set('callbackUrl', callbackUrl);
+        window.location.assign(`${signInUrl.pathname}${signInUrl.search}`);
         return;
       }
 

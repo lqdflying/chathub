@@ -166,6 +166,42 @@ describe('CredentialsForm', () => {
     });
   });
 
+  it('should normalize local absolute urls returned by signIn before pushing', async () => {
+    signIn.mockResolvedValue({ url: 'http://0.0.0.0:33210/chat?session=abc#messages' });
+
+    render(<CredentialsForm callbackUrl="/chat" />);
+
+    fireEvent.change(screen.getByPlaceholderText('credentials.usernamePlaceholder'), {
+      target: { value: 'admin' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('credentials.passwordPlaceholder'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'credentials.signIn' }));
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith('/chat?session=abc#messages');
+    });
+  });
+
+  it('should block external absolute urls returned by signIn', async () => {
+    signIn.mockResolvedValue({ url: 'https://evil.com/phish' });
+
+    render(<CredentialsForm callbackUrl="/chat" />);
+
+    fireEvent.change(screen.getByPlaceholderText('credentials.usernamePlaceholder'), {
+      target: { value: 'admin' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('credentials.passwordPlaceholder'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'credentials.signIn' }));
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith('/');
+    });
+  });
+
   it('should show an inline error when credentials login fails', async () => {
     signIn.mockResolvedValue({ error: 'CredentialsSignin' });
 

@@ -1,5 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { parseDefaultThemeFromCountry } from '@lobechat/utils/server';
+import { correctOIDCUrl, parseDefaultThemeFromCountry } from '@lobechat/utils/server';
 import debug from 'debug';
 import { NextRequest, NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
@@ -243,13 +243,13 @@ const nextAuthMiddleware = NextAuth.auth((req) => {
     if (isProtected) {
       logNextAuth('Request a protected route, redirecting to sign-in page');
       const nextLoginUrl = new URL('/next-auth/signin', req.nextUrl.origin);
-      nextLoginUrl.searchParams.set('callbackUrl', req.nextUrl.href);
+      nextLoginUrl.searchParams.set('callbackUrl', `${req.nextUrl.pathname}${req.nextUrl.search}` || '/');
       const hl = req.nextUrl.searchParams.get('hl');
       if (hl) {
         nextLoginUrl.searchParams.set('hl', hl);
         logNextAuth('Preserving locale to sign-in: hl=%s', hl);
       }
-      return Response.redirect(nextLoginUrl);
+      return Response.redirect(correctOIDCUrl(req, nextLoginUrl));
     }
     logNextAuth('Request a free route but not login, allow visit without auth header');
   }

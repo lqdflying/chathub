@@ -165,9 +165,11 @@ AUTH_TOKEN=your-secret-token
 AUTH_USER_ID=default_user
 ```
 
-Open the app in a browser → you'll see a login page with Password and/or Token tabs depending on which env vars are set.
+Open the app in a browser → you'll see a credentials login page. The Password and Access Token tabs are both shown when the credentials provider is enabled, but each tab only works if its corresponding env vars are configured.
 
 > **Note:** `AUTH_TOKEN` can also be used for machine-to-machine API access (send `Authorization: Bearer <token>` in API requests). The same token works for both browser login and API calls.
+
+See [doc/credentials-login-flow.md](doc/credentials-login-flow.md) for the detailed credentials login flow, post-login behavior, and Mermaid diagram.
 
 ### 2. Credentials + OAuth (combine both on one login page)
 

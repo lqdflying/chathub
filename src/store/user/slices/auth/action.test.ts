@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useUserStore } from '@/store/user';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 vi.mock('swr', async (importOriginal) => {
   const modules = await importOriginal();
@@ -91,15 +91,22 @@ describe('createAuthSlice', () => {
     it('should call next-auth signOut when NextAuth is enabled', async () => {
       enableNextAuth = true;
 
+      const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
+
+      const { signOut } = await import('next-auth/react');
+      vi.mocked(signOut).mockResolvedValue({ url: 'http://0.0.0.0:33210/next-auth/signin' } as any);
+
       const { result } = renderHook(() => useUserStore());
 
       await act(async () => {
         await result.current.logout();
       });
 
-      const { signOut } = await import('next-auth/react');
-
-      expect(signOut).toHaveBeenCalled();
+      expect(signOut).toHaveBeenCalledWith({
+        redirect: false,
+        redirectTo: '/next-auth/signin',
+      });
+      expect(assignSpy).toHaveBeenCalledWith('/next-auth/signin');
       enableNextAuth = false;
     });
 
@@ -143,9 +150,11 @@ describe('createAuthSlice', () => {
       expect(clerkSignInMock).not.toHaveBeenCalled();
     });
 
-    it('should call next-auth signIn when NextAuth is enabled', async () => {
+    it('should redirect to the credentials sign-in page when NextAuth credentials is enabled', async () => {
       enableNextAuth = true;
+      useUserStore.setState({ oAuthSSOProviders: ['credentials'] });
 
+      const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
       const { result } = renderHook(() => useUserStore());
 
       await act(async () => {
@@ -154,7 +163,26 @@ describe('createAuthSlice', () => {
 
       const { signIn } = await import('next-auth/react');
 
-      expect(signIn).toHaveBeenCalled();
+      expect(signIn).not.toHaveBeenCalled();
+      expect(assignSpy).toHaveBeenCalledWith('/next-auth/signin?callbackUrl=%2F');
+      enableNextAuth = false;
+    });
+
+    it('should call next-auth signIn directly when credentials provider is not enabled', async () => {
+      enableNextAuth = true;
+      useUserStore.setState({ oAuthSSOProviders: ['github'] });
+
+      const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
+      const { result } = renderHook(() => useUserStore());
+
+      await act(async () => {
+        await result.current.openLogin();
+      });
+
+      const { signIn } = await import('next-auth/react');
+
+      expect(signIn).toHaveBeenCalledWith('github');
+      expect(assignSpy).not.toHaveBeenCalled();
       enableNextAuth = false;
     });
     it('should not call next-auth signIn when NextAuth is disabled', async () => {

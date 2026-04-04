@@ -8,6 +8,8 @@ import { signIn } from 'next-auth/react';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { normalizeAuthRedirect } from '@/helpers/normalizeAuthRedirect';
+
 const useStyles = createStyles(({ css, token }) => ({
   form: css`
     width: 100%;
@@ -57,7 +59,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       if (result?.error) {
         setError(t('credentials.errorInvalid'));
       } else {
-        router.push(result?.url || '/');
+        router.push(normalizeAuthRedirect(result?.url, '/'));
       }
     } catch {
       setError(t('credentials.errorInvalid'));
@@ -85,7 +87,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       if (result?.error) {
         setError(t('credentials.errorInvalidToken'));
       } else {
-        router.push(result?.url || '/');
+        router.push(normalizeAuthRedirect(result?.url, '/'));
       }
     } catch {
       setError(t('credentials.errorInvalidToken'));
