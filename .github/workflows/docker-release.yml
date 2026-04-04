@@ -56,6 +56,20 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Restore Next.js webpack cache
+        id: nextjs-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/nextjs-cache
+          # Key includes package.json hash (dep changes bust cache) + restore-keys for partial hits
+          key: nextjs-build-${{ runner.os }}-${{ hashFiles('package.json', 'pnpm-workspace.yaml', 'next.config.ts') }}-${{ github.sha }}
+          restore-keys: |
+            nextjs-build-${{ runner.os }}-${{ hashFiles('package.json', 'pnpm-workspace.yaml', 'next.config.ts') }}-
+            nextjs-build-${{ runner.os }}-
+
+      - name: Ensure Next.js cache dir exists
+        run: mkdir -p /tmp/nextjs-cache
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -66,5 +80,35 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             FEATURE_FLAGS=+commercial_hide_docs
+          build-contexts: |
+            nextjs_cache=/tmp/nextjs-cache
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Export Next.js webpack cache for next release
+        # Re-use the GHA layer cache to export only .next/cache from the builder stage.
+        # This is fast (all layers are already cached) and produces a small output.
+        run: |
+          mkdir -p /tmp/nextjs-cache-new
+          DOCKER_BUILDKIT=1 docker buildx build \
+            --target cache-export \
+            --output type=local,dest=/tmp/nextjs-cache-new \
+            --cache-from type=gha \
+            --build-arg FEATURE_FLAGS=+commercial_hide_docs \
+            --build-contexts nextjs_cache=/tmp/nextjs-cache \
+            . 2>&1 || echo "Cache export skipped (non-fatal)"
+          # Exported layout: /tmp/nextjs-cache-new/cache/<webpack files>
+          if [ -d /tmp/nextjs-cache-new/cache ] && [ "$(ls -A /tmp/nextjs-cache-new/cache)" ]; then
+            rm -rf /tmp/nextjs-cache
+            mv /tmp/nextjs-cache-new/cache /tmp/nextjs-cache
+            echo "Next.js cache saved ($(du -sh /tmp/nextjs-cache | cut -f1))"
+          else
+            echo "Cache export produced no files — keeping existing cache"
+          fi
+
+      - name: Save Next.js webpack cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: /tmp/nextjs-cache
+          key: nextjs-build-${{ runner.os }}-${{ hashFiles('package.json', 'pnpm-workspace.yaml', 'next.config.ts') }}-${{ github.sha }}

@@ -1,6 +1,11 @@
 ## Set global build ENV
 ARG NODEJS_VERSION="24"
 
+# Optional Next.js webpack cache — empty by default.
+# Override in CI with: --build-context nextjs_cache=<path-to-restored-cache>
+# This allows webpack to only recompile changed modules (warm build: ~3 min vs cold: ~7.3 min).
+FROM scratch AS nextjs_cache
+
 ## Base image for all building stages
 FROM node:${NODEJS_VERSION}-slim AS base
 
@@ -84,39 +89,82 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 WORKDIR /app
 
 # Install native addon build tools required by packages such as re2
+# Kept in a dedicated layer — only re-runs if the tool list changes
 RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 
-COPY package.json pnpm-workspace.yaml ./
-COPY .npmrc ./
-COPY packages ./packages
-
+# ── Layer 1: toolchain ────────────────────────────────────────────────────────
+# Copy only the files needed to install + enable the correct pnpm version.
+# This layer is invalidated only when packageManager field or .npmrc changes.
+COPY package.json pnpm-workspace.yaml .npmrc ./
 RUN \
-    # If you want to build docker in China, build with --build-arg USE_CN_MIRROR=true
+    if [ "${USE_CN_MIRROR:-false}" = "true" ]; then \
+        npm config set registry "https://registry.npmmirror.com/"; \
+    fi \
+    && export COREPACK_NPM_REGISTRY=$(npm config get registry | sed 's/\/$//') \
+    && npm i -g corepack@latest \
+    && corepack enable \
+    && PNPM_VERSION=$(node -p "require('./package.json').packageManager.split('@')[1]") \
+    && corepack prepare pnpm@${PNPM_VERSION} --activate
+
+# ── Layer 2: dependency install ───────────────────────────────────────────────
+# Copy only package.json from each workspace package.
+# Source-code changes in packages/* will NOT invalidate this layer.
+COPY packages/agent-runtime/package.json      packages/agent-runtime/
+COPY packages/const/package.json              packages/const/
+COPY packages/context-engine/package.json     packages/context-engine/
+COPY packages/database/package.json           packages/database/
+COPY packages/electron-client-ipc/package.json  packages/electron-client-ipc/
+COPY packages/electron-server-ipc/package.json  packages/electron-server-ipc/
+COPY packages/fetch-sse/package.json          packages/fetch-sse/
+COPY packages/file-loaders/package.json       packages/file-loaders/
+COPY packages/memory-extract/package.json     packages/memory-extract/
+COPY packages/model-bank/package.json         packages/model-bank/
+COPY packages/model-runtime/package.json      packages/model-runtime/
+COPY packages/obervability-otel/package.json  packages/obervability-otel/
+COPY packages/prompts/package.json            packages/prompts/
+COPY packages/python-interpreter/package.json packages/python-interpreter/
+COPY packages/ssrf-safe-fetch/package.json    packages/ssrf-safe-fetch/
+COPY packages/types/package.json              packages/types/
+COPY packages/utils/package.json              packages/utils/
+COPY packages/web-crawler/package.json        packages/web-crawler/
+
+# Strip the `version` field so version bumps don't bust the install cache.
+RUN \
     if [ "${USE_CN_MIRROR:-false}" = "true" ]; then \
         export SENTRYCLI_CDNURL="https://npmmirror.com/mirrors/sentry-cli"; \
-        npm config set registry "https://registry.npmmirror.com/"; \
         echo 'canvas_binary_host_mirror=https://npmmirror.com/mirrors/canvas' >> .npmrc; \
     fi \
-    # Set the registry for corepack
-    && export COREPACK_NPM_REGISTRY=$(npm config get registry | sed 's/\/$//') \
-    # Update corepack to latest (nodejs/corepack#612)
-    && npm i -g corepack@latest \
-    # Enable corepack
-    && corepack enable \
-    # Use pnpm for corepack
-    && corepack use $(sed -n 's/.*"packageManager": "\(.*\)".*/\1/p' package.json) \
-    # Install the dependencies
-    && pnpm i \
-    # Add db migration dependencies
+    && sed -i '/"version":/d' package.json
+
+# pnpm install with persistent store cache.
+# --mount=type=cache: even on a layer-cache miss, packages aren't re-downloaded.
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+    pnpm i \
     && mkdir -p /deps \
     && cd /deps \
     && pnpm init \
     && pnpm add pg drizzle-orm
 
+# ── Layer 3: source + build ───────────────────────────────────────────────────
+# Copy full source (overrides stub package.json files with real ones + src/ trees).
+# Invalidated on any source change — but pnpm install above is still cached.
 COPY . .
 
-# run build standalone for docker version
-RUN npm run build:docker
+# Inject Next.js webpack cache before compilation:
+#   - GHA: provided via --build-context nextjs_cache=<restored-path> (from actions/cache)
+#   - Local: via --mount=type=cache (persists between local docker build invocations)
+# Both are optional — build succeeds cold if both are empty.
+# Build also skips ESLint/Stylelint/circular (CI gates, not build requirements) — saves ~2-3 min.
+RUN --mount=type=bind,from=nextjs_cache,target=/tmp/nextjs-restore \
+    --mount=type=cache,id=nextjs-build-cache,target=/tmp/nextjs-local-cache,sharing=locked \
+    mkdir -p .next/cache \
+    && (cp -r /tmp/nextjs-restore/. .next/cache/ 2>/dev/null || \
+        cp -r /tmp/nextjs-local-cache/. .next/cache/ 2>/dev/null || \
+        true) \
+    && export PATH="$PATH:/app/node_modules/.bin" \
+    && tsx scripts/prebuild.mts \
+    && NODE_OPTIONS=--max-old-space-size=6144 DOCKER=true next build \
+    && (cp -r .next/cache/. /tmp/nextjs-local-cache/ 2>/dev/null || true)
 
 # Copy re2 native binary into standalone output (file tracing misses dynamic require paths)
 RUN find /app/node_modules/.pnpm -name "re2.node" | while read src; do \
@@ -153,6 +201,11 @@ RUN \
     && adduser -D -G nodejs -H -S -h /app -u 1001 nextjs \
     # Set permission for nextjs:nodejs
     && chown -R nextjs:nodejs /app /etc/proxychains4.conf
+
+# Minimal stage containing only .next/cache — used by GHA to extract and persist
+# the webpack cache between releases without touching the production image.
+FROM scratch AS cache-export
+COPY --from=builder /app/.next/cache /cache
 
 ## Production image, copy all the files and run next
 FROM scratch
