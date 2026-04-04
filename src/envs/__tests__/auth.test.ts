@@ -196,5 +196,19 @@ describe('getAuthConfig', () => {
       );
     });
   });
+
+  it('should expose credentials and token auth environment variables', () => {
+    process.env.AUTH_CREDENTIALS_USERNAME = 'admin';
+    process.env.AUTH_CREDENTIALS_PASSWORD = 'secret';
+    process.env.AUTH_TOKEN = 'access-token';
+    process.env.AUTH_USER_ID = 'user-1';
+
+    const authConfig = getAuthConfig();
+
+    expect(authConfig.AUTH_CREDENTIALS_USERNAME).toBe('admin');
+    expect(authConfig.AUTH_CREDENTIALS_PASSWORD).toBe('secret');
+    expect(authConfig.AUTH_TOKEN).toBe('access-token');
+    expect(authConfig.AUTH_USER_ID).toBe('user-1');
+  });
   // Remove end
 });
