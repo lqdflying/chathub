@@ -1,17 +1,23 @@
-import { timingSafeEqual } from 'crypto';
-
 import Credentials from 'next-auth/providers/credentials';
 
-/** Constant-time string comparison to prevent timing attacks */
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ * Uses TextEncoder (available in all runtimes: Node.js, Edge, browser)
+ * so this file can be safely bundled for edge routes.
+ */
 const safeEqual = (a: string, b: string): boolean => {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
+  const encoder = new TextEncoder();
+  const bufA = encoder.encode(a);
+  const bufB = encoder.encode(b);
   if (bufA.length !== bufB.length) {
-    // Compare against self so we still burn the same CPU time
-    timingSafeEqual(bufA, bufA);
-    return false;
+    // XOR against itself — keeps constant time, always returns false
+    let r = 0;
+    for (let i = 0; i < bufA.length; i++) r |= bufA[i] ^ bufA[i];
+    return r === 1; // always false
   }
-  return timingSafeEqual(bufA, bufB);
+  let result = 0;
+  for (let i = 0; i < bufA.length; i++) result |= bufA[i] ^ bufB[i];
+  return result === 0;
 };
 
 const provider = {
