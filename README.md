@@ -126,23 +126,9 @@ ON CONFLICT DO NOTHING;" < user > -d < db > -c
 
 ## Authentication Modes
 
-LobeHub requires `DATABASE_URL` + `DATABASE_DRIVER` (PostgreSQL). Without authentication, **anyone who can reach the URL has full access to the database** — all chat history, files, and settings. Auth is strongly recommended for any non-localhost deployment.
+LobeHub requires `DATABASE_URL` + `DATABASE_DRIVER` (PostgreSQL). Auth is **required** for Docker deployments — the container refuses to start without at least one of `NEXT_PUBLIC_ENABLE_NEXT_AUTH`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, or `AUTH_TOKEN` set.
 
-### 1. ⚠️ No Auth (not recommended)
-
-No `NEXT_PUBLIC_ENABLE_NEXT_AUTH` set. The app starts and is fully accessible without login.
-
-This is **unsafe for any publicly reachable deployment** — there is no login prompt and no access control. Running without auth should be limited to isolated local development only.
-
-If you must restrict LLM API key usage without full auth, you can add a shared passcode:
-
-```env
-ACCESS_CODE=your-passcode
-```
-
-> **⚠️ Warning:** `ACCESS_CODE` only gates LLM API calls — it does **not** require login, does **not** protect the UI, and does **not** isolate users. In database mode, all traffic shares the **same single user's data**. Do not expose this to untrusted networks. Use credentials login (mode 2) or OAuth (mode 4) instead.
-
-### 2. Credentials Login (browser — single-user, no OAuth needed)
+### 1. Credentials Login (browser — single-user, no OAuth needed)
 
 A built-in username/password or token login page, powered by NextAuth's Credentials provider. No external OAuth service required — ideal for personal self-hosted instances.
 
@@ -183,7 +169,7 @@ Open the app in a browser → you'll see a login page with Password and/or Token
 
 > **Note:** `AUTH_TOKEN` can also be used for machine-to-machine API access (send `Authorization: Bearer <token>` in API requests). The same token works for both browser login and API calls.
 
-### 3. Credentials + OAuth (combine both on one login page)
+### 2. Credentials + OAuth (combine both on one login page)
 
 You can enable credentials alongside OAuth providers. The login page will show both the username/password form and the OAuth buttons:
 
@@ -197,7 +183,7 @@ GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 ```
 
-### 4. NextAuth / OAuth only (browser users — single or multi-user)
+### 3. NextAuth / OAuth only (browser users — single or multi-user)
 
 Configure an OAuth provider (Auth0, GitHub, Authentik, Zitadel, etc.) via NextAuth:
 
