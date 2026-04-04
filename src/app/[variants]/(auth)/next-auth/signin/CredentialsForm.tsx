@@ -1,8 +1,9 @@
 'use client';
 
 import { Button, Text } from '@lobehub/ui';
-import { Alert, Divider, Flex, Input, Tabs } from 'antd';
+import { Alert, Flex, Input, Tabs } from 'antd';
 import { createStyles } from 'antd-style';
+import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,6 +29,7 @@ interface CredentialsFormProps {
 export default memo<CredentialsFormProps>(({ callbackUrl }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('auth');
+  const router = useRouter();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -47,6 +49,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       const result = await signIn('credentials', {
         password,
         redirect: false,
+        redirectTo: callbackUrl,
         token: '',
         username,
       });
@@ -54,7 +57,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       if (result?.error) {
         setError(t('credentials.errorInvalid'));
       } else {
-        window.location.href = callbackUrl;
+        router.push(result?.url || callbackUrl);
       }
     } catch {
       setError(t('credentials.errorInvalid'));
@@ -74,6 +77,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       const result = await signIn('credentials', {
         password: '',
         redirect: false,
+        redirectTo: callbackUrl,
         token,
         username: '',
       });
@@ -81,7 +85,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       if (result?.error) {
         setError(t('credentials.errorInvalidToken'));
       } else {
-        window.location.href = callbackUrl;
+        router.push(result?.url || callbackUrl);
       }
     } catch {
       setError(t('credentials.errorInvalidToken'));

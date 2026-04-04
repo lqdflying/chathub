@@ -42,6 +42,12 @@ declare global {
       ZITADEL_CLIENT_ID?: string;
       ZITADEL_CLIENT_SECRET?: string;
       ZITADEL_ISSUER?: string;
+
+      // Credentials
+      AUTH_CREDENTIALS_USERNAME?: string;
+      AUTH_CREDENTIALS_PASSWORD?: string;
+      AUTH_TOKEN?: string;
+      AUTH_USER_ID?: string;
     }
   }
 }
@@ -214,6 +220,8 @@ export const getAuthConfig = () => {
       // Credentials Auth
       AUTH_CREDENTIALS_USERNAME: z.string().optional(),
       AUTH_CREDENTIALS_PASSWORD: z.string().optional(),
+      AUTH_TOKEN: z.string().optional(),
+      AUTH_USER_ID: z.string().optional(),
     },
 
     runtimeEnv: {
@@ -281,6 +289,8 @@ export const getAuthConfig = () => {
       // Credentials Auth
       AUTH_CREDENTIALS_USERNAME: process.env.AUTH_CREDENTIALS_USERNAME,
       AUTH_CREDENTIALS_PASSWORD: process.env.AUTH_CREDENTIALS_PASSWORD,
+      AUTH_TOKEN: process.env.AUTH_TOKEN,
+      AUTH_USER_ID: process.env.AUTH_USER_ID,
     },
   });
 };
