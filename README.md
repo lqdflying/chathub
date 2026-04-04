@@ -134,25 +134,62 @@ ACCESS_CODE=your-passcode
 
 > **⚠️ DB mode caveat:** `ACCESS_CODE` is a passcode for LLM API calls only — it does **not** protect the UI from being accessed, and it does **not** create separate users. In database mode, everyone who enters the correct code shares the **same single user's data** (chat history, files, settings). If you want real access control for a self-hosted instance, use **NextAuth** (mode 3) with a lightweight OAuth provider (GitHub, Authentik, etc.).
 
-### 2. Token Auth (API / machine-to-machine only)
+### 2. Credentials Login (browser — single-user, no OAuth needed)
 
-A static Bearer token for protecting API endpoints from automated/programmatic clients (scripts, CI, reverse proxies). All requests map to a single user ID stored in PostgreSQL.
+A built-in username/password or token login page, powered by NextAuth's Credentials provider. No external OAuth service required — ideal for personal self-hosted instances.
+
+**Option A — Username & Password:**
 
 ```env
-AUTH_TOKEN=your-secret-token        # required — callers must send this
-AUTH_USER_ID=default_user           # optional — defaults to "default_user"
+NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
+NEXT_AUTH_SECRET=<your-secret>
+NEXT_AUTH_SSO_PROVIDERS=credentials
+AUTH_CREDENTIALS_USERNAME=admin
+AUTH_CREDENTIALS_PASSWORD=your-strong-password
+AUTH_USER_ID=default_user           # optional — defaults to "credentials_user"
 ```
 
-The caller must send the token on every API request:
+**Option B — Token only:**
+
+```env
+NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
+NEXT_AUTH_SECRET=<your-secret>
+NEXT_AUTH_SSO_PROVIDERS=credentials
+AUTH_TOKEN=your-secret-token
+AUTH_USER_ID=default_user           # optional — defaults to "credentials_user"
 ```
-Authorization: Bearer your-secret-token
+
+**Option C — Both methods enabled (users can pick either tab on the login page):**
+
+```env
+NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
+NEXT_AUTH_SECRET=<your-secret>
+NEXT_AUTH_SSO_PROVIDERS=credentials
+AUTH_CREDENTIALS_USERNAME=admin
+AUTH_CREDENTIALS_PASSWORD=your-strong-password
+AUTH_TOKEN=your-secret-token
+AUTH_USER_ID=default_user
 ```
 
-> **Note:** This mode is designed for machine-to-machine API access. It does **not** provide a browser login page. For browser-based single-user access, use NextAuth (mode 3) with a simple OAuth provider like GitHub or Authentik.
+Open the app in a browser → you'll see a login page with Password and/or Token tabs depending on which env vars are set.
 
-Protected routes return `401 Unauthorized` if the token is missing or wrong. Public API routes (`/trpc`, `/webapi`, etc.) are always reachable.
+> **Note:** `AUTH_TOKEN` can also be used for machine-to-machine API access (send `Authorization: Bearer <token>` in API requests). The same token works for both browser login and API calls.
 
-### 3. NextAuth / OAuth (browser users — single or multi-user)
+### 3. Credentials + OAuth (combine both on one login page)
+
+You can enable credentials alongside OAuth providers. The login page will show both the username/password form and the OAuth buttons:
+
+```env
+NEXT_PUBLIC_ENABLE_NEXT_AUTH=1
+NEXT_AUTH_SECRET=<your-secret>
+NEXT_AUTH_SSO_PROVIDERS=credentials,github
+AUTH_CREDENTIALS_USERNAME=admin
+AUTH_CREDENTIALS_PASSWORD=your-strong-password
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+```
+
+### 4. NextAuth / OAuth only (browser users — single or multi-user)
 
 Configure an OAuth provider (Auth0, GitHub, Authentik, Zitadel, etc.) via NextAuth:
 

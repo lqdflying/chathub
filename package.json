@@ -86,6 +86,7 @@
     "test-app": "vitest run",
     "test-app:coverage": "vitest --coverage --silent='passed-only'",
     "type-check": "tsgo --project tsconfig.build.json --noEmit",
+    "type-check:tsc": "bash scripts/type-check-tsc.sh",
     "webhook:ngrok": "ngrok http http://localhost:3011",
     "workflow:cdn": "tsx ./scripts/cdnWorkflow/index.ts",
     "workflow:changelog": "tsx ./scripts/changelogWorkflow/index.ts",

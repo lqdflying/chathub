@@ -5,7 +5,7 @@ import { Alert, Flex, Input, Tabs } from 'antd';
 import { createStyles } from 'antd-style';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
-import { memo, useState } from 'react';
+import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -57,7 +57,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       if (result?.error) {
         setError(t('credentials.errorInvalid'));
       } else {
-        router.push(result?.url || callbackUrl);
+        router.push(result?.url || '/');
       }
     } catch {
       setError(t('credentials.errorInvalid'));
@@ -85,7 +85,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
       if (result?.error) {
         setError(t('credentials.errorInvalidToken'));
       } else {
-        router.push(result?.url || callbackUrl);
+        router.push(result?.url || '/');
       }
     } catch {
       setError(t('credentials.errorInvalidToken'));

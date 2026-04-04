@@ -1,4 +1,18 @@
+import { timingSafeEqual } from 'node:crypto';
+
 import Credentials from 'next-auth/providers/credentials';
+
+/** Constant-time string comparison to prevent timing attacks */
+const safeEqual = (a: string, b: string): boolean => {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Compare against self so we still burn the same CPU time
+    timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+};
 
 const provider = {
   id: 'credentials',
@@ -19,8 +33,8 @@ const provider = {
         if (
           validUsername &&
           validPassword &&
-          credentials.username === validUsername &&
-          credentials.password === validPassword
+          safeEqual(credentials.username as string, validUsername) &&
+          safeEqual(credentials.password as string, validPassword)
         ) {
           return {
             id: userId,
@@ -32,7 +46,7 @@ const provider = {
 
       // Token-based authentication
       if (credentials?.token) {
-        if (validToken && credentials.token === validToken) {
+        if (validToken && safeEqual(credentials.token as string, validToken)) {
           return {
             id: userId,
             name: 'Token User',

@@ -1,11 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import type { ChangeEvent, PropsWithChildren, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import CredentialsForm from './CredentialsForm';
 
-const push = vi.fn();
-const signIn = vi.fn();
+const { push, signIn } = vi.hoisted(() => ({
+  push: vi.fn(),
+  signIn: vi.fn(),
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -145,6 +148,24 @@ describe('CredentialsForm', () => {
     });
   });
 
+  it('should fallback to / when signIn returns no url (prevents open redirect)', async () => {
+    signIn.mockResolvedValue({ ok: true, url: '' });
+
+    render(<CredentialsForm callbackUrl="https://evil.com/phish" />);
+
+    fireEvent.change(screen.getByPlaceholderText('credentials.usernamePlaceholder'), {
+      target: { value: 'admin' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('credentials.passwordPlaceholder'), {
+      target: { value: 'secret' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'credentials.signIn' }));
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith('/');
+    });
+  });
+
   it('should show an inline error when credentials login fails', async () => {
     signIn.mockResolvedValue({ error: 'CredentialsSignin' });
 
@@ -158,7 +179,8 @@ describe('CredentialsForm', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'credentials.signIn' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('credentials.errorInvalid');
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('credentials.errorInvalid');
     expect(push).not.toHaveBeenCalled();
   });
 });
