@@ -315,6 +315,9 @@ const nextConfig: NextConfig = {
     // https://github.com/pinojs/pino/issues/688#issuecomment-637763276
     config.externals.push('pino-pretty');
 
+    // re2 is a native Node.js addon and cannot be bundled by webpack
+    config.externals.push('re2');
+
     config.resolve.alias.canvas = false;
 
     // to ignore epub2 compile error
