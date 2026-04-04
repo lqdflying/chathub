@@ -17,7 +17,7 @@ const isStandaloneMode = buildWithDocker || isDesktop;
 const standaloneConfig: NextConfig = {
   output: 'standalone',
   outputFileTracingIncludes: {
-    '*': ['public/**/*', '.next/static/**/*', 'node_modules/**/*.node'],
+    '*': ['public/**/*', '.next/static/**/*'],
   },
 };
 
