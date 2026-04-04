@@ -1,5 +1,14 @@
 # GitHub Copilot Instructions
 
+## Working Philosophy: First Principles
+
+Reason from raw requirements and root causes, not from convention or templates.
+
+1. **Challenge unclear goals** — Do not assume I know what I want. If my motivation or objective is vague, stop and discuss before proceeding.
+2. **Shortest path** — If the goal is clear but my proposed approach is suboptimal, say so directly and suggest a better one.
+3. **Root-cause, not patches** — When a problem appears, trace it to its origin. Every decision must answer "why."
+4. **Signal only** — Output the essentials. Cut anything that does not change a decision.
+
 ## Project Overview
 
 **LobeHub** is a custom fork of LobeChat (diverged at v3.0.0), targeting self-hosted Docker + PostgreSQL deployments. Docker image: `docker.io/lqdflying/lobehub`. Do **not** blindly sync upstream changes from `github.com/lobehub/lobe-chat`.
