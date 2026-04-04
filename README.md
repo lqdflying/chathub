@@ -132,25 +132,27 @@ Optionally restrict LLM API access with a shared passcode:
 ACCESS_CODE=your-passcode
 ```
 
-> **⚠️ DB mode caveat:** `ACCESS_CODE` is a passcode for LLM API calls only — it does **not** protect the UI from being accessed, and it does **not** create separate users. In database mode, everyone who enters the correct code shares the **same single user's data** (chat history, files, settings). If you want real access control and data isolation for a personal self-hosted instance, use **Token Auth** (mode 2) instead.
+> **⚠️ DB mode caveat:** `ACCESS_CODE` is a passcode for LLM API calls only — it does **not** protect the UI from being accessed, and it does **not** create separate users. In database mode, everyone who enters the correct code shares the **same single user's data** (chat history, files, settings). If you want real access control for a self-hosted instance, use **NextAuth** (mode 3) with a lightweight OAuth provider (GitHub, Authentik, etc.).
 
-### 2. Token Auth (recommended for single-user self-hosted)
+### 2. Token Auth (API / machine-to-machine only)
 
-A static Bearer token — no OAuth provider required. All requests map to a single user ID stored in PostgreSQL.
+A static Bearer token for protecting API endpoints from automated/programmatic clients (scripts, CI, reverse proxies). All requests map to a single user ID stored in PostgreSQL.
 
 ```env
-AUTH_TOKEN=your-secret-token        # required — clients must send this
+AUTH_TOKEN=your-secret-token        # required — callers must send this
 AUTH_USER_ID=default_user           # optional — defaults to "default_user"
 ```
 
-The client must send the token in every request:
+The caller must send the token on every API request:
 ```
 Authorization: Bearer your-secret-token
 ```
 
+> **Note:** This mode is designed for machine-to-machine API access. It does **not** provide a browser login page. For browser-based single-user access, use NextAuth (mode 3) with a simple OAuth provider like GitHub or Authentik.
+
 Protected routes return `401 Unauthorized` if the token is missing or wrong. Public API routes (`/trpc`, `/webapi`, etc.) are always reachable.
 
-### 3. NextAuth / OAuth (multi-user)
+### 3. NextAuth / OAuth (browser users — single or multi-user)
 
 Configure an OAuth provider (Auth0, GitHub, Authentik, Zitadel, etc.) via NextAuth:
 
