@@ -1,22 +1,17 @@
-import vm from 'node:vm';
+import RE2 from 're2';
 
 import { CrawlUrlRule } from '../type';
 
 /**
- * Safely matches a string against a regex pattern with a timeout to prevent ReDoS.
- * urlPattern is user/admin-configurable, so we run the match inside a VM context
- * with a time limit to guard against catastrophic backtracking.
+ * Matches a string against a regex pattern using RE2 (Google's linear-time engine).
+ * RE2 guarantees O(n) matching and never backtracks catastrophically, making it
+ * safe to call with user/admin-supplied patterns without any timeout sandbox.
  */
-const safeRegexMatch = (
-  pattern: string,
-  input: string,
-  timeoutMs = 100,
-): RegExpMatchArray | null => {
+const safeRegexMatch = (pattern: string, input: string): RegExpMatchArray | null => {
   try {
-    const script = new vm.Script('input.match(re)');
-    const context = vm.createContext({ input, re: new RegExp(pattern) });
-    return script.runInContext(context, { timeout: timeoutMs }) as RegExpMatchArray | null;
-  } catch {
+    return new RE2(pattern).exec(input);
+  } catch (e) {
+    console.warn('[safeRegexMatch] Invalid or unsupported regex pattern:', pattern, e);
     return null;
   }
 };

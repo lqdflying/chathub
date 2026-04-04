@@ -1,4 +1,4 @@
-import vm from 'node:vm';
+import RE2 from 're2';
 
 import type {
   ArgumentMatcher,
@@ -116,16 +116,14 @@ export class InterventionChecker {
   }
 
   /**
-   * Safely tests a string against a regex pattern with a timeout to prevent ReDoS.
-   * Runs the match inside a VM context so V8 can terminate execution if it exceeds
-   * the timeout (avoids catastrophic backtracking on adversarial input).
+   * Tests a string against a regex pattern using RE2 (Google's linear-time engine).
+   * RE2 guarantees O(n) matching — no catastrophic backtracking on adversarial input.
    */
-  private static safeRegexTest(pattern: string, value: string, timeoutMs = 100): boolean {
+  private static safeRegexTest(pattern: string, value: string): boolean {
     try {
-      const script = new vm.Script('re.test(value)');
-      const context = vm.createContext({ re: new RegExp(pattern), value });
-      return script.runInContext(context, { timeout: timeoutMs }) as boolean;
-    } catch {
+      return new RE2(pattern).test(value);
+    } catch (e) {
+      console.warn('[safeRegexTest] Invalid or unsupported regex pattern:', pattern, e);
       return false;
     }
   }

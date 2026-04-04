@@ -263,6 +263,7 @@
     "pwa-install-handler": "^2.6.3",
     "query-string": "^9.3.1",
     "random-words": "^2.0.1",
+    "re2": "^1.24.0",
     "react": "^19.2.1",
     "react-confetti": "^6.4.0",
     "react-dom": "^19.2.1",
