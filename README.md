@@ -130,7 +130,9 @@ LobeHub requires `DATABASE_URL` + `DATABASE_DRIVER` (PostgreSQL). Auth is **requ
 
 ### 1. Credentials Login (browser — single-user, no OAuth needed)
 
-A built-in username/password or token login page, powered by NextAuth's Credentials provider. No external OAuth service required — ideal for personal self-hosted instances.
+A built-in username/password or token login page, powered by NextAuth's Credentials provider. No external OAuth service is required.
+
+**Important:** this mode is env-backed, not DB-backed. The username/password or token is validated directly from environment variables and is **not** stored or managed in PostgreSQL. This makes it acceptable for testing, bootstrap access, or simple single-admin setups, but it is **not recommended** as the primary auth mode for formal production or multi-user deployments. For those cases, prefer OAuth / OIDC providers via NextAuth.
 
 NextAuth browser sessions persist in a cookie. Use `AUTH_SESSION_MAX_AGE_DAYS` to control how long that login cookie remains valid. Default is `30` days.
 
@@ -174,6 +176,8 @@ Open the app in a browser → you'll see a credentials login page. The Password 
 
 > **Note:** `AUTH_TOKEN` can also be used for machine-to-machine API access (send `Authorization: Bearer <token>` in API requests). The same token works for both browser login and API calls.
 
+> **Important:** the credentials login form only appears when `NEXT_AUTH_SSO_PROVIDERS` explicitly includes `credentials`. If you set `AUTH_CREDENTIALS_USERNAME` / `AUTH_CREDENTIALS_PASSWORD` but leave `NEXT_AUTH_SSO_PROVIDERS=github`, the sign-in page will only show GitHub.
+
 `AUTH_SESSION_MAX_AGE_DAYS` applies to NextAuth browser sessions, including credentials login and OAuth login. Examples:
 
 - `AUTH_SESSION_MAX_AGE_DAYS=1` → expire after 1 day
@@ -196,6 +200,8 @@ AUTH_CREDENTIALS_PASSWORD=your-strong-password
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 ```
+
+This explicit `credentials,github` pattern is the intended configuration. Credentials login is not auto-added just because username/password env vars are present.
 
 ### 3. NextAuth / OAuth only (browser users — single or multi-user)
 

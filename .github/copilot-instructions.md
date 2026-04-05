@@ -61,6 +61,13 @@ bun run db:studio              # Drizzle Studio UI
 Component → useChatStore action → src/services/ → tRPC router → src/server/services/ → DB
 ```
 
+### Auth Notes
+- NextAuth credentials login is env-backed, not DB-backed: `AUTH_CREDENTIALS_USERNAME`, `AUTH_CREDENTIALS_PASSWORD`, and `AUTH_TOKEN` are validated directly from environment variables.
+- Credentials/token values are not persisted to PostgreSQL. Only the authenticated user row/session state is created or updated as needed.
+- To show the credentials form on the NextAuth sign-in page, `NEXT_AUTH_SSO_PROVIDERS` must explicitly include `credentials` such as `credentials,github`. Do not assume credentials auth is auto-enabled by the presence of env vars alone.
+- `AUTH_SESSION_MAX_AGE_DAYS` controls NextAuth browser session lifetime in days. Default is `30` when unset.
+- Env-backed username/password or token login is acceptable for testing, bootstrap, or simple single-admin use, but it is not the recommended approach for formal production or multi-user deployments.
+
 ### Key Source Directories
 ```
 src/
