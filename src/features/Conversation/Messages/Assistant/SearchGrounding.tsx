@@ -89,6 +89,7 @@ const SearchGrounding = memo<GroundingSearch>(({ searchQueries, citations }) => 
           {!showDetail && (
             <Flexbox horizontal>
               {citations?.slice(0, 8).map((item, index) => {
+                if (!item.url) return null;
                 let host: string;
                 try {
                   host = new URL(item.url).host;

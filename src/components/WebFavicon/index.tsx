@@ -8,6 +8,8 @@ interface WebFaviconProps {
 }
 
 const WebFavicon = ({ url, title, alt, size = 14 }: WebFaviconProps) => {
+  if (!url) return null;
+
   let host: string;
   try {
     host = new URL(url).hostname;

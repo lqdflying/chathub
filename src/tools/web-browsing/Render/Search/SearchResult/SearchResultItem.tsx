@@ -46,6 +46,8 @@ const useStyles = createStyles(({ css, token }) => ({
 const SearchResultItem = memo<UniformSearchResult>(({ url, title }) => {
   const { styles } = useStyles();
 
+  if (!url) return null;
+
   let host: string;
   try {
     host = new URL(url).hostname;
