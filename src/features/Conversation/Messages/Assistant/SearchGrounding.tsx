@@ -88,23 +88,31 @@ const SearchGrounding = memo<GroundingSearch>(({ searchQueries, citations }) => 
           <Flexbox horizontal>{t('search.grounding.title', { count: citations?.length })}</Flexbox>
           {!showDetail && (
             <Flexbox horizontal>
-              {citations?.slice(0, 8).map((item, index) => (
-                <Image
-                  alt={item.title || item.url}
-                  height={16}
-                  key={`${item.url}-${index}`}
-                  src={`https://icons.duckduckgo.com/ip3/${new URL(item.url).host}.ico`}
-                  style={{
-                    background: theme.colorBgContainer,
-                    borderRadius: 8,
-                    marginInline: -2,
-                    padding: 2,
-                    zIndex: 100 - index,
-                  }}
-                  unoptimized
-                  width={16}
-                />
-              ))}
+              {citations?.slice(0, 8).map((item, index) => {
+                let host: string;
+                try {
+                  host = new URL(item.url).host;
+                } catch {
+                  return null;
+                }
+                return (
+                  <Image
+                    alt={item.title || item.url}
+                    height={16}
+                    key={`${item.url}-${index}`}
+                    src={`https://icons.duckduckgo.com/ip3/${host}.ico`}
+                    style={{
+                      background: theme.colorBgContainer,
+                      borderRadius: 8,
+                      marginInline: -2,
+                      padding: 2,
+                      zIndex: 100 - index,
+                    }}
+                    unoptimized
+                    width={16}
+                  />
+                );
+              })}
             </Flexbox>
           )}
         </Flexbox>

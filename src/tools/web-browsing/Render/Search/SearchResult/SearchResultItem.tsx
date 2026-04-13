@@ -46,8 +46,13 @@ const useStyles = createStyles(({ css, token }) => ({
 const SearchResultItem = memo<UniformSearchResult>(({ url, title }) => {
   const { styles } = useStyles();
 
-  const urlObj = new URL(url);
-  const host = urlObj.hostname;
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    host = url;
+  }
+
   return (
     <Link href={url} target={'_blank'}>
       <Flexbox className={styles.container} gap={2} justify={'space-between'}>
