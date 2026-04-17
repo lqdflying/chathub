@@ -11,6 +11,41 @@ const anthropicChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 200_000,
     description:
+      "Claude Opus 4.7 is Anthropic's most intelligent flagship model, designed for building agents and complex coding tasks, with exceptional reasoning and adaptive thinking.",
+    displayName: 'Claude Opus 4.7',
+    enabled: true,
+    id: 'claude-opus-4-7',
+    maxOutput: 128_000,
+    pricing: {
+      units: [
+        { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 25, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+        {
+          lookup: { prices: { '1h': 10, '5m': 6.25 }, pricingParams: ['ttl'] },
+          name: 'textInput_cacheWrite',
+          strategy: 'lookup',
+          unit: 'millionTokens',
+        },
+      ],
+    },
+    releasedAt: '2026-04-17',
+    settings: {
+      extendParams: ['disableContextCaching', 'enableReasoning', 'reasoningBudgetToken'],
+      searchImpl: 'params',
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      search: true,
+      structuredOutput: true,
+      vision: true,
+    },
+    contextWindowTokens: 200_000,
+    description:
       "Claude Opus 4.6 is Anthropic's most intelligent flagship model, designed for building agents and complex coding tasks, with exceptional reasoning and adaptive thinking.",
     displayName: 'Claude Opus 4.6',
     enabled: true,

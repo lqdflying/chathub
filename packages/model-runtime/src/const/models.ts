@@ -46,6 +46,7 @@ export const responsesAPIModels = new Set([
 export const contextCachingModels = new Set([
   'claude-opus-4-latest',
   'claude-opus-4-20250514',
+  'claude-opus-4-7',
   'claude-sonnet-4-latest',
   'claude-sonnet-4-20250514',
   'claude-3-7-sonnet-latest',
@@ -60,6 +61,7 @@ export const contextCachingModels = new Set([
 export const thinkingWithToolClaudeModels = new Set([
   'claude-opus-4-latest',
   'claude-opus-4-20250514',
+  'claude-opus-4-7',
   'claude-sonnet-4-latest',
   'claude-sonnet-4-20250514',
   'claude-3-7-sonnet-latest',

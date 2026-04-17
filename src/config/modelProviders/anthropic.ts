@@ -5,6 +5,18 @@ const Anthropic: ModelProviderCard = {
     {
       contextWindowTokens: 200_000,
       description:
+        'Claude Opus 4.7 is Anthropic’s flagship model for complex agentic and coding tasks, with exceptional reasoning and adaptive thinking.',
+      displayName: 'Claude Opus 4.7',
+      enabled: true,
+      functionCall: true,
+      id: 'claude-opus-4-7',
+      maxOutput: 128_000,
+      releasedAt: '2026-04-17',
+      vision: true,
+    },
+    {
+      contextWindowTokens: 200_000,
+      description:
         'Claude 4 Opus 是 Anthropic 最强大的下一代模型，具有卓越的推理能力和创造力，适用于最复杂的任务和高级分析。',
       displayName: 'Claude 4 Opus',
       enabled: true,
