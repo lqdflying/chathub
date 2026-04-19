@@ -171,7 +171,8 @@ All utility features live under `/tools/*` with a shared left sub-navigation pan
 
 - Commit messages must be prefixed with a gitmoji
 - Version scheme: `v3.x.x` (LobeHub independent versioning, not upstream v1.x)
-- Release flow:
+- **Docker image builds do not run on ordinary commits to `main`.** To publish a new image you **must** bump `package.json`, commit, **create a new `v*.*.*` tag**, and **push that tag**. Pushing only `main` without a tag leaves Docker Hub unchanged.
+- Release flow (always follow this when a new container image is needed):
   ```bash
   sed -i 's/"version": "old"/"version": "new"/' package.json
   git add package.json && git commit -m "🔖 chore: bump version to vX.X.X"
