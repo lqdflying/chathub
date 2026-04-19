@@ -1,7 +1,14 @@
 import * as dotenv from 'dotenv';
+import { sql } from 'drizzle-orm';
 import { migrate as neonMigrate } from 'drizzle-orm/neon-serverless/migrator';
 import { migrate as nodeMigrate } from 'drizzle-orm/node-postgres/migrator';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+
+const require = createRequire(import.meta.url);
+const { AGENT_ASSISTANT_MEMORY_SQL } = require('./ensureAgentAssistantMemory.cjs') as {
+  AGENT_ASSISTANT_MEMORY_SQL: string;
+};
 
 // @ts-ignore tsgo handle esm import cjs and compatibility issues
 import { DB_FAIL_INIT_HINT, PGVECTOR_HINT } from './errorHint';
@@ -22,6 +29,8 @@ const runMigrations = async () => {
   } else {
     await neonMigrate(serverDB, { migrationsFolder });
   }
+
+  await serverDB.execute(sql.raw(AGENT_ASSISTANT_MEMORY_SQL));
 
   console.log('✅ database migration pass.');
   // eslint-disable-next-line unicorn/no-process-exit

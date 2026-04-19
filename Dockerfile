@@ -188,6 +188,7 @@ COPY --from=builder /app/.next/standalone /app/
 # Copy database migrations
 COPY --from=builder /app/packages/database/migrations /app/migrations
 COPY --from=builder /app/scripts/migrateServerDB/docker.cjs /app/docker.cjs
+COPY --from=builder /app/scripts/migrateServerDB/ensureAgentAssistantMemory.cjs /app/ensureAgentAssistantMemory.cjs
 COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 
 # copy dependencies

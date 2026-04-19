@@ -3,6 +3,7 @@ const { Pool } = require('pg');
 const { drizzle } = require('drizzle-orm/node-postgres');
 const migrator = require('drizzle-orm/node-postgres/migrator');
 const { PGVECTOR_HINT } = require('./errorHint');
+const { ensureAgentAssistantMemoryColumn } = require('./ensureAgentAssistantMemory.cjs');
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is not set, please set it in your environment variables.');
@@ -17,6 +18,8 @@ const runMigrations = async () => {
   await migrator.migrate(db, {
     migrationsFolder: join(__dirname, './migrations'),
   });
+
+  await ensureAgentAssistantMemoryColumn(client);
 
   console.log('✅ database migration pass.');
   console.log('-------------------------------------');
