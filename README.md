@@ -18,6 +18,7 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 | Picbed | ❌ Not present | ✅ Image hosting with S3, auto URL copy |
 | API Tester | ❌ Not present | ✅ Browser-based REST API client at `/tools/apitest` |
 | Changelog page | Enabled | Disabled (skips external fetch at build time) |
+| Topic memory / context UX | Basic rolling summary | Assistance presets, token auto-compact, manual compact, daily opt-in, debug log, optional archives |
 
 ---
 
@@ -54,6 +55,22 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
   - Response viewer with status code, timing, pretty-printed JSON, raw toggle
   - Stateless — no database required
 - **Extended model bank** — latest Claude (4.5, 4.6 Opus), GPT-5.x series (5.1, 5.2, 5.3, 5.4 / pro / chat / codex / mini / nano), Gemini 3.x (pro, flash), Kimi K2.x (k2.5, k2-thinking, k2-turbo), MiniMax with accurate pricing
+- **Memory and context compaction** — assistance-level presets, optional **token-threshold auto compact**, **manual compact** from the token popover, optional **daily** refresh (client + `localStorage`), **compaction debug** on the active topic, optional **memory archive** excerpts on the topic and in prompts when enabled. Summarization uses **Settings → System Agent → history compress**. Details: [Memory and context compaction](#memory-and-context-compaction).
+
+---
+
+## Memory and context compaction
+
+LobeHub keeps a per-topic **history summary** (`historySummary`) and can automate and surface how it is produced:
+
+- **Assistant → Chat** includes a **Memory & context** group: assistance level (minimal / balanced / rich), history limits, **auto summary**, **token auto-compact** with configurable **threshold** (default 0.8 of estimated context), **daily memory** (opt-in), and **memory archive** snapshots. Below the form, preview the **current topic** summary, copy, or export as Markdown.
+- **Manual compact** — button in the token popover runs the same summarization path when history limits and compression are enabled.
+- **Token auto-compact** — background check uses the **same local token estimate** as the token tag; when the ratio exceeds your threshold, older turns are summarized (cooldown avoids loops). Figures are **estimates**, not provider billing tokens.
+- **Daily run** — once per UTC calendar day per session+topic key in browser storage, if enabled.
+- **Debug panel** — after compaction, metadata stores a short log (`memoryDebugLog`) you can expand in the conversation chrome.
+- **Archives** — optional excerpts appended under the history summary block sent to the model when **memory archive** is on.
+
+PostgreSQL `user_memories` schema exists for future cross-session vector memory; current behavior uses **topic metadata** for archives and prompt injection.
 
 ---
 
@@ -72,7 +89,7 @@ services:
       - KEY_VAULTS_SECRET=<your-secret>
       - NEXTAUTH_SECRET=<your-secret>
       - NEXTAUTH_URL=https://your-domain.com
-      # LLM API keys:
+      # LLM API keys — see "LLM provider environment variables" for per-provider examples:
       # OPENAI_API_KEY=...
       # ANTHROPIC_API_KEY=...
       # MOONSHOT_API_KEY=... (for Kimi K2.x models)
@@ -235,7 +252,75 @@ AUTH_AUTH0_ISSUER=https://your-domain.auth0.com
 
 ---
 
+## LLM provider environment variables
 
+LobeHub’s **in-house documentation** focuses on the providers that match the **extended model bank** called out in this README (GPT / Claude / Gemini / Kimi / MiniMax), plus the two common self-hosted patterns: **OpenAI-compatible gateways** and **Ollama**. Wire keys on the `lobe-chat` service’s `environment:` list (or your process manager / `.env`).
+
+For **every** provider name, flag, and optional URL that the codebase accepts—including Azure, Bedrock, OpenRouter, and dozens of others inherited from upstream—see [`src/envs/llm.ts`](src/envs/llm.ts). The subsections below are **not** an exhaustive list.
+
+**Conventions**
+
+- Typically, setting a provider’s `*_API_KEY` enables that integration.
+- `ENABLED_OPENAI=0` disables the built-in OpenAI path even if `OPENAI_API_KEY` is present.
+- `ENABLED_OLLAMA=0` hides Ollama from server-side discovery; the Ollama base URL is still set in the app UI when used.
+
+### OpenAI (GPT series)
+
+```env
+OPENAI_API_KEY=sk-...
+```
+
+### Anthropic (Claude)
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Google (Gemini)
+
+```env
+GOOGLE_API_KEY=...
+```
+
+### Moonshot (Kimi K2.x and related)
+
+```env
+MOONSHOT_API_KEY=...
+```
+
+### MiniMax
+
+```env
+MINIMAX_API_KEY=...
+# Optional custom HTTP endpoint:
+# MINIMAX_PROXY_URL=https://...
+```
+
+### OpenAI-compatible (vLLM, LiteLLM, custom gateways)
+
+Use any OpenAI-style HTTP API. Model list can also be configured in the web UI.
+
+```env
+OPENAICOMPATIBLE_API_KEY=your-key
+OPENAICOMPATIBLE_PROXY_URL=https://your-host/v1
+# OPENAICOMPATIBLE_MODEL_LIST=+llama3=My Llama,+qwen2.5=Qwen 2.5
+```
+
+### Ollama (local models)
+
+No API key is required for a default local daemon. Disable discovery if you do not use Ollama on the server:
+
+```env
+# ENABLED_OLLAMA=0
+```
+
+### Other providers
+
+Anything beyond the sections above uses the same pattern (`*_API_KEY`, optional proxy/base URL, and sometimes `ENABLED_*` flags). Refer to [`src/envs/llm.ts`](src/envs/llm.ts) for the complete, authoritative map—do not assume every upstream provider is curated or tested for LobeHub releases.
+
+---
+
+## Adding a Tool to Tools Hub
 
 1. Create `src/app/[variants]/(main)/tools/<tool-name>/page.tsx`
 2. Add i18n keys to `src/locales/default/tools.ts` + `locales/en-US/tools.json` + `locales/zh-CN/tools.json`

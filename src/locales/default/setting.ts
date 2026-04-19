@@ -267,6 +267,36 @@ export default {
     submit: '更新聊天偏好',
     title: '聊天设置',
   },
+  settingChatMemory: {
+    assistanceLevel: {
+      balanced: '均衡',
+      hint: '一键调整附带消息数、自动总结与按占用压缩；仍可逐项覆盖',
+      minimal: '轻量',
+      rich: '丰富',
+      title: '协助与记忆强度',
+    },
+    contextCompactThreshold: {
+      desc: '当预估上下文占用超过该比例（相对模型窗口）时尝试自动压缩（估算值，仅供参考）',
+      title: '自动压缩触发比例',
+    },
+    copy: '复制当前话题记忆',
+    enableDailyMemorySummary: {
+      desc: '每个自然日最多触发一次（按浏览器本地存储记录）',
+      title: '每日自动整理话题记忆',
+    },
+    enableTokenThresholdAutoCompact: {
+      desc: '需要同时开启「限制历史消息数」与「开启历史消息自动总结」',
+      title: '达到上下文占用阈值时自动压缩',
+    },
+    enableUserMemoryArchive: {
+      desc: '在话题元数据中保留最近摘要片段，并可附加到历史总结供模型参考',
+      title: '启用话题记忆归档片段',
+    },
+    export: '导出为 Markdown',
+    groupTitle: '记忆与上下文',
+    previewHint: '以下为当前话题的运行中记忆摘要（需有活跃话题）。保存助手设置不会修改话题内容。',
+    previewSection: '当前话题记忆文件',
+  },
   settingChatAppearance: {
     fontSize: {
       desc: '聊天内容的字体大小',

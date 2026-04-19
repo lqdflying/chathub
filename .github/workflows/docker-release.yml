@@ -7,6 +7,7 @@ on:
   push:
     tags:
       - 'v*.*.*'
+      - 'v*.*.*-canal'
 
 concurrency:
   group: ${{ github.ref }}-docker-release

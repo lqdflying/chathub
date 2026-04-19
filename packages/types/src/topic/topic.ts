@@ -24,7 +24,36 @@ export interface GroupedTopic {
   title?: string;
 }
 
+export type MemoryCompactionTrigger =
+  | 'manual'
+  | 'message_count'
+  | 'scheduled'
+  | 'token_threshold';
+
+export interface MemoryCompactionDebugEntry {
+  at: number;
+  estimatedTokensAfter?: number;
+  estimatedTokensBefore?: number;
+  messageCountIncluded?: number;
+  model?: string;
+  provider?: string;
+  trigger: MemoryCompactionTrigger;
+}
+
+export interface SummaryHistoryOptions {
+  estimatedTokensBefore?: number;
+  trigger?: MemoryCompactionTrigger;
+}
+
+export interface TopicMemoryArchiveEntry {
+  at: number;
+  summaryExcerpt: string;
+  trigger?: MemoryCompactionTrigger;
+}
+
 export interface ChatTopicMetadata {
+  memoryArchives?: TopicMemoryArchiveEntry[];
+  memoryDebugLog?: MemoryCompactionDebugEntry[];
   model?: string;
   provider?: string;
 }
