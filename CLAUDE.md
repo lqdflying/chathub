@@ -163,7 +163,7 @@ All utility features live under `/tools/*` with a shared left sub-navigation pan
 - Journal: `packages/database/migrations/meta/_journal.json` — must be updated manually when adding migrations
 - Next migration index: check journal for the highest `idx` and increment by 1
 - Migrations run automatically at container startup via `scripts/serverLauncher/startServer.js` → `docker.cjs`
-- Migration runs only if `DATABASE_DRIVER` env var is set
+- Migrations run at container startup when `DATABASE_URL` is set (`startServer.js` runs `docker.cjs`)
 - `drizzle_migrations` table in PostgreSQL tracks applied migrations
 - **Never use `db:push` against production** — bypasses tracking
 

@@ -171,7 +171,10 @@ const checkAuthConfig = () => {
 
   checkAuthConfig();
 
-  if (process.env.DATABASE_DRIVER) {
+  // Run migrations whenever PostgreSQL is configured (DATABASE_URL).
+  // Previously this gated on DATABASE_DRIVER only; omitting it skipped migrations while the
+  // app still queried PG — causing missing-column errors after schema upgrades (e.g. 0043).
+  if (process.env.DATABASE_URL) {
     try {
       await fs.access(DB_MIGRATION_SCRIPT_PATH);
 

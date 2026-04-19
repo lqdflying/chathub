@@ -122,7 +122,7 @@ Use `createStyles` from `antd-style`. Do not use inline styles or plain CSS modu
 - Migration SQL lives in `packages/database/migrations/*.sql`
 - **Journal must be updated manually**: `packages/database/migrations/meta/_journal.json`
 - New migration `idx` = highest existing `idx` + 1
-- Migrations run automatically at container startup when `DATABASE_DRIVER` env is set
+- Migrations run automatically at container startup when `DATABASE_URL` is set
 
 ## i18n
 

@@ -129,7 +129,7 @@ services:
       retries: 5
 ```
 
-Database migrations run automatically on container startup. No manual setup required for a fresh deployment.
+Database migrations run automatically on container startup when **`DATABASE_URL`** is set (see `scripts/serverLauncher/startServer.js`). No manual setup required for a fresh deployment.
 
 ---
 
@@ -139,6 +139,21 @@ Database migrations run automatically on container startup. No manual setup requ
 - Drizzle ORM tracks applied migrations via the `drizzle_migrations` table in PostgreSQL
 - **Never use `bun run db:push` against production** — it bypasses migration tracking
 - On a fresh empty DB, all migrations (0000 → latest) run automatically on first container start
+
+### `assistant_memory` / `column ... does not exist` after upgrade
+
+If the UI shows repeated **Request failed** errors and logs contain `column ... assistant_memory does not exist` (PostgreSQL `42703`), the database never received migration **`0043_add_agent_assistant_memory.sql`**.
+
+**Fix (pick one):**
+
+1. **Restart the app container** after pulling the new image so startup runs the migrator (requires `DATABASE_URL`; migrations run before the server binds).
+2. **Apply the SQL manually** against your production database, then restart:
+
+```sql
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS assistant_memory text;
+```
+
+If you use an external Postgres or a compose file that omitted migrations before, ensure `DATABASE_URL` points at that DB so the container migrator can record the migration in `drizzle_migrations`.
 
 ### Migration Troubleshooting
 
