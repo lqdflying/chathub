@@ -63,6 +63,27 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 
 LobeHub separates **topic-level compaction** from **assistant-level memory**:
 
+### How to use **Assistant → Memory**
+
+Open **Assistant** (pick the agent) → **Memory**. The **form** has two titled groups; after edits, click **Save**. Further down, **Assistant memory** and **Current topic compaction** behave as follows:
+
+1. **Context & compaction** — Assist preset, token auto-compact, compact threshold, and daily topic note.
+   - **Assist preset** (Light / Balanced / Rich) — Applies suggested defaults for **history limits** and **summarization** in **Assistant → Chat** (Chat preferences). You can still override those there.
+   - **Auto-compact when context is full** — When the **local** context estimate crosses your threshold, older turns are summarized in the background. **Requires** **Limit history messages** and **Summarize history** to be enabled under **Assistant → Chat**; otherwise it stays inactive.
+   - **Daily topic note** — Runs the topic-side compaction path at most **once per calendar day in this browser** (per session/topic key in storage). This is **not** the same as assistant-level memory.
+
+2. **Memory & rollups** — Stored-summary behavior and assistant-memory automation.
+   - **Topic snippets** — When on, stores short **snippet** text on each **topic** so the model can reuse prior summaries (related to topic “memory archive” behavior described below).
+   - **Periodic assistant memory merge** — At most **once per UTC day per browser** (`localStorage`), runs the **same merge** as **Generate assistant memory from topics** (when the UI is idle). Uses **Settings → System Assistant → Automatically summarize conversation history** as the model.
+
+3. **Assistant memory (all chats)** — Persistent notes for **this assistant across every chat/topic** that uses it. The text is stored in PostgreSQL and injected into requests (see technical bullets below). Use **Save assistant memory** after manual edits. **Generate assistant memory from topics** calls the system history-compress model, merges **prior assistant memory** with **topic compaction summaries** from **all sessions linked to this agent**, then **overwrites** this box (confirmation shown—copy content first if unsure). If the button does “nothing useful,” topics likely have no `historySummary` yet: enable compression under **Assistant → Chat**, chat or **compact** from the green **token** badge until summaries exist.
+
+4. **Current topic compaction (this session)** — Read-only preview of the **active topic’s** rolling summary; it changes when you switch topics. You do not type final topic summaries here; they come from compaction / chat behavior.
+
+**Short setup path:** **Assistant → Chat** → turn on **Limit history** + **Summarize history** → chat (or compact) until summaries exist → **Assistant → Memory** → adjust **Context & compaction** and **Memory & rollups** → **Save** → optional **Save assistant memory** / **Generate assistant memory from topics** / periodic merge.
+
+The in-app **How to set up** hint on the Memory page mirrors this flow.
+
 ### Topic compaction (per topic / “session thread”)
 
 Per-topic **history summary** (`topics.history_summary`) is produced by the compaction pipeline:
@@ -131,6 +152,14 @@ services:
 
 Database migrations run automatically on container startup when **`DATABASE_URL`** is set (see `scripts/serverLauncher/startServer.js`). No manual setup required for a fresh deployment.
 
+### Docker Compose: redeploys and `--force-recreate`
+
+- **Routine image upgrade:** `docker compose pull` then `docker compose up -d`. The default image command runs **`/app/startServer.js`**, which applies migrations before the server listens.
+- **`docker compose up -d --force-recreate`** — Recreates containers from the compose file. It **does not** remove Postgres volumes. Use it when you want a clean **`lobe-chat`** process after changing the image or env, so startup (including migrations) runs again.
+- **Wiping database files (destructive):** `docker compose down`, delete the bind-mounted Postgres data directory (for example `rm -rf ./lobe_db_data` or whatever path your compose file mounts), then `docker compose up -d`. This is a **full data loss** reset; only do it when you intentionally discard all users and chats.
+
+If you saw schema errors after an upgrade, the usual fix is **pull newer image + restart/recreate `lobe-chat`** so migrations run against the **same** `DATABASE_URL`. A volume wipe is optional and only needed when you want an empty database.
+
 ---
 
 ## Database Notes
@@ -146,8 +175,8 @@ If the UI shows repeated **Request failed** errors and logs contain `column ... 
 
 **Fix (pick one):**
 
-1. **Restart the app container** after pulling the new image so startup runs the migrator (requires `DATABASE_URL`; migrations run before the server binds).
-2. **Apply the SQL manually** against your production database, then restart:
+1. **Run migrations from a current image** — Use a tag that includes **`0043_add_agent_assistant_memory`**, set **`DATABASE_URL`** to this Postgres, then **`docker compose pull`** and **`docker compose up -d`** (add **`--force-recreate`** to force a new `lobe-chat` container). Check logs for **`database migration pass`** before relying on the UI.
+2. **Apply the SQL manually** against the same database the app uses, then restart the app:
 
 ```sql
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS assistant_memory text;
@@ -155,20 +184,9 @@ ALTER TABLE agents ADD COLUMN IF NOT EXISTS assistant_memory text;
 
 If you use an external Postgres or a compose file that omitted migrations before, ensure `DATABASE_URL` points at that DB so the container migrator can record the migration in `drizzle_migrations`.
 
-### Migration Troubleshooting
+### Migration troubleshooting
 
-If your DB was bootstrapped outside the migration system (`drizzle_migrations` table missing but tables already exist), seed the tracking table so future migrations apply correctly:
-
-```bash
-docker exec -it lobe-db psql -U "
-CREATE TABLE IF NOT EXISTS drizzle_migrations (
-  id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint
-);
-INSERT INTO drizzle_migrations (hash, created_at) VALUES
-('0000_init',1),('0001_add_client_id',2),('0002_amusing_puma',3),
--- ... insert all tags through the latest migration
-ON CONFLICT DO NOTHING;" < user > -d < db > -c
-```
+If the database was created or altered **outside** Drizzle’s migration chain, fixing `drizzle_migrations` by hand is easy to get wrong (wrong hashes/order). Prefer: **restore from a known-good backup** and run the official image entrypoint against it, or **export data you need**, wipe the Postgres volume, and let a fresh container apply **0000 → latest** automatically. For advanced repair, compare your DB to `packages/database/migrations/meta/_journal.json` and seek help with concrete `drizzle_migrations` contents rather than pasting partial SQL from outdated docs.
 
 ---
 

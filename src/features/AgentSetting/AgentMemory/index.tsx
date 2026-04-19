@@ -19,7 +19,7 @@ const AgentMemory = memo(() => {
   const updateConfig = useStore((s) => s.setChatConfig);
   const config = useStore(selectors.currentChatConfig, isEqual);
 
-  const memory: FormGroupItemType = {
+  const compactionGroup: FormGroupItemType = {
     children: [
       {
         children: (
@@ -60,6 +60,12 @@ const AgentMemory = memo(() => {
         name: 'enableDailyMemorySummary',
         valuePropName: 'checked',
       },
+    ],
+    title: t('settingChatMemory.compactionGroupTitle'),
+  };
+
+  const memoryGroup: FormGroupItemType = {
+    children: [
       {
         children: <Switch />,
         desc: t('settingChatMemory.enableUserMemoryArchive.desc'),
@@ -79,7 +85,7 @@ const AgentMemory = memo(() => {
         valuePropName: 'checked',
       },
     ],
-    title: t('settingChatMemory.groupTitle'),
+    title: t('settingChatMemory.memoryGroupTitle'),
   };
 
   return (
@@ -103,7 +109,7 @@ const AgentMemory = memo(() => {
         }
         form={form}
         initialValues={config}
-        items={[memory]}
+        items={[compactionGroup, memoryGroup]}
         itemsType={'group'}
         onFinish={updateConfig}
         onValuesChange={(changed: Partial<typeof config>) => {
