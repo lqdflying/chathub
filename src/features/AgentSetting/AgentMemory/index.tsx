@@ -1,0 +1,113 @@
+'use client';
+
+import { Form, type FormGroupItemType } from '@lobehub/ui';
+import { InputNumber, Select, Switch } from 'antd';
+import isEqual from 'fast-deep-equal';
+import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Flexbox } from 'react-layout-kit';
+
+import { assistanceLevelToChatConfigPatch, type AssistanceLevel } from '@/const/assistanceLevel';
+import { FORM_STYLE } from '@/const/layoutTokens';
+
+import AgentMemoryPreview from '../AgentChat/AgentMemoryPreview';
+import { selectors, useStore } from '../store';
+
+const AgentMemory = memo(() => {
+  const { t } = useTranslation('setting');
+  const [form] = Form.useForm();
+  const updateConfig = useStore((s) => s.setChatConfig);
+  const config = useStore(selectors.currentChatConfig, isEqual);
+
+  const memory: FormGroupItemType = {
+    children: [
+      {
+        children: (
+          <Select
+            options={(['minimal', 'balanced', 'rich'] as AssistanceLevel[]).map((value) => ({
+              label: t(`settingChatMemory.assistanceLevel.${value}`),
+              value,
+            }))}
+            popupMatchSelectWidth={false}
+          />
+        ),
+        desc: t('settingChatMemory.assistanceLevel.hint'),
+        label: t('settingChatMemory.assistanceLevel.title'),
+        name: 'assistanceLevel',
+      },
+      {
+        children: <Switch />,
+        desc: t('settingChatMemory.enableTokenThresholdAutoCompact.desc'),
+        label: t('settingChatMemory.enableTokenThresholdAutoCompact.title'),
+        layout: 'horizontal',
+        minWidth: undefined,
+        name: 'enableTokenThresholdAutoCompact',
+        valuePropName: 'checked',
+      },
+      {
+        children: <InputNumber max={0.99} min={0.5} step={0.01} style={{ width: '100%' }} />,
+        desc: t('settingChatMemory.contextCompactThreshold.desc'),
+        hidden: !config.enableTokenThresholdAutoCompact,
+        label: t('settingChatMemory.contextCompactThreshold.title'),
+        name: 'contextCompactThreshold',
+      },
+      {
+        children: <Switch />,
+        desc: t('settingChatMemory.enableDailyMemorySummary.desc'),
+        label: t('settingChatMemory.enableDailyMemorySummary.title'),
+        layout: 'horizontal',
+        minWidth: undefined,
+        name: 'enableDailyMemorySummary',
+        valuePropName: 'checked',
+      },
+      {
+        children: <Switch />,
+        desc: t('settingChatMemory.enableUserMemoryArchive.desc'),
+        label: t('settingChatMemory.enableUserMemoryArchive.title'),
+        layout: 'horizontal',
+        minWidth: undefined,
+        name: 'enableUserMemoryArchive',
+        valuePropName: 'checked',
+      },
+    ],
+    title: t('settingChatMemory.groupTitle'),
+  };
+
+  return (
+    <Flexbox gap={20}>
+      <Form
+        footer={
+          <Form.SubmitFooter
+            texts={{
+              reset: t('submitFooter.reset'),
+              submit: t('settingChat.submit'),
+              unSaved: t('submitFooter.unSaved'),
+              unSavedWarning: t('submitFooter.unSavedWarning'),
+            }}
+          />
+        }
+        form={form}
+        initialValues={config}
+        items={[memory]}
+        itemsType={'group'}
+        onFinish={updateConfig}
+        onValuesChange={(changed: Partial<typeof config>) => {
+          if (Object.prototype.hasOwnProperty.call(changed, 'assistanceLevel')) {
+            const level = changed.assistanceLevel as AssistanceLevel | undefined;
+            if (level) {
+              form.setFieldsValue(assistanceLevelToChatConfigPatch(level));
+            }
+          }
+        }}
+        variant={'borderless'}
+        {...FORM_STYLE}
+      />
+      <Flexbox gap={8}>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>{t('settingChatMemory.previewSection')}</div>
+        <AgentMemoryPreview />
+      </Flexbox>
+    </Flexbox>
+  );
+});
+
+export default AgentMemory;

@@ -418,6 +418,7 @@ export default {
   },
   tokenTag: {
     overload: '超过限制',
+    popoverTitle: '上下文明细与压缩',
     remained: '剩余',
     used: '使用',
   },

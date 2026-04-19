@@ -18,6 +18,7 @@ export enum SidebarTabKey {
 
 export enum ChatSettingsTabs {
   Chat = 'chat',
+  Memory = 'memory',
   Meta = 'meta',
   Modal = 'modal',
   Opening = 'opening',

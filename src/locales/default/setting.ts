@@ -4,6 +4,7 @@ export default {
   },
   agentTab: {
     chat: '聊天偏好',
+    memory: '记忆与上下文',
     meta: '助手信息',
     modal: '模型设置',
     opening: '开场设置',

@@ -134,7 +134,7 @@ const Token = memo<TokenTagProps>(({ total: _messageString }) => {
   );
 
   return (
-    <ActionPopover content={content}>
+    <ActionPopover content={content} title={t('tokenTag.popoverTitle')}>
       <TokenTag
         maxValue={maxTokens}
         mode={'used'}
