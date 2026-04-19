@@ -26,6 +26,8 @@ import { ClientSecretPayload } from '@lobechat/types';
 import { ModelProvider } from 'model-bank';
 import { describe, expect, it, vi } from 'vitest';
 
+import { getLLMConfig } from '@/envs/llm';
+
 import { initModelRuntimeWithUserPayload } from './index';
 
 // 模拟依赖项
@@ -450,6 +452,23 @@ describe('initModelRuntimeWithUserPayload method', () => {
       expect(runtime['_runtime']).toBeInstanceOf(LobeOpenAI);
       // 应返回 OPENAI_PROXY_URL
       expect(runtime['_runtime'].baseURL).toBe('https://proxy.example.com/v1');
+    });
+
+    it('Anthropic: must not inherit OPENAI_PROXY_URL when env schema falls back to OpenAI API key', async () => {
+      process.env.OPENAI_PROXY_URL = 'https://openai-compatible-gateway.example/v1';
+      delete process.env.ANTHROPIC_PROXY_URL;
+
+      vi.mocked(getLLMConfig).mockReturnValueOnce({
+        OPENAI_API_KEY: 'openai-key',
+        OPENAI_PROXY_URL: 'https://openai-compatible-gateway.example/v1',
+      } as any);
+
+      const runtime = await initModelRuntimeWithUserPayload(ModelProvider.Anthropic, {
+        apiKey: 'user-anthropic-key',
+      });
+
+      expect(runtime['_runtime']).toBeInstanceOf(LobeAnthropicAI);
+      expect(runtime['_runtime'].baseURL).toBe('https://api.anthropic.com');
     });
 
     it('Qwen AI provider: without apiKey and endpoint with OPENAI_PROXY_URL', async () => {

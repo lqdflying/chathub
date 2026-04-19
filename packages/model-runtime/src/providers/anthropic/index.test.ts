@@ -4,7 +4,7 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as anthropicHelpers from '../../core/contextBuilders/anthropic';
 import { ChatCompletionTool, ChatStreamPayload } from '../../types/chat';
 import * as debugStreamModule from '../../utils/debugStream';
-import { LobeAnthropicAI } from './index';
+import { LobeAnthropicAI, normalizeAnthropicBaseURL } from './index';
 
 const provider = 'anthropic';
 
@@ -27,6 +27,24 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe('normalizeAnthropicBaseURL', () => {
+  it('removes trailing /v1 and slashes', () => {
+    expect(normalizeAnthropicBaseURL('https://integrate.api.nvidia.com/v1')).toBe(
+      'https://integrate.api.nvidia.com',
+    );
+    expect(normalizeAnthropicBaseURL('https://integrate.api.nvidia.com/v1/')).toBe(
+      'https://integrate.api.nvidia.com',
+    );
+  });
+
+  it('leaves hosts without /v1 unchanged', () => {
+    expect(normalizeAnthropicBaseURL('https://api.anthropic.com')).toBe('https://api.anthropic.com');
+    expect(normalizeAnthropicBaseURL('https://proxy.example/anthropic')).toBe(
+      'https://proxy.example/anthropic',
+    );
+  });
+});
+
 describe('LobeAnthropicAI', () => {
   describe('init', () => {
     it('should correctly initialize with an API key', async () => {
@@ -42,6 +60,14 @@ describe('LobeAnthropicAI', () => {
       });
       expect(instance).toBeInstanceOf(LobeAnthropicAI);
       expect(instance.baseURL).toBe('https://api.anthropic.proxy');
+    });
+
+    it('should strip trailing /v1 from baseURL so the SDK does not call /v1/v1/messages', async () => {
+      const instance = new LobeAnthropicAI({
+        apiKey: 'test_api_key',
+        baseURL: 'https://integrate.api.nvidia.com/v1',
+      });
+      expect(instance.baseURL).toBe('https://integrate.api.nvidia.com');
     });
 
     it('should correctly initialize with different id', async () => {
@@ -494,7 +520,7 @@ describe('LobeAnthropicAI', () => {
             temperature: 0,
           }),
         ).rejects.toEqual({
-          endpoint: 'https://api.cu****om.com/v1',
+          endpoint: 'https://api.cu****om.com/',
           error: apiError,
           errorType: invalidErrorType,
           provider,

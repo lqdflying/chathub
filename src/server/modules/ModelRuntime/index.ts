@@ -36,14 +36,18 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
     }
 
     default: {
-      let upperProvider = provider.toUpperCase();
+      const originalUpper = provider.toUpperCase();
+      let keyUpper = originalUpper;
 
-      if (!(`${upperProvider}_API_KEY` in llmConfig)) {
-        upperProvider = ModelProvider.OpenAI.toUpperCase(); // Use OpenAI options as default
+      // Some custom provider ids have no `*_API_KEY` in env schema — fall back to OpenAI key material.
+      // Proxy URL must stay tied to the **requested** provider; otherwise e.g. Anthropic would inherit
+      // `OPENAI_PROXY_URL` / OpenAI-compatible gateways (404 on `/v1/messages`).
+      if (!(`${keyUpper}_API_KEY` in llmConfig)) {
+        keyUpper = ModelProvider.OpenAI.toUpperCase();
       }
 
-      const apiKey = apiKeyManager.pick(payload?.apiKey || llmConfig[`${upperProvider}_API_KEY`]);
-      const baseURL = payload?.baseURL || process.env[`${upperProvider}_PROXY_URL`];
+      const apiKey = apiKeyManager.pick(payload?.apiKey || llmConfig[`${keyUpper}_API_KEY`]);
+      const baseURL = payload?.baseURL || process.env[`${originalUpper}_PROXY_URL`];
 
       return baseURL ? { apiKey, baseURL } : { apiKey };
     }

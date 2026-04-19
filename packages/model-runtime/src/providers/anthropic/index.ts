@@ -36,6 +36,17 @@ const modelsWithSmallContextWindow = new Set(['claude-3-opus-20240229', 'claude-
 const DEFAULT_BASE_URL = 'https://api.anthropic.com';
 const DEFAULT_CACHE_TTL = '5m' as const;
 
+/**
+ * The Anthropic JS SDK posts to `/v1/messages` relative to `baseURL`.
+ * Many proxies (incl. OpenAI-style gateways) are configured as `https://host/v1`,
+ * which would otherwise produce `https://host/v1/v1/messages` → 404.
+ */
+export const normalizeAnthropicBaseURL = (baseURL: string): string => {
+  const trimmed = baseURL.trim().replace(/\/+$/, '');
+  if (/\/v1$/i.test(trimmed)) return trimmed.replace(/\/v1$/i, '');
+  return trimmed;
+};
+
 type CacheTTL = Anthropic.Messages.CacheControlEphemeral['ttl'];
 
 /**
@@ -98,10 +109,11 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
     if (!apiKey) throw AgentRuntimeError.createError(AgentRuntimeErrorType.InvalidProviderAPIKey);
 
     const betaHeaders = process.env.ANTHROPIC_BETA_HEADERS;
+    const resolvedBaseURL = normalizeAnthropicBaseURL(baseURL);
 
     this.client = new Anthropic({
       apiKey,
-      baseURL,
+      baseURL: resolvedBaseURL,
       defaultHeaders: { ...defaultHeaders, 'anthropic-beta': betaHeaders },
       ...res,
     });

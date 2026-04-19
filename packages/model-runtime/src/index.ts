@@ -5,7 +5,7 @@ export { createOpenAICompatibleRuntime } from './core/openaiCompatibleFactory';
 export * from './core/RouterRuntime';
 export * from './core/usageConverters';
 export * from './helpers';
-export { LobeAnthropicAI } from './providers/anthropic';
+export { LobeAnthropicAI, normalizeAnthropicBaseURL } from './providers/anthropic';
 export { LobeAzureAI } from './providers/azureai';
 export { LobeAzureOpenAI } from './providers/azureOpenai';
 export { LobeGoogleAI } from './providers/google';
