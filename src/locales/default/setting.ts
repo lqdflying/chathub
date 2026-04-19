@@ -4,7 +4,7 @@ export default {
   },
   agentTab: {
     chat: '聊天偏好',
-    memory: '记忆与上下文',
+    memory: '记忆',
     meta: '助手信息',
     modal: '模型设置',
     opening: '开场设置',
@@ -271,32 +271,36 @@ export default {
   settingChatMemory: {
     assistanceLevel: {
       balanced: '均衡',
-      hint: '一键调整附带消息数、自动总结与按占用压缩；仍可逐项覆盖',
+      hint: '一键调整附带消息数与压缩相关默认值；仍可在「聊天偏好」里逐项修改',
       minimal: '轻量',
       rich: '丰富',
-      title: '协助与记忆强度',
+      title: '协助预设',
     },
     contextCompactThreshold: {
-      desc: '当预估上下文占用超过该比例（相对模型窗口）时尝试自动压缩（估算值，仅供参考）',
-      title: '自动压缩触发比例',
+      desc: '当预估上下文占用超过模型窗口的该比例时尝试自动压缩（估算值，仅供参考）',
+      title: '超过比例时压缩',
     },
-    copy: '复制当前话题记忆',
+    copy: '复制',
     enableDailyMemorySummary: {
-      desc: '每个自然日最多触发一次（按浏览器本地存储记录）',
-      title: '每日自动整理话题记忆',
+      desc: '每个自然日最多一次（本浏览器记录）',
+      title: '每日话题备忘',
     },
     enableTokenThresholdAutoCompact: {
-      desc: '需要同时开启「限制历史消息数」与「开启历史消息自动总结」',
-      title: '达到上下文占用阈值时自动压缩',
+      desc: '需先在「聊天偏好」开启限制历史消息数与历史总结',
+      title: '上下文将满时自动压缩',
     },
     enableUserMemoryArchive: {
-      desc: '在话题元数据中保留最近摘要片段，并可附加到历史总结供模型参考',
-      title: '启用话题记忆归档片段',
+      desc: '在话题元数据中保留摘要片段供模型参考',
+      title: '话题记忆片段',
     },
-    export: '导出为 Markdown',
-    groupTitle: '记忆与上下文',
-    previewHint: '以下为当前话题的运行中记忆摘要（需有活跃话题）。保存助手设置不会修改话题内容。',
-    previewSection: '当前话题记忆文件',
+    export: '导出 Markdown',
+    groupTitle: '记忆选项',
+    guide:
+      '1）打开「聊天偏好」→ 开启「限制历史消息数」与「历史总结」，设置附带条数。\n2）在本页选择协助预设，并可按需开启自动压缩、每日备忘或话题片段。\n3）聊天中点击绿色「用量」标签可查看明细并手动压缩。',
+    guideTitle: '设置步骤',
+    previewHint: '预览依赖当前活跃话题；保存助手设置不会直接改写话题内容。',
+    previewSection: '预览',
+    submit: '保存记忆设置',
   },
   settingChatAppearance: {
     fontSize: {

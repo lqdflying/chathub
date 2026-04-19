@@ -9,7 +9,8 @@
     "opening": "Configuración de apertura",
     "plugin": "Configuración de complementos",
     "prompt": "Configuración de roles",
-    "tts": "Servicio de voz"
+    "tts": "Servicio de voz",
+    "memory": "Memory"
   },
   "analytics": {
     "telemetry": {
@@ -683,5 +684,38 @@
       "store": "Tienda de complementos"
     },
     "title": "Herramientas de extensión"
+  },
+  "settingChatMemory": {
+    "assistanceLevel": {
+      "balanced": "Balanced",
+      "hint": "Applies suggested defaults for history and compression. You can still override in Chat preferences.",
+      "minimal": "Light",
+      "rich": "Rich",
+      "title": "Assist preset"
+    },
+    "contextCompactThreshold": {
+      "desc": "When estimated context use exceeds this share of the model window, try auto-compacting (estimate only).",
+      "title": "Compact when above"
+    },
+    "copy": "Copy",
+    "enableDailyMemorySummary": {
+      "desc": "Runs at most once per calendar day in this browser.",
+      "title": "Daily topic note"
+    },
+    "enableTokenThresholdAutoCompact": {
+      "desc": "Requires Limit history and Summarize history in Chat preferences.",
+      "title": "Auto-compact when context is full"
+    },
+    "enableUserMemoryArchive": {
+      "desc": "Store short summary snippets on the topic for the model to reuse.",
+      "title": "Topic snippets"
+    },
+    "export": "Export",
+    "groupTitle": "Memory options",
+    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) Memory — pick a preset and optionally auto-compact, daily note, or topic snippets.\n3) In chat — click the green token badge to see usage and compact manually.",
+    "guideTitle": "How to set up",
+    "previewHint": "Shows the active topic. Saving here does not change saved topic content.",
+    "previewSection": "Preview",
+    "submit": "Save memory settings"
   }
 }

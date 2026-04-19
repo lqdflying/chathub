@@ -1,7 +1,7 @@
 'use client';
 
 import { Form, type FormGroupItemType } from '@lobehub/ui';
-import { InputNumber, Select, Switch } from 'antd';
+import { Alert, InputNumber, Select, Switch } from 'antd';
 import isEqual from 'fast-deep-equal';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -75,12 +75,18 @@ const AgentMemory = memo(() => {
 
   return (
     <Flexbox gap={20}>
+      <Alert
+        description={t('settingChatMemory.guide')}
+        message={t('settingChatMemory.guideTitle')}
+        showIcon
+        type={'info'}
+      />
       <Form
         footer={
           <Form.SubmitFooter
             texts={{
               reset: t('submitFooter.reset'),
-              submit: t('settingChat.submit'),
+              submit: t('settingChatMemory.submit'),
               unSaved: t('submitFooter.unSaved'),
               unSavedWarning: t('submitFooter.unSavedWarning'),
             }}
