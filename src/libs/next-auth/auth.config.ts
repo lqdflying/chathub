@@ -1,7 +1,9 @@
 import type { NextAuthConfig } from 'next-auth';
 
 import { getServerDBConfig } from '@/config/db';
+import { serverDB } from '@/database/server';
 import { getAuthConfig } from '@/envs/auth';
+import { NextAuthUserService } from '@/server/services/nextAuthUser';
 
 import { parseAuthProviders } from './parseAuthProviders';
 import { LobeNextAuthDbAdapter } from './adapter';
@@ -84,4 +86,35 @@ export default {
         : NEXT_AUTH_SSO_SESSION_STRATEGY,
   },
   trustHost: process.env?.AUTH_TRUST_HOST ? process.env.AUTH_TRUST_HOST === 'true' : true,
+  events: {
+    async signIn({ user, profile }) {
+      if (!NEXT_PUBLIC_ENABLED_SERVER_SERVICE || !user?.id) return;
+
+      const image =
+        user.image ||
+        (profile &&
+        typeof profile === 'object' &&
+        'avatar_url' in profile &&
+        typeof (profile as { avatar_url?: string }).avatar_url === 'string'
+          ? (profile as { avatar_url: string }).avatar_url
+          : undefined);
+      const name =
+        user.name ||
+        (profile &&
+        typeof profile === 'object' &&
+        'name' in profile &&
+        typeof (profile as { name?: string }).name === 'string'
+          ? (profile as { name: string }).name
+          : undefined);
+
+      if (!image && !name) return;
+
+      try {
+        const svc = new NextAuthUserService(serverDB);
+        await svc.syncOAuthProfileOnSignIn(user.id, { image, name });
+      } catch {
+        /* non-fatal — do not block sign-in */
+      }
+    },
+  },
 } satisfies NextAuthConfig;

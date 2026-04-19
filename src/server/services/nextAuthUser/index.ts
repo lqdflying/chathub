@@ -30,6 +30,24 @@ export class NextAuthUserService {
     this.db = db;
   }
 
+  /** Keep Lobe `users.avatar` / `fullName` in sync with IdP on each OAuth sign-in. */
+  syncOAuthProfileOnSignIn = async (
+    userId: string,
+    data: { image?: string | null; name?: string | null },
+  ) => {
+    const patch: Partial<UserItem> = {};
+    if (typeof data.image === 'string' && data.image.trim()) {
+      patch.avatar = data.image;
+    }
+    if (typeof data.name === 'string' && data.name.trim()) {
+      patch.fullName = data.name;
+    }
+    if (Object.keys(patch).length === 0) return;
+
+    const userModel = new UserModel(this.db, userId);
+    await userModel.updateUser(patch);
+  };
+
   safeUpdateUser = async (
     { providerAccountId, provider }: { provider: string; providerAccountId: string },
     data: Partial<UserItem>,
