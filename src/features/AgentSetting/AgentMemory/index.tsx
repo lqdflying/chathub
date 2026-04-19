@@ -69,6 +69,15 @@ const AgentMemory = memo(() => {
         name: 'enableUserMemoryArchive',
         valuePropName: 'checked',
       },
+      {
+        children: <Switch />,
+        desc: t('settingChatMemory.enablePeriodicAssistantMemoryRollup.desc'),
+        label: t('settingChatMemory.enablePeriodicAssistantMemoryRollup.title'),
+        layout: 'horizontal',
+        minWidth: undefined,
+        name: 'enablePeriodicAssistantMemoryRollup',
+        valuePropName: 'checked',
+      },
     ],
     title: t('settingChatMemory.groupTitle'),
   };
@@ -108,10 +117,7 @@ const AgentMemory = memo(() => {
         variant={'borderless'}
         {...FORM_STYLE}
       />
-      <Flexbox gap={8}>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>{t('settingChatMemory.previewSection')}</div>
-        <AgentMemoryPreview />
-      </Flexbox>
+      <AgentMemoryPreview />
     </Flexbox>
   );
 });

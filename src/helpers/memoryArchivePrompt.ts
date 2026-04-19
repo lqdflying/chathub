@@ -1,5 +1,21 @@
 import type { TopicMemoryArchiveEntry } from '@lobechat/types';
 
+/**
+ * Merge assistant-wide notes with the active topic’s compaction summary for a single
+ * `historySummary` payload (wrapped once by the context engine).
+ */
+export const combineAssistantMemoryWithTopicSummary = (
+  assistantMemory: string | undefined,
+  topicSummaryWithArchives: string | undefined,
+): string | undefined => {
+  const am = (assistantMemory ?? '').trim();
+  const ts = (topicSummaryWithArchives ?? '').trim();
+  if (!am && !ts) return undefined;
+  if (!am) return ts;
+  if (!ts) return am;
+  return `${am}\n\n---\n\n${ts}`;
+};
+
 /** Append recent topic memory archive excerpts after the rolling history summary text. */
 export const appendMemoryArchivesToHistorySummary = (
   summaryContent: string | undefined,

@@ -20,6 +20,7 @@ export const estimateContextUsageAsync = async ({
 }: EstimateContextUsageAsyncParams): Promise<{ totalToken: number }> => {
   const input = chatState.inputMessage || '';
   const historySummary = topicSelectors.currentActiveTopicSummary(chatState)?.content || '';
+  const assistantMemory = (agentSelectors.currentAgentConfig(agentState).assistantMemory ?? '').trim();
 
   const systemRole = agentSelectors.currentAgentSystemRole(agentState);
   const model = agentSelectors.currentAgentModel(agentState) as string;
@@ -43,7 +44,9 @@ export const estimateContextUsageAsync = async ({
   const chats = chatSelectors.mainAIChatsWithHistoryConfig(chatState);
   const chatsString = chats.map((chat) => chat.content).join('');
 
-  const parts = [systemRole, historySummary, toolsString, chatsString, input].map((s) => s || '');
+  const parts = [systemRole, assistantMemory, historySummary, toolsString, chatsString, input].map(
+    (s) => s || '',
+  );
   let total = 0;
   for (const p of parts) {
     try {

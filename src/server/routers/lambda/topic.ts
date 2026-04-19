@@ -91,6 +91,17 @@ export const topicRouter = router({
     return ctx.topicModel.queryAll();
   }),
 
+  listTopicsForAgentMemoryRollup: topicProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        limit: z.number().min(1).max(500).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.topicModel.listTopicsForAgentMemoryRollup(input.agentId, input.limit);
+    }),
+
   // TODO: this procedure should be used with authedProcedure
   getTopics: publicProcedure
     .input(

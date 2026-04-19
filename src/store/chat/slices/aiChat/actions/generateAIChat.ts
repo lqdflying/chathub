@@ -15,7 +15,10 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
-import { appendMemoryArchivesToHistorySummary } from '@/helpers/memoryArchivePrompt';
+import {
+  appendMemoryArchivesToHistorySummary,
+  combineAssistantMemoryWithTopicSummary,
+} from '@/helpers/memoryArchivePrompt';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { useAgentStore } from '@/store/agent';
@@ -580,16 +583,21 @@ export const generateAIChat: StateCreator<
     // to upload image
     const uploadTasks: Map<string, Promise<{ id?: string; url?: string }>> = new Map();
 
-    let historySummaryForRequest: string | undefined;
+    let topicSummaryBlock: string | undefined;
     if (chatConfig.enableCompressHistory) {
       const summaryBlock = topicSelectors.currentActiveTopicSummary(get());
       const activeTopic = topicSelectors.currentActiveTopic(get());
-      historySummaryForRequest = appendMemoryArchivesToHistorySummary(
+      topicSummaryBlock = appendMemoryArchivesToHistorySummary(
         summaryBlock?.content,
         activeTopic?.metadata?.memoryArchives,
         !!chatConfig.enableUserMemoryArchive,
       );
     }
+    const assistantMemory = (agentConfig.assistantMemory ?? '').trim();
+    const historySummaryForRequest = combineAssistantMemoryWithTopicSummary(
+      assistantMemory || undefined,
+      topicSummaryBlock,
+    );
     await chatService.createAssistantMessageStream({
       abortController,
       params: {

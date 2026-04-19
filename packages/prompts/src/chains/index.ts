@@ -1,4 +1,5 @@
 export * from './abstractChunk';
+export * from './assistantMemoryRollup';
 export * from './answerWithContext';
 export * from './langDetect';
 export * from './pickEmoji';

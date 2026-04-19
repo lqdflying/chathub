@@ -43,6 +43,13 @@ export class ClientService extends BaseClientService implements ITopicService {
     return data as unknown as Promise<ChatTopic[]>;
   };
 
+  listTopicsForAgentMemoryRollup: ITopicService['listTopicsForAgentMemoryRollup'] = async (
+    agentId,
+    limit,
+  ) => {
+    return this.topicModel.listTopicsForAgentMemoryRollup(agentId, limit);
+  };
+
   searchTopics: ITopicService['searchTopics'] = async (keyword, sessionId) => {
     const data = await this.topicModel.queryByKeyword(keyword, this.toDbSessionId(sessionId));
 

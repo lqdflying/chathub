@@ -280,6 +280,9 @@ export default {
       desc: '当预估上下文占用超过模型窗口的该比例时尝试自动压缩（估算值，仅供参考）',
       title: '超过比例时压缩',
     },
+    assistantMemoryHint:
+      '保存在该助手名下，会在与该助手的每次对话中一并注入模型上下文（与下方「当前话题压缩」不同）。',
+    assistantMemorySection: '助手记忆（跨会话）',
     copy: '复制',
     enableDailyMemorySummary: {
       desc: '每个自然日最多一次（本浏览器记录）',
@@ -293,6 +296,10 @@ export default {
       desc: '在话题元数据中保留摘要片段供模型参考',
       title: '话题记忆片段',
     },
+    enablePeriodicAssistantMemoryRollup: {
+      desc: '每个自然日最多尝试一次（本浏览器记录），用模型合并各会话话题摘要到助手记忆',
+      title: '定时合并助手记忆',
+    },
     export: '导出 Markdown',
     groupTitle: '记忆选项',
     guide:
@@ -300,7 +307,18 @@ export default {
     guideTitle: '设置步骤',
     previewHint: '预览依赖当前活跃话题；保存助手设置不会直接改写话题内容。',
     previewSection: '预览',
+    rollupAssistantMemory: '从话题摘要生成助手记忆',
+    rollupConfirmDesc:
+      '将用当前「系统助手」模型，把已有关联会话中话题的压缩摘要合并进助手记忆，并覆盖下方文本框中的内容（可先自行备份）。是否继续？',
+    rollupConfirmOk: '生成并覆盖',
+    rollupConfirmTitle: '生成助手记忆',
+    rollupFailed: '生成失败，请稍后重试',
+    rollupSkipped: '没有可用的「话题压缩摘要」，请先在各话题中触发压缩/总结',
+    rollupSuccess: '助手记忆已更新',
+    saveAssistantMemory: '保存助手记忆',
     submit: '保存记忆设置',
+    topicCompactionHint: '仅当前活跃话题的滚动摘要，由压缩/总结生成；换话题后显示对应该话题的内容。',
+    topicCompactionSection: '当前话题压缩（本会话）',
   },
   settingChatAppearance: {
     fontSize: {

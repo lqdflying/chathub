@@ -30,6 +30,7 @@ export const DEFAULT_AGENT_CHAT_CONFIG: LobeAgentChatConfig = {
   enableAutoCreateTopic: true,
   enableCompressHistory: true,
   enableDailyMemorySummary: false,
+  enablePeriodicAssistantMemoryRollup: false,
   enableHistoryCount: true,
   enableReasoning: false,
   enableStreaming: true,

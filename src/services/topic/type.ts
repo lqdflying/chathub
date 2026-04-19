@@ -1,4 +1,6 @@
 /* eslint-disable typescript-sort-keys/interface */
+import type { TopicMemoryRollupRow } from '@/database/models/topic';
+
 import { BatchTaskResult } from '@/types/service';
 import { ChatTopic, TopicRankItem } from '@/types/topic';
 
@@ -22,6 +24,7 @@ export interface ITopicService {
   cloneTopic(id: string, newTitle?: string): Promise<string>;
 
   getTopics(params: QueryTopicParams): Promise<ChatTopic[]>;
+  listTopicsForAgentMemoryRollup(agentId: string, limit?: number): Promise<TopicMemoryRollupRow[]>;
   getAllTopics(): Promise<ChatTopic[]>;
   countTopics(params?: {
     endDate?: string;

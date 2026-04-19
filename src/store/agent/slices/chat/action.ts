@@ -4,16 +4,23 @@ import { SWRResponse, mutate } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import { StateCreator } from 'zustand/vanilla';
 
+import { chainAssistantMemoryRollup } from '@lobechat/prompts';
+import { TraceNameMap } from '@lobechat/types';
+
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { useClientDataSWR, useOnlyFetchOnceSWR } from '@/libs/swr';
+import { chatService } from '@/services/chat';
 import { agentService } from '@/services/agent';
 import { sessionService } from '@/services/session';
+import { topicService } from '@/services/topic';
 import { AgentState } from '@/store/agent/slices/chat/initialState';
 import { useSessionStore } from '@/store/session';
 import { LobeAgentChatConfig, LobeAgentConfig } from '@/types/agent';
 import { KnowledgeItem } from '@/types/knowledgeBase';
 import { merge } from '@/utils/merge';
+import { useUserStore } from '@/store/user';
+import { systemAgentSelectors } from '@/store/user/selectors';
 
 import type { AgentStore } from '../../store';
 import { agentSelectors } from './selectors';
@@ -48,6 +55,8 @@ export interface AgentChatAction {
   togglePlugin: (id: string, open?: boolean) => Promise<void>;
   updateAgentChatConfig: (config: Partial<LobeAgentChatConfig>) => Promise<void>;
   updateAgentConfig: (config: PartialDeep<LobeAgentConfig>) => Promise<void>;
+  /** LLM-merge topic compaction summaries across sessions for this agent into assistantMemory. */
+  rollupAssistantMemory: () => Promise<{ skipped?: boolean; success: boolean }>;
   useFetchAgentConfig: (isLogin: boolean | undefined, id: string) => SWRResponse<LobeAgentConfig>;
   useFetchFilesAndKnowledgeBases: () => SWRResponse<KnowledgeItem[]>;
   useInitInboxAgentStore: (
@@ -157,6 +166,49 @@ export const createChatSlice: StateCreator<
     const controller = get().internal_createAbortController('updateAgentConfigSignal');
 
     await get().internal_updateAgentConfig(activeId, config, controller.signal);
+  },
+
+  rollupAssistantMemory: async () => {
+    const activeAgentId = get().activeAgentId;
+    const activeId = get().activeId;
+    if (!activeAgentId || !activeId) return { success: false };
+
+    const rows = await topicService.listTopicsForAgentMemoryRollup(activeAgentId);
+    const topics = rows.filter((r) => (r.historySummary ?? '').trim().length > 0);
+    if (topics.length === 0) return { success: false, skipped: true };
+
+    const prior = agentSelectors.currentAgentConfig(get()).assistantMemory;
+    const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
+
+    let text = '';
+    await chatService.fetchPresetTaskResult({
+      onFinish: async (t) => {
+        text = t;
+      },
+      params: {
+        ...chainAssistantMemoryRollup({
+          priorAssistantMemory: prior ?? undefined,
+          topics: topics.map((r) => ({
+            historySummary: r.historySummary,
+            sessionId: r.sessionId,
+            title: r.title,
+          })),
+        }),
+        model,
+        provider,
+        stream: false,
+      },
+      trace: {
+        sessionId: activeId,
+        traceName: TraceNameMap.AssistantMemoryRollup,
+      },
+    });
+
+    const next = text.trim();
+    if (!next) return { success: false };
+
+    await get().updateAgentConfig({ assistantMemory: next });
+    return { success: true };
   },
   useFetchAgentConfig: (isLogin, sessionId) =>
     useClientDataSWR<LobeAgentConfig>(

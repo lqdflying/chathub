@@ -1,4 +1,5 @@
 export enum TraceNameMap {
+  AssistantMemoryRollup = 'Assistant Memory Rollup',
   ConnectivityChecker = 'Connectivity Checker',
   Conversation = 'Conversation',
   EmojiPicker = 'Emoji Picker',

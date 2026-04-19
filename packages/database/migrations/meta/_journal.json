@@ -301,6 +301,13 @@
       "when": 1741708800000,
       "tag": "0042_ensure_picbed_images",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1741800000000,
+      "tag": "0043_add_agent_assistant_memory",
+      "breakpoints": true
     }
   ],
   "version": "6"

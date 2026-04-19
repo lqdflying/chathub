@@ -58,6 +58,12 @@ export interface LobeAgentConfig {
    * Flag for assistants generated automatically (e.g., from templates)
    */
   virtual?: boolean;
+
+  /**
+   * Long-form notes persisted on this assistant and injected into every chat with it
+   * (separate from per-topic `historySummary` / compaction).
+   */
+  assistantMemory?: string;
 }
 
 export type LobeAgentConfigKeys =
@@ -88,4 +94,6 @@ export interface AgentItem {
   updatedAt: Date;
   userId: string;
   virtual?: boolean | null;
+
+  assistantMemory?: string | null;
 }

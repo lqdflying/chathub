@@ -71,6 +71,9 @@ export interface LobeAgentChatConfig {
   /** Opt-in: client-side daily compaction per session/topic */
   enableDailyMemorySummary?: boolean;
 
+  /** Opt-in: at most once per UTC day per agent — LLM rollup of topic summaries into assistant memory */
+  enablePeriodicAssistantMemoryRollup?: boolean;
+
   /** Append snapshot excerpts to topic metadata on compaction; optional prompt injection */
   enableUserMemoryArchive?: boolean;
 
@@ -91,6 +94,7 @@ export const AgentChatConfigSchema = z.object({
   enableAutoCreateTopic: z.boolean().optional(),
   enableCompressHistory: z.boolean().optional(),
   enableDailyMemorySummary: z.boolean().optional(),
+  enablePeriodicAssistantMemoryRollup: z.boolean().optional(),
   enableHistoryCount: z.boolean().optional(),
   enableTokenThresholdAutoCompact: z.boolean().optional(),
   enableUserMemoryArchive: z.boolean().optional(),
