@@ -4,7 +4,7 @@ import { ModelProviderCard } from '@/types/llm';
 
 const OpenAICompatible: ModelProviderCard = {
   chatModels: [],
-  checkModel: 'gpt-3.5-turbo',
+  checkModel: 'minimaxai/minimax-m2.7',
   description:
     'Connect to any service that exposes an OpenAI-compatible Chat Completions HTTP API. Set the API base URL (usually ending in /v1), your API key, and add or fetch model names your server provides.',
   disableBrowserRequest: true,
