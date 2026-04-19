@@ -82,6 +82,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             FEATURE_FLAGS=+commercial_hide_docs
+            NEXT_PUBLIC_APP_TAG=${{ github.ref_name }}
           build-contexts: |
             nextjs_cache=/tmp/nextjs-cache
           cache-from: type=gha
@@ -97,6 +98,7 @@ jobs:
             --output type=local,dest=/tmp/nextjs-cache-new \
             --cache-from type=gha \
             --build-arg FEATURE_FLAGS=+commercial_hide_docs \
+            --build-arg NEXT_PUBLIC_APP_TAG=${{ github.ref_name }} \
             --build-contexts nextjs_cache=/tmp/nextjs-cache \
             . 2>&1 || echo "Cache export skipped (non-fatal)"
           # Exported layout: /tmp/nextjs-cache-new/cache/<webpack files>

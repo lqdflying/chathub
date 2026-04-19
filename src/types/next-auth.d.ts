@@ -21,6 +21,7 @@ declare module 'next-auth' {
 declare module '@auth/core/jwt' {
   /** Returned by the `jwt` callback and `auth`, when using JWT sessions */
   interface JWT {
+    picture?: string;
     userId: string;
   }
 }

@@ -44,6 +44,9 @@ export default {
       if (user?.id) {
         token.userId = user?.id;
       }
+      if (user?.image) {
+        token.picture = user.image;
+      }
       return token;
     },
     async session({ session, token, user }) {
@@ -51,8 +54,14 @@ export default {
         // ref: https://authjs.dev/guides/extending-the-session#with-database
         if (user) {
           session.user.id = user.id;
+          if (user.image) {
+            session.user.image = user.image;
+          }
         } else {
           session.user.id = (token.userId ?? session.user.id) as string;
+          if (token.picture) {
+            session.user.image = token.picture as string;
+          }
         }
       }
       return session;
