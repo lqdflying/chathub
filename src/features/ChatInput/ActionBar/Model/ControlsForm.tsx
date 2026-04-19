@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { memo } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
+import { isAnthropicAdaptiveThinkingOnlyModel } from '@lobechat/model-runtime';
+
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -88,7 +90,17 @@ const ControlsForm = memo(() => {
       name: 'enableReasoning',
     },
     (enableReasoning || modelExtendParams?.includes('reasoningBudgetToken')) && {
-      children: <ReasoningTokenSlider />,
+      children: (
+        <ReasoningTokenSlider
+          adaptiveOnly={
+            provider === 'anthropic' &&
+            !!model &&
+            isAnthropicAdaptiveThinkingOnlyModel(model)
+          }
+          model={model}
+          provider={provider}
+        />
+      ),
       label: t('extendParams.reasoningBudgetToken.title'),
       layout: 'vertical',
       minWidth: undefined,

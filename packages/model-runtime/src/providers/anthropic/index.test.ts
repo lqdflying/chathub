@@ -848,12 +848,12 @@ describe('LobeAnthropicAI', () => {
         expect(result.top_p).toBeUndefined();
       });
 
-      it('should use adaptive thinking and output_config.effort for claude-opus-4-7 when reasoning is enabled', async () => {
+      it('should use adaptive thinking and output_config.effort for claude-opus-4-7 when thinking.type is adaptive', async () => {
         const payload: ChatStreamPayload = {
           max_tokens: 16_000,
           messages: [{ content: 'Plan a migration', role: 'user' }],
           model: 'claude-opus-4-7',
-          thinking: { budget_tokens: 8192, type: 'enabled' },
+          thinking: { effort: 'high', type: 'adaptive' },
           top_p: 0.9,
         };
 
@@ -878,17 +878,29 @@ describe('LobeAnthropicAI', () => {
         expect(result.top_p).toBeUndefined();
       });
 
-      it('should respect thinking.effort for claude-opus-4-7 adaptive requests', async () => {
+      it('should respect thinking.effort for claude-opus-4-7 when thinking.type is adaptive', async () => {
         const payload: ChatStreamPayload = {
           messages: [{ content: 'Quick question', role: 'user' }],
           model: 'claude-opus-4-7',
-          thinking: { budget_tokens: 1024, effort: 'medium', type: 'enabled' },
+          thinking: { effort: 'medium', type: 'adaptive' },
         };
 
         const result = await instance['buildAnthropicPayload'](payload);
 
         expect(result.output_config).toEqual({ effort: 'medium' });
         expect((result as any).thinking).toEqual({ type: 'adaptive' });
+      });
+
+      it('should pass through enabled thinking with budget_tokens for claude-opus-4-7 (API contract)', async () => {
+        const payload: ChatStreamPayload = {
+          messages: [{ content: 'Quick question', role: 'user' }],
+          model: 'claude-opus-4-7',
+          thinking: { budget_tokens: 1024, type: 'enabled' },
+        };
+
+        const result = await instance['buildAnthropicPayload'](payload);
+
+        expect((result as any).thinking).toEqual({ budget_tokens: 1024, type: 'enabled' });
       });
 
       it('should build adaptive payload when thinking.type is adaptive on adaptive-capable models', async () => {

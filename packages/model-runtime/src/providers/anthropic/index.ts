@@ -21,6 +21,7 @@ import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
 import { StreamingResponse } from '../../utils/response';
 import { createAnthropicGenerateObject } from './generateObject';
 import { handleAnthropicError } from './handleAnthropicError';
+import { anthropicAdaptiveCapableModels } from './thinkingCapabilities';
 
 export interface AnthropicModelCard {
   created_at: string;
@@ -31,16 +32,6 @@ export interface AnthropicModelCard {
 type anthropicTools = Anthropic.Tool | Anthropic.WebSearchTool20250305;
 
 const modelsWithSmallContextWindow = new Set(['claude-3-opus-20240229', 'claude-3-haiku-20240307']);
-
-/** Rejects `thinking.type: "enabled"`: API requires `thinking.type: "adaptive"` + `output_config.effort`. */
-const anthropicAdaptiveOnlyThinkingModels = new Set(['claude-opus-4-7']);
-
-/** Models that accept `thinking.type: "adaptive"` (see Anthropic adaptive thinking docs). */
-const anthropicAdaptiveCapableModels = new Set([
-  'claude-opus-4-7',
-  'claude-opus-4-6',
-  'claude-sonnet-4-6',
-]);
 
 const DEFAULT_BASE_URL = 'https://api.anthropic.com';
 const DEFAULT_CACHE_TTL = '5m' as const;
@@ -261,20 +252,6 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
 
     if (!!thinking && thinking.type === 'enabled') {
       const maxTokens = maxThinkingTokens();
-
-      if (anthropicAdaptiveOnlyThinkingModels.has(model)) {
-        const effort = thinking.effort ?? 'high';
-
-        return {
-          max_tokens: maxTokens,
-          messages: postMessages,
-          model,
-          output_config: { effort },
-          system: systemPrompts,
-          thinking: { type: 'adaptive' },
-          tools: postTools,
-        } as Anthropic.MessageCreateParams;
-      }
 
       // `temperature` may only be set to 1 when thinking is enabled.
       // `top_p` must be unset when thinking is enabled.

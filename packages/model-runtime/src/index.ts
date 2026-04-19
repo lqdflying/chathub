@@ -11,6 +11,13 @@ export { LobeAzureOpenAI } from './providers/azureOpenai';
 export { LobeGoogleAI } from './providers/google';
 export { LobeMoonshotAI } from './providers/moonshot';
 export { LobeOpenAI } from './providers/openai';
+export {
+  REASONING_BUDGET_TOKEN_ADAPTIVE,
+  anthropicAdaptiveCapableModels,
+  anthropicAdaptiveOnlyThinkingModels,
+  isAnthropicAdaptiveThinkingOnlyModel,
+  supportsAnthropicAdaptiveThinking,
+} from './providers/anthropic/thinkingCapabilities';
 export * from './types';
 export * from './types/error';
 export { consumeStreamUntilDone } from './utils/consumeStream';

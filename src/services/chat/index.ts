@@ -4,7 +4,11 @@ import {
   getMessageError,
   standardizeAnimationStyle,
 } from '@lobechat/fetch-sse';
-import { AgentRuntimeError, ChatCompletionErrorPayload } from '@lobechat/model-runtime';
+import {
+  AgentRuntimeError,
+  ChatCompletionErrorPayload,
+  REASONING_BUDGET_TOKEN_ADAPTIVE,
+} from '@lobechat/model-runtime';
 import { ChatErrorType, TracePayload, TraceTagMap, UIChatMessage } from '@lobechat/types';
 import { PluginRequestPayload, createHeadersWithPluginSettings } from '@lobehub/chat-plugin-sdk';
 import { merge } from 'lodash-es';
@@ -155,10 +159,20 @@ class ChatService {
         // Only enable thinking if user explicitly enabled it AND it's not Moonshot
         // with the reasoning_content compatibility issue
         if (chatConfig.enableReasoning && !isMoonshotWithThinkingIssue) {
-          extendParams.thinking = {
-            budget_tokens: chatConfig.reasoningBudgetToken || 1024,
-            type: 'enabled',
-          };
+          if (
+            payload.provider === 'anthropic' &&
+            chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE
+          ) {
+            extendParams.thinking = {
+              effort: chatConfig.reasoningEffort ?? 'high',
+              type: 'adaptive',
+            };
+          } else {
+            extendParams.thinking = {
+              budget_tokens: chatConfig.reasoningBudgetToken || 1024,
+              type: 'enabled',
+            };
+          }
         } else {
           extendParams.thinking = {
             budget_tokens: 0,
@@ -169,11 +183,20 @@ class ChatService {
         modelExtendParams!.includes('reasoningBudgetToken') &&
         !isMoonshotWithThinkingIssue
       ) {
-        // For models that only have reasoningBudgetToken without enableReasoning
-        extendParams.thinking = {
-          budget_tokens: chatConfig.reasoningBudgetToken || 1024,
-          type: 'enabled',
-        };
+        if (
+          payload.provider === 'anthropic' &&
+          chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE
+        ) {
+          extendParams.thinking = {
+            effort: chatConfig.reasoningEffort ?? 'high',
+            type: 'adaptive',
+          };
+        } else {
+          extendParams.thinking = {
+            budget_tokens: chatConfig.reasoningBudgetToken || 1024,
+            type: 'enabled',
+          };
+        }
       }
 
       if (
