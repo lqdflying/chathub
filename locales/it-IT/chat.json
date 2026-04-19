@@ -365,7 +365,8 @@
   "tokenTag": {
     "overload": "Superamento limite",
     "remained": "Rimasti",
-    "used": "Utilizzati"
+    "used": "Utilizzati",
+    "popoverTitle": "Context usage & compaction"
   },
   "topic": {
     "checkOpenNewTopic": "Abilitare un nuovo argomento?",
@@ -410,5 +411,25 @@
     }
   },
   "you": "tu",
-  "zenMode": "Modalità di concentrazione"
+  "zenMode": "Modalità di concentrazione",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  }
 }

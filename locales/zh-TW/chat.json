@@ -365,7 +365,8 @@
   "tokenTag": {
     "overload": "超過限制",
     "remained": "剩餘",
-    "used": "使用"
+    "used": "使用",
+    "popoverTitle": "上下文詳細資訊與壓縮"
   },
   "topic": {
     "checkOpenNewTopic": "是否開啟新主題?",
@@ -410,5 +411,25 @@
     }
   },
   "you": "你",
-  "zenMode": "專注模式"
+  "zenMode": "專注模式",
+  "memoryCompaction": {
+    "compactNow": "立即壓縮上下文",
+    "debug": {
+      "approxTokensAfter": "估算 Token（壓縮後）",
+      "approxTokensBefore": "估算 Token（壓縮前）",
+      "messageCount": "參與總結的訊息條數",
+      "model": "模型",
+      "off": "隱藏除錯",
+      "on": "顯示除錯",
+      "rawResponse": "壓縮結果文字",
+      "title": "上下文壓縮除錯",
+      "trigger": "觸發方式"
+    },
+    "trigger": {
+      "manual": "手動",
+      "message_count": "訊息條數閾值",
+      "scheduled": "定時",
+      "token_threshold": "預估上下文佔用"
+    }
+  }
 }

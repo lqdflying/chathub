@@ -365,7 +365,8 @@
   "tokenTag": {
     "overload": "تجاوز الحد",
     "remained": "متبقي",
-    "used": "مستخدم"
+    "used": "مستخدم",
+    "popoverTitle": "Context usage & compaction"
   },
   "topic": {
     "checkOpenNewTopic": "هل ترغب في فتح موضوع جديد؟",
@@ -410,5 +411,25 @@
     }
   },
   "you": "أنت",
-  "zenMode": "وضع التركيز"
+  "zenMode": "وضع التركيز",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  }
 }
