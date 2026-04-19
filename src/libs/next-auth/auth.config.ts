@@ -1,9 +1,7 @@
 import type { NextAuthConfig } from 'next-auth';
 
 import { getServerDBConfig } from '@/config/db';
-import { serverDB } from '@/database/server';
 import { getAuthConfig } from '@/envs/auth';
-import { NextAuthUserService } from '@/server/services/nextAuthUser';
 
 import { parseAuthProviders } from './parseAuthProviders';
 import { LobeNextAuthDbAdapter } from './adapter';
@@ -110,6 +108,12 @@ export default {
       if (!image && !name) return;
 
       try {
+        // Dynamic import only at runtime (Node API routes). Static imports would pull `pg`
+        // into the Edge bundle (middleware / edge webapi) and fail the build.
+        const [{ serverDB }, { NextAuthUserService }] = await Promise.all([
+          import('@/database/server'),
+          import('@/server/services/nextAuthUser'),
+        ]);
         const svc = new NextAuthUserService(serverDB);
         await svc.syncOAuthProfileOnSignIn(user.id, { image, name });
       } catch {
