@@ -7,7 +7,8 @@ on:
   push:
     tags:
       - 'v*.*.*'
-      - 'v*.*.*-canary'
+      # Prerelease builds: v1.2.3-canary.1, v1.2.3-canary.2, …
+      - 'v*.*.*-canary.*'
 
 concurrency:
   group: ${{ github.ref }}-docker-release
