@@ -55,7 +55,7 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
   - Response viewer with status code, timing, pretty-printed JSON, raw toggle
   - Stateless — no database required
 - **Extended model bank** — latest Claude (4.5, 4.6 Opus), GPT-5.x series (5.1, 5.2, 5.3, 5.4 / pro / chat / codex / mini / nano), Gemini 3.x (pro, flash), Kimi K2.x (k2.5, k2-thinking, k2-turbo), MiniMax with accurate pricing
-- **Memory and context compaction** — assistance-level presets, optional **token-threshold auto compact**, **manual compact** from the token popover, optional **daily** topic refresh (client + `localStorage`), **compaction debug** on the active topic, optional **memory archive** excerpts on the topic and in prompts when enabled. **Assistant memory** (cross-session notes on the agent row) can be edited manually or **generated/merged** from topic compaction summaries (button in **Assistant → Memory**), with an optional **once-per-UTC-day-per-agent** periodic merge. Topic compaction and assistant rollup both use **Settings → System Agent → history compress** for model calls. Details: [Memory and context compaction](#memory-and-context-compaction).
+- **Memory and context compaction** — assistance-level presets, optional **token-threshold auto compact**, **manual compact** from the token popover, optional **daily** topic refresh (client + `localStorage`), **compaction debug** on the active topic, optional **memory archive** excerpts on the topic and in prompts when enabled. **Assistant memory** (cross-session notes on the agent row) can be edited manually or **generated/merged** from topic compaction summaries (button in **Assistant → Context**), with an optional **once-per-UTC-day-per-agent** periodic merge. Topic compaction and assistant rollup both use **Settings → System Agent → history compress** for model calls. Details: [Memory and context compaction](#memory-and-context-compaction).
 
 ---
 
@@ -63,16 +63,16 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 
 LobeHub separates **topic-level compaction** from **assistant-level memory**:
 
-### How to use **Assistant → Memory**
+### How to use **Assistant → Context**
 
-Open **Assistant** (pick the agent) → **Memory**. The **form** has two titled groups; after edits, click **Save**. Further down, **Assistant memory** and **Current topic compaction** behave as follows:
+Open **Assistant** (pick the agent) → **Context** (session sidebar tab). The **form** has two titled groups, **Compact** and **Memory**; after edits, click **Save**. Further down, **Assistant memory** and **Current topic compaction** behave as follows:
 
-1. **Context & compaction** — Assist preset, token auto-compact, compact threshold, and daily topic note.
+1. **Compact** — Assist preset, token auto-compact, compact threshold, and daily topic note.
    - **Assist preset** (Light / Balanced / Rich) — Applies suggested defaults for **history limits** and **summarization** in **Assistant → Chat** (Chat preferences). You can still override those there.
    - **Auto-compact when context is full** — When the **local** context estimate crosses your threshold, older turns are summarized in the background. **Requires** **Limit history messages** and **Summarize history** to be enabled under **Assistant → Chat**; otherwise it stays inactive.
    - **Daily topic note** — Runs the topic-side compaction path at most **once per calendar day in this browser** (per session/topic key in storage). This is **not** the same as assistant-level memory.
 
-2. **Memory & rollups** — Stored-summary behavior and assistant-memory automation.
+2. **Memory** — Stored-summary behavior and assistant-memory automation (topic snippets, periodic merge).
    - **Topic snippets** — When on, stores short **snippet** text on each **topic** so the model can reuse prior summaries (related to topic “memory archive” behavior described below).
    - **Periodic assistant memory merge** — At most **once per UTC day per browser** (`localStorage`), runs the **same merge** as **Generate assistant memory from topics** (when the UI is idle). Uses **Settings → System Assistant → Automatically summarize conversation history** as the model.
 
@@ -80,9 +80,9 @@ Open **Assistant** (pick the agent) → **Memory**. The **form** has two titled 
 
 4. **Current topic compaction (this session)** — Read-only preview of the **active topic’s** rolling summary; it changes when you switch topics. You do not type final topic summaries here; they come from compaction / chat behavior.
 
-**Short setup path:** **Assistant → Chat** → turn on **Limit history** + **Summarize history** → chat (or compact) until summaries exist → **Assistant → Memory** → adjust **Context & compaction** and **Memory & rollups** → **Save** → optional **Save assistant memory** / **Generate assistant memory from topics** / periodic merge.
+**Short setup path:** **Assistant → Chat** → turn on **Limit history** + **Summarize history** → chat (or compact) until summaries exist → **Assistant → Context** → adjust **Compact** and **Memory** → **Save** → optional **Save assistant memory** / **Generate assistant memory from topics** / periodic merge.
 
-The in-app **How to set up** hint on the Memory page mirrors this flow.
+The in-app **How to set up** hint on the Context page mirrors this flow.
 
 ### Topic compaction (per topic / “session thread”)
 
@@ -98,7 +98,7 @@ Per-topic **history summary** (`topics.history_summary`) is produced by the comp
 ### Assistant memory (per agent, cross-session)
 
 - Stored on the agent row as **`assistant_memory`** (see migration `0043_add_agent_assistant_memory.sql`). Injected into chat context **before** the active topic’s compaction block (combined in the history-summary channel).
-- **Manual rollup** — **Assistant → Memory** → “Generate assistant memory from topics” calls the system history-compress model to merge **prior assistant memory** with **non-empty topic `historySummary` rows** from **all sessions linked to this `agentId`** (`agents_to_sessions` join), then overwrites the assistant memory field (confirm dialog).
+- **Manual rollup** — **Assistant → Context** → “Generate assistant memory from topics” calls the system history-compress model to merge **prior assistant memory** with **non-empty topic `historySummary` rows** from **all sessions linked to this `agentId`** (`agents_to_sessions` join), then overwrites the assistant memory field (confirm dialog).
 - **Periodic rollup** — optional switch **Periodic assistant memory merge**: at most **once per UTC day per agent** (browser `localStorage`), same merge as manual when AI is not generating.
 - Rollup **requires** topics to already have compaction summaries; topics without `historySummary` are skipped.
 

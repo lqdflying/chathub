@@ -10,7 +10,7 @@
     "plugin": "إعدادات الإضافة",
     "prompt": "تعيين الشخصية",
     "tts": "خدمة النص إلى كلام",
-    "memory": "Memory"
+    "memory": "Context"
   },
   "analytics": {
     "telemetry": {
@@ -711,9 +711,9 @@
       "title": "Topic snippets"
     },
     "export": "Export",
-    "compactionGroupTitle": "Context & compaction",
-    "memoryGroupTitle": "Memory & rollups",
-    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) On this page — under Context & compaction, pick preset and optional auto-compact or daily topic note; under Memory & rollups, optional topic snippets and periodic assistant merge.\n3) In chat — click the green token badge to see usage and compact manually.",
+    "compactionGroupTitle": "Compact",
+    "memoryGroupTitle": "Memory",
+    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) On this page — under Compact, pick preset and optional auto-compact or daily topic note; under Memory, optional topic snippets and periodic assistant merge.\n3) In chat — click the green token badge to see usage and compact manually.",
     "guideTitle": "How to set up",
     "previewHint": "Shows the active topic. Saving here does not change saved topic content.",
     "previewSection": "Preview",

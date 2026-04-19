@@ -4,7 +4,7 @@ export default {
   },
   agentTab: {
     chat: '聊天偏好',
-    memory: '记忆',
+    memory: '上下文',
     meta: '助手信息',
     modal: '模型设置',
     opening: '开场设置',
@@ -300,11 +300,11 @@ export default {
       desc: '每个自然日最多尝试一次（本浏览器记录），用模型合并各会话话题摘要到助手记忆',
       title: '定时合并助手记忆',
     },
-    compactionGroupTitle: '上下文与压缩',
-    memoryGroupTitle: '记忆与合并',
+    compactionGroupTitle: '压缩',
+    memoryGroupTitle: '记忆',
     export: '导出 Markdown',
     guide:
-      '1）打开「聊天偏好」→ 开启「限制历史消息数」与「历史总结」，设置附带条数。\n2）本页上半「上下文与压缩」可设协助预设、自动压缩与每日话题备忘；下半「记忆与合并」可设话题片段与定时合并助手记忆。\n3）聊天中点击绿色「用量」标签可查看明细并手动压缩。',
+      '1）打开「聊天偏好」→ 开启「限制历史消息数」与「历史总结」，设置附带条数。\n2）本页上半「压缩」可设协助预设、自动压缩与每日话题备忘；下半「记忆」可设话题片段与定时合并助手记忆。\n3）聊天中点击绿色「用量」标签可查看明细并手动压缩。',
     guideTitle: '设置步骤',
     previewHint: '预览依赖当前活跃话题；保存助手设置不会直接改写话题内容。',
     previewSection: '预览',
