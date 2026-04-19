@@ -84,41 +84,7 @@ export default {
         : NEXT_AUTH_SSO_SESSION_STRATEGY,
   },
   trustHost: process.env?.AUTH_TRUST_HOST ? process.env.AUTH_TRUST_HOST === 'true' : true,
-  events: {
-    async signIn({ user, profile }) {
-      if (!NEXT_PUBLIC_ENABLED_SERVER_SERVICE || !user?.id) return;
-
-      const image =
-        user.image ||
-        (profile &&
-        typeof profile === 'object' &&
-        'avatar_url' in profile &&
-        typeof (profile as { avatar_url?: string }).avatar_url === 'string'
-          ? (profile as { avatar_url: string }).avatar_url
-          : undefined);
-      const name =
-        user.name ||
-        (profile &&
-        typeof profile === 'object' &&
-        'name' in profile &&
-        typeof (profile as { name?: string }).name === 'string'
-          ? (profile as { name: string }).name
-          : undefined);
-
-      if (!image && !name) return;
-
-      try {
-        // Dynamic import only at runtime (Node API routes). Static imports would pull `pg`
-        // into the Edge bundle (middleware / edge webapi) and fail the build.
-        const [{ serverDB }, { NextAuthUserService }] = await Promise.all([
-          import('@/database/server'),
-          import('@/server/services/nextAuthUser'),
-        ]);
-        const svc = new NextAuthUserService(serverDB);
-        await svc.syncOAuthProfileOnSignIn(user.id, { image, name });
-      } catch {
-        /* non-fatal — do not block sign-in */
-      }
-    },
-  },
+  // Do not add `events.signIn` that touches DB here: auth.config is bundled for Edge
+  // (middleware + edge routes) and webpack will still trace dynamic imports to `pg`.
+  // OAuth profile → DB reconciliation runs in NextAuthUserService.createUser instead.
 } satisfies NextAuthConfig;
