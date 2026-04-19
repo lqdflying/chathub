@@ -848,6 +848,62 @@ describe('LobeAnthropicAI', () => {
         expect(result.top_p).toBeUndefined();
       });
 
+      it('should use adaptive thinking and output_config.effort for claude-opus-4-7 when reasoning is enabled', async () => {
+        const payload: ChatStreamPayload = {
+          max_tokens: 16_000,
+          messages: [{ content: 'Plan a migration', role: 'user' }],
+          model: 'claude-opus-4-7',
+          thinking: { budget_tokens: 8192, type: 'enabled' },
+          top_p: 0.9,
+        };
+
+        const result = await instance['buildAnthropicPayload'](payload);
+
+        expect(result).toEqual({
+          max_tokens: 16_000,
+          messages: [
+            {
+              content: [
+                { cache_control: { type: 'ephemeral' }, text: 'Plan a migration', type: 'text' },
+              ],
+              role: 'user',
+            },
+          ],
+          model: 'claude-opus-4-7',
+          output_config: { effort: 'high' },
+          system: undefined,
+          thinking: { type: 'adaptive' },
+          tools: undefined,
+        });
+        expect(result.top_p).toBeUndefined();
+      });
+
+      it('should respect thinking.effort for claude-opus-4-7 adaptive requests', async () => {
+        const payload: ChatStreamPayload = {
+          messages: [{ content: 'Quick question', role: 'user' }],
+          model: 'claude-opus-4-7',
+          thinking: { budget_tokens: 1024, effort: 'medium', type: 'enabled' },
+        };
+
+        const result = await instance['buildAnthropicPayload'](payload);
+
+        expect(result.output_config).toEqual({ effort: 'medium' });
+        expect((result as any).thinking).toEqual({ type: 'adaptive' });
+      });
+
+      it('should build adaptive payload when thinking.type is adaptive on adaptive-capable models', async () => {
+        const payload: ChatStreamPayload = {
+          messages: [{ content: 'Reason step by step', role: 'user' }],
+          model: 'claude-opus-4-6',
+          thinking: { budget_tokens: 0, effort: 'low', type: 'adaptive' },
+        };
+
+        const result = await instance['buildAnthropicPayload'](payload);
+
+        expect(result.thinking).toEqual({ type: 'adaptive' });
+        expect((result as any).output_config).toEqual({ effort: 'low' });
+      });
+
       it('should include top_p when thinking is not enabled', async () => {
         const payload: ChatStreamPayload = {
           messages: [{ content: 'Hello', role: 'user' }],

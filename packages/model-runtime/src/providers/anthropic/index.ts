@@ -32,6 +32,16 @@ type anthropicTools = Anthropic.Tool | Anthropic.WebSearchTool20250305;
 
 const modelsWithSmallContextWindow = new Set(['claude-3-opus-20240229', 'claude-3-haiku-20240307']);
 
+/** Rejects `thinking.type: "enabled"`: API requires `thinking.type: "adaptive"` + `output_config.effort`. */
+const anthropicAdaptiveOnlyThinkingModels = new Set(['claude-opus-4-7']);
+
+/** Models that accept `thinking.type: "adaptive"` (see Anthropic adaptive thinking docs). */
+const anthropicAdaptiveCapableModels = new Set([
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+]);
+
 const DEFAULT_BASE_URL = 'https://api.anthropic.com';
 const DEFAULT_CACHE_TTL = '5m' as const;
 
@@ -228,8 +238,43 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
       }
     }
 
+    const maxThinkingTokens = () => getMaxTokens() || 32_000; // Claude Opus 4 has minimum maxOutput
+
+    if (
+      !!thinking &&
+      thinking.type === 'adaptive' &&
+      anthropicAdaptiveCapableModels.has(model)
+    ) {
+      const maxTokens = maxThinkingTokens();
+      const effort = thinking.effort ?? 'high';
+
+      return {
+        max_tokens: maxTokens,
+        messages: postMessages,
+        model,
+        output_config: { effort },
+        system: systemPrompts,
+        thinking: { type: 'adaptive' },
+        tools: postTools,
+      } as Anthropic.MessageCreateParams;
+    }
+
     if (!!thinking && thinking.type === 'enabled') {
-      const maxTokens = getMaxTokens() || 32_000; // Claude Opus 4 has minimum maxOutput
+      const maxTokens = maxThinkingTokens();
+
+      if (anthropicAdaptiveOnlyThinkingModels.has(model)) {
+        const effort = thinking.effort ?? 'high';
+
+        return {
+          max_tokens: maxTokens,
+          messages: postMessages,
+          model,
+          output_config: { effort },
+          system: systemPrompts,
+          thinking: { type: 'adaptive' },
+          tools: postTools,
+        } as Anthropic.MessageCreateParams;
+      }
 
       // `temperature` may only be set to 1 when thinking is enabled.
       // `top_p` must be unset when thinking is enabled.
@@ -239,10 +284,10 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
         model,
         system: systemPrompts,
         thinking: {
-          ...thinking,
-          budget_tokens: thinking?.budget_tokens
+          budget_tokens: thinking.budget_tokens
             ? Math.min(thinking.budget_tokens, maxTokens - 1) // `max_tokens` must be greater than `thinking.budget_tokens`.
             : 1024,
+          type: 'enabled',
         },
         tools: postTools,
       } satisfies Anthropic.MessageCreateParams;

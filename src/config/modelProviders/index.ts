@@ -7,6 +7,7 @@ import GoogleProvider from './google';
 import MinimaxProvider from './minimax';
 import MoonshotProvider from './moonshot';
 import OpenAIProvider from './openai';
+import OpenAICompatibleProvider from './openaicompatible';
 
 /**
  * @deprecated
@@ -25,6 +26,7 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   GoogleProvider,
   MinimaxProvider,
   MoonshotProvider,
+  OpenAICompatibleProvider,
 ];
 
 export const filterEnabledModels = (provider: ModelProviderCard) => {
@@ -44,3 +46,4 @@ export { default as LobeHubProviderCard } from './lobehub';
 export { default as MinimaxProviderCard } from './minimax';
 export { default as MoonshotProviderCard } from './moonshot';
 export { default as OpenAIProviderCard } from './openai';
+export { default as OpenAICompatibleProviderCard } from './openaicompatible';

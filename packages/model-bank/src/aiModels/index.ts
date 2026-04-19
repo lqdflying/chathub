@@ -6,6 +6,7 @@ import { default as google } from './google';
 import { default as minimax } from './minimax';
 import { default as moonshot } from './moonshot';
 import { default as openai } from './openai';
+import { default as openaicompatible } from './openaicompatible';
 
 type ModelsMap = Record<string, AiFullModelCard[]>;
 
@@ -34,6 +35,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   minimax,
   moonshot,
   openai,
+  openaicompatible,
 });
 
 export { default as anthropic } from './anthropic';
@@ -43,4 +45,5 @@ export { default as google } from './google';
 export { default as minimax } from './minimax';
 export { default as moonshot } from './moonshot';
 export { default as openai } from './openai';
+export { default as openaicompatible } from './openaicompatible';
 export { gptImage1ParamsSchema, openaiChatModels } from './openai';

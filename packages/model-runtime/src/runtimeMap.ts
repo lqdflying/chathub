@@ -5,6 +5,7 @@ import { LobeGoogleAI } from './providers/google';
 import { LobeMinimaxAI } from './providers/minimax';
 import { LobeMoonshotAI } from './providers/moonshot';
 import { LobeOpenAI } from './providers/openai';
+import { LobeOpenAICompatibleAI } from './providers/openaicompatible';
 
 export const providerRuntimeMap = {
   anthropic: LobeAnthropicAI,
@@ -14,4 +15,5 @@ export const providerRuntimeMap = {
   minimax: LobeMinimaxAI,
   moonshot: LobeMoonshotAI,
   openai: LobeOpenAI,
+  openaicompatible: LobeOpenAICompatibleAI,
 };

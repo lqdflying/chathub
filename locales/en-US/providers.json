@@ -122,6 +122,9 @@
   "openai": {
     "description": "OpenAI is a global leader in artificial intelligence research, with models like the GPT series pushing the frontiers of natural language processing. OpenAI is committed to transforming multiple industries through innovative and efficient AI solutions. Their products demonstrate significant performance and cost-effectiveness, widely used in research, business, and innovative applications."
   },
+  "openaicompatible": {
+    "description": "Connect to any HTTP API that implements the OpenAI Chat Completions format. Configure your gateway base URL, API key, and model names (or fetch models when supported)."
+  },
   "openrouter": {
     "description": "OpenRouter is a service platform providing access to various cutting-edge large model interfaces, supporting OpenAI, Anthropic, LLaMA, and more, suitable for diverse development and application needs. Users can flexibly choose the optimal model and pricing based on their requirements, enhancing the AI experience."
   },

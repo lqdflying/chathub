@@ -121,7 +121,12 @@ export interface ChatStreamPayload {
    */
   thinking?: {
     budget_tokens: number;
-    type: 'enabled' | 'disabled';
+    /**
+     * Anthropic adaptive thinking (Opus 4.7+): mapped to `output_config.effort`.
+     * Ignored for `thinking.type: "enabled"` on models that still use budget_tokens.
+     */
+    effort?: 'low' | 'medium' | 'high' | 'max' | 'xhigh';
+    type: 'adaptive' | 'disabled' | 'enabled';
   };
   thinkingBudget?: number;
   tool_choice?: string;

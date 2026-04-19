@@ -10,6 +10,10 @@ export const getLLMConfig = () => {
       ENABLED_OPENAI: z.boolean(),
       OPENAI_API_KEY: z.string().optional(),
 
+      ENABLED_OPENAICOMPATIBLE: z.boolean(),
+      OPENAICOMPATIBLE_API_KEY: z.string().optional(),
+      OPENAICOMPATIBLE_PROXY_URL: z.string().optional(),
+
       ENABLED_AZURE_OPENAI: z.boolean(),
       AZURE_API_KEY: z.string().optional(),
       AZURE_API_VERSION: z.string().optional(),
@@ -216,6 +220,10 @@ export const getLLMConfig = () => {
 
       ENABLED_OPENAI: process.env.ENABLED_OPENAI !== '0',
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+
+      ENABLED_OPENAICOMPATIBLE: !!process.env.OPENAICOMPATIBLE_API_KEY,
+      OPENAICOMPATIBLE_API_KEY: process.env.OPENAICOMPATIBLE_API_KEY,
+      OPENAICOMPATIBLE_PROXY_URL: process.env.OPENAICOMPATIBLE_PROXY_URL,
 
       ENABLED_AZURE_OPENAI: !!process.env.AZURE_API_KEY,
       AZURE_API_KEY: process.env.AZURE_API_KEY,

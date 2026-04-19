@@ -38,5 +38,6 @@ export interface UserKeyVaults extends SearchEngineKeyVaults {
   minimax?: OpenAICompatibleKeyVault;
   moonshot?: OpenAICompatibleKeyVault;
   openai?: OpenAICompatibleKeyVault;
+  openaicompatible?: OpenAICompatibleKeyVault;
   password?: string;
 }

@@ -122,6 +122,9 @@
   "openai": {
     "description": "OpenAI 是全球领先的人工智能研究机构，其开发的模型如GPT系列推动了自然语言处理的前沿。OpenAI 致力于通过创新和高效的AI解决方案改变多个行业。他们的产品具有显著的性能和经济性，广泛用于研究、商业和创新应用。"
   },
+  "openaicompatible": {
+    "description": "连接任意实现 OpenAI Chat Completions 兼容 HTTP 接口的服务。配置网关地址（通常以 /v1 结尾）、API 密钥与模型名称；若服务端支持，也可拉取模型列表。"
+  },
   "openrouter": {
     "description": "OpenRouter 是一个提供多种前沿大模型接口的服务平台，支持 OpenAI、Anthropic、LLaMA 及更多，适合多样化的开发和应用需求。用户可根据自身需求灵活选择最优的模型和价格，助力AI体验的提升。"
   },

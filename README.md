@@ -25,7 +25,7 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 
 ### Core (inherited from LobeChat)
 
-- Multi-model chat — OpenAI, Anthropic, Google, Moonshot/Kimi, MiniMax, Ollama, and 40+ providers
+- Multi-model chat — OpenAI, Anthropic, Google, Moonshot/Kimi, MiniMax, **OpenAI-compatible (custom URL + API key + models)**, Ollama, and 40+ providers
 - Knowledge base with RAG (file upload, chunking, vector search)
 - MCP plugin system with one-click installation
 - Multi-user management with NextAuth / OIDC / Clerk
@@ -77,6 +77,11 @@ services:
       # ANTHROPIC_API_KEY=...
       # MOONSHOT_API_KEY=... (for Kimi K2.x models)
       # MINIMAX_API_KEY=...
+      # OpenAI-compatible gateway (vLLM, LiteLLM, local APIs, etc.):
+      # OPENAICOMPATIBLE_API_KEY=...
+      # OPENAICOMPATIBLE_PROXY_URL=https://your-host/v1
+      # Optional: seed or override models (same syntax as other providers), or configure in the web UI:
+      # OPENAICOMPATIBLE_MODEL_LIST=+llama3=My Llama,+qwen2.5=Qwen 2.5
       # S3_ACCESS_KEY_ID=... (required for Picbed)
     ports:
       - '3210:3210'
