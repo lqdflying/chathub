@@ -54,6 +54,10 @@ export default {
       title: '开启深度思考',
     },
     reasoningBudgetToken: {
+      adaptive: '自适应深度思考',
+      adaptiveHint: '思考预算随任务难度由模型自动调节。',
+      adaptiveOnlyHint: '该模型仅支持自适应思考模式。',
+      fixedBudgetHint: '设置 1k–64k 的固定思考 Token 上限。',
       title: '思考消耗 Token',
     },
     reasoningEffort: {

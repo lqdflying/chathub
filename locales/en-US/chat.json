@@ -53,6 +53,10 @@
       "title": "Enable Deep Thinking"
     },
     "reasoningBudgetToken": {
+      "adaptive": "Adaptive thinking",
+      "adaptiveHint": "Thinking budget scales automatically with task difficulty.",
+      "adaptiveOnlyHint": "This model only supports adaptive thinking.",
+      "fixedBudgetHint": "Set a fixed thinking token budget between 1k and 64k.",
       "title": "Thinking Consumption Token"
     },
     "reasoningEffort": {
