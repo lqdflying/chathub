@@ -20,25 +20,55 @@ const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T
   return tools?.length ? [...tools, MOONSHOT_SEARCH_TOOL] : [MOONSHOT_SEARCH_TOOL];
 };
 
-// Normalize messages for Moonshot OpenAI format - reasoning_content handling only
-const normalizeMessagesForMoonshot = (
+// Moonshot rejects assistant messages whose content is empty and that carry no
+// tool_calls (e.g. a stream that aborted before any delta arrived, a retry that
+// persisted a blank bubble, or a reasoning-only turn where the final answer was
+// lost). Leaving them in the history triggers:
+//   "Invalid request: the message at position N with role 'assistant' must not be empty"
+const hasAssistantContent = (message: any): boolean => {
+  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) return true;
+
+  const { content } = message;
+  if (typeof content === 'string') return content.trim().length > 0;
+  if (Array.isArray(content)) {
+    return content.some((part: any) => {
+      if (!part) return false;
+      if (typeof part === 'string') return part.trim().length > 0;
+      if (typeof part.text === 'string') return part.text.trim().length > 0;
+      // non-text parts (image_url, etc.) still count as content
+      return !!part.type && part.type !== 'text';
+    });
+  }
+  return !!content;
+};
+
+// Normalize messages for Moonshot OpenAI format:
+// 1. Drop empty assistant turns that the API would otherwise reject.
+// 2. Map internal `reasoning` field onto Moonshot's `reasoning_content`.
+export const normalizeMessagesForMoonshot = (
   messages: ChatStreamPayload['messages'],
   forceReasoning = false,
 ) => {
-  return messages.map((message: any) => {
-    if (message.role !== 'assistant') return message;
+  return messages.reduce<any[]>((acc, message: any) => {
+    if (message.role !== 'assistant') {
+      acc.push(message);
+      return acc;
+    }
+
+    if (!hasAssistantContent(message)) return acc;
 
     const { reasoning, ...rest } = message;
     const reasoningContent = hasValidReasoning(reasoning) ? reasoning.content : undefined;
 
     if (forceReasoning) {
-      return { ...rest, reasoning_content: reasoningContent ?? '' };
+      acc.push({ ...rest, reasoning_content: reasoningContent ?? '' });
+    } else if (reasoningContent !== undefined) {
+      acc.push({ ...rest, reasoning_content: reasoningContent });
+    } else {
+      acc.push(rest);
     }
-    if (reasoningContent !== undefined) {
-      return { ...rest, reasoning_content: reasoningContent };
-    }
-    return rest;
-  });
+    return acc;
+  }, []);
 };
 
 const buildMoonshotPayload = (
