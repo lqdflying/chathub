@@ -1,0 +1,43 @@
+---
+description: Canonical dev/build/test/lint/db commands and "never run" warnings
+alwaysApply: true
+---
+
+# Commands
+
+```bash
+# Development
+bun run dev                  # Next.js dev server on :3010
+bun run dev:desktop          # Desktop (Electron) renderer on :3015
+
+# Build
+bun run build                # Production build
+bun run build:docker         # Docker build
+
+# Testing — NEVER run `bun run test` (runs all tests, ~10 min)
+bunx vitest run --silent='passed-only' '[file-path]'
+cd packages/database && bunx vitest run --silent='passed-only' '[file]'
+
+# Type checking
+bun run type-check           # Uses tsgo (fast)
+bun run type-check:tsc       # Uses tsc (strict)
+
+# Linting
+bun run lint                 # ts + style + type-check + circular deps
+bun run lint:ts              # ESLint only
+bun run lint:style           # Stylelint only
+
+# Database
+bun run db:generate          # Generate Drizzle migrations
+bun run db:migrate           # Run migrations
+bun run db:studio            # Open Drizzle Studio
+```
+
+## Hard "never do" list
+
+- **Never** `bun run test` — runs the full suite, ~10 min.
+- **Never** `bun run db:push` against production — bypasses migration tracking.
+- **Never** `pnpm i18n` — CI translates all locales automatically.
+- Wrap vitest file paths in single quotes: `'src/store/chat/**'`.
+- After 2 failed fix attempts on a test, stop and ask for help.
+- Run `bun run type-check` after code changes — tests must also pass type checking.

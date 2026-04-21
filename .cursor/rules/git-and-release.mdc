@@ -1,0 +1,66 @@
+---
+description: Git hygiene + branch / canary / GA release workflow for Docker builds
+alwaysApply: true
+---
+
+# Git & Release Workflow
+
+## Commits
+
+- Commit messages must be prefixed with a **gitmoji** (e.g. `🐛 fix(scope): …`, `✨ feat(scope): …`).
+- Before merge: show `git status` and `git branch -a`.
+- After merge/push: run `git fetch --prune` to confirm remote branch cleanup.
+- After merge: verify with `git log --oneline -3`.
+- Before `git stash push/pop`: run `git stash list`.
+
+## Release triggers
+
+Docker builds run **only on tag pushes**, not on commits to `main`.
+`.github/workflows/docker-release.yml` reacts to:
+
+- `v*.*.*` → pushes `lqdflying/lobehub:X.Y.Z` **and** `:latest` (GA only)
+- `v*.*.*-canary.*` → pushes `lqdflying/lobehub:X.Y.Z-canary.N` (does **not** touch `:latest`)
+
+Version scheme: `v3.x.x` (LobeHub independent versioning, unrelated to upstream v1.x).
+
+## Fix / feature canary flow (default)
+
+**Never commit fixes or features directly on `main` just to get an image.**
+
+1. Branch off `main`: `fix/<slug>` or `feat/<slug>`.
+2. Commit on the branch with a gitmoji prefix. **Do not** bump `package.json`.
+3. Pick the canary version — always a pre-release of the **next unreleased** version, never the current GA:
+   - Read `package.json` version (= last GA, e.g. `3.4.38`).
+   - If `git tag -l vX.Y.Z` matches → that GA shipped → canary = `vX.Y.(Z+1)-canary.N`.
+   - Otherwise canary = `vX.Y.Z-canary.N`.
+   - `N` = (highest existing `vX.Y.Z-canary.*` for that version) + 1:
+     `git tag -l 'vX.Y.Z-canary.*' | sort -V | tail`
+4. Push branch, then tag:
+   ```bash
+   git push -u origin <branch>
+   git tag vX.Y.Z-canary.N
+   git push origin vX.Y.Z-canary.N
+   ```
+5. Verify the build on the **fork**, not upstream:
+   ```bash
+   gh run list -R lqdflying/lobehub --workflow=docker-release.yml --limit 3
+   ```
+6. Do not merge the branch to `main` until the canary image has been tested.
+
+## Recover from a wrong tag
+
+```bash
+gh run cancel <run-id> -R lqdflying/lobehub
+git push --delete origin vBAD && git tag -d vBAD
+git tag vGOOD && git push origin vGOOD
+```
+
+## GA promotion (only after canary passes)
+
+```bash
+sed -i 's/"version": "old"/"version": "new"/' package.json
+git add package.json && git commit -m "🔖 chore: bump version to vX.Y.Z"
+git tag vX.Y.Z && git push origin HEAD:main && git push origin vX.Y.Z
+```
+
+This is the **only** flow allowed to push a non-canary `v*.*.*` tag and update `:latest`.

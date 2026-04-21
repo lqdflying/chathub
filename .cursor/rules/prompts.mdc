@@ -1,0 +1,40 @@
+---
+description: Prompt engineering conventions for @lobechat/prompts (promptfoo evals)
+globs: packages/prompts/**
+alwaysApply: false
+---
+
+# Prompts (`@lobechat/prompts`)
+
+Full playbook: `packages/prompts/PROMPT_ENGINEERING.md`.
+
+## Directory layout per prompt
+
+```
+promptfoo/<prompt-name>/
+├── eval.yaml           # promptfoo config (providers, prompt ref, tests ref)
+├── prompt.ts           # prompt definition (default export)
+└── tests/basic-case.ts # TypeScript test cases (default export)
+```
+
+## Core conventions
+
+- **English system prompts** — better cross-language and cross-model consistency. Use Chinese only for pure-Chinese tasks.
+- **Be explicit about output shape** — `Output ONLY the translated text, no explanations`.
+- **Use examples** to pin behavior (`"I got a promotion" → 🎉`).
+- **Layer rules** with MUST > SHOULD > MAY.
+- **Preserve technical terms** verbatim (`API_KEY_12345`, code identifiers, provider names).
+
+## Tests
+
+- Put test cases in `tests/basic-case.ts` (TypeScript, `export default` array) — not inline in `eval.yaml`.
+- Cover at least 3–5 languages + edge cases (empty input, technical terms, mixed-language, unrelated context).
+- Common assertion types: `llm-rubric`, `contains` / `contains-any`, `not-contains`, `javascript`, `regex`.
+
+## Evaluation loop
+
+```bash
+pnpm promptfoo eval -c promptfoo/<prompt-name>/eval.yaml
+```
+
+Iterate: run → analyze failures → refine prompt → re-run. Expect 3–5 rounds to reach 100%. Adjust tests (not prompt) when expectations are unreasonable.

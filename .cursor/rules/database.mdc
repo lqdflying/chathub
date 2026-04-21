@@ -1,0 +1,19 @@
+---
+description: Drizzle migrations, journal, and production safety for @lobechat/database
+globs: packages/database/**
+alwaysApply: false
+---
+
+# Database & Migrations
+
+- Migration files: `packages/database/migrations/*.sql`.
+- Journal: `packages/database/migrations/meta/_journal.json` — **must be updated manually** when adding a new migration.
+- Next migration index = highest `idx` in the journal + 1.
+- Migrations run automatically at container startup via `scripts/serverLauncher/startServer.js` → `docker.cjs`, when `DATABASE_URL` is set.
+- `drizzle_migrations` table in PostgreSQL tracks applied migrations.
+- DB columns use `camelCase` (Drizzle convention).
+
+## Hard rules
+
+- **Never** `bun run db:push` against production — bypasses migration tracking.
+- When adding a new table: write the SQL migration manually, bump the journal, and confirm the container bootstrap picks it up.

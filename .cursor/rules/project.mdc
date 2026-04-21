@@ -1,0 +1,30 @@
+---
+description: Project overview, tech stack, and naming conventions for LobeHub fork
+alwaysApply: true
+---
+
+# LobeHub (lqdflying/lobehub)
+
+Custom fork/distribution of LobeChat, maintained independently starting at v3.0.0. Targets **self-hosted Docker + PostgreSQL only**. Docker image: `docker.io/lqdflying/lobehub`.
+
+Upstream: https://github.com/lobehub/lobe-chat — diverged significantly. **Do not blindly sync upstream changes.**
+
+## Tech Stack
+
+- **Frontend**: Next.js 15, React 19, TypeScript — hybrid Next.js App Router + SPA (`react-router-dom`)
+- **UI**: `@lobehub/ui`, Ant Design, `antd-style` (CSS-in-JS via `createStyles`)
+- **State**: Zustand stores + SWR for server data
+- **Backend**: tRPC + Next.js API routes
+- **Database**: PostgreSQL only (server mode), Drizzle ORM
+- **Testing**: Vitest + Testing Library (unit), Playwright + Cucumber (e2e)
+- **Monorepo**: pnpm workspaces; use `bun` for scripts, `bunx` for executables
+
+## Naming Conventions (Critical)
+
+**Always match existing patterns before inventing new names.**
+
+- AI provider variables: `minimax_*`, `kimi_*`, `openai_*` — follow the provider's config file pattern
+- DB columns: `camelCase` (Drizzle convention)
+- React components: `PascalCase.tsx`
+- Hooks: `use*.ts`
+- Tests: `__tests__/` directories or `.test.ts` suffix

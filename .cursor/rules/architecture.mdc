@@ -1,0 +1,64 @@
+---
+description: Repo layout, store pattern, data flow, tRPC routing, path alias, CSS-in-JS
+alwaysApply: true
+---
+
+# Architecture
+
+## Repo layout
+
+```
+src/
+├── app/                  # Next.js App Router
+│   ├── (backend)/        # Server-only routes (API, tRPC endpoints)
+│   └── [variants]/       # Client SPA entry points
+│       └── (main)/
+│           ├── tools/    # Tools Hub (Picbed, future tools)
+│           └── ...       # chat, discover, image, settings, etc.
+├── features/             # Large self-contained UI feature areas (e.g. Conversation/)
+├── store/                # Zustand stores (one per domain)
+├── services/             # Client-side service layer (calls tRPC/API)
+├── server/
+│   ├── routers/          # tRPC routers (see below)
+│   └── services/         # Server-side service implementations
+├── locales/default/      # i18n source of truth (TypeScript)
+└── libs/                 # Shared utilities and abstractions
+
+packages/
+├── database/             # Drizzle schemas, models, repositories (@lobechat/database)
+├── agent-runtime/        # LLM provider adapters
+├── model-bank/           # Model definitions and capabilities
+└── ...
+```
+
+## Store pattern
+
+Every Zustand store follows this layout:
+
+```
+store/<domain>/
+├── store.ts          # createWithEqualityFn, merges slices
+├── initialState.ts   # Full state type + default values
+├── selectors.ts      # Derived state selectors
+└── slices/           # Action groups (each slice = one concern)
+```
+
+Prefer `vi.spyOn` over `vi.mock` when testing stores.
+
+## Data flow
+
+`Component → useChatStore action → service (src/services/) → tRPC router → server service → DB`
+
+## tRPC router locations
+
+- `src/server/routers/lambda/` — standard request/response
+- `src/server/routers/async/` — long-running / streaming operations
+- `src/server/routers/tools/` — agent tool calls
+
+## Path alias
+
+`@/` → `src/`. In tests: `@/database` → `packages/database/src`.
+
+## CSS-in-JS
+
+Use `createStyles` from `antd-style`. Avoid inline styles or plain CSS modules.

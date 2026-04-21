@@ -1,0 +1,31 @@
+---
+description: Tools Hub (left sidebar) conventions and how to add a new tool
+globs: src/app/[variants]/(main)/tools/**,src/locales/default/tools.ts,locales/*/tools.json
+alwaysApply: false
+---
+
+# Tools Hub
+
+Left sidebar entry (Wrench icon, `SidebarTabKey.Tools`, always visible). All utility features live under `/tools/*` with a shared left sub-navigation panel.
+
+## Current tools
+
+| Tool | Route | DB table |
+|------|-------|----------|
+| Picbed (image hosting) | `/tools/picbed` | `picbed_images` |
+
+## Key files
+
+- Sidebar nav entry: `src/app/[variants]/(main)/_layout/Desktop/SideBar/TopActions.tsx`
+- Tools sub-nav: `src/app/[variants]/(main)/tools/_layout/Desktop/Nav.tsx`
+- Shared layout: `src/app/[variants]/(main)/tools/_layout/Desktop/`
+- i18n namespace: `src/locales/default/tools.ts` + `locales/en-US/tools.json` + `locales/zh-CN/tools.json`
+
+## Adding a new tool
+
+1. Create `src/app/[variants]/(main)/tools/[tool-name]/page.tsx`.
+2. Add i18n keys to `src/locales/default/tools.ts` + both `en-US` and `zh-CN` JSONs.
+3. Add DB migration SQL + register in `packages/database/migrations/meta/_journal.json`.
+4. Add tRPC router in `src/server/routers/lambda/` + register in `lambda/index.ts`.
+5. Add nav entry in `Nav.tsx`.
+6. Add route to middleware matcher in `src/middleware.ts`.

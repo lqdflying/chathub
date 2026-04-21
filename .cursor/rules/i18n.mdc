@@ -1,0 +1,12 @@
+---
+description: i18n source of truth and manual updates required for en-US / zh-CN
+globs: src/locales/**,locales/**
+alwaysApply: false
+---
+
+# i18n
+
+- `src/locales/default/<namespace>.ts` is the **TypeScript source of truth**. Add new keys here first.
+- Also add matching keys to `locales/zh-CN/<namespace>.json` **and** `locales/en-US/<namespace>.json` by hand.
+- **Never** run `pnpm i18n` — CI handles all other locales automatically.
+- A new namespace (e.g. `tools.ts`) also requires creating both JSON files (`tools.json` in each locale). Don't forget this.
