@@ -54,11 +54,14 @@ ARG NEXT_PUBLIC_ANALYTICS_UMAMI
 ARG NEXT_PUBLIC_UMAMI_SCRIPT_URL
 ARG NEXT_PUBLIC_UMAMI_WEBSITE_ID
 ARG FEATURE_FLAGS
+# Git ref at build time (e.g. v3.4.38-canary.1) so About / diagnostics match the image tag
+ARG NEXT_PUBLIC_APP_TAG
 
 ENV NEXT_PUBLIC_BASE_PATH="${NEXT_PUBLIC_BASE_PATH}" \
     FEATURE_FLAGS="${FEATURE_FLAGS}"
 
-ENV NEXT_PUBLIC_SERVICE_MODE="${NEXT_PUBLIC_SERVICE_MODE:-server}" \
+ENV NEXT_PUBLIC_APP_TAG="${NEXT_PUBLIC_APP_TAG}" \
+    NEXT_PUBLIC_SERVICE_MODE="${NEXT_PUBLIC_SERVICE_MODE:-server}" \
     NEXT_PUBLIC_ENABLE_NEXT_AUTH="${NEXT_PUBLIC_ENABLE_NEXT_AUTH:-1}" \
     NEXT_PUBLIC_ENABLE_CLERK_AUTH="${NEXT_PUBLIC_ENABLE_CLERK_AUTH:-0}" \
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \
@@ -185,6 +188,7 @@ COPY --from=builder /app/.next/standalone /app/
 # Copy database migrations
 COPY --from=builder /app/packages/database/migrations /app/migrations
 COPY --from=builder /app/scripts/migrateServerDB/docker.cjs /app/docker.cjs
+COPY --from=builder /app/scripts/migrateServerDB/ensureAgentAssistantMemory.cjs /app/ensureAgentAssistantMemory.cjs
 COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 
 # copy dependencies

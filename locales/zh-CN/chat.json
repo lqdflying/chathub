@@ -355,6 +355,26 @@
     "off": "关闭宽屏模式",
     "on": "开启宽屏模式"
   },
+  "memoryCompaction": {
+    "compactNow": "立即压缩上下文",
+    "debug": {
+      "approxTokensAfter": "估算 Token（压缩后）",
+      "approxTokensBefore": "估算 Token（压缩前）",
+      "messageCount": "参与总结的消息条数",
+      "model": "模型",
+      "off": "隐藏调试",
+      "on": "显示调试",
+      "rawResponse": "压缩结果文本",
+      "title": "上下文压缩调试",
+      "trigger": "触发方式"
+    },
+    "trigger": {
+      "manual": "手动",
+      "message_count": "消息条数阈值",
+      "scheduled": "定时",
+      "token_threshold": "预估上下文占用"
+    }
+  },
   "tokenDetails": {
     "chats": "会话消息",
     "historySummary": "历史总结",
@@ -368,6 +388,7 @@
   },
   "tokenTag": {
     "overload": "超过限制",
+    "popoverTitle": "上下文明细与压缩",
     "remained": "剩余",
     "used": "使用"
   },

@@ -112,8 +112,28 @@ export class NextAuthUserService {
       existingUser = await UserModel.findById(this.db, providerAccountId);
     }
     if (existingUser) {
-      const adapterUser = mapLobeUserToAdapterUser(existingUser);
-      return adapterUser;
+      // Merge OAuth profile into the existing row. Otherwise returning early skips
+      // avatar/name from GitHub when the account already matched by email (common case).
+      const userModel = new UserModel(this.db, existingUser.id);
+      const patch: Partial<UserItem> = {};
+      if (typeof image === 'string' && image.trim()) {
+        patch.avatar = image;
+      }
+      if (typeof name === 'string' && name.trim()) {
+        patch.fullName = name;
+      }
+      if (email && typeof email === 'string' && email.trim()) {
+        patch.email = email;
+      }
+      if (emailVerified) {
+        patch.emailVerifiedAt = new Date(emailVerified);
+      }
+      if (Object.keys(patch).length > 0) {
+        await userModel.updateUser(patch);
+      }
+
+      const refreshed = await UserModel.findById(this.db, existingUser.id);
+      return mapLobeUserToAdapterUser(refreshed ?? existingUser);
     }
 
     // create a new user if it does not exist

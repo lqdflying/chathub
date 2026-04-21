@@ -541,7 +541,7 @@ export const generateAIChatV2: StateCreator<
       // because user find UI is [u1,a1,u2,a2 | u3,a3]
       const historyMessages = originalMessages.slice(0, -historyCount + 1);
 
-      await get().internal_summaryHistory(historyMessages);
+      await get().internal_summaryHistory(historyMessages, { trigger: 'message_count' });
     }
   },
 

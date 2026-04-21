@@ -18,6 +18,7 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 | Picbed | ❌ Not present | ✅ Image hosting with S3, auto URL copy |
 | API Tester | ❌ Not present | ✅ Browser-based REST API client at `/tools/apitest` |
 | Changelog page | Enabled | Disabled (skips external fetch at build time) |
+| Topic memory / context UX | Basic rolling summary | Assistance presets, token auto-compact, manual compact, daily opt-in, debug log, optional archives, **assistant-level memory** (`agents.assistant_memory`) with manual or periodic LLM rollup from topic summaries across sessions linked to the same agent |
 
 ---
 
@@ -54,6 +55,54 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
   - Response viewer with status code, timing, pretty-printed JSON, raw toggle
   - Stateless — no database required
 - **Extended model bank** — latest Claude (4.5, 4.6 Opus), GPT-5.x series (5.1, 5.2, 5.3, 5.4 / pro / chat / codex / mini / nano), Gemini 3.x (pro, flash), Kimi K2.x (k2.5, k2-thinking, k2-turbo), MiniMax with accurate pricing
+- **Memory and context compaction** — assistance-level presets, optional **token-threshold auto compact**, **manual compact** from the token popover, optional **daily** topic refresh (client + `localStorage`), **compaction debug** on the active topic, optional **memory archive** excerpts on the topic and in prompts when enabled. **Assistant memory** (cross-session notes on the agent row) can be edited manually or **generated/merged** from topic compaction summaries (button in **Assistant → Context**), with an optional **once-per-UTC-day-per-agent** periodic merge. Topic compaction and assistant rollup both use **Settings → System Agent → history compress** for model calls. Details: [Memory and context compaction](#memory-and-context-compaction).
+
+---
+
+## Memory and context compaction
+
+LobeHub separates **topic-level compaction** from **assistant-level memory**:
+
+### How to use **Assistant → Context**
+
+Open **Assistant** (pick the agent) → **Context** (session sidebar tab). The **form** has two titled groups, **Compact** and **Memory**; after edits, click **Save**. Further down, **Assistant memory** and **Current topic compaction** behave as follows:
+
+1. **Compact** — Assist preset, token auto-compact, compact threshold, and daily topic note.
+   - **Assist preset** (Light / Balanced / Rich) — Applies suggested defaults for **history limits** and **summarization** in **Assistant → Chat** (Chat preferences). You can still override those there.
+   - **Auto-compact when context is full** — When the **local** context estimate crosses your threshold, older turns are summarized in the background. **Requires** **Limit history messages** and **Summarize history** to be enabled under **Assistant → Chat**; otherwise it stays inactive.
+   - **Daily topic note** — Runs the topic-side compaction path at most **once per calendar day in this browser** (per session/topic key in storage). This is **not** the same as assistant-level memory.
+
+2. **Memory** — Stored-summary behavior and assistant-memory automation (topic snippets, periodic merge).
+   - **Topic snippets** — When on, stores short **snippet** text on each **topic** so the model can reuse prior summaries (related to topic “memory archive” behavior described below).
+   - **Periodic assistant memory merge** — At most **once per UTC day per browser** (`localStorage`), runs the **same merge** as **Generate assistant memory from topics** (when the UI is idle). Uses **Settings → System Assistant → Automatically summarize conversation history** as the model.
+
+3. **Assistant memory (all chats)** — Persistent notes for **this assistant across every chat/topic** that uses it. The text is stored in PostgreSQL and injected into requests (see technical bullets below). Use **Save assistant memory** after manual edits. **Generate assistant memory from topics** calls the system history-compress model, merges **prior assistant memory** with **topic compaction summaries** from **all sessions linked to this agent**, then **overwrites** this box (confirmation shown—copy content first if unsure). If the button does “nothing useful,” topics likely have no `historySummary` yet: enable compression under **Assistant → Chat**, chat or **compact** from the green **token** badge until summaries exist.
+
+4. **Current topic compaction (this session)** — Read-only preview of the **active topic’s** rolling summary; it changes when you switch topics. You do not type final topic summaries here; they come from compaction / chat behavior.
+
+**Short setup path:** **Assistant → Chat** → turn on **Limit history** + **Summarize history** → chat (or compact) until summaries exist → **Assistant → Context** → adjust **Compact** and **Memory** → **Save** → optional **Save assistant memory** / **Generate assistant memory from topics** / periodic merge.
+
+The in-app **How to set up** hint on the Context page mirrors this flow.
+
+### Topic compaction (per topic / “session thread”)
+
+Per-topic **history summary** (`topics.history_summary`) is produced by the compaction pipeline:
+
+- **Assistant → Chat** includes a **Memory & context** group: assistance level (minimal / balanced / rich), history limits, **auto summary**, **token auto-compact** with configurable **threshold** (default 0.8 of estimated context), **daily topic note** (opt-in), and **memory archive** snapshots. Below the form, preview the **active topic** compaction text, copy, or export as Markdown.
+- **Manual compact** — button in the token popover runs the same summarization path when history limits and compression are enabled.
+- **Token auto-compact** — background check uses the **same local token estimate** as the token tag; when the ratio exceeds your threshold, older turns are summarized (cooldown avoids loops). Figures are **estimates**, not provider billing tokens.
+- **Daily run** — once per UTC calendar day per session+topic key in browser storage, if enabled (topic compaction only).
+- **Debug panel** — after compaction, metadata stores a short log (`memoryDebugLog`) you can expand in the conversation chrome.
+- **Archives** — optional excerpts appended under the history summary block sent to the model when **memory archive** is on.
+
+### Assistant memory (per agent, cross-session)
+
+- Stored on the agent row as **`assistant_memory`** (see migration `0043_add_agent_assistant_memory.sql`). Injected into chat context **before** the active topic’s compaction block (combined in the history-summary channel).
+- **Manual rollup** — **Assistant → Context** → “Generate assistant memory from topics” calls the system history-compress model to merge **prior assistant memory** with **non-empty topic `historySummary` rows** from **all sessions linked to this `agentId`** (`agents_to_sessions` join), then overwrites the assistant memory field (confirm dialog).
+- **Periodic rollup** — optional switch **Periodic assistant memory merge**: at most **once per UTC day per agent** (browser `localStorage`), same merge as manual when AI is not generating.
+- Rollup **requires** topics to already have compaction summaries; topics without `historySummary` are skipped.
+
+PostgreSQL `user_memories` schema exists for future cross-session vector memory; current behavior uses **topic metadata** for archives and prompt injection, and **agents.assistant_memory** for editable / rollup assistant notes.
 
 ---
 
@@ -72,7 +121,7 @@ services:
       - KEY_VAULTS_SECRET=<your-secret>
       - NEXTAUTH_SECRET=<your-secret>
       - NEXTAUTH_URL=https://your-domain.com
-      # LLM API keys:
+      # LLM API keys — see "LLM provider environment variables" for per-provider examples:
       # OPENAI_API_KEY=...
       # ANTHROPIC_API_KEY=...
       # MOONSHOT_API_KEY=... (for Kimi K2.x models)
@@ -101,7 +150,15 @@ services:
       retries: 5
 ```
 
-Database migrations run automatically on container startup. No manual setup required for a fresh deployment.
+Database migrations run automatically on container startup when **`DATABASE_URL`** is set (see `scripts/serverLauncher/startServer.js`). No manual setup required for a fresh deployment.
+
+### Docker Compose: redeploys and `--force-recreate`
+
+- **Routine image upgrade:** `docker compose pull` then `docker compose up -d`. The default image command runs **`/app/startServer.js`**, which applies migrations before the server listens.
+- **`docker compose up -d --force-recreate`** — Recreates containers from the compose file. It **does not** remove Postgres volumes. Use it when you want a clean **`lobe-chat`** process after changing the image or env, so startup (including migrations) runs again.
+- **Wiping database files (destructive):** `docker compose down`, delete the bind-mounted Postgres data directory (for example `rm -rf ./lobe_db_data` or whatever path your compose file mounts), then `docker compose up -d`. This is a **full data loss** reset; only do it when you intentionally discard all users and chats.
+
+If you saw schema errors after an upgrade, the usual fix is **pull newer image + restart/recreate `lobe-chat`** so migrations run against the **same** `DATABASE_URL`. A volume wipe is optional and only needed when you want an empty database.
 
 ---
 
@@ -112,20 +169,24 @@ Database migrations run automatically on container startup. No manual setup requ
 - **Never use `bun run db:push` against production** — it bypasses migration tracking
 - On a fresh empty DB, all migrations (0000 → latest) run automatically on first container start
 
-### Migration Troubleshooting
+### `assistant_memory` / `column ... does not exist` after upgrade
 
-If your DB was bootstrapped outside the migration system (`drizzle_migrations` table missing but tables already exist), seed the tracking table so future migrations apply correctly:
+If the UI shows repeated **Request failed** errors and logs contain `column ... assistant_memory does not exist` (PostgreSQL `42703`), the database never received migration **`0043_add_agent_assistant_memory.sql`**.
 
-```bash
-docker exec -it lobe-db psql -U "
-CREATE TABLE IF NOT EXISTS drizzle_migrations (
-  id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint
-);
-INSERT INTO drizzle_migrations (hash, created_at) VALUES
-('0000_init',1),('0001_add_client_id',2),('0002_amusing_puma',3),
--- ... insert all tags through the latest migration
-ON CONFLICT DO NOTHING;" < user > -d < db > -c
+**Fix (pick one):**
+
+1. **Run migrations from a current image** — Use a tag that includes **`0043_add_agent_assistant_memory`**, set **`DATABASE_URL`** to this Postgres, then **`docker compose pull`** and **`docker compose up -d`** (add **`--force-recreate`** to force a new `lobe-chat` container). Check logs for **`database migration pass`** before relying on the UI.
+2. **Apply the SQL manually** against the same database the app uses, then restart the app:
+
+```sql
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS assistant_memory text;
 ```
+
+If you use an external Postgres or a compose file that omitted migrations before, ensure `DATABASE_URL` points at that DB so the container migrator can record the migration in `drizzle_migrations`.
+
+### Migration troubleshooting
+
+If the database was created or altered **outside** Drizzle’s migration chain, fixing `drizzle_migrations` by hand is easy to get wrong (wrong hashes/order). Prefer: **restore from a known-good backup** and run the official image entrypoint against it, or **export data you need**, wipe the Postgres volume, and let a fresh container apply **0000 → latest** automatically. For advanced repair, compare your DB to `packages/database/migrations/meta/_journal.json` and seek help with concrete `drizzle_migrations` contents rather than pasting partial SQL from outdated docs.
 
 ---
 
@@ -235,7 +296,75 @@ AUTH_AUTH0_ISSUER=https://your-domain.auth0.com
 
 ---
 
+## LLM provider environment variables
 
+LobeHub’s **in-house documentation** focuses on the providers that match the **extended model bank** called out in this README (GPT / Claude / Gemini / Kimi / MiniMax), plus the two common self-hosted patterns: **OpenAI-compatible gateways** and **Ollama**. Wire keys on the `lobe-chat` service’s `environment:` list (or your process manager / `.env`).
+
+For **every** provider name, flag, and optional URL that the codebase accepts—including Azure, Bedrock, OpenRouter, and dozens of others inherited from upstream—see [`src/envs/llm.ts`](src/envs/llm.ts). The subsections below are **not** an exhaustive list.
+
+**Conventions**
+
+- Typically, setting a provider’s `*_API_KEY` enables that integration.
+- `ENABLED_OPENAI=0` disables the built-in OpenAI path even if `OPENAI_API_KEY` is present.
+- `ENABLED_OLLAMA=0` hides Ollama from server-side discovery; the Ollama base URL is still set in the app UI when used.
+
+### OpenAI (GPT series)
+
+```env
+OPENAI_API_KEY=sk-...
+```
+
+### Anthropic (Claude)
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Google (Gemini)
+
+```env
+GOOGLE_API_KEY=...
+```
+
+### Moonshot (Kimi K2.x and related)
+
+```env
+MOONSHOT_API_KEY=...
+```
+
+### MiniMax
+
+```env
+MINIMAX_API_KEY=...
+# Optional custom HTTP endpoint:
+# MINIMAX_PROXY_URL=https://...
+```
+
+### OpenAI-compatible (vLLM, LiteLLM, custom gateways)
+
+Use any OpenAI-style HTTP API. Model list can also be configured in the web UI.
+
+```env
+OPENAICOMPATIBLE_API_KEY=your-key
+OPENAICOMPATIBLE_PROXY_URL=https://your-host/v1
+# OPENAICOMPATIBLE_MODEL_LIST=+llama3=My Llama,+qwen2.5=Qwen 2.5
+```
+
+### Ollama (local models)
+
+No API key is required for a default local daemon. Disable discovery if you do not use Ollama on the server:
+
+```env
+# ENABLED_OLLAMA=0
+```
+
+### Other providers
+
+Anything beyond the sections above uses the same pattern (`*_API_KEY`, optional proxy/base URL, and sometimes `ENABLED_*` flags). Refer to [`src/envs/llm.ts`](src/envs/llm.ts) for the complete, authoritative map—do not assume every upstream provider is curated or tested for LobeHub releases.
+
+---
+
+## Adding a Tool to Tools Hub
 
 1. Create `src/app/[variants]/(main)/tools/<tool-name>/page.tsx`
 2. Add i18n keys to `src/locales/default/tools.ts` + `locales/en-US/tools.json` + `locales/zh-CN/tools.json`

@@ -1,7 +1,7 @@
 import { DBMessageItem, TopicRankItem } from '@lobechat/types';
 import { and, count, desc, eq, gt, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 
-import { TopicItem, messages, topics } from '../schemas';
+import { TopicItem, agentsToSessions, messages, topics } from '../schemas';
 import { LobeChatDatabase } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
@@ -12,6 +12,15 @@ export interface CreateTopicParams {
   messages?: string[];
   sessionId?: string | null;
   title?: string;
+}
+
+/** Minimal topic row for assistant memory rollup (all sessions linked to an agent). */
+export interface TopicMemoryRollupRow {
+  historySummary: string | null;
+  id: string;
+  sessionId: string | null;
+  title: string | null;
+  updatedAt: Date;
 }
 
 interface QueryTopicParams {
@@ -66,6 +75,36 @@ export class TopicModel {
       .orderBy(topics.updatedAt)
       .where(eq(topics.userId, this.userId));
   };
+
+  /**
+   * Topics across every session linked to `agentId` (agents_to_sessions), newest first.
+   */
+  listTopicsForAgentMemoryRollup = async (
+    agentId: string,
+    limit: number = 150,
+  ): Promise<TopicMemoryRollupRow[]> => {
+    return this.db
+      .select({
+        historySummary: topics.historySummary,
+        id: topics.id,
+        sessionId: topics.sessionId,
+        title: topics.title,
+        updatedAt: topics.updatedAt,
+      })
+      .from(topics)
+      .innerJoin(
+        agentsToSessions,
+        and(
+          eq(topics.sessionId, agentsToSessions.sessionId),
+          eq(agentsToSessions.agentId, agentId),
+          eq(agentsToSessions.userId, this.userId),
+        ),
+      )
+      .where(eq(topics.userId, this.userId))
+      .orderBy(desc(topics.updatedAt))
+      .limit(Math.min(Math.max(limit, 1), 500));
+  };
+
 
   queryByKeyword = async (keyword: string, containerId?: string | null): Promise<TopicItem[]> => {
     if (!keyword) return [];

@@ -23,13 +23,19 @@ export const DEFAULT_AGENT_SEARCH_FC_MODEL = {
 };
 
 export const DEFAULT_AGENT_CHAT_CONFIG: LobeAgentChatConfig = {
+  assistanceLevel: 'balanced',
   autoCreateTopicThreshold: 2,
+  contextCompactThreshold: 0.8,
   displayMode: 'chat',
   enableAutoCreateTopic: true,
   enableCompressHistory: true,
+  enableDailyMemorySummary: false,
+  enablePeriodicAssistantMemoryRollup: false,
   enableHistoryCount: true,
   enableReasoning: false,
   enableStreaming: true,
+  enableTokenThresholdAutoCompact: false,
+  enableUserMemoryArchive: false,
   historyCount: 20,
   reasoningBudgetToken: 1024,
   searchFCModel: DEFAULT_AGENT_SEARCH_FC_MODEL,

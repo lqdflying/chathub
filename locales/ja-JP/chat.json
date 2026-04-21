@@ -365,7 +365,8 @@
   "tokenTag": {
     "overload": "制限を超えています",
     "remained": "残り",
-    "used": "使用済み"
+    "used": "使用済み",
+    "popoverTitle": "Context usage & compaction"
   },
   "topic": {
     "checkOpenNewTopic": "新しいトピックを開始しますか？",
@@ -410,5 +411,25 @@
     }
   },
   "you": "あなた",
-  "zenMode": "集中モード"
+  "zenMode": "集中モード",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  }
 }

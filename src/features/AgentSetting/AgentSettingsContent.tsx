@@ -5,6 +5,7 @@ import { ChatSettingsTabs } from '@/store/global/initialState';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
 import AgentChat from './AgentChat';
+import AgentMemory from './AgentMemory';
 import AgentMeta from './AgentMeta';
 import AgentModal from './AgentModal';
 import AgentOpening from './AgentOpening';
@@ -29,6 +30,7 @@ const AgentSettingsContent = memo<AgentSettingsContentProps>(({ tab, loadingSkel
       {tab === ChatSettingsTabs.Prompt && <AgentPrompt />}
       {tab === ChatSettingsTabs.Opening && <AgentOpening />}
       {tab === ChatSettingsTabs.Chat && <AgentChat />}
+      {tab === ChatSettingsTabs.Memory && <AgentMemory />}
       {tab === ChatSettingsTabs.Modal && <AgentModal />}
       {tab === ChatSettingsTabs.TTS && <AgentTTS />}
       {enablePlugins && tab === ChatSettingsTabs.Plugin && <AgentPlugin />}

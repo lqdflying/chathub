@@ -80,6 +80,48 @@ export type Store = Action & State;
 
 const t = setNamespace('AgentSettings');
 
+// Max length of the `agents.description` column (varchar(1000)).
+// Defensive cap so a verbose model response can never break the UPDATE query.
+const DESCRIPTION_MAX_LENGTH = 1000;
+const TAGS_MAX_COUNT = 5;
+
+/**
+ * Strip the `输入: {...} [locale] 输出:` scaffold that some models (e.g. Kimi)
+ * echo back verbatim from our few-shot summarisation prompts, and trim any
+ * stray wrapping punctuation the model adds around the real answer.
+ */
+const cleanSummaryOutput = (raw: string): string => {
+  if (!raw) return raw;
+
+  let text = raw;
+
+  // If the model echoed the `输出:` / `输出：` label, keep only what follows
+  // the last marker. We use the last occurrence so nested examples don't trip
+  // us up.
+  const outputMarker = /输出\s*[:：]/g;
+  let lastIndex = -1;
+  let match: RegExpExecArray | null;
+  while ((match = outputMarker.exec(text)) !== null) {
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex !== -1) {
+    text = text.slice(lastIndex);
+  }
+
+  text = text.trim();
+
+  // Strip wrapping braces / quotes that some models add: `{foo}` or `"foo"`.
+  if (
+    (text.startsWith('{') && text.endsWith('}')) ||
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith('「') && text.endsWith('」'))
+  ) {
+    text = text.slice(1, -1).trim();
+  }
+
+  return text;
+};
+
 export const store: StateCreator<Store, [['zustand/devtools', never]]> = (set, get) => ({
   ...initialState,
   autoPickEmoji: async () => {
@@ -305,24 +347,39 @@ export const store: StateCreator<Store, [['zustand/devtools', never]]> = (set, g
   },
 
   streamUpdateMetaArray: (key: keyof MetaData) => {
-    let value = '';
+    let raw = '';
     return (chunk: MessageTextChunk) => {
       switch (chunk.type) {
         case 'text': {
-          value += chunk.text;
-          get().dispatchMeta({ type: 'update', value: { [key]: value.split(',') } });
+          raw += chunk.text;
+          const cleaned = cleanSummaryOutput(raw);
+          const tags = Array.from(
+            new Set(
+              cleaned
+                .split(/[,，]/)
+                .map((tag) => tag.trim())
+                .filter(Boolean),
+            ),
+          ).slice(0, TAGS_MAX_COUNT);
+          get().dispatchMeta({ type: 'update', value: { [key]: tags } });
         }
       }
     };
   },
 
   streamUpdateMetaString: (key: keyof MetaData) => {
-    let value = '';
+    let raw = '';
     return (chunk: MessageTextChunk) => {
       switch (chunk.type) {
         case 'text': {
-          value += chunk.text;
-          get().dispatchMeta({ type: 'update', value: { [key]: value } });
+          raw += chunk.text;
+          let cleaned = cleanSummaryOutput(raw);
+          // Guard against models that echo the entire input back and blow past
+          // the 1000-char `agents.description` column limit.
+          if (key === 'description' && cleaned.length > DESCRIPTION_MAX_LENGTH) {
+            cleaned = cleaned.slice(0, DESCRIPTION_MAX_LENGTH);
+          }
+          get().dispatchMeta({ type: 'update', value: { [key]: cleaned } });
         }
       }
     };

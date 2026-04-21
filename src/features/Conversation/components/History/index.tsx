@@ -11,6 +11,8 @@ import { useAgentStore } from '@/store/agent/store';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 
+import MemoryCompactionDebug from '../ContextMemory/MemoryCompactionDebug';
+
 import HistoryDivider from './HistoryDivider';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -66,6 +68,7 @@ const History = memo(() => {
           </Flexbox>
         </Flexbox>
       )}
+      <MemoryCompactionDebug />
     </Flexbox>
   );
 });

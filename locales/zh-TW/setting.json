@@ -9,7 +9,8 @@
     "opening": "開場設定",
     "plugin": "外掛程式設定",
     "prompt": "角色設定",
-    "tts": "語音服務"
+    "tts": "語音服務",
+    "memory": "上下文"
   },
   "analytics": {
     "telemetry": {
@@ -683,5 +684,55 @@
       "store": "插件商店"
     },
     "title": "擴展工具"
+  },
+  "settingChatMemory": {
+    "assistanceLevel": {
+      "balanced": "Balanced",
+      "hint": "Applies suggested defaults for history and compression. You can still override in Chat preferences.",
+      "minimal": "Light",
+      "rich": "Rich",
+      "title": "Assist preset"
+    },
+    "contextCompactThreshold": {
+      "desc": "When estimated context use exceeds this share of the model window, try auto-compacting (estimate only).",
+      "title": "Compact when above"
+    },
+    "copy": "Copy",
+    "enableDailyMemorySummary": {
+      "desc": "Runs at most once per calendar day in this browser.",
+      "title": "Daily topic note"
+    },
+    "enableTokenThresholdAutoCompact": {
+      "desc": "Requires Limit history and Summarize history in Chat preferences.",
+      "title": "Auto-compact when context is full"
+    },
+    "enableUserMemoryArchive": {
+      "desc": "Store short summary snippets on the topic for the model to reuse.",
+      "title": "Topic snippets"
+    },
+    "export": "Export",
+    "compactionGroupTitle": "Compact",
+    "memoryGroupTitle": "Memory",
+    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) On this page — under Compact, pick preset and optional auto-compact or daily topic note; under Memory, optional topic snippets and periodic assistant merge.\n3) In chat — click the green token badge to see usage and compact manually.",
+    "guideTitle": "How to set up",
+    "previewHint": "Shows the active topic. Saving here does not change saved topic content.",
+    "previewSection": "Preview",
+    "submit": "Save",
+    "assistantMemoryHint": "儲存在此助理名下，會在與該助理的每次對話中一併注入模型上下文（與下方「目前話題壓縮」不同）。",
+    "assistantMemorySection": "助理記憶（跨工作階段）",
+    "saveAssistantMemory": "儲存助理記憶",
+    "topicCompactionHint": "僅目前活躍話題的滾動摘要，由壓縮／總結產生；切換話題後會顯示對應該話題的內容。",
+    "topicCompactionSection": "目前話題壓縮（此工作階段）",
+    "enablePeriodicAssistantMemoryRollup": {
+      "desc": "At most once per UTC day per browser (localStorage), merge topic summaries from linked sessions into assistant memory using the system model.",
+      "title": "Periodic assistant memory merge"
+    },
+    "rollupAssistantMemory": "Generate assistant memory from topics",
+    "rollupConfirmDesc": "This will call the system model to merge topic compaction summaries from all sessions linked to this assistant into assistant memory, overwriting the text below (back up first if needed). Continue?",
+    "rollupConfirmOk": "Generate and overwrite",
+    "rollupConfirmTitle": "Generate assistant memory",
+    "rollupFailed": "Generation failed. Try again later.",
+    "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first.",
+    "rollupSuccess": "Assistant memory updated."
   }
 }

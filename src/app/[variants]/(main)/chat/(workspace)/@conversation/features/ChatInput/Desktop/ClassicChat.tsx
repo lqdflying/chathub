@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { type ActionKeys, ChatInputProvider, DesktopChatInput } from '@/features/ChatInput';
+import MemoryContextOrchestrator from '@/features/Conversation/components/ContextMemory/MemoryContextOrchestrator';
 import WideScreenContainer from '@/features/Conversation/components/WideScreenContainer';
 import { useChatStore } from '@/store/chat';
 import { aiChatSelectors } from '@/store/chat/selectors';
@@ -59,6 +60,7 @@ const ClassicChatInput = memo(() => {
       }}
     >
       <WideScreenContainer>
+        <MemoryContextOrchestrator />
         {mainInputSendErrorMsg && (
           <Flexbox paddingBlock={'0 6px'} paddingInline={12}>
             <Alert

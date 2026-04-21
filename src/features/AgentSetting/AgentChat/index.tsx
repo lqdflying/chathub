@@ -7,6 +7,7 @@ import isEqual from 'fast-deep-equal';
 import { LayoutList, MessagesSquare } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Flexbox } from 'react-layout-kit';
 
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { imageUrl } from '@/const/url';
@@ -104,25 +105,27 @@ const AgentChat = memo(() => {
   };
 
   return (
-    <Form
-      footer={
-        <Form.SubmitFooter
-          texts={{
-            reset: t('submitFooter.reset'),
-            submit: t('settingChat.submit'),
-            unSaved: t('submitFooter.unSaved'),
-            unSavedWarning: t('submitFooter.unSavedWarning'),
-          }}
-        />
-      }
-      form={form}
-      initialValues={config}
-      items={[chat]}
-      itemsType={'group'}
-      onFinish={updateConfig}
-      variant={'borderless'}
-      {...FORM_STYLE}
-    />
+    <Flexbox gap={20}>
+      <Form
+        footer={
+          <Form.SubmitFooter
+            texts={{
+              reset: t('submitFooter.reset'),
+              submit: t('settingChat.submit'),
+              unSaved: t('submitFooter.unSaved'),
+              unSavedWarning: t('submitFooter.unSavedWarning'),
+            }}
+          />
+        }
+        form={form}
+        initialValues={config}
+        items={[chat]}
+        itemsType={'group'}
+        onFinish={updateConfig}
+        variant={'borderless'}
+        {...FORM_STYLE}
+      />
+    </Flexbox>
   );
 });
 

@@ -21,6 +21,15 @@ export class ServerService implements ITopicService {
       containerId: this.toDbSessionId(params.containerId),
     }) as any;
 
+  listTopicsForAgentMemoryRollup: ITopicService['listTopicsForAgentMemoryRollup'] = (
+    agentId,
+    limit,
+  ) =>
+    lambdaClient.topic.listTopicsForAgentMemoryRollup.query({
+      agentId,
+      limit,
+    }) as any;
+
   getAllTopics: ITopicService['getAllTopics'] = () =>
     lambdaClient.topic.getAllTopics.query() as any;
 

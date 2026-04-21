@@ -34,6 +34,10 @@ export class ClientService implements ITopicService {
     return TopicModel.queryAll();
   }
 
+  async listTopicsForAgentMemoryRollup() {
+    throw new Error('listTopicsForAgentMemoryRollup is not available in deprecated topic service.');
+  }
+
   async countTopics() {
     return TopicModel.count();
   }

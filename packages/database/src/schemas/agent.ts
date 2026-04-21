@@ -60,6 +60,9 @@ export const agents = pgTable(
     openingMessage: text('opening_message'),
     openingQuestions: text('opening_questions').array().default([]),
 
+    /** Cross-session notes for this assistant; injected with (after) topic compression summary. */
+    assistantMemory: text('assistant_memory'),
+
     ...timestamps,
   },
   (t) => ({

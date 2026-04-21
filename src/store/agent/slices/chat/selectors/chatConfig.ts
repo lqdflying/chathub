@@ -57,12 +57,36 @@ const enableHistoryDivider =
     );
   };
 
+const assistanceLevel = (s: AgentStoreState) =>
+  currentAgentChatConfig(s).assistanceLevel ?? DEFAULT_AGENT_CHAT_CONFIG.assistanceLevel!;
+
+const enableTokenThresholdAutoCompact = (s: AgentStoreState) =>
+  currentAgentChatConfig(s).enableTokenThresholdAutoCompact ??
+  DEFAULT_AGENT_CHAT_CONFIG.enableTokenThresholdAutoCompact!;
+
+const contextCompactThreshold = (s: AgentStoreState) =>
+  currentAgentChatConfig(s).contextCompactThreshold ??
+  DEFAULT_AGENT_CHAT_CONFIG.contextCompactThreshold!;
+
+const enableDailyMemorySummary = (s: AgentStoreState) =>
+  currentAgentChatConfig(s).enableDailyMemorySummary ??
+  DEFAULT_AGENT_CHAT_CONFIG.enableDailyMemorySummary!;
+
+const enableUserMemoryArchive = (s: AgentStoreState) =>
+  currentAgentChatConfig(s).enableUserMemoryArchive ??
+  DEFAULT_AGENT_CHAT_CONFIG.enableUserMemoryArchive!;
+
 export const agentChatConfigSelectors = {
   agentSearchMode,
+  assistanceLevel,
+  contextCompactThreshold,
   currentChatConfig: currentAgentChatConfig,
   displayMode,
+  enableDailyMemorySummary,
   enableHistoryCount,
   enableHistoryDivider,
+  enableTokenThresholdAutoCompact,
+  enableUserMemoryArchive,
   historyCount,
   isAgentEnableSearch,
   searchFCModel,

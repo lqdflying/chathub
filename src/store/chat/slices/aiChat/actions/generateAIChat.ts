@@ -15,6 +15,10 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
+import {
+  appendMemoryArchivesToHistorySummary,
+  combineAssistantMemoryWithTopicSummary,
+} from '@/helpers/memoryArchivePrompt';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { useAgentStore } from '@/store/agent';
@@ -534,7 +538,7 @@ export const generateAIChat: StateCreator<
       // because user find UI is [u1,a1,u2,a2 | u3,a3]
       const historyMessages = originalMessages.slice(0, -historyCount + 1);
 
-      await get().internal_summaryHistory(historyMessages);
+      await get().internal_summaryHistory(historyMessages, { trigger: 'message_count' });
     }
   },
   internal_fetchAIChatMessage: async ({ messages, messageId, params, provider, model }) => {
@@ -579,9 +583,21 @@ export const generateAIChat: StateCreator<
     // to upload image
     const uploadTasks: Map<string, Promise<{ id?: string; url?: string }>> = new Map();
 
-    const historySummary = chatConfig.enableCompressHistory
-      ? topicSelectors.currentActiveTopicSummary(get())
-      : undefined;
+    let topicSummaryBlock: string | undefined;
+    if (chatConfig.enableCompressHistory) {
+      const summaryBlock = topicSelectors.currentActiveTopicSummary(get());
+      const activeTopic = topicSelectors.currentActiveTopic(get());
+      topicSummaryBlock = appendMemoryArchivesToHistorySummary(
+        summaryBlock?.content,
+        activeTopic?.metadata?.memoryArchives,
+        !!chatConfig.enableUserMemoryArchive,
+      );
+    }
+    const assistantMemory = (agentConfig.assistantMemory ?? '').trim();
+    const historySummaryForRequest = combineAssistantMemoryWithTopicSummary(
+      assistantMemory || undefined,
+      topicSummaryBlock,
+    );
     await chatService.createAssistantMessageStream({
       abortController,
       params: {
@@ -591,7 +607,7 @@ export const generateAIChat: StateCreator<
         ...agentConfig.params,
         plugins: agentConfig.plugins,
       },
-      historySummary: historySummary?.content,
+      historySummary: historySummaryForRequest,
       trace: {
         traceId: params?.traceId,
         sessionId: get().activeId,

@@ -1,21 +1,16 @@
 import { Tooltip } from '@lobehub/ui';
 import { TokenTag } from '@lobehub/ui/chat';
+import { Button } from 'antd';
 import { useTheme } from 'antd-style';
 import numeral from 'numeral';
-import { memo, useMemo } from 'react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
-import { createChatToolsEngine } from '@/helpers/toolEngineering';
-import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
-import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
-import { useTokenCount } from '@/hooks/useTokenCount';
+import { useEstimatedContextUsage } from '@/hooks/useEstimatedContextUsage';
 import { useAgentStore } from '@/store/agent';
-import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
+import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
-import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
-import { useToolStore } from '@/store/tool';
-import { toolSelectors } from '@/store/tool/selectors';
 
 import ActionPopover from '../components/ActionPopover';
 import TokenProgress from './TokenProgress';
@@ -23,72 +18,25 @@ import TokenProgress from './TokenProgress';
 interface TokenTagProps {
   total: string;
 }
-const Token = memo<TokenTagProps>(({ total: messageString }) => {
+const Token = memo<TokenTagProps>(({ total: _messageString }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
+  const [compacting, setCompacting] = useState(false);
 
-  const [input, historySummary] = useChatStore((s) => [
-    s.inputMessage,
-    topicSelectors.currentActiveTopicSummary(s)?.content || '',
-  ]);
+  const canManualCompact = useAgentStore(
+    (s) =>
+      agentChatConfigSelectors.enableHistoryCount(s) &&
+      !!agentChatConfigSelectors.currentChatConfig(s).enableCompressHistory,
+  );
 
-  const [systemRole, model, provider] = useAgentStore((s) => {
-    return [
-      agentSelectors.currentAgentSystemRole(s),
-      agentSelectors.currentAgentModel(s) as string,
-      agentSelectors.currentAgentModelProvider(s) as string,
-      // add these two params to enable the component to re-render
-      agentChatConfigSelectors.historyCount(s),
-      agentChatConfigSelectors.enableHistoryCount(s),
-    ];
-  });
-
-  const [historyCount, enableHistoryCount] = useAgentStore((s) => [
-    agentChatConfigSelectors.historyCount(s),
-    agentChatConfigSelectors.enableHistoryCount(s),
-    // need to re-render by search mode
-    agentChatConfigSelectors.isAgentEnableSearch(s),
-  ]);
-
-  const maxTokens = useModelContextWindowTokens(model, provider);
-
-  // Tool usage token
-  const canUseTool = useModelSupportToolUse(model, provider);
-  const pluginIds = useAgentStore(agentSelectors.currentAgentPlugins);
-
-  const toolsString = useToolStore((s) => {
-    const toolsEngine = createChatToolsEngine({ model, provider });
-
-    const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
-      model,
-      provider,
-      toolIds: pluginIds,
-    });
-    const schemaNumber = tools?.map((i) => JSON.stringify(i)).join('') || '';
-
-    const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(s);
-
-    return pluginSystemRoles + schemaNumber;
-  });
-
-  const toolsToken = useTokenCount(canUseTool ? toolsString : '');
-
-  // Chat usage token
-  const inputTokenCount = useTokenCount(input);
-
-  const chatsString = useMemo(() => {
-    const chats = chatSelectors.mainAIChatsWithHistoryConfig(useChatStore.getState());
-    return chats.map((chat) => chat.content).join('');
-  }, [messageString, historyCount, enableHistoryCount]);
-
-  const chatsToken = useTokenCount(chatsString) + inputTokenCount;
-
-  // SystemRole token
-  const systemRoleToken = useTokenCount(systemRole);
-  const historySummaryToken = useTokenCount(historySummary);
-
-  // Total token
-  const totalToken = systemRoleToken + historySummaryToken + toolsToken + chatsToken;
+  const {
+    chatsToken,
+    historySummaryToken,
+    maxTokens,
+    systemRoleToken,
+    toolsToken,
+    totalToken,
+  } = useEstimatedContextUsage();
 
   const content = (
     <Flexbox gap={12} style={{ minWidth: 200 }}>
@@ -163,11 +111,30 @@ const Token = memo<TokenTagProps>(({ total: messageString }) => {
         showIcon
         showTotal={t('tokenDetails.total')}
       />
+      <Button
+        block
+        disabled={!canManualCompact}
+        loading={compacting}
+        onClick={async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setCompacting(true);
+          try {
+            await useChatStore.getState().triggerManualMemoryCompaction();
+          } finally {
+            setCompacting(false);
+          }
+        }}
+        size={'small'}
+        type={'default'}
+      >
+        {t('memoryCompaction.compactNow')}
+      </Button>
     </Flexbox>
   );
 
   return (
-    <ActionPopover content={content}>
+    <ActionPopover content={content} title={t('tokenTag.popoverTitle')}>
       <TokenTag
         maxValue={maxTokens}
         mode={'used'}

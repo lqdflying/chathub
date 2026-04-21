@@ -44,6 +44,9 @@ export default {
       if (user?.id) {
         token.userId = user?.id;
       }
+      if (user?.image) {
+        token.picture = user.image;
+      }
       return token;
     },
     async session({ session, token, user }) {
@@ -51,8 +54,14 @@ export default {
         // ref: https://authjs.dev/guides/extending-the-session#with-database
         if (user) {
           session.user.id = user.id;
+          if (user.image) {
+            session.user.image = user.image;
+          }
         } else {
           session.user.id = (token.userId ?? session.user.id) as string;
+          if (token.picture) {
+            session.user.image = token.picture as string;
+          }
         }
       }
       return session;
@@ -75,4 +84,7 @@ export default {
         : NEXT_AUTH_SSO_SESSION_STRATEGY,
   },
   trustHost: process.env?.AUTH_TRUST_HOST ? process.env.AUTH_TRUST_HOST === 'true' : true,
+  // Do not add `events.signIn` that touches DB here: auth.config is bundled for Edge
+  // (middleware + edge routes) and webpack will still trace dynamic imports to `pg`.
+  // OAuth profile → DB reconciliation runs in NextAuthUserService.createUser instead.
 } satisfies NextAuthConfig;

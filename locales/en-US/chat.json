@@ -355,6 +355,26 @@
     "off": "Turn off widescreen mode",
     "on": "Turn on widescreen mode"
   },
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "tokenDetails": {
     "chats": "Chat Messages",
     "historySummary": "History Summary",
@@ -368,6 +388,7 @@
   },
   "tokenTag": {
     "overload": "Exceeded Limit",
+    "popoverTitle": "Context usage & compaction",
     "remained": "Remaining",
     "used": "Used"
   },
