@@ -148,6 +148,95 @@ describe('ToolMessageReorder', () => {
     ]);
   });
 
+  it('should drop orphan tool_calls from assistant message without matching tool response', async () => {
+    // Regression: strict APIs (Moonshot/Kimi, OpenAI) reject requests where an
+    // assistant message has tool_calls but one of the tool_call_ids is missing a
+    // corresponding tool message response.
+    const proc = new ToolMessageReorder();
+    const messages = [
+      { id: 'u1', role: 'user', content: 'search please' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'jina-mcp-server____search_web____mcp:7',
+            type: 'function',
+            function: { name: 'jina-mcp-server____search_web____mcp', arguments: '{}' },
+          },
+          {
+            id: 'call_good',
+            type: 'function',
+            function: { name: 'jina-mcp-server____search_web____mcp', arguments: '{}' },
+          },
+        ],
+      },
+      { id: 't_good', role: 'tool', content: '{"ok":1}', tool_call_id: 'call_good' },
+    ];
+
+    const ctx = createContext(messages);
+    const res = await proc.process(ctx);
+
+    expect(res.messages.map((m) => m.id)).toEqual(['u1', 'a1', 't_good']);
+    const assistant: any = res.messages.find((m) => m.id === 'a1');
+    expect(assistant.tool_calls).toHaveLength(1);
+    expect(assistant.tool_calls[0].id).toBe('call_good');
+  });
+
+  it('should drop assistant message entirely when all tool_calls are orphans and content is empty', async () => {
+    const proc = new ToolMessageReorder();
+    const messages = [
+      { id: 'u1', role: 'user', content: 'search please' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'orphan_1',
+            type: 'function',
+            function: { name: 'some_tool', arguments: '{}' },
+          },
+        ],
+      },
+      { id: 'u2', role: 'user', content: 'are you there?' },
+    ];
+
+    const ctx = createContext(messages);
+    const res = await proc.process(ctx);
+
+    expect(res.messages.map((m) => m.id)).toEqual(['u1', 'u2']);
+  });
+
+  it('should strip tool_calls but keep assistant message when content is present', async () => {
+    const proc = new ToolMessageReorder();
+    const messages = [
+      { id: 'u1', role: 'user', content: 'hi' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'partial answer before tool',
+        tool_calls: [
+          {
+            id: 'orphan_1',
+            type: 'function',
+            function: { name: 'some_tool', arguments: '{}' },
+          },
+        ],
+      },
+      { id: 'u2', role: 'user', content: 'continue' },
+    ];
+
+    const ctx = createContext(messages);
+    const res = await proc.process(ctx);
+
+    expect(res.messages.map((m) => m.id)).toEqual(['u1', 'a1', 'u2']);
+    const assistant: any = res.messages.find((m) => m.id === 'a1');
+    expect(assistant.tool_calls).toBeUndefined();
+    expect(assistant.content).toBe('partial answer before tool');
+  });
+
   it('should correctly reorder when a tool message appears before the assistant message', async () => {
     const messages = [
       {

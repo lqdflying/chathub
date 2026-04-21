@@ -61,8 +61,9 @@ export class ToolMessageReorder extends BaseProcessor {
       }
     });
 
-    // 2. 收集所有有效的 tool 消息
+    // 2. 收集所有有效的 tool 消息，并记录其 tool_call_id 用于回填 assistant
     const toolMessages: Record<string, any> = {};
+    const answeredToolCallIds = new Set<string>();
     messages.forEach((message) => {
       if (
         message.role === 'tool' &&
@@ -70,6 +71,7 @@ export class ToolMessageReorder extends BaseProcessor {
         validToolCallIds.has(message.tool_call_id)
       ) {
         toolMessages[message.tool_call_id] = message;
+        answeredToolCallIds.add(message.tool_call_id);
       }
     });
 
@@ -91,6 +93,61 @@ export class ToolMessageReorder extends BaseProcessor {
       );
 
       if (hasPushed) return;
+
+      // 对于带有 tool_calls 的 assistant 消息，过滤掉没有对应 tool 响应的 tool_call。
+      // 严格的 API（Moonshot/Kimi、OpenAI 等）要求每个 tool_call_id 都必须有一条
+      // tool 消息回应，否则会报错：
+      //   "an assistant message with 'tool_calls' must be followed by tool messages
+      //    responding to each 'tool_call_id'"
+      // 孤立的 tool_call 可能来自：MCP 调用被中断、tool 消息被删除、流式 id 不一致等。
+      if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+        const validToolCalls = message.tool_calls.filter((toolCall: any) =>
+          answeredToolCallIds.has(toolCall.id),
+        );
+
+        const droppedCount = message.tool_calls.length - validToolCalls.length;
+
+        if (droppedCount > 0) {
+          log(
+            'Dropping %d orphan tool_call(s) from assistant message %s',
+            droppedCount,
+            message.id,
+          );
+        }
+
+        if (validToolCalls.length === 0) {
+          // 所有 tool_call 都没有响应：若消息本身也没有文本内容，则整条丢弃，
+          // 否则仅去掉 tool_calls 字段保留为普通 assistant 消息。
+          const hasContent =
+            typeof message.content === 'string'
+              ? message.content.trim().length > 0
+              : Array.isArray(message.content)
+                ? message.content.length > 0
+                : !!message.content;
+
+          if (!hasContent) {
+            log('Skipping assistant message with only orphan tool_calls:', message.id);
+            return;
+          }
+
+          const { tool_calls, ...rest } = message;
+          reorderedMessages.push(rest);
+          return;
+        }
+
+        if (droppedCount > 0) {
+          reorderedMessages.push({ ...message, tool_calls: validToolCalls });
+
+          validToolCalls.forEach((toolCall: any) => {
+            const correspondingToolMessage = toolMessages[toolCall.id];
+            if (correspondingToolMessage) {
+              reorderedMessages.push(correspondingToolMessage);
+              delete toolMessages[toolCall.id];
+            }
+          });
+          return;
+        }
+      }
 
       reorderedMessages.push(message);
 
