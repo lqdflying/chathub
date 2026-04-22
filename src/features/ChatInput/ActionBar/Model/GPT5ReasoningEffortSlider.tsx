@@ -33,24 +33,16 @@ const GPT5ReasoningEffortSlider = memo(() => {
   );
 
   return (
-    <Flexbox
-      align={'center'}
-      gap={12}
-      horizontal
-      paddingInline={'0 20px'}
-      style={{ minWidth: 200, width: '100%' }}
-    >
-      <Flexbox flex={1}>
-        <Slider
-          marks={marks}
-          max={3}
-          min={0}
-          onChange={updateGPT5ReasoningEffort}
-          step={1}
-          tooltip={{ open: false }}
-          value={currentValue}
-        />
-      </Flexbox>
+    <Flexbox style={{ paddingInlineEnd: 8, width: '100%' }}>
+      <Slider
+        marks={marks}
+        max={3}
+        min={0}
+        onChange={updateGPT5ReasoningEffort}
+        step={1}
+        tooltip={{ open: false }}
+        value={currentValue}
+      />
     </Flexbox>
   );
 });

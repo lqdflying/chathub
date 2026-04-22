@@ -15,6 +15,7 @@ import ControlsForm from './ControlsForm';
 import AnthropicOptions from './providers/AnthropicOptions';
 import MinimaxOptions from './providers/MinimaxOptions';
 import MoonshotOptions from './providers/MoonshotOptions';
+import OpenAIOptions from './providers/OpenAIOptions';
 
 const useStyles = createStyles(({ css, token, cx }) => ({
   container: css`
@@ -93,13 +94,16 @@ const ModelSwitch = memo(() => {
                 <MinimaxOptions />
               ) : provider === 'anthropic' ? (
                 <AnthropicOptions />
+              ) : provider === 'openai' ? (
+                <OpenAIOptions />
               ) : (
                 <ControlsForm />
               ),
             minWidth:
               provider === 'moonshot' ||
               provider === 'minimax' ||
-              provider === 'anthropic'
+              provider === 'anthropic' ||
+              provider === 'openai'
                 ? 320
                 : 350,
             placement: 'topLeft',
