@@ -42,6 +42,7 @@ import { API_ENDPOINTS } from '../_url';
 import { initializeWithClientStore } from './clientModelRuntime';
 import { contextEngineering } from './contextEngineering';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
+import { trimMinimaxChatContext } from './trimMinimaxContext';
 import { FetchOptions } from './types';
 
 interface GetChatCompletionPayload extends Partial<Omit<ChatStreamPayload, 'messages'>> {
@@ -113,7 +114,7 @@ class ChatService {
     const chatConfig = agentChatConfigSelectors.currentChatConfig(agentStoreState);
 
     // Apply context engineering with preprocessing configuration
-    const oaiMessages = await contextEngineering({
+    let oaiMessages = await contextEngineering({
       enableHistoryCount: agentChatConfigSelectors.enableHistoryCount(agentStoreState),
       // include user messages
       historyCount: agentChatConfigSelectors.historyCount(agentStoreState) + 2,
@@ -127,6 +128,15 @@ class ChatService {
       systemRole: agentConfig.systemRole,
       tools: enabledToolIds,
     });
+
+    if (payload.provider === 'minimax') {
+      oaiMessages = await trimMinimaxChatContext(
+        oaiMessages,
+        tools,
+        payload.model,
+        payload.max_tokens,
+      );
+    }
 
     // ============  3. process extend params   ============ //
 
@@ -437,12 +447,6 @@ class ChatService {
     onLoadingChange?.(true);
 
     try {
-      const oaiMessages = await contextEngineering({
-        messages: params.messages as any,
-        model: params.model!,
-        provider: params.provider!,
-        tools: params.plugins,
-      });
       // Use simple tools engine without complex search logic
       const toolsEngine = createToolsEngine();
       const tools = toolsEngine.generateTools({
@@ -450,6 +454,22 @@ class ChatService {
         provider: params.provider!,
         toolIds: params.plugins,
       });
+
+      let oaiMessages = await contextEngineering({
+        messages: params.messages as any,
+        model: params.model!,
+        provider: params.provider!,
+        tools: params.plugins,
+      });
+
+      if (params.provider === 'minimax') {
+        oaiMessages = await trimMinimaxChatContext(
+          oaiMessages,
+          tools,
+          params.model!,
+          params.max_tokens,
+        );
+      }
 
       // remove plugins
       delete params.plugins;
