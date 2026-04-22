@@ -19,6 +19,7 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 | API Tester | ❌ Not present | ✅ Browser-based REST API client at `/tools/apitest` |
 | Changelog page | Enabled | Disabled (skips external fetch at build time) |
 | Topic memory / context UX | Basic rolling summary | Assistance presets, token auto-compact, manual compact, daily opt-in, debug log, optional archives, **assistant-level memory** (`agents.assistant_memory`) with manual or periodic LLM rollup from topic summaries across sessions linked to the same agent |
+| Model gear (extendParams) UI | Single generic form | **Per-provider panels** (Moonshot, MiniMax, Anthropic, OpenAI) with compact layout; **MiniMax request trimming** before API calls to avoid context overflow |
 
 ---
 
@@ -56,6 +57,37 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
   - Stateless — no database required
 - **Extended model bank** — latest Claude (4.5, 4.6 Opus), GPT-5.x series (5.1, 5.2, 5.3, 5.4 / pro / chat / codex / mini / nano), Gemini 3.x (pro, flash), Kimi K2.x (k2.5, k2-thinking, k2-turbo), MiniMax with accurate pricing
 - **Memory and context compaction** — assistance-level presets, optional **token-threshold auto compact**, **manual compact** from the token popover, optional **daily** topic refresh (client + `localStorage`), **compaction debug** on the active topic, optional **memory archive** excerpts on the topic and in prompts when enabled. **Assistant memory** (cross-session notes on the agent row) can be edited manually or **generated/merged** from topic compaction summaries (button in **Assistant → Context**), with an optional **once-per-UTC-day-per-agent** periodic merge. Topic compaction and assistant rollup both use **Settings → System Agent → history compress** for model calls. Details: [Memory and context compaction](#memory-and-context-compaction).
+- **Model extension options (gear icon)** — Provider-specific compact popovers wired from each model card’s `extendParams` in the model bank; unrelated vendor controls are not mixed in one form. Details: [Model extension options](#model-extension-options-gear-menu).
+
+---
+
+## Model extension options (gear menu)
+
+The gear appears when the current model lists `settings.extendParams` in the **model bank** (`packages/model-bank/src/aiModels/*.ts`). LobeHub routes the popover by **runtime provider id** so only API-backed toggles appear for that vendor.
+
+| Provider id | UI module | Typical controls |
+| ------------- | --------- | ----------------- |
+| `moonshot` | `MoonshotOptions` | Kimi deep thinking, kimi-k2.6 preserved reasoning |
+| `minimax` | `MinimaxOptions` | OpenAI-compat `reasoning_split` (interleaved thinking vs body) |
+| `anthropic` | `AnthropicOptions` | Prompt cache, enable deep thinking, reasoning intensity (`output_config.effort` for adaptive-capable Claude models), thinking token / adaptive vs fixed budget |
+| `openai` | `OpenAIOptions` | `reasoning_effort` (o-style), GPT‑5 reasoning effort (minimal→high), text verbosity |
+| *all others* | `ControlsForm` | Shared form for Azure, Google, Volcengine, OpenAI-compatible hosts, etc. |
+
+**UX conventions (fork):**
+
+- Popover **`minWidth` 320px** for dedicated panels (Moonshot, MiniMax, Anthropic, OpenAI); Anthropic/OpenAI panels use **vertical** slider rows, **scroll** (`maxHeight`) when deep thinking exposes several rows, and **reasoning-dependent controls hidden** until “deep thinking” is enabled (Anthropic).
+- **Anthropic reasoning intensity** is exposed only on models that declare `reasoningEffort` in `extendParams` (Claude adaptive-capable ids); it maps to **`chatConfig.reasoningEffort`** → API **`output_config.effort`** when adaptive thinking is active.
+- **OpenAI** sliders (`ReasoningEffortSlider`, `GPT5ReasoningEffortSlider`, `TextVerbositySlider`) use a **full-width** compact track (no extra horizontal padding) so the gear menu stays narrow on small screens.
+
+**Chat request: MiniMax context trimming**
+
+Heavy **tool/plugin** payloads can exceed MiniMax’s **effective** input budget (context window minus space reserved for completion). Before the provider call, **`trimMinimaxChatContext`** (`src/services/chat/trimMinimaxContext.ts`) estimates size for **`messages` + `tools`**, derives a safe input budget from the model card, and **drops oldest user/assistant turns** (system messages kept) until the estimate fits. This reduces **`bad_request_error` / “context window exceeds limit (2013)”** when the in-app token badge still shows headroom.
+
+**Docker image builds**
+
+The **`docker-release`** workflow removes large preinstalled SDK trees on the GitHub runner (e.g. .NET, Android, GHC, CodeQL) before **`docker build`** so full Next.js image builds are less likely to hit **“No space left on device”** on standard `ubuntu-latest` disks.
+
+Implementation reference: `.cursor/rules/provider-model-options.mdc` (extendParams mapping and layering).
 
 ---
 
