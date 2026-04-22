@@ -96,6 +96,11 @@ export interface ChatStreamPayload {
    */
   presence_penalty?: number;
   provider?: string;
+  /**
+   * MiniMax OpenAI-compatible (`api.minimax.io/v1`): when true, interleaved thinking is
+   * exposed as `reasoning_details` (see MiniMax OpenAI API `reasoning_split`).
+   */
+  reasoning_split?: boolean;
   reasoning?: {
     effort?: string;
     summary?: string;

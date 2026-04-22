@@ -221,6 +221,10 @@ class ChatService {
       if (modelExtendParams!.includes('urlContext') && chatConfig.urlContext) {
         extendParams.urlContext = chatConfig.urlContext;
       }
+
+      if (modelExtendParams!.includes('minimaxReasoningSplit')) {
+        extendParams.reasoning_split = chatConfig.minimaxReasoningSplit !== false;
+      }
     }
 
     return this.getChatCompletion(

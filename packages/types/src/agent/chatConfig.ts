@@ -30,6 +30,11 @@ export interface LobeAgentChatConfig {
    */
   moonshotPreservedReasoning?: boolean;
   /**
+   * MiniMax M2.x (OpenAI-compatible): when false, disables `reasoning_split` so thinking
+   * is not split into `reasoning_details`. Default on (matches historical behavior).
+   */
+  minimaxReasoningSplit?: boolean;
+  /**
    * 自定义推理强度
    */
   enableReasoningEffort?: boolean;
@@ -106,6 +111,7 @@ export const AgentChatConfigSchema = z.object({
   enableReasoning: z.boolean().optional(),
   enableReasoningEffort: z.boolean().optional(),
   moonshotPreservedReasoning: z.boolean().optional(),
+  minimaxReasoningSplit: z.boolean().optional(),
   enableStreaming: z.boolean().optional(),
   historyCount: z.number().optional(),
   reasoningBudgetToken: z.number().optional(),

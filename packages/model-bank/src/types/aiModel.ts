@@ -232,6 +232,7 @@ export type ExtendParamsType =
   | 'reasoningBudgetToken'
   | 'enableReasoning'
   | 'moonshotPreservedReasoning'
+  | 'minimaxReasoningSplit'
   | 'disableContextCaching'
   | 'reasoningEffort'
   | 'gpt5ReasoningEffort'

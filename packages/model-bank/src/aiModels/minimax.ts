@@ -22,6 +22,9 @@ const minimaxChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2026-03-01',
+    settings: {
+      extendParams: ['minimaxReasoningSplit'],
+    },
     type: 'chat',
   },
   {
@@ -44,6 +47,9 @@ const minimaxChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2026-03-01',
+    settings: {
+      extendParams: ['minimaxReasoningSplit'],
+    },
     type: 'chat',
   },
   {
@@ -55,7 +61,7 @@ const minimaxChatModels: AIChatModelCard[] = [
     description:
       'Optimized for code generation and refactoring, delivering peak performance with ultimate value to master complex tasks.',
     displayName: 'MiniMax M2.5',
-    enabled: false,
+    enabled: true,
     id: 'MiniMax-M2.5',
     maxOutput: 131_072,
     pricing: {
@@ -67,6 +73,9 @@ const minimaxChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2026-02-12',
+    settings: {
+      extendParams: ['minimaxReasoningSplit'],
+    },
     type: 'chat',
   },
   {
@@ -89,6 +98,9 @@ const minimaxChatModels: AIChatModelCard[] = [
       ],
     },
     releasedAt: '2026-02-12',
+    settings: {
+      extendParams: ['minimaxReasoningSplit'],
+    },
     type: 'chat',
   },
   {

@@ -1,0 +1,56 @@
+---
+description: Docs-first workflow for provider-specific model options, extendParams, runtime mapping, and option panels (new modules)
+alwaysApply: true
+---
+
+# Provider model options (extendParams / option menus)
+
+Custom “model extension” toggles (gear icon → popover) **must stay aligned with what each vendor’s HTTP API actually accepts.** Wrong or invented parameters cause empty responses, rejected requests, or broken tool calling.
+
+## Authority order
+
+1. **Official vendor documentation** — API reference, OpenAPI/schema, changelog, model tables (“only model `X` accepts field `Y`”).
+2. **Structured schema** — e.g. Moonshot chat request `components/schemas/KimiK26ChatRequest` on [platform.moonshot.cn docs](https://platform.moonshot.cn/docs/api/chat).
+3. **Secondary research** — Context7 / MCP docs fetch **only when** grounded in vendor docs; resolve conflicts in favor of the vendor.
+
+Do **not** expose a toggle because another provider has a similarly named feature. Do **not** invent request-body keys (e.g. Minimax/OpenAI-compat flags) without documentation.
+
+## End-to-end mapping (every new option)
+
+Each real capability should be traced through **all** of these unless intentionally UI-only:
+
+| Layer | Location (typical) |
+|-------|-------------------|
+| Catalogue | `packages/model-bank/src/aiModels/<provider>.ts` — `settings.extendParams?: ExtendParamsType[]` per **model id** |
+| ExtendParams union | `packages/model-bank/src/types/aiModel.ts` — add a new union member only when wiring is real |
+| Agent config | `packages/types/src/agent/chatConfig.ts` — field + `AgentChatConfigSchema` when persisted |
+| Request assembly | `src/services/chat/index.ts` — map `chatConfig` → `ChatStreamPayload` / `extendParams` |
+| Provider runtime | `packages/model-runtime/src/providers/<provider>/` — exact JSON body; unit tests for payload shape |
+| UI | Provider-specific panel (see below) + i18n (`src/locales/default/chat.ts` + `locales/en-US|zh-CN/chat.json`) |
+
+If the doc says a field applies **only** to certain model IDs, gate **`extendParams` on those cards** and gate runtime branches on `payload.model` — do not send the field for other ids.
+
+## UI pattern: one provider panel at a time
+
+- **Dispatcher:** e.g. `src/features/ChatInput/ActionBar/Model/index.tsx` — `provider === 'moonshot'` → `<MoonshotOptions />`, else `<ControlsForm />` until that provider is migrated.
+- **Provider component:** e.g. `.../Model/providers/MoonshotOptions.tsx` — build `Form` items from `aiModelSelectors.modelExtendParams(model, provider)` only; compact popover width / responsive desc copy as needed.
+- **Migration strategy:** ship **one provider per iteration**; keep `ControlsForm` as default for unmigrated providers. Avoid dumping every vendor into one monolithic form with misleading shared copy (e.g. Claude-only reasoning text on Kimi).
+
+Gear visibility remains **`isModelHasExtendParams`** — empty `extendParams` means no gear.
+
+## Testing and regression
+
+- Add or extend **runtime unit tests** on `build*Payload` / `handlePayload` when behavior is non-trivial (thinking toggles, tool + thinking interaction, optional fields like `thinking.keep`).
+- After changes, run **`bash scripts/type-check-tsc.sh`** and targeted **`bun test`** for touched packages.
+
+## Shipping
+
+Follow **`.cursor/rules/git-and-release.mdc`** — **no commit / tag / push without an explicit in-turn user instruction** unless the user asked to ship.
+
+## Quick checklist (new module or new toggle)
+
+- [ ] Confirmed in **official** API docs / schema for **this** model id.
+- [ ] `extendParams` updated on the right model card(s); union type extended if new key.
+- [ ] `chatConfig` + Zod if persisted; service mapping updated.
+- [ ] Provider runtime sends **only** documented fields; tests updated.
+- [ ] Provider option panel + i18n; no shared Anthropic-specific copy on other vendors.

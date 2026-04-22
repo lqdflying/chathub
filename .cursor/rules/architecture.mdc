@@ -62,3 +62,7 @@ Prefer `vi.spyOn` over `vi.mock` when testing stores.
 ## CSS-in-JS
 
 Use `createStyles` from `antd-style`. Avoid inline styles or plain CSS modules.
+
+## Provider-specific model options
+
+When adding **per-model extension toggles** (gear menu), **extendParams**, or a **new provider option panel**, follow the docs-first workflow in **`provider-model-options.mdc`** (same `.cursor/rules/` folder): official API → model bank → types → service → runtime → UI → i18n → tests.

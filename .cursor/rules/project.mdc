@@ -28,3 +28,7 @@ Upstream: https://github.com/lobehub/lobe-chat — diverged significantly. **Do 
 - React components: `PascalCase.tsx`
 - Hooks: `use*.ts`
 - Tests: `__tests__/` directories or `.test.ts` suffix
+
+## Provider model options (extendParams / gear menu)
+
+Adding or changing **per-model** API options (new provider module, new toggles) must follow **`.cursor/rules/provider-model-options.mdc`** (docs-first, end-to-end mapping, one provider panel at a time).
