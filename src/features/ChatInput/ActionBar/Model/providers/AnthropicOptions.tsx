@@ -101,11 +101,6 @@ const AnthropicOptions = memo(() => {
     if (extendParams.includes('reasoningEffort')) {
       baseItems.push({
         children: <ReasoningEffortSlider />,
-        desc: (
-          <span style={{ display: 'block', maxWidth: '100%', whiteSpace: 'normal' }}>
-            {t('extendParams.reasoningEffort.descAnthropic')}
-          </span>
-        ),
         label: t('extendParams.reasoningEffort.title'),
         layout: 'vertical',
         minWidth: undefined,
@@ -146,7 +141,7 @@ const AnthropicOptions = memo(() => {
         await updateAgentChatConfig(values);
       }}
       size={'small'}
-      style={{ fontSize: 12 }}
+      style={{ fontSize: 12, maxHeight: 360, overflowY: 'auto' as const }}
       variant={'borderless'}
     />
   );

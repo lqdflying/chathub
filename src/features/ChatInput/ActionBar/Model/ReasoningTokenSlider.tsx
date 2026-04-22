@@ -33,8 +33,8 @@ const AdaptiveBudgetBar = memo(() => {
       aria-hidden
       style={{
         background: `linear-gradient(90deg, ${theme.colorInfo} 0%, ${theme.colorPrimary} 100%)`,
-        borderRadius: 6,
-        height: 10,
+        borderRadius: 4,
+        height: 6,
         opacity: 0.92,
         width: '100%',
       }}
@@ -128,12 +128,12 @@ const ReasoningTokenSlider = memo<MaxTokenSliderProps>(
     /** Adaptive-only models: toggle is always on (read-only); bar + hint below */
     if (adaptiveOnly) {
       return (
-        <Flexbox gap={10} width={'100%'}>
+        <Flexbox gap={6} width={'100%'}>
           <Flexbox align={'center'} horizontal justify={'space-between'}>
             <Typography.Text style={{ fontSize: 12 }}>
               {t('extendParams.reasoningBudgetToken.adaptive')}
             </Typography.Text>
-            <Switch checked disabled />
+            <Switch checked disabled size="small" />
           </Flexbox>
           <AdaptiveBudgetBar />
           <Typography.Text style={{ fontSize: 11 }} type={'secondary'}>
@@ -178,51 +178,49 @@ const ReasoningTokenSlider = memo<MaxTokenSliderProps>(
 
     /** Hybrid: switch + optional bar, or fixed slider + number */
     return (
-      <Flexbox gap={12} paddingInline={'4px 0'} width={'100%'}>
+      <Flexbox gap={8} width={'100%'}>
         <Flexbox align={'center'} horizontal justify={'space-between'}>
-          <Typography.Text style={{ fontSize: 12 }}>{t('extendParams.reasoningBudgetToken.adaptive')}</Typography.Text>
-          <Switch checked={isAdaptive} onChange={setAdaptiveEnabled} />
+          <Typography.Text style={{ fontSize: 12 }}>
+            {t('extendParams.reasoningBudgetToken.adaptive')}
+          </Typography.Text>
+          <Switch checked={isAdaptive} onChange={setAdaptiveEnabled} size="small" />
         </Flexbox>
 
         {isAdaptive ? (
-          <Flexbox gap={6}>
+          <Flexbox gap={4}>
             <AdaptiveBudgetBar />
             <Typography.Text style={{ fontSize: 11 }} type={'secondary'}>
               {t('extendParams.reasoningBudgetToken.adaptiveHint')}
             </Typography.Text>
           </Flexbox>
         ) : (
-          <Flexbox gap={6} width={'100%'}>
-            <Typography.Text style={{ fontSize: 11 }} type={'secondary'}>
-              {t('extendParams.reasoningBudgetToken.fixedBudgetHint')}
-            </Typography.Text>
-            <Flexbox align={'center'} gap={12} horizontal width={'100%'}>
-              <Flexbox flex={1}>
-                <Slider
-                  marks={marks}
-                  max={exponent(64)}
-                  min={exponent(1)}
-                  onChange={updateWithPowValue}
-                  step={null}
-                  tooltip={{ open: false }}
-                  value={powValue}
-                />
-              </Flexbox>
-              <div>
-                <InputNumber
-                  changeOnWheel
-                  max={64_000}
-                  min={Kibi}
-                  onChange={(e) => {
-                    if (e === null || e === undefined) return;
-                    updateFixedFromInput(e as number);
-                  }}
-                  step={step}
-                  style={{ width: 88 }}
-                  value={displayToken}
-                />
-              </div>
+          <Flexbox align={'center'} gap={10} horizontal width={'100%'}>
+            <Flexbox flex={1}>
+              <Slider
+                marks={marks}
+                max={exponent(64)}
+                min={exponent(1)}
+                onChange={updateWithPowValue}
+                step={null}
+                tooltip={{ open: false }}
+                value={powValue}
+              />
             </Flexbox>
+            <div>
+              <InputNumber
+                changeOnWheel
+                max={64_000}
+                min={Kibi}
+                onChange={(e) => {
+                  if (e === null || e === undefined) return;
+                  updateFixedFromInput(e as number);
+                }}
+                size="small"
+                step={step}
+                style={{ width: 72 }}
+                value={displayToken}
+              />
+            </div>
           </Flexbox>
         )}
       </Flexbox>
