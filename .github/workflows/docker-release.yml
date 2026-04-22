@@ -31,6 +31,19 @@ jobs:
           free -h
           sudo sysctl -w fs.file-max=65536
 
+      # ubuntu-latest images ship large toolchains we do not need for Docker builds.
+      # Without this, Next/Docker builds can exhaust the runner disk (see failed runs with
+      # “No space left on device” on the Actions worker itself).
+      - name: Remove unused preinstalled SDKs (free disk)
+        run: |
+          set -x
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo docker system prune -af || true
+          df -h
+
       - name: Checkout
         uses: actions/checkout@v5
 
