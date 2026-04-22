@@ -12,6 +12,7 @@ import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 
 import Action from '../components/Action';
 import ControlsForm from './ControlsForm';
+import AnthropicOptions from './providers/AnthropicOptions';
 import MinimaxOptions from './providers/MinimaxOptions';
 import MoonshotOptions from './providers/MoonshotOptions';
 
@@ -90,11 +91,17 @@ const ModelSwitch = memo(() => {
                 <MoonshotOptions />
               ) : provider === 'minimax' ? (
                 <MinimaxOptions />
+              ) : provider === 'anthropic' ? (
+                <AnthropicOptions />
               ) : (
                 <ControlsForm />
               ),
             minWidth:
-              provider === 'moonshot' || provider === 'minimax' ? 320 : 350,
+              provider === 'moonshot' ||
+              provider === 'minimax' ||
+              provider === 'anthropic'
+                ? 320
+                : 350,
             placement: 'topLeft',
           }}
           showTooltip={false}
