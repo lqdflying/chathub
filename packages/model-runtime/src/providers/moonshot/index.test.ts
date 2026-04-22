@@ -146,6 +146,32 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     });
   });
 
+  it('kimi-k2.6 + tools + thinking enabled matches K2.5-style payload (no keep unless set)', () => {
+    const result = buildMoonshotPayload({
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2.6',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result.thinking).toEqual({ type: 'enabled' });
+    expect(result).toMatchObject({ temperature: 1, top_p: 0.95 });
+  });
+
+  it('kimi-k2.6 + thinking enabled + keep all sends Preserved Thinking', () => {
+    const result = buildMoonshotPayload({
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2.6',
+      stream: true,
+      thinking: { budget_tokens: 1024, keep: 'all', type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+
+    expect(result.thinking).toEqual({ keep: 'all', type: 'enabled' });
+  });
+
   it('kimi-k2-thinking-turbo + tools omits thinking field (native thinking)', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],

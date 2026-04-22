@@ -26,6 +26,10 @@ export interface LobeAgentChatConfig {
    */
   enableReasoning?: boolean;
   /**
+   * Moonshot kimi-k2.6 only: Preserved Thinking (`thinking.keep: "all"` in API).
+   */
+  moonshotPreservedReasoning?: boolean;
+  /**
    * 自定义推理强度
    */
   enableReasoningEffort?: boolean;
@@ -101,6 +105,7 @@ export const AgentChatConfigSchema = z.object({
   enableMaxTokens: z.boolean().optional(),
   enableReasoning: z.boolean().optional(),
   enableReasoningEffort: z.boolean().optional(),
+  moonshotPreservedReasoning: z.boolean().optional(),
   enableStreaming: z.boolean().optional(),
   historyCount: z.number().optional(),
   reasoningBudgetToken: z.number().optional(),

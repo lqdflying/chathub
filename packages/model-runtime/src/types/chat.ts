@@ -127,6 +127,11 @@ export interface ChatStreamPayload {
      */
     effort?: 'low' | 'medium' | 'high' | 'max' | 'xhigh';
     type: 'adaptive' | 'disabled' | 'enabled';
+    /**
+     * Moonshot `kimi-k2.6` only: Preserved Thinking — forward historical `reasoning_content`
+     * when `keep` is `all` (see Moonshot chat API `KimiK26ChatRequest`).
+     */
+    keep?: 'all' | null;
   };
   thinkingBudget?: number;
   tool_choice?: string;

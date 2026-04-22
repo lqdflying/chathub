@@ -160,6 +160,9 @@ class ChatService {
             extendParams.thinking = {
               budget_tokens: chatConfig.reasoningBudgetToken || 1024,
               type: 'enabled',
+              ...(payload.model === 'kimi-k2.6' && chatConfig.moonshotPreservedReasoning
+                ? { keep: 'all' as const }
+                : {}),
             };
           }
         } else {

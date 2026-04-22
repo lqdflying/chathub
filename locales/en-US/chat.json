@@ -53,8 +53,12 @@
       "title": "Enable Deep Thinking"
     },
     "kimiReasoning": {
-      "desc": "Let Kimi K2.5 run internal chain-of-thought before answering. Turn off for faster, cheaper replies. Only applies to kimi-k2.5.",
+      "desc": "Let Kimi K2.5 / K2.6 run internal chain-of-thought before answering. Turn off for faster, cheaper replies. Use the matching model ID.",
       "title": "Enable Deep Thinking"
+    },
+    "moonshotPreservedReasoning": {
+      "desc": "kimi-k2.6 only: keep prior turns' reasoning_content in context (Preserved Thinking). Enable together with deep thinking; increases tokens and cost.",
+      "title": "Preserved thinking (K2.6)"
     },
     "reasoningBudgetToken": {
       "adaptive": "Adaptive thinking",

@@ -6,7 +6,9 @@ import type { ChatStreamPayload } from '../../types';
 
 // Shared constants and helpers
 const MOONSHOT_SEARCH_TOOL = { function: { name: '$web_search' }, type: 'builtin_function' } as any;
-const isKimiK25Model = (model: string) => model === 'kimi-k2.5';
+/** kimi-k2.5 / kimi-k2.6: Moonshot accepts `thinking: { type, keep? }` per API schemas. */
+const isKimiK25StyleThinkingModel = (model: string) =>
+  model === 'kimi-k2.5' || model === 'kimi-k2.6';
 const isKimiNativeThinkingModel = (model: string) => model.startsWith('kimi-k2-thinking');
 const hasValidReasoning = (reasoning: any) => reasoning?.content && !reasoning?.signature;
 
@@ -77,9 +79,10 @@ export const buildMoonshotPayload = (
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
   const { enabledSearch, messages, model, temperature, thinking, tools, top_p, ...rest } = payload;
 
-  const isK25 = isKimiK25Model(model);
+  const isK25Style = isKimiK25StyleThinkingModel(model);
   const isNativeThinking = isKimiNativeThinkingModel(model);
-  const isThinkingEnabled = isNativeThinking || (isK25 && thinking?.type !== 'disabled');
+  const isThinkingEnabled =
+    isNativeThinking || (isK25Style && thinking?.type !== 'disabled');
 
   // Normalize messages for reasoning_content
   const normalizedMessages = normalizeMessagesForMoonshot(
@@ -90,28 +93,35 @@ export const buildMoonshotPayload = (
   // Handle search tools
   const moonshotTools = appendSearchTool(tools, enabledSearch);
 
-  // kimi-k2.5: API accepts `thinking: { type: enabled | disabled }` only for this model id.
-  if (isK25) {
+  // kimi-k2.5 / kimi-k2.6: `thinking.type` (+ optional `keep` on k2.6 for Preserved Thinking).
+  if (isK25Style) {
     const thinkingParam =
       thinking?.type !== 'disabled'
         ? { type: 'enabled' as const }
         : { type: 'disabled' as const };
 
+    const withKeep =
+      model === 'kimi-k2.6' &&
+      thinkingParam.type === 'enabled' &&
+      thinking?.keep === 'all'
+        ? { ...thinkingParam, keep: 'all' as const }
+        : thinkingParam;
+
     return {
       ...rest,
-      ...getK25Params(thinkingParam.type === 'enabled'),
+      ...getK25Params(withKeep.type === 'enabled'),
       frequency_penalty: 0,
       messages: normalizedMessages,
       model,
       presence_penalty: 0,
       stream: payload.stream ?? true,
-      thinking: thinkingParam,
+      thinking: withKeep,
       tools: moonshotTools?.length ? moonshotTools : undefined,
     } as OpenAI.ChatCompletionCreateParamsStreaming;
   }
 
-  // kimi-k2-thinking / kimi-k2-thinking-turbo: native thinking; do not send `thinking`
-  // (docs: field is only for kimi-k2.5). Same sampling envelope as K2.5 thinking-on.
+  // kimi-k2-thinking / kimi-k2-thinking-turbo: native thinking; do not send `thinking`.
+  // Same sampling envelope as K2.5/K2.6 thinking-on.
   if (isNativeThinking) {
     return {
       ...rest,

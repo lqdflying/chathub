@@ -9,7 +9,7 @@ import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 
-/** Kimi / Moonshot-only extended options (compact panel; kimi-k2.5 uses enableReasoning today). */
+/** Kimi / Moonshot-only extended options (kimi-k2.5 / kimi-k2.6 thinking + K2.6 Preserved Thinking). */
 const MoonshotOptions = memo(() => {
   const { t } = useTranslation('chat');
   const [model, provider, updateAgentChatConfig] = useAgentStore((s) => [
@@ -45,6 +45,21 @@ const MoonshotOptions = memo(() => {
       layout: isNarrow ? 'vertical' : 'horizontal',
       minWidth: undefined,
       name: 'enableReasoning',
+    });
+  }
+
+  if (extendParams.includes('moonshotPreservedReasoning')) {
+    items.push({
+      children: <Switch />,
+      desc: (
+        <span style={isNarrow ? descNarrow : descWide}>
+          {t('extendParams.moonshotPreservedReasoning.desc')}
+        </span>
+      ),
+      label: t('extendParams.moonshotPreservedReasoning.title'),
+      layout: isNarrow ? 'vertical' : 'horizontal',
+      minWidth: undefined,
+      name: 'moonshotPreservedReasoning',
     });
   }
 

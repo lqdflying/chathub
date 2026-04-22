@@ -231,6 +231,7 @@ export type ModelSearchImplementType = 'tool' | 'params' | 'internal';
 export type ExtendParamsType =
   | 'reasoningBudgetToken'
   | 'enableReasoning'
+  | 'moonshotPreservedReasoning'
   | 'disableContextCaching'
   | 'reasoningEffort'
   | 'gpt5ReasoningEffort'
