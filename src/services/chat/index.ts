@@ -146,19 +146,8 @@ class ChatService {
       )(aiInfraStoreState);
       // if model has extended params, then we need to check if the model can use reasoning
 
-      // Moonshot kimi-k2.5 has a limitation: when thinking is enabled, ALL historical
-      // assistant tool call messages must have reasoning_content. If the conversation
-      // has messages generated without thinking mode, they won't have reasoning_content
-      // and the API will reject the request. So we disable automatic thinking for
-      // Moonshot kimi-k2.5 unless explicitly forced.
-      const isMoonshotWithThinkingIssue =
-        payload.provider === 'moonshot' &&
-        (payload.model === 'kimi-k2.5' || payload.model === 'moonshot-v1-128k');
-
       if (modelExtendParams!.includes('enableReasoning')) {
-        // Only enable thinking if user explicitly enabled it AND it's not Moonshot
-        // with the reasoning_content compatibility issue
-        if (chatConfig.enableReasoning && !isMoonshotWithThinkingIssue) {
+        if (chatConfig.enableReasoning) {
           if (
             payload.provider === 'anthropic' &&
             chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE
@@ -179,10 +168,7 @@ class ChatService {
             type: 'disabled',
           };
         }
-      } else if (
-        modelExtendParams!.includes('reasoningBudgetToken') &&
-        !isMoonshotWithThinkingIssue
-      ) {
+      } else if (modelExtendParams!.includes('reasoningBudgetToken')) {
         if (
           payload.provider === 'anthropic' &&
           chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE

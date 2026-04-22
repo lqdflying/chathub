@@ -12,6 +12,7 @@ import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 
 import Action from '../components/Action';
 import ControlsForm from './ControlsForm';
+import MoonshotOptions from './providers/MoonshotOptions';
 
 const useStyles = createStyles(({ css, token, cx }) => ({
   container: css`
@@ -83,8 +84,9 @@ const ModelSwitch = memo(() => {
         <Action
           icon={Settings2Icon}
           popover={{
-            content: <ControlsForm />,
-            minWidth: 350,
+            content:
+              provider === 'moonshot' ? <MoonshotOptions /> : <ControlsForm />,
+            minWidth: provider === 'moonshot' ? 320 : 350,
             placement: 'topLeft',
           }}
           showTooltip={false}

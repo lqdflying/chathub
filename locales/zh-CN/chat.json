@@ -52,6 +52,10 @@
       "desc": "基于 Claude Thinking 机制限制（<1>了解更多</1>），开启后将自动禁用历史消息数限制",
       "title": "开启深度思考"
     },
+    "kimiReasoning": {
+      "desc": "开启后 Kimi K2.5 会先进行内部链式思考再输出；关闭可更快、更省 Token。仅对 kimi-k2.5 生效。",
+      "title": "开启深度思考（Kimi）"
+    },
     "reasoningBudgetToken": {
       "adaptive": "自适应深度思考",
       "adaptiveHint": "思考预算随任务难度由模型自动调节。",

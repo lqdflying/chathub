@@ -5,6 +5,23 @@ alwaysApply: true
 
 # Git & Release Workflow
 
+## Agent commit policy (STRICT)
+
+**Never run `git commit`, `git tag`, or `git push` without an explicit, in-turn
+user instruction.** This overrides any "keep triggering canary builds in a
+loop" style request once debugging is in progress — multiple fixes may need
+to be stacked before they are worth a new commit/tag.
+
+- Default behavior while iterating: edit files, run type-checks / unit tests,
+  and surface the diff (e.g. `git status`, `git diff --stat`) for review.
+- Only proceed with `git add` / `git commit` / `git tag` / `git push` when the
+  user explicitly says something like "commit it", "tag canary.N", "push", or
+  "ship it". Approval must be given in the current turn; earlier blanket
+  approvals do not carry over across newly-discovered bugs.
+- Never auto-bump the canary number between fixes. Wait for the user to
+  confirm that the fix is ready to ship.
+- If you believe a commit is warranted, **ask first** instead of acting.
+
 ## Commits
 
 - Commit messages must be prefixed with a **gitmoji** (e.g. `🐛 fix(scope): …`, `✨ feat(scope): …`).
@@ -24,6 +41,10 @@ Docker builds run **only on tag pushes**, not on commits to `main`.
 Version scheme: `v3.x.x` (LobeHub independent versioning, unrelated to upstream v1.x).
 
 ## Fix / feature canary flow (default)
+
+Use this sequence **only when the user explicitly asks to ship / tag / cut a
+canary**. Never kick it off on your own — the STRICT policy above wins for
+both canary and formal tags.
 
 **Never commit fixes or features directly on `main` just to get an image.**
 
@@ -56,6 +77,9 @@ git tag vGOOD && git push origin vGOOD
 ```
 
 ## GA promotion (only after canary passes)
+
+Trigger only on explicit user instruction (e.g. "promote to GA", "bump to
+vX.Y.Z and tag"). Do not auto-promote even when the canary looks green.
 
 ```bash
 sed -i 's/"version": "old"/"version": "new"/' package.json

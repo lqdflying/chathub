@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { normalizeMessagesForMoonshot } from './index';
+import { buildMoonshotPayload, normalizeMessagesForMoonshot } from './index';
 
 describe('normalizeMessagesForMoonshot', () => {
   it('keeps user / system / tool messages untouched', () => {
@@ -104,5 +104,76 @@ describe('normalizeMessagesForMoonshot', () => {
     expect(normalizeMessagesForMoonshot(messages, true)).toEqual([
       { content: 'hi', role: 'user' },
     ]);
+  });
+});
+
+const sampleTools = [
+  { function: { name: 'get_time', parameters: {}, description: '' }, type: 'function' },
+] as any;
+
+describe('buildMoonshotPayload — tool-call safety', () => {
+  it('kimi-k2.5 + tools + thinking enabled keeps tools and sends thinking + K2.5 sampling', () => {
+    const result = buildMoonshotPayload({
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2.5',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result).toMatchObject({
+      thinking: { type: 'enabled' },
+      temperature: 1,
+      top_p: 0.95,
+    });
+  });
+
+  it('kimi-k2.5 + tools + thinking disabled keeps tools and sends disabled thinking + non-thinking sampling', () => {
+    const result = buildMoonshotPayload({
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2.5',
+      stream: true,
+      thinking: { budget_tokens: 0, type: 'disabled' },
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result).toMatchObject({
+      thinking: { type: 'disabled' },
+      temperature: 0.6,
+      top_p: 0.95,
+    });
+  });
+
+  it('kimi-k2-thinking-turbo + tools omits thinking field (native thinking)', () => {
+    const result = buildMoonshotPayload({
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2-thinking-turbo',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result).not.toHaveProperty('thinking');
+    expect(result).toMatchObject({
+      temperature: 1,
+      top_p: 0.95,
+    });
+  });
+
+  it('kimi-k2-0905-preview + tools halves temperature and omits thinking', () => {
+    const result = buildMoonshotPayload({
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2-0905-preview',
+      stream: true,
+      temperature: 1.4,
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result).not.toHaveProperty('thinking');
+    expect(result.temperature).toBe(0.7);
   });
 });

@@ -71,7 +71,8 @@ export const normalizeMessagesForMoonshot = (
   }, []);
 };
 
-const buildMoonshotPayload = (
+/** Exported for unit tests — Moonshot/OpenAI-compat request shaping. */
+export const buildMoonshotPayload = (
   payload: ChatStreamPayload,
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
   const { enabledSearch, messages, model, temperature, thinking, tools, top_p, ...rest } = payload;
@@ -89,10 +90,10 @@ const buildMoonshotPayload = (
   // Handle search tools
   const moonshotTools = appendSearchTool(tools, enabledSearch);
 
-  // Moonshot kimi-k2.5 requires specific parameters
-  if (isK25 || isNativeThinking) {
+  // kimi-k2.5: API accepts `thinking: { type: enabled | disabled }` only for this model id.
+  if (isK25) {
     const thinkingParam =
-      isNativeThinking || thinking?.type !== 'disabled'
+      thinking?.type !== 'disabled'
         ? { type: 'enabled' as const }
         : { type: 'disabled' as const };
 
@@ -105,6 +106,21 @@ const buildMoonshotPayload = (
       presence_penalty: 0,
       stream: payload.stream ?? true,
       thinking: thinkingParam,
+      tools: moonshotTools?.length ? moonshotTools : undefined,
+    } as OpenAI.ChatCompletionCreateParamsStreaming;
+  }
+
+  // kimi-k2-thinking / kimi-k2-thinking-turbo: native thinking; do not send `thinking`
+  // (docs: field is only for kimi-k2.5). Same sampling envelope as K2.5 thinking-on.
+  if (isNativeThinking) {
+    return {
+      ...rest,
+      ...getK25Params(true),
+      frequency_penalty: 0,
+      messages: normalizedMessages,
+      model,
+      presence_penalty: 0,
+      stream: payload.stream ?? true,
       tools: moonshotTools?.length ? moonshotTools : undefined,
     } as OpenAI.ChatCompletionCreateParamsStreaming;
   }

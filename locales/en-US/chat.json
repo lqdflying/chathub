@@ -52,6 +52,10 @@
       "desc": "Based on the Claude Thinking mechanism limit (<1>Learn more</1>), enabling this will automatically disable the limit on the number of historical messages.",
       "title": "Enable Deep Thinking"
     },
+    "kimiReasoning": {
+      "desc": "Let Kimi K2.5 run internal chain-of-thought before answering. Turn off for faster, cheaper replies. Only applies to kimi-k2.5.",
+      "title": "Enable Deep Thinking"
+    },
     "reasoningBudgetToken": {
       "adaptive": "Adaptive thinking",
       "adaptiveHint": "Thinking budget scales automatically with task difficulty.",
