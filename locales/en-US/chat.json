@@ -72,6 +72,7 @@
       "title": "Thinking Consumption Token"
     },
     "reasoningEffort": {
+      "descAnthropic": "When extended thinking is on and the request uses Claude adaptive thinking, maps to API `output_config.effort` (low / medium / high).",
       "title": "Reasoning Intensity"
     },
     "textVerbosity": {

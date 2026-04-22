@@ -31,7 +31,12 @@ const anthropicChatModels: AIChatModelCard[] = [
     },
     releasedAt: '2026-04-17',
     settings: {
-      extendParams: ['disableContextCaching', 'enableReasoning', 'reasoningBudgetToken'],
+      extendParams: [
+        'disableContextCaching',
+        'enableReasoning',
+        'reasoningEffort',
+        'reasoningBudgetToken',
+      ],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -66,7 +71,12 @@ const anthropicChatModels: AIChatModelCard[] = [
     },
     releasedAt: '2026-02-05',
     settings: {
-      extendParams: ['disableContextCaching', 'enableReasoning', 'reasoningBudgetToken'],
+      extendParams: [
+        'disableContextCaching',
+        'enableReasoning',
+        'reasoningEffort',
+        'reasoningBudgetToken',
+      ],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -101,7 +111,12 @@ const anthropicChatModels: AIChatModelCard[] = [
     },
     releasedAt: '2026-02-17',
     settings: {
-      extendParams: ['disableContextCaching', 'enableReasoning', 'reasoningBudgetToken'],
+      extendParams: [
+        'disableContextCaching',
+        'enableReasoning',
+        'reasoningEffort',
+        'reasoningBudgetToken',
+      ],
       searchImpl: 'params',
     },
     type: 'chat',

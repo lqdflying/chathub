@@ -73,6 +73,8 @@ export default {
       title: '思考消耗 Token',
     },
     reasoningEffort: {
+      descAnthropic:
+        '在自适应思考开启且使用 adaptive 模式时，对应 Claude API 的 output_config.effort（低 / 中 / 高）。',
       title: '推理强度',
     },
     textVerbosity: {

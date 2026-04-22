@@ -13,6 +13,7 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selector
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 
 import ContextCachingSwitch from '../ContextCachingSwitch';
+import ReasoningEffortSlider from '../ReasoningEffortSlider';
 import ReasoningTokenSlider from '../ReasoningTokenSlider';
 
 /** Claude / Anthropic-only extended options (prompt cache + extended thinking + budget). */
@@ -90,6 +91,24 @@ const AnthropicOptions = memo(() => {
         layout: isNarrow ? 'vertical' : 'horizontal',
         minWidth: undefined,
         name: 'enableReasoning',
+      });
+    }
+
+    if (extendParams.includes('reasoningEffort')) {
+      result.push({
+        children: <ReasoningEffortSlider />,
+        desc: (
+          <span style={isNarrow ? descNarrow : descWide}>
+            {t('extendParams.reasoningEffort.descAnthropic')}
+          </span>
+        ),
+        label: t('extendParams.reasoningEffort.title'),
+        layout: isNarrow ? 'vertical' : 'horizontal',
+        minWidth: undefined,
+        name: 'reasoningEffort',
+        style: {
+          paddingBottom: 0,
+        },
       });
     }
 

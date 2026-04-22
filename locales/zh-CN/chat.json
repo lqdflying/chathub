@@ -72,6 +72,7 @@
       "title": "思考消耗 Token"
     },
     "reasoningEffort": {
+      "descAnthropic": "在扩展思考开启且请求走 Claude 自适应思考时，对应 API 的 output_config.effort（低 / 中 / 高）。",
       "title": "推理强度"
     },
     "textVerbosity": {
