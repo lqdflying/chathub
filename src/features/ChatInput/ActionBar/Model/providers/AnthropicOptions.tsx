@@ -1,9 +1,9 @@
 import { Form } from '@lobehub/ui';
 import type { FormItemProps } from '@lobehub/ui';
-import { Grid, Switch } from 'antd';
+import { Form as AntdForm, Grid, Switch } from 'antd';
 import isEqual from 'fast-deep-equal';
 import Link from 'next/link';
-import { memo, useMemo } from 'react';
+import { memo } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { isAnthropicAdaptiveThinkingOnlyModel } from '@lobechat/model-runtime';
@@ -29,6 +29,9 @@ const AnthropicOptions = memo(() => {
 
   const modelExtendParams = useAiInfraStore(aiModelSelectors.modelExtendParams(model, provider));
 
+  const [form] = Form.useForm();
+  const enableReasoning = AntdForm.useWatch(['enableReasoning'], form);
+
   const screens = Grid.useBreakpoint();
   const isNarrow = !screens.sm;
 
@@ -41,79 +44,78 @@ const AnthropicOptions = memo(() => {
 
   const extendParams = modelExtendParams ?? [];
 
-  const items = useMemo(() => {
-    const result: FormItemProps[] = [];
+  const baseItems: FormItemProps[] = [];
 
-    if (extendParams.includes('disableContextCaching')) {
-      result.push({
-        children: <ContextCachingSwitch />,
-        desc: (
-          <span style={isNarrow ? descNarrow : descWide}>
-            <Trans i18nKey={'extendParams.disableContextCaching.desc'} ns={'chat'}>
-              单条对话生成成本最高可降低 90%，响应速度提升 4 倍（
-              <Link
-                href={'https://www.anthropic.com/news/prompt-caching?utm_source=lobechat'}
-                rel={'nofollow'}
-              >
-                了解更多
-              </Link>
-              ）。开启后将自动禁用历史记录限制
-            </Trans>
-          </span>
-        ),
-        label: t('extendParams.disableContextCaching.title'),
-        layout: isNarrow ? 'vertical' : 'horizontal',
-        minWidth: undefined,
-        name: 'disableContextCaching',
-      });
-    }
+  if (extendParams.includes('disableContextCaching')) {
+    baseItems.push({
+      children: <ContextCachingSwitch />,
+      desc: (
+        <span style={isNarrow ? descNarrow : descWide}>
+          <Trans i18nKey={'extendParams.disableContextCaching.desc'} ns={'chat'}>
+            单条对话生成成本最高可降低 90%，响应速度提升 4 倍（
+            <Link
+              href={'https://www.anthropic.com/news/prompt-caching?utm_source=lobechat'}
+              rel={'nofollow'}
+            >
+              了解更多
+            </Link>
+            ）。开启后将自动禁用历史记录限制
+          </Trans>
+        </span>
+      ),
+      label: t('extendParams.disableContextCaching.title'),
+      layout: isNarrow ? 'vertical' : 'horizontal',
+      minWidth: undefined,
+      name: 'disableContextCaching',
+    });
+  }
 
-    if (extendParams.includes('enableReasoning')) {
-      result.push({
-        children: <Switch />,
-        desc: (
-          <span style={isNarrow ? descNarrow : descWide}>
-            <Trans i18nKey={'extendParams.enableReasoning.desc'} ns={'chat'}>
-              基于 Claude Thinking 机制限制（
-              <Link
-                href={
-                  'https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking?utm_source=lobechat#why-thinking-blocks-must-be-preserved'
-                }
-                rel={'nofollow'}
-              >
-                了解更多
-              </Link>
-              ），开启后将自动禁用历史消息数限制
-            </Trans>
-          </span>
-        ),
-        label: t('extendParams.enableReasoning.title'),
-        layout: isNarrow ? 'vertical' : 'horizontal',
-        minWidth: undefined,
-        name: 'enableReasoning',
-      });
-    }
+  if (extendParams.includes('enableReasoning')) {
+    baseItems.push({
+      children: <Switch />,
+      desc: (
+        <span style={isNarrow ? descNarrow : descWide}>
+          <Trans i18nKey={'extendParams.enableReasoning.desc'} ns={'chat'}>
+            基于 Claude Thinking 机制限制（
+            <Link
+              href={
+                'https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking?utm_source=lobechat#why-thinking-blocks-must-be-preserved'
+              }
+              rel={'nofollow'}
+            >
+              了解更多
+            </Link>
+            ），开启后将自动禁用历史消息数限制
+          </Trans>
+        </span>
+      ),
+      label: t('extendParams.enableReasoning.title'),
+      layout: isNarrow ? 'vertical' : 'horizontal',
+      minWidth: undefined,
+      name: 'enableReasoning',
+    });
+  }
 
+  // Reasoning intensity + token budget are only meaningful when deep thinking is ON
+  if (enableReasoning) {
     if (extendParams.includes('reasoningEffort')) {
-      result.push({
+      baseItems.push({
         children: <ReasoningEffortSlider />,
         desc: (
-          <span style={isNarrow ? descNarrow : descWide}>
+          <span style={{ display: 'block', maxWidth: '100%', whiteSpace: 'normal' }}>
             {t('extendParams.reasoningEffort.descAnthropic')}
           </span>
         ),
         label: t('extendParams.reasoningEffort.title'),
-        layout: isNarrow ? 'vertical' : 'horizontal',
+        layout: 'vertical',
         minWidth: undefined,
         name: 'reasoningEffort',
-        style: {
-          paddingBottom: 0,
-        },
+        style: { paddingBottom: 0 },
       });
     }
 
     if (extendParams.includes('reasoningBudgetToken')) {
-      result.push({
+      baseItems.push({
         children: (
           <ReasoningTokenSlider
             adaptiveOnly={
@@ -129,19 +131,16 @@ const AnthropicOptions = memo(() => {
         layout: 'vertical',
         minWidth: undefined,
         name: 'reasoningBudgetToken',
-        style: {
-          paddingBottom: 0,
-        },
+        style: { paddingBottom: 0 },
       });
     }
-
-    return result;
-  }, [descNarrow, descWide, extendParams, isNarrow, model, provider, t]);
+  }
 
   return (
     <Form
+      form={form}
       initialValues={config}
-      items={items}
+      items={baseItems}
       itemsType={'flat'}
       onValuesChange={async (_, values) => {
         await updateAgentChatConfig(values);
