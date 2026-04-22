@@ -21,6 +21,7 @@ cd packages/database && bunx vitest run --silent='passed-only' '[file]'
 # Type checking
 bun run type-check           # Uses tsgo (fast)
 bun run type-check:tsc       # Uses tsc (strict)
+bash scripts/type-check-tsc.sh   # Strict TSC script (fork CI / agent workflow; filters known Drizzle noise)
 
 # Linting
 bun run lint                 # ts + style + type-check + circular deps

@@ -32,11 +32,24 @@ If the doc says a field applies **only** to certain model IDs, gate **`extendPar
 
 ## UI pattern: one provider panel at a time
 
-- **Dispatcher:** e.g. `src/features/ChatInput/ActionBar/Model/index.tsx` — `provider === 'moonshot'` → `<MoonshotOptions />`, else `<ControlsForm />` until that provider is migrated.
-- **Provider component:** e.g. `.../Model/providers/MoonshotOptions.tsx` — build `Form` items from `aiModelSelectors.modelExtendParams(model, provider)` only; compact popover width / responsive desc copy as needed.
-- **Migration strategy:** ship **one provider per iteration**; keep `ControlsForm` as default for unmigrated providers. Avoid dumping every vendor into one monolithic form with misleading shared copy (e.g. Claude-only reasoning text on Kimi).
+- **Dispatcher:** `src/features/ChatInput/ActionBar/Model/index.tsx` — route by runtime **provider id**:
+
+  | Provider id | Component |
+  | ----------- | --------- |
+  | `moonshot` | `providers/MoonshotOptions.tsx` |
+  | `minimax` | `providers/MinimaxOptions.tsx` |
+  | `anthropic` | `providers/AnthropicOptions.tsx` |
+  | `openai` | `providers/OpenAIOptions.tsx` |
+  | *everything else* | `ControlsForm.tsx` |
+
+- **Provider component:** under `.../Model/providers/<Name>Options.tsx` — build **only** fields implied by `aiModelSelectors.modelExtendParams(model, provider)`. Use **compact** popovers (`minWidth` ~320px for dedicated panels), vertical slider rows when needed, optional **scroll** (`maxHeight`) — avoid Claude-only copy on non-Anthropic panels.
+- **Migration strategy:** ship **one** new provider panel per focused change; keep `ControlsForm` for unmigrated providers.
 
 Gear visibility remains **`isModelHasExtendParams`** — empty `extendParams` means no gear.
+
+## Chat request shaping (MiniMax)
+
+When **MiniMax** rejects requests with context overflow (**`bad_request_error` / 2013**), the fork trims chat history in **`src/services/chat/trimMinimaxContext.ts`** (called from **`src/services/chat/index.ts`**) so **`messages` + `tools`** fit the **effective** input budget. Coordinate with gear / tool UX if payload size changes.
 
 ## Testing and regression
 

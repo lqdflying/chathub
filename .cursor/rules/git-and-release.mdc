@@ -40,6 +40,8 @@ Docker builds run **only on tag pushes**, not on commits to `main`.
 
 Version scheme: `v3.x.x` (LobeHub independent versioning, unrelated to upstream v1.x).
 
+**Docker build reliability:** `.github/workflows/docker-release.yml` frees unused runner disk (preinstalled SDK trees, `docker system prune`) before `docker build` so large Next.js images are less likely to hit **“No space left on device”** on `ubuntu-latest`.
+
 ## Fix / feature canary flow (default)
 
 Use this sequence **only when the user explicitly asks to ship / tag / cut a
@@ -81,10 +83,51 @@ git tag vGOOD && git push origin vGOOD
 Trigger only on explicit user instruction (e.g. "promote to GA", "bump to
 vX.Y.Z and tag"). Do not auto-promote even when the canary looks green.
 
+**Typical flow:** merge the feature branch into **`main`** (fast-forward or merge commit), then on **`main`** bump **`package.json`**, commit, tag **`vX.Y.Z`**, push **`main`** and the tag. Ensure `main` contains all GA work before tagging.
+
 ```bash
+# On main after merge — replace old/new version strings
 sed -i 's/"version": "old"/"version": "new"/' package.json
 git add package.json && git commit -m "🔖 chore: bump version to vX.Y.Z"
-git tag vX.Y.Z && git push origin HEAD:main && git push origin vX.Y.Z
+git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z
 ```
 
+(This replaces older one-liners that pushed `HEAD:main` from a non-main branch — prefer **checkout `main`**, merge, bump, tag from **`main`**.)
+
 This is the **only** flow allowed to push a non-canary `v*.*.*` tag and update `:latest`.
+
+## After GA: delete unused branches
+
+Once a feature or fix branch has been **merged into `main`** and the GA tag has shipped, **delete that branch locally and on `origin`** so the repo stays tidy. Do this **only when the user asks** (e.g. “clean up branches”, “delete merged branches”) or as part of an explicit GA follow-up.
+
+**Do not delete** `main`, release-protection branches, or anything the user still uses for open work.
+
+### Check what is safe to remove
+
+```bash
+git fetch --prune origin
+git checkout main && git pull origin main
+git branch --merged main    # local branches fully merged into main (except main itself)
+```
+
+Optional: compare to remote feature branches — if the merge is on `main`, the remote copy of the feature branch is redundant.
+
+### Delete locally
+
+```bash
+git branch -d <branch>      # preferred when Git agrees it is merged
+git branch -D <branch>      # only if work is already on main but Git refuses -d (e.g. stray tracking mismatch)
+```
+
+### Delete on `origin`
+
+```bash
+git push origin --delete <branch> [<branch> ...]
+```
+
+### Verify
+
+```bash
+git fetch --prune origin
+git branch -a
+```

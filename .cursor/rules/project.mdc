@@ -32,3 +32,5 @@ Upstream: https://github.com/lobehub/lobe-chat — diverged significantly. **Do 
 ## Provider model options (extendParams / gear menu)
 
 Adding or changing **per-model** API options (new provider module, new toggles) must follow **`.cursor/rules/provider-model-options.mdc`** (docs-first, end-to-end mapping, one provider panel at a time).
+
+Dedicated gear panels live under **`src/features/ChatInput/ActionBar/Model/providers/`** and are wired from **`src/features/ChatInput/ActionBar/Model/index.tsx`** (see table in that rule file). **`README.md`** summarizes user-facing behavior for the fork.

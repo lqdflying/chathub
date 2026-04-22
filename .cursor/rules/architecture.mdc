@@ -49,6 +49,11 @@ Prefer `vi.spyOn` over `vi.mock` when testing stores.
 
 `Component → useChatStore action → service (src/services/) → tRPC router → server service → DB`
 
+### Chat completion / provider payloads
+
+- **`src/services/chat/index.ts`** assembles **`ChatStreamPayload`** (messages, tools, **`extendParams`** from agent `chatConfig` + model bank `extendParams`).
+- **MiniMax:** optional **`trimMinimaxChatContext`** in **`src/services/chat/trimMinimaxContext.ts`** reduces message history when **`messages` + `tools`** would exceed the provider’s effective input budget (see **`provider-model-options.mdc`**).
+
 ## tRPC router locations
 
 - `src/server/routers/lambda/` — standard request/response
