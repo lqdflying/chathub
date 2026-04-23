@@ -250,3 +250,73 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(assistant?.reasoning_content).toBe('');
   });
 });
+
+describe('buildMoonshotPayload — enabledSearch forces thinking off', () => {
+  it('kimi-k2.6 + enabledSearch + thinking enabled → thinking disabled', () => {
+    const result = buildMoonshotPayload({
+      enabledSearch: true,
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2.6',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+    } as any);
+
+    expect(result.thinking).toEqual({ type: 'disabled' });
+    expect(result.temperature).toBe(0.6);
+    expect(result.tools).toEqual([{ function: { name: '$web_search' }, type: 'builtin_function' }]);
+  });
+
+  it('kimi-k2.5 + enabledSearch + thinking enabled → thinking disabled', () => {
+    const result = buildMoonshotPayload({
+      enabledSearch: true,
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2.5',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+    } as any);
+
+    expect(result.thinking).toEqual({ type: 'disabled' });
+    expect(result.temperature).toBe(0.6);
+  });
+
+  it('kimi-k2.6 + enabledSearch does not force reasoning_content on assistant tool_calls', () => {
+    const result = buildMoonshotPayload({
+      enabledSearch: true,
+      messages: [
+        { content: 'hi', role: 'user' },
+        {
+          content: null,
+          role: 'assistant',
+          tool_calls: [
+            {
+              function: { arguments: '{}', name: '$web_search' },
+              id: 'call_ws',
+              type: 'function',
+            },
+          ],
+        },
+        { content: '{"search_result":{}}', role: 'tool', tool_call_id: 'call_ws' },
+      ],
+      model: 'kimi-k2.6',
+      stream: true,
+      thinking: { type: 'enabled' },
+    } as any);
+
+    expect(result.thinking).toEqual({ type: 'disabled' });
+    const assistant = (result.messages as any[]).find((m) => m.role === 'assistant');
+    expect(assistant).not.toHaveProperty('reasoning_content');
+  });
+
+  it('kimi-k2.6 + enabledSearch=false + thinking enabled keeps thinking on', () => {
+    const result = buildMoonshotPayload({
+      enabledSearch: false,
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k2.6',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+    } as any);
+
+    expect(result.thinking).toEqual({ type: 'enabled' });
+    expect(result.temperature).toBe(1);
+  });
+});

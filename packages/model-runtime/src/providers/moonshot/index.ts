@@ -101,8 +101,13 @@ export const buildMoonshotPayload = (
 
   const isK25Style = isKimiK25StyleThinkingModel(model);
   const isNativeThinking = isKimiNativeThinkingModel(model);
+
+  // Moonshot API forbids thinking + $web_search simultaneously, so when
+  // built-in search is active we treat thinking as disabled for payload shaping.
+  const searchForcesThinkingOff = !!enabledSearch && (isK25Style || isNativeThinking);
   const isThinkingEnabled =
-    isNativeThinking || (isK25Style && thinking?.type !== 'disabled');
+    !searchForcesThinkingOff &&
+    (isNativeThinking || (isK25Style && thinking?.type !== 'disabled'));
 
   // Normalize messages for reasoning_content
   let normalizedMessages = normalizeMessagesForMoonshot(
@@ -119,8 +124,13 @@ export const buildMoonshotPayload = (
 
   // kimi-k2.5 / kimi-k2.6: `thinking.type` (+ optional `keep` on k2.6 for Preserved Thinking).
   if (isK25Style) {
+    // Moonshot API does not support thinking + $web_search simultaneously.
+    // When built-in search is active, force thinking off per official docs:
+    // https://platform.kimi.ai/docs/guide/use-web-search
+    const mustDisableThinking = !!enabledSearch;
+
     const thinkingParam =
-      thinking?.type !== 'disabled'
+      !mustDisableThinking && thinking?.type !== 'disabled'
         ? { type: 'enabled' as const }
         : { type: 'disabled' as const };
 
