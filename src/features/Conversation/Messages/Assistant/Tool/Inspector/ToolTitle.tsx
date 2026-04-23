@@ -66,7 +66,7 @@ const ToolTitle = memo<ToolTitleProps>(({ identifier, messageId, index, apiName,
       {
         apiName,
         id: LOBE_PROVIDER_BUILTIN_IDENTIFIER,
-        title: t('moonshotBuiltinWebSearch.title'),
+        title: t('moonshotBuiltinWebSearch.title', { defaultValue: 'Kimi web search' }),
       },
     ],
     [apiName, t],

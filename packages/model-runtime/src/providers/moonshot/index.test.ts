@@ -105,6 +105,26 @@ describe('normalizeMessagesForMoonshot', () => {
       { content: 'hi', role: 'user' },
     ]);
   });
+
+  it('keeps assistant messages that only carry internal `tools` (no tool_calls yet)', () => {
+    const messages = [
+      { content: 'hi', role: 'user' },
+      {
+        content: '',
+        role: 'assistant',
+        tools: [{ apiName: 'search', arguments: '{}', id: 't1', identifier: 'x', type: 'default' }],
+      },
+    ] as any;
+
+    const result = normalizeMessagesForMoonshot(messages, true);
+
+    expect(result).toHaveLength(2);
+    expect(result[1]).toMatchObject({
+      reasoning_content: '',
+      role: 'assistant',
+      tools: expect.any(Array),
+    });
+  });
 });
 
 const sampleTools = [
@@ -201,5 +221,32 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(result.tools).toEqual(sampleTools);
     expect(result).not.toHaveProperty('thinking');
     expect(result.temperature).toBe(0.7);
+  });
+
+  it('kimi-k2.6 + thinking injects reasoning_content on assistant tool_calls missing it', () => {
+    const result = buildMoonshotPayload({
+      messages: [
+        { content: 'hi', role: 'user' },
+        {
+          content: null,
+          role: 'assistant',
+          tool_calls: [
+            {
+              function: { arguments: '{"x":1}', name: '$web_search' },
+              id: 'call_ws',
+              type: 'function',
+            },
+          ],
+        },
+        { content: '{"search_result":{}}', role: 'tool', tool_call_id: 'call_ws' },
+      ],
+      model: 'kimi-k2.6',
+      stream: true,
+      thinking: { type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+
+    const assistant = (result.messages as any[]).find((m) => m.role === 'assistant');
+    expect(assistant?.reasoning_content).toBe('');
   });
 });

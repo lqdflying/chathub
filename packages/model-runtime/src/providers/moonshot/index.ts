@@ -29,6 +29,8 @@ const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T
 //   "Invalid request: the message at position N with role 'assistant' must not be empty"
 const hasAssistantContent = (message: any): boolean => {
   if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) return true;
+  // Internal Lobe messages may still use `tools` before every pipeline step maps to `tool_calls`.
+  if (Array.isArray(message.tools) && message.tools.length > 0) return true;
 
   const { content } = message;
   if (typeof content === 'string') return content.trim().length > 0;
@@ -73,6 +75,24 @@ export const normalizeMessagesForMoonshot = (
   }, []);
 };
 
+/**
+ * Kimi K2.5 / K2.6 with `thinking: enabled` requires every assistant message that
+ * carries tool calls to include `reasoning_content` (may be empty). Some history
+ * shapes omit it (e.g. tool-only turns, `tools` vs `tool_calls`, or null).
+ */
+const patchK25AssistantToolCallReasoning = (
+  msgs: OpenAI.ChatCompletionMessageParam[],
+): OpenAI.ChatCompletionMessageParam[] =>
+  msgs.map((m: any) => {
+    if (m?.role !== 'assistant') return m;
+    const hasCalls =
+      (Array.isArray(m.tool_calls) && m.tool_calls.length > 0) ||
+      (Array.isArray(m.tools) && m.tools.length > 0);
+    if (!hasCalls) return m;
+    if (m.reasoning_content !== undefined && m.reasoning_content !== null) return m;
+    return { ...m, reasoning_content: '' };
+  }) as OpenAI.ChatCompletionMessageParam[];
+
 /** Exported for unit tests — Moonshot/OpenAI-compat request shaping. */
 export const buildMoonshotPayload = (
   payload: ChatStreamPayload,
@@ -85,10 +105,14 @@ export const buildMoonshotPayload = (
     isNativeThinking || (isK25Style && thinking?.type !== 'disabled');
 
   // Normalize messages for reasoning_content
-  const normalizedMessages = normalizeMessagesForMoonshot(
+  let normalizedMessages = normalizeMessagesForMoonshot(
     messages,
     isThinkingEnabled,
   ) as OpenAI.ChatCompletionMessageParam[];
+
+  if (isK25Style && isThinkingEnabled) {
+    normalizedMessages = patchK25AssistantToolCallReasoning(normalizedMessages);
+  }
 
   // Handle search tools
   const moonshotTools = appendSearchTool(tools, enabledSearch);
