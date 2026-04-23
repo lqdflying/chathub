@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ToolNameResolver } from '../ToolNameResolver';
+import { LOBE_PROVIDER_BUILTIN_IDENTIFIER, ToolNameResolver } from '../ToolNameResolver';
 
 describe('ToolNameResolver', () => {
   const resolver = new ToolNameResolver();
@@ -158,6 +158,52 @@ describe('ToolNameResolver', () => {
     it('should handle plugin tools correctly', () => {
       const result = resolver.generate('custom-plugin', 'customAction');
       expect(result).toBe('custom-plugin____customAction');
+    });
+  });
+
+  describe('generate - provider builtin passthrough', () => {
+    it('should return the raw function name for LOBE_PROVIDER_BUILTIN_IDENTIFIER', () => {
+      expect(resolver.generate(LOBE_PROVIDER_BUILTIN_IDENTIFIER, '$web_search')).toBe('$web_search');
+    });
+  });
+
+  describe('resolve - provider native builtins (Moonshot Kimi)', () => {
+    it('should map $web_search to provider-builtin payload for tool round-trip', () => {
+      const toolCalls = [
+        {
+          function: {
+            arguments: '{"search_id":"abc","usage":{"total_tokens":1}}',
+            name: '$web_search',
+          },
+          id: 'call_ws_1',
+          type: 'function',
+        },
+      ];
+
+      const result = resolver.resolve(toolCalls, {});
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual({
+        apiName: '$web_search',
+        arguments: '{"search_id":"abc","usage":{"total_tokens":1}}',
+        id: 'call_ws_1',
+        identifier: LOBE_PROVIDER_BUILTIN_IDENTIFIER,
+        type: 'default',
+      });
+    });
+
+    it('should default empty $web_search arguments to {}', () => {
+      const toolCalls = [
+        {
+          function: { arguments: '   ', name: '$web_search' },
+          id: 'call_ws_2',
+          type: 'function',
+        },
+      ];
+
+      const result = resolver.resolve(toolCalls, {});
+
+      expect(result[0]?.arguments).toBe('{}');
     });
   });
 

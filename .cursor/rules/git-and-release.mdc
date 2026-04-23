@@ -5,6 +5,18 @@ alwaysApply: true
 
 # Git & Release Workflow
 
+## Before first code edit (fixes & features) — REQUIRED
+
+Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says “no branch” / “edit on `main` only”.
+
+1. **Do not** use repo-editing tools (`apply_patch`, scripted bulk edits, etc.) until you are on a **`fix/<slug>`** or **`feat/<slug>`** branch — not on `main` (see also: *Never commit fixes or features directly on `main`* under canary flow below).
+2. **Sync, then branch off `main`:**
+   - `git fetch --prune` (when network is allowed)
+   - `git checkout main` then `git pull` so **`main` matches `origin/main`** when practical
+   - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` — slug must describe the change (e.g. `fix/kimi-moonshot-builtin-web-search`).
+3. **Uncommitted changes while on `main`:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits so work is not stacked on `main`. If you must switch branches with a dirty tree and Git blocks you, **`git stash push`**, checkout/pull/branch, then **`git stash pop`**.
+4. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user named another integration branch as the base; then use that branch and still use `fix/` or `feat/` off it only if they ask).
+
 ## Agent commit policy (STRICT)
 
 **Never run `git commit`, `git tag`, or `git push` without an explicit, in-turn

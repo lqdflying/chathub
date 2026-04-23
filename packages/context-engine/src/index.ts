@@ -42,4 +42,10 @@ export type {
   ToolsGenerationContext,
   ToolsGenerationResult,
 } from './tools';
-export { filterValidManifests, ToolNameResolver, ToolsEngine, validateManifest } from './tools';
+export {
+  filterValidManifests,
+  LOBE_PROVIDER_BUILTIN_IDENTIFIER,
+  ToolNameResolver,
+  ToolsEngine,
+  validateManifest,
+} from './tools';

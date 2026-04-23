@@ -8,6 +8,13 @@ const PLUGIN_SCHEMA_SEPARATOR = '____';
 const PLUGIN_SCHEMA_API_MD5_PREFIX = 'MD5HASH_';
 
 /**
+ * Internal identifier for provider-native tool names (e.g. Moonshot `$web_search`)
+ * that are not encoded as `plugin____api`. {@link ToolNameResolver.generate} passes
+ * `apiName` through unchanged so API round-trips match the provider protocol.
+ */
+export const LOBE_PROVIDER_BUILTIN_IDENTIFIER = '__provider_builtin__';
+
+/**
  * Tool Name Resolver
  * Handles tool name generation and resolution for function calling
  */
@@ -28,6 +35,10 @@ export class ToolNameResolver {
    * @returns Generated tool name (max 64 characters)
    */
   generate(identifier: string, name: string, type: string = 'default'): string {
+    if (identifier === LOBE_PROVIDER_BUILTIN_IDENTIFIER) {
+      return name;
+    }
+
     const pluginType = type && type !== 'default' ? `${PLUGIN_SCHEMA_SEPARATOR}${type}` : '';
 
     // Step 1: Try normal format
@@ -61,6 +72,25 @@ export class ToolNameResolver {
   ): ChatToolPayload[] {
     return toolCalls
       .map((toolCall): ChatToolPayload | null => {
+        const rawName = toolCall.function?.name;
+        if (
+          typeof rawName === 'string' &&
+          rawName.startsWith('$') &&
+          !rawName.includes(PLUGIN_SCHEMA_SEPARATOR)
+        ) {
+          const args = toolCall.function.arguments;
+          return {
+            apiName: rawName,
+            arguments: typeof args === 'string' && args.trim().length > 0 ? args : '{}',
+            id: toolCall.id,
+            identifier: LOBE_PROVIDER_BUILTIN_IDENTIFIER,
+            type: 'default',
+            ...((toolCall as any).thoughtSignature && {
+              thoughtSignature: (toolCall as any).thoughtSignature,
+            }),
+          };
+        }
+
         let [identifier, apiName, type] = toolCall.function.name.split(PLUGIN_SCHEMA_SEPARATOR);
 
         if (!apiName) return null;

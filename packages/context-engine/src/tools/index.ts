@@ -2,7 +2,7 @@
 export { ToolsEngine } from './ToolsEngine';
 
 // Tool Name Resolver
-export { ToolNameResolver } from './ToolNameResolver';
+export { LOBE_PROVIDER_BUILTIN_IDENTIFIER, ToolNameResolver } from './ToolNameResolver';
 
 // Types and interfaces
 export type {

@@ -1,5 +1,5 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
-import { ToolNameResolver } from '@lobechat/context-engine';
+import { LOBE_PROVIDER_BUILTIN_IDENTIFIER, ToolNameResolver } from '@lobechat/context-engine';
 import {
   ChatErrorType,
   ChatMessageError,
@@ -39,6 +39,8 @@ export interface ChatPluginAction {
   ) => Promise<void>;
 
   invokeBuiltinTool: (id: string, payload: ChatToolPayload) => Promise<void>;
+  /** Moonshot-style provider builtins: echo tool arguments as tool result, then continue chat */
+  invokeProviderBuiltinTool: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
   invokeDefaultTypePlugin: (id: string, payload: any) => Promise<string | undefined>;
   invokeMarkdownTypePlugin: (id: string, payload: ChatToolPayload) => Promise<void>;
   invokeMCPTypePlugin: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
@@ -163,6 +165,18 @@ export const chatPlugin: StateCreator<
     if (!content) return;
 
     return await action(id, content);
+  },
+
+  invokeProviderBuiltinTool: async (id, payload) => {
+    const { internal_updateMessageContent } = get();
+    // Kimi / Moonshot `$web_search`: submit `tool_call.function.arguments` verbatim as the
+    // tool message content so the next completion can run search (see Moonshot docs).
+    const content =
+      typeof payload.arguments === 'string' && payload.arguments.trim().length > 0
+        ? payload.arguments
+        : '{}';
+    await internal_updateMessageContent(id, content);
+    return content;
   },
 
   invokeDefaultTypePlugin: async (id, payload) => {
@@ -435,6 +449,10 @@ export const chatPlugin: StateCreator<
   },
 
   internal_invokeDifferentTypePlugin: async (id, payload) => {
+    if (payload.identifier === LOBE_PROVIDER_BUILTIN_IDENTIFIER) {
+      return await get().invokeProviderBuiltinTool(id, payload);
+    }
+
     switch (payload.type) {
       case 'standalone': {
         return await get().invokeStandaloneTypePlugin(id, payload);
