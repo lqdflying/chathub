@@ -113,13 +113,26 @@ const Controls = memo(() => {
   );
   const modelBuiltinSearchImpl = useAiInfraStore(aiModelSelectors.modelBuiltinSearchImpl(model, provider));
 
+  /** Moonshot (Kimi) built-in `$web_search` is not offered; use Smart Online Search instead. */
+  const moonshotBuiltinSearchDisabled = provider === 'moonshot';
+
   useEffect(() => {
-    if (isModelBuiltinSearchInternal && (searchMode ?? 'off') === 'off') {
+    if (
+      isModelBuiltinSearchInternal &&
+      !moonshotBuiltinSearchDisabled &&
+      (searchMode ?? 'off') === 'off'
+    ) {
       updateAgentChatConfig({ searchMode: 'auto' });
     }
-  }, [isModelBuiltinSearchInternal, searchMode, updateAgentChatConfig]);
+  }, [
+    isModelBuiltinSearchInternal,
+    moonshotBuiltinSearchDisabled,
+    searchMode,
+    updateAgentChatConfig,
+  ]);
 
-  const options: NetworkOption[] = isModelBuiltinSearchInternal
+  const options: NetworkOption[] =
+    isModelBuiltinSearchInternal && !moonshotBuiltinSearchDisabled
     ? [
       {
         description: t('search.mode.auto.desc'),
@@ -143,11 +156,16 @@ const Controls = memo(() => {
       },
     ];
 
-  const showModelBuiltinSearch = !isModelBuiltinSearchInternal &&
+  const showModelBuiltinSearch =
+    !moonshotBuiltinSearchDisabled &&
+    !isModelBuiltinSearchInternal &&
     (isModelHasBuiltinSearchConfig || isProviderHasBuiltinSearchConfig);
 
   const showFCSearchModel =
-    !supportFC && (!modelBuiltinSearchImpl || (!isModelBuiltinSearchInternal && !useModelBuiltinSearch));
+    !supportFC &&
+    (moonshotBuiltinSearchDisabled ||
+      !modelBuiltinSearchImpl ||
+      (!isModelBuiltinSearchInternal && !useModelBuiltinSearch));
 
   const showDivider = showModelBuiltinSearch || showFCSearchModel;
 

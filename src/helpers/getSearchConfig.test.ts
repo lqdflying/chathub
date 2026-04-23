@@ -185,4 +185,26 @@ describe('getSearchConfig', () => {
       useApplicationBuiltinSearchTool: false,
     });
   });
+
+  it('should never use model built-in search for Moonshot (Kimi) provider', () => {
+    vi.mocked(agentSelectors.agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+      searchMode: 'on',
+      useModelBuiltinSearch: true,
+    } as any);
+
+    vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
+      () => true,
+    );
+    vi.mocked(aiInfraSelectors.aiModelSelectors.isModelHasBuiltinSearch).mockReturnValue(
+      () => true,
+    );
+    vi.mocked(aiInfraSelectors.aiModelSelectors.isModelBuiltinSearchInternal).mockReturnValue(
+      () => true,
+    );
+
+    const result = getSearchConfig('kimi-k2.6', 'moonshot');
+
+    expect(result.useModelSearch).toBe(false);
+    expect(result.useApplicationBuiltinSearchTool).toBe(true);
+  });
 });

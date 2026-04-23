@@ -39,9 +39,14 @@ export const getSearchConfig = (model: string, provider: string): SearchConfig =
     provider!,
   )(aiInfraStoreState);
 
-  const useModelSearch =
-    ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && chatConfig.useModelBuiltinSearch) ||
-    isModelBuiltinSearchInternal || false;
+  // Moonshot (Kimi) built-in `$web_search` is not offered in LobeChat; use Smart Online Search instead.
+  const moonshotBuiltinSearchDisabled = provider === 'moonshot';
+
+  const useModelSearch = moonshotBuiltinSearchDisabled
+    ? false
+    : (((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && chatConfig.useModelBuiltinSearch) ||
+        isModelBuiltinSearchInternal ||
+        false);
 
   const useApplicationBuiltinSearchTool = enabledSearch && !useModelSearch;
 

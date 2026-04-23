@@ -401,9 +401,11 @@ export const generateAIChat: StateCreator<
       provider!,
     )(aiInfraStoreState);
     const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
-    const useModelSearch =
-      ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
-      isModelBuiltinSearchInternal;
+    const moonshotBuiltinSearchDisabled = provider === 'moonshot';
+    const useModelSearch = moonshotBuiltinSearchDisabled
+      ? false
+      : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
+        isModelBuiltinSearchInternal;
     const isAgentEnableSearch = agentChatConfigSelectors.isAgentEnableSearch(agentStoreState);
 
     if (isAgentEnableSearch && !useModelSearch && !isModelSupportToolUse) {
