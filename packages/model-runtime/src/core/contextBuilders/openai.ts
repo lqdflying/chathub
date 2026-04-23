@@ -29,17 +29,29 @@ export const convertOpenAIMessages = async (messages: OpenAI.ChatCompletionMessa
     messages.map(async (message) => {
       const msg = message as any;
 
+      // `typeof null === 'object'` — tool-only assistant turns often use `content: null`.
+      // Treating null like an array produced `content: []` and broke providers (e.g. Moonshot
+      // Kimi: "reasoning_content is missing in assistant tool call message").
+      const rawContent = msg.content;
+      let normalizedContent: OpenAI.ChatCompletionMessageParam['content'];
+      if (rawContent === null || rawContent === undefined) {
+        normalizedContent = rawContent;
+      } else if (typeof rawContent === 'string') {
+        normalizedContent = rawContent;
+      } else if (Array.isArray(rawContent)) {
+        normalizedContent = await Promise.all(
+          rawContent.map((c) =>
+            convertMessageContent(c as OpenAI.ChatCompletionContentPart),
+          ),
+        );
+      } else {
+        normalizedContent = rawContent;
+      }
+
       // Explicitly map only valid ChatCompletionMessageParam fields
       // Exclude reasoning and reasoning_content fields as they should not be sent in requests
       const result: any = {
-        content:
-          typeof message.content === 'string'
-            ? message.content
-            : await Promise.all(
-                (message.content || []).map((c) =>
-                  convertMessageContent(c as OpenAI.ChatCompletionContentPart),
-                ),
-              ),
+        content: normalizedContent,
         role: msg.role,
       };
 

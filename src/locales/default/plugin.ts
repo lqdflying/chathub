@@ -469,4 +469,8 @@ export default {
   },
   unknownError: '未知错误',
   unknownPlugin: '未知插件',
+  /** Moonshot Kimi built-in `$web_search` (provider-native tool, not a Lobe plugin) */
+  moonshotBuiltinWebSearch: {
+    title: 'Kimi 联网搜索',
+  },
 };

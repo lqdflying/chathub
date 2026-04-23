@@ -6,6 +6,8 @@ import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { LOBE_PROVIDER_BUILTIN_IDENTIFIER } from '@lobechat/context-engine';
+
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 import { pluginHelpers, useToolStore } from '@/store/tool';
@@ -61,8 +63,13 @@ const ToolTitle = memo<ToolTitleProps>(({ identifier, messageId, index, apiName,
         id: LocalSystemManifest.identifier,
         title: t('localSystem.title'),
       },
+      {
+        apiName,
+        id: LOBE_PROVIDER_BUILTIN_IDENTIFIER,
+        title: t('moonshotBuiltinWebSearch.title'),
+      },
     ],
-    [],
+    [apiName, t],
   );
 
   const builtinPluginTitle = plugins.find((item) => item.id === identifier);

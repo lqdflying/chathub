@@ -210,6 +210,32 @@ describe('convertOpenAIMessages', () => {
     expect((result[0] as any).reasoning).toBeUndefined();
     expect((result[0] as any).reasoning_content).toBe('some reasoning content');
   });
+
+  it('should preserve null content and reasoning_content on tool-only assistant (Moonshot Kimi)', async () => {
+    const messages = [
+      {
+        content: null,
+        reasoning_content: '',
+        role: 'assistant',
+        tool_calls: [
+          {
+            function: { arguments: '{"q":1}', name: '$web_search' },
+            id: 'call_1',
+            type: 'function',
+          },
+        ],
+      },
+    ] as any;
+
+    const result = await convertOpenAIMessages(messages);
+
+    expect(result[0]).toEqual({
+      content: null,
+      reasoning_content: '',
+      role: 'assistant',
+      tool_calls: messages[0].tool_calls,
+    });
+  });
 });
 
 describe('convertOpenAIResponseInputs', () => {
