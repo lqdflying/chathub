@@ -26,9 +26,38 @@ export const openaiChatModels: AIChatModelCard[] = [
       structuredOutput: true,
       vision: true,
     },
+    contextWindowTokens: 1_050_000,
+    description:
+      "GPT-5.5 is OpenAI's newest frontier model for complex professional work, coding, and agentic workflows with an expanded context window.",
+    displayName: 'GPT-5.5',
+    enabled: true,
+    id: 'gpt-5.5',
+    maxOutput: 128_000,
+    pricing: {
+      units: [
+        { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 30, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-04-23',
+    settings: {
+      extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+      searchImpl: 'params',
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      search: true,
+      structuredOutput: true,
+      vision: true,
+    },
     contextWindowTokens: 400_000,
     description:
-      'GPT-5.4 is the latest and most capable GPT model, delivering significant advances in reasoning, instruction following, and multimodal understanding across complex tasks.',
+      'GPT-5.4 is a highly capable GPT model, delivering strong reasoning, instruction following, and multimodal understanding across complex tasks.',
     displayName: 'GPT-5.4',
     enabled: true,
     id: 'gpt-5.4',

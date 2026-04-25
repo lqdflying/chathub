@@ -9,6 +9,8 @@ alwaysApply: true
 
 Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says “no branch” / “edit on `main` only”.
 
+**Always create a new branch for implementation work** — never edit on `main`, and do not pile unrelated changes onto some other open `feat/*`/`fix/*` branch. For each new fix or feature, sync `main`, then **`git checkout -b`** a **new** `feat/<slug>` or `fix/<slug>`. Reuse an existing topic branch only when the user explicitly asks to continue that branch.
+
 1. **Do not** use repo-editing tools (`apply_patch`, scripted bulk edits, etc.) until you are on a **`fix/<slug>`** or **`feat/<slug>`** branch — not on `main` (see also: *Never commit fixes or features directly on `main`* under canary flow below).
 2. **Sync, then branch off `main`:**
    - `git fetch --prune` (when network is allowed)
@@ -16,6 +18,10 @@ Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implem
    - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` — slug must describe the change (e.g. `fix/kimi-moonshot-builtin-web-search`).
 3. **Uncommitted changes while on `main`:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits so work is not stacked on `main`. If you must switch branches with a dirty tree and Git blocks you, **`git stash push`**, checkout/pull/branch, then **`git stash pop`**.
 4. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user named another integration branch as the base; then use that branch and still use `fix/` or `feat/` off it only if they ask).
+
+## Planning (Plan mode / implementation plans)
+
+When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: sync `main` when practical, **always** `git checkout -b` a **new** `feat/<slug>` or `fix/<slug>` before any code edits, never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
 
 ## Agent commit policy (STRICT)
 

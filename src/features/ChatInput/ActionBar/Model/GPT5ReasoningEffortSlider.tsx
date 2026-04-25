@@ -1,42 +1,56 @@
 import { Slider } from 'antd';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import { useAgentStore } from '@/store/agent';
-import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
+
+type Gpt5LegacyEffort = 'minimal' | 'low' | 'medium' | 'high';
+type Gpt55Effort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 
 const GPT5ReasoningEffortSlider = memo(() => {
-  const [config, updateAgentChatConfig] = useAgentStore((s) => [
+  const [model, config, updateAgentChatConfig] = useAgentStore((s) => [
+    agentSelectors.currentAgentModel(s),
     agentChatConfigSelectors.currentChatConfig(s),
     s.updateAgentChatConfig,
   ]);
 
-  const gpt5ReasoningEffort = config.gpt5ReasoningEffort || 'medium'; // Default to 'medium' if not set
+  const isGpt55Family = model.startsWith('gpt-5.5');
 
-  const marks = {
-    0: 'minimal',
-    1: 'low',
-    2: 'medium',
-    3: 'high',
-  };
+  const { effortValues, marks, max } = useMemo(() => {
+    if (isGpt55Family) {
+      const values: Gpt55Effort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+      return {
+        effortValues: values,
+        marks: Object.fromEntries(values.map((v, i) => [i, v])) as Record<number, string>,
+        max: 4,
+      };
+    }
+    const values: Gpt5LegacyEffort[] = ['minimal', 'low', 'medium', 'high'];
+    return {
+      effortValues: values,
+      marks: Object.fromEntries(values.map((v, i) => [i, v])) as Record<number, string>,
+      max: 3,
+    };
+  }, [isGpt55Family]);
 
-  const effortValues = ['minimal', 'low', 'medium', 'high'];
-  const indexValue = effortValues.indexOf(gpt5ReasoningEffort);
-  const currentValue = indexValue === -1 ? 2 : indexValue;
+  const gpt5ReasoningEffort = config.gpt5ReasoningEffort || 'medium';
+  const indexValue = effortValues.indexOf(gpt5ReasoningEffort as any);
+  const currentValue = indexValue === -1 ? effortValues.indexOf('medium') : indexValue;
 
   const updateGPT5ReasoningEffort = useCallback(
     (value: number) => {
-      const effort = effortValues[value] as 'minimal' | 'low' | 'medium' | 'high';
-      updateAgentChatConfig({ gpt5ReasoningEffort: effort });
+      const effort = effortValues[value];
+      if (effort) updateAgentChatConfig({ gpt5ReasoningEffort: effort as any });
     },
-    [updateAgentChatConfig],
+    [effortValues, updateAgentChatConfig],
   );
 
   return (
     <Flexbox style={{ paddingInlineEnd: 8, width: '100%' }}>
       <Slider
         marks={marks}
-        max={3}
+        max={max}
         min={0}
         onChange={updateGPT5ReasoningEffort}
         step={1}

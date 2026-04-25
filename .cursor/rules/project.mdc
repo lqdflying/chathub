@@ -29,6 +29,10 @@ Upstream: https://github.com/lobehub/lobe-chat — diverged significantly. **Do 
 - Hooks: `use*.ts`
 - Tests: `__tests__/` directories or `.test.ts` suffix
 
+## Git & branches
+
+For every **fix** or **feature**: sync `main`, then **`git checkout -b`** a **new** `feat/<slug>` or `fix/<slug>` — **never** implement on `main`, and do not reuse an unrelated topic branch unless the user says so. **Implementation plans** (Plan mode / `CreatePlan`) must include a short **Git workflow** subsection plus the no-commit/push-without-explicit-approval rule. Full workflow, canary/GA, and Docker release: **`.cursor/rules/git-and-release.mdc`**.
+
 ## Provider model options (extendParams / gear menu)
 
 Adding or changing **per-model** API options (new provider module, new toggles) must follow **`.cursor/rules/provider-model-options.mdc`** (docs-first, end-to-end mapping, one provider panel at a time).
