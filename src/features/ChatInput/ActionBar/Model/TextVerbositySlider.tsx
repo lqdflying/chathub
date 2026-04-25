@@ -32,13 +32,22 @@ const TextVerbositySlider = memo(() => {
   );
 
   return (
-    <Flexbox style={{ paddingInlineEnd: 8, width: '100%' }}>
+    <Flexbox
+      style={{
+        boxSizing: 'border-box',
+        maxWidth: '100%',
+        minWidth: 0,
+        paddingInline: 12,
+        width: '100%',
+      }}
+    >
       <Slider
         marks={marks}
         max={2}
         min={0}
         onChange={updateTextVerbosity}
         step={1}
+        styles={{ mark: { fontSize: 11 } }}
         tooltip={{ open: false }}
         value={currentValue}
       />

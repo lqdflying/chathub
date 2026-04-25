@@ -83,6 +83,7 @@ const OpenAIOptions = memo(() => {
         maxWidth: 288,
         overflowX: 'hidden',
         overflowY: 'auto' as const,
+        paddingInline: 6,
         width: 288,
       }}
       variant={'borderless'}
