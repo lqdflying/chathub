@@ -210,9 +210,9 @@ class ChatService {
       }
 
       if (modelExtendParams!.includes('gpt5ReasoningEffort') && chatConfig.gpt5ReasoningEffort) {
-        let effort = chatConfig.gpt5ReasoningEffort;
-        if (payload.model.startsWith('gpt-5.5') && effort === 'minimal') {
-          effort = 'none';
+        let effort = chatConfig.gpt5ReasoningEffort as string;
+        if (payload.model.startsWith('gpt-5.5')) {
+          if (effort === 'minimal' || effort === 'none') effort = 'low';
         }
         extendParams.reasoning_effort = effort;
       }

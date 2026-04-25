@@ -6,7 +6,7 @@ import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 
 type Gpt5LegacyEffort = 'minimal' | 'low' | 'medium' | 'high';
-type Gpt55Effort = 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+type Gpt55Effort = 'low' | 'medium' | 'high' | 'xhigh';
 
 const GPT5ReasoningEffortSlider = memo(() => {
   const [model, config, updateAgentChatConfig] = useAgentStore((s) => [
@@ -19,11 +19,11 @@ const GPT5ReasoningEffortSlider = memo(() => {
 
   const { effortValues, marks, max } = useMemo(() => {
     if (isGpt55Family) {
-      const values: Gpt55Effort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
+      const values: Gpt55Effort[] = ['low', 'medium', 'high', 'xhigh'];
       return {
         effortValues: values,
         marks: Object.fromEntries(values.map((v, i) => [i, v])) as Record<number, string>,
-        max: 4,
+        max: 3,
       };
     }
     const values: Gpt5LegacyEffort[] = ['minimal', 'low', 'medium', 'high'];
@@ -34,7 +34,13 @@ const GPT5ReasoningEffortSlider = memo(() => {
     };
   }, [isGpt55Family]);
 
-  const gpt5ReasoningEffort = config.gpt5ReasoningEffort || 'medium';
+  const rawEffort = config.gpt5ReasoningEffort || 'medium';
+  const gpt5ReasoningEffort = (() => {
+    if (!isGpt55Family) return rawEffort;
+    if (rawEffort === 'none' || rawEffort === 'minimal') return 'low';
+    if (effortValues.includes(rawEffort as Gpt55Effort)) return rawEffort as Gpt55Effort;
+    return 'medium';
+  })();
   const indexValue = effortValues.indexOf(gpt5ReasoningEffort as any);
   const currentValue = indexValue === -1 ? effortValues.indexOf('medium') : indexValue;
 
@@ -47,13 +53,22 @@ const GPT5ReasoningEffortSlider = memo(() => {
   );
 
   return (
-    <Flexbox style={{ paddingInlineEnd: 8, width: '100%' }}>
+    <Flexbox
+      style={{
+        boxSizing: 'border-box',
+        maxWidth: '100%',
+        minWidth: 0,
+        paddingInline: 12,
+        width: '100%',
+      }}
+    >
       <Slider
         marks={marks}
         max={max}
         min={0}
         onChange={updateGPT5ReasoningEffort}
         step={1}
+        styles={{ mark: { fontSize: 11 } }}
         tooltip={{ open: false }}
         value={currentValue}
       />

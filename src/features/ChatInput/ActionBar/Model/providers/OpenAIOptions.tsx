@@ -37,9 +37,9 @@ const OpenAIOptions = memo(() => {
           children: <ReasoningEffortSlider />,
           label: t('extendParams.reasoningEffort.title'),
           layout: 'vertical',
-          minWidth: undefined,
+          minWidth: 0,
           name: 'reasoningEffort',
-          style: { paddingBottom: 0 },
+          style: { minWidth: 0, overflow: 'hidden', paddingBottom: 0 },
         });
       }
       if (param === 'gpt5ReasoningEffort') {
@@ -47,9 +47,9 @@ const OpenAIOptions = memo(() => {
           children: <GPT5ReasoningEffortSlider />,
           label: t('extendParams.reasoningEffort.title'),
           layout: 'vertical',
-          minWidth: undefined,
+          minWidth: 0,
           name: 'gpt5ReasoningEffort',
-          style: { paddingBottom: 0 },
+          style: { minWidth: 0, overflow: 'hidden', paddingBottom: 0 },
         });
       }
       if (param === 'textVerbosity') {
@@ -57,9 +57,9 @@ const OpenAIOptions = memo(() => {
           children: <TextVerbositySlider />,
           label: t('extendParams.textVerbosity.title'),
           layout: 'vertical',
-          minWidth: undefined,
+          minWidth: 0,
           name: 'textVerbosity',
-          style: { paddingBottom: 0 },
+          style: { minWidth: 0, overflow: 'hidden', paddingBottom: 0 },
         });
       }
     }
@@ -76,7 +76,15 @@ const OpenAIOptions = memo(() => {
         await updateAgentChatConfig(values);
       }}
       size={'small'}
-      style={{ fontSize: 12, maxHeight: 360, overflowY: 'auto' as const }}
+      style={{
+        boxSizing: 'border-box',
+        fontSize: 12,
+        maxHeight: 320,
+        maxWidth: 288,
+        overflowX: 'hidden',
+        overflowY: 'auto' as const,
+        width: 288,
+      }}
       variant={'borderless'}
     />
   );
