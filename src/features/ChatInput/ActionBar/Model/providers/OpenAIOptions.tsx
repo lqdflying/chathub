@@ -39,7 +39,7 @@ const OpenAIOptions = memo(() => {
           layout: 'vertical',
           minWidth: 0,
           name: 'reasoningEffort',
-          style: { minWidth: 0, overflow: 'hidden', paddingBottom: 0 },
+          style: { minWidth: 0, overflow: 'visible', paddingBottom: 0 },
         });
       }
       if (param === 'gpt5ReasoningEffort') {
@@ -49,7 +49,7 @@ const OpenAIOptions = memo(() => {
           layout: 'vertical',
           minWidth: 0,
           name: 'gpt5ReasoningEffort',
-          style: { minWidth: 0, overflow: 'hidden', paddingBottom: 0 },
+          style: { minWidth: 0, overflow: 'visible', paddingBottom: 0 },
         });
       }
       if (param === 'textVerbosity') {
@@ -59,7 +59,7 @@ const OpenAIOptions = memo(() => {
           layout: 'vertical',
           minWidth: 0,
           name: 'textVerbosity',
-          style: { minWidth: 0, overflow: 'hidden', paddingBottom: 0 },
+          style: { minWidth: 0, overflow: 'visible', paddingBottom: 0 },
         });
       }
     }
@@ -80,11 +80,11 @@ const OpenAIOptions = memo(() => {
         boxSizing: 'border-box',
         fontSize: 12,
         maxHeight: 320,
-        maxWidth: 288,
+        maxWidth: 292,
         overflowX: 'hidden',
         overflowY: 'auto' as const,
-        paddingInline: 6,
-        width: 288,
+        paddingInline: 12,
+        width: 292,
       }}
       variant={'borderless'}
     />

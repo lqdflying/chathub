@@ -5,6 +5,8 @@ import { Flexbox } from 'react-layout-kit';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 
+import { mergeDiscreteSliderShell } from './discreteSliderShell';
+
 const ReasoningEffortSlider = memo(() => {
   const [config, updateAgentChatConfig] = useAgentStore((s) => [
     agentChatConfigSelectors.currentChatConfig(s),
@@ -32,15 +34,7 @@ const ReasoningEffortSlider = memo(() => {
   );
 
   return (
-    <Flexbox
-      style={{
-        boxSizing: 'border-box',
-        maxWidth: '100%',
-        minWidth: 0,
-        paddingInline: 12,
-        width: '100%',
-      }}
-    >
+    <Flexbox style={mergeDiscreteSliderShell({ paddingInline: 12 })}>
       <Slider
         marks={marks}
         max={2}

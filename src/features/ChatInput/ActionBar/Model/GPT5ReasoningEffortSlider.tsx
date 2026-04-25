@@ -5,6 +5,8 @@ import { Flexbox } from 'react-layout-kit';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 
+import { mergeDiscreteSliderShell } from './discreteSliderShell';
+
 type Gpt5LegacyEffort = 'minimal' | 'low' | 'medium' | 'high';
 type Gpt55Effort = 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -52,23 +54,21 @@ const GPT5ReasoningEffortSlider = memo(() => {
     [effortValues, updateAgentChatConfig],
   );
 
+  // First mark is centered on the left rail end; labels extend ~50% leftward. Legacy
+  // GPT-5.x uses "minimal" (wider than "low" on gpt-5.5) — extra start inset on non-5.5.
+  const sliderGutter = isGpt55Family
+    ? { paddingInline: 12 as const }
+    : { paddingInlineEnd: 10 as const, paddingInlineStart: 26 as const };
+
   return (
-    <Flexbox
-      style={{
-        boxSizing: 'border-box',
-        maxWidth: '100%',
-        minWidth: 0,
-        paddingInline: 12,
-        width: '100%',
-      }}
-    >
+    <Flexbox style={mergeDiscreteSliderShell(sliderGutter)}>
       <Slider
         marks={marks}
         max={max}
         min={0}
         onChange={updateGPT5ReasoningEffort}
         step={1}
-        styles={{ mark: { fontSize: 11 } }}
+        styles={{ mark: { fontSize: isGpt55Family ? 11 : 10 } }}
         tooltip={{ open: false }}
         value={currentValue}
       />
