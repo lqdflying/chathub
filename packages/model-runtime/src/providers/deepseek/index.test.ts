@@ -23,7 +23,7 @@ describe('buildDeepSeekPayload', () => {
     expect(payload.top_p).toBe(0.9);
     expect(payload.frequency_penalty).toBe(0.5);
     expect(payload.presence_penalty).toBe(0.3);
-    expect(payload.thinking).toEqual({ type: 'disabled' });
+    expect(payload.thinking).toBeUndefined();
     expect(payload.stream).toBe(true);
   });
 
@@ -42,7 +42,7 @@ describe('buildDeepSeekPayload', () => {
     expect(payload.top_p).toBeUndefined();
     expect(payload.frequency_penalty).toBeUndefined();
     expect(payload.presence_penalty).toBeUndefined();
-    expect(payload.thinking).toEqual({ type: 'enabled' });
+    expect(payload.thinking).toBeUndefined();
     expect(payload.stream).toBe(true);
   });
 
@@ -54,7 +54,7 @@ describe('buildDeepSeekPayload', () => {
     });
 
     expect(payload.reasoning_effort).toBe('max');
-    expect(payload.thinking).toEqual({ type: 'enabled' });
+    expect(payload.thinking).toBeUndefined();
   });
 
   it('should forward tools when provided', () => {
