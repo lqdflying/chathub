@@ -52,6 +52,14 @@
       "desc": "Based on the Claude Thinking mechanism limit (<1>Learn more</1>), enabling this will automatically disable the limit on the number of historical messages.",
       "title": "Enable Deep Thinking"
     },
+    "deepSeekReasoning": {
+      "desc": "Let DeepSeek V4 run internal chain-of-thought before answering. Turn off for faster, cheaper replies.",
+      "title": "Enable Deep Thinking"
+    },
+    "deepSeekReasoningEffort": {
+      "desc": "Use maximum reasoning effort (max) for complex questions. Increases latency and token usage.",
+      "title": "Max Reasoning Effort"
+    },
     "kimiReasoning": {
       "desc": "Let Kimi K2.5 / K2.6 run internal chain-of-thought before answering. Turn off for faster, cheaper replies. Use the matching model ID.",
       "title": "Enable Deep Thinking"

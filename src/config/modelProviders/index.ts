@@ -3,6 +3,7 @@ import { ChatModelCard, ModelProviderCard } from '@/types/llm';
 import AnthropicProvider from './anthropic';
 import AzureProvider from './azure';
 import AzureAIProvider from './azureai';
+import DeepSeekProvider from './deepseek';
 import GoogleProvider from './google';
 import MinimaxProvider from './minimax';
 import MoonshotProvider from './moonshot';
@@ -23,6 +24,7 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   { ...AzureProvider, chatModels: [] },
   AzureAIProvider,
   AnthropicProvider,
+  DeepSeekProvider,
   GoogleProvider,
   MinimaxProvider,
   MoonshotProvider,
@@ -41,6 +43,7 @@ export const isProviderDisableBrowserRequest = (id: string) => {
 export { default as AnthropicProviderCard } from './anthropic';
 export { default as AzureProviderCard } from './azure';
 export { default as AzureAIProviderCard } from './azureai';
+export { default as DeepSeekProviderCard } from './deepseek';
 export { default as GoogleProviderCard } from './google';
 export { default as LobeHubProviderCard } from './lobehub';
 export { default as MinimaxProviderCard } from './minimax';

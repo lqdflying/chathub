@@ -52,6 +52,14 @@
       "desc": "基于 Claude Thinking 机制限制（<1>了解更多</1>），开启后将自动禁用历史消息数限制",
       "title": "开启深度思考"
     },
+    "deepSeekReasoning": {
+      "desc": "开启后 DeepSeek V4 会先进行内部链式思考再输出；关闭可更快、更省 Token。",
+      "title": "开启深度思考（DeepSeek）"
+    },
+    "deepSeekReasoningEffort": {
+      "desc": "使用最大推理强度（max effort）处理复杂问题；会增加响应延迟与 Token 消耗。",
+      "title": "最大推理强度"
+    },
     "kimiReasoning": {
       "desc": "开启后 Kimi K2.5 / K2.6 会先进行内部链式思考再输出；关闭可更快、更省 Token。需使用对应模型 ID。",
       "title": "开启深度思考（Kimi）"

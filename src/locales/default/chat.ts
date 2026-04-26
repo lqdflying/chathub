@@ -45,6 +45,14 @@ export default {
   duplicateTitle: '{{title}} 副本',
   emptyAgent: '暂无助手',
   extendParams: {
+    deepSeekReasoning: {
+      desc: '开启后 DeepSeek V4 会先进行内部链式思考再输出；关闭可更快、更省 Token。',
+      title: '开启深度思考（DeepSeek）',
+    },
+    deepSeekReasoningEffort: {
+      desc: '使用最大推理强度（max effort）处理复杂问题；会增加响应延迟与 Token 消耗。',
+      title: '最大推理强度',
+    },
     disableContextCaching: {
       desc: '单条对话生成成本最高可降低 90%，响应速度提升 4 倍（<1>了解更多</1>）。开启后将自动禁用历史消息数限制',
       title: '开启上下文缓存',
@@ -57,13 +65,13 @@ export default {
       desc: '开启后 Kimi K2.5 / K2.6 会先进行内部链式思考再输出；关闭可更快、更省 Token。需使用对应模型 ID。',
       title: '开启深度思考（Kimi）',
     },
-    moonshotPreservedReasoning: {
-      desc: '仅 kimi-k2.6：在多轮对话中保留历史轮的 reasoning_content（Preserved Thinking），需与深度思考同时开启；会增加上下文长度与费用。',
-      title: '保留历史思考（K2.6）',
-    },
     minimaxReasoningSplit: {
       desc: '开启时（默认）：思考过程通过 reasoning_details 与正文分离（MiniMax OpenAI 兼容 API 的 reasoning_split）。关闭后行为以 MiniMax 服务端为准；多轮工具调用时仍建议保留完整 assistant 消息。',
       title: '分离思考与回复（reasoning_split）',
+    },
+    moonshotPreservedReasoning: {
+      desc: '仅 kimi-k2.6：在多轮对话中保留历史轮的 reasoning_content（Preserved Thinking），需与深度思考同时开启；会增加上下文长度与费用。',
+      title: '保留历史思考（K2.6）',
     },
     reasoningBudgetToken: {
       adaptive: '自适应深度思考',
@@ -201,6 +209,27 @@ export default {
 
   members: 'Members',
 
+  memoryCompaction: {
+    compactNow: '立即压缩上下文',
+    debug: {
+      approxTokensAfter: '估算 Token（压缩后）',
+      approxTokensBefore: '估算 Token（压缩前）',
+      messageCount: '参与总结的消息条数',
+      model: '模型',
+      off: '隐藏调试',
+      on: '显示调试',
+      rawResponse: '压缩结果文本',
+      title: '上下文压缩调试',
+      trigger: '触发方式',
+    },
+    trigger: {
+      manual: '手动',
+      message_count: '消息条数阈值',
+      scheduled: '定时',
+      token_threshold: '预估上下文占用',
+    },
+  },
+
   mention: {
     title: '提及成员',
   },
@@ -210,7 +239,6 @@ export default {
     deleteDisabledByThreads: '存在子话题，不能删除',
     regenerate: '重新生成',
   },
-
   messages: {
     dm: {
       sentTo: '仅对{{name}}可见',
@@ -261,6 +289,7 @@ export default {
       total: '总计消耗',
     },
   },
+
   minimap: {
     jumpToMessage: '跳转至第 {{index}} 条消息',
     nextMessage: '下一条消息',
@@ -298,7 +327,6 @@ export default {
       },
     },
   },
-
   regenerate: '重新生成',
   roleAndArchive: '角色与记录',
   search: {
@@ -398,26 +426,6 @@ export default {
   toggleWideScreen: {
     off: '关闭宽屏模式',
     on: '开启宽屏模式',
-  },
-  memoryCompaction: {
-    compactNow: '立即压缩上下文',
-    debug: {
-      approxTokensAfter: '估算 Token（压缩后）',
-      approxTokensBefore: '估算 Token（压缩前）',
-      messageCount: '参与总结的消息条数',
-      model: '模型',
-      off: '隐藏调试',
-      on: '显示调试',
-      rawResponse: '压缩结果文本',
-      title: '上下文压缩调试',
-      trigger: '触发方式',
-    },
-    trigger: {
-      manual: '手动',
-      message_count: '消息条数阈值',
-      scheduled: '定时',
-      token_threshold: '预估上下文占用',
-    },
   },
   tokenDetails: {
     chats: '会话消息',

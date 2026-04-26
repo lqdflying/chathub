@@ -206,14 +206,17 @@ class ChatService {
       }
 
       if (modelExtendParams!.includes('reasoningEffort') && chatConfig.reasoningEffort) {
-        extendParams.reasoning_effort = chatConfig.reasoningEffort;
+        // DeepSeek only accepts 'high' or 'max' (low/medium map to high, xhigh maps to max)
+        if (payload.provider === 'deepseek') {
+          extendParams.reasoning_effort = 'max';
+        } else {
+          extendParams.reasoning_effort = chatConfig.reasoningEffort;
+        }
       }
 
       if (modelExtendParams!.includes('gpt5ReasoningEffort') && chatConfig.gpt5ReasoningEffort) {
         let effort = chatConfig.gpt5ReasoningEffort as string;
-        if (payload.model.startsWith('gpt-5.5')) {
-          if (effort === 'minimal' || effort === 'none') effort = 'low';
-        }
+        if (payload.model.startsWith('gpt-5.5') && (effort === 'minimal' || effort === 'none')) effort = 'low';
         extendParams.reasoning_effort = effort;
       }
 

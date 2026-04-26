@@ -2,6 +2,7 @@ import { AiFullModelCard, LobeDefaultAiModelListItem } from '../types/aiModel';
 import { default as anthropic } from './anthropic';
 import { default as azure } from './azure';
 import { default as azureai } from './azureai';
+import { default as deepseek } from './deepseek';
 import { default as google } from './google';
 import { default as minimax } from './minimax';
 import { default as moonshot } from './moonshot';
@@ -31,6 +32,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   anthropic,
   azure,
   azureai,
+  deepseek,
   google,
   minimax,
   moonshot,
@@ -41,6 +43,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
 export { default as anthropic } from './anthropic';
 export { default as azure } from './azure';
 export { default as azureai } from './azureai';
+export { default as deepseek } from './deepseek';
 export { default as google } from './google';
 export { default as minimax } from './minimax';
 export { default as moonshot } from './moonshot';

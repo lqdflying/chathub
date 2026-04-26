@@ -2,6 +2,7 @@ export enum ModelProvider {
   Anthropic = 'anthropic',
   Azure = 'azure',
   AzureAI = 'azureai',
+  DeepSeek = 'deepseek',
   Google = 'google',
   Minimax = 'minimax',
   Moonshot = 'moonshot',

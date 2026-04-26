@@ -13,6 +13,7 @@ import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 import Action from '../components/Action';
 import ControlsForm from './ControlsForm';
 import AnthropicOptions from './providers/AnthropicOptions';
+import DeepSeekOptions from './providers/DeepSeekOptions';
 import MinimaxOptions from './providers/MinimaxOptions';
 import MoonshotOptions from './providers/MoonshotOptions';
 import OpenAIOptions from './providers/OpenAIOptions';
@@ -94,6 +95,8 @@ const ModelSwitch = memo(() => {
                 <MinimaxOptions />
               ) : provider === 'anthropic' ? (
                 <AnthropicOptions />
+              ) : provider === 'deepseek' ? (
+                <DeepSeekOptions />
               ) : provider === 'openai' ? (
                 <OpenAIOptions />
               ) : (
@@ -103,6 +106,7 @@ const ModelSwitch = memo(() => {
               provider === 'moonshot' ||
               provider === 'minimax' ||
               provider === 'anthropic' ||
+              provider === 'deepseek' ||
               provider === 'openai'
                 ? 320
                 : 350,
