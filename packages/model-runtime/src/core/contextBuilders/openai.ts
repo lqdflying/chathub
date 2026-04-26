@@ -64,6 +64,12 @@ export const convertOpenAIMessages = async (messages: OpenAI.ChatCompletionMessa
       // it's compatible for DeepSeek
       if (msg.reasoning_content !== undefined) result.reasoning_content = msg.reasoning_content;
 
+      // DeepSeek returns reasoning in stream deltas as reasoning_content, but the frontend
+      // stores it as msg.reasoning.content. Map it back so multi-turn / tool-calling
+      // conversations preserve the reasoning chain (only when reasoning_content is absent).
+      if (result.reasoning_content === undefined && msg.reasoning?.content !== undefined)
+        result.reasoning_content = msg.reasoning.content;
+
       return result;
     }),
   )) as OpenAI.ChatCompletionMessageParam[];

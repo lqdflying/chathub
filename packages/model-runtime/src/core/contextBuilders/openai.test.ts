@@ -151,7 +151,7 @@ describe('convertOpenAIMessages', () => {
     expect(Promise.all).toHaveBeenCalledTimes(2); // 一次用于消息数组，一次用于内容数组
   });
 
-  it('should filter out reasoning field from messages', async () => {
+  it('should map reasoning.content to reasoning_content for DeepSeek', async () => {
     const messages = [
       {
         role: 'assistant',
@@ -164,11 +164,12 @@ describe('convertOpenAIMessages', () => {
     const result = await convertOpenAIMessages(messages);
 
     expect(result).toEqual([
-      { role: 'assistant', content: 'Hello' },
+      { role: 'assistant', content: 'Hello', reasoning_content: 'some reasoning' },
       { role: 'user', content: 'Hi' },
     ]);
-    // Ensure reasoning field is removed
+    // Ensure reasoning object is removed but reasoning_content is mapped
     expect((result[0] as any).reasoning).toBeUndefined();
+    expect((result[0] as any).reasoning_content).toBe('some reasoning');
   });
 
   it('should preserve reasoning_content field from messages (for DeepSeek compatibility)', async () => {
