@@ -86,6 +86,7 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
       const result = await toolsClient.mcpOAuth.initiateOAuth.mutate({
         authorizationEndpoint: metadata.authorizationEndpoint,
         clientId: metadata.clientId,
+        clientSecret: metadata.clientSecret,
         pluginIdentifier: pluginId,
         redirectUri,
         scope: metadata.scopesSupported?.join(' ') || mcp.auth?.scope,

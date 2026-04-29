@@ -67,6 +67,7 @@ export class McpOAuthService {
       payload: {
         codeVerifier,
         clientId: params.clientId,
+        clientSecret: params.clientSecret,
         pluginIdentifier: params.pluginIdentifier,
         redirectUri: params.redirectUri,
         tokenEndpoint: params.tokenEndpoint,
@@ -114,6 +115,7 @@ export class McpOAuthService {
     const tokenEndpoint = payload.tokenEndpoint as string;
     const userId = payload.userId as string;
     const clientId = payload.clientId as string;
+    const clientSecret = payload.clientSecret as string | undefined;
     const pluginIdentifier = payload.pluginIdentifier as string;
     const redirectUri = payload.redirectUri as string;
 
@@ -131,6 +133,7 @@ export class McpOAuthService {
       codeVerifier,
       clientId,
       redirectUri,
+      clientSecret,
     );
 
     // Calculate expiry
@@ -319,19 +322,26 @@ export class McpOAuthService {
     codeVerifier: string,
     clientId: string,
     redirectUri: string,
+    clientSecret?: string,
   ): Promise<TokenEndpointResponse> {
     log('Exchanging code for tokens at %s', tokenEndpoint);
+
+    const body = new URLSearchParams({
+      client_id: clientId,
+      code,
+      code_verifier: codeVerifier,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri,
+    });
+
+    if (clientSecret) {
+      body.set('client_secret', clientSecret);
+    }
 
     const response = await fetch(tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: clientId,
-        code,
-        code_verifier: codeVerifier,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-      }),
+      body,
     });
 
     if (!response.ok) {

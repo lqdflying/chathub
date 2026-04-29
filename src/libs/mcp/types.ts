@@ -210,6 +210,7 @@ export interface OAuthState {
 export interface OAuthInitiateParams {
   authorizationEndpoint: string;
   clientId: string;
+  clientSecret?: string;
   pluginIdentifier: string;
   redirectUri: string;
   scope?: string;

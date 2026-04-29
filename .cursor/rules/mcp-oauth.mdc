@@ -1,0 +1,82 @@
+---
+description: MCP OAuth 2.1 implementation — auto-discovery, redirect_uri, token exchange, callback flow
+alwaysApply: true
+---
+
+# MCP OAuth 2.1 Authentication
+
+LobeHub supports OAuth 2.1 Authorization Code flow with PKCE for MCP plugins. Users only need the MCP server URL — all OAuth metadata is auto-discovered.
+
+## Architecture
+
+```
+Frontend (OAuthConfig.tsx)
+  → discoverOAuth (tRPC) → oauthDiscovery.ts (RFC 9728 + RFC 8414)
+  → initiateOAuth (tRPC) → oauth.ts (PKCE + state storage)
+  → Browser redirect to OAuth provider
+  → /oauth/mcp-callback page → oauthCallback (tRPC) → exchangeCodeForTokens
+```
+
+## Key files
+
+| Layer | File |
+|---|---|
+| Discovery service | `src/server/services/mcp/oauthDiscovery.ts` |
+| OAuth service | `src/server/services/mcp/oauth.ts` |
+| tRPC router | `src/server/routers/tools/mcpOAuth.ts` |
+| Client token injection | `src/libs/mcp/client.ts` (`tokenGetter`) |
+| Server MCP wiring | `src/server/services/mcp/index.ts` (`MCPOAuthContext`) |
+| UI (auto-discovery) | `src/features/PluginDevModal/MCPManifestForm/OAuthConfig.tsx` |
+| Callback page | `src/app/[variants]/oauth/mcp-callback/page.tsx` + `CallbackContent.tsx` |
+| PKCE utils | `src/libs/mcp/pkce.ts` |
+| DB schema | `packages/database/src/schemas/mcpOAuth.ts` (table `mcp_oauth_tokens`) |
+| Transient state | `packages/database/src/schemas/oidc.ts` (table `oauth_handoffs`, reused) |
+| Types | `src/libs/mcp/types.ts`, `packages/types/src/plugins/mcp.ts` |
+
+## Redirect URI (CRITICAL)
+
+The OAuth `redirect_uri` MUST be the LobeChat app's own callback URL:
+
+```
+${window.location.origin}/oauth/mcp-callback
+```
+
+- It is derived from `window.location.origin` at runtime — the URL the user is accessing LobeChat from.
+- The same `redirect_uri` MUST be sent in both the **authorization request** (browser redirect) and the **token exchange** (server-side POST to token endpoint).
+- The `redirect_uri` is stored in the `oauthHandoffs` payload during `initiateOAuth` and retrieved during `handleOAuthCallback` for the token exchange.
+- Do NOT use a hardcoded or external URL. The OAuth provider validates that the `redirect_uri` in the token exchange matches the one used when the auth code was created.
+
+## OAuth handoff payload (stored in oauthHandoffs table)
+
+```
+{
+  codeVerifier: string;     // PKCE code verifier
+  clientId: string;         // OAuth client ID
+  pluginIdentifier: string; // MCP plugin identifier
+  redirectUri: string;      // MUST match authorization request
+  tokenEndpoint: string;    // OAuth token endpoint URL
+  userId: string;           // Authenticated user
+}
+```
+
+## Auto-discovery flow
+
+1. `GET /.well-known/oauth-protected-resource` (RFC 9728) → authorization server URL + scopes
+2. `GET /.well-known/oauth-authorization-server` (RFC 8414, OIDC fallback) → endpoints
+3. `POST {registration_endpoint}` (RFC 7591) → dynamic client registration (optional)
+
+Uses `@modelcontextprotocol/sdk` built-in functions (`discoverOAuthProtectedResourceMetadata`, `discoverAuthorizationServerMetadata`, `registerClient`).
+
+If dynamic registration fails (no `registration_endpoint`), the UI prompts for manual Client ID entry.
+
+## Token injection at runtime
+
+`MCPClient` accepts a `tokenGetter` callback. When connecting to an MCP server with `auth.type === 'oauth2'`:
+
+- `MCPService.getClient()` creates a `tokenGetter` that calls `McpOAuthService.getOAuthToken()` / `refreshOAuthToken()`.
+- On 401, the client refreshes via `tokenGetter` and retries the operation.
+- Tokens are stored in `mcp_oauth_tokens` (PostgreSQL).
+
+## Content-Type header
+
+Token endpoint requests MUST use `Content-Type: application/x-www-form-urlencoded` (correct OAuth 2.0 behavior). Do NOT use `application/json` for token endpoints.

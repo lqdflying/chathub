@@ -42,6 +42,7 @@ export const mcpOAuthRouter = router({
       z.object({
         pluginIdentifier: z.string().min(1),
         clientId: z.string().min(1),
+        clientSecret: z.string().optional(),
         authorizationEndpoint: z.string().url(),
         tokenEndpoint: z.string().url(),
         redirectUri: z.string(),
@@ -54,6 +55,7 @@ export const mcpOAuthRouter = router({
       return ctx.mcpOAuthService.initiateOAuth(ctx.userId, {
         authorizationEndpoint: input.authorizationEndpoint,
         clientId: input.clientId,
+        clientSecret: input.clientSecret,
         pluginIdentifier: input.pluginIdentifier,
         redirectUri: input.redirectUri,
         scope: input.scope,
