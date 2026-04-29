@@ -73,16 +73,13 @@ export default {
         none: '无需认证',
         oauth: 'OAuth 2.1',
         oauthConfig: {
-          connectButton: '连接 OAuth',
-          disconnect: '断开连接',
-          checkStatus: '检查状态',
-          statusLabel: '状态',
-          discovered: 'OAuth 端点已发现',
-          discovering: '发现中...',
-          missingFields: '请填写所有 OAuth 配置字段',
-          connectFailed: 'OAuth 连接失败',
+          authorizationEndpoint: {
+            desc: 'OAuth 授权服务器的 Authorization Endpoint URL',
+            label: 'Authorization Endpoint',
+          },
           autoDiscoveryDesc: 'OAuth 元数据将通过 MCP 服务器的 RFC 9728/RFC 8414 known endpoints 自动发现。只需点击下方按钮。',
           autoDiscoveryNoClientId: '此服务器不支持动态客户端注册。请联系服务器管理员或手动设置 OAuth 凭证。',
+          checkStatus: '检查状态',
           clientId: {
             desc: 'OAuth 应用的 Client ID',
             label: 'Client ID',
@@ -93,17 +90,20 @@ export default {
             label: 'Client Secret',
             placeholder: '输入 Client Secret',
           },
-          authorizationEndpoint: {
-            desc: 'OAuth 授权服务器的 Authorization Endpoint URL',
-            label: 'Authorization Endpoint',
-          },
-          tokenEndpoint: {
-            desc: 'OAuth 授权服务器的 Token Endpoint URL',
-            label: 'Token Endpoint',
-          },
+          connectButton: '连接 OAuth',
+          connectFailed: 'OAuth 连接失败',
+          disconnect: '断开连接',
+          discovered: 'OAuth 端点已发现',
+          discovering: '发现中...',
+          missingFields: '请填写所有 OAuth 配置字段',
           scope: {
             desc: 'OAuth 权限范围，用空格分隔多个 scope',
             label: 'Scope',
+          },
+          statusLabel: '状态',
+          tokenEndpoint: {
+            desc: 'OAuth 授权服务器的 Token Endpoint URL',
+            label: 'Token Endpoint',
           },
         },
         placeholder: '请选择认证类型',
@@ -342,8 +342,14 @@ export default {
     recheckDependencies: '重新检查',
     skipDependencies: '跳过检查',
   },
-  pluginList: '插件列表',
-  protocolInstall: {
+  /** Moonshot Kimi built-in `$web_search` (provider-native tool, not a Lobe plugin) */
+moonshotBuiltinWebSearch: {
+    title: 'Kimi 联网搜索',
+  },
+  
+pluginList: '插件列表',
+  
+protocolInstall: {
     actions: {
       install: '安装',
       installAnyway: '仍要安装',
@@ -403,7 +409,8 @@ export default {
     title: '安装 MCP 插件',
     warning: '⚠️ 请确认您信任此插件的来源，恶意插件可能会危害您的系统安全。',
   },
-  search: {
+  
+search: {
     apiName: {
       crawlMultiPages: '读取多个页面内容',
       crawlSinglePage: '读取页面内容',
@@ -436,8 +443,10 @@ export default {
     },
     title: '联网搜索',
   },
-  setting: '插件设置',
-  settings: {
+  
+setting: '插件设置',
+  
+settings: {
     capabilities: {
       prompts: '提示词',
       resources: '资源',
@@ -476,8 +485,10 @@ export default {
     saveSettings: '保存设置',
     title: '设置插件市场',
   },
-  showInPortal: '请在工作区中查看详情',
-  store: {
+  
+showInPortal: '请在工作区中查看详情',
+  
+store: {
     actions: {
       cancel: '取消安装',
       confirmUninstall: '即将卸载该插件，卸载后将清除该插件配置，请确认你的操作',
@@ -502,10 +513,8 @@ export default {
     },
     title: '插件商店',
   },
-  unknownError: '未知错误',
+  
+unknownError: '未知错误',
+  
   unknownPlugin: '未知插件',
-  /** Moonshot Kimi built-in `$web_search` (provider-native tool, not a Lobe plugin) */
-  moonshotBuiltinWebSearch: {
-    title: 'Kimi 联网搜索',
-  },
 };

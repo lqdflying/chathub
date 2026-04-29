@@ -241,6 +241,7 @@ export class MCPService {
 
     // Setup OAuth token getter if auth type is oauth2 and context is provided
     let tokenGetter: (() => Promise<string | undefined>) | undefined;
+    let resolvedParams = params;
 
     if (
       params.type === 'http' &&
@@ -276,7 +277,7 @@ export class MCPService {
       try {
         const token = await tokenGetter();
         if (token) {
-          params = { ...params, auth: { ...params.auth, accessToken: token } };
+          resolvedParams = { ...params, auth: { ...params.auth, accessToken: token } };
           log('Injected OAuth token for plugin %s', oauthContext.pluginIdentifier);
         }
       } catch (err) {
@@ -285,7 +286,7 @@ export class MCPService {
     }
 
     try {
-      const client = new MCPClient(params, { tokenGetter });
+      const client = new MCPClient(resolvedParams, { tokenGetter });
       await client.initialize({
         onProgress: (progress) => {
           log(`New client initializing... ${progress.progress}/${progress.total}`);
