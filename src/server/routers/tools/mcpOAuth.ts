@@ -5,6 +5,7 @@ import { passwordProcedure } from '@/libs/trpc/edge';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
+import { discoverOAuthMetadata } from '@/server/services/mcp/oauthDiscovery';
 
 const mcpOAuthProcedure = isServerMode ? authedProcedure : passwordProcedure;
 
@@ -19,6 +20,23 @@ const oauthProcedure = mcpOAuthProcedure.use(serverDatabase).use(async (opts) =>
 });
 
 export const mcpOAuthRouter = router({
+  /**
+   * Auto-discover OAuth metadata from an MCP server's well-known endpoints.
+   * This eliminates the need for users to manually enter Client ID, Client Secret,
+   * Authorization Endpoint, or Token Endpoint.
+   */
+  discoverOAuth: oauthProcedure
+    .input(
+      z.object({
+        serverUrl: z.string().url(),
+        clientName: z.string().optional(),
+        redirectUri: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      return discoverOAuthMetadata(input.serverUrl, input.clientName, input.redirectUri);
+    }),
+
   initiateOAuth: oauthProcedure
     .input(
       z.object({

@@ -77,8 +77,12 @@ export default {
           disconnect: '断开连接',
           checkStatus: '检查状态',
           statusLabel: '状态',
+          discovered: 'OAuth 端点已发现',
+          discovering: '发现中...',
           missingFields: '请填写所有 OAuth 配置字段',
           connectFailed: 'OAuth 连接失败',
+          autoDiscoveryDesc: 'OAuth 元数据将通过 MCP 服务器的 RFC 9728/RFC 8414 known endpoints 自动发现。只需点击下方按钮。',
+          autoDiscoveryNoClientId: '此服务器不支持动态客户端注册。请联系服务器管理员或手动设置 OAuth 凭证。',
           clientId: {
             desc: 'OAuth 应用的 Client ID',
             label: 'Client ID',

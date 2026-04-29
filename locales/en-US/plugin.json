@@ -77,8 +77,12 @@
           "disconnect": "Disconnect",
           "checkStatus": "Check Status",
           "statusLabel": "Status",
+          "discovered": "OAuth endpoints discovered",
+          "discovering": "Discovering...",
           "missingFields": "Please fill in all OAuth configuration fields",
           "connectFailed": "OAuth connection failed",
+          "autoDiscoveryDesc": "OAuth metadata will be auto-discovered from the MCP server using well-known endpoints (RFC 9728 + RFC 8414). Just click the button below.",
+          "autoDiscoveryNoClientId": "This server does not support dynamic client registration. Contact the server admin or set up OAuth credentials manually.",
           "clientId": {
             "desc": "OAuth application Client ID",
             "label": "Client ID",

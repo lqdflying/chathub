@@ -1,5 +1,5 @@
-import { FormItem, Input, InputPassword } from '@lobehub/ui';
-import { Alert, Button, FormInstance, Space, Tag } from 'antd';
+import { FormItem } from '@lobehub/ui';
+import { Alert, Button, FormInstance, Space, Tag, Typography } from 'antd';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,51 +12,95 @@ interface OAuthConfigProps {
 
 type OAuthTokenStatus = 'valid' | 'expired' | 'missing' | 'refreshing' | 'error';
 
-const OAUTH_CLIENT_ID = ['customParams', 'mcp', 'auth', 'clientId'];
-const OAUTH_CLIENT_SECRET = ['customParams', 'mcp', 'auth', 'clientSecret'];
-const OAUTH_AUTH_ENDPOINT = ['customParams', 'mcp', 'auth', 'authorizationEndpoint'];
-const OAUTH_TOKEN_ENDPOINT = ['customParams', 'mcp', 'auth', 'tokenEndpoint'];
-const OAUTH_SCOPE = ['customParams', 'mcp', 'auth', 'scope'];
-
 const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
   const { t } = useTranslation('plugin');
+  const [discovering, setDiscovering] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [tokenStatus, setTokenStatus] = useState<OAuthTokenStatus>('missing');
   const [error, setError] = useState<string | null>(null);
+  const [discovered, setDiscovered] = useState(false);
 
+  /**
+   * Auto-discover OAuth metadata from the MCP server, then redirect for authorization.
+   * The user only needs the server URL — Client ID, Client Secret, endpoints are all auto-discovered.
+   */
   const handleConnect = async () => {
-    setConnecting(true);
+    setDiscovering(true);
     setError(null);
 
     try {
       const values = form.getFieldsValue();
-      const auth = values.customParams?.mcp?.auth;
+      const mcp = values.customParams?.mcp;
 
-      if (!auth?.authorizationEndpoint || !auth?.tokenEndpoint || !auth?.clientId) {
-        setError(t('dev.mcp.auth.oauthConfig.missingFields') || 'Please fill in all OAuth fields');
-        setConnecting(false);
+      if (!mcp?.url) {
+        setError(t('dev.mcp.url.required') || 'Please enter the MCP server URL');
+        setDiscovering(false);
         return;
       }
 
       const pluginId = identifier || values.identifier;
       const redirectUri = `${window.location.origin}/oauth/mcp-callback`;
 
-      const result = await toolsClient.mcpOAuth.initiateOAuth.mutate({
-        authorizationEndpoint: auth.authorizationEndpoint,
-        clientId: auth.clientId,
-        pluginIdentifier: pluginId,
+      // Step 1: Auto-discover OAuth metadata from the MCP server's well-known endpoints
+      const metadata = await toolsClient.mcpOAuth.discoverOAuth.mutate({
+        serverUrl: mcp.url,
+        clientName: pluginId || 'LobeChat MCP Client',
         redirectUri,
-        scope: auth.scope,
-        tokenEndpoint: auth.tokenEndpoint,
       });
+
+      if (!metadata.clientId) {
+        setError(
+          t('dev.mcp.auth.oauthConfig.autoDiscoveryNoClientId') ||
+            'This server does not support dynamic client registration. Contact the server admin or set up OAuth credentials manually.',
+        );
+        setDiscovering(false);
+        return;
+      }
+
+      // Store the discovered client info in the form
+      form.setFieldsValue({
+        customParams: {
+          ...values.customParams,
+          mcp: {
+            ...mcp,
+            auth: {
+              ...mcp.auth,
+              authorizationEndpoint: metadata.authorizationEndpoint,
+              tokenEndpoint: metadata.tokenEndpoint,
+              clientId: metadata.clientId,
+              clientSecret: metadata.clientSecret,
+              scope: metadata.scopesSupported?.join(' ') || mcp.auth?.scope,
+            },
+          },
+        },
+      });
+
+      setDiscovered(true);
+      setDiscovering(false);
+      setConnecting(true);
 
       // Store the state in sessionStorage so the callback page can verify
       sessionStorage.setItem('mcpOAuthPluginId', pluginId);
 
-      // Redirect the user to the authorization endpoint
+      // Step 2: Initiate OAuth with discovered metadata
+      const result = await toolsClient.mcpOAuth.initiateOAuth.mutate({
+        authorizationEndpoint: metadata.authorizationEndpoint,
+        clientId: metadata.clientId,
+        pluginIdentifier: pluginId,
+        redirectUri,
+        scope: metadata.scopesSupported?.join(' ') || mcp.auth?.scope,
+        tokenEndpoint: metadata.tokenEndpoint,
+      });
+
+      // Step 3: Redirect to the authorization endpoint
       window.location.href = result.authorizeUrl;
     } catch (err) {
-      setError((err as Error).message || t('dev.mcp.auth.oauthConfig.connectFailed'));
+      setError(
+        (err as Error).message ||
+          t('dev.mcp.auth.oauthConfig.connectFailed') ||
+          'OAuth connection failed',
+      );
+      setDiscovering(false);
       setConnecting(false);
     }
   };
@@ -114,66 +158,61 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
 
   return (
     <>
-      <FormItem
-        desc={t('dev.mcp.auth.oauthConfig.clientId.desc')}
-        label={t('dev.mcp.auth.oauthConfig.clientId.label')}
-        name={OAUTH_CLIENT_ID}
+      <Typography.Paragraph
+        style={{ fontSize: 13, marginBottom: 12 }}
+        type="secondary"
       >
-        <Input placeholder={t('dev.mcp.auth.oauthConfig.clientId.placeholder')} />
-      </FormItem>
-
-      <FormItem
-        desc={t('dev.mcp.auth.oauthConfig.clientSecret.desc')}
-        label={t('dev.mcp.auth.oauthConfig.clientSecret.label')}
-        name={OAUTH_CLIENT_SECRET}
-      >
-        <InputPassword placeholder={t('dev.mcp.auth.oauthConfig.clientSecret.placeholder')} />
-      </FormItem>
-
-      <FormItem
-        desc={t('dev.mcp.auth.oauthConfig.authorizationEndpoint.desc')}
-        label={t('dev.mcp.auth.oauthConfig.authorizationEndpoint.label')}
-        name={OAUTH_AUTH_ENDPOINT}
-      >
-        <Input placeholder="https://auth.example.com/authorize" />
-      </FormItem>
-
-      <FormItem
-        desc={t('dev.mcp.auth.oauthConfig.tokenEndpoint.desc')}
-        label={t('dev.mcp.auth.oauthConfig.tokenEndpoint.label')}
-        name={OAUTH_TOKEN_ENDPOINT}
-      >
-        <Input placeholder="https://auth.example.com/token" />
-      </FormItem>
-
-      <FormItem
-        desc={t('dev.mcp.auth.oauthConfig.scope.desc')}
-        label={t('dev.mcp.auth.oauthConfig.scope.label')}
-        name={OAUTH_SCOPE}
-      >
-        <Input placeholder="openid profile read write" />
-      </FormItem>
+        {t('dev.mcp.auth.oauthConfig.autoDiscoveryDesc') ||
+          'OAuth metadata will be auto-discovered from the MCP server using well-known endpoints. Just click the button below.'}
+      </Typography.Paragraph>
 
       <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
         <Space>
-          <Button loading={connecting} type="primary" onClick={handleConnect}>
-            {t('dev.mcp.auth.oauthConfig.connectButton')}
-          </Button>
-          <Button onClick={handleCheckStatus} size="small">
-            {t('dev.mcp.auth.oauthConfig.checkStatus')}
+          <Button
+            loading={discovering || connecting}
+            type="primary"
+            onClick={handleConnect}
+          >
+            {discovering
+              ? t('dev.mcp.auth.oauthConfig.discovering') || 'Discovering...'
+              : t('dev.mcp.auth.oauthConfig.connectButton') || 'Connect with OAuth'}
           </Button>
           {tokenStatus !== 'missing' && (
-            <Button danger onClick={handleDisconnect} size="small">
-              {t('dev.mcp.auth.oauthConfig.disconnect')}
-            </Button>
+            <>
+              <Button onClick={handleCheckStatus} size="small">
+                {t('dev.mcp.auth.oauthConfig.checkStatus') || 'Check Status'}
+              </Button>
+              <Button danger onClick={handleDisconnect} size="small">
+                {t('dev.mcp.auth.oauthConfig.disconnect') || 'Disconnect'}
+              </Button>
+            </>
           )}
         </Space>
+        {discovered && (
+          <Tag color="blue">
+            {t('dev.mcp.auth.oauthConfig.discovered') || 'OAuth endpoints discovered'}
+          </Tag>
+        )}
         {tokenStatus !== 'missing' && (
           <Tag color={statusTagColor}>
-            {t('dev.mcp.auth.oauthConfig.statusLabel')}: {tokenStatus}
+            {t('dev.mcp.auth.oauthConfig.statusLabel') || 'Status'}: {tokenStatus}
           </Tag>
         )}
       </Space>
+
+      {/* Hidden fields to store discovered metadata in the form */}
+      <FormItem hidden name={['customParams', 'mcp', 'auth', 'authorizationEndpoint']}>
+        <input type="hidden" />
+      </FormItem>
+      <FormItem hidden name={['customParams', 'mcp', 'auth', 'tokenEndpoint']}>
+        <input type="hidden" />
+      </FormItem>
+      <FormItem hidden name={['customParams', 'mcp', 'auth', 'clientId']}>
+        <input type="hidden" />
+      </FormItem>
+      <FormItem hidden name={['customParams', 'mcp', 'auth', 'clientSecret']}>
+        <input type="hidden" />
+      </FormItem>
 
       {error && (
         <Alert
