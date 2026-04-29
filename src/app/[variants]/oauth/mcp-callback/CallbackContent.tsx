@@ -35,14 +35,8 @@ const CallbackContent = () => {
         setStatus('success');
 
         setTimeout(() => {
-          const pluginId = sessionStorage.getItem('mcpOAuthPluginId');
           sessionStorage.removeItem('mcpOAuthPluginId');
-
-          if (pluginId) {
-            router.push(`/discover/mcp/${pluginId}`);
-          } else {
-            router.push('/discover/mcp');
-          }
+          router.push('/tools');
         }, 2000);
       } catch (err) {
         setStatus('error');
