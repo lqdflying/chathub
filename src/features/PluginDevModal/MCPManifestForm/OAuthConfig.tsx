@@ -82,6 +82,14 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
       // Store the state in sessionStorage so the callback page can verify
       sessionStorage.setItem('mcpOAuthPluginId', pluginId);
 
+      // Persist full form state so the Plugin Editor can resume after OAuth callback
+      // (the browser does a full navigation to the OAuth provider, so all React state is lost)
+      sessionStorage.setItem('mcpOAuthResumeEdit', JSON.stringify({
+        formValues: form.getFieldsValue(),
+        pluginId,
+      }));
+      sessionStorage.setItem('mcpOAuthOpenDevModal', 'true');
+
       // Step 2: Initiate OAuth with discovered metadata
       const result = await toolsClient.mcpOAuth.initiateOAuth.mutate({
         authorizationEndpoint: metadata.authorizationEndpoint,

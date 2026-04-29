@@ -36,9 +36,15 @@ const CallbackContent = () => {
 
         setTimeout(() => {
           sessionStorage.removeItem('mcpOAuthPluginId');
+          // Redirect to /chat — the Plugin Store will auto-open with the
+          // pending plugin editor (resume data was saved before OAuth redirect).
           router.push('/chat');
         }, 2000);
       } catch (err) {
+        // Clean up resume state on error
+        sessionStorage.removeItem('mcpOAuthResumeEdit');
+        sessionStorage.removeItem('mcpOAuthOpenDevModal');
+        sessionStorage.removeItem('mcpOAuthPluginId');
         setStatus('error');
         setErrorMsg((err as Error).message || 'Unknown error');
       }
