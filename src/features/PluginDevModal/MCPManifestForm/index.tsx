@@ -13,6 +13,7 @@ import { mcpStoreSelectors, pluginSelectors } from '@/store/tool/selectors';
 import ArgsInput from './ArgsInput';
 import CollapsibleSection from './CollapsibleSection';
 import MCPTypeSelect from './MCPTypeSelect';
+import OAuthConfig from './OAuthConfig';
 import QuickImportSection from './QuickImportSection';
 
 interface MCPManifestFormProps {
@@ -199,6 +200,10 @@ const MCPManifestForm = ({ form, isEditMode }: MCPManifestFormProps) => {
                       label: t('dev.mcp.auth.bear'),
                       value: 'bearer',
                     },
+                    {
+                      label: t('dev.mcp.auth.oauth'),
+                      value: 'oauth2',
+                    },
                   ]}
                   style={{ width: '100%' }}
                 />
@@ -212,6 +217,9 @@ const MCPManifestForm = ({ form, isEditMode }: MCPManifestFormProps) => {
                 >
                   <InputPassword placeholder={t('dev.mcp.auth.token.placeholder')} />
                 </FormItem>
+              )}
+              {authType === 'oauth2' && (
+                <OAuthConfig form={form} identifier={formValues?.identifier} />
               )}
               <CollapsibleSection title={t('dev.mcp.advanced.title')}>
                 <FormItem

@@ -200,7 +200,14 @@ export interface McpConnection {
   args?: string[];
   auth?: {
     accessToken?: string;
+    // OAuth 2.1 fields
+    authorizationEndpoint?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    scope?: string;
     token?: string;
+    tokenEndpoint?: string;
     type: 'none' | 'bearer' | 'oauth2';
   };
   // STDIO 连接参数
@@ -229,7 +236,13 @@ export type MCPInstallProgressMap = Record<string, MCPInstallProgress | undefine
 export const StreamableHTTPAuthSchema = z
   .object({
     accessToken: z.string().optional(), // OAuth2 Access Token
+    authorizationEndpoint: z.string().optional(), // OAuth2 Authorization Endpoint
+    clientId: z.string().optional(), // OAuth2 Client ID
+    clientSecret: z.string().optional(), // OAuth2 Client Secret
+    refreshToken: z.string().optional(), // OAuth2 Refresh Token
+    scope: z.string().optional(), // OAuth2 Scope
     token: z.string().optional(), // Bearer Token
+    tokenEndpoint: z.string().optional(), // OAuth2 Token Endpoint
     type: z.enum(['none', 'bearer', 'oauth2']),
   })
   .optional();

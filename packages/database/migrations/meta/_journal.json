@@ -308,6 +308,13 @@
       "when": 1741800000000,
       "tag": "0043_add_agent_assistant_memory",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1745908800000,
+      "tag": "0044_add_mcp_oauth_tokens",
+      "breakpoints": true
     }
   ],
   "version": "6"

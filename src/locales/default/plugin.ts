@@ -71,6 +71,37 @@ export default {
         desc: '选择 MCP 服务器的认证方式',
         label: '认证类型',
         none: '无需认证',
+        oauth: 'OAuth 2.1',
+        oauthConfig: {
+          connectButton: '连接 OAuth',
+          disconnect: '断开连接',
+          checkStatus: '检查状态',
+          statusLabel: '状态',
+          missingFields: '请填写所有 OAuth 配置字段',
+          connectFailed: 'OAuth 连接失败',
+          clientId: {
+            desc: 'OAuth 应用的 Client ID',
+            label: 'Client ID',
+            placeholder: '输入 Client ID',
+          },
+          clientSecret: {
+            desc: 'OAuth 应用的 Client Secret（如适用）',
+            label: 'Client Secret',
+            placeholder: '输入 Client Secret',
+          },
+          authorizationEndpoint: {
+            desc: 'OAuth 授权服务器的 Authorization Endpoint URL',
+            label: 'Authorization Endpoint',
+          },
+          tokenEndpoint: {
+            desc: 'OAuth 授权服务器的 Token Endpoint URL',
+            label: 'Token Endpoint',
+          },
+          scope: {
+            desc: 'OAuth 权限范围，用空格分隔多个 scope',
+            label: 'Scope',
+          },
+        },
         placeholder: '请选择认证类型',
         token: {
           desc: '输入你的 API Key 或 Bearer Token',

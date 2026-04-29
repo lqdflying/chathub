@@ -16,8 +16,15 @@ import {
 } from '@/libs/mcp';
 
 import { mcpSystemDepsCheckService } from './deps';
+import { McpOAuthService } from './oauth';
 
 const log = debug('lobe-mcp:service');
+
+export interface MCPOAuthContext {
+  oauthService: McpOAuthService;
+  pluginIdentifier: string;
+  userId: string;
+}
 
 // Removed MCPConnection interface as it's no longer needed
 
@@ -155,8 +162,13 @@ export class MCPService {
   }
 
   // callTool now accepts MCPClientParams, toolName, and args
-  async callTool(params: MCPClientParams, toolName: string, argsStr: any): Promise<any> {
-    const client = await this.getClient(params); // Get client using params
+  async callTool(
+    params: MCPClientParams,
+    toolName: string,
+    argsStr: any,
+    oauthContext?: MCPOAuthContext,
+  ): Promise<any> {
+    const client = await this.getClient(params, false, oauthContext);
 
     const args = safeParseJSON(argsStr);
     const loggableParams = this.sanitizeForLogging(params);
@@ -214,7 +226,11 @@ export class MCPService {
   }
 
   // Private method to get or initialize a client based on parameters
-  private async getClient(params: MCPClientParams, skipCache = false): Promise<MCPClient> {
+  private async getClient(
+    params: MCPClientParams,
+    skipCache = false,
+    oauthContext?: MCPOAuthContext,
+  ): Promise<MCPClient> {
     const key = this.serializeParams(params); // Use custom serialization
 
     if (!skipCache && this.clients.has(key)) {
@@ -222,8 +238,54 @@ export class MCPService {
     }
 
     log(`No cached client found, Initializing new client.`);
+
+    // Setup OAuth token getter if auth type is oauth2 and context is provided
+    let tokenGetter: (() => Promise<string | undefined>) | undefined;
+
+    if (
+      params.type === 'http' &&
+      params.auth?.type === 'oauth2' &&
+      oauthContext
+    ) {
+      tokenGetter = async () => {
+        const token = await oauthContext.oauthService.getOAuthToken(
+          oauthContext.userId,
+          oauthContext.pluginIdentifier,
+        );
+
+        if (!token) return undefined;
+
+        // Check if token needs refresh
+        if (token.expiresAt && token.expiresAt < Date.now()) {
+          const refreshed = await oauthContext.oauthService.refreshOAuthToken(
+            oauthContext.userId,
+            oauthContext.pluginIdentifier,
+          );
+          if (refreshed) {
+            log('OAuth token refreshed for plugin %s', oauthContext.pluginIdentifier);
+            return refreshed.accessToken;
+          }
+          log('OAuth token refresh failed for plugin %s', oauthContext.pluginIdentifier);
+          return undefined;
+        }
+
+        return token.accessToken;
+      };
+
+      // Also pre-fetch the token for the initial client
+      try {
+        const token = await tokenGetter();
+        if (token) {
+          params = { ...params, auth: { ...params.auth, accessToken: token } };
+          log('Injected OAuth token for plugin %s', oauthContext.pluginIdentifier);
+        }
+      } catch (err) {
+        log('Failed to pre-fetch OAuth token: %O', err);
+      }
+    }
+
     try {
-      const client = new MCPClient(params);
+      const client = new MCPClient(params, { tokenGetter });
       await client.initialize({
         onProgress: (progress) => {
           log(`New client initializing... ${progress.progress}/${progress.total}`);

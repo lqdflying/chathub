@@ -161,3 +161,72 @@ export function createMCPError(
 
   return error;
 }
+
+// ============ OAuth 2.1 Types ============
+
+/**
+ * OAuth 2.1 授权服务器元数据 (RFC 8414)
+ */
+export interface OAuthServerMetadata {
+  authorization_endpoint: string;
+  token_endpoint: string;
+  registration_endpoint?: string;
+  issuer?: string;
+  scopes_supported?: string[];
+  response_types_supported?: string[];
+  grant_types_supported?: string[];
+  token_endpoint_auth_methods_supported?: string[];
+  code_challenge_methods_supported?: string[];
+}
+
+/**
+ * OAuth 2.1 令牌集
+ */
+export interface OAuthTokenSet {
+  accessToken: string;
+  expiresAt?: number;
+  refreshToken?: string;
+  scope?: string;
+  tokenType?: string;
+}
+
+/**
+ * OAuth 授权状态
+ */
+export interface OAuthState {
+  clientId: string;
+  codeVerifier: string;
+  createdAt: number;
+  pluginIdentifier: string;
+  redirectUri: string;
+  scope?: string;
+  state: string;
+  tokenEndpoint: string;
+}
+
+/**
+ * OAuth 授权初始化参数
+ */
+export interface OAuthInitiateParams {
+  authorizationEndpoint: string;
+  clientId: string;
+  pluginIdentifier: string;
+  redirectUri: string;
+  scope?: string;
+  tokenEndpoint: string;
+}
+
+/**
+ * OAuth 回调参数
+ */
+export interface OAuthCallbackParams {
+  code: string;
+  error?: string;
+  error_description?: string;
+  state: string;
+}
+
+/**
+ * OAuth 令牌状态
+ */
+export type OAuthTokenStatus = 'valid' | 'expired' | 'missing' | 'refreshing' | 'error';

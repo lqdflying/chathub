@@ -71,6 +71,37 @@
         "desc": "Select the authentication method for the MCP server",
         "label": "Authentication Type",
         "none": "No Authentication Required",
+        "oauth": "OAuth 2.1",
+        "oauthConfig": {
+          "connectButton": "Connect with OAuth",
+          "disconnect": "Disconnect",
+          "checkStatus": "Check Status",
+          "statusLabel": "Status",
+          "missingFields": "Please fill in all OAuth configuration fields",
+          "connectFailed": "OAuth connection failed",
+          "clientId": {
+            "desc": "OAuth application Client ID",
+            "label": "Client ID",
+            "placeholder": "Enter Client ID"
+          },
+          "clientSecret": {
+            "desc": "OAuth application Client Secret (if applicable)",
+            "label": "Client Secret",
+            "placeholder": "Enter Client Secret"
+          },
+          "authorizationEndpoint": {
+            "desc": "OAuth authorization server Authorization Endpoint URL",
+            "label": "Authorization Endpoint"
+          },
+          "tokenEndpoint": {
+            "desc": "OAuth authorization server Token Endpoint URL",
+            "label": "Token Endpoint"
+          },
+          "scope": {
+            "desc": "OAuth permission scopes, space-separated",
+            "label": "Scope"
+          }
+        },
         "placeholder": "Please select authentication type",
         "token": {
           "desc": "Enter your API Key or Bearer Token",

@@ -156,9 +156,14 @@ export class MCPClient {
   private mcp: Client;
   private transport: Transport;
   private params: MCPClientParams;
+  private tokenGetter?: () => Promise<string | undefined>;
 
-  constructor(params: MCPClientParams) {
+  constructor(
+    params: MCPClientParams,
+    options?: { tokenGetter?: () => Promise<string | undefined> },
+  ) {
     this.params = params;
+    this.tokenGetter = options?.tokenGetter;
     this.mcp = new Client({ name: 'lobehub-mcp-client', version: '1.0.0' });
 
     switch (params.type) {
@@ -181,7 +186,9 @@ export class MCPClient {
             case 'oauth2': {
               if (params.auth.accessToken) {
                 headers['Authorization'] = `Bearer ${params.auth.accessToken}`;
-                log('Added OAuth2 access token authentication');
+                log('Added OAuth2 access token authentication (static)');
+              } else if (this.tokenGetter) {
+                log('OAuth2 authentication configured with dynamic token getter');
               }
               break;
             }
@@ -235,6 +242,20 @@ export class MCPClient {
     log('Initializing MCP connection...');
 
     try {
+      // 如果有动态 token getter 且 auth type 是 oauth2，
+      // 尝试在初始化前获取最新的 token
+      if (
+        this.params.type === 'http' &&
+        this.params.auth?.type === 'oauth2' &&
+        this.tokenGetter
+      ) {
+        const token = await this.tokenGetter();
+        if (token) {
+          this.params.auth.accessToken = token;
+          log('Injected dynamic OAuth token before initialization');
+        }
+      }
+
       await this.mcp.connect(this.transport, { onprogress: options.onProgress });
       log('MCP connection initialized.');
     } catch (e) {
@@ -294,6 +315,23 @@ export class MCPClient {
     }
   }
 
+  private async reconnectWithToken(accessToken: string) {
+    log('Reconnecting with refreshed OAuth token');
+    const headers: Record<string, string> = { ...(this.params as any).headers };
+
+    headers['Authorization'] = `Bearer ${accessToken}`;
+
+    this.transport = new StreamableHTTPClientTransport(
+      new URL((this.params as any).url),
+      {
+        requestInit: { headers },
+      },
+    );
+
+    await this.initialize();
+    log('Reconnected with refreshed OAuth token');
+  }
+
   async disconnect() {
     log('Disconnecting MCP connection...');
     // Assuming the mcp client has a disconnect method
@@ -321,6 +359,23 @@ export class MCPClient {
 
       if ((e as Error).message.includes('No valid session ID provided')) {
         throw new Error('NoValidSessionId');
+      }
+
+      // Handle OAuth authorization errors
+      if (
+        this.params.type === 'http' &&
+        (e as Error).message.includes('401') &&
+        this.params.auth?.type === 'oauth2' &&
+        this.tokenGetter
+      ) {
+        const newToken = await this.tokenGetter();
+        if (newToken) {
+          log('Retrying listTools with refreshed OAuth token');
+          // Re-create transport with new token
+          await this.disconnect();
+          await this.reconnectWithToken(newToken);
+          return this.listTools();
+        }
       }
 
       return [];
@@ -376,10 +431,34 @@ export class MCPClient {
 
   async callTool(toolName: string, args: any) {
     log('Calling tool: %s with args: %O, timeout: %O', toolName, args, MCP_TOOL_TIMEOUT);
-    const result = await this.mcp.callTool({ arguments: args, name: toolName }, undefined, {
-      timeout: MCP_TOOL_TIMEOUT,
-    });
-    log('Tool call result: %O', result);
-    return result;
+    try {
+      const result = await this.mcp.callTool({ arguments: args, name: toolName }, undefined, {
+        timeout: MCP_TOOL_TIMEOUT,
+      });
+      log('Tool call result: %O', result);
+      return result;
+    } catch (e) {
+      log('Tool call error: %O', e);
+
+      // Handle OAuth authorization errors with token refresh
+      if (
+        this.params.type === 'http' &&
+        (e as Error).message.includes('401') &&
+        this.params.auth?.type === 'oauth2' &&
+        this.tokenGetter
+      ) {
+        const newToken = await this.tokenGetter();
+        if (newToken) {
+          log('Retrying tool call with refreshed OAuth token');
+          await this.disconnect();
+          await this.reconnectWithToken(newToken);
+          return this.mcp.callTool({ arguments: args, name: toolName }, undefined, {
+            timeout: MCP_TOOL_TIMEOUT,
+          });
+        }
+      }
+
+      throw e;
+    }
   }
 }
