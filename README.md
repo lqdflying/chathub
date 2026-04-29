@@ -19,6 +19,7 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 | API Tester | ❌ Not present | ✅ Browser-based REST API client at `/tools/apitest` |
 | Changelog page | Enabled | Disabled (skips external fetch at build time) |
 | Topic memory / context UX | Basic rolling summary | Assistance presets, token auto-compact, manual compact, daily opt-in, debug log, optional archives, **assistant-level memory** (`agents.assistant_memory`) with manual or periodic LLM rollup from topic summaries across sessions linked to the same agent |
+| MCP plugin authentication | API keys only | **OAuth 2.1 auto-discovery** (RFC 9728 + RFC 8414) — paste a server URL, click Connect, authorize in a popup, done. No manual Client ID/Secret/endpoint entry needed. Tokens are stored server-side and auto-injected into all MCP connections. |
 | Model gear (extendParams) UI | Single generic form | **Per-provider panels** (Moonshot, MiniMax, Anthropic, OpenAI) with compact layout; **MiniMax request trimming** before API calls to avoid context overflow |
 
 ---
@@ -58,6 +59,10 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 - **Extended model bank** — latest Claude (4.5, 4.6 Opus), GPT-5.x series (5.1, 5.2, 5.3, 5.4 / pro / chat / codex / mini / nano), Gemini 3.x (pro, flash), Kimi K2.x (k2.5, k2-thinking, k2-turbo), MiniMax with accurate pricing
 - **Memory and context compaction** — assistance-level presets, optional **token-threshold auto compact**, **manual compact** from the token popover, optional **daily** topic refresh (client + `localStorage`), **compaction debug** on the active topic, optional **memory archive** excerpts on the topic and in prompts when enabled. **Assistant memory** (cross-session notes on the agent row) can be edited manually or **generated/merged** from topic compaction summaries (button in **Assistant → Context**), with an optional **once-per-UTC-day-per-agent** periodic merge. Topic compaction and assistant rollup both use **Settings → System Agent → history compress** for model calls. Details: [Memory and context compaction](#memory-and-context-compaction).
 - **Model extension options (gear icon)** — Provider-specific compact popovers wired from each model card’s `extendParams` in the model bank; unrelated vendor controls are not mixed in one form. Details: [Model extension options](#model-extension-options-gear-menu).
+- **MCP OAuth 2.1 authentication** — Connect to MCP servers that require OAuth without manual configuration:
+  - **Auto-discovery** — Enter a server URL, click Connect, and the app discovers Client ID, Client Secret, Authorization Endpoint, and Token Endpoint automatically via RFC 9728 and RFC 8414 well-known endpoints.
+  - **Popup flow** — Authorization opens in a popup window so the plugin editor stays open with all fields intact. After authorizing, the popup closes and the token status updates to "valid".
+  - **Server-side token storage** — OAuth tokens are stored in PostgreSQL (`mcp_oauth_tokens` table) and automatically injected into MCP connections by the tRPC router. No manual token management needed.
 
 ---
 
