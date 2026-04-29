@@ -13,8 +13,9 @@ const AddPluginButton = forwardRef<HTMLButtonElement>((props, ref) => {
   const { t } = useTranslation('setting');
   const [showModal, setModal] = useState(false);
 
-  const [installCustomPlugin, updateNewDevPlugin] = useToolStore((s) => [
+  const [installCustomPlugin, newCustomPlugin, updateNewDevPlugin] = useToolStore((s) => [
     s.installCustomPlugin,
+    s.newCustomPlugin,
     s.updateNewCustomPlugin,
   ]);
   const togglePlugin = useAgentStore((s) => s.togglePlugin);
@@ -42,6 +43,7 @@ const AddPluginButton = forwardRef<HTMLButtonElement>((props, ref) => {
         }}
         onValueChange={updateNewDevPlugin}
         open={showModal}
+        value={newCustomPlugin}
       />
       <Button
         icon={PackagePlus}
