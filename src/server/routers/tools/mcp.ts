@@ -8,7 +8,9 @@ import { z } from 'zod';
 import { isDesktop, isServerMode } from '@/const/version';
 import { passwordProcedure } from '@/libs/trpc/edge';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
+import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { mcpService } from '@/server/services/mcp';
+import { McpOAuthService } from '@/server/services/mcp/oauth';
 
 // Define Zod schemas for MCP Client parameters
 const httpParamsSchema = z.object({
@@ -43,12 +45,26 @@ const mcpProcedure = isServerMode ? authedProcedure : passwordProcedure;
 export const mcpRouter = router({
   getStreamableMcpServerManifest: mcpProcedure
     .input(GetStreamableMcpServerManifestInputSchema)
-    .query(async ({ input }) => {
+    .use(serverDatabase)
+    .query(async ({ input, ctx }) => {
+      let resolvedAuth = input.auth;
+
+      // For OAuth 2.1 plugins, inject the stored access token before
+      // connecting to the MCP server.  The token was saved during the
+      // OAuth callback flow but the client doesn't have it in-memory.
+      if (input.auth?.type === 'oauth2') {
+        const oauthService = new McpOAuthService(ctx.serverDB);
+        const token = await oauthService.getOAuthToken(ctx.userId!, input.identifier);
+        if (token?.accessToken) {
+          resolvedAuth = { ...input.auth, accessToken: token.accessToken };
+        }
+      }
+
       return await mcpService.getStreamableMcpServerManifest(
         input.identifier,
         input.url,
         input.metadata,
-        input.auth,
+        resolvedAuth,
         input.headers,
       );
     }),
@@ -56,52 +72,84 @@ export const mcpRouter = router({
   // --- MCP Interaction ---
   // listTools now accepts MCPClientParams directly
   listTools: mcpProcedure
-    .input(mcpClientParamsSchema) // Use the unified schema
-    .query(async ({ input }) => {
-      // Stdio check can be done here or rely on the service/client layer
+    .input(mcpClientParamsSchema)
+    .use(serverDatabase)
+    .query(async ({ input, ctx }) => {
       checkStdioEnvironment(input);
 
-      // Pass the validated MCPClientParams to the service
-      return await mcpService.listTools(input);
+      let resolvedParams = input;
+      if (input.type === 'http' && input.auth?.type === 'oauth2') {
+        const oauthService = new McpOAuthService(ctx.serverDB);
+        const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
+        if (token?.accessToken) {
+          resolvedParams = { ...input, auth: { ...input.auth, accessToken: token.accessToken } };
+        }
+      }
+
+      return await mcpService.listTools(resolvedParams);
     }),
 
   // listResources now accepts MCPClientParams directly
   listResources: mcpProcedure
-    .input(mcpClientParamsSchema) // Use the unified schema
-    .query(async ({ input }) => {
-      // Stdio check can be done here or rely on the service/client layer
+    .input(mcpClientParamsSchema)
+    .use(serverDatabase)
+    .query(async ({ input, ctx }) => {
       checkStdioEnvironment(input);
 
-      // Pass the validated MCPClientParams to the service
-      return await mcpService.listResources(input);
+      let resolvedParams = input;
+      if (input.type === 'http' && input.auth?.type === 'oauth2') {
+        const oauthService = new McpOAuthService(ctx.serverDB);
+        const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
+        if (token?.accessToken) {
+          resolvedParams = { ...input, auth: { ...input.auth, accessToken: token.accessToken } };
+        }
+      }
+
+      return await mcpService.listResources(resolvedParams);
     }),
 
   // listPrompts now accepts MCPClientParams directly
   listPrompts: mcpProcedure
-    .input(mcpClientParamsSchema) // Use the unified schema
-    .query(async ({ input }) => {
-      // Stdio check can be done here or rely on the service/client layer
+    .input(mcpClientParamsSchema)
+    .use(serverDatabase)
+    .query(async ({ input, ctx }) => {
       checkStdioEnvironment(input);
 
-      // Pass the validated MCPClientParams to the service
-      return await mcpService.listPrompts(input);
+      let resolvedParams = input;
+      if (input.type === 'http' && input.auth?.type === 'oauth2') {
+        const oauthService = new McpOAuthService(ctx.serverDB);
+        const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
+        if (token?.accessToken) {
+          resolvedParams = { ...input, auth: { ...input.auth, accessToken: token.accessToken } };
+        }
+      }
+
+      return await mcpService.listPrompts(resolvedParams);
     }),
 
   // callTool now accepts MCPClientParams, toolName, and args
   callTool: mcpProcedure
     .input(
       z.object({
-        params: mcpClientParamsSchema, // Use the unified schema for client params
-        args: z.any(), // Arguments for the tool call
+        params: mcpClientParamsSchema,
+        args: z.any(),
         toolName: z.string(),
       }),
     )
-    .mutation(async ({ input }) => {
-      // Stdio check can be done here or rely on the service/client layer
+    .use(serverDatabase)
+    .mutation(async ({ input, ctx }) => {
       checkStdioEnvironment(input.params);
 
-      // Pass the validated params, toolName, and args to the service
-      const data = await mcpService.callTool(input.params, input.toolName, input.args);
+      let resolvedParams = input.params;
+      if (input.params.type === 'http' && input.params.auth?.type === 'oauth2') {
+        const oauthService = new McpOAuthService(ctx.serverDB);
+        const token = await oauthService.getOAuthToken(ctx.userId!, input.params.name);
+        if (token?.accessToken) {
+          resolvedParams = { ...input.params, auth: { ...input.params.auth, accessToken: token.accessToken } };
+        }
+      }
+
+      const data = await mcpService.callTool(resolvedParams, input.toolName, input.args);
 
       return JSON.stringify(data);
     }),
