@@ -1,6 +1,6 @@
 import { FormItem } from '@lobehub/ui';
 import { Alert, Button, FormInstance, Space, Tag, Typography } from 'antd';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { toolsClient } from '@/libs/trpc/client';
@@ -19,10 +19,31 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
   const [tokenStatus, setTokenStatus] = useState<OAuthTokenStatus>('missing');
   const [error, setError] = useState<string | null>(null);
   const [discovered, setDiscovered] = useState(false);
+  const popupRef = useRef<Window | null>(null);
+
+  // Listen for the OAuth popup to complete and post a message back
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.source !== 'mcp-oauth') return;
+
+      if (event.data.type === 'success') {
+        setConnecting(false);
+        setTokenStatus('valid');
+      } else if (event.data.type === 'error') {
+        setConnecting(false);
+        setError(event.data.error || 'OAuth authorization failed');
+        setDiscovering(false);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
 
   /**
-   * Auto-discover OAuth metadata from the MCP server, then redirect for authorization.
-   * The user only needs the server URL — Client ID, Client Secret, endpoints are all auto-discovered.
+   * Auto-discover OAuth metadata from the MCP server, then open a popup for
+   * authorization.  The popup completes the OAuth dance in its own window so
+   * the current page stays intact — no sessionStorage bridge needed.
    */
   const handleConnect = async () => {
     setDiscovering(true);
@@ -43,9 +64,9 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
 
       // Step 1: Auto-discover OAuth metadata from the MCP server's well-known endpoints
       const metadata = await toolsClient.mcpOAuth.discoverOAuth.mutate({
-        serverUrl: mcp.url,
         clientName: pluginId || 'LobeChat MCP Client',
         redirectUri,
+        serverUrl: mcp.url,
       });
 
       if (!metadata.clientId) {
@@ -66,10 +87,10 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
             auth: {
               ...mcp.auth,
               authorizationEndpoint: metadata.authorizationEndpoint,
-              tokenEndpoint: metadata.tokenEndpoint,
               clientId: metadata.clientId,
               clientSecret: metadata.clientSecret,
               scope: metadata.scopesSupported?.join(' ') || mcp.auth?.scope,
+              tokenEndpoint: metadata.tokenEndpoint,
             },
           },
         },
@@ -78,17 +99,6 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
       setDiscovered(true);
       setDiscovering(false);
       setConnecting(true);
-
-      // Store the state in sessionStorage so the callback page can verify
-      sessionStorage.setItem('mcpOAuthPluginId', pluginId);
-
-      // Persist full form state so the Plugin Editor can resume after OAuth callback
-      // (the browser does a full navigation to the OAuth provider, so all React state is lost)
-      sessionStorage.setItem('mcpOAuthResumeEdit', JSON.stringify({
-        formValues: form.getFieldsValue(),
-        pluginId,
-      }));
-      sessionStorage.setItem('mcpOAuthOpenDevModal', 'true');
 
       // Step 2: Initiate OAuth with discovered metadata
       const result = await toolsClient.mcpOAuth.initiateOAuth.mutate({
@@ -101,8 +111,24 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
         tokenEndpoint: metadata.tokenEndpoint,
       });
 
-      // Step 3: Redirect to the authorization endpoint
-      window.location.href = result.authorizeUrl;
+      // Step 3: Open a popup instead of navigating away
+      const popup = window.open(
+        result.authorizeUrl,
+        'mcp-oauth-popup',
+        'width=600,height=700,left=100,top=100',
+      );
+
+      if (!popup) {
+        // Popup blocked — fall back to full navigation
+        setError(
+          t('dev.mcp.auth.oauthConfig.popupBlocked') ||
+            'Popup was blocked. Please allow popups for this site.',
+        );
+        setConnecting(false);
+        return;
+      }
+
+      popupRef.current = popup;
     } catch (err) {
       setError(
         (err as Error).message ||
@@ -152,17 +178,17 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
       });
 
       setTokenStatus(status as OAuthTokenStatus);
-    } catch (err) {
+    } catch {
       setTokenStatus('error');
     }
   };
 
   const statusTagColor = {
-    missing: 'default',
-    valid: 'green',
-    expired: 'orange',
-    refreshing: 'blue',
     error: 'red',
+    expired: 'orange',
+    missing: 'default',
+    refreshing: 'blue',
+    valid: 'green',
   }[tokenStatus];
 
   return (
@@ -175,16 +201,18 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
           'OAuth metadata will be auto-discovered from the MCP server using well-known endpoints. Just click the button below.'}
       </Typography.Paragraph>
 
-      <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
+      <Space direction="vertical" style={{ marginBottom: 16, width: '100%' }}>
         <Space>
           <Button
             loading={discovering || connecting}
-            type="primary"
             onClick={handleConnect}
+            type="primary"
           >
             {discovering
               ? t('dev.mcp.auth.oauthConfig.discovering') || 'Discovering...'
-              : t('dev.mcp.auth.oauthConfig.connectButton') || 'Connect with OAuth'}
+              : connecting
+                ? t('dev.mcp.auth.oauthConfig.connecting') || 'Waiting for authorization...'
+                : t('dev.mcp.auth.oauthConfig.connectButton') || 'Connect with OAuth'}
           </Button>
           {tokenStatus !== 'missing' && (
             <>

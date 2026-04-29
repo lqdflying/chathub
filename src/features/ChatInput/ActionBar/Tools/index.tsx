@@ -1,5 +1,5 @@
 import { Blocks } from 'lucide-react';
-import { Suspense, memo, useEffect, useState } from 'react';
+import { Suspense, memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import PluginStore from '@/features/PluginStore';
@@ -7,12 +7,9 @@ import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
-import { useToolStore } from '@/store/tool';
 
 import Action from '../components/Action';
 import { useControls } from './useControls';
-
-const MCP_OAUTH_RESUME_EDIT = 'mcpOAuthResumeEdit';
 
 const Tools = memo(() => {
   const { t } = useTranslation('setting');
@@ -25,21 +22,6 @@ const Tools = memo(() => {
   const provider = useAgentStore(agentSelectors.currentAgentModelProvider);
 
   const enableFC = useModelSupportToolUse(model, provider);
-
-  // Resume MCP plugin editing after OAuth callback
-  useEffect(() => {
-    const resumeData = sessionStorage.getItem(MCP_OAUTH_RESUME_EDIT);
-    if (resumeData) {
-      try {
-        const { formValues } = JSON.parse(resumeData);
-        const updateNewCustomPlugin = useToolStore.getState().updateNewCustomPlugin;
-        updateNewCustomPlugin(formValues);
-        setModalOpen(true);
-      } finally {
-        sessionStorage.removeItem(MCP_OAUTH_RESUME_EDIT);
-      }
-    }
-  }, []);
 
   if (!enablePlugins) return null;
   if (!enableFC)
