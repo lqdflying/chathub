@@ -68,6 +68,7 @@ export class McpOAuthService {
         codeVerifier,
         clientId: params.clientId,
         pluginIdentifier: params.pluginIdentifier,
+        redirectUri: params.redirectUri,
         tokenEndpoint: params.tokenEndpoint,
         userId,
       },
@@ -114,6 +115,7 @@ export class McpOAuthService {
     const userId = payload.userId as string;
     const clientId = payload.clientId as string;
     const pluginIdentifier = payload.pluginIdentifier as string;
+    const redirectUri = payload.redirectUri as string;
 
     if (!codeVerifier || !tokenEndpoint) {
       throw new TRPCError({
@@ -128,6 +130,7 @@ export class McpOAuthService {
       params.code,
       codeVerifier,
       clientId,
+      redirectUri,
     );
 
     // Calculate expiry
@@ -315,6 +318,7 @@ export class McpOAuthService {
     code: string,
     codeVerifier: string,
     clientId: string,
+    redirectUri: string,
   ): Promise<TokenEndpointResponse> {
     log('Exchanging code for tokens at %s', tokenEndpoint);
 
@@ -326,6 +330,7 @@ export class McpOAuthService {
         code,
         code_verifier: codeVerifier,
         grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
       }),
     });
 
