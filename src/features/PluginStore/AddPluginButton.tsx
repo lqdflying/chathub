@@ -57,5 +57,3 @@ const AddPluginButton = forwardRef<HTMLButtonElement>((props, ref) => {
 });
 
 export default AddPluginButton;
-
-export default AddPluginButton;

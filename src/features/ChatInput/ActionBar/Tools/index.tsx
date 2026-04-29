@@ -65,5 +65,3 @@ const Tools = memo(() => {
 });
 
 export default Tools;
-
-export default Tools;
