@@ -36,7 +36,7 @@ const CallbackContent = () => {
 
         setTimeout(() => {
           sessionStorage.removeItem('mcpOAuthPluginId');
-          router.push('/tools');
+          router.push('/chat');
         }, 2000);
       } catch (err) {
         setStatus('error');

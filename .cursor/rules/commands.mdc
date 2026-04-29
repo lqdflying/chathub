@@ -34,6 +34,15 @@ bun run db:migrate           # Run migrations
 bun run db:studio            # Open Drizzle Studio
 ```
 
+## DB migration safety net (MANDATORY)
+
+Every migration that adds a **table** or **column** must also add an idempotent `ensure*` helper:
+- Create `scripts/migrateServerDB/ensure<Name>.cjs` with `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN IF NOT EXISTS`
+- Wire into `scripts/migrateServerDB/docker.cjs` (require + call after `migrator.migrate()`)
+- Copy into `/app/` in `Dockerfile`
+
+See `ensureAgentAssistantMemory.cjs` and `ensureMcpOAuthTokens.cjs` for templates.
+
 ## Hard "never do" list
 
 - **Never** `bun run test` — runs the full suite, ~10 min.

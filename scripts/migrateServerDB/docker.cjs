@@ -6,6 +6,14 @@ const { PGVECTOR_HINT } = require('./errorHint');
 const { ensureAgentAssistantMemoryColumn } = require('./ensureAgentAssistantMemory.cjs');
 const { ensureMcpOAuthTokensTable } = require('./ensureMcpOAuthTokens.cjs');
 
+// SAFETY NET: Every new Drizzle migration that adds a table or column MUST also
+// add a corresponding ensure* call here. This protects against journal drift —
+// deployments where __drizzle_migrations says the migration ran but the table
+// was never actually created (failed build, DB restore, partial transaction).
+//
+// Pattern: CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS.
+// These are idempotent and safe to run on every startup.
+
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is not set, please set it in your environment variables.');
 }
