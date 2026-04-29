@@ -4,6 +4,7 @@ const { drizzle } = require('drizzle-orm/node-postgres');
 const migrator = require('drizzle-orm/node-postgres/migrator');
 const { PGVECTOR_HINT } = require('./errorHint');
 const { ensureAgentAssistantMemoryColumn } = require('./ensureAgentAssistantMemory.cjs');
+const { ensureMcpOAuthTokensTable } = require('./ensureMcpOAuthTokens.cjs');
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is not set, please set it in your environment variables.');
@@ -20,6 +21,7 @@ const runMigrations = async () => {
   });
 
   await ensureAgentAssistantMemoryColumn(client);
+  await ensureMcpOAuthTokensTable(client);
 
   console.log('✅ database migration pass.');
   console.log('-------------------------------------');
