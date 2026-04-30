@@ -120,3 +120,6 @@ CLAUDE.local.md
 prd
 GEMINI.md
 e2e/reports
+
+# Wiki is a separate git repository
+wiki/
