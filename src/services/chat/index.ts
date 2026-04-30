@@ -205,14 +205,13 @@ class ChatService {
         extendParams.enabledContextCaching = false;
       }
 
-      if (
-        modelExtendParams!.includes('reasoningEffort') &&
-        chatConfig.reasoningEffort &&
-        chatConfig.enableReasoning
-      ) {
+      if (modelExtendParams!.includes('reasoningEffort') && chatConfig.reasoningEffort) {
         // DeepSeek only accepts 'high' or 'max' (low/medium map to high, xhigh maps to max)
+        // and only when deep thinking is actually enabled
         if (payload.provider === 'deepseek') {
-          extendParams.reasoning_effort = 'max';
+          if (chatConfig.enableReasoning) {
+            extendParams.reasoning_effort = 'max';
+          }
         } else {
           extendParams.reasoning_effort = chatConfig.reasoningEffort;
         }
