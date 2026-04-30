@@ -36,8 +36,7 @@ const Detail = memo<DetailProps>(({ identifier: defaultIdentifier }) => {
   const useMcpDetail = useDiscoverStore((s) => s.useFetchMcpDetail);
   const { data, isLoading } = useMcpDetail({ identifier });
 
-  if (!isMcpListInit && !defaultIdentifier) return <DetailLoading />;
-  if (isLoading) return <DetailLoading />;
+  if (!isMcpListInit || isLoading) return <DetailLoading />;
 
   if (!identifier)
     return (
@@ -53,7 +52,7 @@ const Detail = memo<DetailProps>(({ identifier: defaultIdentifier }) => {
     );
 
   return (
-    <DetailProvider config={{ identifier, ...data }}>
+    <DetailProvider config={data}>
       <Flexbox gap={16}>
         <Header inModal />
         <Nav activeTab={activeTab as McpNavKey} inModal setActiveTab={setActiveTab} />
