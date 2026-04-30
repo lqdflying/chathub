@@ -162,7 +162,7 @@ Every GA tag **must** be accompanied by a `gh release create`. The release descr
 
    ---
 
-   Full diff: vPREV...vNEW
+   Full diff: https://github.com/lqdflying/lobehub/compare/vPREV...vNEW
    EOF
    )"
    ```
