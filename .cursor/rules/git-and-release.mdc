@@ -133,6 +133,42 @@ git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z
 
 This is the **only** flow allowed to push a non-canary `v*.*.*` tag and update `:latest`.
 
+### GitHub Release (MANDATORY — part of GA)
+
+Every GA tag **must** be accompanied by a `gh release create`. The release description must summarize all changes since the previous GA release.
+
+1. Find the **previous GA tag**:
+   ```bash
+   gh release list -R lqdflying/lobehub --limit 5
+   # or: git tag -l 'v*' --sort=-v:refname | grep -v 'canary' | head -2
+   ```
+2. Generate the **release notes** by reviewing all commits between the previous GA and the new tag:
+   ```bash
+   git log --oneline vPREV..vNEW
+   ```
+3. Create the release:
+   ```bash
+   gh release create vX.Y.Z -R lqdflying/lobehub \
+     --title "vX.Y.Z — <short summary>" \
+     --notes "$(cat <<'EOF'
+   ## Highlights
+
+   - summarized from git log between previous GA and this tag
+   - group by category (Bug Fix, Feature, etc.)
+
+   ## What's Changed
+
+   (details...)
+
+   ---
+
+   Full diff: vPREV...vNEW
+   EOF
+   )"
+   ```
+
+Do **not** create the release before pushing the tag — the tag push triggers the Docker build. Create the release after the tag push.
+
 ## After GA: delete unused branches
 
 Once a feature or fix branch has been **merged into `main`** and the GA tag has shipped, **delete that branch locally and on `origin`** so the repo stays tidy. Do this **only when the user asks** (e.g. “clean up branches”, “delete merged branches”) or as part of an explicit GA follow-up.
