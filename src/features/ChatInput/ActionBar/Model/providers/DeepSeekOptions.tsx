@@ -61,7 +61,7 @@ const DeepSeekOptions = memo(() => {
       label: t('extendParams.deepSeekReasoningEffort.title'),
       layout: isNarrow ? 'vertical' : 'horizontal',
       minWidth: undefined,
-      name: 'reasoningEffort',
+      name: 'enableReasoningEffort',
     });
   }
 

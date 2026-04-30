@@ -5,6 +5,9 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
+import { useToolStore } from '@/store/tool';
+import { pluginSelectors } from '@/store/tool/selectors';
+
 import EditCustomPlugin from '../EditCustomPlugin';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -51,8 +54,10 @@ interface Props {
 const CustomPluginEmptyState = memo<Props>(({ identifier }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('plugin');
-
   const [showModal, setModal] = useState(false);
+
+  const pluginMeta = useToolStore(pluginSelectors.getPluginMetaById(identifier));
+  const title = pluginMeta?.title || identifier;
 
   return (
     <Center className={styles.container}>
@@ -60,7 +65,7 @@ const CustomPluginEmptyState = memo<Props>(({ identifier }) => {
         <div className={styles.iconWrapper}>
           <Icon icon={Package} size={32} />
         </div>
-        <Text className={styles.title}>{t('detailModal.customPlugin.title')}</Text>
+        <Text className={styles.title}>{title}</Text>
         <Text className={styles.description}>{t('detailModal.customPlugin.description')}</Text>
         <EditCustomPlugin identifier={identifier} onOpenChange={setModal} open={showModal}>
           <Button

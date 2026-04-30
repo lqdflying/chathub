@@ -156,6 +156,20 @@ export const createChatSlice: StateCreator<
 
     if (!activeId) return;
 
+    // Normalize reasoningEffort: strip non-string values (e.g. boolean from DeepSeek Switch)
+    // to prevent cross-provider type pollution.
+    if (
+      config.reasoningEffort !== undefined &&
+      typeof config.reasoningEffort !== 'string'
+    ) {
+      if (config.reasoningEffort === true) {
+        // boolean true from DeepSeek Switch — drop it so it doesn't leak to other providers
+        config = { ...config, reasoningEffort: undefined };
+      } else {
+        config = { ...config, reasoningEffort: undefined };
+      }
+    }
+
     await get().updateAgentConfig({ chatConfig: config });
   },
   updateAgentConfig: async (config) => {

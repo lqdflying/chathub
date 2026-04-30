@@ -8,6 +8,7 @@ import {
   AgentRuntimeError,
   ChatCompletionErrorPayload,
   REASONING_BUDGET_TOKEN_ADAPTIVE,
+  supportsAnthropicAdaptiveThinking,
 } from '@lobechat/model-runtime';
 import { ChatErrorType, TracePayload, TraceTagMap, UIChatMessage } from '@lobechat/types';
 import { PluginRequestPayload, createHeadersWithPluginSettings } from '@lobehub/chat-plugin-sdk';
@@ -44,6 +45,9 @@ import { contextEngineering } from './contextEngineering';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
 import { FetchOptions } from './types';
+
+/** Valid Anthropic `reasoningEffort` values — used to guard against boolean/other pollution. */
+const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
 
 interface GetChatCompletionPayload extends Partial<Omit<ChatStreamPayload, 'messages'>> {
   messages: UIChatMessage[];
@@ -160,10 +164,13 @@ class ChatService {
         if (chatConfig.enableReasoning) {
           if (
             payload.provider === 'anthropic' &&
-            chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE
+            chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
+            supportsAnthropicAdaptiveThinking(payload.model)
           ) {
             extendParams.thinking = {
-              effort: chatConfig.reasoningEffort ?? 'high',
+              effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort)
+                ? chatConfig.reasoningEffort
+                : 'high',
               type: 'adaptive',
             };
           } else {
@@ -184,10 +191,13 @@ class ChatService {
       } else if (modelExtendParams!.includes('reasoningBudgetToken')) {
         if (
           payload.provider === 'anthropic' &&
-          chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE
+          chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
+          supportsAnthropicAdaptiveThinking(payload.model)
         ) {
           extendParams.thinking = {
-            effort: chatConfig.reasoningEffort ?? 'high',
+            effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort)
+              ? chatConfig.reasoningEffort
+              : 'high',
             type: 'adaptive',
           };
         } else {
@@ -205,12 +215,20 @@ class ChatService {
         extendParams.enabledContextCaching = false;
       }
 
-      if (modelExtendParams!.includes('reasoningEffort') && chatConfig.reasoningEffort) {
+      if (
+        modelExtendParams!.includes('reasoningEffort') &&
+        (chatConfig.reasoningEffort || chatConfig.enableReasoningEffort)
+      ) {
         // DeepSeek only accepts 'high' or 'max' (low/medium map to high, xhigh maps to max)
+        // and only when deep thinking is actually enabled
         if (payload.provider === 'deepseek') {
-          extendParams.reasoning_effort = 'max';
+          if (chatConfig.enableReasoning) {
+            extendParams.reasoning_effort = 'max';
+          }
         } else {
-          extendParams.reasoning_effort = chatConfig.reasoningEffort;
+          extendParams.reasoning_effort = VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort)
+            ? chatConfig.reasoningEffort
+            : undefined;
         }
       }
 

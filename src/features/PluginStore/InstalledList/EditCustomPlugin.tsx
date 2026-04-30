@@ -29,6 +29,7 @@ const EditCustomPlugin = memo<EditCustomPluginProps>(
         }}
       >
         <DevModal
+          key={identifier}
           mode={'edit'}
           onDelete={() => {
             uninstallCustomPlugin(identifier);
