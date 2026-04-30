@@ -1,0 +1,33 @@
+---
+description: Research-first: always consult official docs and real-world samples before planning
+alwaysApply: true
+---
+
+# Research-First Mandate
+
+Before producing any **implementation plan** for:
+
+- New API integrations (third-party services, provider SDKs)
+- New MCP integrations (plugin servers, OAuth flows)
+- New provider module settings (model extendParams, gear panels)
+- New features (any non-trivial code change)
+- Bug fixes (especially for external services like Notion, DeepSeek, etc.)
+
+You **MUST** research first:
+
+1. **Official vendor documentation** — fetch and read the relevant API reference,
+   OpenAPI schema, changelog, and model-specific docs (e.g. Notion API, DeepSeek
+   API, MCP specification)
+
+2. **Real-world samples** — use MCP tools (WebSearch, WebFetch, Context7) to find
+   production examples, GitHub issues, StackOverflow discussions, and blog posts
+
+3. **Cross-reference** — confirm that what you plan to build matches what the
+   vendor actually supports (Content-Type, auth method, parameter names, model
+   capabilities)
+
+Only after gathering this evidence should you produce a plan. The plan must cite
+the specific sources used.
+
+**Do not** guess request formats, auth schemes, or API behavior based on
+assumptions or patterns from other providers.
