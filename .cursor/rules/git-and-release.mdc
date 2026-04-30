@@ -34,9 +34,9 @@ If the new branch is created from HEAD and the old branch's commits are already 
    ```
 2. Verify: `git branch -a | grep <old-branch>` should return nothing.
 
-### After GA merge to `main`
+### After merging to `main`
 
-Once a feature or fix branch has been merged into `main` and the GA tag has shipped, delete that branch (local + remote). The "After GA" section below has the detailed commands.
+Once a feature or fix branch has been merged into `main`, delete that branch locally and on `origin` (no need to wait for GA — cleanup is immediate). The "After GA" section below has the detailed commands.
 
 ## Planning (Plan mode / implementation plans)
 
