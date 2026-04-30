@@ -2,7 +2,7 @@ import { ModelProvider } from 'model-bank';
 import type OpenAI from 'openai';
 
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
-import type { ChatStreamPayload } from '../../types';
+import type { ChatStreamPayload, OpenAIChatMessage } from '../../types';
 
 /**
  * DeepSeek V4 thinking mode defaults to **enabled**.
@@ -17,6 +17,34 @@ import type { ChatStreamPayload } from '../../types';
  */
 const isThinkingEnabled = (payload: ChatStreamPayload) => {
   return payload.thinking?.type === 'enabled';
+};
+
+/**
+ * DeepSeek's API does not support `thinking` content blocks in message content
+ * arrays (only `text` type).  Strip them from all assistant messages so the
+ * API does not reject the request with:
+ *   unknown variant `thinking`, expected `text`
+ *
+ * DeepSeek uses `reasoning_content` in the response stream and the top-level
+ * `thinking` request-body parameter — not content-block annotations.
+ */
+const stripThinkingContentBlocks = (messages: OpenAIChatMessage[]): OpenAIChatMessage[] => {
+  return messages.map((msg) => {
+    if (msg.role !== 'assistant') return msg;
+    if (!Array.isArray(msg.content)) return msg;
+
+    const filtered = msg.content.filter(
+      (part: any) => part.type !== 'thinking',
+    );
+
+    // If nothing remains after stripping thinking blocks, fall back to empty string
+    if (filtered.length === 0) return { ...msg, content: '' };
+    // If only a single text block remains, flatten back to a plain string
+    if (filtered.length === 1 && filtered[0].type === 'text') {
+      return { ...msg, content: (filtered[0] as any).text || '' };
+    }
+    return { ...msg, content: filtered };
+  });
 };
 
 /** Exported for unit tests — DeepSeek request shaping. */
@@ -45,9 +73,12 @@ export const buildDeepSeekPayload = (
   // When thinking is enabled, strip params that the API ignores
   const shouldStripSamplingParams = thinkingEnabled;
 
+  // Strip thinking content blocks from messages — DeepSeek only supports "text" type
+  const sanitizedMessages = stripThinkingContentBlocks(messages);
+
   return {
     ...rest,
-    messages: messages as OpenAI.ChatCompletionMessageParam[],
+    messages: sanitizedMessages as OpenAI.ChatCompletionMessageParam[],
     model,
     stream: payload.stream ?? true,
     // Only include sampling params when thinking is NOT enabled

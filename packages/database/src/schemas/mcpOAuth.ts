@@ -18,9 +18,10 @@ export const mcpOAuthTokens = pgTable('mcp_oauth_tokens', {
   scope: text('scope'),
   clientId: varchar('client_id', { length: 256 }).notNull(),
   serverMetadata: jsonb('server_metadata').$type<{
-    authorization_endpoint: string;
+    authorization_endpoint?: string;
+    client_secret?: string;
     registration_endpoint?: string;
-    token_endpoint: string;
+    token_endpoint?: string;
   }>(),
 
   ...timestamps,

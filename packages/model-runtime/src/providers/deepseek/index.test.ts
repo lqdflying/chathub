@@ -88,8 +88,110 @@ describe('buildDeepSeekPayload', () => {
       ...basePayload,
       temperature: 1,
     });
-
     expect(payload.temperature).toBe(1);
     expect(payload.thinking).toBeUndefined();
+  });
+
+  describe('thinking content block stripping', () => {
+    it('should strip thinking blocks from assistant message content arrays', () => {
+      const payload = buildDeepSeekPayload({
+        ...basePayload,
+        messages: [
+          { role: 'user', content: 'Hello' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'Let me think...', signature: 'sig1' },
+              { type: 'text', text: 'Here is the answer' },
+            ],
+          },
+        ],
+        thinking: { type: 'enabled' as const },
+      });
+
+      expect((payload.messages as any)[1].content).toEqual('Here is the answer');
+    });
+
+    it('should flatten to empty string when only thinking blocks exist', () => {
+      const payload = buildDeepSeekPayload({
+        ...basePayload,
+        messages: [
+          { role: 'user', content: 'Hello' },
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'Let me think...', signature: 'sig1' },
+            ],
+          },
+        ],
+      });
+
+      expect((payload.messages as any)[1].content).toBe('');
+    });
+
+    it('should preserve user messages unchanged', () => {
+      const payload = buildDeepSeekPayload({
+        ...basePayload,
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+        ],
+      });
+
+      expect((payload.messages as any)[0].content).toEqual([{ type: 'text', text: 'Hello' }]);
+    });
+
+    it('should preserve string content on assistant messages', () => {
+      const payload = buildDeepSeekPayload({
+        ...basePayload,
+        messages: [
+          { role: 'assistant', content: 'Plain text response' },
+        ],
+      });
+
+      expect((payload.messages as any)[0].content).toBe('Plain text response');
+    });
+
+    it('should preserve system messages unchanged', () => {
+      const payload = buildDeepSeekPayload({
+        ...basePayload,
+        messages: [
+          { role: 'system', content: 'You are helpful' },
+        ],
+      });
+
+      expect((payload.messages as any)[0].content).toBe('You are helpful');
+    });
+
+    it('should keep multiple text blocks as an array after stripping thinking', () => {
+      const payload = buildDeepSeekPayload({
+        ...basePayload,
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'thinking', thinking: 'Hmm...', signature: 'sig1' },
+              { type: 'text', text: 'Part 1' },
+              { type: 'text', text: 'Part 2' },
+            ],
+          },
+        ],
+      });
+
+      expect((payload.messages as any)[0].content).toEqual([
+        { type: 'text', text: 'Part 1' },
+        { type: 'text', text: 'Part 2' },
+      ]);
+    });
+
+    it('should handle tool messages unchanged', () => {
+      const payload = buildDeepSeekPayload({
+        ...basePayload,
+        messages: [
+          { role: 'tool', content: 'tool result', tool_call_id: 'call_1' },
+        ],
+      });
+
+      expect((payload.messages as any)[0].content).toBe('tool result');
+    });
   });
 });

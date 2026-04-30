@@ -145,6 +145,7 @@ export class McpOAuthService {
     await this.storeTokens(userId, {
       accessToken: tokenResponse.access_token,
       clientId,
+      clientSecret,
       expiresAt,
       pluginIdentifier,
       refreshToken: tokenResponse.refresh_token,
@@ -236,6 +237,7 @@ export class McpOAuthService {
     const metadata = record.serverMetadata as Record<string, any> | null;
     const tokenEndpoint = metadata?.token_endpoint;
     const clientId = record.clientId;
+    const clientSecret = metadata?.client_secret as string | undefined;
 
     if (!tokenEndpoint) {
       log('No token endpoint in server metadata for plugin %s', pluginIdentifier);
@@ -243,14 +245,33 @@ export class McpOAuthService {
     }
 
     try {
-      const response = await fetch(tokenEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
+      let headers: Record<string, string>;
+      let body: BodyInit;
+
+      if (clientSecret) {
+        // Confidential client (e.g. Notion) — JSON body + HTTP Basic Auth
+        headers = {
+          'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+          'Content-Type': 'application/json',
+        };
+        body = JSON.stringify({
+          grant_type: 'refresh_token',
+          refresh_token: record.refreshToken,
+        });
+      } else {
+        // Public client — form-encoded body
+        headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        body = new URLSearchParams({
           client_id: clientId,
           grant_type: 'refresh_token',
           refresh_token: record.refreshToken,
-        }),
+        });
+      }
+
+      const response = await fetch(tokenEndpoint, {
+        method: 'POST',
+        headers,
+        body,
       });
 
       if (!response.ok) {
@@ -315,6 +336,12 @@ export class McpOAuthService {
 
   /**
    * Exchange an authorization code for tokens.
+   *
+   * Supports two auth modes:
+   * - Confidential client (clientSecret present, e.g. Notion MCP):
+   *   HTTP Basic Auth + Content-Type: application/json
+   * - Public client (no clientSecret, standard PKCE):
+   *   Content-Type: application/x-www-form-urlencoded with client_id in body
    */
   private async exchangeCodeForTokens(
     tokenEndpoint: string,
@@ -324,23 +351,38 @@ export class McpOAuthService {
     redirectUri: string,
     clientSecret?: string,
   ): Promise<TokenEndpointResponse> {
-    log('Exchanging code for tokens at %s', tokenEndpoint);
+    log('Exchanging code for tokens at %s (hasClientSecret=%s)', tokenEndpoint, !!clientSecret);
 
-    const body = new URLSearchParams({
-      client_id: clientId,
-      code,
-      code_verifier: codeVerifier,
-      grant_type: 'authorization_code',
-      redirect_uri: redirectUri,
-    });
+    let headers: Record<string, string>;
+    let body: BodyInit;
 
     if (clientSecret) {
-      body.set('client_secret', clientSecret);
+      // Confidential client (e.g. Notion) — JSON body + HTTP Basic Auth
+      headers = {
+        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+        'Content-Type': 'application/json',
+      };
+      body = JSON.stringify({
+        code,
+        code_verifier: codeVerifier,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      });
+    } else {
+      // Public client (standard PKCE) — form-encoded body with client_id
+      headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      body = new URLSearchParams({
+        client_id: clientId,
+        code,
+        code_verifier: codeVerifier,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      });
     }
 
     const response = await fetch(tokenEndpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers,
       body,
     });
 
@@ -375,6 +417,7 @@ export class McpOAuthService {
     token: {
       accessToken: string;
       clientId: string;
+      clientSecret?: string;
       expiresAt?: number;
       pluginIdentifier: string;
       refreshToken?: string;
@@ -393,6 +436,14 @@ export class McpOAuthService {
         ),
       );
 
+    const serverMetadata: Record<string, any> = {};
+    if (token.tokenEndpoint) {
+      serverMetadata.token_endpoint = token.tokenEndpoint;
+    }
+    if (token.clientSecret) {
+      serverMetadata.client_secret = token.clientSecret;
+    }
+
     const insert: NewMcpOAuthTokenItem = {
       userId,
       pluginIdentifier: token.pluginIdentifier,
@@ -402,9 +453,7 @@ export class McpOAuthService {
       expiresAt: token.expiresAt ? new Date(token.expiresAt) : undefined,
       scope: token.scope || null,
       clientId: token.clientId,
-      serverMetadata: token.tokenEndpoint
-        ? { authorization_endpoint: '', token_endpoint: token.tokenEndpoint }
-        : null,
+      serverMetadata: Object.keys(serverMetadata).length > 0 ? serverMetadata : null,
     };
 
     await this.db.insert(mcpOAuthTokens).values(insert);
