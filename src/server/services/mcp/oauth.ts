@@ -249,12 +249,12 @@ export class McpOAuthService {
       let body: BodyInit;
 
       if (clientSecret) {
-        // Confidential client (e.g. Notion) — JSON body + HTTP Basic Auth
+        // Confidential client (e.g. Notion) — form-encoded body + HTTP Basic Auth
         headers = {
           'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
         };
-        body = JSON.stringify({
+        body = new URLSearchParams({
           grant_type: 'refresh_token',
           refresh_token: record.refreshToken,
         });
@@ -339,7 +339,7 @@ export class McpOAuthService {
    *
    * Supports two auth modes:
    * - Confidential client (clientSecret present, e.g. Notion MCP):
-   *   HTTP Basic Auth + Content-Type: application/json
+   *   HTTP Basic Auth + Content-Type: application/x-www-form-urlencoded
    * - Public client (no clientSecret, standard PKCE):
    *   Content-Type: application/x-www-form-urlencoded with client_id in body
    */
@@ -357,12 +357,12 @@ export class McpOAuthService {
     let body: BodyInit;
 
     if (clientSecret) {
-      // Confidential client (e.g. Notion) — JSON body + HTTP Basic Auth
+      // Confidential client (e.g. Notion) — form-encoded body + HTTP Basic Auth
       headers = {
         'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       };
-      body = JSON.stringify({
+      body = new URLSearchParams({
         code,
         code_verifier: codeVerifier,
         grant_type: 'authorization_code',
