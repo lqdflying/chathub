@@ -5,11 +5,15 @@ import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactor
 import type { ChatStreamPayload } from '../../types';
 
 /**
- * DeepSeek API does not accept a `thinking` object in the request body.
- * Reasoning is controlled by model selection (e.g. `deepseek-reasoner`).
- * When reasoning is enabled, `temperature`, `top_p`, `presence_penalty`,
- * and `frequency_penalty` are silently ignored by the API, so we strip
- * them from the payload to keep the request clean.
+ * DeepSeek V4 thinking mode defaults to **enabled**.
+ * To disable reasoning, the API requires `thinking: { type: 'disabled' }`
+ * in the request body.  When thinking is enabled, `temperature`, `top_p`,
+ * `presence_penalty`, and `frequency_penalty` are silently ignored by the
+ * API, so we strip them from the payload to keep the request clean.
+ *
+ * Do NOT send `reasoning_effort` when thinking is disabled.
+ *
+ * @see https://api-docs.deepseek.com/guides/thinking_mode
  */
 const isThinkingEnabled = (payload: ChatStreamPayload) => {
   return payload.thinking?.type === 'enabled';
@@ -57,6 +61,8 @@ export const buildDeepSeekPayload = (
         }),
     // Forward reasoning_effort only when thinking is enabled
     ...(thinkingEnabled && reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    // V4 defaults to thinking enabled; explicitly send disabled when off
+    ...(thinking ? { thinking: { type: thinking.type } } : {}),
     tools: deepseekTools,
   } as OpenAI.ChatCompletionCreateParamsStreaming;
 };
