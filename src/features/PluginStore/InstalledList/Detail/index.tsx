@@ -11,9 +11,9 @@ interface DetailProps {
 }
 
 const Detail = memo<DetailProps>(({ identifier, type, runtimeType }) => {
-  if (type === 'customPlugin') return <CustomPluginEmptyState identifier={identifier} />;
-
   if (runtimeType === 'mcp') return <McpDetail identifier={identifier} />;
+
+  if (type === 'customPlugin') return <CustomPluginEmptyState identifier={identifier} />;
 
   if (type === 'plugin') return <PluginDetail identifier={identifier} />;
 });
