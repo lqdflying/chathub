@@ -9,19 +9,38 @@ alwaysApply: true
 
 Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says “no branch” / “edit on `main` only”.
 
-**Always create a new branch for implementation work** — never edit on `main`, and do not pile unrelated changes onto some other open `feat/*`/`fix/*` branch. For each new fix or feature, sync `main`, then **`git checkout -b`** a **new** `feat/<slug>` or `fix/<slug>`. Reuse an existing topic branch only when the user explicitly asks to continue that branch.
+**Always create a new branch for implementation work** — never edit on `main`, and do not pile unrelated changes onto some other open `feat/*`/`fix/*` branch. Reuse an existing topic branch only when the user explicitly asks to continue that branch.
 
 1. **Do not** use repo-editing tools (`apply_patch`, scripted bulk edits, etc.) until you are on a **`fix/<slug>`** or **`feat/<slug>`** branch — not on `main` (see also: *Never commit fixes or features directly on `main`* under canary flow below).
-2. **Sync, then branch off `main`:**
-   - `git fetch --prune` (when network is allowed)
-   - `git checkout main` then `git pull` so **`main` matches `origin/main`** when practical
-   - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` — slug must describe the change (e.g. `fix/kimi-moonshot-builtin-web-search`).
-3. **Uncommitted changes while on `main`:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits so work is not stacked on `main`. If you must switch branches with a dirty tree and Git blocks you, **`git stash push`**, checkout/pull/branch, then **`git stash pop`**.
-4. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user named another integration branch as the base; then use that branch and still use `fix/` or `feat/` off it only if they ask).
+2. **ALWAYS branch from the current HEAD** — never switch to `main` just to branch:
+   - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` directly from wherever you are.
+   - Do **not** `git checkout main && git pull` beforehand. Switching to `main` first would drop commits from the current topic branch and cause divergence. The new branch inherits the current HEAD's commit history.
+   - Only branch from `main` when the user explicitly says "start fresh from main" or when you are already on `main`.
+3. **Uncommitted changes:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits so work is not stacked on the current branch. If you must switch branches with a dirty tree and Git blocks you, **`git stash push`**, create the branch, then **`git stash pop`**.
+4. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user explicitly asked to work on `main`).
+
+## Branch cleanup — one active branch at a time
+
+At most **one** `feat/*` or `fix/*` branch should exist for a given line of work. Avoid accumulating stale branches.
+
+### When creating a new branch that supersedes a previous one
+
+If the new branch is created from HEAD and the old branch's commits are already included in that HEAD:
+
+1. Delete the **old** branch locally and on `origin`:
+   ```bash
+   git branch -D <old-branch>
+   git push origin --delete <old-branch>
+   ```
+2. Verify: `git branch -a | grep <old-branch>` should return nothing.
+
+### After GA merge to `main`
+
+Once a feature or fix branch has been merged into `main` and the GA tag has shipped, delete that branch (local + remote). The "After GA" section below has the detailed commands.
 
 ## Planning (Plan mode / implementation plans)
 
-When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: sync `main` when practical, **always** `git checkout -b` a **new** `feat/<slug>` or `fix/<slug>` before any code edits, never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
+When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: **always** `git checkout -b` a **new** `feat/<slug>` or `fix/<slug>` from the current HEAD before any code edits, never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
 
 ## Agent commit policy (STRICT)
 
