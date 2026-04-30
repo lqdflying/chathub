@@ -73,6 +73,16 @@ describe('buildDeepSeekPayload', () => {
     expect(payload.tools).toEqual(tools);
   });
 
+  it('should NOT forward reasoning_effort when thinking is disabled', () => {
+    const payload = buildDeepSeekPayload({
+      ...basePayload,
+      reasoning_effort: 'max',
+      thinking: { type: 'disabled' as const },
+    });
+
+    expect(payload.reasoning_effort).toBeUndefined();
+  });
+
   it('should handle no thinking param (defaults to standard mode)', () => {
     const payload = buildDeepSeekPayload({
       ...basePayload,

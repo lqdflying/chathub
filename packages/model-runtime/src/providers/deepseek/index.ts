@@ -25,6 +25,7 @@ export const buildDeepSeekPayload = (
     messages,
     model,
     presence_penalty,
+    reasoning_effort: reasoningEffort,
     temperature,
     thinking,
     tools,
@@ -33,9 +34,6 @@ export const buildDeepSeekPayload = (
   } = payload;
 
   const thinkingEnabled = isThinkingEnabled(payload);
-
-  // DeepSeek-specific top-level params that must be forwarded
-  const reasoningEffort = payload.reasoning_effort;
 
   // Build tools: DeepSeek supports standard OpenAI tools
   const deepseekTools = tools?.length ? tools : undefined;
@@ -57,8 +55,8 @@ export const buildDeepSeekPayload = (
           temperature,
           top_p,
         }),
-    // Forward reasoning_effort if present (DeepSeek-specific field)
-    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    // Forward reasoning_effort only when thinking is enabled
+    ...(thinkingEnabled && reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     tools: deepseekTools,
   } as OpenAI.ChatCompletionCreateParamsStreaming;
 };
