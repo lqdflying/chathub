@@ -18,6 +18,16 @@ import {
 
 const log = debug('lobe-mcp:oauth-service');
 
+/** Default token lifetime when the provider does not return `expires_in`
+ *  (Notion MCP).  Notion access tokens expire after 1 hour. */
+const DEFAULT_TOKEN_LIFETIME_MS = 60 * 60 * 1000; // 1 hour
+
+/** Compute a safe `expiresAt` — falls back to 1-hour lifetime when
+ *  the token response omits `expires_in`. */
+const computeExpiresAt = (expiresIn?: number): number => {
+  return Date.now() + (expiresIn ?? 3600) * 1000;
+};
+
 interface TokenEndpointResponse {
   access_token: string;
   expires_in?: number;
@@ -136,10 +146,8 @@ export class McpOAuthService {
       clientSecret,
     );
 
-    // Calculate expiry
-    const expiresAt = tokenResponse.expires_in
-      ? Date.now() + tokenResponse.expires_in * 1000
-      : undefined;
+    // Calculate expiry (defaults to 1 hour if provider doesn't return expires_in)
+    const expiresAt = computeExpiresAt(tokenResponse.expires_in);
 
     // Store the tokens
     await this.storeTokens(userId, {
@@ -281,16 +289,14 @@ export class McpOAuthService {
 
       const data = (await response.json()) as TokenEndpointResponse;
 
-      const expiresAt = data.expires_in
-        ? Date.now() + data.expires_in * 1000
-        : undefined;
+      const expiresAt = computeExpiresAt(data.expires_in);
 
       // Update the stored token
       await this.db
         .update(mcpOAuthTokens)
         .set({
           accessToken: data.access_token,
-          expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+          expiresAt: new Date(expiresAt),
           refreshToken: data.refresh_token || record.refreshToken,
           scope: data.scope || record.scope || undefined,
           tokenType: data.token_type || record.tokenType || 'Bearer',
@@ -450,7 +456,7 @@ export class McpOAuthService {
       accessToken: token.accessToken,
       refreshToken: token.refreshToken || null,
       tokenType: token.tokenType || 'Bearer',
-      expiresAt: token.expiresAt ? new Date(token.expiresAt) : undefined,
+      expiresAt: token.expiresAt ? new Date(token.expiresAt) : new Date(computeExpiresAt()),
       scope: token.scope || null,
       clientId: token.clientId,
       serverMetadata: Object.keys(serverMetadata).length > 0 ? serverMetadata : null,

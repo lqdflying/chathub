@@ -256,8 +256,15 @@ export class MCPService {
 
         if (!token) return undefined;
 
-        // Check if token needs refresh
-        if (token.expiresAt && token.expiresAt < Date.now()) {
+        // Refresh if the token is known-expired OR if we don't know its
+        // expiry (Notion MCP doesn't return expires_in).  In the unknown
+        // case we still need a refreshToken to attempt refresh — without
+        // one the token must be used as-is.
+        const needsRefresh =
+          (token.expiresAt && token.expiresAt < Date.now()) ||
+          (!token.expiresAt && !!token.refreshToken);
+
+        if (needsRefresh) {
           const refreshed = await oauthContext.oauthService.refreshOAuthToken(
             oauthContext.userId,
             oauthContext.pluginIdentifier,
@@ -266,8 +273,14 @@ export class MCPService {
             log('OAuth token refreshed for plugin %s', oauthContext.pluginIdentifier);
             return refreshed.accessToken;
           }
-          log('OAuth token refresh failed for plugin %s', oauthContext.pluginIdentifier);
-          return undefined;
+          // If refresh is unavailable and token is known-expired, give up.
+          // If expiry is unknown, fall through and try the existing token anyway.
+          if (token.expiresAt && token.expiresAt < Date.now()) {
+            log('OAuth token refresh failed for plugin %s', oauthContext.pluginIdentifier);
+            return undefined;
+          }
+          log('OAuth token refresh unavailable for plugin %s, reusing existing token',
+            oauthContext.pluginIdentifier);
         }
 
         return token.accessToken;
