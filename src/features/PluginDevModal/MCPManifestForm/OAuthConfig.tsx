@@ -109,6 +109,7 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
         redirectUri,
         scope: metadata.scopesSupported?.join(' ') || mcp.auth?.scope,
         tokenEndpoint: metadata.tokenEndpoint,
+        tokenEndpointAuthMethodsSupported: metadata.tokenEndpointAuthMethodsSupported,
       });
 
       // Step 3: Open a popup instead of navigating away

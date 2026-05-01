@@ -215,6 +215,7 @@ export interface OAuthInitiateParams {
   redirectUri: string;
   scope?: string;
   tokenEndpoint: string;
+  tokenEndpointAuthMethodsSupported?: string[];
 }
 
 /**

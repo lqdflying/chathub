@@ -84,19 +84,33 @@ Token endpoint requests MUST use `Content-Type: application/x-www-form-urlencode
 
 ## Client authentication modes
 
-The `exchangeCodeForTokens` and `refreshOAuthToken` methods in `oauth.ts` support two modes, selected by whether a `clientSecret` is available:
+The `exchangeCodeForTokens` and `refreshOAuthToken` methods in `oauth.ts` support three modes, selected by `token_endpoint_auth_methods_supported` from the authorization server metadata:
 
-### Confidential client (`clientSecret` present — e.g. Notion MCP, Context7)
-- **HTTP Basic Auth** header: `Authorization: Basic base64(clientId:clientSecret)`
-- **Body**: form-encoded (`URLSearchParams`) with `client_id` + `grant_type` + other params
-- `client_id` is ALWAYS sent in the body for both modes — some providers (Context7) require it there even when Basic Auth is present; others (Notion) ignore the extra field
+### Three modes
 
-### Public client (no `clientSecret` — standard PKCE)
-- **No** `Authorization` header
-- **Body**: form-encoded with `client_id` + other params in the body
+| Mode | Trigger | Auth header | Body |
+|---|---|---|---|
+| `client_secret_basic` | `clientSecret` + `client_secret_basic` in supported methods (or no methods advertised — RFC 6749 default) | `Authorization: Basic base64(clientId:clientSecret)` | `client_id` + `grant_type` + other params |
+| `client_secret_post` | `clientSecret` + `client_secret_basic` NOT in supported methods (e.g., Context7) | (none) | `client_id` + `client_secret` + `grant_type` + other params |
+| Public client | No `clientSecret` | (none) | `client_id` + `grant_type` + other params |
 
-### clientSecret persistence
-The `clientSecret` (if present) is stored in `mcp_oauth_tokens.serverMetadata.client_secret` (JSONB). It is captured during `handleOAuthCallback` from the `oauthHandoffs` payload (where `initiateOAuth` stored it), and read back during `refreshOAuthToken`.
+### How the method is determined
+
+1. **Auto-discovery** (`oauthDiscovery.ts`) reads `token_endpoint_auth_methods_supported` from the authorization server's well-known metadata and returns it as part of `DiscoveredOAuthMetadata`
+2. **UI** (`OAuthConfig.tsx`) forwards it to the `initiateOAuth` tRPC call
+3. **Server** stores it in the `oauthHandoffs` payload during `initiateOAuth`, then persists it to `mcp_oauth_tokens.serverMetadata.token_endpoint_auth_methods_supported` during `storeTokens`
+4. `exchangeCodeForTokens` and `refreshOAuthToken` read the supported methods and select the client auth mode
+
+### Providers
+
+- **Notion MCP**: advertises `client_secret_basic` → Basic Auth used (working)
+- **Context7**: does NOT advertise `client_secret_basic`, only `client_secret_post` → `client_id` + `client_secret` in body, no Basic Auth (working)
+- **Tavily**: advertises `client_secret_basic` but has a known **fastmcp bug** (fastmcp#214) where `Authorization: Basic` header is advertised but **not parsed** → Basic Auth is tried first, fails with 400/401, automatically falls back to `client_secret_post`
+- **Unadvertised** (no metadata): defaults to `client_secret_basic` (RFC 6749 §2.3.1)
+
+### Automatic fallback (exchange + refresh)
+
+When `client_secret_basic` is the primary method (advertised or default) and the token endpoint returns **400 or 401**, the code automatically retries with `client_secret_post`. This handles server-side parsing bugs (fastmcp#214 / Tavily) without provider-specific detection. The fallback is logged at warn level for diagnostics.
 
 ## Token expiry and refresh (critical)
 

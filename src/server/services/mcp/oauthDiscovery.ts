@@ -15,6 +15,7 @@ export interface DiscoveredOAuthMetadata {
   tokenEndpoint: string;
   registrationEndpoint?: string;
   scopesSupported?: string[];
+  tokenEndpointAuthMethodsSupported?: string[];
   clientId?: string;
   clientSecret?: string;
   clientIdIssuedAt?: number;
@@ -128,6 +129,7 @@ export async function discoverOAuthMetadata(
       ? authMetadata.registration_endpoint?.toString()
       : undefined,
     scopesSupported: resourceMetadata?.scopes_supported || authMetadata.scopes_supported,
+    tokenEndpointAuthMethodsSupported: authMetadata.token_endpoint_auth_methods_supported,
     clientId,
     clientSecret,
     clientIdIssuedAt,

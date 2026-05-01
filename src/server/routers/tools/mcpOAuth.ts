@@ -47,6 +47,7 @@ export const mcpOAuthRouter = router({
         tokenEndpoint: z.string().url(),
         redirectUri: z.string(),
         scope: z.string().optional(),
+        tokenEndpointAuthMethodsSupported: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -60,6 +61,7 @@ export const mcpOAuthRouter = router({
         redirectUri: input.redirectUri,
         scope: input.scope,
         tokenEndpoint: input.tokenEndpoint,
+        tokenEndpointAuthMethodsSupported: input.tokenEndpointAuthMethodsSupported,
       });
     }),
 

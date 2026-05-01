@@ -81,6 +81,7 @@ export class McpOAuthService {
         pluginIdentifier: params.pluginIdentifier,
         redirectUri: params.redirectUri,
         tokenEndpoint: params.tokenEndpoint,
+        tokenEndpointAuthMethodsSupported: params.tokenEndpointAuthMethodsSupported,
         userId,
       },
     });
@@ -128,6 +129,7 @@ export class McpOAuthService {
     const clientSecret = payload.clientSecret as string | undefined;
     const pluginIdentifier = payload.pluginIdentifier as string;
     const redirectUri = payload.redirectUri as string;
+    const tokenEndpointAuthMethodsSupported = payload.tokenEndpointAuthMethodsSupported as string[] | undefined;
 
     if (!codeVerifier || !tokenEndpoint) {
       throw new TRPCError({
@@ -144,6 +146,7 @@ export class McpOAuthService {
       clientId,
       redirectUri,
       clientSecret,
+      tokenEndpointAuthMethodsSupported,
     );
 
     // Calculate expiry (defaults to 1 hour if provider doesn't return expires_in)
@@ -159,6 +162,7 @@ export class McpOAuthService {
       refreshToken: tokenResponse.refresh_token,
       scope: tokenResponse.scope || payload.scope,
       tokenEndpoint,
+      tokenEndpointAuthMethodsSupported,
       tokenType: tokenResponse.token_type || 'Bearer',
     });
 
@@ -246,6 +250,7 @@ export class McpOAuthService {
     const tokenEndpoint = metadata?.token_endpoint;
     const clientId = record.clientId;
     const clientSecret = metadata?.client_secret as string | undefined;
+    const authMethodsSupported = metadata?.token_endpoint_auth_methods_supported as string[] | undefined;
 
     if (!tokenEndpoint) {
       log('No token endpoint in server metadata for plugin %s', pluginIdentifier);
@@ -256,16 +261,30 @@ export class McpOAuthService {
       let headers: Record<string, string>;
       let body: BodyInit;
 
-      if (clientSecret) {
-        // Confidential client — form-encoded body + HTTP Basic Auth.
-        // Always include client_id in the body too: some providers (Context7)
-        // require it in the body even when Basic Auth is present.
+      const supportsBasic = !authMethodsSupported ||
+        authMethodsSupported.includes('client_secret_basic');
+      const supportsPost = !authMethodsSupported ||
+        authMethodsSupported.includes('client_secret_post');
+      const useBasic = clientSecret !== undefined && supportsBasic;
+      const usePostSecret = clientSecret !== undefined && !supportsBasic && supportsPost;
+
+      if (useBasic) {
+        // Confidential client with Basic Auth (Notion)
         headers = {
           'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
           'Content-Type': 'application/x-www-form-urlencoded',
         };
         body = new URLSearchParams({
           client_id: clientId,
+          grant_type: 'refresh_token',
+          refresh_token: record.refreshToken,
+        });
+      } else if (usePostSecret) {
+        // Confidential client with client_secret in body (Context7)
+        headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        body = new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret!,
           grant_type: 'refresh_token',
           refresh_token: record.refreshToken,
         });
@@ -285,12 +304,44 @@ export class McpOAuthService {
         body,
       });
 
-      if (!response.ok) {
-        log('Token refresh failed with status %d', response.status);
-        throw new Error(`Token refresh failed: ${response.statusText}`);
-      }
+      let data: TokenEndpointResponse;
 
-      const data = (await response.json()) as TokenEndpointResponse;
+      if (!response.ok) {
+        // If Basic Auth failed (400/401), fall back to client_secret_post.
+        // FastMCP servers (Tavily) advertise client_secret_basic but fail to
+        // parse the Authorization header (fastmcp#214).
+        if (useBasic && (response.status === 400 || response.status === 401)) {
+          log('Basic Auth refresh failed (%d), falling back to client_secret_post',
+            response.status);
+
+          const fallbackHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
+          const fallbackBody = new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret!,
+            grant_type: 'refresh_token',
+            refresh_token: record.refreshToken,
+          });
+
+          const fallbackResponse = await fetch(tokenEndpoint, {
+            method: 'POST',
+            headers: fallbackHeaders,
+            body: fallbackBody,
+          });
+
+          if (!fallbackResponse.ok) {
+            log('Fallback token refresh also failed with status %d', fallbackResponse.status);
+            throw new Error(`Token refresh failed: ${fallbackResponse.statusText}`);
+          }
+
+          log('Fallback token refresh succeeded via client_secret_post');
+          data = (await fallbackResponse.json()) as TokenEndpointResponse;
+        } else {
+          log('Token refresh failed with status %d', response.status);
+          throw new Error(`Token refresh failed: ${response.statusText}`);
+        }
+      } else {
+        data = (await response.json()) as TokenEndpointResponse;
+      }
 
       const expiresAt = computeExpiresAt(data.expires_in);
 
@@ -346,11 +397,14 @@ export class McpOAuthService {
   /**
    * Exchange an authorization code for tokens.
    *
-   * Supports two auth modes:
-   * - Confidential client (clientSecret present, e.g. Notion MCP):
-   *   HTTP Basic Auth + Content-Type: application/x-www-form-urlencoded
-   * - Public client (no clientSecret, standard PKCE):
-   *   Content-Type: application/x-www-form-urlencoded with client_id in body
+   * Supports three auth modes with automatic fallback:
+   * - client_secret_basic: HTTP Basic Auth (Notion) — used when advertised or default
+   * - client_secret_post: client_id + client_secret in body (Context7) — used when basic is not supported
+   * - Public client (no clientSecret): client_id in body, standard PKCE
+   *
+   * When the server advertises client_secret_basic but the token endpoint has a
+   * buggy parser (known issue with fastmcp/Tavily), the exchange automatically
+   * falls back to client_secret_post.
    */
   private async exchangeCodeForTokens(
     tokenEndpoint: string,
@@ -359,16 +413,22 @@ export class McpOAuthService {
     clientId: string,
     redirectUri: string,
     clientSecret?: string,
+    tokenEndpointAuthMethodsSupported?: string[],
   ): Promise<TokenEndpointResponse> {
-    log('Exchanging code for tokens at %s (hasClientSecret=%s)', tokenEndpoint, !!clientSecret);
+    log('Exchanging code for tokens at %s (hasClientSecret=%s, supportedMethods=%O)',
+      tokenEndpoint, !!clientSecret, tokenEndpointAuthMethodsSupported);
+
+    const supportsBasic = !tokenEndpointAuthMethodsSupported ||
+      tokenEndpointAuthMethodsSupported.includes('client_secret_basic');
+    const supportsPost = !tokenEndpointAuthMethodsSupported ||
+      tokenEndpointAuthMethodsSupported.includes('client_secret_post');
+    const useBasic = clientSecret !== undefined && supportsBasic;
+    const usePostSecret = clientSecret !== undefined && !supportsBasic && supportsPost;
 
     let headers: Record<string, string>;
     let body: BodyInit;
 
-    if (clientSecret) {
-      // Confidential client — form-encoded body + HTTP Basic Auth.
-      // Always include client_id in the body too: some providers (Context7)
-      // require it in the body even when Basic Auth is present.
+    if (useBasic) {
       headers = {
         'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -380,8 +440,18 @@ export class McpOAuthService {
         grant_type: 'authorization_code',
         redirect_uri: redirectUri,
       });
+    } else if (usePostSecret) {
+      headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      body = new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret!,
+        code,
+        code_verifier: codeVerifier,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+      });
     } else {
-      // Public client (standard PKCE) — form-encoded body with client_id
+      // Public client (standard PKCE)
       headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
       body = new URLSearchParams({
         client_id: clientId,
@@ -392,22 +462,66 @@ export class McpOAuthService {
       });
     }
 
-    const response = await fetch(tokenEndpoint, {
+    const primaryResponse = await fetch(tokenEndpoint, {
       method: 'POST',
       headers,
       body,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      log('Token exchange failed with status %d: %s', response.status, errorText);
+    // If the primary attempt fails (400/401) and we used Basic Auth, fall back
+    // to client_secret_post.  FastMCP servers (Tavily) advertise client_secret_basic
+    // but fail to parse the Authorization header (fastmcp#214).
+    if (!primaryResponse.ok) {
+      const errorText = await primaryResponse.text();
+      if (useBasic && (primaryResponse.status === 400 || primaryResponse.status === 401)) {
+        log('Basic Auth failed (%d), falling back to client_secret_post: %s',
+          primaryResponse.status, errorText);
+
+        const fallbackHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        const fallbackBody = new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret!,
+          code,
+          code_verifier: codeVerifier,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri,
+        });
+
+        const fallbackResponse = await fetch(tokenEndpoint, {
+          method: 'POST',
+          headers: fallbackHeaders,
+          body: fallbackBody,
+        });
+
+        if (!fallbackResponse.ok) {
+          const fallbackError = await fallbackResponse.text();
+          log('Fallback token exchange also failed with status %d: %s',
+            fallbackResponse.status, fallbackError);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: `Failed to exchange authorization code: ${fallbackResponse.status} ${fallbackError}`,
+          });
+        }
+
+        log('Fallback token exchange succeeded via client_secret_post');
+        const data = (await fallbackResponse.json()) as TokenEndpointResponse;
+        if (!data.access_token) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Token exchange response did not include an access_token.',
+          });
+        }
+        return data;
+      }
+
+      log('Token exchange failed with status %d: %s', primaryResponse.status, errorText);
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
-        message: `Failed to exchange authorization code: ${response.status} ${errorText}`,
+        message: `Failed to exchange authorization code: ${primaryResponse.status} ${errorText}`,
       });
     }
 
-    const data = (await response.json()) as TokenEndpointResponse;
+    const data = (await primaryResponse.json()) as TokenEndpointResponse;
 
     if (!data.access_token) {
       throw new TRPCError({
@@ -435,6 +549,7 @@ export class McpOAuthService {
       refreshToken?: string;
       scope?: string;
       tokenEndpoint?: string;
+      tokenEndpointAuthMethodsSupported?: string[];
       tokenType?: string;
     },
   ): Promise<void> {
@@ -454,6 +569,9 @@ export class McpOAuthService {
     }
     if (token.clientSecret) {
       serverMetadata.client_secret = token.clientSecret;
+    }
+    if (token.tokenEndpointAuthMethodsSupported) {
+      serverMetadata.token_endpoint_auth_methods_supported = token.tokenEndpointAuthMethodsSupported;
     }
 
     const insert: NewMcpOAuthTokenItem = {
