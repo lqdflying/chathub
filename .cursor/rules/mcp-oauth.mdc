@@ -23,9 +23,10 @@ Frontend (OAuthConfig.tsx)
 |---|---|
 | Discovery service | `src/server/services/mcp/oauthDiscovery.ts` |
 | OAuth service | `src/server/services/mcp/oauth.ts` |
-| tRPC router | `src/server/routers/tools/mcpOAuth.ts` |
+| OAuth tRPC router | `src/server/routers/tools/mcpOAuth.ts` |
+| MCP tools tRPC router | `src/server/routers/tools/mcp.ts` (**oauthContext wiring**) |
 | Client token injection | `src/libs/mcp/client.ts` (`tokenGetter`) |
-| Server MCP wiring | `src/server/services/mcp/index.ts` (`MCPOAuthContext`) |
+| Server MCP wiring | `src/server/services/mcp/index.ts` (`MCPOAuthContext`, `getClient`) |
 | UI (auto-discovery) | `src/features/PluginDevModal/MCPManifestForm/OAuthConfig.tsx` |
 | Callback page | `src/app/[variants]/oauth/mcp-callback/page.tsx` + `CallbackContent.tsx` |
 | PKCE utils | `src/libs/mcp/pkce.ts` |
@@ -80,3 +81,69 @@ If dynamic registration fails (no `registration_endpoint`), the UI prompts for m
 ## Content-Type header
 
 Token endpoint requests MUST use `Content-Type: application/x-www-form-urlencoded` (correct OAuth 2.0 behavior). Do NOT use `application/json` for token endpoints.
+
+## Client authentication modes
+
+The `exchangeCodeForTokens` and `refreshOAuthToken` methods in `oauth.ts` support two modes, selected by whether a `clientSecret` is available:
+
+### Confidential client (`clientSecret` present — e.g. Notion MCP)
+- **HTTP Basic Auth** header: `Authorization: Basic base64(clientId:clientSecret)`
+- **Body**: form-encoded (`URLSearchParams`) with `grant_type`, `code`/`refresh_token`, `code_verifier` (exchange only), `redirect_uri` (exchange only)
+- `client_id` is NOT sent in the body — it's already in the `Authorization` header
+
+### Public client (no `clientSecret` — standard PKCE)
+- **No** `Authorization` header
+- **Body**: form-encoded with `client_id` + other params in the body
+
+### clientSecret persistence
+The `clientSecret` (if present) is stored in `mcp_oauth_tokens.serverMetadata.client_secret` (JSONB). It is captured during `handleOAuthCallback` from the `oauthHandoffs` payload (where `initiateOAuth` stored it), and read back during `refreshOAuthToken`.
+
+## Token expiry and refresh (critical)
+
+### Notion does NOT return `expires_in`
+Some providers (Notion MCP) omit `expires_in` from their token response. The `computeExpiresAt` helper in `oauth.ts` defaults to **1 hour** (`DEFAULT_TOKEN_LIFETIME_MS = 60 * 60 * 1000`) when `expires_in` is absent. Both `handleOAuthCallback` and `refreshOAuthToken` use this helper so tokens always have a non-null `expiresAt` in the database.
+
+### Proactive refresh conditions (tokenGetter in `index.ts`)
+The `tokenGetter` in `MCPService.getClient()` triggers a refresh when **either**:
+1. `token.expiresAt < Date.now()` — known-expired token
+2. `!token.expiresAt && !!token.refreshToken` — unknown expiry with a refresh token available (handles old DB entries from before the fallback was added)
+
+If the refresh fails and the token is known-expired, the `tokenGetter` returns `undefined` (giving up). If expiry is unknown, it reuses the existing token as-is.
+
+## oauthContext wiring (CRITICAL — do not skip)
+
+**Every tRPC procedure that handles OAuth MCP params MUST construct and pass `oauthContext` to `MCPService`.** Without it, `getClient()` never creates a `tokenGetter`, and proactive refresh + 401 retry are both dead code.
+
+### MCPOAuthContext interface (`src/server/services/mcp/index.ts`)
+```typescript
+export interface MCPOAuthContext {
+  oauthService: McpOAuthService;  // instantiated with ctx.serverDB
+  pluginIdentifier: string;       // e.g. input.params.name
+  userId: string;                 // ctx.userId!
+}
+```
+
+### tRPC router pattern (`src/server/routers/tools/mcp.ts`)
+```typescript
+// callTool handler
+if (input.params.type === 'http' && input.params.auth?.type === 'oauth2') {
+  const oauthService = new McpOAuthService(ctx.serverDB);
+  const token = await oauthService.getOAuthToken(ctx.userId!, input.params.name);
+  if (token?.accessToken) {
+    resolvedParams = { ...input.params, auth: { ...input.params.auth, accessToken: token.accessToken } };
+  }
+  oauthContext = { oauthService, pluginIdentifier: input.params.name, userId: ctx.userId! };
+}
+const data = await mcpService.callTool(resolvedParams, input.toolName, input.args, oauthContext);
+```
+
+Apply the same pattern to `listTools`, `listResources`, and `listPrompts` — all four methods accept `oauthContext?` as their last parameter and forward it to `getClient()`.
+
+## 401 retry flow
+
+When Notion MCP (or any OAuth provider) returns HTTP 401, `MCPClient` (in `src/libs/mcp/client.ts`):
+1. Calls `tokenGetter()` to obtain a fresh access token
+2. Disconnects and reconnects the transport with the new token
+3. Retries the original operation
+
+This only works if `oauthContext` was passed → `tokenGetter` was created → `tokenGetter` can call `refreshOAuthToken()`.
