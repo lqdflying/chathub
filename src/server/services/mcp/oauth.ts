@@ -257,12 +257,15 @@ export class McpOAuthService {
       let body: BodyInit;
 
       if (clientSecret) {
-        // Confidential client (e.g. Notion) — form-encoded body + HTTP Basic Auth
+        // Confidential client — form-encoded body + HTTP Basic Auth.
+        // Always include client_id in the body too: some providers (Context7)
+        // require it in the body even when Basic Auth is present.
         headers = {
           'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
           'Content-Type': 'application/x-www-form-urlencoded',
         };
         body = new URLSearchParams({
+          client_id: clientId,
           grant_type: 'refresh_token',
           refresh_token: record.refreshToken,
         });
@@ -363,12 +366,15 @@ export class McpOAuthService {
     let body: BodyInit;
 
     if (clientSecret) {
-      // Confidential client (e.g. Notion) — form-encoded body + HTTP Basic Auth
+      // Confidential client — form-encoded body + HTTP Basic Auth.
+      // Always include client_id in the body too: some providers (Context7)
+      // require it in the body even when Basic Auth is present.
       headers = {
         'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       };
       body = new URLSearchParams({
+        client_id: clientId,
         code,
         code_verifier: codeVerifier,
         grant_type: 'authorization_code',

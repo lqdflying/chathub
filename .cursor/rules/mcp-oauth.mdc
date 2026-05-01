@@ -86,10 +86,10 @@ Token endpoint requests MUST use `Content-Type: application/x-www-form-urlencode
 
 The `exchangeCodeForTokens` and `refreshOAuthToken` methods in `oauth.ts` support two modes, selected by whether a `clientSecret` is available:
 
-### Confidential client (`clientSecret` present — e.g. Notion MCP)
+### Confidential client (`clientSecret` present — e.g. Notion MCP, Context7)
 - **HTTP Basic Auth** header: `Authorization: Basic base64(clientId:clientSecret)`
-- **Body**: form-encoded (`URLSearchParams`) with `grant_type`, `code`/`refresh_token`, `code_verifier` (exchange only), `redirect_uri` (exchange only)
-- `client_id` is NOT sent in the body — it's already in the `Authorization` header
+- **Body**: form-encoded (`URLSearchParams`) with `client_id` + `grant_type` + other params
+- `client_id` is ALWAYS sent in the body for both modes — some providers (Context7) require it there even when Basic Auth is present; others (Notion) ignore the extra field
 
 ### Public client (no `clientSecret` — standard PKCE)
 - **No** `Authorization` header
