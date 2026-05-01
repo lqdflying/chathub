@@ -45,8 +45,9 @@ export class MCPService {
   async listTools(
     params: MCPClientParams,
     { retryTime, skipCache }: { retryTime?: number; skipCache?: boolean } = {},
+    oauthContext?: MCPOAuthContext,
   ): Promise<LobeChatPluginApi[]> {
-    const client = await this.getClient(params, skipCache); // Get client using params
+    const client = await this.getClient(params, skipCache, oauthContext);
     const loggableParams = this.sanitizeForLogging(params);
     log(`Listing tools using client for params: %O`, loggableParams);
 
@@ -112,8 +113,8 @@ export class MCPService {
   }
 
   // listResources now accepts MCPClientParams
-  async listResources(params: MCPClientParams): Promise<McpResource[]> {
-    const client = await this.getClient(params); // Get client using params
+  async listResources(params: MCPClientParams, oauthContext?: MCPOAuthContext): Promise<McpResource[]> {
+    const client = await this.getClient(params, false, oauthContext); // Get client using params
     const loggableParams = this.sanitizeForLogging(params);
     log(`Listing resources using client for params: %O`, loggableParams);
 
@@ -137,8 +138,8 @@ export class MCPService {
   }
 
   // listPrompts now accepts MCPClientParams
-  async listPrompts(params: MCPClientParams): Promise<McpPrompt[]> {
-    const client = await this.getClient(params); // Get client using params
+  async listPrompts(params: MCPClientParams, oauthContext?: MCPOAuthContext): Promise<McpPrompt[]> {
+    const client = await this.getClient(params, false, oauthContext); // Get client using params
     const loggableParams = this.sanitizeForLogging(params);
     log(`Listing prompts using client for params: %O`, loggableParams);
 

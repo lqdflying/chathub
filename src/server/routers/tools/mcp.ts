@@ -9,7 +9,7 @@ import { isDesktop, isServerMode } from '@/const/version';
 import { passwordProcedure } from '@/libs/trpc/edge';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { mcpService } from '@/server/services/mcp';
+import { mcpService, type MCPOAuthContext } from '@/server/services/mcp';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
 
 // Define Zod schemas for MCP Client parameters
@@ -141,15 +141,18 @@ export const mcpRouter = router({
       checkStdioEnvironment(input.params);
 
       let resolvedParams = input.params;
+      let oauthContext: MCPOAuthContext | undefined;
+
       if (input.params.type === 'http' && input.params.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.params.name);
         if (token?.accessToken) {
           resolvedParams = { ...input.params, auth: { ...input.params.auth, accessToken: token.accessToken } };
         }
+        oauthContext = { oauthService, pluginIdentifier: input.params.name, userId: ctx.userId! };
       }
 
-      const data = await mcpService.callTool(resolvedParams, input.toolName, input.args);
+      const data = await mcpService.callTool(resolvedParams, input.toolName, input.args, oauthContext);
 
       return JSON.stringify(data);
     }),
