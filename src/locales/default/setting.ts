@@ -744,9 +744,14 @@ export default {
     title: '扩展插件',
   },
   mcpManagement: {
+    add: '添加 MCP 插件',
+    confirmUninstall: '确认卸载该 MCP 插件？',
     description: '管理和配置已安装的 MCP 插件，可以启用或禁用插件，查看其运行状态。',
+    editBtn: '编辑',
+    editPrompt: '请前往编辑页面查看详情。',
     empty: '暂无已安装的 MCP 插件',
     mcpRuntime: 'MCP 运行时',
+    store: '插件商店',
     uninstall: '卸载',
   },
 };

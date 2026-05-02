@@ -737,9 +737,14 @@
     "title": "Extension Tools"
   },
   "mcpManagement": {
+    "add": "Add MCP Plugin",
+    "confirmUninstall": "Confirm uninstall of this MCP plugin?",
     "description": "Manage and configure installed MCP plugins — enable or disable plugins and view their status.",
+    "editBtn": "Edit Now",
+    "editPrompt": "Please go to the edit page to view details.",
     "empty": "No MCP plugins installed",
     "mcpRuntime": "MCP Runtime",
+    "store": "Plugin Store",
     "uninstall": "Uninstall"
   }
 }
