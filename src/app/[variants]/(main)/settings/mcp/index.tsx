@@ -123,6 +123,7 @@ const McpManagement = memo(() => {
     return (
       <>
         <PluginDevModal
+          key={'create'}
           mode="create"
           onOpenChange={setShowDevModal}
           onSave={async (devPlugin) => {
@@ -154,6 +155,7 @@ const McpManagement = memo(() => {
   return (
     <>
       <PluginDevModal
+        key={selectedId || 'create'}
         mode={selectedId ? 'edit' : 'create'}
         onDelete={
           selectedId
