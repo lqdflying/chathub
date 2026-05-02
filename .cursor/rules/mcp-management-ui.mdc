@@ -1,0 +1,153 @@
+---
+description: MCP Management UI patterns — two-panel layout, PluginDevModal edit flow, key prop for remount, settings integration
+alwaysApply: true
+---
+
+# MCP Management UI
+
+Patterns for building MCP plugin management interfaces. These were established during the MCP Management settings page implementation (feat/mcp-library-and-management, v4.0.3-canary.5+).
+
+## Settings page integration
+
+To add a new settings tab:
+
+| Layer | File |
+|---|---|
+| Enum | `src/store/global/initialState.ts` — add to `SettingsTabs` enum |
+| Sidebar | `src/app/[variants]/(main)/settings/hooks/useCategory.tsx` — add menu item |
+| Component map | `src/app/[variants]/(main)/settings/_layout/SettingsContent.tsx` — add `dynamic(() => import('...'))` entry |
+| Page | `src/app/[variants]/(main)/settings/<tab>/index.tsx` — the page component |
+| i18n | `src/locales/default/setting.ts` + `locales/en-US|zh-CN/setting.json` — `tab.<key>` + page-specific keys |
+
+## Two-panel layout (list + detail)
+
+MCP management pages should use a two-panel pattern matching `PluginStore/InstalledList`:
+
+```tsx
+// Top bar: search + action buttons
+<Flexbox align={'center'} gap={8} horizontal justify={'space-between'}>
+  <Input placeholder="Search..." prefix={<Search />} />
+  <Flexbox gap={8} horizontal>
+    <Button icon={PackagePlus} onClick={handleAdd}>Add MCP Plugin</Button>
+    <Button icon={Store} onClick={openStore}>Plugin Store</Button>
+  </Flexbox>
+</Flexbox>
+
+// Two-column body
+<Flexbox flex={1} horizontal style={{ borderTop, overflow: 'hidden' }}>
+  {/* Left: scrollable list with DraggablePanel */}
+  <DraggablePanel maxWidth={540} minWidth={320} placement={'left'}>
+    <Flexbox height={'100%'} style={{ overflowY: 'auto' }}>
+      {filteredList.map(item => (
+        <PluginItem
+          active={selectedId === item.identifier}
+          onClick={() => select(item)}
+          runtimeType={plugin.runtimeType}
+          type="plugin"
+          {...item}
+        />
+      ))}
+    </Flexbox>
+  </DraggablePanel>
+
+  {/* Right: detail panel */}
+  {selectedId ? (
+    <Flexbox style={{ background: token.colorBgContainerSecondary }} width={'100%'}>
+      <DetailPanel id={selectedId} onEdit={openEdit} onUninstall={handleUninstall} />
+    </Flexbox>
+  ) : (
+    <Empty description="Select a plugin" />
+  )}
+</Flexbox>
+```
+
+Reference: `src/features/PluginStore/InstalledList/index.tsx` + `List/index.tsx` + `List/Item/index.tsx`
+
+## PluginDevModal: edit mode CRITICAL — key prop for remount
+
+`PluginDevModal` (`src/features/PluginDevModal/index.tsx`) populates its Ant Design `Form` in a `useEffect` that runs **only on mount**:
+
+```typescript
+useEffect(() => {
+  form.setFieldsValue(value);
+}, []); // empty deps — runs once
+```
+
+**Without a `key` prop, switching between plugins leaves stale form data.**
+
+The existing `EditCustomPlugin` wrapper (`src/features/PluginStore/InstalledList/EditCustomPlugin.tsx`) solves this:
+
+```tsx
+<DevModal
+  key={identifier}     // ← FORCES remount when identifier changes
+  mode={'edit'}
+  onOpenChange={onOpenChange}
+  onSave={async (devPlugin) => { await installCustomPlugin(devPlugin); }}
+  onValueChange={updateNewDevPlugin}
+  open={open}
+  value={customPlugin} // LobeToolCustomPlugin from store
+/>
+```
+
+**ALWAYS pass `key={identifier || 'create'}` to `PluginDevModal`** when the modal can switch between different plugins or between create/edit modes. This forces React to unmount and remount the component, which triggers `form.setFieldsValue(value)` with the correct data.
+
+### PluginDevModal props
+
+| Prop | Type | Notes |
+|---|---|---|
+| `mode` | `'create'` or `'edit'` | Controls drawer title and footer |
+| `open` | `boolean` | |
+| `onOpenChange` | `(open: boolean) => void` | |
+| `value` | `LobeToolCustomPlugin` | The plugin data to pre-fill (edit mode) |
+| `onSave` | `(value: LobeToolCustomPlugin) => Promise<void>` | Call `installCustomPlugin` (create) or `updateCustomPlugin` (edit) |
+| `onDelete` | `() => void` | Edit mode only — call `uninstallCustomPlugin` |
+| `onValueChange` | `(value: Partial<LobeToolCustomPlugin>) => void` | Always pass `updateNewCustomPlugin` from store |
+| `key` | `string` | **CRITICAL** — `identifier` for edit, `'create'` for add |
+
+## Filtering installed plugins to MCP-only
+
+Installed plugins live in `useToolStore(pluginSelectors.installedPlugins)`. MCP plugins are those with `customParams?.mcp`:
+
+```typescript
+const installedPlugins = useToolStore(pluginSelectors.installedPlugins, isEqual);
+const mcpPlugins = installedPlugins.filter(p => !!p.customParams?.mcp);
+```
+
+For the list display (with metadata like title, description, avatar), use `pluginSelectors.installedPluginMetaList`:
+
+```typescript
+const installedMetaList = useToolStore(pluginSelectors.installedPluginMetaList, isEqual);
+```
+
+## Install / update / uninstall via store
+
+```typescript
+const [installCustomPlugin, updateCustomPlugin, uninstallCustomPlugin, updateNewDevPlugin] =
+  useToolStore((s) => [
+    s.installCustomPlugin,   // create new plugin
+    s.updateCustomPlugin,    // update existing (id, value)
+    s.uninstallCustomPlugin, // remove by identifier
+    s.updateNewCustomPlugin, // update draft state for DevModal
+  ]);
+```
+
+Always call `useFetchInstalledPlugins()` to load the installed plugin list from the database on mount.
+
+## Empty state
+
+When no MCP plugins are installed, show an `Empty` component with buttons to add a plugin or open the store:
+
+```tsx
+<Center height={'75vh'} paddingBlock={40}>
+  <Empty description={t('mcpManagement.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
+    <Flexbox gap={8} horizontal justify={'center'}>
+      <Button icon={PackagePlus} onClick={handleAdd}>Add MCP Plugin</Button>
+      <Button icon={Store} onClick={() => setShowStore(true)}>Plugin Store</Button>
+    </Flexbox>
+  </Empty>
+</Center>
+```
+
+## Store browser modal
+
+`PluginStore` (`src/features/PluginStore/index.tsx`) opens as a modal with `open` / `setOpen` props. It renders `PluginStore/Content` which has tabs for browsing installed plugins and the marketplace.
