@@ -1,86 +1,6 @@
 {
-  "assistants": {
-    "addAgent": "Thêm trợ lý",
-    "addAgentAndConverse": "Thêm trợ lý và trò chuyện",
-    "addAgentSuccess": "Thêm thành công",
-    "conversation": {
-      "l1": "Xin chào, tôi là **{{name}}**, bạn có thể hỏi tôi bất kỳ câu hỏi nào, tôi sẽ cố gắng trả lời bạn ~",
-      "l2": "Dưới đây là giới thiệu về khả năng của tôi: ",
-      "l3": "Hãy bắt đầu cuộc trò chuyện nào!"
-    },
-    "description": "Giới thiệu trợ lý",
-    "detail": "Chi tiết",
-    "details": {
-      "capabilities": {
-        "knowledge": {
-          "desc": "Trợ lý được tích hợp các kho tri thức sau, giúp bạn trả lời nhiều câu hỏi hơn.",
-          "title": "Kho tri thức"
-        },
-        "plugin": {
-          "desc": "Trợ lý được tích hợp các plugin sau, giúp bạn hoàn thành nhiều nhiệm vụ hơn.",
-          "title": "Plugin tích hợp"
-        },
-        "title": "Khả năng của trợ lý"
-      },
-      "overview": {
-        "example": "Trình diễn trợ lý",
-        "title": "Tổng quan"
-      },
-      "related": {
-        "listTitle": "Trợ lý liên quan",
-        "more": "Xem thêm",
-        "title": "Gợi ý liên quan"
-      },
-      "sidebar": {
-        "toc": "Mục lục"
-      },
-      "summary": {
-        "title": "Bạn có thể làm gì với trợ lý này?"
-      },
-      "systemRole": {
-        "openingMessage": "Tin nhắn mở đầu",
-        "openingQuestions": "Câu hỏi mở đầu",
-        "title": "Cài đặt trợ lý"
-      }
-    },
-    "list": "Danh sách trợ lý",
-    "more": "Thêm",
-    "plugins": "Tích hợp plugin",
-    "recentSubmits": "Cập nhật gần đây",
-    "sorts": {
-      "createdAt": "Mới phát hành",
-      "identifier": "ID trợ lý",
-      "knowledgeCount": "Số kho tri thức",
-      "pluginCount": "Số plugin",
-      "title": "Tên trợ lý",
-      "tokenUsage": "Lượng Token sử dụng"
-    },
-    "suggestions": "Gợi ý liên quan",
-    "systemRole": "Cài đặt trợ lý",
-    "tokenUsage": "Lượng Token sử dụng cho lời nhắc trợ lý",
-    "try": "Thử ngay",
-    "withKnowledge": "Trợ lý này đi kèm kho tri thức",
-    "withPlugin": "Trợ lý này đi kèm plugin"
-  },
   "back": "Quay lại khám phá",
   "category": {
-    "assistant": {
-      "academic": "Học thuật",
-      "all": "Tất cả",
-      "career": "Nghề nghiệp",
-      "copywriting": "Viết nội dung",
-      "design": "Thiết kế",
-      "education": "Giáo dục",
-      "emotions": "Cảm xúc",
-      "entertainment": "Giải trí",
-      "games": "Trò chơi",
-      "general": "Chung",
-      "life": "Cuộc sống",
-      "marketing": "Tiếp thị",
-      "office": "Văn phòng",
-      "programming": "Lập trình",
-      "translation": "Dịch thuật"
-    },
     "plugin": {
       "all": "Tất cả",
       "gaming-entertainment": "Giải trí trò chơi",
@@ -141,9 +61,6 @@
     }
   },
   "home": {
-    "featuredAssistants": "Trợ lý nổi bật",
-    "featuredModels": "Mô hình nổi bật",
-    "featuredProviders": "Nhà cung cấp mô hình nổi bật",
     "featuredTools": "Plugin nổi bật",
     "more": "Khám phá thêm"
   },
@@ -495,81 +412,6 @@
       "title": "Đã xác minh"
     }
   },
-  "models": {
-    "abilities": "Khả năng mô hình",
-    "chat": "Bắt đầu cuộc trò chuyện",
-    "contentLength": "Độ dài ngữ cảnh tối đa",
-    "details": {
-      "overview": {
-        "title": "Tổng quan"
-      },
-      "related": {
-        "listTitle": "Mô hình liên quan",
-        "more": "Xem thêm",
-        "title": "Gợi ý liên quan"
-      }
-    },
-    "free": "Miễn phí",
-    "guide": "Hướng dẫn cấu hình",
-    "list": "Danh sách mô hình",
-    "more": "Thêm",
-    "parameterList": {
-      "defaultValue": "Giá trị mặc định",
-      "docs": "Xem tài liệu",
-      "frequency_penalty": {
-        "desc": "Cài đặt này điều chỉnh tần suất mà mô hình lặp lại các từ cụ thể đã xuất hiện trong đầu vào. Giá trị cao hơn làm giảm khả năng lặp lại này, trong khi giá trị âm tạo ra hiệu ứng ngược lại. Hình phạt từ vựng không tăng theo số lần xuất hiện. Giá trị âm sẽ khuyến khích việc lặp lại từ vựng.",
-        "title": "Hình phạt tần suất"
-      },
-      "max_tokens": {
-        "desc": "Cài đặt này xác định độ dài tối đa mà mô hình có thể tạo ra trong một lần phản hồi. Việc đặt giá trị cao hơn cho phép mô hình tạo ra những phản hồi dài hơn, trong khi giá trị thấp hơn sẽ giới hạn độ dài của phản hồi, giúp nó ngắn gọn hơn. Tùy thuộc vào các tình huống ứng dụng khác nhau, điều chỉnh giá trị này một cách hợp lý có thể giúp đạt được độ dài và mức độ chi tiết mong muốn của phản hồi.",
-        "title": "Giới hạn phản hồi một lần"
-      },
-      "presence_penalty": {
-        "desc": "Cài đặt này nhằm kiểm soát việc lặp lại từ vựng dựa trên tần suất xuất hiện của từ trong đầu vào. Nó cố gắng sử dụng ít hơn những từ đã xuất hiện nhiều trong đầu vào, với tần suất sử dụng tỷ lệ thuận với tần suất xuất hiện. Hình phạt từ vựng tăng theo số lần xuất hiện. Giá trị âm sẽ khuyến khích việc lặp lại từ vựng.",
-        "title": "Độ mới của chủ đề"
-      },
-      "range": "Phạm vi",
-      "reasoning_effort": {
-        "desc": "Cài đặt này được sử dụng để kiểm soát mức độ suy luận của mô hình trước khi tạo câu trả lời. Mức độ thấp ưu tiên tốc độ phản hồi và tiết kiệm Token, trong khi mức độ cao cung cấp suy luận đầy đủ hơn nhưng tiêu tốn nhiều Token hơn và làm giảm tốc độ phản hồi. Giá trị mặc định là trung bình, cân bằng giữa độ chính xác của suy luận và tốc độ phản hồi.",
-        "title": "Mức độ suy luận"
-      },
-      "temperature": {
-        "desc": "Cài đặt này ảnh hưởng đến sự đa dạng trong phản hồi của mô hình. Giá trị thấp hơn dẫn đến phản hồi dễ đoán và điển hình hơn, trong khi giá trị cao hơn khuyến khích phản hồi đa dạng và không thường gặp. Khi giá trị được đặt là 0, mô hình sẽ luôn đưa ra cùng một phản hồi cho đầu vào nhất định.",
-        "title": "Ngẫu nhiên"
-      },
-      "title": "Tham số mô hình",
-      "top_p": {
-        "desc": "Cài đặt này giới hạn lựa chọn của mô hình chỉ trong một tỷ lệ từ có khả năng cao nhất: chỉ chọn những từ hàng đầu có xác suất tích lũy đạt P. Giá trị thấp hơn làm cho phản hồi của mô hình dễ đoán hơn, trong khi cài đặt mặc định cho phép mô hình chọn từ toàn bộ phạm vi từ vựng.",
-        "title": "Lấy mẫu hạt nhân"
-      },
-      "type": "Loại"
-    },
-    "providerInfo": {
-      "apiTooltip": "LobeChat hỗ trợ sử dụng khóa API tùy chỉnh cho nhà cung cấp này.",
-      "input": "Giá đầu vào",
-      "inputTooltip": "Chi phí cho mỗi triệu Token",
-      "latency": "Độ trễ",
-      "latencyTooltip": "Thời gian phản hồi trung bình để nhà cung cấp gửi Token đầu tiên",
-      "maxOutput": "Độ dài đầu ra tối đa",
-      "maxOutputTooltip": "Số Token tối đa mà điểm cuối này có thể tạo ra",
-      "officialTooltip": "Dịch vụ chính thức của LobeHub",
-      "output": "Giá đầu ra",
-      "outputTooltip": "Chi phí cho mỗi triệu Token",
-      "streamCancellationTooltip": "Nhà cung cấp này hỗ trợ chức năng hủy luồng.",
-      "throughput": "Thông lượng",
-      "throughputTooltip": "Số Token trung bình được truyền trong mỗi yêu cầu luồng mỗi giây"
-    },
-    "sorts": {
-      "contextWindowTokens": "Độ dài ngữ cảnh",
-      "identifier": "ID mô hình",
-      "inputPrice": "Giá đầu vào",
-      "outputPrice": "Giá đầu ra",
-      "providerCount": "Số nhà cung cấp",
-      "releasedAt": "Mới phát hành"
-    },
-    "suggestions": "Mô hình liên quan",
-    "supportedProviders": "Nhà cung cấp hỗ trợ mô hình này"
-  },
   "plugins": {
     "community": "Plugin cộng đồng",
     "details": {
@@ -602,36 +444,6 @@
     },
     "suggestions": "Gợi ý liên quan"
   },
-  "providers": {
-    "config": "Cấu hình nhà cung cấp",
-    "details": {
-      "guide": {
-        "title": "Hướng dẫn kết nối"
-      },
-      "overview": {
-        "title": "Tổng quan"
-      },
-      "related": {
-        "listTitle": "Nhà cung cấp liên quan",
-        "more": "Xem thêm",
-        "title": "Gợi ý liên quan"
-      }
-    },
-    "list": "Danh sách nhà cung cấp mô hình",
-    "modelCount": "{{count}} mô hình",
-    "modelName": "Tên mô hình",
-    "modelSite": "Tài liệu mô hình",
-    "more": "Thêm",
-    "officialSite": "Trang web chính thức",
-    "showAllModels": "Hiển thị tất cả các mô hình",
-    "sorts": {
-      "default": "Sắp xếp mặc định",
-      "identifier": "ID nhà cung cấp",
-      "modelCount": "Số mô hình"
-    },
-    "suggestions": "Nhà cung cấp liên quan",
-    "supportedModels": "Mô hình được hỗ trợ"
-  },
   "publishedTime": "Đã phát hành",
   "search": {
     "placeholder": "Tìm kiếm tên, mô tả hoặc từ khóa...",
@@ -639,10 +451,7 @@
     "searching": "Đang tìm kiếm..."
   },
   "tab": {
-    "assistant": "Trợ lý",
     "home": "Trang chủ",
-    "model": "Mô hình",
-    "plugin": "Plugin",
-    "provider": "Nhà cung cấp mô hình"
+    "plugin": "Plugin"
   }
 }

@@ -1,86 +1,6 @@
 {
-  "assistants": {
-    "addAgent": "アシスタントを追加",
-    "addAgentAndConverse": "アシスタントを追加して会話する",
-    "addAgentSuccess": "追加成功",
-    "conversation": {
-      "l1": "こんにちは、私は **{{name}}** です。何でも質問してください、できる限りお答えします ~",
-      "l2": "以下は私の能力の紹介です: ",
-      "l3": "さあ、会話を始めましょう！"
-    },
-    "description": "アシスタントの紹介",
-    "detail": "詳細",
-    "details": {
-      "capabilities": {
-        "knowledge": {
-          "desc": "アシスタントには以下のナレッジベースが組み込まれており、より多くの質問に答えるのに役立ちます。",
-          "title": "ナレッジベース"
-        },
-        "plugin": {
-          "desc": "アシスタントには以下のプラグインが組み込まれており、より多くのタスクを完了するのに役立ちます。",
-          "title": "組み込みプラグイン"
-        },
-        "title": "アシスタントの能力"
-      },
-      "overview": {
-        "example": "アシスタントのデモ",
-        "title": "概要"
-      },
-      "related": {
-        "listTitle": "関連アシスタント",
-        "more": "もっと見る",
-        "title": "関連情報"
-      },
-      "sidebar": {
-        "toc": "目次"
-      },
-      "summary": {
-        "title": "このアシスタントでできること"
-      },
-      "systemRole": {
-        "openingMessage": "開始メッセージ",
-        "openingQuestions": "開始時の質問",
-        "title": "アシスタント設定"
-      }
-    },
-    "list": "アシスタントリスト",
-    "more": "もっと見る",
-    "plugins": "プラグインを統合",
-    "recentSubmits": "最近の更新",
-    "sorts": {
-      "createdAt": "最新公開",
-      "identifier": "アシスタントID",
-      "knowledgeCount": "ナレッジベース数",
-      "pluginCount": "プラグイン数",
-      "title": "アシスタント名",
-      "tokenUsage": "トークン使用量"
-    },
-    "suggestions": "関連情報",
-    "systemRole": "アシスタント設定",
-    "tokenUsage": "アシスタントプロンプトのトークン使用量",
-    "try": "試してみる",
-    "withKnowledge": "このアシスタントにはナレッジベースが付属しています",
-    "withPlugin": "このアシスタントにはプラグインが付属しています"
-  },
   "back": "戻る",
   "category": {
-    "assistant": {
-      "academic": "学術",
-      "all": "すべて",
-      "career": "キャリア",
-      "copywriting": "コピーライティング",
-      "design": "デザイン",
-      "education": "教育",
-      "emotions": "感情",
-      "entertainment": "エンターテイメント",
-      "games": "ゲーム",
-      "general": "一般",
-      "life": "生活",
-      "marketing": "マーケティング",
-      "office": "オフィス",
-      "programming": "プログラミング",
-      "translation": "翻訳"
-    },
     "plugin": {
       "all": "すべて",
       "gaming-entertainment": "ゲーム・エンターテイメント",
@@ -141,9 +61,6 @@
     }
   },
   "home": {
-    "featuredAssistants": "おすすめアシスタント",
-    "featuredModels": "おすすめモデル",
-    "featuredProviders": "おすすめモデルサービスプロバイダー",
     "featuredTools": "おすすめプラグイン",
     "more": "もっと発見する"
   },
@@ -495,81 +412,6 @@
       "title": "検証済み"
     }
   },
-  "models": {
-    "abilities": "モデル能力",
-    "chat": "会話を始める",
-    "contentLength": "最大コンテキスト長",
-    "details": {
-      "overview": {
-        "title": "概要"
-      },
-      "related": {
-        "listTitle": "関連モデル",
-        "more": "もっと見る",
-        "title": "関連おすすめ"
-      }
-    },
-    "free": "無料",
-    "guide": "設定ガイド",
-    "list": "モデルリスト",
-    "more": "もっと見る",
-    "parameterList": {
-      "defaultValue": "デフォルト値",
-      "docs": "ドキュメントを見る",
-      "frequency_penalty": {
-        "desc": "この設定は、モデルが入力中に既に出現した特定の語彙の使用頻度を調整します。高い値はそのような繰り返しの可能性を低下させ、負の値は逆の効果を生み出します。語彙の罰則は出現回数に応じて増加しません。負の値は語彙の繰り返し使用を奨励します。",
-        "title": "頻度ペナルティ"
-      },
-      "max_tokens": {
-        "desc": "この設定は、モデルが一度の応答で生成できる最大の長さを定義します。値を高く設定すると、モデルはより長い応答を生成でき、値を低く設定すると、応答の長さが制限され、より簡潔になります。異なるアプリケーションシーンに応じて、この値を適切に調整することで、期待される応答の長さと詳細度を達成するのに役立ちます。",
-        "title": "一度の応答制限"
-      },
-      "presence_penalty": {
-        "desc": "この設定は、語彙が入力中に出現する頻度に基づいて語彙の繰り返し使用を制御することを目的としています。入力中に多く出現する語彙の使用を減らそうとし、その使用頻度は出現頻度に比例します。語彙の罰則は出現回数に応じて増加します。負の値は語彙の繰り返し使用を奨励します。",
-        "title": "トピックの新鮮さ"
-      },
-      "range": "範囲",
-      "reasoning_effort": {
-        "desc": "この設定は、モデルが回答を生成する前の推論の強度を制御するために使用されます。低強度は応答速度を優先し、トークンを節約しますが、高強度はより完全な推論を提供しますが、より多くのトークンを消費し、応答速度が低下します。デフォルト値は中で、推論の正確性と応答速度のバランスを取ります。",
-        "title": "推論強度"
-      },
-      "temperature": {
-        "desc": "この設定は、モデルの応答の多様性に影響を与えます。低い値はより予測可能で典型的な応答をもたらし、高い値はより多様で珍しい応答を奨励します。値が0に設定されると、モデルは与えられた入力に対して常に同じ応答を返します。",
-        "title": "ランダム性"
-      },
-      "title": "モデルパラメータ",
-      "top_p": {
-        "desc": "この設定は、モデルの選択を可能性の高い一定の割合の語彙に制限します：累積確率がPに達するトップ語彙のみを選択します。低い値はモデルの応答をより予測可能にし、デフォルト設定はモデルが全範囲の語彙から選択できることを許可します。",
-        "title": "核サンプリング"
-      },
-      "type": "タイプ"
-    },
-    "providerInfo": {
-      "apiTooltip": "LobeChatは、このプロバイダーに対してカスタムAPIキーを使用することをサポートしています。",
-      "input": "入力価格",
-      "inputTooltip": "百万トークンあたりのコスト",
-      "latency": "レイテンシ",
-      "latencyTooltip": "プロバイダーが最初のトークンを送信する平均応答時間",
-      "maxOutput": "最大出力長",
-      "maxOutputTooltip": "このエンドポイントが生成できる最大トークン数",
-      "officialTooltip": "LobeHub公式サービス",
-      "output": "出力価格",
-      "outputTooltip": "百万トークンあたりのコスト",
-      "streamCancellationTooltip": "このプロバイダーはストリームキャンセル機能をサポートしています。",
-      "throughput": "スループット",
-      "throughputTooltip": "ストリームリクエストが毎秒転送する平均トークン数"
-    },
-    "sorts": {
-      "contextWindowTokens": "コンテキスト長",
-      "identifier": "モデル ID",
-      "inputPrice": "入力価格",
-      "outputPrice": "出力価格",
-      "providerCount": "サービスプロバイダー数",
-      "releasedAt": "最近公開"
-    },
-    "suggestions": "関連モデル",
-    "supportedProviders": "このモデルをサポートするプロバイダー"
-  },
   "plugins": {
     "community": "コミュニティプラグイン",
     "details": {
@@ -602,36 +444,6 @@
     },
     "suggestions": "関連する提案"
   },
-  "providers": {
-    "config": "プロバイダーの設定",
-    "details": {
-      "guide": {
-        "title": "接続ガイド"
-      },
-      "overview": {
-        "title": "概要"
-      },
-      "related": {
-        "listTitle": "関連サービスプロバイダー",
-        "more": "もっと見る",
-        "title": "関連おすすめ"
-      }
-    },
-    "list": "モデルサービスプロバイダーリスト",
-    "modelCount": "{{count}} 個のモデル",
-    "modelName": "モデル名",
-    "modelSite": "モデルドキュメント",
-    "more": "もっと見る",
-    "officialSite": "公式サイト",
-    "showAllModels": "すべてのモデルを表示",
-    "sorts": {
-      "default": "デフォルト並び替え",
-      "identifier": "サービスプロバイダー ID",
-      "modelCount": "モデル数"
-    },
-    "suggestions": "関連プロバイダー",
-    "supportedModels": "サポートされているモデル"
-  },
   "publishedTime": "公開日時",
   "search": {
     "placeholder": "名前、紹介、またはキーワードを検索...",
@@ -639,10 +451,7 @@
     "searching": "検索中..."
   },
   "tab": {
-    "assistant": "アシスタント",
     "home": "ホーム",
-    "model": "モデル",
-    "plugin": "プラグイン",
-    "provider": "モデルサービスプロバイダー"
+    "plugin": "プラグイン"
   }
 }

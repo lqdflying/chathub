@@ -1,6 +1,6 @@
 import { MCP } from '@lobehub/icons';
 import { Icon } from '@lobehub/ui';
-import { Bot, Brain, BrainCircuit, House } from 'lucide-react';
+import { House } from 'lucide-react';
 import { ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useLocation } from 'react-router-dom';
@@ -16,13 +16,7 @@ export const useNav = () => {
 
   const activeKey = useMemo(() => {
     const pathname = location.pathname;
-    for (const value of Object.values(DiscoverTab)) {
-      if (pathname.includes(`/${DiscoverTab.Plugins}`)) {
-        return DiscoverTab.Mcp;
-      } else if (pathname.includes(`/${value}`)) {
-        return value;
-      }
-    }
+    if (pathname.includes('/mcp')) return DiscoverTab.Mcp;
     return DiscoverTab.Home;
   }, [location.pathname]);
 
@@ -38,38 +32,11 @@ export const useNav = () => {
         ),
       },
       {
-        icon: <Icon icon={Bot} size={ICON_SIZE} />,
-        key: DiscoverTab.Assistants,
-        label: (
-          <Link style={{ color: 'inherit' }} to={`/${DiscoverTab.Assistants}`}>
-            {t('tab.assistant')}
-          </Link>
-        ),
-      },
-      {
         icon: <MCP className={'anticon'} size={ICON_SIZE} />,
         key: DiscoverTab.Mcp,
         label: (
           <Link style={{ color: 'inherit' }} to={`/${DiscoverTab.Mcp}`}>
             {`MCP ${t('tab.plugin')}`}
-          </Link>
-        ),
-      },
-      {
-        icon: <Icon icon={Brain} size={ICON_SIZE} />,
-        key: DiscoverTab.Models,
-        label: (
-          <Link style={{ color: 'inherit' }} to={`/${DiscoverTab.Models}`}>
-            {t('tab.model')}
-          </Link>
-        ),
-      },
-      {
-        icon: <Icon icon={BrainCircuit} size={ICON_SIZE} />,
-        key: DiscoverTab.Providers,
-        label: (
-          <Link style={{ color: 'inherit' }} to={`/${DiscoverTab.Providers}`}>
-            {t('tab.provider')}
           </Link>
         ),
       },

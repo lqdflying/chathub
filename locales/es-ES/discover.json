@@ -1,86 +1,6 @@
 {
-  "assistants": {
-    "addAgent": "Agregar asistente",
-    "addAgentAndConverse": "Agregar asistente y conversar",
-    "addAgentSuccess": "Agregado con éxito",
-    "conversation": {
-      "l1": "Hola, soy **{{name}}**, puedes preguntarme cualquier cosa y haré lo posible por responderte ~",
-      "l2": "Aquí tienes una introducción a mis capacidades: ",
-      "l3": "¡Comencemos la conversación!"
-    },
-    "description": "Introducción al asistente",
-    "detail": "Detalles",
-    "details": {
-      "capabilities": {
-        "knowledge": {
-          "desc": "El asistente incluye las siguientes bases de conocimiento para ayudarte a responder más preguntas.",
-          "title": "Base de Conocimiento"
-        },
-        "plugin": {
-          "desc": "El asistente incluye los siguientes complementos para ayudarte a completar más tareas.",
-          "title": "Complementos Integrados"
-        },
-        "title": "Capacidades del Asistente"
-      },
-      "overview": {
-        "example": "Demostración del Asistente",
-        "title": "Resumen"
-      },
-      "related": {
-        "listTitle": "Asistentes Relacionados",
-        "more": "Ver más",
-        "title": "Recomendaciones Relacionadas"
-      },
-      "sidebar": {
-        "toc": "Índice"
-      },
-      "summary": {
-        "title": "¿Qué puedes hacer con este asistente?"
-      },
-      "systemRole": {
-        "openingMessage": "Mensaje de apertura",
-        "openingQuestions": "Preguntas iniciales",
-        "title": "Configuración del Asistente"
-      }
-    },
-    "list": "Lista de asistentes",
-    "more": "Más",
-    "plugins": "Integrar complementos",
-    "recentSubmits": "Actualizaciones recientes",
-    "sorts": {
-      "createdAt": "Publicado recientemente",
-      "identifier": "ID del Asistente",
-      "knowledgeCount": "Cantidad de bases de conocimiento",
-      "pluginCount": "Cantidad de complementos",
-      "title": "Nombre del Asistente",
-      "tokenUsage": "Uso de Tokens"
-    },
-    "suggestions": "Recomendaciones relacionadas",
-    "systemRole": "Configuración del asistente",
-    "tokenUsage": "Uso de Tokens en el prompt del asistente",
-    "try": "Prueba",
-    "withKnowledge": "Este asistente incluye bases de conocimiento",
-    "withPlugin": "Este asistente incluye complementos"
-  },
   "back": "Volver a Descubrir",
   "category": {
-    "assistant": {
-      "academic": "Académico",
-      "all": "Todo",
-      "career": "Carrera",
-      "copywriting": "Redacción",
-      "design": "Diseño",
-      "education": "Educación",
-      "emotions": "Emociones",
-      "entertainment": "Entretenimiento",
-      "games": "Juegos",
-      "general": "General",
-      "life": "Vida",
-      "marketing": "Marketing",
-      "office": "Oficina",
-      "programming": "Programación",
-      "translation": "Traducción"
-    },
     "plugin": {
       "all": "Todo",
       "gaming-entertainment": "Juegos y entretenimiento",
@@ -141,9 +61,6 @@
     }
   },
   "home": {
-    "featuredAssistants": "Asistentes recomendados",
-    "featuredModels": "Modelos recomendados",
-    "featuredProviders": "Proveedores de modelos recomendados",
     "featuredTools": "Plugins recomendados",
     "more": "Descubre más"
   },
@@ -495,81 +412,6 @@
       "title": "Validado"
     }
   },
-  "models": {
-    "abilities": "Capacidades del modelo",
-    "chat": "Iniciar conversación",
-    "contentLength": "Longitud máxima del contexto",
-    "details": {
-      "overview": {
-        "title": "Resumen"
-      },
-      "related": {
-        "listTitle": "Modelos relacionados",
-        "more": "Ver más",
-        "title": "Recomendaciones relacionadas"
-      }
-    },
-    "free": "Gratis",
-    "guide": "Guía de configuración",
-    "list": "Lista de modelos",
-    "more": "Más",
-    "parameterList": {
-      "defaultValue": "Valor por defecto",
-      "docs": "Ver documentación",
-      "frequency_penalty": {
-        "desc": "Esta configuración ajusta la frecuencia con la que el modelo reutiliza vocabulario específico que ya ha aparecido en la entrada. Un valor más alto reduce la probabilidad de que esto ocurra, mientras que un valor negativo produce el efecto contrario. La penalización de vocabulario no aumenta con la frecuencia de aparición. Un valor negativo alentará la reutilización del vocabulario.",
-        "title": "Penalización de frecuencia"
-      },
-      "max_tokens": {
-        "desc": "Esta configuración define la longitud máxima que el modelo puede generar en una sola respuesta. Establecer un valor más alto permite al modelo generar respuestas más largas, mientras que un valor más bajo limita la longitud de la respuesta, haciéndola más concisa. Ajustar este valor de manera razonable según el contexto de la aplicación puede ayudar a alcanzar la longitud y el nivel de detalle de respuesta deseados.",
-        "title": "Límite de Respuesta Única"
-      },
-      "presence_penalty": {
-        "desc": "Esta configuración está diseñada para controlar la reutilización del vocabulario según la frecuencia con la que aparece en la entrada. Intenta usar menos aquellas palabras que aparecen con más frecuencia en la entrada, siendo su uso proporcional a la frecuencia de aparición. La penalización de vocabulario aumenta con la frecuencia de aparición. Un valor negativo alentará la reutilización del vocabulario.",
-        "title": "Novedad del tema"
-      },
-      "range": "Rango",
-      "reasoning_effort": {
-        "desc": "Esta configuración se utiliza para controlar la intensidad de razonamiento del modelo antes de generar una respuesta. Una baja intensidad prioriza la velocidad de respuesta y ahorra tokens, mientras que una alta intensidad proporciona un razonamiento más completo, pero consume más tokens y reduce la velocidad de respuesta. El valor predeterminado es medio, equilibrando la precisión del razonamiento con la velocidad de respuesta.",
-        "title": "Intensidad de razonamiento"
-      },
-      "temperature": {
-        "desc": "Esta configuración afecta la diversidad de las respuestas del modelo. Un valor más bajo resultará en respuestas más predecibles y típicas, mientras que un valor más alto alentará respuestas más diversas y menos comunes. Cuando el valor se establece en 0, el modelo siempre dará la misma respuesta para una entrada dada.",
-        "title": "Aleatoriedad"
-      },
-      "title": "Parámetros del modelo",
-      "top_p": {
-        "desc": "Esta configuración limita la selección del modelo a un cierto porcentaje de vocabulario con la mayor probabilidad: solo selecciona aquellas palabras que alcanzan una probabilidad acumulativa de P. Un valor más bajo hace que las respuestas del modelo sean más predecibles, mientras que la configuración predeterminada permite al modelo elegir de todo el rango de vocabulario.",
-        "title": "Muestreo de núcleo"
-      },
-      "type": "Tipo"
-    },
-    "providerInfo": {
-      "apiTooltip": "LobeChat admite el uso de claves API personalizadas para este proveedor.",
-      "input": "Precio de entrada",
-      "inputTooltip": "Costo por millón de Tokens",
-      "latency": "Latencia",
-      "latencyTooltip": "Tiempo promedio de respuesta del proveedor para enviar el primer Token",
-      "maxOutput": "Longitud máxima de salida",
-      "maxOutputTooltip": "Número máximo de Tokens que este punto final puede generar",
-      "officialTooltip": "Servicio oficial de LobeHub",
-      "output": "Precio de salida",
-      "outputTooltip": "Costo por millón de Tokens",
-      "streamCancellationTooltip": "Este proveedor admite la función de cancelación de flujo.",
-      "throughput": "Rendimiento",
-      "throughputTooltip": "Número promedio de Tokens transmitidos por segundo en solicitudes de flujo"
-    },
-    "sorts": {
-      "contextWindowTokens": "Longitud del contexto",
-      "identifier": "ID del modelo",
-      "inputPrice": "Precio de entrada",
-      "outputPrice": "Precio de salida",
-      "providerCount": "Número de proveedores",
-      "releasedAt": "Publicado recientemente"
-    },
-    "suggestions": "Modelos relacionados",
-    "supportedProviders": "Proveedores que admiten este modelo"
-  },
   "plugins": {
     "community": "Complementos de la comunidad",
     "details": {
@@ -602,36 +444,6 @@
     },
     "suggestions": "Recomendaciones relacionadas"
   },
-  "providers": {
-    "config": "Configurar proveedor",
-    "details": {
-      "guide": {
-        "title": "Guía de integración"
-      },
-      "overview": {
-        "title": "Resumen"
-      },
-      "related": {
-        "listTitle": "Proveedores relacionados",
-        "more": "Ver más",
-        "title": "Recomendaciones relacionadas"
-      }
-    },
-    "list": "Lista de proveedores de modelos",
-    "modelCount": "{{count}} modelos",
-    "modelName": "Nombre del modelo",
-    "modelSite": "Documentación del modelo",
-    "more": "Más",
-    "officialSite": "Sitio web oficial",
-    "showAllModels": "Mostrar todos los modelos",
-    "sorts": {
-      "default": "Orden predeterminado",
-      "identifier": "ID del proveedor",
-      "modelCount": "Cantidad de modelos"
-    },
-    "suggestions": "Proveedores relacionados",
-    "supportedModels": "Modelos soportados"
-  },
   "publishedTime": "Publicado en",
   "search": {
     "placeholder": "Buscar nombre, descripción o palabras clave...",
@@ -639,10 +451,7 @@
     "searching": "Buscando..."
   },
   "tab": {
-    "assistant": "Asistente",
     "home": "Inicio",
-    "model": "Modelo",
-    "plugin": "Complemento",
-    "provider": "Proveedor de modelos"
+    "plugin": "Complemento"
   }
 }

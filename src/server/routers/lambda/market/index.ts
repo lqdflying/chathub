@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { isDesktop } from '@/const/version';
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { DiscoverService } from '@/server/services/discover';
-import { AssistantSorts, McpSorts, ModelSorts, PluginSorts, ProviderSorts } from '@/types/discover';
+import { McpSorts, PluginSorts } from '@/types/discover';
 
 const log = debug('lambda-router:market');
 
@@ -19,108 +19,6 @@ const marketProcedure = publicProcedure.use(async ({ ctx, next }) => {
 });
 
 export const marketRouter = router({
-  // ============================== Assistant Market ==============================
-  getAssistantCategories: marketProcedure
-    .input(
-      z
-        .object({
-          locale: z.string().optional(),
-          q: z.string().optional(),
-        })
-        .optional(),
-    )
-    .query(async ({ input, ctx }) => {
-      log('  getAssistantCategories: marketProcedure\n input: %O', input);
-
-      try {
-        return await ctx.discoverService.getAssistantCategories(input);
-      } catch (error) {
-        log('Error fetching assistant categories: %O', error);
-        return [];
-      }
-    }),
-
-  getAssistantDetail: marketProcedure
-    .input(
-      z.object({
-        identifier: z.string(),
-        locale: z.string().optional(),
-      }),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getAssistantDetail input: %O', input);
-
-      try {
-        return await ctx.discoverService.getAssistantDetail(input);
-      } catch (error) {
-        log('Error fetching assistants detail: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch assistants detail',
-        });
-      }
-    }),
-
-  getAssistantIdentifiers: marketProcedure.query(async ({ ctx }) => {
-    log('getAssistantIdentifiers called');
-
-    try {
-      return await ctx.discoverService.getAssistantIdentifiers();
-    } catch (error) {
-      log('Error fetching assistant identifiers: %O', error);
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to fetch assistant identifiers',
-      });
-    }
-  }),
-
-  getAssistantList: marketProcedure
-    .input(
-      z
-        .object({
-          category: z.string().optional(),
-          locale: z.string().optional(),
-          order: z.enum(['asc', 'desc']).optional(),
-          page: z.number().optional(),
-          pageSize: z.number().optional(),
-          q: z.string().optional(),
-          sort: z.nativeEnum(AssistantSorts).optional(),
-        })
-        .optional(),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getAssistantList input: %O', input);
-
-      try {
-        return await ctx.discoverService.getAssistantList(input);
-      } catch (error) {
-        log('Error fetching assistant list: %O', error);
-        return { categories: [], currentPage: 1, items: [], pageSize: 20, totalCount: 0, totalPages: 0 };
-      }
-    }),
-
-  getLegacyPluginList: marketProcedure
-    .input(
-      z
-        .object({
-          locale: z.string().optional(),
-        })
-        .optional(),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getLegacyPluginList input: %O', input);
-      try {
-        return await ctx.discoverService.getLegacyPluginList(input);
-      } catch (error) {
-        log('Error fetching legacy plugin list: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch plugin list',
-        });
-      }
-    }),
-
   // ============================== MCP Market ==============================
   getMcpCategories: marketProcedure
     .input(
@@ -212,90 +110,28 @@ export const marketRouter = router({
       }
     }),
 
-  // ============================== Models ==============================
-  getModelCategories: marketProcedure
-    .input(
-      z
-        .object({
-          q: z.string().optional(),
-        })
-        .optional(),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getModelCategories input: %O', input);
-
-      try {
-        return await ctx.discoverService.getModelCategories(input);
-      } catch (error) {
-        log('Error fetching model categories: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch model categories',
-        });
-      }
-    }),
-
-  getModelDetail: marketProcedure
-    .input(
-      z.object({
-        identifier: z.string(),
-        locale: z.string().optional(),
-      }),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getModelDetail input: %O', input);
-
-      try {
-        return await ctx.discoverService.getModelDetail(input);
-      } catch (error) {
-        log('Error fetching model details: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch model details',
-        });
-      }
-    }),
-
-  getModelIdentifiers: marketProcedure.query(async ({ ctx }) => {
-    log('getModelIdentifiers called');
-
-    try {
-      return await ctx.discoverService.getModelIdentifiers();
-    } catch (error) {
-      log('Error fetching model identifiers: %O', error);
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to fetch model identifiers',
-      });
-    }
-  }),
-
-  getModelList: marketProcedure
-    .input(
-      z
-        .object({
-          category: z.string().optional(),
-          locale: z.string().optional(),
-          order: z.enum(['asc', 'desc']).optional(),
-          page: z.number().optional(),
-          pageSize: z.number().optional(),
-          q: z.string().optional(),
-          sort: z.nativeEnum(ModelSorts).optional(),
-        })
-        .optional(),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getModelList input: %O', input);
-
-      try {
-        return await ctx.discoverService.getModelList(input);
-      } catch (error) {
-        log('Error fetching model list: %O', error);
-        return { categories: [], currentPage: 1, items: [], pageSize: 20, totalCount: 0, totalPages: 0 };
-      }
-    }),
-
   // ============================== Plugin Market ==============================
+  getLegacyPluginList: marketProcedure
+    .input(
+      z
+        .object({
+          locale: z.string().optional(),
+        })
+        .optional(),
+    )
+    .query(async ({ input, ctx }) => {
+      log('getLegacyPluginList input: %O', input);
+      try {
+        return await ctx.discoverService.getLegacyPluginList(input);
+      } catch (error) {
+        log('Error fetching legacy plugin list: %O', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Failed to fetch plugin list',
+        });
+      }
+    }),
+
   getPluginCategories: marketProcedure
     .input(
       z
@@ -373,67 +209,6 @@ export const marketRouter = router({
         return await ctx.discoverService.getPluginList(input);
       } catch (error) {
         log('Error fetching plugin list: %O', error);
-        return { categories: [], currentPage: 1, items: [], pageSize: 20, totalCount: 0, totalPages: 0 };
-      }
-    }),
-
-  // ============================== Providers ==============================
-  getProviderDetail: marketProcedure
-    .input(
-      z.object({
-        identifier: z.string(),
-        locale: z.string().optional(),
-        withReadme: z.boolean().optional(),
-      }),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getProviderDetail input: %O', input);
-
-      try {
-        return await ctx.discoverService.getProviderDetail(input);
-      } catch (error) {
-        log('Error fetching provider details: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch provider details',
-        });
-      }
-    }),
-
-  getProviderIdentifiers: marketProcedure.query(async ({ ctx }) => {
-    log('getProviderIdentifiers called');
-
-    try {
-      return await ctx.discoverService.getProviderIdentifiers();
-    } catch (error) {
-      log('Error fetching provider identifiers: %O', error);
-      throw new TRPCError({
-        code: 'INTERNAL_SERVER_ERROR',
-        message: 'Failed to fetch provider identifiers',
-      });
-    }
-  }),
-
-  getProviderList: marketProcedure
-    .input(
-      z
-        .object({
-          locale: z.string().optional(),
-          order: z.enum(['asc', 'desc']).optional(),
-          page: z.number().optional(),
-          pageSize: z.number().optional(),
-          q: z.string().optional(),
-          sort: z.nativeEnum(ProviderSorts).optional(),
-        })
-        .optional(),
-    )
-    .query(async ({ input, ctx }) => {
-      log('getProviderList input: %O', input);
-
-      try {
-        return await ctx.discoverService.getProviderList(input);
-      } catch (error) {
-        log('Error fetching provider list: %O', error);
         return { categories: [], currentPage: 1, items: [], pageSize: 20, totalCount: 0, totalPages: 0 };
       }
     }),

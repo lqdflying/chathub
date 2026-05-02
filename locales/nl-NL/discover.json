@@ -1,86 +1,6 @@
 {
-  "assistants": {
-    "addAgent": "Voeg assistent toe",
-    "addAgentAndConverse": "Voeg assistent toe en begin een gesprek",
-    "addAgentSuccess": "Toevoegen geslaagd",
-    "conversation": {
-      "l1": "Hallo, ik ben **{{name}}**, je kunt me alles vragen en ik zal mijn best doen om je te helpen ~",
-      "l2": "Hier zijn mijn mogelijkheden: ",
-      "l3": "Laten we het gesprek beginnen!"
-    },
-    "description": "Assistent introductie",
-    "detail": "Details",
-    "details": {
-      "capabilities": {
-        "knowledge": {
-          "desc": "De assistent bevat de volgende kennisbanken om je te helpen meer vragen te beantwoorden.",
-          "title": "Kennisbank"
-        },
-        "plugin": {
-          "desc": "De assistent bevat de volgende plugins om je te helpen meer taken uit te voeren.",
-          "title": "Ingebouwde plugins"
-        },
-        "title": "Assistent mogelijkheden"
-      },
-      "overview": {
-        "example": "Assistent demonstratie",
-        "title": "Overzicht"
-      },
-      "related": {
-        "listTitle": "Gerelateerde assistenten",
-        "more": "Meer bekijken",
-        "title": "Aanbevolen"
-      },
-      "sidebar": {
-        "toc": "Inhoudsopgave"
-      },
-      "summary": {
-        "title": "Wat kun je met deze assistent doen?"
-      },
-      "systemRole": {
-        "openingMessage": "Openingsbericht",
-        "openingQuestions": "Openingsvragen",
-        "title": "Assistent instellingen"
-      }
-    },
-    "list": "Assistentenlijst",
-    "more": "Meer",
-    "plugins": "Geïntegreerde plugins",
-    "recentSubmits": "Recent bijgewerkt",
-    "sorts": {
-      "createdAt": "Recent gepubliceerd",
-      "identifier": "Assistent ID",
-      "knowledgeCount": "Aantal kennisbanken",
-      "pluginCount": "Aantal plugins",
-      "title": "Assistent naam",
-      "tokenUsage": "Token gebruik"
-    },
-    "suggestions": "Gerelateerde aanbevelingen",
-    "systemRole": "Assistent instellingen",
-    "tokenUsage": "Token gebruik van assistent prompt",
-    "try": "Probeer het",
-    "withKnowledge": "Deze assistent bevat kennisbanken",
-    "withPlugin": "Deze assistent bevat plugins"
-  },
   "back": "Terug naar Ontdekken",
   "category": {
-    "assistant": {
-      "academic": "Academisch",
-      "all": "Alle",
-      "career": "Carrière",
-      "copywriting": "Copywriting",
-      "design": "Ontwerp",
-      "education": "Onderwijs",
-      "emotions": "Emoties",
-      "entertainment": "Entertainment",
-      "games": "Spellen",
-      "general": "Algemeen",
-      "life": "Leven",
-      "marketing": "Marketing",
-      "office": "Kantoor",
-      "programming": "Programmeren",
-      "translation": "Vertaling"
-    },
     "plugin": {
       "all": "Alles",
       "gaming-entertainment": "Gaming en Entertainment",
@@ -141,9 +61,6 @@
     }
   },
   "home": {
-    "featuredAssistants": "Aanbevolen assistenten",
-    "featuredModels": "Aanbevolen modellen",
-    "featuredProviders": "Aanbevolen modelproviders",
     "featuredTools": "Aanbevolen plugins",
     "more": "Ontdek meer"
   },
@@ -495,81 +412,6 @@
       "title": "Gevalideerd"
     }
   },
-  "models": {
-    "abilities": "Modelmogelijkheden",
-    "chat": "Begin gesprek",
-    "contentLength": "Maximale contextlengte",
-    "details": {
-      "overview": {
-        "title": "Overzicht"
-      },
-      "related": {
-        "listTitle": "Gerelateerde modellen",
-        "more": "Meer bekijken",
-        "title": "Aanbevolen"
-      }
-    },
-    "free": "Gratis",
-    "guide": "Configuratiegids",
-    "list": "Modellenlijst",
-    "more": "Meer",
-    "parameterList": {
-      "defaultValue": "Standaardwaarde",
-      "docs": "Bekijk documentatie",
-      "frequency_penalty": {
-        "desc": "Deze instelling past de frequentie aan waarmee het model specifieke woorden die al in de invoer zijn verschenen, herhaalt. Hogere waarden verminderen de kans op herhaling, terwijl negatieve waarden het tegenovergestelde effect hebben. Woordstraffen nemen niet toe met het aantal verschijningen. Negatieve waarden moedigen herhaling aan.",
-        "title": "Frequentie straf"
-      },
-      "max_tokens": {
-        "desc": "Deze instelling definieert de maximale lengte die het model kan genereren in één enkele reactie. Een hogere waarde stelt het model in staat om langere antwoorden te genereren, terwijl een lagere waarde de lengte van de reactie beperkt, waardoor deze beknopter wordt. Het is raadzaam om deze waarde aan te passen op basis van verschillende toepassingsscenario's om de gewenste lengte en detailniveau van de reactie te bereiken.",
-        "title": "Beperking van de reactie in één keer"
-      },
-      "presence_penalty": {
-        "desc": "Deze instelling is bedoeld om de herhaling van woorden te beheersen op basis van hun frequentie in de invoer. Het probeert minder gebruik te maken van woorden die vaker in de invoer voorkomen, in verhouding tot hun gebruiksfrequentie. Woordstraffen nemen toe met het aantal verschijningen. Negatieve waarden moedigen herhaling aan.",
-        "title": "Onderwerp versheid"
-      },
-      "range": "Bereik",
-      "reasoning_effort": {
-        "desc": "Deze instelling wordt gebruikt om de redeneerkracht van het model te regelen voordat het een antwoord genereert. Lage kracht geeft prioriteit aan de responssnelheid en bespaart tokens, terwijl hoge kracht een completere redenering biedt, maar meer tokens verbruikt en de responssnelheid verlaagt. De standaardwaarde is gemiddeld, wat een balans biedt tussen redeneringsnauwkeurigheid en responssnelheid.",
-        "title": "Redeneerkracht"
-      },
-      "temperature": {
-        "desc": "Deze instelling beïnvloedt de diversiteit van de reacties van het model. Lagere waarden leiden tot meer voorspelbare en typische reacties, terwijl hogere waarden meer diverse en ongebruikelijke reacties aanmoedigen. Wanneer de waarde op 0 is ingesteld, geeft het model altijd dezelfde reactie op een gegeven invoer.",
-        "title": "Willekeurigheid"
-      },
-      "title": "Modelparameters",
-      "top_p": {
-        "desc": "Deze instelling beperkt de keuze van het model tot een bepaald percentage van de meest waarschijnlijke woorden: alleen die woorden waarvan de cumulatieve waarschijnlijkheid P bereikt. Lagere waarden maken de reacties van het model voorspelbaarder, terwijl de standaardinstelling het model toestaat om uit het volledige bereik van woorden te kiezen.",
-        "title": "Nucleus sampling"
-      },
-      "type": "Type"
-    },
-    "providerInfo": {
-      "apiTooltip": "LobeChat ondersteunt het gebruik van een aangepaste API-sleutel voor deze provider.",
-      "input": "Invoerkosten",
-      "inputTooltip": "Kosten per miljoen tokens",
-      "latency": "Latentie",
-      "latencyTooltip": "Gemiddelde responstijd voor de eerste token van de provider",
-      "maxOutput": "Maximale uitvoerlengte",
-      "maxOutputTooltip": "Maximaal aantal tokens dat deze endpoint kan genereren",
-      "officialTooltip": "Officiële LobeHub service",
-      "output": "Uitvoerkosten",
-      "outputTooltip": "Kosten per miljoen tokens",
-      "streamCancellationTooltip": "Deze provider ondersteunt stream annulering.",
-      "throughput": "Doorvoer",
-      "throughputTooltip": "Gemiddeld aantal tokens dat per seconde wordt verzonden in stream aanvragen"
-    },
-    "sorts": {
-      "contextWindowTokens": "Contextlengte",
-      "identifier": "Model ID",
-      "inputPrice": "Invoerprijs",
-      "outputPrice": "Uitvoerprijs",
-      "providerCount": "Aantal aanbieders",
-      "releasedAt": "Recent uitgebracht"
-    },
-    "suggestions": "Gerelateerde modellen",
-    "supportedProviders": "Providers die dit model ondersteunen"
-  },
   "plugins": {
     "community": "Gemeenschapsplugins",
     "details": {
@@ -602,36 +444,6 @@
     },
     "suggestions": "Gerelateerde aanbevelingen"
   },
-  "providers": {
-    "config": "Configuratie aanbieder",
-    "details": {
-      "guide": {
-        "title": "Integratiehandleiding"
-      },
-      "overview": {
-        "title": "Overzicht"
-      },
-      "related": {
-        "listTitle": "Gerelateerde aanbieders",
-        "more": "Meer bekijken",
-        "title": "Aanbevolen"
-      }
-    },
-    "list": "Lijst van modelproviders",
-    "modelCount": "{{count}} modellen",
-    "modelName": "Modelnaam",
-    "modelSite": "Modeldocumentatie",
-    "more": "Meer",
-    "officialSite": "Officiële website",
-    "showAllModels": "Toon alle modellen",
-    "sorts": {
-      "default": "Standaard sortering",
-      "identifier": "Aanbieder ID",
-      "modelCount": "Aantal modellen"
-    },
-    "suggestions": "Gerelateerde aanbieders",
-    "supportedModels": "Ondersteunde modellen"
-  },
   "publishedTime": "Gepubliceerd op",
   "search": {
     "placeholder": "Zoek naam, beschrijving of trefwoord...",
@@ -639,10 +451,7 @@
     "searching": "Zoeken..."
   },
   "tab": {
-    "assistant": "Assistent",
     "home": "Startpagina",
-    "model": "Model",
-    "plugin": "Plugin",
-    "provider": "Model aanbieder"
+    "plugin": "Plugin"
   }
 }

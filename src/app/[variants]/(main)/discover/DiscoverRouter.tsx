@@ -5,19 +5,10 @@ import { useMediaQuery } from 'react-responsive';
 import { MemoryRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 import DetailLayout from './(detail)/_layout/DetailLayout';
-import AssistantDetailPage from './(detail)/assistant/AssistantDetailPage';
 import McpDetailPage from './(detail)/mcp/McpDetailPage';
-import ModelDetailPage from './(detail)/model/ModelDetailPage';
-import ProviderDetailPage from './(detail)/provider/ProviderDetailPage';
-import HomePage from './(list)/(home)/HomePage';
 import ListLayout from './(list)/_layout/ListLayout';
-import AssistantLayout from './(list)/assistant/AssistantLayout';
-import AssistantPage from './(list)/assistant/AssistantPage';
 import McpLayout from './(list)/mcp/McpLayout';
 import McpPage from './(list)/mcp/McpPage';
-import ModelLayout from './(list)/model/ModelLayout';
-import ModelPage from './(list)/model/ModelPage';
-import ProviderPage from './(list)/provider/ProviderPage';
 import DiscoverLayout from './_layout/DiscoverLayout';
 
 // Get initial path from URL
@@ -75,43 +66,10 @@ const DiscoverRouter = memo(() => {
       <UrlSynchronizer />
       <DiscoverLayout mobile={mobile}>
         <Routes>
-          {/* List routes with ListLayout */}
-          <Route
-            element={
-              <ListLayout mobile={mobile}>
-                <HomePage mobile={mobile} />
-              </ListLayout>
-            }
-            path="/"
-          />
-          <Route
-            element={
-              <ListLayout mobile={mobile}>
-                <AssistantLayout mobile={mobile}>
-                  <AssistantPage mobile={mobile} />
-                </AssistantLayout>
-              </ListLayout>
-            }
-            path="/assistant"
-          />
-          <Route
-            element={
-              <ListLayout mobile={mobile}>
-                <ModelLayout mobile={mobile}>
-                  <ModelPage mobile={mobile} />
-                </ModelLayout>
-              </ListLayout>
-            }
-            path="/model"
-          />
-          <Route
-            element={
-              <ListLayout mobile={mobile}>
-                <ProviderPage mobile={mobile} />
-              </ListLayout>
-            }
-            path="/provider"
-          />
+          {/* Redirect home to MCP */}
+          <Route element={<Navigate replace to="/mcp" />} path="/" />
+
+          {/* MCP list */}
           <Route
             element={
               <ListLayout mobile={mobile}>
@@ -123,31 +81,7 @@ const DiscoverRouter = memo(() => {
             path="/mcp"
           />
 
-          {/* Detail routes with DetailLayout */}
-          <Route
-            element={
-              <DetailLayout mobile={mobile}>
-                <AssistantDetailPage mobile={mobile} />
-              </DetailLayout>
-            }
-            path="/assistant/*"
-          />
-          <Route
-            element={
-              <DetailLayout mobile={mobile}>
-                <ModelDetailPage mobile={mobile} />
-              </DetailLayout>
-            }
-            path="/model/*"
-          />
-          <Route
-            element={
-              <DetailLayout mobile={mobile}>
-                <ProviderDetailPage mobile={mobile} />
-              </DetailLayout>
-            }
-            path="/provider/*"
-          />
+          {/* MCP detail */}
           <Route
             element={
               <DetailLayout mobile={mobile}>
@@ -158,7 +92,7 @@ const DiscoverRouter = memo(() => {
           />
 
           {/* Fallback */}
-          <Route element={<Navigate replace to="/" />} path="*" />
+          <Route element={<Navigate replace to="/mcp" />} path="*" />
         </Routes>
       </DiscoverLayout>
     </MemoryRouter>

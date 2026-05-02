@@ -1,86 +1,6 @@
 {
-  "assistants": {
-    "addAgent": "添加助手",
-    "addAgentAndConverse": "添加助手并会话",
-    "addAgentSuccess": "添加成功",
-    "conversation": {
-      "l1": "你好，我是 **{{name}}**，你可以问我任何问题，我会尽力回答你 ~",
-      "l2": "以下是我的能力介绍: ",
-      "l3": "让我们开始对话吧！"
-    },
-    "description": "助手介绍",
-    "detail": "详情",
-    "details": {
-      "capabilities": {
-        "knowledge": {
-          "desc": "助手内置了以下知识库，帮助你回答更多问题。",
-          "title": "知识库"
-        },
-        "plugin": {
-          "desc": "助手内置了以下插件，帮助你完成更多任务。",
-          "title": "内置插件"
-        },
-        "title": "助手能力"
-      },
-      "overview": {
-        "example": "助手演示",
-        "title": "概览"
-      },
-      "related": {
-        "listTitle": "相关助手",
-        "more": "查看更多",
-        "title": "相关推荐"
-      },
-      "sidebar": {
-        "toc": "目录"
-      },
-      "summary": {
-        "title": "你可以使用该助手做什么？"
-      },
-      "systemRole": {
-        "openingMessage": "开场消息",
-        "openingQuestions": "开场问题",
-        "title": "助手设定"
-      }
-    },
-    "list": "助手列表",
-    "more": "更多",
-    "plugins": "集成插件",
-    "recentSubmits": "最近更新",
-    "sorts": {
-      "createdAt": "最近发布",
-      "identifier": "助手 ID",
-      "knowledgeCount": "知识库数量",
-      "pluginCount": "插件数量",
-      "title": "助手名称",
-      "tokenUsage": "Token 使用量"
-    },
-    "suggestions": "相关推荐",
-    "systemRole": "助手设定",
-    "tokenUsage": "助手提示词 Token 使用量",
-    "try": "试一下",
-    "withKnowledge": "该助手附带知识库",
-    "withPlugin": "该助手附带插件"
-  },
   "back": "返回发现",
   "category": {
-    "assistant": {
-      "academic": "学术",
-      "all": "全部",
-      "career": "职业",
-      "copywriting": "文案",
-      "design": "设计",
-      "education": "教育",
-      "emotions": "情感",
-      "entertainment": "娱乐",
-      "games": "游戏",
-      "general": "通用",
-      "life": "生活",
-      "marketing": "商业",
-      "office": "办公",
-      "programming": "编程",
-      "translation": "翻译"
-    },
     "plugin": {
       "all": "全部",
       "gaming-entertainment": "游戏娱乐",
@@ -141,9 +61,6 @@
     }
   },
   "home": {
-    "featuredAssistants": "推荐助手",
-    "featuredModels": "推荐模型",
-    "featuredProviders": "推荐模型服务商",
     "featuredTools": "推荐插件",
     "more": "发现更多"
   },
@@ -495,81 +412,6 @@
       "title": "已验证"
     }
   },
-  "models": {
-    "abilities": "模型能力",
-    "chat": "开始会话",
-    "contentLength": "最大上下文长度",
-    "details": {
-      "overview": {
-        "title": "概览"
-      },
-      "related": {
-        "listTitle": "相关模型",
-        "more": "查看更多",
-        "title": "相关推荐"
-      }
-    },
-    "free": "免费",
-    "guide": "配置指南",
-    "list": "模型列表",
-    "more": "更多",
-    "parameterList": {
-      "defaultValue": "默认值",
-      "docs": "查看文档",
-      "frequency_penalty": {
-        "desc": "此设置调整模型重复使用输入中已经出现的特定词汇的频率。较高的值使得这种重复出现的可能性降低，而负值则产生相反的效果。词汇惩罚不随出现次数增加而增加。负值将鼓励词汇的重复使用。",
-        "title": "频率惩罚度"
-      },
-      "max_tokens": {
-        "desc": "此设置定义了模型在单次回复中可以生成的最大长度。设置较高的值允许模型生成更长的回应，而较低的值则限制回应的长度，使其更简洁。根据不同的应用场景，合理调整此值可以帮助达到预期的回应长度和详细程度。",
-        "title": "单次回复限制"
-      },
-      "presence_penalty": {
-        "desc": "此设置旨在根据词汇在输入中出现的频率来控制词汇的重复使用。它尝试较少使用那些在输入中出现较多的词汇，其使用频率与出现频率成比例。词汇惩罚随出现次数而增加。负值将鼓励重复使用词汇。",
-        "title": "话题新鲜度"
-      },
-      "range": "范围",
-      "reasoning_effort": {
-        "desc": "此设置用于控制模型在生成回答前的推理强度。低强度优先响应速度并节省 Token，高强度提供更完整的推理，但会消耗更多 Token 并降低响应速度。默认值为中，平衡推理准确性与响应速度。",
-        "title": "推理强度"
-      },
-      "temperature": {
-        "desc": "此设置影响模型回应的多样性。较低的值会导致更可预测和典型的回应，而较高的值则鼓励更多样化和不常见的回应。当值设为0时，模型对于给定的输入总是给出相同的回应。",
-        "title": "随机性"
-      },
-      "title": "模型参数",
-      "top_p": {
-        "desc": "此设置将模型的选择限制为可能性最高的一定比例的词汇：只选择那些累计概率达到P的顶尖词汇。较低的值使得模型的回应更加可预测，而默认设置则允许模型从全部范围的词汇中进行选择。",
-        "title": "核采样"
-      },
-      "type": "类型"
-    },
-    "providerInfo": {
-      "apiTooltip": "LobeChat 支持为此提供商使用自定义 API 密钥。",
-      "input": "输入价格",
-      "inputTooltip": "每百万个 Token 的成本",
-      "latency": "延迟",
-      "latencyTooltip": "服务商发送第一个 Token 的平均响应时间",
-      "maxOutput": "最大输出长度",
-      "maxOutputTooltip": "此端点可以生成的最大 Token 数",
-      "officialTooltip": "LobeHub 官方服务",
-      "output": "输出价格",
-      "outputTooltip": "每百万个 Token 的成本",
-      "streamCancellationTooltip": "此服务商支持流取消功能。",
-      "throughput": "吞吐量",
-      "throughputTooltip": "流请求每秒传输的平均 Token 数"
-    },
-    "sorts": {
-      "contextWindowTokens": "上下文长度",
-      "identifier": "模型 ID",
-      "inputPrice": "输入价格",
-      "outputPrice": "输出价格",
-      "providerCount": "服务商数量",
-      "releasedAt": "最近发布"
-    },
-    "suggestions": "相关模型",
-    "supportedProviders": "支持该模型的服务商"
-  },
   "plugins": {
     "community": "社区插件",
     "details": {
@@ -602,36 +444,6 @@
     },
     "suggestions": "相关推荐"
   },
-  "providers": {
-    "config": "配置服务商",
-    "details": {
-      "guide": {
-        "title": "接入指南"
-      },
-      "overview": {
-        "title": "概览"
-      },
-      "related": {
-        "listTitle": "相关服务商",
-        "more": "查看更多",
-        "title": "相关推荐"
-      }
-    },
-    "list": "模型服务商列表",
-    "modelCount": "{{count}} 个模型",
-    "modelName": "模型名称",
-    "modelSite": "模型文档",
-    "more": "更多",
-    "officialSite": "官方网站",
-    "showAllModels": "显示所有模型",
-    "sorts": {
-      "default": "默认排序",
-      "identifier": "服务商 ID",
-      "modelCount": "模型数量"
-    },
-    "suggestions": "相关服务商",
-    "supportedModels": "支持模型"
-  },
   "publishedTime": "发布于",
   "search": {
     "placeholder": "搜索名称介绍或关键词...",
@@ -639,10 +451,7 @@
     "searching": "搜索中..."
   },
   "tab": {
-    "assistant": "助手",
     "home": "首页",
-    "model": "模型",
-    "plugin": "插件",
-    "provider": "模型服务商"
+    "plugin": "插件"
   }
 }
