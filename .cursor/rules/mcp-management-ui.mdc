@@ -148,6 +148,27 @@ When no MCP plugins are installed, show an `Empty` component with buttons to add
 </Center>
 ```
 
+## i18n key discipline
+
+**Always verify i18n keys against the locale source files before using them.** Do not invent key names from patterns or assumptions — check the actual definitions.
+
+Example bug (v4.0.3-canary.8 fix): used `tPlugin('store.searchPlaceholder')` on the search input, but the `plugin` namespace only defines `store.placeholder`:
+
+```ts
+// Correct key in src/locales/default/plugin.ts:
+store: {
+  placeholder: '搜索插件名称介绍或关键词...', // ← this is the actual key
+  // ... no searchPlaceholder exists
+}
+```
+
+When adding a search input to an MCP/plugin management page:
+- `tPlugin('store.placeholder')` — the search placeholder for plugin/list views
+- `tPlugin('store.emptySelectHint')` — shown when no list item is selected in detail panel
+- `tPlugin('store.empty')` — shown when no plugins are installed
+
+All three keys are in the `plugin` namespace (`useTranslation('plugin')`), not in `setting` or `discover`.
+
 ## Store browser modal
 
 `PluginStore` (`src/features/PluginStore/index.tsx`) opens as a modal with `open` / `setOpen` props. It renders `PluginStore/Content` which has tabs for browsing installed plugins and the marketplace.
