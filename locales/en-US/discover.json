@@ -452,6 +452,7 @@
   },
   "tab": {
     "home": "Home",
+    "mcp": "MCP library",
     "plugin": "Plugin"
   }
 }

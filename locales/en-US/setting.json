@@ -715,6 +715,7 @@
     "hotkey": "Hotkeys",
     "image": "AI Drawing",
     "llm": "Language Model",
+    "mcp-management": "MCP Management",
     "provider": "AI Service Provider",
     "proxy": "Network Proxy",
     "storage": "Data Storage",
@@ -729,10 +730,13 @@
     "disabled": "The current model does not support function calls and cannot use the plugin",
     "plugins": {
       "enabled": "Enabled: {{num}}",
-      "groupName": "Plugins",
+      "groupName": "Installed MCP",
       "noEnabled": "No plugins enabled",
       "store": "Plugin Store"
     },
     "title": "Extension Tools"
+  },
+  "mcpManagement": {
+    "description": "Manage and configure installed MCP plugins — enable or disable plugins and view their status."
   }
 }

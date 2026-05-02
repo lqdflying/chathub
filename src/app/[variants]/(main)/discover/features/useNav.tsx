@@ -36,7 +36,7 @@ export const useNav = () => {
         key: DiscoverTab.Mcp,
         label: (
           <Link style={{ color: 'inherit' }} to={`/${DiscoverTab.Mcp}`}>
-            {`MCP ${t('tab.plugin')}`}
+            {t('tab.mcp')}
           </Link>
         ),
       },

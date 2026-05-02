@@ -42,6 +42,9 @@ const componentMap = {
   [SettingsTabs.SystemAgent]: dynamic(() => import('../system-agent'), {
     loading: () => <Loading />,
   }),
+  [SettingsTabs.Mcp]: dynamic(() => import('../mcp'), {
+    loading: () => <Loading />,
+  }),
 };
 
 interface SettingsContentProps {

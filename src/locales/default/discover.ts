@@ -458,6 +458,7 @@ export default {
   },
   tab: {
     home: '首页',
+    mcp: 'MCP 库',
     plugin: '插件',
   },
 };

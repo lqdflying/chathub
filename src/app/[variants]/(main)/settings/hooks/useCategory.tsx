@@ -1,5 +1,6 @@
 import { Icon } from '@lobehub/ui';
 import {
+  Blocks,
   Bot,
   Brain,
   Database,
@@ -80,6 +81,11 @@ export const useCategory = () => {
           icon: <Icon icon={EthernetPort} />,
           key: SettingsTabs.Proxy,
           label: t('tab.proxy'),
+        },
+        {
+          icon: <Icon icon={Blocks} />,
+          key: SettingsTabs.Mcp,
+          label: t('tab.mcp-management'),
         },
         {
           icon: <Icon icon={Database} />,
