@@ -17,19 +17,13 @@ export async function generateSitemaps() {
   const staticSitemaps = sitemapModule.sitemapIndexs;
 
   // 获取需要分页的类型的页数
-  const [pluginPages, assistantPages, modelPages] = await Promise.all([
+  const [pluginPages] = await Promise.all([
     sitemapModule.getPluginPageCount(),
-    sitemapModule.getAssistantPageCount(),
-    sitemapModule.getModelPageCount(),
   ]);
 
   // 生成分页sitemap ID列表
   const paginatedSitemaps = [
     ...Array.from({ length: pluginPages }, (_, i) => ({ id: `plugins-${i + 1}` as SitemapType })),
-    ...Array.from({ length: assistantPages }, (_, i) => ({
-      id: `assistants-${i + 1}` as SitemapType,
-    })),
-    ...Array.from({ length: modelPages }, (_, i) => ({ id: `models-${i + 1}` as SitemapType })),
   ];
 
   return [...staticSitemaps, ...paginatedSitemaps];
@@ -55,31 +49,14 @@ export default async function sitemap({ id }: { id: string }): Promise<MetadataR
     case SitemapType.Pages: {
       return sitemapModule.getPage();
     }
-    case SitemapType.Assistants: {
-      return sitemapModule.getAssistants(page);
-    }
     case SitemapType.Plugins: {
       return sitemapModule.getPlugins(page);
     }
-    case SitemapType.Models: {
-      return sitemapModule.getModels(page);
-    }
-    case SitemapType.Providers: {
-      return sitemapModule.getProviders();
-    }
     default: {
-      // 处理分页的sitemap（plugins-1, assistants-2, mcp-3等）
+      // 处理分页的sitemap（plugins-1等）
       if (id.startsWith('plugins-')) {
         const pageNum = parseInt(id.split('-')[1], 10);
         return sitemapModule.getPlugins(pageNum);
-      }
-      if (id.startsWith('assistants-')) {
-        const pageNum = parseInt(id.split('-')[1], 10);
-        return sitemapModule.getAssistants(pageNum);
-      }
-      if (id.startsWith('models-')) {
-        const pageNum = parseInt(id.split('-')[1], 10);
-        return sitemapModule.getModels(pageNum);
       }
 
       // 默认返回空数组

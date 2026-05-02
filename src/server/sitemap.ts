@@ -22,12 +22,9 @@ export interface SitemapItem {
 }
 
 export enum SitemapType {
-  Assistants = 'assistants',
   Mcp = 'mcp',
-  Models = 'models',
   Pages = 'pages',
   Plugins = 'plugins',
-  Providers = 'providers',
 }
 
 export const LAST_MODIFIED = new Date().toISOString();
@@ -36,25 +33,13 @@ export const LAST_MODIFIED = new Date().toISOString();
 const ITEMS_PER_PAGE = 100;
 
 export class Sitemap {
-  sitemapIndexs = [{ id: SitemapType.Pages }, { id: SitemapType.Providers }];
+  sitemapIndexs = [{ id: SitemapType.Pages }];
 
   private discoverService = new DiscoverService();
 
   // 获取插件总页数
   async getPluginPageCount(): Promise<number> {
     const list = await this.discoverService.getPluginIdentifiers();
-    return Math.ceil(list.length / ITEMS_PER_PAGE);
-  }
-
-  // 获取助手总页数
-  async getAssistantPageCount(): Promise<number> {
-    const list = await this.discoverService.getAssistantIdentifiers();
-    return Math.ceil(list.length / ITEMS_PER_PAGE);
-  }
-
-  // 获取模型总页数
-  async getModelPageCount(): Promise<number> {
-    const list = await this.discoverService.getModelIdentifiers();
     return Math.ceil(list.length / ITEMS_PER_PAGE);
   }
 
@@ -165,10 +150,8 @@ export class Sitemap {
     );
 
     // 获取需要分页的类型的页数
-    const [pluginPages, assistantPages, modelPages] = await Promise.all([
+    const [pluginPages] = await Promise.all([
       this.getPluginPageCount(),
-      this.getAssistantPageCount(),
-      this.getModelPageCount(),
     ]);
 
     // 生成分页sitemap链接
@@ -176,19 +159,6 @@ export class Sitemap {
       ...Array.from({ length: pluginPages }, (_, i) =>
         this._generateSitemapLink(
           getCanonicalUrl(SITEMAP_BASE_URL, isDev ? `plugins-${i + 1}` : `plugins-${i + 1}.xml`),
-        ),
-      ),
-      ...Array.from({ length: assistantPages }, (_, i) =>
-        this._generateSitemapLink(
-          getCanonicalUrl(
-            SITEMAP_BASE_URL,
-            isDev ? `assistants-${i + 1}` : `assistants-${i + 1}.xml`,
-          ),
-        ),
-      ),
-      ...Array.from({ length: modelPages }, (_, i) =>
-        this._generateSitemapLink(
-          getCanonicalUrl(SITEMAP_BASE_URL, isDev ? `models-${i + 1}` : `models-${i + 1}.xml`),
         ),
       ),
     ];
@@ -200,31 +170,6 @@ export class Sitemap {
       ...paginatedSitemaps,
       '</sitemapindex>',
     ].join('\n');
-  }
-
-  async getAssistants(page?: number): Promise<MetadataRoute.Sitemap> {
-    const list = await this.discoverService.getAssistantIdentifiers();
-
-    if (page !== undefined) {
-      const startIndex = (page - 1) * ITEMS_PER_PAGE;
-      const endIndex = startIndex + ITEMS_PER_PAGE;
-      const pageAssistants = list.slice(startIndex, endIndex);
-
-      const sitmap = pageAssistants.map((item) =>
-        this._genSitemap(urlJoin('/discover/assistant', item.identifier), {
-          lastModified: item?.lastModified || LAST_MODIFIED,
-        }),
-      );
-      return flatten(sitmap);
-    }
-
-    // 如果没有指定页数，返回所有（向后兼容）
-    const sitmap = list.map((item) =>
-      this._genSitemap(urlJoin('/discover/assistant', item.identifier), {
-        lastModified: item?.lastModified || LAST_MODIFIED,
-      }),
-    );
-    return flatten(sitmap);
   }
 
   async getPlugins(page?: number): Promise<MetadataRoute.Sitemap> {
@@ -252,41 +197,6 @@ export class Sitemap {
     return flatten(sitmap);
   }
 
-  async getModels(page?: number): Promise<MetadataRoute.Sitemap> {
-    const list = await this.discoverService.getModelIdentifiers();
-
-    if (page !== undefined) {
-      const startIndex = (page - 1) * ITEMS_PER_PAGE;
-      const endIndex = startIndex + ITEMS_PER_PAGE;
-      const pageModels = list.slice(startIndex, endIndex);
-
-      const sitmap = pageModels.map((item) =>
-        this._genSitemap(urlJoin('/discover/model', item.identifier), {
-          lastModified: item?.lastModified || LAST_MODIFIED,
-        }),
-      );
-      return flatten(sitmap);
-    }
-
-    // 如果没有指定页数，返回所有（向后兼容）
-    const sitmap = list.map((item) =>
-      this._genSitemap(urlJoin('/discover/model', item.identifier), {
-        lastModified: item?.lastModified || LAST_MODIFIED,
-      }),
-    );
-    return flatten(sitmap);
-  }
-
-  async getProviders(): Promise<MetadataRoute.Sitemap> {
-    const list = await this.discoverService.getProviderIdentifiers();
-    const sitmap = list.map((item) =>
-      this._genSitemap(urlJoin('/discover/provider', item.identifier), {
-        lastModified: item?.lastModified || LAST_MODIFIED,
-      }),
-    );
-    return flatten(sitmap);
-  }
-
   async getPage(): Promise<MetadataRoute.Sitemap> {
     const hideDocs = serverFeatureFlags().hideDocs;
     return [
@@ -297,11 +207,8 @@ export class Sitemap {
 
       /* ↑ cloud slot ↑ */
       ...this._genSitemap('/discover', { changeFrequency: 'daily', priority: 0.7 }),
-      ...this._genSitemap('/discover/assistant', { changeFrequency: 'daily', priority: 0.7 }),
       ...this._genSitemap('/discover/mcp', { changeFrequency: 'daily', priority: 0.7 }),
       ...this._genSitemap('/discover/plugin', { changeFrequency: 'daily', priority: 0.7 }),
-      ...this._genSitemap('/discover/model', { changeFrequency: 'daily', priority: 0.7 }),
-      ...this._genSitemap('/discover/provider', { changeFrequency: 'daily', priority: 0.7 }),
     ].filter(Boolean);
   }
   getRobots() {
