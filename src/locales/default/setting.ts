@@ -750,8 +750,8 @@ export default {
     editBtn: '编辑',
     editPrompt: '请前往编辑页面查看详情。',
     empty: '暂无已安装的 MCP 插件',
+    library: 'MCP 库',
     mcpRuntime: 'MCP 运行时',
-    store: '插件商店',
     uninstall: '卸载',
   },
 };

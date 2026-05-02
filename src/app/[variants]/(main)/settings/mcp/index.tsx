@@ -1,17 +1,18 @@
 'use client';
 
+import { MCP } from '@lobehub/icons';
 import { Button, DraggablePanel, Icon, Text } from '@lobehub/ui';
 import { App, Empty, Input } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
 import isEqual from 'fast-deep-equal';
-import { Package, PackagePlus, Search, Store } from 'lucide-react';
+import { Package, PackagePlus, Search } from 'lucide-react';
+import Link from 'next/link';
 import { memo, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
 import PluginItem from '@/features/PluginStore/InstalledList/List/Item';
 import PluginDevModal from '@/features/PluginDevModal';
-import PluginStore from '@/features/PluginStore';
 import { useFetchInstalledPlugins } from '@/hooks/useFetchInstalledPlugins';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
@@ -62,7 +63,6 @@ const McpManagement = memo(() => {
   const ref = useRef<HTMLDivElement>(null);
 
   const [showDevModal, setShowDevModal] = useState(false);
-  const [showStore, setShowStore] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [searchKeywords, setSearchKeywords] = useState('');
 
@@ -132,7 +132,6 @@ const McpManagement = memo(() => {
           onValueChange={updateNewDevPlugin}
           open={showDevModal}
         />
-        <PluginStore open={showStore} setOpen={setShowStore} />
         <Center height={'75vh'} paddingBlock={40}>
           <Empty
             description={t('mcpManagement.empty')}
@@ -142,9 +141,11 @@ const McpManagement = memo(() => {
               <Button icon={PackagePlus} onClick={handleAdd}>
                 {t('mcpManagement.add')}
               </Button>
-              <Button icon={Store} onClick={() => setShowStore(true)}>
-                {t('mcpManagement.store')}
-              </Button>
+              <Link href="/discover/mcp">
+                <Button icon={<MCP className="anticon" size={16} />}>
+                  {t('mcpManagement.library')}
+                </Button>
+              </Link>
             </Flexbox>
           </Empty>
         </Center>
@@ -178,7 +179,6 @@ const McpManagement = memo(() => {
         open={showDevModal}
         value={selectedPlugin as any}
       />
-      <PluginStore open={showStore} setOpen={setShowStore} />
 
       <Flexbox gap={12} height={'100%'} style={{ overflow: 'hidden' }} width={'100%'}>
         <Flexbox align={'center'} gap={8} horizontal justify={'space-between'}>
@@ -194,9 +194,11 @@ const McpManagement = memo(() => {
             <Button icon={PackagePlus} onClick={handleAdd} size={'small'}>
               {t('mcpManagement.add')}
             </Button>
-            <Button icon={Store} onClick={() => setShowStore(true)} size={'small'}>
-              {t('mcpManagement.store')}
-            </Button>
+            <Link href="/discover/mcp">
+              <Button icon={<MCP className="anticon" size={16} />} size={'small'}>
+                {t('mcpManagement.library')}
+              </Button>
+            </Link>
           </Flexbox>
         </Flexbox>
 

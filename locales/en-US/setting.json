@@ -743,8 +743,8 @@
     "editBtn": "Edit Now",
     "editPrompt": "Please go to the edit page to view details.",
     "empty": "No MCP plugins installed",
+    "library": "MCP Library",
     "mcpRuntime": "MCP Runtime",
-    "store": "Plugin Store",
     "uninstall": "Uninstall"
   }
 }
