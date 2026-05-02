@@ -737,6 +737,9 @@
     "title": "Extension Tools"
   },
   "mcpManagement": {
-    "description": "Manage and configure installed MCP plugins — enable or disable plugins and view their status."
+    "description": "Manage and configure installed MCP plugins — enable or disable plugins and view their status.",
+    "empty": "No MCP plugins installed",
+    "mcpRuntime": "MCP Runtime",
+    "uninstall": "Uninstall"
   }
 }

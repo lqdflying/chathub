@@ -745,5 +745,8 @@ export default {
   },
   mcpManagement: {
     description: '管理和配置已安装的 MCP 插件，可以启用或禁用插件，查看其运行状态。',
+    empty: '暂无已安装的 MCP 插件',
+    mcpRuntime: 'MCP 运行时',
+    uninstall: '卸载',
   },
 };
