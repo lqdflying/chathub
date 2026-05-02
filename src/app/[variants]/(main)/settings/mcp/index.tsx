@@ -185,7 +185,7 @@ const McpManagement = memo(() => {
           <Input
             allowClear
             onChange={(e) => setSearchKeywords(e.target.value)}
-            placeholder={tPlugin('store.searchPlaceholder')}
+            placeholder={tPlugin('store.placeholder')}
             prefix={<Icon icon={Search} />}
             style={{ maxWidth: 400, width: '100%' }}
             value={searchKeywords}
