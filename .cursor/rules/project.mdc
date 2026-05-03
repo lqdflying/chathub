@@ -111,7 +111,7 @@ The GitHub wiki is a **completely separate git repository** from the main codeba
 
 | Property | Value |
 |---|---|
-| Repo URL | `https://github.com/lqdflying/chathub.wiki.git` |
+| Repo URL | `git@github.com:lqdflying/chathub.wiki.git` (SSH) |
 | Workspace path | `wiki/` (gitignored in main repo) |
 | Default branch | **`master`** (NOT `main`) |
 
@@ -125,20 +125,21 @@ Must show `* master` and `remotes/origin/master` pointing to `.wiki.git`. If it 
 
 ### Working with wiki pages
 
+Use `git -C wiki` from the workspace root (no need to `cd`):
+
 ```bash
-cd wiki
-git status              # MUST show wiki repo state, not main repo
-git add <page>.md       # stage changes
-git commit -m "..."     # commit to wiki repo's master branch
-git fetch origin master # fetch latest
-git push origin master  # push to wiki remote
+git -C wiki status              # MUST show wiki repo state, not main repo
+git -C wiki add <page>.md       # stage changes
+git -C wiki commit -m "..."     # commit to wiki repo's master branch
+git -C wiki fetch origin master # fetch latest
+git -C wiki push origin master  # push to wiki remote
 ```
 
 ### Clone / re-clone if broken
 
 ```bash
-# Clone fresh to /tmp (HTTPS works reliably)
-git clone https://github.com/lqdflying/chathub.wiki.git /tmp/chathub-wiki
+# Clone fresh to /tmp (SSH)
+git clone git@github.com:lqdflying/chathub.wiki.git /tmp/chathub-wiki
 
 # Make edits in /tmp clone, commit, push
 cd /tmp/chathub-wiki
