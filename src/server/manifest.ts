@@ -36,7 +36,6 @@ export class Manifest {
     screenshots: ScreenshotItem[];
   }) {
     return {
-      background_color: color,
       cache_busting_mode: 'all',
       categories: ['productivity', 'design', 'development', 'education'],
       description: description,
