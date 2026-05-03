@@ -8,9 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { BRANDING_NAME } from '@/const/branding';
-import { RELEASES_URL } from '@/const/url';
 
-import ItemLink from './features/ItemLink';
+import ReleaseLog from './features/ReleaseLog';
 import Version from './features/Version';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -36,11 +35,7 @@ const Page = memo<{ mobile?: boolean }>(({ mobile }) => {
         <Version mobile={mobile} />
         <Divider style={{ marginBlock: 0 }} />
         <div className={styles.title}>{t('releaseLog') || 'Release Log'}</div>
-        <ItemLink
-          href={RELEASES_URL}
-          label={t('releaseLog') || 'Release Log'}
-          value="releaseLog"
-        />
+        <ReleaseLog />
       </Flexbox>
     </Form.Group>
   );
