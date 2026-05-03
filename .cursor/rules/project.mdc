@@ -47,6 +47,54 @@ These idempotent `CREATE IF NOT EXISTS` queries are safe to run on every contain
 
 For every **fix** or **feature**: sync `main`, then **`git checkout -b`** a **new** `feat/<slug>` or `fix/<slug>` — **never** implement on `main`, and do not reuse an unrelated topic branch unless the user says so. **Implementation plans** (Plan mode / `CreatePlan`) must include a short **Git workflow** subsection plus the no-commit/push-without-explicit-approval rule. Full workflow, canary/GA, and Docker release: **`.cursor/rules/git-and-release.mdc`**.
 
+## Branding / fork cleanup — when clearing values or rebranding
+
+### If you set a SOCIAL_URL, BRANDING_EMAIL, or any URL constant to `undefined`
+
+You MUST grep for every consumer of that constant and guard it. `<Link href={undefined}>` causes a Next.js prerender crash (`Cannot destructure property 'auth' of 'e' as it is undefined`) that **type-checking will not catch** — only the Docker build will.
+
+Guard patterns:
+
+```typescript
+// For single links:
+{SOCIAL_URL.x && <Link href={SOCIAL_URL.x}>...</Link>}
+
+// For arrays of link items:
+items={[...].filter((item) => !!item.href)}
+
+// For JSON-LD arrays:
+'sameAs': [SOCIAL_URL.x, SOCIAL_URL.github].filter(Boolean),
+```
+
+Key consumer files to check when changing branding constants:
+- `src/app/[variants]/(main)/changelog/features/Hero.tsx`
+- `src/app/[variants]/(main)/settings/about/index.tsx`
+- `src/features/Follow/index.tsx`
+- `src/features/User/UserPanel/useMenu.tsx`
+- `src/server/ld.ts`
+
+### `const` ordering in url.ts — TDZ errors
+
+`export const A = B;` where `B` is defined further down the file causes a TDZ (Temporal Dead Zone) `ReferenceError` at build time. Type-checking passes. Only Next.js build catches it. When adding/changing URL constants, place them **before** any other constant that references them.
+
+### Version check service (`src/services/global.ts`)
+
+During a fork or rebrand, `getLatestVersion` MUST point to your own release feed, NOT the upstream npm package. Change the `VERSION_URL` fetch target — this is easy to miss because it lives in the services layer, not in branding constants.
+
+### Full rebrand checklist (beyond branding constants)
+
+When forking or rebranding, these files are commonly missed:
+
+| File | Why |
+|------|-----|
+| `src/services/global.ts` | `VERSION_URL` fetches from upstream npm |
+| `src/server/metadata.ts` | Hardcoded fallback description string |
+| `src/app/manifest.ts` | Hardcoded app description |
+| `src/locales/default/metadata.ts` | Locale descriptions (source of truth) |
+| `locales/{en-US,zh-CN}/metadata.json` | Locale descriptions (served JSON) |
+| `packages/const/src/url.ts` | `PLUGINS_INDEX_URL`, `AGENTS_INDEX_GITHUB`, etc. |
+| `src/envs/app.ts` | `ASSISTANT_INDEX_URL`, `PLUGINS_INDEX_URL` npm registries |
+
 ## MCP OAuth 2.1
 
 For MCP plugins with OAuth authentication (auto-discovery, redirect_uri, token exchange, callback flow): **`.cursor/rules/mcp-oauth.mdc`**. The `redirect_uri` must always be `${window.location.origin}/oauth/mcp-callback` — the app's own callback URL.
