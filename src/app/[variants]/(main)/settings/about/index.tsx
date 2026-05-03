@@ -49,17 +49,17 @@ const Page = memo<{ mobile?: boolean }>(({ mobile }) => {
                 label: t('officialSite'),
                 value: 'officialSite',
               },
-              {
+              BRANDING_EMAIL.support && {
                 href: mailTo(BRANDING_EMAIL.support),
                 label: t('mail.support'),
                 value: 'support',
               },
-              {
+              BRANDING_EMAIL.business && {
                 href: mailTo(BRANDING_EMAIL.business),
                 label: t('mail.business'),
                 value: 'business',
               },
-            ]}
+            ].filter(Boolean)}
           />
           <Divider style={{ marginBlock: 0 }} />
           <div className={styles.title}>{t('information')}</div>

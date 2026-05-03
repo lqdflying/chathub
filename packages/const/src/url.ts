@@ -15,7 +15,7 @@ export const OG_URL = '/og/cover.png?v=1';
 
 export const GITHUB = 'https://github.com/lqdflying/chathub';
 export const GITHUB_ISSUES = urlJoin(GITHUB, 'issues/new/choose');
-export const CHANGELOG = 'https://chathub.dev/changelog';
+export const CHANGELOG = '/changelog';
 export const DOCKER_IMAGE = 'https://hub.docker.com/r/lqdflying/chathub';
 
 export const DOCUMENTS = urlJoin(OFFICIAL_SITE, '/docs');
@@ -65,4 +65,4 @@ export const mailTo = (email: string) => `mailto:${email}`;
 export const AES_GCM_URL = 'https://datatracker.ietf.org/doc/html/draft-ietf-avt-srtp-aes-gcm-01';
 export const BASE_PROVIDER_DOC_URL = 'https://chathub.dev/docs/usage/providers';
 export const SITEMAP_BASE_URL = isDev ? '/sitemap.xml/' : 'sitemap';
-export const CHANGELOG_URL = urlJoin(OFFICIAL_SITE, 'changelog/versions');
+export const CHANGELOG_URL = '/changelog';
