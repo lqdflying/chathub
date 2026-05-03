@@ -4,7 +4,7 @@ import { BRANDING_LOGO_URL } from '@/const/branding';
 import { getCanonicalUrl } from '@/server/utils/url';
 
 const MAX_AGE = 31_536_000;
-const COLOR = '#ffffff';
+const COLOR = '#cde2fa';
 
 interface IconItem {
   purpose: 'any' | 'maskable';
