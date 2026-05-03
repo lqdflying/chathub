@@ -29,6 +29,7 @@ export const DOCUMENTS_REFER_URL = `${DOCUMENTS}?utm_source=${UTM_SOURCE}`;
 
 export const WIKI = urlJoin(GITHUB, 'wiki');
 export const WIKI_PLUGIN_GUIDE = urlJoin(USAGE_DOCUMENTS, '/plugins/development');
+export const RELEASES_URL = urlJoin(GITHUB, 'releases');
 export const MANUAL_UPGRADE_URL = RELEASES_URL;
 
 export const BLOG = urlJoin(OFFICIAL_SITE, 'blog');
@@ -58,8 +59,6 @@ export const SESSION_CHAT_URL = (id: string = INBOX_SESSION_ID, mobile?: boolean
 export const imageUrl = (filename: string) => `/images/${filename}`;
 
 export const LOBE_URL_IMPORT_NAME = 'settings';
-
-export const RELEASES_URL = urlJoin(GITHUB, 'releases');
 
 export const mailTo = (email: string) => `mailto:${email}`;
 
