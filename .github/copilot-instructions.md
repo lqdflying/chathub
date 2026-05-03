@@ -11,7 +11,7 @@ Reason from raw requirements and root causes, not from convention or templates.
 
 ## Project Overview
 
-**LobeHub** is a custom fork of LobeChat (diverged at v3.0.0), targeting self-hosted Docker + PostgreSQL deployments. Docker image: `docker.io/lqdflying/lobehub`. Do **not** blindly sync upstream changes from `github.com/lobehub/lobe-chat`.
+**ChatHub** is a custom fork of LobeChat (diverged at v3.0.0), targeting self-hosted Docker + PostgreSQL deployments. Docker image: `docker.io/lqdflying/chathub`. Do **not** blindly sync upstream changes from `github.com/lobehub/lobe-chat`.
 
 ## Commands
 
@@ -146,5 +146,5 @@ All utility features live under `/tools/*` with a shared left sub-nav panel (`Si
 ## Git & Releases
 
 - Commit messages must be prefixed with a gitmoji (e.g. `✨ feat:`, `🐛 fix:`, `🔖 chore:`)
-- Version scheme: `v3.x.x` (independent of upstream v1.x)
+- Version scheme: `v1.x.x` (ChatHub independent versioning)
 - Release: bump `package.json`, commit, tag `vX.X.X`, push tag → GitHub Actions builds & pushes Docker image

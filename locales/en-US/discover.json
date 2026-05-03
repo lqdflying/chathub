@@ -188,7 +188,7 @@
         "title": "Installation Method"
       },
       "githubBadge": {
-        "desc": "LobeHub regularly scans code repositories and documentation to:\n\n- Confirm MCP server operational status.\n- Extract server features such as tools, resources, prompts, and required parameters.\n- Our badge helps users quickly assess MCP server security, feature set, and installation instructions.\n\nPlease copy the following code into your `README.md` file:"
+        "desc": "ChatHub regularly scans code repositories and documentation to:\n\n- Confirm MCP server operational status.\n- Extract server features such as tools, resources, prompts, and required parameters.\n- Our badge helps users quickly assess MCP server security, feature set, and installation instructions.\n\nPlease copy the following code into your `README.md` file:"
       },
       "nav": {
         "needHelp": "Need Help?",

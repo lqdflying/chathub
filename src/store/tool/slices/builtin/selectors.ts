@@ -22,7 +22,7 @@ const metaList =
         return true;
       })
       .map((t) => ({
-        author: 'LobeHub',
+        author: 'ChatHub',
         identifier: t.identifier,
         meta: t.manifest.meta,
         type: 'builtin',

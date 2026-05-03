@@ -1,6 +1,6 @@
 import { CreateFileParams, ElectronIpcClient, FileMetadata } from '@lobechat/electron-server-ipc';
 
-class LobeHubElectronIpcClient extends ElectronIpcClient {
+class ChatHubElectronIpcClient extends ElectronIpcClient {
   // 获取数据库路径
   getDatabasePath = async (): Promise<string> => {
     return this.sendRequest<string>('getDatabasePath');
@@ -41,4 +41,4 @@ class LobeHubElectronIpcClient extends ElectronIpcClient {
   };
 }
 
-export const electronIpcClient = new LobeHubElectronIpcClient('lobehub');
+export const electronIpcClient = new ChatHubElectronIpcClient('chathub');

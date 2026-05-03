@@ -1,13 +1,7 @@
-import { LobeHub, type LobeHubProps } from '@lobehub/ui/brand';
 import { memo } from 'react';
 
-import { ORG_NAME } from '@/const/branding';
-import { isCustomORG } from '@/const/version';
+import { BRANDING_NAME } from '@/const/branding';
 
-export const OrgBrand = memo<LobeHubProps>((props) => {
-  if (isCustomORG) {
-    return <span>{ORG_NAME}</span>;
-  }
-
-  return <LobeHub {...props} />;
+export const OrgBrand = memo(() => {
+  return <span>{BRANDING_NAME}</span>;
 });

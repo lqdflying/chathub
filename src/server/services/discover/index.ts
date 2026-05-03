@@ -63,7 +63,7 @@ export class DiscoverService {
     const deviceId = await getDeviceId();
 
     const { client_id, client_secret } = await this.market.registerClient({
-      clientName: `LobeHub ${isDesktop ? 'Desktop' : 'Web'}`,
+      clientName: `ChatHub ${isDesktop ? 'Desktop' : 'Web'}`,
       clientType: isDesktop ? 'desktop' : 'web',
       deviceId,
       platform: isDesktop ? process.platform : userAgent,

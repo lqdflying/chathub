@@ -72,10 +72,10 @@ to be stacked before they are worth a new commit/tag.
 Docker builds run **only on tag pushes**, not on commits to `main`.
 `.github/workflows/docker-release.yml` reacts to:
 
-- `v*.*.*` → pushes `lqdflying/lobehub:X.Y.Z` **and** `:latest` (GA only)
-- `v*.*.*-canary.*` → pushes `lqdflying/lobehub:X.Y.Z-canary.N` (does **not** touch `:latest`)
+- `v*.*.*` → pushes `lqdflying/chathub:X.Y.Z` **and** `:latest` (GA only)
+- `v*.*.*-canary.*` → pushes `lqdflying/chathub:X.Y.Z-canary.N` (does **not** touch `:latest`)
 
-Version scheme: `v3.x.x` (LobeHub independent versioning, unrelated to upstream v1.x).
+Version scheme: `v1.x.x` (ChatHub independent versioning, unrelated to upstream v1.x).
 
 **Docker build reliability:** `.github/workflows/docker-release.yml` frees unused runner disk (preinstalled SDK trees, `docker system prune`) before `docker build` so large Next.js images are less likely to hit **“No space left on device”** on `ubuntu-latest`.
 
@@ -103,14 +103,14 @@ both canary and formal tags.
    ```
 5. Verify the build on the **fork**, not upstream:
    ```bash
-   gh run list -R lqdflying/lobehub --workflow=docker-release.yml --limit 3
+   gh run list -R lqdflying/chathub --workflow=docker-release.yml --limit 3
    ```
 6. Do not merge the branch to `main` until the canary image has been tested.
 
 ## Recover from a wrong tag
 
 ```bash
-gh run cancel <run-id> -R lqdflying/lobehub
+gh run cancel <run-id> -R lqdflying/chathub
 git push --delete origin vBAD && git tag -d vBAD
 git tag vGOOD && git push origin vGOOD
 ```
@@ -139,7 +139,7 @@ Every GA tag **must** be accompanied by a `gh release create`. The release descr
 
 1. Find the **previous GA tag**:
    ```bash
-   gh release list -R lqdflying/lobehub --limit 5
+   gh release list -R lqdflying/chathub --limit 5
    # or: git tag -l 'v*' --sort=-v:refname | grep -v 'canary' | head -2
    ```
 2. Generate the **release notes** by reviewing all commits between the previous GA and the new tag:
@@ -148,7 +148,7 @@ Every GA tag **must** be accompanied by a `gh release create`. The release descr
    ```
 3. Create the release:
    ```bash
-   gh release create vX.Y.Z -R lqdflying/lobehub \
+   gh release create vX.Y.Z -R lqdflying/chathub \
      --title "vX.Y.Z — <short summary>" \
      --notes "$(cat <<'EOF'
    ## Highlights
@@ -162,7 +162,7 @@ Every GA tag **must** be accompanied by a `gh release create`. The release descr
 
    ---
 
-   Full diff: https://github.com/lqdflying/lobehub/compare/vPREV...vNEW
+   Full diff: https://github.com/lqdflying/chathub/compare/vPREV...vNEW
    EOF
    )"
    ```

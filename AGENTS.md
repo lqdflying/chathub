@@ -1,4 +1,4 @@
-# Agent instructions (LobeHub)
+# Agent instructions (ChatHub)
 
 This file is for automated agents and assistants working in this repository. Authoritative detail lives under **`.cursor/rules/`**.
 

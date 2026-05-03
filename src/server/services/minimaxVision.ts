@@ -45,7 +45,7 @@ export const minimaxVisionService = {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          'MM-API-Source': 'LobeHub',
+          'MM-API-Source': 'ChatHub',
         },
         method: 'POST',
       });

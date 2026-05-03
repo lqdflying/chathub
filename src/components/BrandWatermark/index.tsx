@@ -1,14 +1,12 @@
 'use client';
 
-import { LobeHub } from '@lobehub/ui/brand';
+import { ProductLogo } from '@/components/Branding';
 import { createStyles } from 'antd-style';
 import Link from 'next/link';
 import { memo } from 'react';
 import { Flexbox, FlexboxProps } from 'react-layout-kit';
 
-import { ORG_NAME } from '@/const/branding';
-import { UTM_SOURCE } from '@/const/url';
-import { isCustomORG } from '@/const/version';
+import { GITHUB } from '@/const/url';
 
 const useStyles = createStyles(({ token, css }) => ({
   logoLink: css`
@@ -34,17 +32,13 @@ const BrandWatermark = memo<Omit<FlexboxProps, 'children'>>(({ style, ...rest })
       {...rest}
     >
       <span>Powered by</span>
-      {isCustomORG ? (
-        <span>{ORG_NAME}</span>
-      ) : (
-        <Link
-          className={styles.logoLink}
-          href={`https://lobehub.com?utm_source=${UTM_SOURCE}&utm_content=brand_watermark`}
-          target={'_blank'}
-        >
-          <LobeHub size={20} type={'text'} />
-        </Link>
-      )}
+      <Link
+        className={styles.logoLink}
+        href={GITHUB}
+        target={'_blank'}
+      >
+        <ProductLogo size={20} type={'text'} />
+      </Link>
     </Flexbox>
   );
 });

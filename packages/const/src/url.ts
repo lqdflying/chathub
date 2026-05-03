@@ -7,16 +7,16 @@ const isDev = process.env.NODE_ENV === 'development';
 
 export const UTM_SOURCE = 'chat_preview';
 
-export const OFFICIAL_URL = 'https://lobechat.com';
-export const OFFICIAL_PREVIEW_URL = 'https://chat-preview.lobehub.com';
-export const OFFICIAL_SITE = 'https://lobehub.com';
+export const OFFICIAL_URL = 'https://chathub.dev';
+export const OFFICIAL_PREVIEW_URL = 'https://chat-preview.chathub.dev';
+export const OFFICIAL_SITE = 'https://chathub.dev';
 
 export const OG_URL = '/og/cover.png?v=1';
 
-export const GITHUB = 'https://github.com/lobehub/lobe-chat';
+export const GITHUB = 'https://github.com/lqdflying/chathub';
 export const GITHUB_ISSUES = urlJoin(GITHUB, 'issues/new/choose');
-export const CHANGELOG = 'https://lobehub.com/changelog';
-export const DOCKER_IMAGE = 'https://hub.docker.com/r/lobehub/lobe-chat';
+export const CHANGELOG = 'https://chathub.dev/changelog';
+export const DOCKER_IMAGE = 'https://hub.docker.com/r/lqdflying/chathub';
 
 export const DOCUMENTS = urlJoin(OFFICIAL_SITE, '/docs');
 export const USAGE_DOCUMENTS = urlJoin(DOCUMENTS, '/usage');
@@ -34,7 +34,7 @@ export const MANUAL_UPGRADE_URL = urlJoin(SELF_HOSTING_DOCUMENTS, '/advanced/ups
 export const BLOG = urlJoin(OFFICIAL_SITE, 'blog');
 
 export const ABOUT = OFFICIAL_SITE;
-export const FEEDBACK = 'https://github.com/lobehub/lobe-chat/issues/new/choose';
+export const FEEDBACK = urlJoin(GITHUB, 'issues/new/choose');
 export const PRIVACY_URL = urlJoin(OFFICIAL_SITE, '/privacy');
 export const TERMS_URL = urlJoin(OFFICIAL_SITE, '/terms');
 
@@ -64,6 +64,6 @@ export const RELEASES_URL = urlJoin(GITHUB, 'releases');
 export const mailTo = (email: string) => `mailto:${email}`;
 
 export const AES_GCM_URL = 'https://datatracker.ietf.org/doc/html/draft-ietf-avt-srtp-aes-gcm-01';
-export const BASE_PROVIDER_DOC_URL = 'https://lobehub.com/docs/usage/providers';
+export const BASE_PROVIDER_DOC_URL = 'https://chathub.dev/docs/usage/providers';
 export const SITEMAP_BASE_URL = isDev ? '/sitemap.xml/' : 'sitemap';
 export const CHANGELOG_URL = urlJoin(OFFICIAL_SITE, 'changelog/versions');

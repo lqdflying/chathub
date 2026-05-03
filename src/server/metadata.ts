@@ -90,7 +90,7 @@ export class Meta {
       card: 'summary_large_image',
       description,
       images: [image],
-      site: '@lobehub',
+      site: '@chathub',
       title,
       url,
     };
@@ -122,7 +122,7 @@ export class Meta {
         },
       ],
       locale,
-      siteName: 'LobeChat',
+      siteName: 'ChatHub',
       title,
       type,
       url,

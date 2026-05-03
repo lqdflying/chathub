@@ -132,7 +132,7 @@ export const createMCPPluginStoreSlice: StateCreator<
     let data: any;
     let result: CheckMcpInstallResult | undefined;
     let connection: any;
-    const userAgent = `LobeHub Desktop/${CURRENT_VERSION}`;
+    const userAgent = `ChatHub Desktop/${CURRENT_VERSION}`;
 
     try {
       // 检查是否已被取消

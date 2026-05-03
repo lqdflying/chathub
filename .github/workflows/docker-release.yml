@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY_IMAGE: lqdflying/lobehub
+  REGISTRY_IMAGE: lqdflying/chathub
 
 jobs:
   build:

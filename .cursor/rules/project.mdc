@@ -1,11 +1,11 @@
 ---
-description: Project overview, tech stack, and naming conventions for LobeHub fork
+description: Project overview, tech stack, and naming conventions for ChatHub fork
 alwaysApply: true
 ---
 
-# LobeHub (lqdflying/lobehub)
+# ChatHub (lqdflying/chathub)
 
-Custom fork/distribution of LobeChat, maintained independently starting at v3.0.0. Targets **self-hosted Docker + PostgreSQL only**. Docker image: `docker.io/lqdflying/lobehub`.
+Custom fork/distribution of LobeChat, maintained independently starting at v3.0.0 (rebranded to ChatHub at v1.0.0). Targets **self-hosted Docker + PostgreSQL only**. Docker image: `docker.io/lqdflying/chathub`.
 
 Upstream: https://github.com/lobehub/lobe-chat — diverged significantly. **Do not blindly sync upstream changes.**
 
@@ -63,7 +63,7 @@ The GitHub wiki is a **completely separate git repository** from the main codeba
 
 | Property | Value |
 |---|---|
-| Repo URL | `https://github.com/lqdflying/lobehub.wiki.git` |
+| Repo URL | `https://github.com/lqdflying/chathub.wiki.git` |
 | Workspace path | `wiki/` (gitignored in main repo) |
 | Default branch | **`master`** (NOT `main`) |
 
@@ -90,16 +90,16 @@ git push origin master  # push to wiki remote
 
 ```bash
 # Clone fresh to /tmp (HTTPS works reliably)
-git clone https://github.com/lqdflying/lobehub.wiki.git /tmp/lobehub-wiki
+git clone https://github.com/lqdflying/chathub.wiki.git /tmp/chathub-wiki
 
 # Make edits in /tmp clone, commit, push
-cd /tmp/lobehub-wiki
+cd /tmp/chathub-wiki
 # ... edits ...
 git add . && git commit -m "..." && git push origin master
 
 # Then replace workspace copy
 mv /home/opc/lobehub/wiki /home/opc/lobehub/wiki-broken
-cp -r /tmp/lobehub-wiki /home/opc/lobehub/wiki
+cp -r /tmp/chathub-wiki /home/opc/lobehub/wiki
 ```
 
 ### NEVER do these

@@ -5,7 +5,7 @@ alwaysApply: true
 
 # MCP OAuth 2.1 Authentication
 
-LobeHub supports OAuth 2.1 Authorization Code flow with PKCE for MCP plugins. Users only need the MCP server URL — all OAuth metadata is auto-discovered.
+ChatHub supports OAuth 2.1 Authorization Code flow with PKCE for MCP plugins. Users only need the MCP server URL — all OAuth metadata is auto-discovered.
 
 ## Architecture
 

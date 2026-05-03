@@ -1,8 +1,8 @@
 'use client';
 
 import { BRANDING_NAME, DOCUMENTS_REFER_URL, PRIVACY_URL, TERMS_URL } from '@lobechat/const';
+import { ProductLogo } from '@/components/Branding';
 import { Button, Text } from '@lobehub/ui';
-import { LobeHub } from '@lobehub/ui/brand';
 import { Col, Divider, Flex, Row, Skeleton } from 'antd';
 import { createStyles } from 'antd-style';
 import { AuthError } from 'next-auth';
@@ -119,7 +119,7 @@ export default memo(() => {
           <div className={styles.text}>
             <Text as={'h4'} className={styles.title}>
               <div>
-                <LobeHub size={48} />
+                <ProductLogo size={48} />
               </div>
               {t('signIn.start.title', { applicationName: BRANDING_NAME })}
             </Text>

@@ -2,12 +2,11 @@ import { ModelProviderCard } from '@/types/llm';
 
 const LobeHub: ModelProviderCard = {
   chatModels: [],
-  description:
-    'LobeHub Cloud 通过官方部署的 API 来实现 AI 模型的调用，并采用 Credits 计算积分的方式来衡量 AI 模型的用量，对应大模型使用的 Tokens。',
+  description: 'ChatHub Cloud 提供开箱即用的 AI 模型调用，通过积分制简化大语言模型的使用与计费。',
   enabled: true,
   id: 'lobehub',
-  modelsUrl: 'https://lobehub.com/zh/docs/usage/subscription/model-pricing',
-  name: 'LobeHub',
+  modelsUrl: 'https://chathub.dev/docs/usage/subscription/model-pricing',
+  name: 'ChatHub',
   settings: {
     modelEditable: false,
     showAddNewModel: false,
