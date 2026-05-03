@@ -165,15 +165,19 @@ export const useMenu = () => {
             </Link>
           ),
         },
-        {
-          icon: <Icon icon={DiscordIcon} />,
-          key: 'discord',
-          label: (
-            <Link href={SOCIAL_URL.discord} target={'_blank'}>
-              {t('userPanel.discord')}
-            </Link>
-          ),
-        },
+        ...(SOCIAL_URL.discord
+          ? [
+              {
+                icon: <Icon icon={DiscordIcon} />,
+                key: 'discord',
+                label: (
+                  <Link href={SOCIAL_URL.discord} target={'_blank'}>
+                    {t('userPanel.discord')}
+                  </Link>
+                ),
+              },
+            ]
+          : []),
         {
           icon: <Icon icon={Mail} />,
           key: 'email',

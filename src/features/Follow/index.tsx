@@ -39,23 +39,29 @@ const Follow = memo(() => {
           title={t('follow', { name: 'GitHub' })}
         />
       </Link>
-      <Link href={SOCIAL_URL.x} rel="noreferrer" target={'_blank'}>
-        <ActionIcon className={styles.icon} icon={SiX as any} title={t('follow', { name: 'X' })} />
-      </Link>
-      <Link href={SOCIAL_URL.discord} rel="noreferrer" target={'_blank'}>
-        <ActionIcon
-          className={styles.icon}
-          icon={SiDiscord as any}
-          title={t('follow', { name: 'Discord' })}
-        />
-      </Link>
-      <Link href={SOCIAL_URL.medium} rel="noreferrer" target={'_blank'}>
-        <ActionIcon
-          className={styles.icon}
-          icon={SiMedium as any}
-          title={t('follow', { name: 'Medium' })}
-        />
-      </Link>
+      {SOCIAL_URL.x && (
+        <Link href={SOCIAL_URL.x} rel="noreferrer" target={'_blank'}>
+          <ActionIcon className={styles.icon} icon={SiX as any} title={t('follow', { name: 'X' })} />
+        </Link>
+      )}
+      {SOCIAL_URL.discord && (
+        <Link href={SOCIAL_URL.discord} rel="noreferrer" target={'_blank'}>
+          <ActionIcon
+            className={styles.icon}
+            icon={SiDiscord as any}
+            title={t('follow', { name: 'Discord' })}
+          />
+        </Link>
+      )}
+      {SOCIAL_URL.medium && (
+        <Link href={SOCIAL_URL.medium} rel="noreferrer" target={'_blank'}>
+          <ActionIcon
+            className={styles.icon}
+            icon={SiMedium as any}
+            title={t('follow', { name: 'Medium' })}
+          />
+        </Link>
+      )}
     </Flexbox>
   );
 });

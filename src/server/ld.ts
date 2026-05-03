@@ -105,7 +105,7 @@ export class Ld {
         'width': 512,
       },
       'name': 'ChatHub',
-      'sameAs': [SOCIAL_URL.x, SOCIAL_URL.github, SOCIAL_URL.medium, SOCIAL_URL.youtube],
+      'sameAs': [SOCIAL_URL.x, SOCIAL_URL.github, SOCIAL_URL.medium, SOCIAL_URL.youtube].filter(Boolean),
       'url': OFFICIAL_SITE,
     };
   }

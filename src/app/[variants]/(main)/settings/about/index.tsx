@@ -98,7 +98,7 @@ const Page = memo<{ mobile?: boolean }>(({ mobile }) => {
                 label: 'Medium',
                 value: 'medium',
               },
-            ]}
+            ].filter((item) => !!item.href)}
           />
           <Divider style={{ marginBlock: 0 }} />
           <div className={styles.title}>{t('legal')}</div>
