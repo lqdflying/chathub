@@ -1,3 +1,5 @@
+![ChatHub](public/logo/chathub-full.png)
+
 # ChatHub
 
 > A self-hosted, production-ready AI chat platform — built on [LobeChat](https://github.com/lobehub/lobe-chat), significantly extended for real-world self-hosted deployments.
