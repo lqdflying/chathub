@@ -77,7 +77,17 @@ Docker builds run **only on tag pushes**, not on commits to `main`.
 
 Version scheme: `v1.x.x` (ChatHub independent versioning, unrelated to upstream v1.x).
 
-**Docker build reliability:** `.github/workflows/docker-release.yml` frees unused runner disk (preinstalled SDK trees, `docker system prune`) before `docker build` so large Next.js images are less likely to hit **“No space left on device”** on `ubuntu-latest`.
+**Docker build reliability:** `.github/workflows/docker-release.yml` frees unused runner disk (preinstalled SDK trees, `docker system prune`) before `docker build` so large Next.js images are less likely to hit **"No space left on device"** on `ubuntu-latest`.
+
+## Docs / rules-only commits — no tag needed
+
+Commits that change **only** documentation or rules files (`.md`, `.mdc` in `.cursor/rules/`, wiki, etc.) do NOT need a canary tag. These commits don't affect the Docker image output, so triggering a Docker build is wasteful.
+
+- `git add` + `git commit` + `git push` — that's it, no tag
+- Example: `📝 docs: add PWA icon style rule`
+- Example: `📝 docs: update git workflow rules`
+
+If other functional changes are mixed in (code, icons, config), the canary flow still applies.
 
 ## Fix / feature canary flow (default)
 
