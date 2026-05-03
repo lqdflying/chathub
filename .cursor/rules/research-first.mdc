@@ -13,19 +13,11 @@ Before producing any **implementation plan** or **bug fix** for:
 - New features (any non-trivial code change)
 - Bug fixes — ALL bugs, not just external service ones (e.g., PWA icons, CSS rendering, platform-specific behavior, browser quirks)
 
-You **MUST** research first, taking **full advantage** of all available search tools:
-
-| Tool | Use for |
-|------|---------|
-| `WebSearch` | General web search, StackOverflow, blog posts, current docs |
-| `WebFetch` | Read full pages from URLs found by search |
-| **Tavily MCP** (`user-tavily`) | Deep advanced web search with higher relevance |
-| **Context7 MCP** (`plugin-context7`) | Up-to-date library/framework documentation with code snippets |
-| **Microsoft Docs MCP** (`user-microsoftdocs`) | Official Microsoft documentation (Windows PWA, Edge, etc.) |
+You **MUST** research first, taking **full advantage** of all available search tools (see **`.cursor/rules/tool-inventory.mdc`** for the complete catalog with usage cases and characteristics).
 
 **Workflow:**
 
-1. **Search broadly** — use at least 2 different search tools to cross-reference findings
+1. **Search broadly** — use at least 2 different search tools to cross-reference findings (e.g., `tavily_search` + `WebSearch`, or `microsoft_docs_search` + `parallel_search_web`)
 2. **Official vendor documentation** — fetch and read the relevant API reference, OpenAPI schema, changelog, and model-specific docs
 3. **Real-world samples** — find production examples, GitHub issues, StackOverflow discussions, and blog posts that confirm the approach works
 4. **Cross-reference** — confirm that what you plan to build matches what the vendor actually supports

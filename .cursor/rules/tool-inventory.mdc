@@ -1,0 +1,169 @@
+---
+description: Complete inventory of available search/research tools with usage cases and characteristics
+alwaysApply: true
+---
+
+# Available Tools & MCP Server Inventory
+
+When researching or debugging, use the right tool for the job. Here are all available tools, their strengths, and when to use each.
+
+---
+
+## Built-in Agent Tools
+
+| Tool | Purpose | Best For |
+|------|---------|----------|
+| `WebSearch` | Broad web search with AI-summarized results | Quick lookups, current events, library docs overview |
+| `WebFetch` | Fetch full page content as markdown | Reading specific URLs found by search |
+| `SemanticSearch` | Find code by meaning in the workspace | Exploring codebase structure, finding implementations |
+| `Grep` | Exact text/regex search in workspace | Finding specific symbols, strings, patterns |
+| `Glob` | Find files by name pattern | Locating specific files or file types |
+| `Task` | Launch subagents for parallel work | Heavy parallel exploration, browser automation, best-of-N |
+
+---
+
+## MCP Server: Tavily (`user-tavily`)
+
+**Best for:** High-quality web search with advanced filtering, deep research, site crawling
+
+| Tool | Purpose | Key Params | Best For |
+|------|---------|------------|----------|
+| `tavily_search` | Web search with advanced options | `query`, `search_depth` (`basic`/`advanced`), `max_results`, `time_range`, `include_domains`, `country` | Targeted searches with domain/time/country filters |
+| `tavily_research` | Comprehensive multi-source research | `input` (detailed task description), `model` (`mini`/`pro`/`auto`) | Deep research topics needing synthesis from many sources |
+| `tavily_extract` | Extract clean content from URLs | `urls` (array), `extract_depth`, `format` (`markdown`/`text`) | Reading pages Tavily found without another round-trip |
+| `tavily_crawl` | Recursive site crawling | `url`, `max_depth`, `max_breadth`, `instructions`, `select_paths` (regex) | Exploring entire doc sites, finding all pages on a topic |
+| `tavily_map` | Site structure discovery | `url`, `max_depth`, `select_paths` (regex) | Listing all URLs under a path before selective extraction |
+
+**Tavily vs built-in WebSearch:** Tavily has higher relevance, `advanced` search depth for thorough results, domain/time/country filtering, and research/crawl/extract tools beyond simple search. Prefer Tavily for non-trivial research.
+
+---
+
+## MCP Server: Jina AI (`user-Jina_AI`)
+
+**Best for:** Multi-perspective web search, page reading, academic papers, image search, content reranking
+
+| Tool | Purpose | Key Params | Best For |
+|------|---------|------------|----------|
+| `search_web` | Web search | `query` (string or array), `num` (1-100), `tbs` (time), `location`, `gl`, `hl` | General web search with geo/language targeting |
+| `parallel_search_web` | Run up to 5 searches simultaneously | `searches` (array of search configs) | Exploring multiple angles of a topic at once |
+| `read_url` | Extract page content as markdown | `url` (single or array), `withAllLinks`, `withAllImages` | Reading articles, bypassing paywalls |
+| `parallel_read_url` | Read up to 5 URLs simultaneously | `urls` (array) | Comparing content across multiple sources |
+| `expand_query` | Expand a query into multiple variants | `query` | Getting diverse search angles before parallel search |
+| `sort_by_relevance` | Rerank documents by relevance | `query`, `documents` (array), `top_n` | Filtering search results to most relevant |
+| `search_images` | Image search | `query`, `return_url` | Finding logos, diagrams, visual references |
+| `search_arxiv` | Academic paper search | `query` (string or array), `num` | Finding research papers, scientific references |
+| `capture_screenshot_url` | Screenshot a webpage | `url`, `firstScreenOnly` | Visual inspection of websites |
+| `extract_pdf` | Extract figures/tables from PDFs | `id` or `url`, `type` (figure/table/equation) | Extracting visuals from academic papers |
+| `primer` | Get session context (time, location) | (none) | Getting localized context for time/geo-aware responses |
+
+**Jina vs Tavily:** Jina excels at parallel operations (up to 5 concurrent searches/reads), academic paper search, image search, and content reranking. Tavily excels at deep research synthesis and site crawling.
+
+---
+
+## MCP Server: Microsoft Docs (`user-microsoftdocs`)
+
+**Best for:** Official Microsoft/Azure documentation — **always use for Windows/Edge/.NET/Azure questions**
+
+| Tool | Purpose | Key Params | Best For |
+|------|---------|------------|----------|
+| `microsoft_docs_search` | Search Microsoft Learn docs | `query` | Grounding answers in official MS docs |
+| `microsoft_docs_fetch` | Fetch full MS doc page | `url` | Getting complete tutorials, procedures |
+| `microsoft_code_sample_search` | Search MS code samples | `query`, `language` | Finding official code examples for MS/Azure APIs |
+
+**Workflow:** Search first, then fetch the most promising pages for full detail.
+
+---
+
+## MCP Server: Context7 (`plugin-context7-plugin-context7`)
+
+**Best for:** Up-to-date library/framework documentation with code snippets
+
+| Tool | Purpose | Key Params | Best For |
+|------|---------|------------|----------|
+| `resolve-library-id` | Find Context7 library ID | `query`, `libraryName` | First step: get the `/org/project` ID |
+| `query-docs` | Query docs with code snippets | `libraryId`, `query`, `researchMode` | Answering specific library usage questions |
+
+**Workflow:** Always call `resolve-library-id` first, then `query-docs` with the returned ID. Retry with `researchMode: true` if the first answer is insufficient.
+
+---
+
+## MCP Server: Cursor IDE Browser (`cursor-ide-browser`)
+
+**Best for:** Live browser interaction — navigating pages, filling forms, taking screenshots, testing UI
+
+Defined in system prompt (no separate descriptor files). Key tools:
+
+| Tool | Purpose | Best For |
+|------|---------|----------|
+| `browser_navigate` | Navigate to URL | Opening pages |
+| `browser_snapshot` | Get page structure as YAML + refs | Understanding page state before interaction |
+| `browser_click` | Click element by ref | Interacting with buttons, links |
+| `browser_type` | Type text into element | Filling form fields |
+| `browser_fill` | Fill/replace input content | Form completion |
+| `browser_take_screenshot` | Visual page capture | Visual verification |
+| `browser_search` | Search for text on page | Finding content without scrolling |
+| `browser_scroll` | Scroll page/container | Reaching offscreen elements |
+| `browser_console_messages` | Read browser console | Debugging JS errors |
+| `browser_network_requests` | Inspect network activity | Debugging API calls |
+| `browser_lock`/`unlock` | Lock/unlock browser tab | Prevent concurrent access |
+
+**Use for:** Frontend testing, verifying UI changes, debugging webapp behavior live.
+
+---
+
+## MCP Server: Cursor App Control (`cursor-app-control`)
+
+**Best for:** Workspace management — creating projects, switching roots
+
+| Tool | Purpose |
+|------|---------|
+| `create_project` | Create new project dir + init git |
+| `move_agent_to_root` | Switch agent workspace root |
+
+---
+
+## Research Strategy by Task Type
+
+### Bug fix (general)
+1. `tavily_search` (advanced depth) + `WebSearch` — parallel for broad coverage
+2. `tavily_extract` / `read_url` — read the most promising pages
+3. If MS/Windows related: `microsoft_docs_search` → `microsoft_docs_fetch`
+4. If library/framework specific: `resolve-library-id` → `query-docs`
+5. Cross-reference findings from 2+ sources
+
+### API integration / new provider
+1. Official vendor docs via `tavily_search` (include domain) or `WebFetch`
+2. Context7 for library-specific code patterns
+3. `tavily_research` for comprehensive synthesis
+
+### PWA / web platform behavior
+1. `microsoft_docs_search` for Windows-specific behavior
+2. `WebSearch` for MDN, web.dev, StackOverflow
+3. `tavily_search` for real-world examples and GitHub issues
+
+### Frontend / UI debugging
+1. `cursor-ide-browser` tools for live inspection
+2. `WebSearch` for known issues and workarounds
+
+### Codebase exploration
+1. `SemanticSearch` for understanding architecture
+2. `Grep` for exact symbol/pattern matching
+3. `Glob` for finding files by name
+
+---
+
+## Tool Selection Quick Guide
+
+| If you need... | Use... |
+|----------------|--------|
+| Quick answer about a library | `WebSearch` or `query-docs` (Context7) |
+| Deep, thorough research | `tavily_research` (pro) |
+| Targeted search with filters | `tavily_search` (advanced) |
+| Official Microsoft docs | `microsoft_docs_search` |
+| Multiple perspectives at once | `parallel_search_web` (Jina) |
+| Read a specific page | `read_url` (Jina) or `tavily_extract` |
+| Explore a doc site | `tavily_crawl` or `tavily_map` |
+| Academic papers | `search_arxiv` (Jina) |
+| Code samples for MS/Azure | `microsoft_code_sample_search` |
+| Live webpage testing | `cursor-ide-browser` tools |
+| Find code in workspace | `SemanticSearch` or `Grep` |
