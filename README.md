@@ -41,6 +41,7 @@ services:
       # ANTHROPIC_API_KEY=...
       # MOONSHOT_API_KEY=...
       # MINIMAX_API_KEY=...
+      # DEEPSEEK_API_KEY=...
       # OpenAI-compatible gateway:
       # OPENAICOMPATIBLE_API_KEY=...
       # OPENAICOMPATIBLE_PROXY_URL=https://your-host/v1
@@ -107,10 +108,10 @@ For the complete provider/env map (Azure, Bedrock, OpenRouter, and 40+ others), 
 
 ## Key Features
 
-- **Tools Hub** — Picbed (S3-backed image hosting), API Tester (browser-based REST client), extensible sidebar
+- **Tools Hub** — Picbed (S3-backed image hosting), API Tester (browser-based REST client), Password Generator, extensible sidebar
 - **Model extension options (gear menu)** — Per-provider compact popovers wired from the model bank; MiniMax context trimming before API calls to avoid overflow errors. [Details →](https://github.com/lqdflying/lobehub/wiki/Model-Extension-Options)
 - **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/lobehub/wiki/Memory-and-Context-Compaction)
-- **MCP OAuth 2.1** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side.
+- **MCP OAuth** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side. [Details →](https://github.com/lqdflying/lobehub/wiki/MCP-OAuth)
 
 ---
 
