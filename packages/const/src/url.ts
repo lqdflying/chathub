@@ -32,7 +32,7 @@ export const WIKI_PLUGIN_GUIDE = urlJoin(USAGE_DOCUMENTS, '/plugins/development'
 export const RELEASES_URL = urlJoin(GITHUB, 'releases');
 export const MANUAL_UPGRADE_URL = RELEASES_URL;
 
-export const BLOG = urlJoin(OFFICIAL_SITE, 'blog');
+export const BLOG = undefined;
 
 export const ABOUT = OFFICIAL_SITE;
 export const FEEDBACK = urlJoin(GITHUB, 'issues/new/choose');
