@@ -18,21 +18,40 @@ When creating or regenerating PWA icons, use this style:
 - **Corners outside rounded area**: fully transparent
 - **No partial transparency** at edges — clean cut between opaque center and transparent corners
 
-## Icon sizes and radii
+## Critical: `any` vs `maskable` — DIFFERENT strategies
 
-| File | Size | Radius |
-|------|------|--------|
-| `public/icons/icon-192x192.png` | 192x192 | 42px |
-| `public/icons/icon-192x192.maskable.png` | 192x192 | 42px |
-| `public/icons/icon-512x512.png` | 512x512 | 110px |
-| `public/icons/icon-512x512.maskable.png` | 512x512 | 110px |
-| `public/apple-touch-icon.png` | 180x180 | 40px |
-| `public/favicon.ico` | 16x16 | 3px |
-| `public/favicon-32x32.ico` | 32x32 | 7px |
-| `public/favicon-dev.ico` | 16x16 | 3px |
-| `public/favicon-32x32-dev.ico` | 32x32 | 7px |
+This is the most important rule. **Never use the same image for both purposes.**
 
-## Python generation snippet
+| Purpose | Platform usage | Icon strategy |
+|---------|---------------|---------------|
+| `any` | **Windows** (taskbar, start menu), macOS older, favicon contexts | Rounded rectangle with **transparent corners** |
+| `maskable` | Android, iOS, macOS Sonoma+, Chrome OS | **Full-bleed opaque** — OS applies its own mask shape |
+
+**Why:** Maskable icons with transparent corners get filled by the OS (white on Android, background_color on others). Windows uses `any` icons and natively supports transparency.
+
+Sources: [StackOverflow](https://stackoverflow.com/questions/72504764), [Progressier](https://progressier.com/maskable-icons-editor), [dev.to](https://dev.to/progressier/why-a-pwa-app-icon-shouldnt-have-a-purpose-set-to-any-maskable-4c78), [Logo Foundry](https://logofoundry.app/blog/pwa-icon-requirements-safe-areas)
+
+## Manifest configuration
+
+- **`background_color`**: REMOVE (do not set). Windows uses this to fill transparent icon areas. Removing it lets native transparency work.
+- **`theme_color`**: `#cde2fa` — for the title bar / browser chrome in standalone mode
+- **`_getImage`**: MUST use the actual icon `url` parameter, NOT override with `BRANDING_LOGO_URL`. The old code `BRANDING_LOGO_URL || url` broke all icons by serving the transparent branding logo instead.
+
+## All icon files
+
+| File | Size | Radius | Purpose | Strategy |
+|------|------|--------|---------|----------|
+| `public/icons/icon-192x192.png` | 192x192 | 42px | `any` | transparent corners |
+| `public/icons/icon-512x512.png` | 512x512 | 110px | `any` | transparent corners |
+| `public/icons/icon-192x192.maskable.png` | 192x192 | N/A | `maskable` | **fully opaque** |
+| `public/icons/icon-512x512.maskable.png` | 512x512 | N/A | `maskable` | **fully opaque** |
+| `public/apple-touch-icon.png` | 180x180 | 40px | apple | transparent corners |
+| `public/favicon.ico` | 16x16 | 3px | favicon | transparent corners |
+| `public/favicon-32x32.ico` | 32x32 | 7px | favicon | transparent corners |
+| `public/favicon-dev.ico` | 16x16 | 3px | favicon | transparent corners |
+| `public/favicon-32x32-dev.ico` | 32x32 | 7px | favicon | transparent corners |
+
+## Python generation script
 
 ```python
 from PIL import Image, ImageDraw
@@ -40,31 +59,64 @@ from PIL import Image, ImageDraw
 src = Image.open('logo/light-bg/chathub-pwa-icon-light-bg-transparent-outside.png').convert('RGBA')
 BG_COLOR = (205, 226, 250, 255)
 
-# Composite onto light blue background
+# Composite onto light blue background, fill transparent areas
 bg = Image.new('RGBA', src.size, BG_COLOR)
 flat = Image.alpha_composite(bg, src)
 
-sizes = {
+# === ANY icons: rounded rectangle with TRANSPARENT corners ===
+any_sizes = {
     'public/icons/icon-192x192.png': (192, 42),
-    'public/icons/icon-192x192.maskable.png': (192, 42),
     'public/icons/icon-512x512.png': (512, 110),
-    'public/icons/icon-512x512.maskable.png': (512, 110),
     'public/apple-touch-icon.png': (180, 40),
 }
 
-for path, (size, radius) in sizes.items():
+for path, (size, radius) in any_sizes.items():
     resized = flat.resize((size, size), Image.LANCZOS)
     mask = Image.new('L', (size, size), 0)
     draw = ImageDraw.Draw(mask)
     draw.rounded_rectangle([(0, 0), (size - 1, size - 1)], radius=radius, fill=255)
-    final = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    final = Image.new('RGBA', (size, size), (0, 0, 0, 0))  # transparent bg
     final.paste(resized, (0, 0), mask)
     final.save(path, 'PNG')
 
-# Favicons - same approach, save as ICO
+# === MASKABLE icons: FULL-bleed opaque (no transparency at all) ===
+maskable_sizes = {
+    'public/icons/icon-192x192.maskable.png': 192,
+    'public/icons/icon-512x512.maskable.png': 512,
+}
+
+for path, size in maskable_sizes.items():
+    resized = flat.resize((size, size), Image.LANCZOS)
+    resized.convert('RGB').save(path, 'PNG')  # RGB = no alpha channel
+
+# === Favicons: transparent corners ===
+for sz, path, r in [(16, 'public/favicon.ico', 3), (16, 'public/favicon-dev.ico', 3),
+                     (32, 'public/favicon-32x32.ico', 7), (32, 'public/favicon-32x32-dev.ico', 7)]:
+    resized = flat.resize((sz, sz), Image.LANCZOS)
+    mask = Image.new('L', (sz, sz), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle([(0, 0), (sz - 1, sz - 1)], radius=r, fill=255)
+    final = Image.new('RGBA', (sz, sz), (0, 0, 0, 0))
+    final.paste(resized, (0, 0), mask)
+    final.save(path, 'ICO', sizes=[(sz, sz)])
 ```
 
-## Manifest
+## Verification checklist
 
-- `src/server/manifest.ts`: `background_color` and `theme_color` set to `#cde2fa`
-- `getImage` must use the actual icon `url` parameter, NOT override with `BRANDING_LOGO_URL`
+After generating icons, verify:
+
+- [ ] `any` icons (`icon-192x192.png`, `icon-512x512.png`) are **RGBA** with alpha=0 in corners
+- [ ] `maskable` icons (`*.maskable.png`) are **RGB** (no alpha channel, fully opaque)
+- [ ] `apple-touch-icon.png` is **RGBA** with alpha=0 in corners
+- [ ] All favicon `.ico` files are **RGBA** with alpha=0 in corners
+- [ ] Center pixel is `rgb(205, 226, 250)` (light blue `#cde2fa`) on all icons
+- [ ] No `background_color` in manifest.json output
+- [ ] Icon URLs in manifest use actual paths, not `BRANDING_LOGO_URL`
+
+## Windows PWA icon caching
+
+Windows caches the installed PWA icon aggressively. After icon changes:
+1. Uninstall the PWA from Windows
+2. Clear browser data for the site
+3. Reinstall the PWA
+4. Bump the `v=N` version query parameter in manifest icons (`src/server/manifest.ts` → `_getImage` default version) to force cache refresh
