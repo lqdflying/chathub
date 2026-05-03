@@ -63,8 +63,8 @@ describe('Manifest', () => {
 
       const result = manifest.generate(input);
 
-      expect(result.background_color).toBe('#000000');
-      expect(result.theme_color).toBe('#000000');
+      expect(result.background_color).toBe('#ffffff');
+      expect(result.theme_color).toBe('#ffffff');
     });
   });
 
