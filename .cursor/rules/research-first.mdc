@@ -5,29 +5,31 @@ alwaysApply: true
 
 # Research-First Mandate
 
-Before producing any **implementation plan** for:
+Before producing any **implementation plan** or **bug fix** for:
 
 - New API integrations (third-party services, provider SDKs)
 - New MCP integrations (plugin servers, OAuth flows)
 - New provider module settings (model extendParams, gear panels)
 - New features (any non-trivial code change)
-- Bug fixes (especially for external services like Notion, DeepSeek, etc.)
+- Bug fixes — ALL bugs, not just external service ones (e.g., PWA icons, CSS rendering, platform-specific behavior, browser quirks)
 
-You **MUST** research first:
+You **MUST** research first, taking **full advantage** of all available search tools:
 
-1. **Official vendor documentation** — fetch and read the relevant API reference,
-   OpenAPI schema, changelog, and model-specific docs (e.g. Notion API, DeepSeek
-   API, MCP specification)
+| Tool | Use for |
+|------|---------|
+| `WebSearch` | General web search, StackOverflow, blog posts, current docs |
+| `WebFetch` | Read full pages from URLs found by search |
+| **Tavily MCP** (`user-tavily`) | Deep advanced web search with higher relevance |
+| **Context7 MCP** (`plugin-context7`) | Up-to-date library/framework documentation with code snippets |
+| **Microsoft Docs MCP** (`user-microsoftdocs`) | Official Microsoft documentation (Windows PWA, Edge, etc.) |
 
-2. **Real-world samples** — use MCP tools (WebSearch, WebFetch, Context7) to find
-   production examples, GitHub issues, StackOverflow discussions, and blog posts
+**Workflow:**
 
-3. **Cross-reference** — confirm that what you plan to build matches what the
-   vendor actually supports (Content-Type, auth method, parameter names, model
-   capabilities)
+1. **Search broadly** — use at least 2 different search tools to cross-reference findings
+2. **Official vendor documentation** — fetch and read the relevant API reference, OpenAPI schema, changelog, and model-specific docs
+3. **Real-world samples** — find production examples, GitHub issues, StackOverflow discussions, and blog posts that confirm the approach works
+4. **Cross-reference** — confirm that what you plan to build matches what the vendor actually supports
 
-Only after gathering this evidence should you produce a plan. The plan must cite
-the specific sources used.
+**Every bug fix must cite external documentation** that justifies the approach. Do not rely on assumptions or patterns from other providers.
 
-**Do not** guess request formats, auth schemes, or API behavior based on
-assumptions or patterns from other providers.
+Only after gathering this evidence should you produce a plan or implement a fix. The plan must cite the specific sources used.
