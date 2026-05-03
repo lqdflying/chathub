@@ -81,7 +81,7 @@ describe('Manifest', () => {
       // @ts-ignore - Accessing private method for testing
       const result = manifest._getImage(url);
 
-      expect(result.src).toContain('v=1');
+      expect(result.src).toContain('v=2');
     });
   });
 
