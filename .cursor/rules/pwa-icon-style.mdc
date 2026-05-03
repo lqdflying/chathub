@@ -1,0 +1,70 @@
+---
+description: PWA app icon style - rounded rectangle with light blue bg and transparent corners
+alwaysApply: true
+---
+
+# PWA App Icon Style
+
+When creating or regenerating PWA icons, use this style:
+
+## Source
+
+`logo/light-bg/chathub-pwa-icon-light-bg-transparent-outside.png` (1024x1024)
+
+## Style
+
+- **Rounded rectangle** with ~22% corner radius
+- **Background inside rounded area**: light blue `#cde2fa` (rgb 205,226,250)
+- **Corners outside rounded area**: fully transparent
+- **No partial transparency** at edges — clean cut between opaque center and transparent corners
+
+## Icon sizes and radii
+
+| File | Size | Radius |
+|------|------|--------|
+| `public/icons/icon-192x192.png` | 192x192 | 42px |
+| `public/icons/icon-192x192.maskable.png` | 192x192 | 42px |
+| `public/icons/icon-512x512.png` | 512x512 | 110px |
+| `public/icons/icon-512x512.maskable.png` | 512x512 | 110px |
+| `public/apple-touch-icon.png` | 180x180 | 40px |
+| `public/favicon.ico` | 16x16 | 3px |
+| `public/favicon-32x32.ico` | 32x32 | 7px |
+| `public/favicon-dev.ico` | 16x16 | 3px |
+| `public/favicon-32x32-dev.ico` | 32x32 | 7px |
+
+## Python generation snippet
+
+```python
+from PIL import Image, ImageDraw
+
+src = Image.open('logo/light-bg/chathub-pwa-icon-light-bg-transparent-outside.png').convert('RGBA')
+BG_COLOR = (205, 226, 250, 255)
+
+# Composite onto light blue background
+bg = Image.new('RGBA', src.size, BG_COLOR)
+flat = Image.alpha_composite(bg, src)
+
+sizes = {
+    'public/icons/icon-192x192.png': (192, 42),
+    'public/icons/icon-192x192.maskable.png': (192, 42),
+    'public/icons/icon-512x512.png': (512, 110),
+    'public/icons/icon-512x512.maskable.png': (512, 110),
+    'public/apple-touch-icon.png': (180, 40),
+}
+
+for path, (size, radius) in sizes.items():
+    resized = flat.resize((size, size), Image.LANCZOS)
+    mask = Image.new('L', (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle([(0, 0), (size - 1, size - 1)], radius=radius, fill=255)
+    final = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    final.paste(resized, (0, 0), mask)
+    final.save(path, 'PNG')
+
+# Favicons - same approach, save as ICO
+```
+
+## Manifest
+
+- `src/server/manifest.ts`: `background_color` and `theme_color` set to `#cde2fa`
+- `getImage` must use the actual icon `url` parameter, NOT override with `BRANDING_LOGO_URL`

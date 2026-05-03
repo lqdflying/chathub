@@ -1,10 +1,9 @@
 import qs from 'query-string';
 
-import { BRANDING_LOGO_URL } from '@/const/branding';
 import { getCanonicalUrl } from '@/server/utils/url';
 
 const MAX_AGE = 31_536_000;
-const COLOR = '#000000';
+const COLOR = '#cde2fa';
 
 interface IconItem {
   purpose: 'any' | 'maskable';
@@ -37,7 +36,6 @@ export class Manifest {
     screenshots: ScreenshotItem[];
   }) {
     return {
-      background_color: color,
       cache_busting_mode: 'all',
       categories: ['productivity', 'design', 'development', 'education'],
       description: description,
@@ -73,11 +71,11 @@ export class Manifest {
     };
   }
 
-  private _getImage = (url: string, version: number = 1) => ({
+  private _getImage = (url: string, version: number = 2) => ({
     cache_busting_mode: 'query',
     immutable: 'true',
     max_age: MAX_AGE,
-    src: qs.stringifyUrl({ query: { v: version }, url: BRANDING_LOGO_URL || url }),
+    src: qs.stringifyUrl({ query: { v: version }, url }),
   });
 
   private _getIcon = ({ url, version, sizes, purpose }: IconItem) => ({
