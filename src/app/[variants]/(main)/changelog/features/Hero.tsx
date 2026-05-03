@@ -27,10 +27,14 @@ const Hero = memo(() => {
           <Link href={urlJoin(OFFICIAL_SITE, '/changelog/versions')} target={'_blank'}>
             {t('actions.versions')}
           </Link>
-          <div style={{ color: theme.colorInfo }}>·</div>
-          <Link href={SOCIAL_URL.x} target={'_blank'}>
-            {t('actions.followOnX')}
-          </Link>
+          {SOCIAL_URL.github && (
+            <>
+              <div style={{ color: theme.colorInfo }}>·</div>
+              <Link href={SOCIAL_URL.github} target={'_blank'}>
+                {t('actions.viewOnGithub') || 'GitHub'}
+              </Link>
+            </>
+          )}
         </Flexbox>
       </Flexbox>
     </GridLayout>
