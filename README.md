@@ -11,13 +11,13 @@ LobeHub diverged from LobeChat at v3.0.0 and is maintained independently. It shi
 | Area | Upstream LobeChat | LobeHub |
 | ---- | ----------------- | ------- |
 | Deployment target | Vercel / Docker / Desktop | Docker + PostgreSQL only |
-| Versioning | v1.x | v3.x (independent) |
+| Versioning | v1.x | v4.x (independent) |
 | Browser login (no OAuth) | Not supported | Username/password or token login page built-in |
-| Model bank | Upstream releases | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x, MiniMax |
+| Model bank | Upstream releases | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x, MiniMax, DeepSeek |
 | Tools Hub | Not present | Built-in (Picbed, API Tester + extensible sidebar) |
 | Memory / context | Basic rolling summary | Assistance presets, token auto-compact, manual compact, daily opt-in, assistant-level memory with cross-session rollup |
 | MCP authentication | API keys only | OAuth 2.1 auto-discovery (RFC 9728 + RFC 8414) with server-side token storage |
-| Model gear (extendParams) | Single generic form | Per-provider panels (Moonshot, MiniMax, Anthropic, OpenAI) |
+| Model gear (extendParams) | Single generic form | Per-provider panels (Moonshot, MiniMax, Anthropic, OpenAI, DeepSeek) |
 
 ---
 
@@ -62,7 +62,7 @@ services:
       retries: 5
 ```
 
-Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see the [wiki](https://github.com/lqdflying/lobehub/wiki).
+Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see the [Docker deployment wiki](https://github.com/lqdflying/lobehub/wiki/Docker-Deployment-and-Upgrades).
 
 ---
 
@@ -84,7 +84,7 @@ AUTH_CREDENTIALS_PASSWORD=your-strong-password
 
 Combine credentials with OAuth providers: `NEXT_AUTH_SSO_PROVIDERS=credentials,github`.
 
-Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [wiki — Authentication](https://github.com/lqdflying/lobehub/wiki).
+Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [wiki — Authentication](https://github.com/lqdflying/lobehub/wiki/Authentication).
 
 ---
 
@@ -97,6 +97,7 @@ Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [w
 | Google (Gemini) | `GOOGLE_API_KEY` |
 | Moonshot (Kimi) | `MOONSHOT_API_KEY` |
 | MiniMax | `MINIMAX_API_KEY` |
+| DeepSeek | `DEEPSEEK_API_KEY` |
 | OpenAI-compatible | `OPENAICOMPATIBLE_API_KEY` + `OPENAICOMPATIBLE_PROXY_URL` |
 | Ollama | auto-discovered (set `ENABLED_OLLAMA=0` to disable) |
 
@@ -107,8 +108,8 @@ For the complete provider/env map (Azure, Bedrock, OpenRouter, and 40+ others), 
 ## Key Features
 
 - **Tools Hub** — Picbed (S3-backed image hosting), API Tester (browser-based REST client), extensible sidebar
-- **Model extension options (gear menu)** — Per-provider compact popovers wired from the model bank; MiniMax context trimming before API calls to avoid overflow errors. [Details →](https://github.com/lqdflying/lobehub/wiki)
-- **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/lobehub/wiki)
+- **Model extension options (gear menu)** — Per-provider compact popovers wired from the model bank; MiniMax context trimming before API calls to avoid overflow errors. [Details →](https://github.com/lqdflying/lobehub/wiki/Model-Extension-Options)
+- **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/lobehub/wiki/Memory-and-Context-Compaction)
 - **MCP OAuth 2.1** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side.
 
 ---
@@ -125,7 +126,7 @@ bun run db:migrate   # Apply migrations locally (requires DATABASE_URL)
 bun run db:studio    # Open Drizzle Studio
 ```
 
-Adding a new tool or feature? See the [wiki](https://github.com/lqdflying/lobehub/wiki) for architecture overview and contribution guides.
+Adding a new tool or feature? See the [Architecture Overview](https://github.com/lqdflying/lobehub/wiki/Architecture-Overview) wiki for repo layout and contribution guides.
 
 ---
 
@@ -138,7 +139,7 @@ GitHub Actions builds `docker.io/lqdflying/lobehub` on version tags:
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
-GA tags (`v*.*.*`) update `:latest`. Canary tags (`v*.*.*-canary.*`) push pre-release images only. [Full release workflow →](https://github.com/lqdflying/lobehub/wiki)
+GA tags (`v*.*.*`) update `:latest`. Canary tags (`v*.*.*-canary.*`) push pre-release images only. [Full release workflow →](https://github.com/lqdflying/lobehub/wiki/Release-Workflow)
 
 ---
 

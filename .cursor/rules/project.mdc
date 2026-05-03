@@ -56,3 +56,61 @@ For MCP plugins with OAuth authentication (auto-discovery, redirect_uri, token e
 Adding or changing **per-model** API options (new provider module, new toggles) must follow **`.cursor/rules/provider-model-options.mdc`** (docs-first, end-to-end mapping, one provider panel at a time).
 
 Dedicated gear panels live under **`src/features/ChatInput/ActionBar/Model/providers/`** and are wired from **`src/features/ChatInput/ActionBar/Model/index.tsx`** (see table in that rule file). **`README.md`** summarizes user-facing behavior for the fork.
+
+## GitHub Wiki — separate sub-repo (CRITICAL)
+
+The GitHub wiki is a **completely separate git repository** from the main codebase:
+
+| Property | Value |
+|---|---|
+| Repo URL | `https://github.com/lqdflying/lobehub.wiki.git` |
+| Workspace path | `wiki/` (gitignored in main repo) |
+| Default branch | **`master`** (NOT `main`) |
+
+### Sanity check — always verify before any wiki git operation
+
+```bash
+cd wiki && git branch -avv
+```
+
+Must show `* master` and `remotes/origin/master` pointing to `.wiki.git`. If it shows `main` or main-repo branches like `docs/tally-v3-to-v4`, the clone is **broken** — `.git` is missing or invalid and git commands are falling through to the parent repo. Fix by re-cloning (see below).
+
+### Working with wiki pages
+
+```bash
+cd wiki
+git status              # MUST show wiki repo state, not main repo
+git add <page>.md       # stage changes
+git commit -m "..."     # commit to wiki repo's master branch
+git fetch origin master # fetch latest
+git push origin master  # push to wiki remote
+```
+
+### Clone / re-clone if broken
+
+```bash
+# Clone fresh to /tmp (HTTPS works reliably)
+git clone https://github.com/lqdflying/lobehub.wiki.git /tmp/lobehub-wiki
+
+# Make edits in /tmp clone, commit, push
+cd /tmp/lobehub-wiki
+# ... edits ...
+git add . && git commit -m "..." && git push origin master
+
+# Then replace workspace copy
+mv /home/opc/lobehub/wiki /home/opc/lobehub/wiki-broken
+cp -r /tmp/lobehub-wiki /home/opc/lobehub/wiki
+```
+
+### NEVER do these
+
+- **Never `rm -rf wiki/.git`** — corrupts the sub-repo and causes "Device or resource busy" sandbox file locks that prevent any further git operations.
+- **Never assume wiki branch is `main`** — it is `master`.
+- **Never commit wiki files to the main repo** — `wiki/` is gitignored; wiki pages live in the separate wiki repo.
+- **Never work on wiki from a non-wiki branch** — if `git branch` in `wiki/` shows anything other than `master`, the clone is broken.
+
+### Wiki page conventions
+
+- Pages are plain `.md` files (e.g. `Home.md`, `Authentication.md`).
+- Filenames with hyphens (e.g. `Docker-Deployment-and-Upgrades.md`) render as space-separated page titles on GitHub.
+- The wiki has its own commit history, independent of the main repo.
