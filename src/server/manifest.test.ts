@@ -2,16 +2,9 @@
 import qs from 'query-string';
 import { describe, expect, it, vi } from 'vitest';
 
-import { BRANDING_LOGO_URL } from '@/const/branding';
-import { getCanonicalUrl } from '@/server/utils/url';
-
 import { Manifest, manifestModule } from './manifest';
 
 // Mock external dependencies
-vi.mock('@/const/branding', () => ({
-  BRANDING_LOGO_URL: 'https://example.com/logo.png',
-}));
-
 vi.mock('@/server/utils/url', () => ({
   getCanonicalUrl: vi.fn().mockReturnValue('https://example.com/manifest.webmanifest'),
 }));
@@ -80,7 +73,7 @@ describe('Manifest', () => {
         cache_busting_mode: 'query',
         immutable: 'true',
         max_age: 31536000,
-        src: qs.stringifyUrl({ query: { v: version }, url: BRANDING_LOGO_URL || url }),
+        src: qs.stringifyUrl({ query: { v: version }, url }),
       });
     });
 
@@ -150,7 +143,7 @@ describe('Manifest', () => {
         immutable: 'true',
         max_age: 31536000,
         sizes: '1280x676',
-        src: 'https://example.com/logo.png?v=1',
+        src: 'https://example.com/screenshot.png?v=1',
         type: 'image/png',
       });
     });
