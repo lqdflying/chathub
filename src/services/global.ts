@@ -4,17 +4,17 @@ import { lambdaClient } from '@/libs/trpc/client';
 import { LobeAgentConfig } from '@/types/agent';
 import { GlobalRuntimeConfig } from '@/types/serverConfig';
 
-const VERSION_URL = 'https://registry.npmmirror.com/@lobehub/chat/latest';
+const VERSION_URL = 'https://api.github.com/repos/lqdflying/chathub/releases/latest';
 
 class GlobalService {
   /**
-   * get latest version from npm
+   * get latest version from our GitHub releases
    */
   getLatestVersion = async (): Promise<string> => {
     const res = await fetch(VERSION_URL);
     const data = await res.json();
 
-    return data['version'];
+    return (data['tag_name'] || '').replace(/^v/, '');
   };
 
   getGlobalConfig = async (): Promise<GlobalRuntimeConfig> => {
