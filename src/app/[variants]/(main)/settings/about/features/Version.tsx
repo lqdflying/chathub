@@ -7,7 +7,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import { ProductLogo } from '@/components/Branding';
 import { BRANDING_NAME } from '@/const/branding';
-import { CHANGELOG_URL, MANUAL_UPGRADE_URL, OFFICIAL_SITE } from '@/const/url';
+import { MANUAL_UPGRADE_URL, RELEASES_URL } from '@/const/url';
 import { CURRENT_VERSION } from '@/const/version';
 import { useNewVersion } from '@/features/User/UserPanel/useNewVersion';
 import { useGlobalStore } from '@/store/global';
@@ -33,18 +33,15 @@ const Version = memo<{ mobile?: boolean }>(({ mobile }) => {
       width={'100%'}
     >
       <Flexbox align={'center'} flex={'none'} gap={16} horizontal>
-        <Link href={OFFICIAL_SITE} target={'_blank'}>
-          <Block
-            align={'center'}
-            className={styles.logo}
-            clickable
-            height={64}
-            justify={'center'}
-            width={64}
-          >
-            <ProductLogo size={52} />
-          </Block>
-        </Link>
+        <Block
+          align={'center'}
+          className={styles.logo}
+          height={64}
+          justify={'center'}
+          width={64}
+        >
+          <ProductLogo size={52} />
+        </Block>
         <Flexbox align={'flex-start'} gap={6}>
           <div style={{ fontSize: 18, fontWeight: 'bolder' }}>{BRANDING_NAME}</div>
           <Flexbox gap={6} horizontal={!mobile}>
@@ -57,18 +54,13 @@ const Version = memo<{ mobile?: boolean }>(({ mobile }) => {
           </Flexbox>
         </Flexbox>
       </Flexbox>
-      <Flexbox flex={mobile ? 1 : undefined} gap={8} horizontal>
-        <Link href={CHANGELOG_URL} style={{ flex: 1 }} target={'_blank'}>
-          <Button block={mobile}>{t('changelog')}</Button>
+      {hasNewVersion && (
+        <Link href={MANUAL_UPGRADE_URL} style={{ flex: 1 }} target={'_blank'}>
+          <Button block={mobile} type={'primary'}>
+            {t('upgradeVersion.action')}
+          </Button>
         </Link>
-        {hasNewVersion && (
-          <Link href={MANUAL_UPGRADE_URL} style={{ flex: 1 }} target={'_blank'}>
-            <Button block={mobile} type={'primary'}>
-              {t('upgradeVersion.action')}
-            </Button>
-          </Link>
-        )}
-      </Flexbox>
+      )}
     </Flexbox>
   );
 });
