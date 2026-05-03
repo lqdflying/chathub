@@ -71,7 +71,7 @@ export class Manifest {
     };
   }
 
-  private _getImage = (url: string, version: number = 1) => ({
+  private _getImage = (url: string, version: number = 2) => ({
     cache_busting_mode: 'query',
     immutable: 'true',
     max_age: MAX_AGE,
