@@ -1,4 +1,4 @@
-![ChatHub](public/logo/chathub-full.png)
+<img src="public/logo/chathub-full-banner.png" alt="ChatHub" width="600">
 
 # ChatHub
 
