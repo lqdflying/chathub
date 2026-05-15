@@ -299,7 +299,7 @@ describe('MCPService', () => {
       await mcpService.listTools(mockParams, { skipCache: true });
 
       // Verify getClient was called with skipCache
-      expect(mcpService.getClient).toHaveBeenCalledWith(mockParams, true);
+      expect(mcpService.getClient).toHaveBeenCalledWith(mockParams, true, undefined);
     });
 
     it('should throw TRPCError with correct error message', async () => {

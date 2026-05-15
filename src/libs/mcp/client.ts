@@ -381,6 +381,9 @@ export class MCPClient {
           await this.reconnectWithToken(newToken);
           return this.listTools();
         }
+        // Refresh failed — surface the auth error instead of silently
+        // returning [] which makes tools "disappear" without any indication.
+        throw e;
       }
 
       return [];
@@ -410,6 +413,8 @@ export class MCPClient {
           await this.reconnectWithToken(newToken);
           return this.listResources();
         }
+        // Refresh failed — surface auth error instead of returning [].
+        throw e;
       }
 
       return [];
@@ -439,6 +444,8 @@ export class MCPClient {
           await this.reconnectWithToken(newToken);
           return this.listPrompts();
         }
+        // Refresh failed — surface auth error instead of returning [].
+        throw e;
       }
 
       return [];

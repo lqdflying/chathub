@@ -74,7 +74,7 @@ export class MCPService {
           nextReTryTime += 1;
         }
 
-        return this.listTools(params, { retryTime: nextReTryTime, skipCache: true });
+        return this.listTools(params, { retryTime: nextReTryTime, skipCache: true }, oauthContext);
       }
 
       console.error(`Error listing tools for params %O:`, loggableParams, error);
