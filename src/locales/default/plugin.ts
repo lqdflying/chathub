@@ -101,6 +101,14 @@ export default {
             label: 'Scope',
           },
           statusLabel: '状态',
+          statusLabels: {
+            error: '错误',
+            expired: '已过期',
+            expired_refreshable: '已过期，可刷新',
+            missing: '未授权',
+            refreshing: '刷新中',
+            valid: '有效',
+          },
           tokenEndpoint: {
             desc: 'OAuth 授权服务器的 Token Endpoint URL',
             label: 'Token Endpoint',

@@ -234,7 +234,8 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
         )}
         {tokenStatus !== 'missing' && (
           <Tag color={statusTagColor}>
-            {t('dev.mcp.auth.oauthConfig.statusLabel') || 'Status'}: {tokenStatus}
+            {t('dev.mcp.auth.oauthConfig.statusLabel') || 'Status'}:{' '}
+            {t(`dev.mcp.auth.oauthConfig.statusLabels.${tokenStatus}`) || tokenStatus}
           </Tag>
         )}
       </Space>
