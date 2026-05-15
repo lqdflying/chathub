@@ -10,7 +10,7 @@ interface OAuthConfigProps {
   identifier?: string;
 }
 
-type OAuthTokenStatus = 'valid' | 'expired' | 'missing' | 'refreshing' | 'error';
+type OAuthTokenStatus = 'valid' | 'expired' | 'expired_refreshable' | 'missing' | 'refreshing' | 'error';
 
 const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
   const { t } = useTranslation('plugin');
@@ -187,6 +187,7 @@ const OAuthConfig = ({ form, identifier }: OAuthConfigProps) => {
   const statusTagColor = {
     error: 'red',
     expired: 'orange',
+    expired_refreshable: 'gold',
     missing: 'default',
     refreshing: 'blue',
     valid: 'green',

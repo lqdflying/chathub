@@ -158,6 +158,11 @@ export class MCPClient {
   private params: MCPClientParams;
   private tokenGetter?: () => Promise<string | undefined>;
 
+  /** Whether this client has a dynamic token getter for OAuth refresh. */
+  get hasTokenGetter(): boolean {
+    return !!this.tokenGetter;
+  }
+
   constructor(
     params: MCPClientParams,
     options?: { tokenGetter?: () => Promise<string | undefined> },
@@ -389,7 +394,24 @@ export class MCPClient {
       log('Listed resources: %O', resources);
       return resources as McpResource[];
     } catch (e) {
-      log('Listed resources: %O', e);
+      console.error('Listed resources error: %O', e);
+
+      // Handle OAuth authorization errors with token refresh
+      if (
+        this.params.type === 'http' &&
+        (e as Error).message.includes('401') &&
+        this.params.auth?.type === 'oauth2' &&
+        this.tokenGetter
+      ) {
+        const newToken = await this.tokenGetter();
+        if (newToken) {
+          log('Retrying listResources with refreshed OAuth token');
+          await this.disconnect();
+          await this.reconnectWithToken(newToken);
+          return this.listResources();
+        }
+      }
+
       return [];
     }
   }
@@ -401,7 +423,24 @@ export class MCPClient {
       log('Listed prompts: %O', prompts);
       return prompts as McpPrompt[];
     } catch (e) {
-      log('Listed prompts: %O', e);
+      console.error('Listed prompts error: %O', e);
+
+      // Handle OAuth authorization errors with token refresh
+      if (
+        this.params.type === 'http' &&
+        (e as Error).message.includes('401') &&
+        this.params.auth?.type === 'oauth2' &&
+        this.tokenGetter
+      ) {
+        const newToken = await this.tokenGetter();
+        if (newToken) {
+          log('Retrying listPrompts with refreshed OAuth token');
+          await this.disconnect();
+          await this.reconnectWithToken(newToken);
+          return this.listPrompts();
+        }
+      }
+
       return [];
     }
   }

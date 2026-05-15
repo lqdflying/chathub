@@ -52,12 +52,15 @@ export const mcpRouter = router({
       // For OAuth 2.1 plugins, inject the stored access token before
       // connecting to the MCP server.  The token was saved during the
       // OAuth callback flow but the client doesn't have it in-memory.
+      let oauthContext: MCPOAuthContext | undefined;
+
       if (input.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.identifier);
         if (token?.accessToken) {
           resolvedAuth = { ...input.auth, accessToken: token.accessToken };
         }
+        oauthContext = { oauthService, pluginIdentifier: input.identifier, userId: ctx.userId! };
       }
 
       return await mcpService.getStreamableMcpServerManifest(
@@ -66,6 +69,7 @@ export const mcpRouter = router({
         input.metadata,
         resolvedAuth,
         input.headers,
+        oauthContext,
       );
     }),
   /* eslint-disable sort-keys-fix/sort-keys-fix */
@@ -78,15 +82,18 @@ export const mcpRouter = router({
       checkStdioEnvironment(input);
 
       let resolvedParams = input;
+      let oauthContext: MCPOAuthContext | undefined;
+
       if (input.type === 'http' && input.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
         if (token?.accessToken) {
           resolvedParams = { ...input, auth: { ...input.auth, accessToken: token.accessToken } };
         }
+        oauthContext = { oauthService, pluginIdentifier: input.name, userId: ctx.userId! };
       }
 
-      return await mcpService.listTools(resolvedParams);
+      return await mcpService.listTools(resolvedParams, {}, oauthContext);
     }),
 
   // listResources now accepts MCPClientParams directly
@@ -97,15 +104,18 @@ export const mcpRouter = router({
       checkStdioEnvironment(input);
 
       let resolvedParams = input;
+      let oauthContext: MCPOAuthContext | undefined;
+
       if (input.type === 'http' && input.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
         if (token?.accessToken) {
           resolvedParams = { ...input, auth: { ...input.auth, accessToken: token.accessToken } };
         }
+        oauthContext = { oauthService, pluginIdentifier: input.name, userId: ctx.userId! };
       }
 
-      return await mcpService.listResources(resolvedParams);
+      return await mcpService.listResources(resolvedParams, oauthContext);
     }),
 
   // listPrompts now accepts MCPClientParams directly
@@ -116,15 +126,18 @@ export const mcpRouter = router({
       checkStdioEnvironment(input);
 
       let resolvedParams = input;
+      let oauthContext: MCPOAuthContext | undefined;
+
       if (input.type === 'http' && input.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
         if (token?.accessToken) {
           resolvedParams = { ...input, auth: { ...input.auth, accessToken: token.accessToken } };
         }
+        oauthContext = { oauthService, pluginIdentifier: input.name, userId: ctx.userId! };
       }
 
-      return await mcpService.listPrompts(resolvedParams);
+      return await mcpService.listPrompts(resolvedParams, oauthContext);
     }),
 
   // callTool now accepts MCPClientParams, toolName, and args
