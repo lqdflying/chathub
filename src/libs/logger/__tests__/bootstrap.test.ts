@@ -59,7 +59,9 @@ describe('bootstrapDebug', () => {
     // These namespaces log sensitive data (tokens, API keys, prompts,
     // responses, user payloads, JWTs) and must NOT appear in the allowlist.
     const forbidden = [
+      'context-engine:*',
       'lobe-image:*',
+      'lobe-lambda-router:*',
       'lobe-mcp:client',
       'lobe-model-runtime:*',
       'lobe-next-auth:adapter',

@@ -5,6 +5,8 @@ import { useEffect } from 'react';
 
 import { getDebugConfig } from '@/envs/debug';
 
+const CHATHUB_CLIENT_NS = 'lobe-chat:*';
+
 interface DebugBootstrapProps {
   /**
    * Passed from the server layout when CHATHUB_DEBUG=1 is set server-side.
@@ -17,15 +19,32 @@ interface DebugBootstrapProps {
 /**
  * Client-side debug bootstrap.
  *
- * Enables the lobe-chat:* debug namespace in the browser when either:
- *   - NEXT_PUBLIC_CHATHUB_DEBUG=1 (client-only env), or
- *   - serverDebugEnabled=true (prop passed from server layout when CHATHUB_DEBUG=1).
+ * Adds or removes the lobe-chat:* namespace from the browser's debug list
+ * based on the active switch, while preserving any user-defined namespaces
+ * that were already in localStorage.
  */
 const DebugBootstrap = ({ serverDebugEnabled }: DebugBootstrapProps) => {
   useEffect(() => {
     const config = getDebugConfig();
-    if (config.CHATHUB_DEBUG || serverDebugEnabled) {
-      debug.enable('lobe-chat:*');
+    const enabled = config.CHATHUB_DEBUG || serverDebugEnabled;
+
+    const raw = localStorage.getItem('debug') || '';
+    const namespaces = raw
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean);
+    const hasNs = namespaces.includes(CHATHUB_CLIENT_NS);
+
+    if (enabled && !hasNs) {
+      namespaces.push(CHATHUB_CLIENT_NS);
+      debug.enable(namespaces.join(','));
+    } else if (!enabled && hasNs) {
+      const filtered = namespaces.filter((n) => n !== CHATHUB_CLIENT_NS);
+      if (filtered.length > 0) {
+        debug.enable(filtered.join(','));
+      } else {
+        localStorage.removeItem('debug');
+      }
     }
   }, [serverDebugEnabled]);
 
