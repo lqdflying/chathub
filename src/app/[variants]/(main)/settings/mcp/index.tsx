@@ -28,6 +28,10 @@ const useStyles = createStyles(({ css, token }) => ({
     padding-inline: ${token.paddingMD}px;
     border-bottom: 1px solid ${token.colorBorderSecondary};
   `,
+  headerActions: css`
+    display: flex;
+    gap: 8px;
+  `,
   headerIcon: css`
     display: flex;
     align-items: center;
@@ -44,10 +48,6 @@ const useStyles = createStyles(({ css, token }) => ({
     font-size: ${token.fontSizeLG}px;
     font-weight: 500;
     color: ${token.colorText};
-  `,
-  headerActions: css`
-    display: flex;
-    gap: 8px;
   `,
 }));
 

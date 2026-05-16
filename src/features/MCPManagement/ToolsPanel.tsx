@@ -114,7 +114,7 @@ const ToolCard = memo<{ tool: DiscoveredTool }>(({ tool }) => {
           style={{ background: theme.colorFillQuaternary, borderRadius: 6 }}
         >
           <Flexbox gap={4}>
-            <span style={{ fontSize: 12, color: theme.colorTextQuaternary }}>
+            <span style={{ color: theme.colorTextQuaternary, fontSize: 12 }}>
               {t('mcpManagement.tools.inputSchema')}
             </span>
           </Flexbox>
