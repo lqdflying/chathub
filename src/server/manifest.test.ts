@@ -140,8 +140,8 @@ describe('Manifest', () => {
         form_factor: 'narrow',
         immutable: 'true',
         max_age: 31536000,
-        sizes: '1280x676',
-        src: 'https://example.com/screenshot.png?v=1',
+        sizes: '320x569',
+        src: 'https://example.com/screenshot.png?v=2',
         type: 'image/png',
       });
     });

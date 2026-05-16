@@ -386,7 +386,9 @@ export class MCPClient {
         throw e;
       }
 
-      return [];
+      // Surface non-recoverable errors instead of returning [] so settings
+      // and chat do not misreport broken MCP servers as having no tools.
+      throw e;
     }
   }
 
@@ -417,7 +419,8 @@ export class MCPClient {
         throw e;
       }
 
-      return [];
+      // Surface non-recoverable errors instead of returning [].
+      throw e;
     }
   }
 
@@ -448,7 +451,8 @@ export class MCPClient {
         throw e;
       }
 
-      return [];
+      // Surface non-recoverable errors instead of returning [].
+      throw e;
     }
   }
 

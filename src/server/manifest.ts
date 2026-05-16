@@ -88,7 +88,7 @@ export class Manifest {
   private _getScreenshot = ({ form_factor, url, version, sizes }: ScreenshotItem) => ({
     ...this._getImage(url, version),
     form_factor,
-    sizes: sizes || form_factor === 'wide' ? '1280x676' : '640x1138',
+    sizes: sizes || (form_factor === 'wide' ? '1280x676' : '640x1138'),
     type: 'image/png',
   });
 }

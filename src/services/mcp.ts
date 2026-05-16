@@ -113,7 +113,7 @@ class MCPService {
         responseSizeBytes,
         sessionId: topicId,
         success,
-        version: plugin.manifest!.version || 'unknown',
+        version: plugin.manifest?.version || 'unknown',
       };
 
       // 异步上报，不影响主流程

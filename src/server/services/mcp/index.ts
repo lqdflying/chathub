@@ -361,7 +361,7 @@ export class MCPService {
       const value = (params as any)[key];
       // Sort the 'args' array if it exists
       if (key === 'args' && Array.isArray(value)) {
-        sortedParams[key] = JSON.stringify(key);
+        sortedParams[key] = JSON.stringify(value);
       } else {
         sortedParams[key] = value;
       }

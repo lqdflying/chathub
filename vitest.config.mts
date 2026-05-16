@@ -9,8 +9,15 @@ const ALIASES = [
   // @/const: most files are in packages/const/src, but locale.ts is only in src/const
   { find: /^@\/const\/locale(.*)$/, replacement: resolve(__dirname, 'src/const/locale$1') },
   { find: /^@\/const(.*)$/, replacement: resolve(__dirname, 'packages/const/src$1') },
-  // @/utils: most files are in packages/utils/src, but electron is only in src/utils
+  // @/utils: most files are in packages/utils/src, but these are only in src/utils
+  // These specific aliases MUST come before the broad @/utils → packages/utils/src catch-all.
   { find: /^@\/utils\/electron(.*)$/, replacement: resolve(__dirname, 'src/utils/electron$1') },
+  { find: /^@\/utils\/server(.*)$/, replacement: resolve(__dirname, 'src/utils/server$1') },
+  // Individual src-only utils (not in packages/utils/src)
+  { find: /^@\/utils\/client\/switchLang(.*)$/, replacement: resolve(__dirname, 'src/utils/client/switchLang$1') },
+  { find: /^@\/utils\/errorResponse(.*)$/, replacement: resolve(__dirname, 'src/utils/errorResponse$1') },
+  { find: /^@\/utils\/locale(.*)$/, replacement: resolve(__dirname, 'src/utils/locale$1') },
+  { find: /^@\/utils\/unzipFile(.*)$/, replacement: resolve(__dirname, 'src/utils/unzipFile$1') },
   { find: /^@\/utils(.*)$/, replacement: resolve(__dirname, 'packages/utils/src$1') },
   // package-scoped aliases — _deprecated fallback stays in src/database
   { find: /^@\/database\/_deprecated(.*)$/, replacement: resolve(__dirname, 'src/database/_deprecated$1') },
