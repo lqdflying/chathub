@@ -4,12 +4,11 @@ import { Block, Icon, Tag } from '@lobehub/ui';
 import { Alert, Button, Empty, Spin } from 'antd';
 import { createStyles } from 'antd-style';
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
 import { isDesktop } from '@/const/version';
-import type { McpTool } from '@/libs/mcp';
 import { desktopClient } from '@/libs/trpc/client/desktop';
 import { toolsClient } from '@/libs/trpc/client/tools';
 
@@ -73,17 +72,24 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
 }));
 
-interface ToolCardProps {
-  tool: McpTool;
+/** Shape returned by mcpService.listTools() via tRPC.
+ *  The service maps MCP inputSchema → LobeChatPluginApi.parameters. */
+interface DiscoveredTool {
+  description?: string;
+  name: string;
+  parameters?: {
+    properties?: Record<string, { description?: string; type?: string }>;
+    required?: string[];
+  };
 }
 
-const ToolCard = memo<ToolCardProps>(({ tool }) => {
+const ToolCard = memo<{ tool: DiscoveredTool }>(({ tool }) => {
   const { styles, theme } = useStyles();
   const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation('setting');
 
-  const properties = tool.inputSchema?.properties as Record<string, { description?: string; type?: string }> | undefined;
-  const required = (tool.inputSchema?.required as string[] | undefined) ?? [];
+  const properties = tool.parameters?.properties;
+  const required = tool.parameters?.required ?? [];
   const entries = properties ? Object.entries(properties) : [];
 
   return (
@@ -157,11 +163,14 @@ interface ToolsPanelProps {
 const ToolsPanel = memo<ToolsPanelProps>(({ identifier, mcpConnection }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('setting');
-  const [tools, setTools] = useState<McpTool[] | null>(null);
+  const [tools, setTools] = useState<DiscoveredTool[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const fetchIdRef = useRef(0);
 
   const fetchTools = useCallback(async () => {
+    const fetchId = ++fetchIdRef.current;
+
     setLoading(true);
     setError(null);
 
@@ -171,7 +180,7 @@ const ToolsPanel = memo<ToolsPanelProps>(({ identifier, mcpConnection }) => {
       if (mcpConnection.type === 'http') {
         const params: any = {
           name: identifier,
-          type: 'http',
+          type: 'http' as const,
           url: mcpConnection.url,
         };
         if (mcpConnection.auth?.type !== 'none') {
@@ -186,25 +195,34 @@ const ToolsPanel = memo<ToolsPanelProps>(({ identifier, mcpConnection }) => {
         result = await desktopClient.mcp.listTools.query({
           args: mcpConnection.args || [],
           command: mcpConnection.command || '',
+          env: mcpConnection.env,
           name: identifier,
           type: 'stdio' as const,
         });
       } else {
         // stdio not supported in web mode
+        if (fetchId !== fetchIdRef.current) return;
         setError('Stdio MCP tools can only be discovered in the desktop app.');
         setLoading(false);
         return;
       }
 
-      setTools(result as unknown as McpTool[]);
+      // Guard against stale responses from rapid selection changes
+      if (fetchId !== fetchIdRef.current) return;
+
+      setTools(result as unknown as DiscoveredTool[]);
     } catch (err) {
+      if (fetchId !== fetchIdRef.current) return;
       setError((err as Error).message || t('mcpManagement.tools.error'));
     } finally {
-      setLoading(false);
+      if (fetchId === fetchIdRef.current) setLoading(false);
     }
   }, [identifier, mcpConnection, t]);
 
   useEffect(() => {
+    // Reset state on identifier change so previous panel data doesn't flash
+    setTools(null);
+    setError(null);
     fetchTools();
   }, [fetchTools]);
 
