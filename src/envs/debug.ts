@@ -3,9 +3,9 @@ declare global {
   namespace NodeJS {
     interface ProcessEnv {
       NEXT_PUBLIC_DEVELOPER_DEBUG: string;
+      NEXT_PUBLIC_CHATHUB_DEBUG: string;
       NEXT_PUBLIC_I18N_DEBUG: string;
       NEXT_PUBLIC_I18N_DEBUG_BROWSER: string;
-
       NEXT_PUBLIC_I18N_DEBUG_SERVER: string;
     }
   }
@@ -14,6 +14,9 @@ declare global {
 export const getDebugConfig = () => ({
   // developer debug mode
   DEBUG_MODE: process.env.NEXT_PUBLIC_DEVELOPER_DEBUG === '1',
+
+  // client-side structured debug logs (group chat, supervisor, etc.)
+  CHATHUB_DEBUG: process.env.NEXT_PUBLIC_CHATHUB_DEBUG === '1',
 
   // i18n debug mode
   I18N_DEBUG: process.env.NEXT_PUBLIC_I18N_DEBUG === '1',
