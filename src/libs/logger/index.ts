@@ -2,7 +2,8 @@ import Pino from 'pino';
 
 import { bootstrapDebug, getPinoLevel } from './bootstrap';
 
-// Idempotent: safe to call before any const log = debug('...') is evaluated
+// CHATHUB_DEBUG=1 only adjusts Pino level; debug() namespaces are not
+// auto-enabled and must be set explicitly via the DEBUG=... env var.
 bootstrapDebug();
 
 export const pino = Pino({
