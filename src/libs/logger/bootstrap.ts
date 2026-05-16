@@ -1,84 +1,25 @@
 import debug from 'debug';
 
 /**
- * Namespaces enabled when CHATHUB_DEBUG=1.
+ * CHATHUB_DEBUG=1 only controls Pino log level.
  *
- * We use an explicit allowlist instead of a broad wildcard because several
- * existing debug loggers print sensitive payloads (tokens, API keys, prompts,
- * responses, user data, JWTs). Only audited-safe namespaces are listed.
+ * We do NOT auto-enable any debug() namespaces because the codebase contains
+ * 70+ debug loggers, many of which use %O/%o to print full objects that can
+ * include user data, auth tokens, API keys, prompts, responses, file contents,
+ * JWTs, and session payloads. Auditing every line is error-prone and breaks
+ * whenever new debug sites are added.
  *
- * Known-sensitive namespaces that are deliberately NOT included:
- *   - context-engine:*        – logs system roles, input templates, vision descriptions
- *   - lobe-chat:*             – logs instructions, agent data (system roles, model config),
- *                               supervisor tool parameters and decisions
- *   - lobe-image:*            – logs image prompts, URLs, generation params
- *   - lobe-lambda-router:*    – logs structured-output schema and generated results
- *   - lobe-mcp:client         – logs tool arguments and return values
- *   - lobe-model-runtime:*    – logs model prompts / responses / tool inputs
- *   - lobe-oidc:adapter       – logs full OIDC session / payload objects
- *   - lobe-oidc:http-adapter  – logs parsed request bodies
- *   - lobe-oidc:provider      – logs provider-level OIDC data
- *   - lobe-search:*           – logs search request bodies (may contain API keys)
- *   - lobe-trpc:*             – logs context params including auth headers and tokens
- *   - lobe-next-auth:adapter  – logs adapter payloads
- *   - oidc-jwt                – logs JWT payloads
- */
-export const CHATHUB_DEBUG_NAMESPACES = [
-  // Async — operational logs, no user data
-  'lobe-async:*',
-
-  // MCP server-side — safe operational namespaces only
-  'lobe-mcp:deps-check',
-  'lobe-mcp:oauth-discovery',
-  'lobe-mcp:oauth-service',
-  'lobe-mcp:router',
-  'lobe-mcp:service',
-
-  // OIDC — safe sub-namespaces only
-  'lobe-oidc:callback:desktop',
-  'lobe-oidc:consent',
-  'lobe-oidc:correctOIDCUrl',
-  'lobe-oidc:handoff',
-  'lobe-oidc:interaction-policy',
-  'lobe-oidc:route',
-  'lobe-oidc:service',
-  'lobe-oidc:validateRedirectHost',
-
-  // Auth — safe API endpoint only
-  'lobe-next-auth:api:auth:adapter',
-
-  // Server services / feature flags / config
-  'lobe-server:discover',
-  'lobe-feature-flags',
-  'config-router',
-
-  // UI / React / Markdown — safe component logs
-  'lobe-markdown:*',
-  'lobe-react:*',
-
-  // Cost calculations — numbers only
-  'lobe-cost:*',
-
-  // Non-lobe namespaces (no known sensitive data)
-  'electron-server-ipc:*',
-  'file-loaders:*',
-  'lambda-router:*',
-  'model-runtime:*',
-  'utils:*',
-].join(',');
-
-/**
- * Idempotently enable debug namespaces when CHATHUB_DEBUG=1.
- * Merges with any existing DEBUG env value instead of overwriting it.
- * Safe to call multiple times.
+ * Users who want specific debug namespaces should use the standard DEBUG=...
+ * environment variable (e.g. DEBUG=lobe-async:*,lobe-server:discover).
  */
 export function bootstrapDebug() {
   if (process.env.CHATHUB_DEBUG !== '1') return;
 
+  // Preserve any explicitly-set DEBUG namespaces; do not add our own.
   const existing = process.env.DEBUG || '';
-  const merged = [existing, CHATHUB_DEBUG_NAMESPACES].filter(Boolean).join(',');
-
-  debug.enable(merged);
+  if (existing) {
+    debug.enable(existing);
+  }
 }
 
 /**

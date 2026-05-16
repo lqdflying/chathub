@@ -57,7 +57,7 @@ const RootLayout = async ({ children, params, modal }: RootLayoutProps) => {
           </GlobalProvider>
         </NuqsAdapter>
         <Analytics />
-        <DebugBootstrap serverDebugEnabled={process.env.CHATHUB_DEBUG === '1'} />
+        <DebugBootstrap />
         {inVercel && <SpeedInsights />}
       </body>
     </html>

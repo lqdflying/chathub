@@ -1,11 +1,7 @@
 import debug from 'debug';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  CHATHUB_DEBUG_NAMESPACES,
-  bootstrapDebug,
-  getPinoLevel,
-} from '../bootstrap';
+import { bootstrapDebug, getPinoLevel } from '../bootstrap';
 
 describe('bootstrapDebug', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -37,54 +33,27 @@ describe('bootstrapDebug', () => {
     expect(enableSpy).not.toHaveBeenCalled();
   });
 
-  it('should enable default namespaces when CHATHUB_DEBUG=1 and DEBUG is empty', () => {
+  it('should not auto-enable any namespaces when CHATHUB_DEBUG=1 and DEBUG is empty', () => {
     process.env.CHATHUB_DEBUG = '1';
     delete process.env.DEBUG;
 
     bootstrapDebug();
 
-    expect(enableSpy).toHaveBeenCalledWith(CHATHUB_DEBUG_NAMESPACES);
+    expect(enableSpy).not.toHaveBeenCalled();
   });
 
-  it('should merge with existing DEBUG namespaces', () => {
+  it('should pass through existing DEBUG namespaces when CHATHUB_DEBUG=1', () => {
     process.env.CHATHUB_DEBUG = '1';
     process.env.DEBUG = 'existing:ns';
 
     bootstrapDebug();
 
-    expect(enableSpy).toHaveBeenCalledWith(`existing:ns,${CHATHUB_DEBUG_NAMESPACES}`);
+    expect(enableSpy).toHaveBeenCalledWith('existing:ns');
   });
 
-  it('should not contain known-sensitive namespaces', () => {
-    // These namespaces log sensitive data (tokens, API keys, prompts,
-    // responses, user payloads, JWTs, auth headers) and must NOT appear
-    // in the allowlist.
-    const forbidden = [
-      'context-engine:*',
-      'lobe-chat:group-chat',
-      'lobe-chat:supervisor',
-      'lobe-image:*',
-      'lobe-lambda-router:*',
-      'lobe-mcp:client',
-      'lobe-model-runtime:*',
-      'lobe-next-auth:adapter',
-      'lobe-oidc:adapter',
-      'lobe-oidc:http-adapter',
-      'lobe-oidc:provider',
-      'lobe-search:*',
-      'lobe-trpc:*',
-      'oidc-jwt',
-    ];
-
-    for (const ns of forbidden) {
-      expect(CHATHUB_DEBUG_NAMESPACES).not.toContain(ns);
-    }
-  });
-
-  it('should not contain provider raw-stream env var names', () => {
+  it('should never auto-enable provider raw-stream env var names', () => {
     // Provider-specific raw payload flags are env vars (e.g.
-    // DEBUG_OPENAI_CHAT_COMPLETION=1), not debug namespaces, and must
-    // never appear in the namespace list.
+    // DEBUG_OPENAI_CHAT_COMPLETION=1), not debug namespaces.
     const forbiddenEnvVars = [
       'DEBUG_OPENAI_CHAT_COMPLETION',
       'DEBUG_ANTHROPIC_CHAT_COMPLETION',
@@ -96,8 +65,13 @@ describe('bootstrapDebug', () => {
       'DEBUG_AZURE_AI_CHAT_COMPLETION',
     ];
 
+    // Since bootstrapDebug no longer maintains a namespace allowlist,
+    // the only way these could appear is if they are passed via DEBUG=...
     for (const ns of forbiddenEnvVars) {
-      expect(CHATHUB_DEBUG_NAMESPACES).not.toContain(ns);
+      process.env.CHATHUB_DEBUG = '1';
+      process.env.DEBUG = ns;
+      bootstrapDebug();
+      expect(enableSpy).toHaveBeenCalledWith(ns);
     }
   });
 });

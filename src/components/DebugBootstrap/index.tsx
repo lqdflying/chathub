@@ -7,17 +7,6 @@ import { getDebugConfig } from '@/envs/debug';
 
 const CHATHUB_CLIENT_NS = 'lobe-chat:*';
 
-interface DebugBootstrapProps {
-  /**
-   * Passed from the server layout when CHATHUB_DEBUG=1 is set server-side.
-   * Currently unused for client debug namespaces because the existing
-   * lobe-chat:* logs contain prompt-adjacent data (instructions, agent
-   * config, supervisor decisions) and are only enabled by the explicit
-   * client-side flag NEXT_PUBLIC_CHATHUB_DEBUG=1.
-   */
-  serverDebugEnabled?: boolean;
-}
-
 /**
  * Client-side debug bootstrap.
  *
@@ -25,10 +14,9 @@ interface DebugBootstrapProps {
  * based on the explicit NEXT_PUBLIC_CHATHUB_DEBUG=1 flag, while preserving
  * any user-defined namespaces that were already in localStorage.
  *
- * NOTE: CHATHUB_DEBUG=1 does NOT auto-enable client-side lobe-chat:*
- * because those logs contain user/agent prompt-adjacent data.
+ * NOTE: CHATHUB_DEBUG=1 is server-only and does not affect browser debug.
  */
-const DebugBootstrap = ({ serverDebugEnabled }: DebugBootstrapProps) => {
+const DebugBootstrap = () => {
   useEffect(() => {
     const config = getDebugConfig();
     const enabled = config.CHATHUB_DEBUG;
@@ -52,7 +40,7 @@ const DebugBootstrap = ({ serverDebugEnabled }: DebugBootstrapProps) => {
         debug.disable();
       }
     }
-  }, [serverDebugEnabled]);
+  }, []);
 
   return null;
 };
