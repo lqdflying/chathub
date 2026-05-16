@@ -461,7 +461,7 @@ export class MCPClient {
     log('get capabilities: %O', capabilities);
 
     const [tools, prompts, resources] = await Promise.all([
-      this.listTools(),
+      capabilities?.tools ? this.listTools() : Promise.resolve([]),
       capabilities?.prompts ? this.listPrompts() : Promise.resolve([]),
       capabilities?.resources ? this.listResources() : Promise.resolve([]),
     ]);
