@@ -215,7 +215,7 @@ export class McpOAuthService {
 
     if (token.expiresAt && token.expiresAt < Date.now()) {
       // Token is expired but might be refreshable
-      if (token.refreshToken) return 'expired';
+      if (token.refreshToken) return 'expired_refreshable';
       return 'expired';
     }
 

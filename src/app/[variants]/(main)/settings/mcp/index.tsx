@@ -1,7 +1,7 @@
 'use client';
 
 import { MCP } from '@lobehub/icons';
-import { Button, DraggablePanel, Icon, Text } from '@lobehub/ui';
+import { Button, DraggablePanel, Icon } from '@lobehub/ui';
 import { App, Empty, Input } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
 import isEqual from 'fast-deep-equal';
@@ -13,44 +13,41 @@ import { Center, Flexbox } from 'react-layout-kit';
 
 import PluginItem from '@/features/PluginStore/InstalledList/List/Item';
 import PluginDevModal from '@/features/PluginDevModal';
+import ToolsPanel from '@/features/MCPManagement/ToolsPanel';
 import { useFetchInstalledPlugins } from '@/hooks/useFetchInstalledPlugins';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 
 const useStyles = createStyles(({ css, token }) => ({
-  button: css`
-    margin-block-start: ${token.marginLG}px;
+  detailHeader: css`
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-block: ${token.paddingMD}px;
+    padding-inline: ${token.paddingMD}px;
+    border-bottom: 1px solid ${token.colorBorderSecondary};
   `,
-  container: css`
-    height: 80%;
-    padding-block: ${token.paddingXL}px;
-    padding-inline: ${token.paddingLG}px;
+  headerActions: css`
+    display: flex;
+    gap: 8px;
   `,
-  description: css`
-    max-width: 280px;
-    line-height: 1.5;
-    color: ${token.colorTextSecondary};
-    text-align: center;
-  `,
-  iconWrapper: css`
+  headerIcon: css`
     display: flex;
     align-items: center;
     justify-content: center;
 
-    width: 64px;
-    height: 64px;
-    margin-block-end: ${token.marginMD}px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
 
     background-color: ${token.colorPrimaryBg};
   `,
-  title: css`
-    margin-block-end: ${token.marginSM}px;
-
+  headerTitle: css`
+    flex: 1;
     font-size: ${token.fontSizeLG}px;
     font-weight: 500;
     color: ${token.colorText};
-    text-align: center;
   `,
 }));
 
@@ -248,44 +245,57 @@ const McpManagement = memo(() => {
           {selectedId ? (
             <Flexbox
               height={'100%'}
-              padding={16}
               ref={ref}
               style={{
                 background: theme.colorBgContainerSecondary,
                 overflowX: 'hidden',
-                overflowY: 'auto',
+                overflowY: 'hidden',
               }}
               width={'100%'}
             >
-              <Center className={styles.container}>
-                <Flexbox align="center">
-                  <div className={styles.iconWrapper}>
-                    <Icon icon={Package} size={32} />
-                  </div>
-                  <Text className={styles.title}>
-                    {selectedPlugin?.manifest?.meta?.title || selectedId}
-                  </Text>
-                  <Text className={styles.description}>
-                    {t('mcpManagement.editPrompt')}
-                  </Text>
+              {/* Plugin header with Edit/Uninstall */}
+              <Flexbox align={'center'} className={styles.detailHeader} horizontal>
+                <div className={styles.headerIcon}>
+                  <Icon icon={Package} size={18} />
+                </div>
+                <span className={styles.headerTitle}>
+                  {selectedPlugin?.manifest?.meta?.title || selectedId}
+                </span>
+                <Flexbox className={styles.headerActions} horizontal>
                   <Button
-                    className={styles.button}
                     onClick={() => {
                       setShowDevModal(true);
                     }}
+                    size="small"
                     type="primary"
                   >
                     {t('mcpManagement.editBtn')}
                   </Button>
                   <Button
-                    className={styles.button}
                     onClick={() => handleUninstall(selectedId)}
-                    type="default"
+                    size="small"
                   >
                     {t('mcpManagement.uninstall')}
                   </Button>
                 </Flexbox>
-              </Center>
+              </Flexbox>
+
+              {/* Discovered tools list */}
+              <Flexbox flex={1} style={{ overflow: 'hidden' }}>
+                {selectedPlugin?.customParams?.mcp ? (
+                  <ToolsPanel
+                    identifier={selectedId}
+                    mcpConnection={selectedPlugin.customParams.mcp}
+                  />
+                ) : (
+                  <Center height={'100%'} padding={16} width={'100%'}>
+                    <Empty
+                      description={t('mcpManagement.editPrompt')}
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    />
+                  </Center>
+                )}
+              </Flexbox>
             </Flexbox>
           ) : (
             <Center

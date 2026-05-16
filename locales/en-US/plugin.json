@@ -77,6 +77,14 @@
           "disconnect": "Disconnect",
           "checkStatus": "Check Status",
           "statusLabel": "Status",
+          "statusLabels": {
+            "error": "Error",
+            "expired": "Expired",
+            "expired_refreshable": "Expired, can refresh",
+            "missing": "Not authorized",
+            "refreshing": "Refreshing",
+            "valid": "Valid"
+          },
           "discovered": "OAuth endpoints discovered",
           "discovering": "Discovering...",
           "missingFields": "Please fill in all OAuth configuration fields",

@@ -74,7 +74,7 @@ export class MCPService {
           nextReTryTime += 1;
         }
 
-        return this.listTools(params, { retryTime: nextReTryTime, skipCache: true });
+        return this.listTools(params, { retryTime: nextReTryTime, skipCache: true }, oauthContext);
       }
 
       console.error(`Error listing tools for params %O:`, loggableParams, error);
@@ -235,7 +235,21 @@ export class MCPService {
     const key = this.serializeParams(params); // Use custom serialization
 
     if (!skipCache && this.clients.has(key)) {
-      return this.clients.get(key)!;
+      const cached = this.clients.get(key)!;
+
+      // If the cached client is an OAuth client without a tokenGetter,
+      // but the current call provides oauthContext (refresh capability),
+      // skip the cache so we create a fresh client with the tokenGetter.
+      // Otherwise later calls with oauthContext would inherit a stale,
+      // non-refreshable client created by an earlier call without context.
+      const isOAuth =
+        params.type === 'http' && params.auth?.type === 'oauth2';
+      if (isOAuth && oauthContext && !cached.hasTokenGetter) {
+        log('Evicting cached non-refreshable OAuth client; oauthContext now available');
+        this.clients.delete(key);
+      } else {
+        return cached;
+      }
     }
 
     log(`No cached client found, Initializing new client.`);
@@ -366,6 +380,7 @@ export class MCPService {
       type: 'none' | 'bearer' | 'oauth2';
     },
     headers?: Record<string, string>,
+    oauthContext?: MCPOAuthContext,
   ): Promise<LobeChatPluginManifest> {
     const mcpParams = { name: identifier, type: 'http' as const, url };
 
@@ -379,7 +394,7 @@ export class MCPService {
       (mcpParams as any).headers = headers;
     }
 
-    const tools = await this.listTools(mcpParams);
+    const tools = await this.listTools(mcpParams, {}, oauthContext);
 
     return {
       api: tools,

@@ -77,6 +77,14 @@
           "disconnect": "断开连接",
           "checkStatus": "检查状态",
           "statusLabel": "状态",
+          "statusLabels": {
+            "error": "错误",
+            "expired": "已过期",
+            "expired_refreshable": "已过期，可刷新",
+            "missing": "未授权",
+            "refreshing": "刷新中",
+            "valid": "有效"
+          },
           "discovered": "OAuth 端点已发现",
           "discovering": "发现中...",
           "missingFields": "请填写所有 OAuth 配置字段",

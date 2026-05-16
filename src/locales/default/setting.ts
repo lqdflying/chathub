@@ -752,6 +752,15 @@ export default {
     empty: '暂无已安装的 MCP 插件',
     library: 'MCP 库',
     mcpRuntime: 'MCP 运行时',
+    tools: {
+      empty: '此 MCP 服务器未提供任何工具。',
+      error: '获取工具列表失败。',
+      inputSchema: '参数定义',
+      loading: '正在发现工具...',
+      noDescription: '暂无描述',
+      retry: '重试',
+      title: '已发现的工具',
+    },
     uninstall: '卸载',
   },
 };

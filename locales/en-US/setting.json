@@ -745,6 +745,15 @@
     "empty": "No MCP plugins installed",
     "library": "MCP Library",
     "mcpRuntime": "MCP Runtime",
+    "tools": {
+      "empty": "This MCP server did not provide any tools.",
+      "error": "Failed to fetch tool list.",
+      "inputSchema": "Input Schema",
+      "loading": "Discovering tools...",
+      "noDescription": "No description",
+      "retry": "Retry",
+      "title": "Discovered Tools"
+    },
     "uninstall": "Uninstall"
   }
 }

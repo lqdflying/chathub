@@ -231,4 +231,4 @@ export interface OAuthCallbackParams {
 /**
  * OAuth 令牌状态
  */
-export type OAuthTokenStatus = 'valid' | 'expired' | 'missing' | 'refreshing' | 'error';
+export type OAuthTokenStatus = 'valid' | 'expired' | 'expired_refreshable' | 'missing' | 'refreshing' | 'error';
