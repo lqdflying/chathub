@@ -462,8 +462,8 @@ export class MCPClient {
 
     const [tools, prompts, resources] = await Promise.all([
       this.listTools(),
-      this.listPrompts(),
-      this.listResources(),
+      capabilities?.prompts ? this.listPrompts() : Promise.resolve([]),
+      capabilities?.resources ? this.listResources() : Promise.resolve([]),
     ]);
 
     const manifest = {

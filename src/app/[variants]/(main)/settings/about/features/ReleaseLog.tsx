@@ -1,7 +1,7 @@
 'use client';
 
 import { Skeleton } from 'antd';
-import DOMPurify from 'dompurify';
+import { sanitizeHTML } from '@lobechat/utils/client';
 import { marked } from 'marked';
 import { memo } from 'react';
 import useSWR from 'swr';
@@ -36,7 +36,7 @@ const ReleaseLog = memo(() => {
     return null;
   }
 
-  const html = DOMPurify.sanitize(marked.parse(data.body || '') as string);
+  const html = sanitizeHTML(marked.parse(data.body || '') as string);
 
   return (
     <Flexbox gap={16} style={{ maxWidth: '100%', overflow: 'hidden' }}>
