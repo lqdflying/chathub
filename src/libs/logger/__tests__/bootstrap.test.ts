@@ -55,9 +55,26 @@ describe('bootstrapDebug', () => {
     expect(enableSpy).toHaveBeenCalledWith(`existing:ns,${CHATHUB_DEBUG_NAMESPACES}`);
   });
 
-  it('should not contain provider raw-stream namespaces', () => {
-    // Provider-specific raw payload debug flags must NOT be auto-enabled
-    const forbidden = [
+  it('should exclude known-sensitive lobe-* namespaces', () => {
+    // These namespaces log sensitive data (tokens, API keys, prompts,
+    // responses, user payloads) and must be explicitly excluded.
+    const excluded = [
+      '-lobe-mcp:client',
+      '-lobe-model-runtime:*',
+      '-lobe-oidc:adapter',
+      '-lobe-search:*',
+    ];
+
+    for (const ns of excluded) {
+      expect(CHATHUB_DEBUG_NAMESPACES).toContain(ns);
+    }
+  });
+
+  it('should not contain provider raw-stream env var names', () => {
+    // Provider-specific raw payload flags are env vars (e.g.
+    // DEBUG_OPENAI_CHAT_COMPLETION=1), not debug namespaces, and must
+    // never appear in the namespace list.
+    const forbiddenEnvVars = [
       'DEBUG_OPENAI_CHAT_COMPLETION',
       'DEBUG_ANTHROPIC_CHAT_COMPLETION',
       'DEBUG_MOONSHOT_CHAT_COMPLETION',
@@ -68,7 +85,7 @@ describe('bootstrapDebug', () => {
       'DEBUG_AZURE_AI_CHAT_COMPLETION',
     ];
 
-    for (const ns of forbidden) {
+    for (const ns of forbiddenEnvVars) {
       expect(CHATHUB_DEBUG_NAMESPACES).not.toContain(ns);
     }
   });

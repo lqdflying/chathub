@@ -4,6 +4,6 @@
  */
 export const getServerDebugConfig = () => ({
   CHATHUB_DEBUG: process.env.CHATHUB_DEBUG === '1',
-  LOG_LEVEL: process.env.LOG_LEVEL,
   DEBUG: process.env.DEBUG || '',
+  LOG_LEVEL: process.env.LOG_LEVEL,
 });

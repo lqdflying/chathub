@@ -1,20 +1,33 @@
 import debug from 'debug';
 
 /**
- * Namespace wildcards matching all actual debug() instances in the codebase.
- * These are intentionally broad to cover existing and future debug loggers
- * without requiring a manual whitelist update every time a new namespace is added.
+ * Namespaces enabled when CHATHUB_DEBUG=1.
+ *
+ * We intentionally avoid a blanket `lobe-*` wildcard because several existing
+ * `lobe-*` loggers print sensitive payloads (tokens, API keys, prompts,
+ * responses, user data). Instead we use a broad base (`lobe-*`) with explicit
+ * exclusions (`-`) for the known-sensitive areas, plus additional safe
+ * non-lobe namespaces.
+ *
+ * Excluded namespaces (and why):
+ *   - lobe-oidc:adapter   – logs full OIDC session / payload objects
+ *   - lobe-mcp:client     – logs tool arguments and return values
+ *   - lobe-search:*       – logs search request bodies (may contain API keys)
+ *   - lobe-model-runtime:* – logs model prompts / responses / tool inputs
  */
 export const CHATHUB_DEBUG_NAMESPACES = [
   'lobe-*',
-  'model-runtime:*',
+  '-lobe-mcp:client',
+  '-lobe-model-runtime:*',
+  '-lobe-oidc:adapter',
+  '-lobe-search:*',
   'context-engine:*',
-  'file-loaders:*',
   'electron-server-ipc:*',
+  'file-loaders:*',
+  'lambda-router:*',
   'config-router',
   'oidc-jwt',
   'utils:*',
-  'lambda-router:*',
 ].join(',');
 
 /**
