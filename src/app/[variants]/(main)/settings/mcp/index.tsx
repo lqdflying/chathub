@@ -261,7 +261,7 @@ const McpManagement = memo(() => {
                 <span className={styles.headerTitle}>
                   {selectedPlugin?.manifest?.meta?.title || selectedId}
                 </span>
-                <Flexbox className={styles.headerActions}>
+                <Flexbox className={styles.headerActions} horizontal>
                   <Button
                     onClick={() => {
                       setShowDevModal(true);
