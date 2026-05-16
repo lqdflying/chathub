@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Before first code edit (fixes & features) — REQUIRED
 
-Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says “no branch” / “edit on `main` only”.
+Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says "no branch" / "edit on `main` only".
 
 **Always create a new branch for implementation work** — never edit on `main`, and do not pile unrelated changes onto some other open `feat/*`/`fix/*` branch. Reuse an existing topic branch only when the user explicitly asks to continue that branch.
 
@@ -179,38 +179,38 @@ Every GA tag **must** be accompanied by a `gh release create`. The release descr
 
 Do **not** create the release before pushing the tag — the tag push triggers the Docker build. Create the release after the tag push.
 
-## After GA: delete unused branches
+### After GA: clean up merged branches (MANDATORY)
 
-Once a feature or fix branch has been **merged into `main`** and the GA tag has shipped, **delete that branch locally and on `origin`** so the repo stays tidy. Do this **only when the user asks** (e.g. “clean up branches”, “delete merged branches”) or as part of an explicit GA follow-up.
+After a GA tag has shipped, **immediately delete the merged feature/fix branch** — do not leave it to accumulate. This is a mandatory part of the GA promotion workflow, not an optional cleanup. **Do not wait for the user to ask.** Proactively clean up after completing the GA steps (merge, bump, tag, push, GitHub Release).
 
-**Do not delete** `main`, release-protection branches, or anything the user still uses for open work.
+Also clean up any stale local-only branches (e.g. from previous iterations of the same line of work) that are ancestors of `main`.
 
-### Check what is safe to remove
+**Do not delete** `main` or any branches the user is actively working on.
+
+#### Identify merged branches
 
 ```bash
 git fetch --prune origin
-git checkout main && git pull origin main
 git branch --merged main    # local branches fully merged into main (except main itself)
+git branch -a | grep -E 'fix/|feat/'  # spot stale remotes
 ```
 
-Optional: compare to remote feature branches — if the merge is on `main`, the remote copy of the feature branch is redundant.
-
-### Delete locally
+#### Delete locally
 
 ```bash
 git branch -d <branch>      # preferred when Git agrees it is merged
-git branch -D <branch>      # only if work is already on main but Git refuses -d (e.g. stray tracking mismatch)
+git branch -D <branch>      # only if work is already on main but Git refuses -d
 ```
 
-### Delete on `origin`
+#### Delete on `origin`
 
 ```bash
 git push origin --delete <branch> [<branch> ...]
 ```
 
-### Verify
+#### Verify
 
 ```bash
 git fetch --prune origin
-git branch -a
+git branch -a               # should show only `main` and `remotes/origin/main`
 ```
