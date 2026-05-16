@@ -254,7 +254,7 @@ const McpManagement = memo(() => {
               width={'100%'}
             >
               {/* Plugin header with Edit/Uninstall */}
-              <Flexbox className={styles.detailHeader}>
+              <Flexbox align={'center'} className={styles.detailHeader} horizontal>
                 <div className={styles.headerIcon}>
                   <Icon icon={Package} size={18} />
                 </div>
