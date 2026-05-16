@@ -9,6 +9,8 @@ import debug from 'debug';
  *
  * Known-sensitive namespaces that are deliberately NOT included:
  *   - context-engine:*        – logs system roles, input templates, vision descriptions
+ *   - lobe-chat:*             – logs instructions, agent data (system roles, model config),
+ *                               supervisor tool parameters and decisions
  *   - lobe-image:*            – logs image prompts, URLs, generation params
  *   - lobe-lambda-router:*    – logs structured-output schema and generated results
  *   - lobe-mcp:client         – logs tool arguments and return values
@@ -17,13 +19,13 @@ import debug from 'debug';
  *   - lobe-oidc:http-adapter  – logs parsed request bodies
  *   - lobe-oidc:provider      – logs provider-level OIDC data
  *   - lobe-search:*           – logs search request bodies (may contain API keys)
+ *   - lobe-trpc:*             – logs context params including auth headers and tokens
  *   - lobe-next-auth:adapter  – logs adapter payloads
  *   - oidc-jwt                – logs JWT payloads
  */
 export const CHATHUB_DEBUG_NAMESPACES = [
-  // Async / tRPC — operational logs, no user data
+  // Async — operational logs, no user data
   'lobe-async:*',
-  'lobe-trpc:*',
 
   // MCP server-side — safe operational namespaces only
   'lobe-mcp:deps-check',
@@ -56,10 +58,6 @@ export const CHATHUB_DEBUG_NAMESPACES = [
 
   // Cost calculations — numbers only
   'lobe-cost:*',
-
-  // Chat — safe operational logs only
-  'lobe-chat:group-chat',
-  'lobe-chat:supervisor',
 
   // Non-lobe namespaces (no known sensitive data)
   'electron-server-ipc:*',

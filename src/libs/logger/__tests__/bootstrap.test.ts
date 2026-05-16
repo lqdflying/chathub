@@ -57,9 +57,12 @@ describe('bootstrapDebug', () => {
 
   it('should not contain known-sensitive namespaces', () => {
     // These namespaces log sensitive data (tokens, API keys, prompts,
-    // responses, user payloads, JWTs) and must NOT appear in the allowlist.
+    // responses, user payloads, JWTs, auth headers) and must NOT appear
+    // in the allowlist.
     const forbidden = [
       'context-engine:*',
+      'lobe-chat:group-chat',
+      'lobe-chat:supervisor',
       'lobe-image:*',
       'lobe-lambda-router:*',
       'lobe-mcp:client',
@@ -69,6 +72,7 @@ describe('bootstrapDebug', () => {
       'lobe-oidc:http-adapter',
       'lobe-oidc:provider',
       'lobe-search:*',
+      'lobe-trpc:*',
       'oidc-jwt',
     ];
 
