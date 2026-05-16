@@ -55,18 +55,23 @@ describe('bootstrapDebug', () => {
     expect(enableSpy).toHaveBeenCalledWith(`existing:ns,${CHATHUB_DEBUG_NAMESPACES}`);
   });
 
-  it('should exclude known-sensitive lobe-* namespaces', () => {
+  it('should not contain known-sensitive namespaces', () => {
     // These namespaces log sensitive data (tokens, API keys, prompts,
-    // responses, user payloads) and must be explicitly excluded.
-    const excluded = [
-      '-lobe-mcp:client',
-      '-lobe-model-runtime:*',
-      '-lobe-oidc:adapter',
-      '-lobe-search:*',
+    // responses, user payloads, JWTs) and must NOT appear in the allowlist.
+    const forbidden = [
+      'lobe-image:*',
+      'lobe-mcp:client',
+      'lobe-model-runtime:*',
+      'lobe-next-auth:adapter',
+      'lobe-oidc:adapter',
+      'lobe-oidc:http-adapter',
+      'lobe-oidc:provider',
+      'lobe-search:*',
+      'oidc-jwt',
     ];
 
-    for (const ns of excluded) {
-      expect(CHATHUB_DEBUG_NAMESPACES).toContain(ns);
+    for (const ns of forbidden) {
+      expect(CHATHUB_DEBUG_NAMESPACES).not.toContain(ns);
     }
   });
 

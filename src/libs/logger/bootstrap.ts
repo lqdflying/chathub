@@ -3,30 +3,69 @@ import debug from 'debug';
 /**
  * Namespaces enabled when CHATHUB_DEBUG=1.
  *
- * We intentionally avoid a blanket `lobe-*` wildcard because several existing
- * `lobe-*` loggers print sensitive payloads (tokens, API keys, prompts,
- * responses, user data). Instead we use a broad base (`lobe-*`) with explicit
- * exclusions (`-`) for the known-sensitive areas, plus additional safe
- * non-lobe namespaces.
+ * We use an explicit allowlist instead of a broad wildcard because several
+ * existing debug loggers print sensitive payloads (tokens, API keys, prompts,
+ * responses, user data, JWTs). Only audited-safe namespaces are listed.
  *
- * Excluded namespaces (and why):
- *   - lobe-oidc:adapter   – logs full OIDC session / payload objects
- *   - lobe-mcp:client     – logs tool arguments and return values
- *   - lobe-search:*       – logs search request bodies (may contain API keys)
- *   - lobe-model-runtime:* – logs model prompts / responses / tool inputs
+ * Known-sensitive namespaces that are deliberately NOT included:
+ *   - lobe-image:*            – logs image prompts, URLs, generation params
+ *   - lobe-mcp:client         – logs tool arguments and return values
+ *   - lobe-model-runtime:*    – logs model prompts / responses / tool inputs
+ *   - lobe-oidc:adapter       – logs full OIDC session / payload objects
+ *   - lobe-oidc:http-adapter  – logs parsed request bodies
+ *   - lobe-oidc:provider      – logs provider-level OIDC data
+ *   - lobe-search:*           – logs search request bodies (may contain API keys)
+ *   - lobe-next-auth:adapter  – logs adapter payloads
+ *   - oidc-jwt                – logs JWT payloads
  */
 export const CHATHUB_DEBUG_NAMESPACES = [
-  'lobe-*',
-  '-lobe-mcp:client',
-  '-lobe-model-runtime:*',
-  '-lobe-oidc:adapter',
-  '-lobe-search:*',
+  // Async / tRPC / routing — operational logs, no user data
+  'lobe-async:*',
+  'lobe-lambda-router:*',
+  'lobe-trpc:*',
+
+  // MCP server-side — safe operational namespaces only
+  'lobe-mcp:deps-check',
+  'lobe-mcp:oauth-discovery',
+  'lobe-mcp:oauth-service',
+  'lobe-mcp:router',
+  'lobe-mcp:service',
+
+  // OIDC — safe sub-namespaces only
+  'lobe-oidc:callback:desktop',
+  'lobe-oidc:consent',
+  'lobe-oidc:correctOIDCUrl',
+  'lobe-oidc:handoff',
+  'lobe-oidc:interaction-policy',
+  'lobe-oidc:route',
+  'lobe-oidc:service',
+  'lobe-oidc:validateRedirectHost',
+
+  // Auth — safe API endpoint only
+  'lobe-next-auth:api:auth:adapter',
+
+  // Server services / feature flags / config
+  'lobe-server:discover',
+  'lobe-feature-flags',
+  'config-router',
+
+  // UI / React / Markdown — safe component logs
+  'lobe-markdown:*',
+  'lobe-react:*',
+
+  // Cost calculations — numbers only
+  'lobe-cost:*',
+
+  // Chat — safe operational logs only
+  'lobe-chat:group-chat',
+  'lobe-chat:supervisor',
+
+  // Non-lobe namespaces (no known sensitive data)
   'context-engine:*',
   'electron-server-ipc:*',
   'file-loaders:*',
   'lambda-router:*',
-  'config-router',
-  'oidc-jwt',
+  'model-runtime:*',
   'utils:*',
 ].join(',');
 
