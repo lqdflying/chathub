@@ -7,7 +7,7 @@ import { edgeRouter } from '@/server/routers/edge';
 
 const handler = (req: NextRequest) => {
   const start = Date.now();
-  pino.debug(`tRPC edge request: ${req.method} ${req.url}`);
+  pino.debug(`tRPC edge request: ${req.method} ${req.nextUrl.pathname}`);
 
   return fetchRequestHandler({
     /**

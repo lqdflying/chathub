@@ -7,7 +7,7 @@ import { lambdaRouter } from '@/server/routers/lambda';
 
 const handler = (req: NextRequest) => {
   const start = Date.now();
-  pino.debug(`tRPC lambda request: ${req.method} ${req.url}`);
+  pino.debug(`tRPC lambda request: ${req.method} ${req.nextUrl.pathname}`);
 
   return fetchRequestHandler({
     /**

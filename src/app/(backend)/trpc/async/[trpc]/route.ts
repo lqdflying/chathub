@@ -7,7 +7,7 @@ import { asyncRouter } from '@/server/routers/async';
 
 const handler = (req: NextRequest) => {
   const start = Date.now();
-  pino.debug(`tRPC async request: ${req.method} ${req.url}`);
+  pino.debug(`tRPC async request: ${req.method} ${req.nextUrl.pathname}`);
 
   return fetchRequestHandler({
     // 避免请求之间互相影响
