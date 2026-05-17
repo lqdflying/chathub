@@ -14,6 +14,7 @@ import {
   McpTool,
   StdioMCPParams,
 } from '@/libs/mcp';
+import { pino } from '@/libs/logger';
 
 import { mcpSystemDepsCheckService } from './deps';
 import { McpOAuthService } from './oauth';
@@ -47,12 +48,14 @@ export class MCPService {
     { retryTime, skipCache }: { retryTime?: number; skipCache?: boolean } = {},
     oauthContext?: MCPOAuthContext,
   ): Promise<LobeChatPluginApi[]> {
+    const start = Date.now();
     const client = await this.getClient(params, skipCache, oauthContext);
     const loggableParams = this.sanitizeForLogging(params);
     log(`Listing tools using client for params: %O`, loggableParams);
 
     try {
       const result = await client.listTools();
+      pino.debug(`MCP listTools completed in ${Date.now() - start}ms, count: ${result.length}`);
       log(
         `Tools listed successfully for params: %O, result count: %d`,
         loggableParams,
@@ -169,6 +172,7 @@ export class MCPService {
     argsStr: any,
     oauthContext?: MCPOAuthContext,
   ): Promise<any> {
+    const start = Date.now();
     const client = await this.getClient(params, false, oauthContext);
 
     const args = safeParseJSON(argsStr);
@@ -183,6 +187,7 @@ export class MCPService {
     try {
       // Delegate the call to the MCPClient instance
       const result = await client.callTool(toolName, args); // Pass args directly
+      pino.debug(`MCP callTool "${toolName}" completed in ${Date.now() - start}ms`);
       log(
         `Tool "${toolName}" called successfully for params: %O, result: %O`,
         loggableParams,

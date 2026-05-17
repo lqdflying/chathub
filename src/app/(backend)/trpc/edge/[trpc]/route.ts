@@ -5,8 +5,11 @@ import { pino } from '@/libs/logger';
 import { createEdgeContext } from '@/libs/trpc/edge/context';
 import { edgeRouter } from '@/server/routers/edge';
 
-const handler = (req: NextRequest) =>
-  fetchRequestHandler({
+const handler = (req: NextRequest) => {
+  const start = Date.now();
+  pino.debug(`tRPC edge request: ${req.method} ${req.url}`);
+
+  return fetchRequestHandler({
     /**
      * @link https://trpc.io/docs/v11/context
      */
@@ -21,6 +24,9 @@ const handler = (req: NextRequest) =>
 
     req,
     router: edgeRouter,
+  }).finally(() => {
+    pino.debug(`tRPC edge response in ${Date.now() - start}ms`);
   });
+};
 
 export { handler as GET, handler as POST };

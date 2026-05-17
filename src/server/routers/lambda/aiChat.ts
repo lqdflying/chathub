@@ -9,6 +9,7 @@ import debug from 'debug';
 import { LOADING_FLAT } from '@/const/message';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
+import { pino } from '@/libs/logger';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
@@ -70,6 +71,7 @@ export const aiChatRouter = router({
   sendMessageInServer: aiChatProcedure
     .input(AiSendMessageServerSchema)
     .mutation(async ({ input, ctx }) => {
+      const start = Date.now();
       log('sendMessageInServer called for sessionId: %s', input.sessionId);
       log('topicId: %s, newTopic: %O', input.topicId, input.newTopic);
 
@@ -132,6 +134,9 @@ export const aiChatRouter = router({
       });
 
       log('retrieved %d messages, %d topics', messages.length, topics?.length ?? 0);
+      pino.debug(
+        `sendMessageInServer completed in ${Date.now() - start}ms (sessionId=${input.sessionId}, model=${input.newAssistantMessage.model})`,
+      );
 
       return {
         assistantMessageId: assistantMessageItem.id,

@@ -5,8 +5,11 @@ import { pino } from '@/libs/logger';
 import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { lambdaRouter } from '@/server/routers/lambda';
 
-const handler = (req: NextRequest) =>
-  fetchRequestHandler({
+const handler = (req: NextRequest) => {
+  const start = Date.now();
+  pino.debug(`tRPC lambda request: ${req.method} ${req.url}`);
+
+  return fetchRequestHandler({
     /**
      * @link https://trpc.io/docs/v11/context
      */
@@ -26,6 +29,9 @@ const handler = (req: NextRequest) =>
       return { headers };
     },
     router: lambdaRouter,
+  }).finally(() => {
+    pino.debug(`tRPC lambda response in ${Date.now() - start}ms`);
   });
+};
 
 export { handler as GET, handler as POST };

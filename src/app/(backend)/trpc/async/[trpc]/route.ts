@@ -5,8 +5,11 @@ import { pino } from '@/libs/logger';
 import { createAsyncRouteContext } from '@/libs/trpc/async/context';
 import { asyncRouter } from '@/server/routers/async';
 
-const handler = (req: NextRequest) =>
-  fetchRequestHandler({
+const handler = (req: NextRequest) => {
+  const start = Date.now();
+  pino.debug(`tRPC async request: ${req.method} ${req.url}`);
+
+  return fetchRequestHandler({
     // 避免请求之间互相影响
     // https://github.com/lobehub/lobe-chat/discussions/7442#discussioncomment-13658563
     allowBatching: false,
@@ -25,6 +28,9 @@ const handler = (req: NextRequest) =>
 
     req,
     router: asyncRouter,
+  }).finally(() => {
+    pino.debug(`tRPC async response in ${Date.now() - start}ms`);
   });
+};
 
 export { handler as GET, handler as POST };
