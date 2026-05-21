@@ -12,8 +12,8 @@ const EditCustomPlugin = memo<{ identifier: string }>(({ identifier }) => {
   const { t } = useTranslation('plugin');
   const [showModal, setModal] = useState(false);
 
-  const [installCustomPlugin, updateNewDevPlugin, uninstallCustomPlugin] = useToolStore((s) => [
-    s.installCustomPlugin,
+  const [updateCustomPlugin, updateNewDevPlugin, uninstallCustomPlugin] = useToolStore((s) => [
+    s.updateCustomPlugin,
     s.updateNewCustomPlugin,
     s.uninstallCustomPlugin,
   ]);
@@ -34,7 +34,7 @@ const EditCustomPlugin = memo<{ identifier: string }>(({ identifier }) => {
         }}
         onOpenChange={setModal}
         onSave={async (devPlugin) => {
-          await installCustomPlugin(devPlugin);
+          await updateCustomPlugin(identifier, devPlugin);
           setModal(false);
         }}
         onValueChange={updateNewDevPlugin}

@@ -19,7 +19,7 @@ const n = setNamespace('customPlugin');
 
 export interface CustomPluginAction {
   installCustomPlugin: (value: LobeToolCustomPlugin) => Promise<void>;
-  reinstallCustomPlugin: (id: string) => Promise<void>;
+  reinstallCustomPlugin: (id: string, pluginOverride?: LobeToolCustomPlugin) => Promise<void>;
   uninstallCustomPlugin: (id: string) => Promise<void>;
   updateCustomPlugin: (id: string, value: LobeToolCustomPlugin) => Promise<void>;
   updateNewCustomPlugin: (value: Partial<LobeToolCustomPlugin>) => void;
@@ -37,53 +37,71 @@ export const createCustomPluginSlice: StateCreator<
     await get().refreshPlugins();
     set({ newCustomPlugin: defaultCustomPlugin }, false, n('saveToCustomPluginList'));
   },
-  reinstallCustomPlugin: async (id) => {
-    const plugin = pluginSelectors.getCustomPluginById(id)(get());
+  reinstallCustomPlugin: async (id, pluginOverride) => {
+    const plugin = pluginOverride || pluginSelectors.getCustomPluginById(id)(get());
     if (!plugin) return;
 
     const { refreshPlugins, updateInstallLoadingState } = get();
+    const pluginId = plugin.identifier;
 
     try {
-      updateInstallLoadingState(id, true);
+      updateInstallLoadingState(pluginId, true);
       let manifest: LobeChatPluginManifest;
       // mean this is a mcp plugin
       if (!!plugin.customParams?.mcp) {
-        const url = plugin.customParams?.mcp?.url;
-        if (!url) return;
+        const mcp = plugin.customParams.mcp;
+        if (mcp.type === 'stdio') {
+          if (!mcp.command) return;
 
-        manifest = await mcpService.getStreamableMcpServerManifest({
-          auth: plugin.customParams.mcp.auth,
-          headers: plugin.customParams.mcp.headers,
-          identifier: plugin.identifier,
-          metadata: {
-            avatar: plugin.customParams.avatar,
-            description: plugin.customParams.description,
-          },
-          url,
-        });
+          manifest = await mcpService.getStdioMcpServerManifest(
+            {
+              args: mcp.args,
+              command: mcp.command,
+              env: mcp.env,
+              name: pluginId,
+            },
+            {
+              avatar: plugin.customParams.avatar,
+              description: plugin.customParams.description,
+            },
+          );
+        } else {
+          const url = mcp.url;
+          if (!url) return;
+
+          manifest = await mcpService.getStreamableMcpServerManifest({
+            auth: mcp.auth,
+            headers: mcp.headers,
+            identifier: pluginId,
+            metadata: {
+              avatar: plugin.customParams.avatar,
+              description: plugin.customParams.description,
+            },
+            url,
+          });
+        }
       } else {
         manifest = await toolService.getToolManifest(
           plugin.customParams?.manifestUrl,
           plugin.customParams?.useProxy,
         );
       }
-      updateInstallLoadingState(id, false);
 
-      await pluginService.updatePluginManifest(id, manifest);
+      await pluginService.updatePluginManifest(pluginId, manifest);
       await refreshPlugins();
     } catch (error) {
-      updateInstallLoadingState(id, false);
-
       console.error(error);
       const err = error as PluginInstallError;
 
-      const meta = pluginSelectors.getPluginMetaById(id)(get());
+      const meta = pluginSelectors.getPluginMetaById(pluginId)(get());
       const name = pluginHelpers.getPluginTitle(meta);
 
       notification.error({
         description: t(`error.${err.message}`, { error: err.cause, ns: 'plugin' }),
         message: t('error.reinstallError', { name, ns: 'plugin' }),
       });
+    } finally {
+      updateInstallLoadingState(pluginId, false);
     }
   },
   uninstallCustomPlugin: async (id) => {
@@ -97,7 +115,7 @@ export const createCustomPluginSlice: StateCreator<
     await pluginService.updatePlugin(id, value);
 
     // 2. 重新安装插件
-    await reinstallCustomPlugin(id);
+    await reinstallCustomPlugin(id, value);
   },
   updateNewCustomPlugin: (newCustomPlugin) => {
     set(
