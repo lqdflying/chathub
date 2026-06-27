@@ -14,8 +14,8 @@ interface EditCustomPluginProps {
 
 const EditCustomPlugin = memo<EditCustomPluginProps>(
   ({ identifier, open, onOpenChange, children }) => {
-    const [installCustomPlugin, updateNewDevPlugin, uninstallCustomPlugin] = useToolStore((s) => [
-      s.installCustomPlugin,
+    const [updateCustomPlugin, updateNewDevPlugin, uninstallCustomPlugin] = useToolStore((s) => [
+      s.updateCustomPlugin,
       s.updateNewCustomPlugin,
       s.uninstallCustomPlugin,
     ]);
@@ -37,7 +37,7 @@ const EditCustomPlugin = memo<EditCustomPluginProps>(
           }}
           onOpenChange={onOpenChange}
           onSave={async (devPlugin) => {
-            await installCustomPlugin(devPlugin);
+            await updateCustomPlugin(identifier, devPlugin);
             onOpenChange(false);
           }}
           onValueChange={updateNewDevPlugin}
