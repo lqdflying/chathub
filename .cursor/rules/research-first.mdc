@@ -17,11 +17,15 @@ You **MUST** research first, taking **full advantage** of all available search t
 
 **Workflow:**
 
-1. **Search broadly** — use at least 2 different search tools to cross-reference findings (e.g., `tavily_search` + `WebSearch`, or `microsoft_docs_search` + `parallel_search_web`)
-2. **Official vendor documentation** — fetch and read the relevant API reference, OpenAPI schema, changelog, and model-specific docs
-3. **Real-world samples** — find production examples, GitHub issues, StackOverflow discussions, and blog posts that confirm the approach works
-4. **Cross-reference** — confirm that what you plan to build matches what the vendor actually supports
+1. **Search broadly** — use at least 2 different search tools to cross-reference findings (e.g., `tavily_search` + `WebSearch`, `Context7` + `tavily_extract`, or `microsoft_docs_search` + `parallel_search_web`)
+2. **Use Context7 for library docs** — for libraries, frameworks, SDKs, APIs, CLI tools, and cloud services, call `resolve-library-id` first unless the user supplied `/org/project` or `/org/project/version`, prefer official/high-reputation and version-specific matches, then call `query-docs` with the exact user question
+3. **Find official docs with Tavily** — use `tavily_search` for vendor/API queries and `tavily_map` when a docs site has moved pages or unclear navigation, especially for GitHub-hosted docs, README pages, changelogs, and migration guides that Context7 does not surface
+4. **Read primary sources** — use `tavily_extract` on the official API reference, OpenAPI schema, GitHub README/docs page, changelog, model table, or setup guide before trusting summaries
+5. **Explore docs sites deliberately** — use `tavily_crawl` only with shallow limits, `select_paths`, and domain restrictions to locate related official pages without broad crawling
+6. **Synthesize after source reading** — use `tavily_research` to combine multiple sources, but do not treat it as a substitute for reading the official docs it cites; use Context7 results as source-grounded library references, not as a replacement for vendor pages when exact external contracts matter
+7. **Real-world samples** — find production examples, GitHub issues, StackOverflow discussions, and blog posts that confirm the approach works
+8. **Cross-reference** — confirm that what you plan to build matches what the vendor actually supports
 
 **Every bug fix must cite external documentation** that justifies the approach. Do not rely on assumptions or patterns from other providers.
 
-Only after gathering this evidence should you produce a plan or implement a fix. The plan must cite the specific sources used.
+Only after gathering this evidence should you produce a plan or implement a fix. The plan must cite the specific sources used, including the Tavily-read official documentation when Tavily was used.
