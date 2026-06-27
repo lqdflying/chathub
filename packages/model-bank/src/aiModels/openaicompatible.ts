@@ -2,7 +2,7 @@ import type { AIChatModelCard, AIImageModelCard } from '../types/aiModel';
 import { gptImage1ParamsSchema, openaiChatModels } from './openai';
 
 const gpt55 = openaiChatModels.find((model) => model.id === 'gpt-5.5')!;
-const { searchImpl: _searchImpl, searchProvider: _searchProvider, ...gpt55Settings } =
+const { searchProvider: _searchProvider, ...gpt55Settings } =
   gpt55.settings ?? {};
 
 const openaicompatibleModels: Array<AIChatModelCard | AIImageModelCard> = [

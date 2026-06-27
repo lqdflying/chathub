@@ -17,11 +17,12 @@ describe('compatible provider fixed model lists', () => {
       enabled: true,
       settings: {
         extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+        searchImpl: 'params',
       },
       type: 'chat',
     });
     expect(openaicompatible.find((model) => model.id === 'gpt-5.5')?.settings).not.toHaveProperty(
-      'searchImpl',
+      'searchProvider',
     );
     expect(openaicompatible.find((model) => model.id === 'gpt-image-2')).toMatchObject({
       enabled: true,
@@ -42,6 +43,7 @@ describe('compatible provider fixed model lists', () => {
     expect(anthropiccompatible.every((model) => model.enabled)).toBe(true);
     expect(anthropiccompatible.every((model) => model.abilities?.search === false)).toBe(true);
     expect(anthropiccompatible.every((model) => model.settings?.extendParams?.length)).toBe(true);
-    expect(anthropiccompatible.every((model) => !model.settings?.searchImpl)).toBe(true);
+    expect(anthropiccompatible.every((model) => model.settings?.searchImpl === 'params')).toBe(true);
+    expect(anthropiccompatible.every((model) => !model.settings?.searchProvider)).toBe(true);
   });
 });

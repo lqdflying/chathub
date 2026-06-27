@@ -7,7 +7,7 @@ const anthropicCompatibleChatModels: AIChatModelCard[] = fixedModelIds
   .map((id) => anthropicChatModels.find((model) => model.id === id))
   .filter(Boolean)
   .map((model) => {
-    const { searchImpl: _searchImpl, searchProvider: _searchProvider, ...settings } =
+    const { searchProvider: _searchProvider, ...settings } =
       model!.settings ?? {};
 
     return {

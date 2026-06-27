@@ -3,14 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { isModelNativeSearchDisabledProvider } from './modelNativeSearch';
 
 describe('isModelNativeSearchDisabledProvider', () => {
-  it.each(['moonshot', 'openaicompatible', 'anthropiccompatible'])(
+  it.each(['moonshot'])(
     'returns true for %s',
     (provider) => {
       expect(isModelNativeSearchDisabledProvider(provider)).toBe(true);
     },
   );
 
-  it.each(['openai', 'anthropic', 'deepseek', 'google', 'minimax', 'azure'])(
+  it.each(['openai', 'anthropic', 'deepseek', 'google', 'minimax', 'azure', 'openaicompatible', 'anthropiccompatible'])(
     'returns false for %s',
     (provider) => {
       expect(isModelNativeSearchDisabledProvider(provider)).toBe(false);

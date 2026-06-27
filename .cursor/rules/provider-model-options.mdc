@@ -39,7 +39,7 @@ When stripping request-body fields such as legacy generic sampling params or use
 `openaicompatible` and `anthropiccompatible` are compatibility shims for known built-in model cards, not arbitrary capability clones of OpenAI/Anthropic:
 
 - Keep their model lists fixed to model-bank IDs sourced from the native provider lists; do not re-enable arbitrary add/fetch UI without a separate design.
-- Keep native model search disabled unless the compatibility provider's own documented API guarantees the same request/streaming semantics for that exact model.
+- Native model search is **opt-in**: model cards keep `abilities.search: false` (no auto-tag) but retain `settings.searchImpl: 'params'` so the "Use the model's built-in search engine" toggle appears in the search panel. When the toggle is OFF (default), ChatHub uses its own web-browsing tools; when ON, the `enabledSearch` param is sent to the gateway API.
 - OpenAI-compatible Responses API mode is opt-in only. Default to Chat Completions mode; enable Responses API only when the gateway documents `/v1/responses`, typed event streaming, and compatible tool/search behavior.
 - Anthropic-compatible calls target Anthropic Messages semantics; expose Anthropic-only toggles only when the compatibility endpoint documents the same accepted request fields.
 

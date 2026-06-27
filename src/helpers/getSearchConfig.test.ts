@@ -209,7 +209,7 @@ describe('getSearchConfig', () => {
   });
 
   it.each(['openaicompatible', 'anthropiccompatible'])(
-    'should never use model built-in search for %s provider',
+    'should use model built-in search for %s provider when toggle is on',
     (provider) => {
       vi.mocked(agentSelectors.agentChatConfigSelectors.currentChatConfig).mockReturnValue({
         searchMode: 'on',
@@ -223,7 +223,32 @@ describe('getSearchConfig', () => {
         () => true,
       );
       vi.mocked(aiInfraSelectors.aiModelSelectors.isModelBuiltinSearchInternal).mockReturnValue(
+        () => false,
+      );
+
+      const result = getSearchConfig('compatible-model', provider);
+
+      expect(result.useModelSearch).toBe(true);
+      expect(result.useApplicationBuiltinSearchTool).toBe(false);
+    },
+  );
+
+  it.each(['openaicompatible', 'anthropiccompatible'])(
+    'should use application search for %s provider when toggle is off',
+    (provider) => {
+      vi.mocked(agentSelectors.agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+        searchMode: 'on',
+        useModelBuiltinSearch: false,
+      } as any);
+
+      vi.mocked(aiInfraSelectors.aiProviderSelectors.isProviderHasBuiltinSearch).mockReturnValue(
         () => true,
+      );
+      vi.mocked(aiInfraSelectors.aiModelSelectors.isModelHasBuiltinSearch).mockReturnValue(
+        () => true,
+      );
+      vi.mocked(aiInfraSelectors.aiModelSelectors.isModelBuiltinSearchInternal).mockReturnValue(
+        () => false,
       );
 
       const result = getSearchConfig('compatible-model', provider);
