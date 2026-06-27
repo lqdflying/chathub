@@ -46,7 +46,10 @@ const ReasoningTokenSlider = memo<MaxTokenSliderProps>(
   ({ value, onChange, defaultValue, provider, model, adaptiveOnly }) => {
     const { t } = useTranslation('chat');
     const supportsAdaptiveOption =
-      adaptiveOnly || (provider === 'anthropic' && !!model && supportsAnthropicAdaptiveThinking(model));
+      adaptiveOnly ||
+      ((provider === 'anthropic' || provider === 'anthropiccompatible') &&
+        !!model &&
+        supportsAnthropicAdaptiveThinking(model));
 
     const resolvedDefault = defaultValue ?? 1024;
     const initialToken = adaptiveOnly ? REASONING_BUDGET_TOKEN_ADAPTIVE : (value ?? resolvedDefault);

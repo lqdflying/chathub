@@ -1,13 +1,14 @@
 import { Button, Icon } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { BrainIcon, LucideRefreshCcwDot, PlusIcon } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, use, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
 import { useAiInfraStore } from '@/store/aiInfra';
 
 import CreateNewModelModal from './CreateNewModelModal';
+import { ProviderSettingsContext } from './ProviderSettingsContext';
 
 const useStyles = createStyles(({ css, token }) => ({
   circle: css`
@@ -48,6 +49,7 @@ const useStyles = createStyles(({ css, token }) => ({
 const EmptyState = memo<{ provider: string }>(({ provider }) => {
   const { t } = useTranslation('modelProvider');
   const { styles } = useStyles();
+  const { showAddNewModel = true, showModelFetcher = true } = use(ProviderSettingsContext);
 
   const [fetchRemoteModelList] = useAiInfraStore((s) => [s.fetchRemoteModelList]);
 
@@ -64,35 +66,43 @@ const EmptyState = memo<{ provider: string }>(({ provider }) => {
         <div className={styles.description}>{t('providerModels.list.empty.desc')}</div>
       </Flexbox>
 
-      <Flexbox gap={8} horizontal>
-        <Button
-          icon={PlusIcon}
-          onClick={() => {
-            setShowModal(true);
-          }}
-        >
-          {t('providerModels.list.addNew')}
-        </Button>
-        <CreateNewModelModal open={showModal} setOpen={setShowModal} />
-        <Button
-          icon={<Icon icon={LucideRefreshCcwDot} />}
-          loading={fetchRemoteModelsLoading}
-          onClick={async () => {
-            setFetchRemoteModelsLoading(true);
-            try {
-              await fetchRemoteModelList(provider);
-            } catch (e) {
-              console.error(e);
-            }
-            setFetchRemoteModelsLoading(false);
-          }}
-          type={'primary'}
-        >
-          {fetchRemoteModelsLoading
-            ? t('providerModels.list.fetcher.fetching')
-            : t('providerModels.list.fetcher.fetch')}
-        </Button>
-      </Flexbox>
+      {(showAddNewModel || showModelFetcher) && (
+        <Flexbox gap={8} horizontal>
+          {showAddNewModel && (
+            <>
+              <Button
+                icon={PlusIcon}
+                onClick={() => {
+                  setShowModal(true);
+                }}
+              >
+                {t('providerModels.list.addNew')}
+              </Button>
+              <CreateNewModelModal open={showModal} setOpen={setShowModal} />
+            </>
+          )}
+          {showModelFetcher && (
+            <Button
+              icon={<Icon icon={LucideRefreshCcwDot} />}
+              loading={fetchRemoteModelsLoading}
+              onClick={async () => {
+                setFetchRemoteModelsLoading(true);
+                try {
+                  await fetchRemoteModelList(provider);
+                } catch (e) {
+                  console.error(e);
+                }
+                setFetchRemoteModelsLoading(false);
+              }}
+              type={'primary'}
+            >
+              {fetchRemoteModelsLoading
+                ? t('providerModels.list.fetcher.fetching')
+                : t('providerModels.list.fetcher.fetch')}
+            </Button>
+          )}
+        </Flexbox>
+      )}
     </Center>
   );
 });

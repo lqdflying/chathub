@@ -15,8 +15,13 @@ export const genServerLLMConfig = (specificConfig: Record<any, any>) => {
         `${provider}ProviderCard` as keyof typeof ProviderCards
       ] as ModelProviderCard;
       const providerConfig = specificConfig[provider as keyof typeof specificConfig] || {};
-      const providerModelList =
-        process.env[providerConfig.modelListKey ?? `${providerUpperCase}_MODEL_LIST`];
+      const fixedModelList =
+        providerConfig.fixedModelList ||
+        provider === ModelProvider.AnthropicCompatible ||
+        provider === ModelProvider.OpenAICompatible;
+      const providerModelList = fixedModelList
+        ? undefined
+        : process.env[providerConfig.modelListKey ?? `${providerUpperCase}_MODEL_LIST`];
 
       config[provider] = {
         enabled: llmConfig[providerConfig.enabledKey || `ENABLED_${providerUpperCase}`],

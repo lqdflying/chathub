@@ -11,7 +11,7 @@ import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import * as isCanUseFCModule from '@/helpers/isCanUseFC';
 import * as toolEngineeringModule from '@/helpers/toolEngineering';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
-import { aiModelSelectors } from '@/store/aiInfra';
+import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 import { modelProviderSelectors } from '@/store/user/selectors';
@@ -1018,6 +1018,7 @@ describe('ChatService', () => {
       const { fetchSSE } = await import('@lobechat/fetch-sse');
       mockFetchSSE = vi.fn().mockResolvedValue(new Response('mock response'));
       vi.mocked(fetchSSE).mockImplementation(mockFetchSSE);
+      useAiInfraStore.setState({ aiProviderRuntimeConfig: {} });
     });
 
     it('should make a POST request with the correct payload', async () => {
@@ -1096,6 +1097,83 @@ describe('ChatService', () => {
         }),
       );
       expect(JSON.parse(mockFetchSSE.mock.calls[0][1].body)).not.toHaveProperty('provider');
+    });
+
+    it('should use Chat Completions mode for OpenAI Compatible by default', async () => {
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'openaicompatible',
+        },
+        {},
+      );
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        messages: [],
+        model: 'gpt-5.5',
+        stream: true,
+      });
+      expect(body).not.toHaveProperty('apiMode');
+    });
+
+    it('should use Chat Completions mode for OpenAI Compatible when Responses API is disabled', async () => {
+      useAiInfraStore.setState({
+        aiProviderRuntimeConfig: {
+          openaicompatible: {
+            config: { enableResponseApi: false },
+            keyVaults: {},
+            settings: {},
+          } as any,
+        },
+      });
+
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'openaicompatible',
+        },
+        {},
+      );
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        messages: [],
+        model: 'gpt-5.5',
+        stream: true,
+      });
+      expect(body).not.toHaveProperty('apiMode');
+    });
+
+    it('should use Responses API mode for OpenAI Compatible when Responses API is enabled', async () => {
+      useAiInfraStore.setState({
+        aiProviderRuntimeConfig: {
+          openaicompatible: {
+            config: { enableResponseApi: true },
+            keyVaults: {},
+            settings: {},
+          } as any,
+        },
+      });
+
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'openaicompatible',
+        },
+        {},
+      );
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        apiMode: 'responses',
+        messages: [],
+        model: 'gpt-5.5',
+        stream: true,
+      });
     });
 
     it('should return InvalidAccessCode error when enableFetchOnClient is true and auth is enabled but user is not signed in', async () => {

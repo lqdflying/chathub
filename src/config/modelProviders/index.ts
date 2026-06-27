@@ -1,6 +1,7 @@
 import { ChatModelCard, ModelProviderCard } from '@/types/llm';
 
 import AnthropicProvider from './anthropic';
+import AnthropicCompatibleProvider from './anthropiccompatible';
 import AzureProvider from './azure';
 import AzureAIProvider from './azureai';
 import DeepSeekProvider from './deepseek';
@@ -24,6 +25,7 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   { ...AzureProvider, chatModels: [] },
   AzureAIProvider,
   AnthropicProvider,
+  AnthropicCompatibleProvider,
   DeepSeekProvider,
   GoogleProvider,
   MinimaxProvider,
@@ -41,6 +43,7 @@ export const isProviderDisableBrowserRequest = (id: string) => {
 };
 
 export { default as AnthropicProviderCard } from './anthropic';
+export { default as AnthropicCompatibleProviderCard } from './anthropiccompatible';
 export { default as AzureProviderCard } from './azure';
 export { default as AzureAIProviderCard } from './azureai';
 export { default as DeepSeekProviderCard } from './deepseek';

@@ -4,6 +4,7 @@ import {
   AiModelSourceEnum,
   AiProviderModelListItem,
   EnabledAiModel,
+  ModelProvider,
 } from 'model-bank';
 import pMap from 'p-map';
 
@@ -52,6 +53,11 @@ const PROVIDER_SEARCH_DEFAULTS: Record<
   xai: { searchImpl: 'params' },
   zhipu: { searchImpl: 'params' },
 };
+
+const FIXED_MODEL_LIST_PROVIDERS = new Set<string>([
+  ModelProvider.AnthropicCompatible,
+  ModelProvider.OpenAICompatible,
+]);
 
 // 特殊模型配置 - 模型级别的特殊设置会覆盖服务商默认配置
 const MODEL_SEARCH_DEFAULTS: Record<
@@ -245,7 +251,11 @@ export class AiInfraRepos {
     // 用户数据库模型，检查搜索设置
     const appendedUserModels = allModels
       .filter((item) =>
-        filterEnabled ? enabledProviderIds.has(item.providerId) && item.enabled : true,
+        filterEnabled
+          ? enabledProviderIds.has(item.providerId) &&
+            item.enabled &&
+            !FIXED_MODEL_LIST_PROVIDERS.has(item.providerId)
+          : !FIXED_MODEL_LIST_PROVIDERS.has(item.providerId),
       )
       .map((item) => injectSearchSettings(item.providerId, item));
 
@@ -289,8 +299,12 @@ export class AiInfraRepos {
 
     const defaultModels: AiProviderModelListItem[] =
       (await this.fetchBuiltinModels(providerId)) || [];
+    const fixedModelIds = new Set(defaultModels.map((model) => model.id));
+    const userModels = FIXED_MODEL_LIST_PROVIDERS.has(providerId)
+      ? aiModels.filter((model) => fixedModelIds.has(model.id))
+      : aiModels;
     // 这里不修改搜索设置不影响使用，但是为了get数据统一
-    const mergedModel = mergeArrayById(defaultModels, aiModels) as AiProviderModelListItem[];
+    const mergedModel = mergeArrayById(defaultModels, userModels) as AiProviderModelListItem[];
 
     return mergedModel.map((m) => injectSearchSettings(providerId, m));
   };

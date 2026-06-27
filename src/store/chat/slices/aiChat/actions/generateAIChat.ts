@@ -16,6 +16,7 @@ import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
+import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { useAgentStore } from '@/store/agent';
@@ -398,8 +399,8 @@ export const generateAIChat: StateCreator<
       provider!,
     )(aiInfraStoreState);
     const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
-    const moonshotBuiltinSearchDisabled = provider === 'moonshot';
-    const useModelSearch = moonshotBuiltinSearchDisabled
+    const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
+    const useModelSearch = modelNativeSearchDisabled
       ? false
       : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
         isModelBuiltinSearchInternal;

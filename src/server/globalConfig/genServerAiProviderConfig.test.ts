@@ -107,22 +107,49 @@ describe('genServerAiProvidersConfig', () => {
     expect(result.openai.enabledModels).toEqual(['gpt-4', 'gpt-3.5-turbo']);
   });
 
-  it('should use OPENAICOMPATIBLE_MODEL_LIST for the openaicompatible provider', async () => {
+  it('should ignore OPENAICOMPATIBLE_MODEL_LIST for the fixed openaicompatible provider', async () => {
     process.env.OPENAICOMPATIBLE_MODEL_LIST = '+llama3=My Llama,+qwen2.5';
 
     const { extractEnabledModels } = vi.mocked(await import('@/utils/server/parseModels'));
+    extractEnabledModels.mockResolvedValue(undefined);
 
     const result = await genServerAiProvidersConfig({});
 
     expect(extractEnabledModels).toHaveBeenCalledWith(
       'openaicompatible',
-      '+llama3=My Llama,+qwen2.5',
+      undefined,
       false,
     );
-    expect(result.openaicompatible.enabledModels).toEqual([
-      'openaicompatible-model-1',
-      'openaicompatible-model-2',
-    ]);
+    expect(result.openaicompatible.enabledModels).toBeUndefined();
+  });
+
+  it('should ignore model list env when fixedModelList is enabled', async () => {
+    process.env.OPENAICOMPATIBLE_MODEL_LIST = '+llama3=My Llama,+qwen2.5';
+    process.env.ANTHROPICCOMPATIBLE_MODEL_LIST = '+claude-custom';
+
+    const { extractEnabledModels, transformToAiModelList } = vi.mocked(
+      await import('@/utils/server/parseModels'),
+    );
+    extractEnabledModels.mockResolvedValue(undefined);
+
+    const result = await genServerAiProvidersConfig({});
+
+    expect(extractEnabledModels).toHaveBeenCalledWith('openaicompatible', undefined, false);
+    expect(transformToAiModelList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelString: undefined,
+        providerId: 'openaicompatible',
+      }),
+    );
+    expect(extractEnabledModels).toHaveBeenCalledWith('anthropiccompatible', undefined, false);
+    expect(transformToAiModelList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelString: undefined,
+        providerId: 'anthropiccompatible',
+      }),
+    );
+    expect(result.openaicompatible.enabledModels).toBeUndefined();
+    expect(result.anthropiccompatible.enabledModels).toBeUndefined();
   });
 
   it('should use custom modelListKey from specificConfig', async () => {

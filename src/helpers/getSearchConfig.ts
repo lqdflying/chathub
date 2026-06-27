@@ -1,3 +1,4 @@
+import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { getAiInfraStoreState } from '@/store/aiInfra';
@@ -39,10 +40,10 @@ export const getSearchConfig = (model: string, provider: string): SearchConfig =
     provider!,
   )(aiInfraStoreState);
 
-  // Moonshot (Kimi) built-in `$web_search` is not offered in LobeChat; use Smart Online Search instead.
-  const moonshotBuiltinSearchDisabled = provider === 'moonshot';
+  // Some provider APIs expose search-like metadata, but ChatHub should use its own web-browsing tools.
+  const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
 
-  const useModelSearch = moonshotBuiltinSearchDisabled
+  const useModelSearch = modelNativeSearchDisabled
     ? false
     : (((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && chatConfig.useModelBuiltinSearch) ||
         isModelBuiltinSearchInternal ||

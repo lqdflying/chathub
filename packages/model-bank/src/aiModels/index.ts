@@ -1,5 +1,6 @@
 import { AiFullModelCard, LobeDefaultAiModelListItem } from '../types/aiModel';
 import { default as anthropic } from './anthropic';
+import { default as anthropiccompatible } from './anthropiccompatible';
 import { default as azure } from './azure';
 import { default as azureai } from './azureai';
 import { default as deepseek } from './deepseek';
@@ -30,6 +31,7 @@ const buildDefaultModelList = (map: ModelsMap): LobeDefaultAiModelListItem[] => 
 
 export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   anthropic,
+  anthropiccompatible,
   azure,
   azureai,
   deepseek,
@@ -41,6 +43,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
 });
 
 export { default as anthropic } from './anthropic';
+export { default as anthropiccompatible } from './anthropiccompatible';
 export { default as azure } from './azure';
 export { default as azureai } from './azureai';
 export { default as deepseek } from './deepseek';

@@ -1,27 +1,30 @@
-import type { AIChatModelCard } from '../types/aiModel';
+import type { AIChatModelCard, AIImageModelCard } from '../types/aiModel';
+import { gptImage1ParamsSchema, openaiChatModels } from './openai';
 
-/**
- * Builtin seed list for the OpenAI-compatible provider. Final models come from:
- * - Server env `OPENAICOMPATIBLE_MODEL_LIST` (merged like other providers, e.g. `+id=Display`, comma-separated), and/or
- * - Web console: API base URL, API key, and custom model ids / display names.
- *
- * Default targets MiniMax M2.7 on OpenAI-compatible gateways (e.g. `minimaxai/minimax-m2.7`).
- */
-const openaicompatibleChatModels: AIChatModelCard[] = [
+const gpt55 = openaiChatModels.find((model) => model.id === 'gpt-5.5')!;
+const { searchImpl: _searchImpl, searchProvider: _searchProvider, ...gpt55Settings } =
+  gpt55.settings ?? {};
+
+const openaicompatibleModels: Array<AIChatModelCard | AIImageModelCard> = [
   {
+    ...gpt55,
     abilities: {
-      functionCall: true,
-      structuredOutput: true,
-      vision: true,
+      ...gpt55.abilities,
+      search: false,
     },
-    contextWindowTokens: 128_000,
-    description:
-      'MiniMax M2.7 via OpenAI-compatible Chat Completions. Override model id in Settings or `OPENAICOMPATIBLE_MODEL_LIST` if your gateway uses a different name.',
-    displayName: 'MiniMax M2.7',
     enabled: true,
-    id: 'minimaxai/minimax-m2.7',
-    type: 'chat',
+    settings: gpt55Settings,
+  },
+  {
+    description:
+      'OpenAI-compatible image generation model for gateways exposing GPT Image 2 through the Images API.',
+    displayName: 'GPT Image 2',
+    enabled: true,
+    id: 'gpt-image-2',
+    parameters: gptImage1ParamsSchema,
+    resolutions: ['1024x1024', '1024x1536', '1536x1024'],
+    type: 'image',
   },
 ];
 
-export default openaicompatibleChatModels;
+export default openaicompatibleModels;

@@ -38,7 +38,7 @@ const LobeMockProvider = createOpenAICompatibleRuntime({
   debug: {
     chatCompletion: () => process.env.DEBUG_MOCKPROVIDER_CHAT_COMPLETION === '1',
   },
-  provider: ModelProvider.Groq,
+  provider,
 });
 
 beforeEach(() => {

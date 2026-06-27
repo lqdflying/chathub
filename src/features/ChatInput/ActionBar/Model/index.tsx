@@ -93,11 +93,11 @@ const ModelSwitch = memo(() => {
                 <MoonshotOptions />
               ) : provider === 'minimax' ? (
                 <MinimaxOptions />
-              ) : provider === 'anthropic' ? (
+              ) : provider === 'anthropic' || provider === 'anthropiccompatible' ? (
                 <AnthropicOptions />
               ) : provider === 'deepseek' ? (
                 <DeepSeekOptions />
-              ) : provider === 'openai' ? (
+              ) : provider === 'openai' || provider === 'openaicompatible' ? (
                 <OpenAIOptions />
               ) : (
                 <ControlsForm />
@@ -106,8 +106,10 @@ const ModelSwitch = memo(() => {
               provider === 'moonshot' ||
               provider === 'minimax' ||
               provider === 'anthropic' ||
+              provider === 'anthropiccompatible' ||
               provider === 'deepseek' ||
-              provider === 'openai'
+              provider === 'openai' ||
+              provider === 'openaicompatible'
                 ? 320
                 : 350,
             placement: 'topLeft',

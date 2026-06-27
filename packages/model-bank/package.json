@@ -5,10 +5,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./anthropic": "./src/aiModels/anthropic.ts",
+    "./anthropiccompatible": "./src/aiModels/anthropiccompatible.ts",
     "./azure": "./src/aiModels/azure.ts",
     "./azureai": "./src/aiModels/azureai.ts",
+    "./deepseek": "./src/aiModels/deepseek.ts",
     "./google": "./src/aiModels/google.ts",
+    "./minimax": "./src/aiModels/minimax.ts",
+    "./moonshot": "./src/aiModels/moonshot.ts",
     "./openai": "./src/aiModels/openai.ts",
+    "./openaicompatible": "./src/aiModels/openaicompatible.ts",
     "./types": "./src/types/index.ts"
   },
   "scripts": {

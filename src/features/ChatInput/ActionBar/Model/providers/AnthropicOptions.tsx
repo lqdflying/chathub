@@ -114,7 +114,7 @@ const AnthropicOptions = memo(() => {
         children: (
           <ReasoningTokenSlider
             adaptiveOnly={
-              provider === 'anthropic' &&
+              (provider === 'anthropic' || provider === 'anthropiccompatible') &&
               !!model &&
               isAnthropicAdaptiveThinkingOnlyModel(model)
             }

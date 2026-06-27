@@ -9,6 +9,7 @@ interface ProviderSpecificConfig {
   enabled?: boolean;
   enabledKey?: string;
   fetchOnClient?: boolean;
+  fixedModelList?: boolean;
   modelListKey?: string;
   withDeploymentName?: boolean;
 }
@@ -30,8 +31,13 @@ export const genServerAiProvidersConfig = async (
         );
 
       const providerConfig = specificConfig[provider as keyof typeof specificConfig] || {};
-      const modelString =
-        process.env[providerConfig.modelListKey ?? `${providerUpperCase}_MODEL_LIST`];
+      const fixedModelList =
+        providerConfig.fixedModelList ||
+        provider === ModelProvider.AnthropicCompatible ||
+        provider === ModelProvider.OpenAICompatible;
+      const modelString = fixedModelList
+        ? undefined
+        : process.env[providerConfig.modelListKey ?? `${providerUpperCase}_MODEL_LIST`];
 
       // 并发处理 extractEnabledModels 和 transformToAiModelList
       const [enabledModels, serverModelLists] = await Promise.all([

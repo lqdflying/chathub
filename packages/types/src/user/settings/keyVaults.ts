@@ -31,6 +31,7 @@ export interface SearchEngineKeyVaults {
 
 export interface UserKeyVaults extends SearchEngineKeyVaults {
   anthropic?: OpenAICompatibleKeyVault;
+  anthropiccompatible?: OpenAICompatibleKeyVault;
   azure?: AzureOpenAIKeyVault;
   azureai?: AzureOpenAIKeyVault;
   comfyui?: ComfyUIKeyVault;

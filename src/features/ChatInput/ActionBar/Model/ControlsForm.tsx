@@ -93,7 +93,7 @@ const ControlsForm = memo(() => {
       children: (
         <ReasoningTokenSlider
           adaptiveOnly={
-            provider === 'anthropic' &&
+            (provider === 'anthropic' || provider === 'anthropiccompatible') &&
             !!model &&
             isAnthropicAdaptiveThinkingOnlyModel(model)
           }

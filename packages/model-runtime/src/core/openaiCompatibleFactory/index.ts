@@ -252,7 +252,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           return this.handleResponseAPIMode(processedPayload, options);
         }
 
-        const messages = await convertOpenAIMessages(postPayload.messages);
+        const { apiMode: _apiMode, ...chatCompletionPayload } = postPayload as typeof postPayload & {
+          apiMode?: string;
+        };
+
+        const messages = await convertOpenAIMessages(chatCompletionPayload.messages);
 
         let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
 
@@ -275,11 +279,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           ) as any;
         } else {
           const finalPayload = {
-            ...postPayload,
+            ...chatCompletionPayload,
             messages,
             ...(chatCompletion?.noUserId ? {} : { user: options?.user }),
             stream_options:
-              postPayload.stream && !chatCompletion?.excludeUsage
+              chatCompletionPayload.stream && !chatCompletion?.excludeUsage
                 ? { include_usage: true }
                 : undefined,
           };
@@ -298,7 +302,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           });
         }
 
-        if (postPayload.stream) {
+        if (chatCompletionPayload.stream) {
           log('processing streaming response');
           const [prod, useForDebug] = response.tee();
 

@@ -49,6 +49,8 @@ import { FetchOptions } from './types';
 
 /** Valid Anthropic `reasoningEffort` values — used to guard against boolean/other pollution. */
 const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
+const isAnthropicRuntimeProvider = (provider?: string) =>
+  provider === ModelProvider.Anthropic || provider === ModelProvider.AnthropicCompatible;
 
 interface GetChatCompletionPayload extends Partial<Omit<ChatStreamPayload, 'messages'>> {
   messages: UIChatMessage[];
@@ -163,7 +165,7 @@ class ChatService {
       if (modelExtendParams!.includes('enableReasoning')) {
         if (chatConfig.enableReasoning) {
           if (
-            payload.provider === 'anthropic' &&
+            isAnthropicRuntimeProvider(payload.provider) &&
             chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
             supportsAnthropicAdaptiveThinking(payload.model)
           ) {
@@ -190,7 +192,7 @@ class ChatService {
         }
       } else if (modelExtendParams!.includes('reasoningBudgetToken')) {
         if (
-          payload.provider === 'anthropic' &&
+          isAnthropicRuntimeProvider(payload.provider) &&
           chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
           supportsAnthropicAdaptiveThinking(payload.model)
         ) {
@@ -234,7 +236,9 @@ class ChatService {
 
       if (modelExtendParams!.includes('gpt5ReasoningEffort') && chatConfig.gpt5ReasoningEffort) {
         let effort = chatConfig.gpt5ReasoningEffort as string;
-        if (payload.model.startsWith('gpt-5.5') && (effort === 'minimal' || effort === 'none')) effort = 'low';
+        if (payload.model.startsWith('gpt-5.5') && (effort === 'minimal' || effort === 'none')) {
+          effort = 'low';
+        }
         extendParams.reasoning_effort = effort;
       }
 

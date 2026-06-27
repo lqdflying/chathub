@@ -1,4 +1,5 @@
 import { LobeAnthropicAI } from './providers/anthropic';
+import { LobeAnthropicCompatibleAI } from './providers/anthropiccompatible';
 import { LobeAzureOpenAI } from './providers/azureOpenai';
 import { LobeAzureAI } from './providers/azureai';
 import { LobeDeepSeekAI } from './providers/deepseek';
@@ -10,6 +11,7 @@ import { LobeOpenAICompatibleAI } from './providers/openaicompatible';
 
 export const providerRuntimeMap = {
   anthropic: LobeAnthropicAI,
+  anthropiccompatible: LobeAnthropicCompatibleAI,
   azure: LobeAzureOpenAI,
   azureai: LobeAzureAI,
   deepseek: LobeDeepSeekAI,

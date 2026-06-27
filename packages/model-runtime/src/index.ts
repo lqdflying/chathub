@@ -6,6 +6,7 @@ export * from './core/RouterRuntime';
 export * from './core/usageConverters';
 export * from './helpers';
 export { LobeAnthropicAI, normalizeAnthropicBaseURL } from './providers/anthropic';
+export { LobeAnthropicCompatibleAI } from './providers/anthropiccompatible';
 export { LobeAzureAI } from './providers/azureai';
 export { LobeAzureOpenAI } from './providers/azureOpenai';
 export { LobeGoogleAI } from './providers/google';

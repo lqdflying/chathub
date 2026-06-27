@@ -20,9 +20,15 @@ export const getServerGlobalConfig = async () => {
 
   const config: GlobalServerConfig = {
     aiProvider: await genServerAiProvidersConfig({
+      anthropiccompatible: {
+        fixedModelList: true,
+      },
       azure: {
         enabledKey: 'ENABLED_AZURE_OPENAI',
         withDeploymentName: true,
+      },
+      openaicompatible: {
+        fixedModelList: true,
       },
       /* ↓ cloud slot ↓ */
 
@@ -42,9 +48,15 @@ export const getServerGlobalConfig = async () => {
      * @deprecated
      */
     languageModel: genServerLLMConfig({
+      anthropiccompatible: {
+        fixedModelList: true,
+      },
       azure: {
         enabledKey: 'ENABLED_AZURE_OPENAI',
         withDeploymentName: true,
+      },
+      openaicompatible: {
+        fixedModelList: true,
       },
     }),
     oAuthSSOProviders: parseAuthProviders(authEnv.NEXT_AUTH_SSO_PROVIDERS),

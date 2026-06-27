@@ -34,6 +34,15 @@ If the doc says a field applies **only** to certain model IDs, gate **`extendPar
 
 When stripping request-body fields such as legacy generic sampling params or user-supplied `provider`, preserve the trusted server-side provider context from routing/runtime initialization. Runtime converters, tracing, and stream error handling may still need `payload.provider` internally (for example OpenAI-compatible usage accounting for `xai` and `moonshot`), but that value must come from the trusted route/provider selection, not the serialized client body.
 
+## Compatible provider guardrails
+
+`openaicompatible` and `anthropiccompatible` are compatibility shims for known built-in model cards, not arbitrary capability clones of OpenAI/Anthropic:
+
+- Keep their model lists fixed to model-bank IDs sourced from the native provider lists; do not re-enable arbitrary add/fetch UI without a separate design.
+- Keep native model search disabled unless the compatibility provider's own documented API guarantees the same request/streaming semantics for that exact model.
+- OpenAI-compatible Responses API mode is opt-in only. Default to Chat Completions mode; enable Responses API only when the gateway documents `/v1/responses`, typed event streaming, and compatible tool/search behavior.
+- Anthropic-compatible calls target Anthropic Messages semantics; expose Anthropic-only toggles only when the compatibility endpoint documents the same accepted request fields.
+
 ## UI pattern: one provider panel at a time
 
 - **Dispatcher:** `src/features/ChatInput/ActionBar/Model/index.tsx` — route by runtime **provider id**:

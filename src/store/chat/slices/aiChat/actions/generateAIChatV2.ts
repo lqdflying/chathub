@@ -17,6 +17,7 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
+import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
@@ -405,8 +406,8 @@ export const generateAIChatV2: StateCreator<
       provider!,
     )(aiInfraStoreState);
     const useModelBuiltinSearch = agentChatConfigSelectors.useModelBuiltinSearch(agentStoreState);
-    const moonshotBuiltinSearchDisabled = provider === 'moonshot';
-    const useModelSearch = moonshotBuiltinSearchDisabled
+    const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
+    const useModelSearch = modelNativeSearchDisabled
       ? false
       : ((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && useModelBuiltinSearch) ||
         isModelBuiltinSearchInternal;
