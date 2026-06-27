@@ -92,7 +92,7 @@ export const convertOpenAIResponseInputs = async (messages: OpenAIChatMessage[])
       if (message.role === 'assistant' && message.tool_calls && message.tool_calls?.length > 0) {
         message.tool_calls?.forEach((tool) => {
           items.push({
-            arguments: tool.function.name,
+            arguments: tool.function.arguments,
             call_id: tool.id,
             name: tool.function.name,
             type: 'function_call',
@@ -168,11 +168,17 @@ export const convertOpenAIResponseInputs = async (messages: OpenAIChatMessage[])
 
 export const pruneReasoningPayload = (payload: ChatStreamPayload) => {
   const shouldStream = !disableStreamModels.has(payload.model);
-  const { stream_options, top_p, ...cleanedPayload } = payload as any;
+  const {
+    frequency_penalty: _frequencyPenalty,
+    presence_penalty: _presencePenalty,
+    stream_options,
+    temperature: _temperature,
+    top_p: _topP,
+    ...cleanedPayload
+  } = payload as any;
 
   return {
     ...cleanedPayload,
-    frequency_penalty: 0,
     messages: payload.messages.map((message: OpenAIChatMessage) => ({
       ...message,
       role:
@@ -182,13 +188,9 @@ export const pruneReasoningPayload = (payload: ChatStreamPayload) => {
             : 'developer'
           : message.role,
     })),
-    presence_penalty: 0,
     stream: shouldStream,
     // Only include stream_options when stream is enabled
     ...(shouldStream && stream_options && { stream_options }),
-    temperature: 1,
-    // top_p is stripped: not sending it uses the API default (1), and avoids
-    // errors on models (e.g. gpt-5.x) that reject top_p entirely
   };
 };
 

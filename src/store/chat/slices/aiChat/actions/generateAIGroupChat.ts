@@ -631,7 +631,7 @@ export const chatAiGroupChat: StateCreator<
           return;
         }
 
-        // Get the individual agent's full configuration including temperature, top_p, etc.
+        // Get the individual agent's full configuration.
         // const agentStoreState = getAgentStoreState();
         // const agentConfig = agentSelectors.getAgentConfigById(agentId)(agentStoreState);
 

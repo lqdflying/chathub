@@ -106,7 +106,7 @@ describe('normalizeMessagesForMoonshot', () => {
     ]);
   });
 
-  it('keeps assistant messages that only carry internal `tools` (no tool_calls yet)', () => {
+  it('drops empty assistant messages that only carry internal `tools` without outbound tool_calls', () => {
     const messages = [
       { content: 'hi', role: 'user' },
       {
@@ -116,14 +116,7 @@ describe('normalizeMessagesForMoonshot', () => {
       },
     ] as any;
 
-    const result = normalizeMessagesForMoonshot(messages, true);
-
-    expect(result).toHaveLength(2);
-    expect(result[1]).toMatchObject({
-      reasoning_content: '',
-      role: 'assistant',
-      tools: expect.any(Array),
-    });
+    expect(normalizeMessagesForMoonshot(messages, true)).toEqual([{ content: 'hi', role: 'user' }]);
   });
 });
 
@@ -132,7 +125,7 @@ const sampleTools = [
 ] as any;
 
 describe('buildMoonshotPayload — tool-call safety', () => {
-  it('kimi-k2.5 + tools + thinking enabled keeps tools and sends thinking + K2.5 sampling', () => {
+  it('kimi-k2.5 + tools + thinking enabled keeps tools and sends thinking without legacy sampling', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],
       model: 'kimi-k2.5',
@@ -142,14 +135,14 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     } as any);
 
     expect(result.tools).toEqual(sampleTools);
-    expect(result).toMatchObject({
-      thinking: { type: 'enabled' },
-      temperature: 1,
-      top_p: 0.95,
-    });
+    expect(result.thinking).toEqual({ type: 'enabled' });
+    expect(result).not.toHaveProperty('temperature');
+    expect(result).not.toHaveProperty('top_p');
+    expect(result).not.toHaveProperty('frequency_penalty');
+    expect(result).not.toHaveProperty('presence_penalty');
   });
 
-  it('kimi-k2.5 + tools + thinking disabled keeps tools and sends disabled thinking + non-thinking sampling', () => {
+  it('kimi-k2.5 + tools + thinking disabled keeps tools and sends disabled thinking without legacy sampling', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],
       model: 'kimi-k2.5',
@@ -159,11 +152,9 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     } as any);
 
     expect(result.tools).toEqual(sampleTools);
-    expect(result).toMatchObject({
-      thinking: { type: 'disabled' },
-      temperature: 0.6,
-      top_p: 0.95,
-    });
+    expect(result.thinking).toEqual({ type: 'disabled' });
+    expect(result).not.toHaveProperty('temperature');
+    expect(result).not.toHaveProperty('top_p');
   });
 
   it('kimi-k2.6 + tools + thinking enabled matches K2.5-style payload (no keep unless set)', () => {
@@ -177,7 +168,8 @@ describe('buildMoonshotPayload — tool-call safety', () => {
 
     expect(result.tools).toEqual(sampleTools);
     expect(result.thinking).toEqual({ type: 'enabled' });
-    expect(result).toMatchObject({ temperature: 1, top_p: 0.95 });
+    expect(result).not.toHaveProperty('temperature');
+    expect(result).not.toHaveProperty('top_p');
   });
 
   it('kimi-k2.6 + thinking enabled + keep all sends Preserved Thinking', () => {
@@ -203,13 +195,11 @@ describe('buildMoonshotPayload — tool-call safety', () => {
 
     expect(result.tools).toEqual(sampleTools);
     expect(result).not.toHaveProperty('thinking');
-    expect(result).toMatchObject({
-      temperature: 1,
-      top_p: 0.95,
-    });
+    expect(result).not.toHaveProperty('temperature');
+    expect(result).not.toHaveProperty('top_p');
   });
 
-  it('kimi-k2-0905-preview + tools halves temperature and omits thinking', () => {
+  it('kimi-k2-0905-preview + tools strips legacy sampling and omits thinking', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],
       model: 'kimi-k2-0905-preview',
@@ -220,7 +210,25 @@ describe('buildMoonshotPayload — tool-call safety', () => {
 
     expect(result.tools).toEqual(sampleTools);
     expect(result).not.toHaveProperty('thinking');
-    expect(result.temperature).toBe(0.7);
+    expect(result).not.toHaveProperty('temperature');
+  });
+
+  it('drops internal tools-only assistant messages from the provider payload', () => {
+    const result = buildMoonshotPayload({
+      messages: [
+        { content: 'hi', role: 'user' },
+        {
+          content: '',
+          role: 'assistant',
+          tools: [{ apiName: 'search', arguments: '{}', id: 't1', identifier: 'x', type: 'default' }],
+        },
+      ],
+      model: 'kimi-k2.6',
+      stream: true,
+      thinking: { type: 'enabled' },
+    } as any);
+
+    expect(result.messages).toEqual([{ content: 'hi', role: 'user' }]);
   });
 
   it('kimi-k2.6 + thinking injects reasoning_content on assistant tool_calls missing it', () => {
@@ -262,7 +270,7 @@ describe('buildMoonshotPayload — enabledSearch forces thinking off', () => {
     } as any);
 
     expect(result.thinking).toEqual({ type: 'disabled' });
-    expect(result.temperature).toBe(0.6);
+    expect(result).not.toHaveProperty('temperature');
     expect(result.tools).toEqual([{ function: { name: '$web_search' }, type: 'builtin_function' }]);
   });
 
@@ -276,7 +284,7 @@ describe('buildMoonshotPayload — enabledSearch forces thinking off', () => {
     } as any);
 
     expect(result.thinking).toEqual({ type: 'disabled' });
-    expect(result.temperature).toBe(0.6);
+    expect(result).not.toHaveProperty('temperature');
   });
 
   it('kimi-k2.6 + enabledSearch does not force reasoning_content on assistant tool_calls', () => {
@@ -317,6 +325,6 @@ describe('buildMoonshotPayload — enabledSearch forces thinking off', () => {
     } as any);
 
     expect(result.thinking).toEqual({ type: 'enabled' });
-    expect(result.temperature).toBe(1);
+    expect(result).not.toHaveProperty('temperature');
   });
 });

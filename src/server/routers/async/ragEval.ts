@@ -105,7 +105,6 @@ export const ragEvalRouter = router({
           model: !!languageModel ? languageModel : DEFAULT_MODEL,
           responseMode: 'json',
           stream: false,
-          temperature: 1,
         });
 
         const data = (await response.json()) as OpenAI.ChatCompletion;

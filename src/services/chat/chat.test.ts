@@ -1045,7 +1045,31 @@ describe('ChatService', () => {
       );
     });
 
-    it('should make a POST request without response in non-openai provider payload', async () => {
+    it('should strip legacy provider params from serialized payload', async () => {
+      const params: Partial<ChatStreamPayload> = {
+        frequency_penalty: 0.5,
+        messages: [],
+        model: 'test-model',
+        presence_penalty: 0.3,
+        temperature: 0.7,
+        top_p: 0.9,
+      };
+
+      await chatService.getChatCompletion(params, {});
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        messages: [],
+        model: 'test-model',
+        stream: true,
+      });
+      expect(body).not.toHaveProperty('frequency_penalty');
+      expect(body).not.toHaveProperty('presence_penalty');
+      expect(body).not.toHaveProperty('temperature');
+      expect(body).not.toHaveProperty('top_p');
+    });
+
+    it('should omit user-controlled provider from serialized client payload', async () => {
       const params: Partial<ChatStreamPayload> = {
         model: 'deepseek-reasoner',
         provider: 'deepseek',
@@ -1059,7 +1083,6 @@ describe('ChatService', () => {
         stream: true,
         ...DEFAULT_AGENT_CONFIG.params,
         messages: [],
-        provider: undefined,
       };
 
       await chatService.getChatCompletion(params, options);
@@ -1072,6 +1095,7 @@ describe('ChatService', () => {
           method: 'POST',
         }),
       );
+      expect(JSON.parse(mockFetchSSE.mock.calls[0][1].body)).not.toHaveProperty('provider');
     });
 
     it('should return InvalidAccessCode error when enableFetchOnClient is true and auth is enabled but user is not signed in', async () => {

@@ -30,6 +30,10 @@ Each real capability should be traced through **all** of these unless intentiona
 
 If the doc says a field applies **only** to certain model IDs, gate **`extendParams` on those cards** and gate runtime branches on `payload.model` — do not send the field for other ids.
 
+## Provider context and stripped request fields
+
+When stripping request-body fields such as legacy generic sampling params or user-supplied `provider`, preserve the trusted server-side provider context from routing/runtime initialization. Runtime converters, tracing, and stream error handling may still need `payload.provider` internally (for example OpenAI-compatible usage accounting for `xai` and `moonshot`), but that value must come from the trusted route/provider selection, not the serialized client body.
+
 ## UI pattern: one provider panel at a time
 
 - **Dispatcher:** `src/features/ChatInput/ActionBar/Model/index.tsx` — route by runtime **provider id**:

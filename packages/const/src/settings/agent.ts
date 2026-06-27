@@ -46,12 +46,7 @@ export const DEFAULT_AGENT_CONFIG: LobeAgentConfig = {
   chatConfig: DEFAULT_AGENT_CHAT_CONFIG,
   model: DEFAULT_MODEL,
   openingQuestions: [],
-  params: {
-    frequency_penalty: 0,
-    presence_penalty: 0,
-    temperature: 1,
-    top_p: 1,
-  },
+  params: {},
   plugins: [],
   provider: DEFAULT_PROVIDER,
   systemRole: '',

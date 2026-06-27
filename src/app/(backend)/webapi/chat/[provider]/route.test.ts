@@ -137,6 +137,7 @@ describe('POST handler', () => {
         apiKey: 'test-api-key',
         clerkAuth: {},
         nextAuthAuthorized: true,
+        tokenAuthAuthorized: false,
       });
     });
 
@@ -183,10 +184,49 @@ describe('POST handler', () => {
       const response = await POST(request as unknown as Request, { params: mockParams });
 
       expect(response).toEqual(mockChatResponse);
-      expect(ModelRuntime.prototype.chat).toHaveBeenCalledWith(mockChatPayload, {
-        user: 'abc',
-        signal: expect.anything(),
+      expect(ModelRuntime.prototype.chat).toHaveBeenCalledWith(
+        { ...mockChatPayload, provider: 'test-provider' },
+        {
+          user: 'abc',
+          signal: expect.anything(),
+        },
+      );
+    });
+
+    it('should strip legacy provider params before calling runtime', async () => {
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        accessCode: 'test-access-code',
+        apiKey: 'test-api-key',
+        azureApiVersion: 'v1',
+        userId: 'abc',
       });
+
+      const mockParams = Promise.resolve({ provider: 'test-provider' });
+      request = new Request(new URL('https://test.com'), {
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
+        body: JSON.stringify({
+          frequency_penalty: 0.5,
+          message: 'Hello, world!',
+          presence_penalty: 0.3,
+          temperature: 0.7,
+          top_p: 0.9,
+        }),
+      });
+
+      const mockChatResponse: any = { success: true, message: 'Reply from agent' };
+
+      vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue(mockChatResponse);
+
+      await POST(request as unknown as Request, { params: mockParams });
+
+      expect(ModelRuntime.prototype.chat).toHaveBeenCalledWith(
+        { message: 'Hello, world!', provider: 'test-provider' },
+        {
+          user: 'abc',
+          signal: expect.anything(),
+        },
+      );
     });
 
     it('should return an error response when chat completion fails', async () => {

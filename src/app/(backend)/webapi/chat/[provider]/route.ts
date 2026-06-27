@@ -9,6 +9,7 @@ import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { createTraceOptions, initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { ChatStreamPayload } from '@/types/openai/chat';
 import { createErrorResponse } from '@/utils/errorResponse';
+import { stripLegacyProviderParams } from '@/utils/stripLegacyProviderParams';
 import { getTracePayload } from '@/utils/trace';
 
 export const maxDuration = 300;
@@ -27,7 +28,10 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload, createR
 
     // ============  2. create chat completion   ============ //
 
-    const data = (await req.json()) as ChatStreamPayload;
+    const data = {
+      ...stripLegacyProviderParams((await req.json()) as ChatStreamPayload),
+      provider,
+    };
 
     const tracePayload = getTracePayload(req);
 

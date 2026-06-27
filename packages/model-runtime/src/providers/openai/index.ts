@@ -30,7 +30,15 @@ export const params = {
   baseURL: 'https://api.openai.com/v1',
   chatCompletion: {
     handlePayload: (payload) => {
-      const { enabledSearch, model, ...rest } = payload;
+      const {
+        enabledSearch,
+        frequency_penalty: _frequencyPenalty,
+        model,
+        presence_penalty: _presencePenalty,
+        temperature: _temperature,
+        top_p: _topP,
+        ...rest
+      } = payload;
 
       if (responsesAPIModels.has(model) || enabledSearch) {
         return { ...rest, apiMode: 'responses', enabledSearch, model } as ChatStreamPayload;
@@ -43,12 +51,8 @@ export const params = {
       if (model.includes('-search-')) {
         return {
           ...rest,
-          frequency_penalty: undefined,
           model,
-          presence_penalty: undefined,
           stream: payload.stream ?? true,
-          temperature: undefined,
-          top_p: undefined,
           ...(enableServiceTierFlex && supportsFlexTier(model) && { service_tier: 'flex' }),
           ...(oaiSearchContextSize && {
             web_search_options: {
@@ -80,7 +84,17 @@ export const params = {
   provider: ModelProvider.OpenAI,
   responses: {
     handlePayload: (payload) => {
-      const { enabledSearch, model, tools, verbosity, ...rest } = payload;
+      const {
+        enabledSearch,
+        frequency_penalty: _frequencyPenalty,
+        model,
+        presence_penalty: _presencePenalty,
+        temperature: _temperature,
+        tools,
+        top_p: _topP,
+        verbosity,
+        ...rest
+      } = payload;
 
       const openaiTools = enabledSearch
         ? [

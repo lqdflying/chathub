@@ -36,6 +36,7 @@ import {
 import type { ChatStreamPayload, OpenAIChatMessage } from '@/types/openai/chat';
 import { fetchWithInvokeStream } from '@/utils/electron/desktopRemoteRPCFetch';
 import { createErrorResponse } from '@/utils/errorResponse';
+import { stripLegacyProviderParams } from '@/utils/stripLegacyProviderParams';
 import { createTraceHeader, getTraceId } from '@/utils/trace';
 
 import { createHeaderWithAuth } from '../_auth';
@@ -89,7 +90,6 @@ class ChatService {
       {
         model: DEFAULT_AGENT_CONFIG.model,
         stream: true,
-        ...DEFAULT_AGENT_CONFIG.params,
       },
       params,
     );
@@ -322,28 +322,15 @@ class ChatService {
     // Get the chat config to check streaming preference
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
 
-    const payload = merge(
-      {
-        model: DEFAULT_AGENT_CONFIG.model,
-        stream: chatConfig.enableStreaming !== false, // Default to true if not set
-        ...DEFAULT_AGENT_CONFIG.params,
-      },
-      { ...res, apiMode, model },
+    const payload = stripLegacyProviderParams(
+      merge(
+        {
+          model: DEFAULT_AGENT_CONFIG.model,
+          stream: chatConfig.enableStreaming !== false, // Default to true if not set
+        },
+        { ...res, apiMode, model },
+      ),
     );
-
-    // Convert null to undefined for model params to prevent sending null values to API
-    if (payload.temperature === null) payload.temperature = undefined;
-    if (payload.top_p === null) payload.top_p = undefined;
-    if (payload.presence_penalty === null) payload.presence_penalty = undefined;
-    if (payload.frequency_penalty === null) payload.frequency_penalty = undefined;
-
-    // Moonshot kimi-k2.5 only accepts temperature=1, frequency_penalty=0, and top_p=0.95
-    // Force these values to avoid API errors
-    if (provider === 'moonshot' && model === 'kimi-k2.5') {
-      payload.temperature = 1;
-      payload.frequency_penalty = 0;
-      payload.top_p = 0.95;
-    }
 
     const sdkType = resolveRuntimeProvider(provider);
 

@@ -12,11 +12,6 @@ const isKimiK25StyleThinkingModel = (model: string) =>
 const isKimiNativeThinkingModel = (model: string) => model.startsWith('kimi-k2-thinking');
 const hasValidReasoning = (reasoning: any) => reasoning?.content && !reasoning?.signature;
 
-const getK25Params = (isThinkingEnabled: boolean) => ({
-  temperature: isThinkingEnabled ? 1 : 0.6,
-  top_p: 0.95,
-});
-
 const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T[] | undefined => {
   if (!enabledSearch) return tools;
   return tools?.length ? [...tools, MOONSHOT_SEARCH_TOOL] : [MOONSHOT_SEARCH_TOOL];
@@ -29,9 +24,6 @@ const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T
 //   "Invalid request: the message at position N with role 'assistant' must not be empty"
 const hasAssistantContent = (message: any): boolean => {
   if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) return true;
-  // Internal Lobe messages may still use `tools` before every pipeline step maps to `tool_calls`.
-  if (Array.isArray(message.tools) && message.tools.length > 0) return true;
-
   const { content } = message;
   if (typeof content === 'string') return content.trim().length > 0;
   if (Array.isArray(content)) {
@@ -78,16 +70,14 @@ export const normalizeMessagesForMoonshot = (
 /**
  * Kimi K2.5 / K2.6 with `thinking: enabled` requires every assistant message that
  * carries tool calls to include `reasoning_content` (may be empty). Some history
- * shapes omit it (e.g. tool-only turns, `tools` vs `tool_calls`, or null).
+ * shapes omit it (e.g. tool-only turns or null content).
  */
 const patchK25AssistantToolCallReasoning = (
   msgs: OpenAI.ChatCompletionMessageParam[],
 ): OpenAI.ChatCompletionMessageParam[] =>
   msgs.map((m: any) => {
     if (m?.role !== 'assistant') return m;
-    const hasCalls =
-      (Array.isArray(m.tool_calls) && m.tool_calls.length > 0) ||
-      (Array.isArray(m.tools) && m.tools.length > 0);
+    const hasCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
     if (!hasCalls) return m;
     if (m.reasoning_content !== undefined && m.reasoning_content !== null) return m;
     return { ...m, reasoning_content: '' };
@@ -97,7 +87,18 @@ const patchK25AssistantToolCallReasoning = (
 export const buildMoonshotPayload = (
   payload: ChatStreamPayload,
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
-  const { enabledSearch, messages, model, temperature, thinking, tools, top_p, ...rest } = payload;
+  const {
+    enabledSearch,
+    frequency_penalty: _frequencyPenalty,
+    messages,
+    model,
+    presence_penalty: _presencePenalty,
+    temperature: _temperature,
+    thinking,
+    tools,
+    top_p: _topP,
+    ...rest
+  } = payload;
 
   const isK25Style = isKimiK25StyleThinkingModel(model);
   const isNativeThinking = isKimiNativeThinkingModel(model);
@@ -143,11 +144,8 @@ export const buildMoonshotPayload = (
 
     return {
       ...rest,
-      ...getK25Params(withKeep.type === 'enabled'),
-      frequency_penalty: 0,
       messages: normalizedMessages,
       model,
-      presence_penalty: 0,
       stream: payload.stream ?? true,
       thinking: withKeep,
       tools: moonshotTools?.length ? moonshotTools : undefined,
@@ -155,31 +153,22 @@ export const buildMoonshotPayload = (
   }
 
   // kimi-k2-thinking / kimi-k2-thinking-turbo: native thinking; do not send `thinking`.
-  // Same sampling envelope as K2.5/K2.6 thinking-on.
   if (isNativeThinking) {
     return {
       ...rest,
-      ...getK25Params(true),
-      frequency_penalty: 0,
       messages: normalizedMessages,
       model,
-      presence_penalty: 0,
       stream: payload.stream ?? true,
       tools: moonshotTools?.length ? moonshotTools : undefined,
     } as OpenAI.ChatCompletionCreateParamsStreaming;
   }
 
-  // Regular Moonshot models - temperature is normalized by dividing by 2
   return {
     ...rest,
     messages: normalizedMessages,
     model,
     stream: payload.stream ?? true,
-    // Moonshot temperature is normalized by dividing by 2
-    temperature: temperature !== undefined ? temperature / 2 : undefined,
     tools: moonshotTools?.length ? moonshotTools : undefined,
-    // top_p is passed through (Moonshot handles it appropriately)
-    top_p,
   } as OpenAI.ChatCompletionCreateParamsStreaming;
 };
 

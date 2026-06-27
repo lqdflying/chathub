@@ -309,7 +309,7 @@ describe('LobeOpenAI', () => {
       expect(createCall.stream).toBe(true);
     });
 
-    it('should handle regular models with all parameters', async () => {
+    it('should handle regular models with stripped legacy parameters', async () => {
       const payload = {
         frequency_penalty: 0.5,
         messages: [{ content: 'Hello', role: 'user' as const }],
@@ -323,10 +323,10 @@ describe('LobeOpenAI', () => {
 
       const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
       expect(createCall.model).toBe('gpt-4o');
-      expect(createCall.temperature).toBe(0.7);
-      expect(createCall.top_p).toBe(0.9);
-      expect(createCall.frequency_penalty).toBe(0.5);
-      expect(createCall.presence_penalty).toBe(0.3);
+      expect(createCall.temperature).toBeUndefined();
+      expect(createCall.top_p).toBeUndefined();
+      expect(createCall.frequency_penalty).toBeUndefined();
+      expect(createCall.presence_penalty).toBeUndefined();
       expect(createCall.stream).toBe(true);
     });
   });
