@@ -4,11 +4,15 @@ import { SWRResponse, mutate } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import { StateCreator } from 'zustand/vanilla';
 
-import { chainAssistantMemoryRollup } from '@lobechat/prompts';
+import {
+  ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
+  chainAssistantMemoryRollup,
+} from '@lobechat/prompts';
 import { TraceNameMap } from '@lobechat/types';
 
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
+import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { useClientDataSWR, useOnlyFetchOnceSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
 import { agentService } from '@/services/agent';
@@ -49,14 +53,14 @@ export interface AgentChatAction {
   removeKnowledgeBaseFromAgent: (knowledgeBaseId: string) => Promise<void>;
 
   removePlugin: (id: string) => void;
+  /** LLM-merge topic compaction summaries across sessions for this agent into assistantMemory. */
+  rollupAssistantMemory: () => Promise<{ skipped?: boolean; success: boolean }>;
   toggleFile: (id: string, open?: boolean) => Promise<void>;
   toggleKnowledgeBase: (id: string, open?: boolean) => Promise<void>;
 
   togglePlugin: (id: string, open?: boolean) => Promise<void>;
   updateAgentChatConfig: (config: Partial<LobeAgentChatConfig>) => Promise<void>;
   updateAgentConfig: (config: PartialDeep<LobeAgentConfig>) => Promise<void>;
-  /** LLM-merge topic compaction summaries across sessions for this agent into assistantMemory. */
-  rollupAssistantMemory: () => Promise<{ skipped?: boolean; success: boolean }>;
   useFetchAgentConfig: (isLogin: boolean | undefined, id: string) => SWRResponse<LobeAgentConfig>;
   useFetchFilesAndKnowledgeBases: () => SWRResponse<KnowledgeItem[]>;
   useInitInboxAgentStore: (
@@ -111,6 +115,51 @@ export const createChatSlice: StateCreator<
   removePlugin: async (id) => {
     await get().togglePlugin(id, false);
   },
+  rollupAssistantMemory: async () => {
+    const activeAgentId = get().activeAgentId;
+    const activeId = get().activeId;
+    if (!activeAgentId || !activeId) return { success: false };
+
+    const rows = await topicService.listTopicsForAgentMemoryRollup(
+      activeAgentId,
+      ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
+    );
+    const topics = rows.filter((r) => (r.historySummary ?? '').trim().length > 0);
+    if (topics.length === 0) return { skipped: true, success: false };
+
+    const prior = agentSelectors.currentAgentConfig(get()).assistantMemory;
+    const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
+
+    let text = '';
+    await chatService.fetchPresetTaskResult({
+      onFinish: async (t) => {
+        text = t;
+      },
+      params: {
+        ...chainAssistantMemoryRollup({
+          priorAssistantMemory: prior ?? undefined,
+          topics: topics.map((r) => ({
+            historySummary: r.historySummary,
+            sessionId: r.sessionId,
+            title: r.title,
+          })),
+        }),
+        model,
+        provider,
+        stream: false,
+      },
+      trace: {
+        sessionId: activeId,
+        traceName: TraceNameMap.AssistantMemoryRollup,
+      },
+    });
+
+    const next = normalizeAssistantMemoryText(text);
+    if (!next) return { success: false };
+
+    await get().updateAgentConfig({ assistantMemory: next });
+    return { success: true };
+  },
   toggleFile: async (id, open) => {
     const { activeAgentId, internal_refreshAgentConfig } = get();
     if (!activeAgentId) return;
@@ -156,22 +205,15 @@ export const createChatSlice: StateCreator<
 
     if (!activeId) return;
 
-    // Normalize reasoningEffort: strip non-string values (e.g. boolean from DeepSeek Switch)
-    // to prevent cross-provider type pollution.
-    if (
-      config.reasoningEffort !== undefined &&
-      typeof config.reasoningEffort !== 'string'
-    ) {
-      if (config.reasoningEffort === true) {
-        // boolean true from DeepSeek Switch — drop it so it doesn't leak to other providers
-        config = { ...config, reasoningEffort: undefined };
-      } else {
-        config = { ...config, reasoningEffort: undefined };
-      }
+    const nextConfig = { ...config };
+
+    if (nextConfig.reasoningEffort !== undefined && typeof nextConfig.reasoningEffort !== 'string') {
+      delete nextConfig.reasoningEffort;
     }
 
-    await get().updateAgentConfig({ chatConfig: config });
+    await get().updateAgentConfig({ chatConfig: nextConfig });
   },
+
   updateAgentConfig: async (config) => {
     const { activeId } = get();
 
@@ -180,49 +222,6 @@ export const createChatSlice: StateCreator<
     const controller = get().internal_createAbortController('updateAgentConfigSignal');
 
     await get().internal_updateAgentConfig(activeId, config, controller.signal);
-  },
-
-  rollupAssistantMemory: async () => {
-    const activeAgentId = get().activeAgentId;
-    const activeId = get().activeId;
-    if (!activeAgentId || !activeId) return { success: false };
-
-    const rows = await topicService.listTopicsForAgentMemoryRollup(activeAgentId);
-    const topics = rows.filter((r) => (r.historySummary ?? '').trim().length > 0);
-    if (topics.length === 0) return { success: false, skipped: true };
-
-    const prior = agentSelectors.currentAgentConfig(get()).assistantMemory;
-    const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
-
-    let text = '';
-    await chatService.fetchPresetTaskResult({
-      onFinish: async (t) => {
-        text = t;
-      },
-      params: {
-        ...chainAssistantMemoryRollup({
-          priorAssistantMemory: prior ?? undefined,
-          topics: topics.map((r) => ({
-            historySummary: r.historySummary,
-            sessionId: r.sessionId,
-            title: r.title,
-          })),
-        }),
-        model,
-        provider,
-        stream: false,
-      },
-      trace: {
-        sessionId: activeId,
-        traceName: TraceNameMap.AssistantMemoryRollup,
-      },
-    });
-
-    const next = text.trim();
-    if (!next) return { success: false };
-
-    await get().updateAgentConfig({ assistantMemory: next });
-    return { success: true };
   },
   useFetchAgentConfig: (isLogin, sessionId) =>
     useClientDataSWR<LobeAgentConfig>(

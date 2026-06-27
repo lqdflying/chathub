@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 
+import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
@@ -24,24 +25,26 @@ export interface EstimatedContextUsage {
 
 /** Same token accounting as the chat input token popover (debounced via useTokenCount). */
 export const useEstimatedContextUsage = (): EstimatedContextUsage => {
-  const [input, historySummary] = useChatStore((s) => [
+  const [input, historySummary, memoryArchives] = useChatStore((s) => [
     s.inputMessage,
-    topicSelectors.currentActiveTopicSummary(s)?.content || '',
+    topicSelectors.currentActiveTopicSummary(s)?.content,
+    topicSelectors.currentActiveTopic(s)?.metadata?.memoryArchives,
   ]);
 
-  const [systemRole, model, provider] = useAgentStore((s) => [
+  const [systemRole, model, provider, assistantMemory] = useAgentStore((s) => [
     agentSelectors.currentAgentSystemRole(s),
     agentSelectors.currentAgentModel(s) as string,
     agentSelectors.currentAgentModelProvider(s) as string,
-    agentChatConfigSelectors.historyCount(s),
-    agentChatConfigSelectors.enableHistoryCount(s),
+    agentSelectors.currentAgentConfig(s).assistantMemory ?? '',
   ]);
 
-  const [historyCount, enableHistoryCount] = useAgentStore((s) => [
-    agentChatConfigSelectors.historyCount(s),
-    agentChatConfigSelectors.enableHistoryCount(s),
-    agentChatConfigSelectors.isAgentEnableSearch(s),
-  ]);
+  const [historyCount, enableHistoryCount, enableCompressHistory, enableUserMemoryArchive] =
+    useAgentStore((s) => [
+      agentChatConfigSelectors.historyCount(s),
+      agentChatConfigSelectors.enableHistoryCount(s),
+      agentChatConfigSelectors.currentChatConfig(s).enableCompressHistory,
+      agentChatConfigSelectors.currentChatConfig(s).enableUserMemoryArchive,
+    ]);
 
   const maxTokens = useModelContextWindowTokens(model, provider);
   const canUseTool = useModelSupportToolUse(model, provider);
@@ -70,7 +73,18 @@ export const useEstimatedContextUsage = (): EstimatedContextUsage => {
 
   const chatsToken = useTokenCount(chatsString) + inputTokenCount;
   const systemRoleToken = useTokenCount(systemRole);
-  const historySummaryToken = useTokenCount(historySummary);
+  const memorySummary = useMemo(
+    () =>
+      buildHistorySummaryForRequest({
+        archives: memoryArchives,
+        assistantMemory: assistantMemory || undefined,
+        enableCompressHistory,
+        enableUserMemoryArchive,
+        topicSummary: historySummary,
+      }) || '',
+    [assistantMemory, enableCompressHistory, enableUserMemoryArchive, historySummary, memoryArchives],
+  );
+  const historySummaryToken = useTokenCount(memorySummary);
   const totalToken = systemRoleToken + historySummaryToken + toolsToken + chatsToken;
   const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
 

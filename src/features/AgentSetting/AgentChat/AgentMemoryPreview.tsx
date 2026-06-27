@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useAgentStore } from '@/store/agent/store';
 import { useChatStore } from '@/store/chat';
@@ -30,7 +31,9 @@ const AgentMemoryPreview = memo(() => {
   const onSaveAssistantMemory = useCallback(async () => {
     setSaving(true);
     try {
-      await updateAgentConfig({ assistantMemory: draftMemory });
+      const nextMemory = normalizeAssistantMemoryText(draftMemory);
+      await updateAgentConfig({ assistantMemory: nextMemory });
+      setDraftMemory(nextMemory);
     } finally {
       setSaving(false);
     }
@@ -52,7 +55,7 @@ const AgentMemoryPreview = memo(() => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `topic-compaction-${String(title).replace(/\W+/g, '-')}.md`;
+    a.download = `topic-compaction-${String(title).replaceAll(/\W+/g, '-')}.md`;
     a.click();
     URL.revokeObjectURL(url);
   }, [topicContent, title]);

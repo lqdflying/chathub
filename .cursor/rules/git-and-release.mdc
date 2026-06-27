@@ -9,15 +9,15 @@ alwaysApply: true
 
 Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says "no branch" / "edit on `main` only".
 
-**Always create a new branch for implementation work** — never edit on `main`, and do not pile unrelated changes onto some other open `feat/*`/`fix/*` branch. Reuse an existing topic branch only when the user explicitly asks to continue that branch.
+**Never edit implementation work directly on `main`.** If the current branch is already not `main`, continue on that branch by default; do **not** create a second topic branch unless the user explicitly asks, the current branch is clearly unrelated, or the work must be isolated.
 
-1. **Do not** use repo-editing tools (`apply_patch`, scripted bulk edits, etc.) until you are on a **`fix/<slug>`** or **`feat/<slug>`** branch — not on `main` (see also: *Never commit fixes or features directly on `main`* under canary flow below).
-2. **ALWAYS branch from the current HEAD** — never switch to `main` just to branch:
-   - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` directly from wherever you are.
-   - Do **not** `git checkout main && git pull` beforehand. Switching to `main` first would drop commits from the current topic branch and cause divergence. The new branch inherits the current HEAD's commit history.
-   - Only branch from `main` when the user explicitly says "start fresh from main" or when you are already on `main`.
-3. **Uncommitted changes:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits so work is not stacked on the current branch. If you must switch branches with a dirty tree and Git blocks you, **`git stash push`**, create the branch, then **`git stash pop`**.
-4. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user explicitly asked to work on `main`).
+1. **Do not** use repo-editing tools (`apply_patch`, scripted bulk edits, etc.) while on `main` (see also: *Never commit fixes or features directly on `main`* under canary flow below).
+2. **If currently on `main`, branch from the current HEAD before editing** — never switch away and back just to branch:
+   - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` directly from the current `main` HEAD.
+   - Do **not** `git checkout main && git pull` unless the user explicitly asks to sync first.
+3. **If currently on a non-`main` branch, continue there by default.** All non-`main` branches are pre-GA work branches; they should be merged to `main` for GA and deleted afterward.
+4. **Uncommitted changes on `main`:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits. If Git blocks branch creation with a dirty tree, **`git stash push`**, create the branch, then **`git stash pop`**.
+5. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user explicitly asked to work on `main`).
 
 ## Branch cleanup — one active branch at a time
 
@@ -40,7 +40,7 @@ Once a feature or fix branch has been merged into `main`, delete that branch loc
 
 ## Planning (Plan mode / implementation plans)
 
-When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: **always** `git checkout -b` a **new** `feat/<slug>` or `fix/<slug>` from the current HEAD before any code edits, never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
+When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default. Never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
 
 ## Agent commit policy (STRICT)
 
@@ -97,7 +97,7 @@ both canary and formal tags.
 
 **Never commit fixes or features directly on `main` just to get an image.**
 
-1. Branch off `main`: `fix/<slug>` or `feat/<slug>`.
+1. Ensure the work is on a non-`main` branch (`fix/<slug>` or `feat/<slug>`). If already on a non-`main` branch, use it.
 2. Commit on the branch with a gitmoji prefix. **Do not** bump `package.json`.
 3. Pick the canary version — always a pre-release of the **next unreleased** version, never the current GA:
    - Read `package.json` version (= last GA, e.g. `3.4.38`).

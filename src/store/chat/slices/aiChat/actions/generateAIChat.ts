@@ -15,10 +15,7 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
-import {
-  appendMemoryArchivesToHistorySummary,
-  combineAssistantMemoryWithTopicSummary,
-} from '@/helpers/memoryArchivePrompt';
+import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { useAgentStore } from '@/store/agent';
@@ -585,21 +582,15 @@ export const generateAIChat: StateCreator<
     // to upload image
     const uploadTasks: Map<string, Promise<{ id?: string; url?: string }>> = new Map();
 
-    let topicSummaryBlock: string | undefined;
-    if (chatConfig.enableCompressHistory) {
-      const summaryBlock = topicSelectors.currentActiveTopicSummary(get());
-      const activeTopic = topicSelectors.currentActiveTopic(get());
-      topicSummaryBlock = appendMemoryArchivesToHistorySummary(
-        summaryBlock?.content,
-        activeTopic?.metadata?.memoryArchives,
-        !!chatConfig.enableUserMemoryArchive,
-      );
-    }
-    const assistantMemory = (agentConfig.assistantMemory ?? '').trim();
-    const historySummaryForRequest = combineAssistantMemoryWithTopicSummary(
-      assistantMemory || undefined,
-      topicSummaryBlock,
-    );
+    const summaryBlock = topicSelectors.currentActiveTopicSummary(get());
+    const activeTopic = topicSelectors.currentActiveTopic(get());
+    const historySummaryForRequest = buildHistorySummaryForRequest({
+      archives: activeTopic?.metadata?.memoryArchives,
+      assistantMemory: agentConfig.assistantMemory ?? undefined,
+      enableCompressHistory: chatConfig.enableCompressHistory,
+      enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+      topicSummary: summaryBlock?.content,
+    });
     await chatService.createAssistantMessageStream({
       abortController,
       params: {

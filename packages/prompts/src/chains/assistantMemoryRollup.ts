@@ -6,8 +6,11 @@ export interface AssistantMemoryRollupTopicInput {
   title: string | null;
 }
 
-const DEFAULT_MAX_TOPICS = 150;
-const DEFAULT_MAX_CHARS_PER_TOPIC = 4000;
+export const ASSISTANT_MEMORY_TARGET_TOKENS = 800;
+export const ASSISTANT_MEMORY_MAX_CHARS = 3200;
+export const ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS = 40;
+export const ASSISTANT_MEMORY_ROLLUP_MAX_CHARS_PER_TOPIC = 1200;
+export const ASSISTANT_MEMORY_ROLLUP_MAX_PRIOR_CHARS = 3200;
 
 /** Truncate one topic summary for prompt size control. */
 export const capTopicSummaryText = (text: string | null, maxChars: number): string => {
@@ -25,10 +28,13 @@ export const buildAssistantMemoryRollupUserContent = (
   topics: AssistantMemoryRollupTopicInput[],
   options?: { maxCharsPerTopic?: number; maxTopics?: number },
 ): string => {
-  const maxTopics = options?.maxTopics ?? DEFAULT_MAX_TOPICS;
-  const maxChars = options?.maxCharsPerTopic ?? DEFAULT_MAX_CHARS_PER_TOPIC;
+  const maxTopics = options?.maxTopics ?? ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS;
+  const maxChars = options?.maxCharsPerTopic ?? ASSISTANT_MEMORY_ROLLUP_MAX_CHARS_PER_TOPIC;
 
-  const prior = (priorAssistantMemory ?? '').trim();
+  const prior = capTopicSummaryText(
+    priorAssistantMemory ?? '',
+    ASSISTANT_MEMORY_ROLLUP_MAX_PRIOR_CHARS,
+  );
   const withContent = topics
     .filter((t) => (t.historySummary ?? '').trim().length > 0)
     .slice(0, maxTopics);
@@ -58,12 +64,15 @@ export const chainAssistantMemoryRollup = (params: {
   return {
     messages: [
       {
-        content: `You merge "prior assistant memory" with summaries from multiple chat topics (each topic belongs to a session linked to the same assistant). Produce a single updated assistant memory document that:
-- Preserves important facts, preferences, and continuity across sessions.
-- De-duplicates overlapping information.
+        content: `You maintain "assistant memory": compact startup context injected into every new chat with this assistant.
+
+Produce a single updated assistant memory document that:
+- Keeps only durable information useful across future chats: stable user preferences, assistant operating rules, long-running projects, and unresolved commitments.
+- Removes completed tasks, raw timelines, duplicate topic summaries, session identifiers, transient details, and anything useful only inside one past chat.
+- Rewrites and deduplicates aggressively instead of merging topic text.
 - Uses the same language as the source material when possible.
-- Stays concise; aim under roughly 2000 tokens of output.
-- Uses markdown sections or bullets if helpful.
+- Targets ${ASSISTANT_MEMORY_TARGET_TOKENS} tokens or less.
+- Uses short markdown sections or bullets if helpful.
 
 Output only the new assistant memory text, without preamble or explanation.`,
         role: 'system',
