@@ -1,4 +1,10 @@
 {
+  "anthropicCompatible": {
+    "authMode": {
+      "desc": "Select authentication method. Use x-api-key for native Anthropic, or Bearer for providers like HaloCloud.",
+      "title": "Auth Mode"
+    }
+  },
   "azure": {
     "azureApiVersion": {
       "desc": "Azure API version, follow the format YYYY-MM-DD, check the [latest version](https://learn.microsoft.com/en-us/azure/ai-services/openai/reference#chat-completions)",

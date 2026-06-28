@@ -1,4 +1,10 @@
 {
+  "anthropicCompatible": {
+    "authMode": {
+      "desc": "选择认证方式。使用 x-api-key 进行原生 Anthropic 认证，或使用 Bearer 令牌用于 HaloCloud 等服务商。",
+      "title": "认证方式"
+    }
+  },
   "azure": {
     "azureApiVersion": {
       "desc": "Azure 的 API 版本，遵循 YYYY-MM-DD 格式，查阅[最新版本](https://learn.microsoft.com/zh-cn/azure/ai-services/openai/reference#chat-completions)",
