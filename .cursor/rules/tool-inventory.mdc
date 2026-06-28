@@ -34,14 +34,7 @@ When researching or debugging, use the right tool for the job. Here are all avai
 | `tavily_crawl` | Recursive site crawling | `url`, `max_depth`, `max_breadth`, `instructions`, `select_paths` (regex) | Exploring entire doc sites, finding all pages on a topic |
 | `tavily_map` | Site structure discovery | `url`, `max_depth`, `select_paths` (regex) | Listing all URLs under a path before selective extraction |
 
-**Tavily vs built-in WebSearch:** Tavily has higher relevance, `advanced` search depth for thorough results, domain/time/country filtering, and research/crawl/extract tools beyond simple search. Prefer Tavily for non-trivial research and for verifying current knowledge against online documentation.
-
-**Accuracy workflow for online documentation:**
-1. Use `tavily_search` with vendor/product/library names plus the exact API, feature, or error.
-2. Use `tavily_map` when official docs navigation or URLs are unclear.
-3. Use `tavily_extract` to read the exact official pages before implementing or answering.
-4. Use constrained `tavily_crawl` with `select_paths`, `select_domains`, shallow depth, and small limits to discover related official pages.
-5. Use `tavily_research` for synthesis only after primary docs have been found; verify its cited sources with `tavily_extract` when decisions depend on exact contracts.
+**Tavily vs built-in WebSearch:** Tavily has higher relevance, `advanced` search depth for thorough results, domain/time/country filtering, and research/crawl/extract tools beyond simple search. Prefer Tavily for non-trivial research.
 
 ---
 
@@ -83,23 +76,14 @@ When researching or debugging, use the right tool for the job. Here are all avai
 
 ## MCP Server: Context7 (`plugin-context7-plugin-context7`)
 
-**Best for:** Up-to-date library/framework/SDK/API/CLI/cloud-service documentation with code snippets, especially documentation sourced from official repositories and GitHub-backed docs.
+**Best for:** Up-to-date library/framework documentation with code snippets
 
 | Tool | Purpose | Key Params | Best For |
 |------|---------|------------|----------|
-| `resolve-library-id` | Find Context7 library ID | `query`, `libraryName` | First step: get the `/org/project` or `/org/project/version` ID |
-| `query-docs` | Query docs with code snippets | `libraryId`, `query` | Answering specific library usage, API syntax, setup, migration, and configuration questions |
+| `resolve-library-id` | Find Context7 library ID | `query`, `libraryName` | First step: get the `/org/project` ID |
+| `query-docs` | Query docs with code snippets | `libraryId`, `query`, `researchMode` | Answering specific library usage questions |
 
-**Workflow:**
-1. Use Context7 whenever the question involves a library, framework, SDK, API, CLI tool, or cloud service — even common ones like React, Next.js, Prisma, Express, Tailwind, Django, or Spring Boot.
-2. Call `resolve-library-id` first unless the user explicitly provides a Context7 ID such as `/vercel/next.js` or `/vercel/next.js/v15...`.
-3. Choose the best result by exact name match, official/source reputation, documentation coverage, benchmark score, relevance, and requested version.
-4. Call `query-docs` with the chosen `libraryId` and the user's full, specific question.
-5. Do not call either Context7 tool more than 3 times for one question; if results are insufficient, combine the best Context7 result with Tavily official-doc discovery.
-
-**Context7 + Tavily pairing:** Use Context7 first for library API behavior and code examples. Use Tavily when you need to discover or verify official GitHub docs, READMEs, changelogs, migration guides, release notes, OpenAPI schemas, or vendor pages that Context7 did not return. For exact contracts, verify important Context7 findings against primary pages with `tavily_extract`.
-
-**Do not use Context7 for:** local codebase refactoring, scripts from scratch without library-specific questions, business-logic debugging, code review, or general programming concepts.
+**Workflow:** Always call `resolve-library-id` first, then `query-docs` with the returned ID. Retry with `researchMode: true` if the first answer is insufficient.
 
 ---
 
@@ -142,15 +126,15 @@ Defined in system prompt (no separate descriptor files). Key tools:
 
 ### Bug fix (general)
 1. `tavily_search` (advanced depth) + `WebSearch` — parallel for broad coverage
-2. If library/framework/SDK/API specific: `resolve-library-id` → `query-docs` with the exact question
-3. `tavily_extract` / `read_url` — read the most promising official pages, GitHub docs, changelogs, or issue threads
-4. If MS/Windows related: `microsoft_docs_search` → `microsoft_docs_fetch`
+2. `tavily_extract` / `read_url` — read the most promising pages
+3. If MS/Windows related: `microsoft_docs_search` → `microsoft_docs_fetch`
+4. If library/framework specific: `resolve-library-id` → `query-docs`
 5. Cross-reference findings from 2+ sources
 
 ### API integration / new provider
-1. Context7 for library/SDK usage contracts when available (`resolve-library-id` → `query-docs`)
-2. Official vendor docs via `tavily_search` / `tavily_map` / `tavily_extract` (include domain or GitHub repo when known)
-3. `tavily_research` for comprehensive synthesis after primary docs are read
+1. Official vendor docs via `tavily_search` (include domain) or `WebFetch`
+2. Context7 for library-specific code patterns
+3. `tavily_research` for comprehensive synthesis
 
 ### PWA / web platform behavior
 1. `microsoft_docs_search` for Windows-specific behavior
@@ -172,11 +156,9 @@ Defined in system prompt (no separate descriptor files). Key tools:
 
 | If you need... | Use... |
 |----------------|--------|
-| Quick answer about a library | `resolve-library-id` → `query-docs` (Context7) |
-| Deep, thorough research | `tavily_research` (pro) after primary docs are found |
+| Quick answer about a library | `WebSearch` or `query-docs` (Context7) |
+| Deep, thorough research | `tavily_research` (pro) |
 | Targeted search with filters | `tavily_search` (advanced) |
-| Current official/GitHub docs discovery | `tavily_search` + `tavily_map` + `tavily_extract` |
-| Exact library/API usage or code examples | `resolve-library-id` → `query-docs` (Context7), then verify exact contracts with Tavily when needed |
 | Official Microsoft docs | `microsoft_docs_search` |
 | Multiple perspectives at once | `parallel_search_web` (Jina) |
 | Read a specific page | `read_url` (Jina) or `tavily_extract` |
