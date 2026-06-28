@@ -1,0 +1,95 @@
+---
+description: "MCP tool arguments for tavily - use when calling any tavily tool"
+alwaysApply: false
+---
+
+# MCP Tools: tavily
+
+ALWAYS include `arguments` in CallMcpTool calls. NEVER send empty `{}`.
+
+### tavily_crawl
+Crawl a website starting from a URL. Extracts content from pages with configurable depth and breadth.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `url` | string | yes |  | The root URL to begin the crawl |
+| `max_depth` | integer | no | `1` | Max depth of the crawl. Defines how far from the base URL the crawler can explore. |
+| `max_breadth` | integer | no | `20` | Max number of links to follow per level of the tree (i.e., per page) |
+| `limit` | integer | no | `50` | Total number of links the crawler will process before stopping |
+| `instructions` | string | no | `""` | Natural language instructions for the crawler. Instructions specify which types of pages the crawler should return. |
+| `select_paths` | array<string> | no | `[]` | Regex patterns to select only URLs with specific path patterns (e.g., /docs/.*, /api/v1.*) |
+| `select_domains` | array<string> | no | `[]` | Regex patterns to restrict crawling to specific domains or subdomains (e.g., ^docs\.example\.com$) |
+| `allow_external` | boolean | no | `true` | Whether to return external links in the final response |
+| `extract_depth` | enum | no | `"basic"` | Advanced extraction retrieves more data, including tables and embedded content, with higher success but may increase latency Allowed: `basic`, `advanced` |
+| `format` | enum | no | `"markdown"` | The format of the extracted web page content. markdown returns content in markdown format. text returns plain text and may increase latency. Allowed: `markdown`, `text` |
+| `include_favicon` | boolean | no | `false` | Whether to include the favicon URL for each result |
+
+Example:
+CallMcpTool({ server: "tavily", toolName: "tavily_crawl", arguments: {"url": "https://example.com"} })
+
+### tavily_extract
+Extract content from URLs. Returns raw page content in markdown or text format.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `urls` | array<string> | yes |  | List of URLs to extract content from |
+| `extract_depth` | enum | no | `"basic"` | Use 'advanced' for LinkedIn, protected sites, or tables/embedded content Allowed: `basic`, `advanced` |
+| `include_images` | boolean | no | `false` | Include images from pages |
+| `format` | enum | no | `"markdown"` | Output format Allowed: `markdown`, `text` |
+| `include_favicon` | boolean | no | `false` | Include favicon URLs |
+| `query` | string | no | `""` | Query to rerank content chunks by relevance |
+
+Example:
+CallMcpTool({ server: "tavily", toolName: "tavily_extract", arguments: {"urls": ["value"]} })
+
+### tavily_map
+Map a website's structure. Returns a list of URLs found starting from the base URL.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `url` | string | yes |  | The root URL to begin the mapping |
+| `max_depth` | integer | no | `1` | Max depth of the mapping. Defines how far from the base URL the crawler can explore |
+| `max_breadth` | integer | no | `20` | Max number of links to follow per level of the tree (i.e., per page) |
+| `limit` | integer | no | `50` | Total number of links the crawler will process before stopping |
+| `instructions` | string | no | `""` | Natural language instructions for the crawler |
+| `select_paths` | array<string> | no | `[]` | Regex patterns to select only URLs with specific path patterns (e.g., /docs/.*, /api/v1.*) |
+| `select_domains` | array<string> | no | `[]` | Regex patterns to restrict crawling to specific domains or subdomains (e.g., ^docs\.example\.com$) |
+| `allow_external` | boolean | no | `true` | Whether to return external links in the final response |
+
+Example:
+CallMcpTool({ server: "tavily", toolName: "tavily_map", arguments: {"url": "https://example.com"} })
+
+### tavily_research
+Perform comprehensive research on a given topic or question. Use this tool when you need to gather information from multiple sources, including web pages, documents, and other resources, to answer a question or complete a task. Returns a detailed response based on the research findings. Rate limit: 20 requests per minute.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `input` | string | yes |  | A comprehensive description of the research task |
+| `model` | enum | no | `"auto"` | Defines the degree of depth of the research. 'mini' is good for narrow tasks with few subtopics. 'pro' is good for broad tasks with many subtopics Allowed: `mini`, `pro`, `auto` |
+
+Example:
+CallMcpTool({ server: "tavily", toolName: "tavily_research", arguments: {"input": "value"} })
+
+### tavily_search
+Search the web for current information on any topic. Use for news, facts, or data beyond your knowledge cutoff. Returns snippets and source URLs.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `query` | string | yes |  | Search query |
+| `max_results` | integer | no | `5` | The maximum number of search results to return |
+| `search_depth` | enum | no | `"basic"` | The depth of the search. 'basic' for generic results, 'advanced' for more thorough search, 'fast' for optimized low latency with high relevance, 'ultra-fast' for prioritizing latency above all else Allowed: `basic`, `advanced`, `fast`, `ultra-fast` |
+| `topic` | const `general` | no | `"general"` | The category of the search. This will determine which of our agents will be used for the search Must be `general` |
+| `time_range` | enum \| null | no | `null` | The time range back from the current date to include in the search results Allowed: `day`, `week`, `month`, `year` |
+| `include_images` | boolean | no | `false` | Include a list of query-related images in the response |
+| `include_image_descriptions` | boolean | no | `false` | Include a list of query-related images and their descriptions in the response |
+| `include_raw_content` | boolean | no | `false` | Include the cleaned and parsed HTML content of each search result |
+| `include_domains` | array<string> | no | `[]` | A list of domains to specifically include in the search results, if the user asks to search on specific sites set this to the domain of the site |
+| `exclude_domains` | array<string> | no | `[]` | List of domains to specifically exclude, if the user asks to exclude a domain set this to the domain of the site |
+| `country` | string | no | `""` | Boost search results from a specific country. Must be a full country name (e.g., 'United States', 'Japan', 'Germany'). ISO country codes (e.g., 'us', 'jp') are not supported. Available only if topic is general. See https://docs.tavily.com/documentation/api-reference/search for the full list of supported countries. |
+| `include_favicon` | boolean | no | `false` | Whether to include the favicon URL for each result |
+| `start_date` | string | no | `""` | Will return all results after the specified start date. Required to be written in the format YYYY-MM-DD. |
+| `end_date` | string | no | `""` | Will return all results before the specified end date. Required to be written in the format YYYY-MM-DD |
+| `exact_match` | boolean \| null | no | `null` | Only return results containing the exact phrase(s) in quotes in your query |
+
+Example:
+CallMcpTool({ server: "tavily", toolName: "tavily_search", arguments: {"query": "search query"} })

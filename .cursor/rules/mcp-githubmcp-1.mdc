@@ -1,0 +1,193 @@
+---
+description: "MCP tool arguments for githubmcp - use when calling githubmcp tools"
+alwaysApply: false
+---
+
+# MCP Tools: githubmcp
+
+ALWAYS include `arguments` in CallMcpTool calls. NEVER send empty `{}`.
+
+### add_pr_comment
+Add a comment to a pull request.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `pull_number` | integer | yes |  | The pull request number to comment on. |
+| `body` | string | yes |  | Comment text (supports Markdown). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "add_pr_comment", arguments: {"owner": "lqdflying", "repo": "chathub", "pull_number": 5, "body": "Content"} })
+
+### create_branch
+Create a new branch in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `branch` | string | yes |  | Name of the new branch to create (e.g. "feature/my-feature"). |
+| `from_ref` | string \| null | no | `null` | Branch name, tag, or commit SHA to branch off from.<br>      Defaults to the repo's default branch. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "create_branch", arguments: {"owner": "lqdflying", "repo": "chathub", "branch": "main"} })
+
+### create_issue
+Create a new issue in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `title` | string | yes |  | Issue title. |
+| `body` | string | no | `""` | Optional issue body (supports Markdown). |
+| `labels` | array<string> \| null | no | `null` | Optional list of label names to apply (e.g. ["bug", "help wanted"]). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "create_issue", arguments: {"owner": "lqdflying", "repo": "chathub", "title": "Title"} })
+
+### create_pull_request
+Create a new pull request in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `title` | string | yes |  | PR title. |
+| `head` | string | yes |  | The branch containing your changes (e.g. "feature/my-feature"). |
+| `base` | string | yes |  | The branch you want to merge into (e.g. "main"). |
+| `body` | string | no | `""` | Optional PR description (supports Markdown). |
+| `draft` | boolean | no | `false` | If True, open as a draft pull request. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "create_pull_request", arguments: {"owner": "lqdflying", "repo": "chathub", "title": "Title", "head": "value", "base": "value"} })
+
+### delete_file
+Delete a file from a GitHub repository branch.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `path` | string | yes |  | Path of the file to delete (e.g. "src/old_module.py"). |
+| `message` | string | yes |  | Commit message for the deletion. |
+| `branch` | string | yes |  | Branch to delete the file from. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "delete_file", arguments: {"owner": "lqdflying", "repo": "chathub", "path": "README.md", "message": "Content", "branch": "main"} })
+
+### find_files
+Search for files matching a glob pattern in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `pattern` | string | yes |  | Glob pattern to match file paths (e.g. "**/*.py", "src/**/*.ts", "*.md"). |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA. Defaults to the repo's default branch. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "find_files", arguments: {"owner": "lqdflying", "repo": "chathub", "pattern": "value"} })
+
+### get_blame
+Get blame information for a file, showing which commit last modified each line.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `path` | string | yes |  | File path within the repository. |
+| `ref` | string | no | `"HEAD"` | Branch, tag, or commit SHA. Defaults to HEAD. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_blame", arguments: {"owner": "lqdflying", "repo": "chathub", "path": "README.md"} })
+
+### get_commits
+Get commit history for a repository or specific file.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA to start from. Defaults to the repo's default branch. |
+| `path` | string \| null | no | `null` | Optional file path to filter commits that touched this file. |
+| `limit` | integer | no | `20` | Maximum number of commits to return (default: 20). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_commits", arguments: {"owner": "lqdflying", "repo": "chathub"} })
+
+### get_diff
+Compare two branches, tags, or commits and show the diff.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `base` | string | yes |  | Base ref (branch, tag, or commit SHA) for comparison. |
+| `head` | string | yes |  | Head ref (branch, tag, or commit SHA) for comparison. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_diff", arguments: {"owner": "lqdflying", "repo": "chathub", "base": "value", "head": "value"} })
+
+### get_file_history
+Get the commit history for a specific file.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `path` | string | yes |  | File path within the repository. |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA. Defaults to the repo's default branch. |
+| `limit` | integer | no | `20` | Maximum number of commits to return (default: 20). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_file_history", arguments: {"owner": "lqdflying", "repo": "chathub", "path": "README.md"} })
+
+### get_file_summary
+Get an overview of a file including size, line count, language, and a content preview.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `path` | string | yes |  | File path within the repository. |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA. Defaults to the repo's default branch. |
+| `preview_lines` | integer | no | `20` | Number of lines to show as preview (default: 20). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_file_summary", arguments: {"owner": "lqdflying", "repo": "chathub", "path": "README.md"} })
+
+### get_languages
+Get the programming language breakdown of a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_languages", arguments: {"owner": "lqdflying", "repo": "chathub"} })
+
+### get_pull_request
+Get details of a specific pull request including status, commits, and file counts.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `pull_number` | integer | yes |  | The pull request number. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_pull_request", arguments: {"owner": "lqdflying", "repo": "chathub", "pull_number": 5} })
+
+### get_repo_info
+Get metadata and overview information about a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_repo_info", arguments: {"owner": "lqdflying", "repo": "chathub"} })
