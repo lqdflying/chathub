@@ -43,7 +43,25 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
       const authMode =
         payload?.authType || llmConfig['ANTHROPICCOMPATIBLE_AUTH_MODE'] || 'api-key';
 
-      return { apiKey, authMode, ...(baseURL ? { baseURL } : {}) };
+      const headersStr = process.env['ANTHROPICCOMPATIBLE_DEFAULT_HEADERS']?.trim();
+      const defaultHeaders = headersStr
+        ? Object.fromEntries(
+            headersStr
+              .split('\n')
+              .map((line) => {
+                const idx = line.indexOf(':');
+                return idx > 0 ? [line.slice(0, idx).trim(), line.slice(idx + 1).trim()] : null;
+              })
+              .filter((entry): entry is [string, string] => entry !== null),
+          )
+        : undefined;
+
+      return {
+        apiKey,
+        authMode,
+        ...(baseURL ? { baseURL } : {}),
+        ...(defaultHeaders ? { defaultHeaders } : {}),
+      };
     }
 
     default: {
