@@ -1,0 +1,236 @@
+---
+description: "MCP tool arguments for vercel - use when calling any vercel tool"
+alwaysApply: false
+---
+
+# MCP Tools: vercel
+
+ALWAYS include `arguments` in CallMcpTool calls. NEVER send empty `{}`.
+
+### add_toolbar_reaction
+Add an emoji reaction to a message in a toolbar thread.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `threadId` | string | yes |  | The thread ID containing the message |
+| `messageId` | string | yes |  | The message ID to react to |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+| `emoji` | string | yes |  | The emoji to add as a reaction (e.g. [emoji]) |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "add_toolbar_reaction", arguments: {"threadId": "value", "messageId": "value", "teamId": "team_xxx", "emoji": "value"} })
+
+### change_toolbar_thread_resolve_status
+Change the resolve status of a toolbar thread. Can be used to mark a thread as resolved or unresolve a previously resolved thread.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `threadId` | string | yes |  | The thread ID to update |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+| `resolved` | boolean | yes |  | Set to true to resolve the thread, false to unresolve it |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "change_toolbar_thread_resolve_status", arguments: {"threadId": "value", "teamId": "team_xxx", "resolved": true} })
+
+### check_domain_availability_and_price
+Check if domain names are available for purchase and get pricing information
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `names` | array<string> | yes |  | Array of domain names to check availability for (e.g., ["example.com", "test.org"]) |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "check_domain_availability_and_price", arguments: {"names": ["value"]} })
+
+### edit_toolbar_message
+Edit an existing message in a toolbar thread.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `threadId` | string | yes |  | The thread ID containing the message |
+| `messageId` | string | yes |  | The message ID to edit |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+| `markdown` | string | yes |  | The updated message content in markdown format |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "edit_toolbar_message", arguments: {"threadId": "value", "messageId": "value", "teamId": "team_xxx", "markdown": "value"} })
+
+### get_access_to_vercel_url
+Creates a temporary shareable link that bypasses authentication for protected Vercel deployments.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `url` | string | yes |  | The full URL of the Vercel deployment (e.g. "https://myapp.vercel.app"). |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "get_access_to_vercel_url", arguments: {"url": "https://example.com"} })
+
+### get_deployment
+Get a specific deployment by ID or URL.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `idOrUrl` | string | yes |  | The unique identifier or hostname of the deployment. |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "get_deployment", arguments: {"idOrUrl": "https://example.com", "teamId": "team_xxx"} })
+
+### get_deployment_build_logs
+Get the build logs for a deployment by ID or URL, to investigate why a build failed. Returns the most recent lines by default (where build errors appear). Use errorsOnly to see just the failing lines.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `idOrUrl` | string | yes |  | The unique identifier or hostname of the deployment. |
+| `direction` | enum | no | `"tail"` | Which end of the build log to return. "tail" (default) returns the most recent lines, where build errors appear. "head" returns the earliest lines. Allowed: `tail`, `head` |
+| `errorsOnly` | boolean | no | `false` | Return only error, stderr, exit, and fatal events. |
+| `limit` | number | no | `100` | Maximum number of log lines to return. Defaults is 100. |
+| `since` | string | no |  | Start time - ISO date or relative (e.g. "1h", "30m"). |
+| `until` | string | no |  | End time - ISO date or relative. |
+| `buildId` | string | no |  | Filter to a specific build ID (bld_...) for multi-build deployments. |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "get_deployment_build_logs", arguments: {"idOrUrl": "https://example.com", "teamId": "team_xxx"} })
+
+### get_project
+Get a specific project in Vercel
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `projectId` | string | yes |  | The project ID to get the deployment events for. Alternatively the project slug can be used.<br>Project IDs start with "prj_".<br>If you do not know the project ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the projectId<br>- Use the `list_projects` tool |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "get_project", arguments: {"projectId": "prj_xxx", "teamId": "team_xxx"} })
+
+### get_runtime_errors
+Get grouped runtime error clusters for a project (error name, occurrence count, affected routes, sample messages, first/last seen). Use this first to answer "why is production erroring" - it reads a pre-aggregated table and does not time out. Max 7-day range.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `projectId` | string | yes |  | The project ID to get runtime errors for. |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+| `since` | string | no |  | Start time - ISO date or relative (e.g. "1h", "7d"). Defaults to 24h ago. |
+| `until` | string | no |  | End time - ISO date or relative. |
+| `routes` | string | no |  | Comma-separated route paths to filter by (e.g. "/api/checkout"). |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "get_runtime_errors", arguments: {"projectId": "prj_xxx", "teamId": "team_xxx"} })
+
+### get_runtime_logs
+Get runtime logs for a project or deployment. Runtime logs show application output (console.log, errors, etc.) from serverless functions and edge functions during execution. Supports filtering by environment, log level, status code, source, time range, and full-text search. For wide time ranges, scope to a deploymentId for speed, or use group_by to get counts instead of individual lines. To investigate production errors specifically, prefer get_runtime_errors.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `projectId` | string | yes |  | The project ID to get runtime logs for. |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+| `deploymentId` | string | no |  | Filter logs to a specific deployment ID or URL. |
+| `environment` | enum | no |  | Filter by environment: "production" or "preview". Allowed: `production`, `preview` |
+| `level` | array<enum> | no |  | Filter by log level(s). Can specify multiple levels. |
+| `statusCode` | string | no |  | Filter by HTTP status code (e.g., "500", "4xx"). |
+| `source` | array<enum> | no |  | Filter by source type(s). Can specify multiple sources. |
+| `since` | string | no |  | Start time - ISO format or relative time (e.g., "1h", "30m", "7d"). Defaults to 24 hours ago. |
+| `until` | string | no |  | End time - ISO format or relative time. Defaults to now. |
+| `limit` | number | no |  | Maximum number of log entries to return. Defaults to 50, max 100. |
+| `query` | string | no |  | Full-text search query to filter logs. |
+| `requestId` | string | no |  | Filter by specific request ID. |
+| `group_by` | enum | no |  | Return counts grouped by this attribute instead of individual log lines. Use for "how many errors", "status code breakdown", "top paths". Fast even over wide time ranges. Allowed: `statusCode`, `requestPath`, `route`, `level`, `source`, `deploymentId`, `branch` |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "get_runtime_logs", arguments: {"projectId": "prj_xxx", "teamId": "team_xxx"} })
+
+### get_toolbar_thread
+Get a specific toolbar thread by ID, including all messages and context.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `threadId` | string | yes |  | The thread ID to retrieve |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "get_toolbar_thread", arguments: {"threadId": "value", "teamId": "team_xxx"} })
+
+### import-claude-design-from-url
+Import a design into Vercel from a publicly fetchable URL. The file is a self-contained HTML bundle with all images, fonts, and styles inlined.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `url` | string | yes |  | Public HTTPS URL to the design file. Valid for ~1 hour. Fetched server-side. |
+| `title` | string | no |  | Suggested title for the imported design. |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "import-claude-design-from-url", arguments: {"url": "https://example.com"} })
+
+### list_deployments
+List all deployments for a project
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `projectId` | string | yes |  | The project ID to list deployments for. |
+| `teamId` | string | yes |  | The team ID to list deployments for. |
+| `since` | number | no |  | Get deployments created after this timestamp. |
+| `until` | number | no |  | Get deployments created before this timestamp. |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "list_deployments", arguments: {"projectId": "prj_xxx", "teamId": "team_xxx"} })
+
+### list_projects
+List all Vercel projects for a user (with a max of 50). Use this to help discover the Project ID of the project that the user is working on.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "list_projects", arguments: {"teamId": "team_xxx"} })
+
+### list_toolbar_threads
+List Vercel toolbar comment threads for a team. Returns unresolved threads by default. Use this to see feedback, comments, or discussions on deployments and previews.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+| `projectId` | string | no |  | Filter by project ID |
+| `branch` | string | no |  | Filter by branch name |
+| `status` | enum | no |  | Filter by status. Defaults to unresolved. Allowed: `resolved`, `unresolved` |
+| `page` | string | no |  | Filter by page path (e.g. /docs) or glob (e.g. /docs*) |
+| `search` | string | no |  | Search text in comments |
+| `limit` | number | no |  | Maximum number of results to return. Defaults to 20. |
+| `offset` | number | no |  | Pagination offset |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "list_toolbar_threads", arguments: {"teamId": "team_xxx"} })
+
+### reply_to_toolbar_thread
+Add a reply message to an existing toolbar thread.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `threadId` | string | yes |  | The thread ID to reply to |
+| `teamId` | string | yes |  | The team ID to get the deployment events for. Alternatively the team slug can be used.<br>Team IDs start with "team_".<br>If you do not know the team ID or slug, it can be found through these mechanism:<br>- Read the file .vercel/project.json if it exists and extract the orgId<br>- Use the `list_teams` tool |
+| `markdown` | string | yes |  | The message content in markdown format |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "reply_to_toolbar_thread", arguments: {"threadId": "value", "teamId": "team_xxx", "markdown": "value"} })
+
+### search_vercel_documentation
+Search the Vercel documentation.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `topic` | string | yes |  | Topic to focus the documentation search on (e.g., 'routing', 'data-fetching'). |
+| `tokens` | number | no | `2500` | Maximum number of tokens to include in the result. Default is 2500. |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "search_vercel_documentation", arguments: {"topic": "value"} })
+
+### web_fetch_vercel_url
+Fetches a Vercel deployment URL and returns the response.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `url` | string | yes |  | The full URL of the Vercel deployment including the path (e.g. "https://myapp.vercel.app/my-page"). |
+
+Example:
+CallMcpTool({ server: "vercel", toolName: "web_fetch_vercel_url", arguments: {"url": "https://example.com"} })

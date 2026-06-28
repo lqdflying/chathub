@@ -1,0 +1,183 @@
+---
+description: "MCP tool arguments for githubmcp - use when calling githubmcp tools"
+alwaysApply: false
+---
+
+# MCP Tools: githubmcp
+
+ALWAYS include `arguments` in CallMcpTool calls. NEVER send empty `{}`.
+
+### get_repo_structure
+Get the file/folder tree structure of a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA. Defaults to the repo's default branch. |
+| `max_depth` | integer \| null | no | `null` | Maximum depth of tree to display (e.g. 2 for top-level + one level). |
+| `path_filter` | string \| null | no | `null` | Optional glob pattern to filter paths (e.g. "src/**"). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_repo_structure", arguments: {"owner": "lqdflying", "repo": "chathub"} })
+
+### get_workflow_run_logs
+Get the logs for a GitHub Actions workflow run, highlighting failed steps.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `run_id` | integer | yes |  | The numeric workflow run ID (from list_workflow_runs). |
+| `max_chars` | integer | no | `20000` | Maximum log characters to return (default: 20000).<br>       Increase if you need more context, but be aware of response size. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "get_workflow_run_logs", arguments: {"owner": "lqdflying", "repo": "chathub", "run_id": 5} })
+
+### list_branches
+List all branches in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "list_branches", arguments: {"owner": "lqdflying", "repo": "chathub"} })
+
+### list_directory
+List contents of a directory in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `path` | string | no | `""` | Directory path within the repository. Use "" for root. |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA. Defaults to the repo's default branch. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "list_directory", arguments: {"owner": "lqdflying", "repo": "chathub"} })
+
+### list_pull_requests
+List pull requests in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `state` | string | no | `"open"` | Filter by state: "open" (default), "closed", or "all". |
+| `head` | string \| null | no | `null` | Filter by head branch (e.g. "feature/my-feature" or "myorg:feature/my-feature"). |
+| `base` | string \| null | no | `null` | Filter by base branch (e.g. "main"). |
+| `limit` | integer | no | `20` | Maximum number of PRs to return (default: 20). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "list_pull_requests", arguments: {"owner": "lqdflying", "repo": "chathub"} })
+
+### list_workflow_runs
+List recent CI/CD workflow runs for a repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `workflow_id` | string \| null | no | `null` | Optional workflow filename (e.g. "ci.yml") or numeric ID to filter by. |
+| `branch` | string \| null | no | `null` | Optional branch name to filter runs by. |
+| `status` | string \| null | no | `null` | Optional status filter: "queued", "in_progress", "completed",<br>    "action_required", "cancelled", "failure", "neutral", "skipped",<br>    "stale", "success", "timed_out", "waiting". |
+| `limit` | integer | no | `10` | Maximum number of runs to return (default: 10). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "list_workflow_runs", arguments: {"owner": "lqdflying", "repo": "chathub"} })
+
+### merge_pull_request
+Merge a pull request.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `pull_number` | integer | yes |  | The pull request number to merge. |
+| `commit_title` | string \| null | no | `null` | Optional custom commit title for the merge commit. |
+| `merge_method` | string | no | `"merge"` | Merge strategy: "merge" (default), "squash", or "rebase". |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "merge_pull_request", arguments: {"owner": "lqdflying", "repo": "chathub", "pull_number": 5} })
+
+### push_files
+Commit one or more files to a branch in a single atomic commit.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `branch` | string | yes |  | Target branch to push to (must already exist; use create_branch first). |
+| `files` | array<object> | yes |  | List of file objects, each with:<br>   - "path": file path in the repo (e.g. "src/main.py")<br>   - "content": full UTF-8 text content of the file |
+| `message` | string | yes |  | Commit message. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "push_files", arguments: {"owner": "lqdflying", "repo": "chathub", "branch": "main", "files": [{}], "message": "Content"} })
+
+### read_file
+Read file contents from a GitHub repository, optionally returning a specific line range.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `path` | string | yes |  | File path within the repository (e.g. "src/main.py"). |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA. Defaults to the repo's default branch. |
+| `start_line` | integer \| null | no | `null` | First line to return (1-based, inclusive). Omit to start from beginning. |
+| `end_line` | integer \| null | no | `null` | Last line to return (1-based, inclusive). Omit to read to end. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "read_file", arguments: {"owner": "lqdflying", "repo": "chathub", "path": "README.md"} })
+
+### search_code
+Search for text or regex patterns across files in a GitHub repository.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `query` | string | yes |  | Search string or regex pattern. |
+| `is_regexp` | boolean | no | `false` | If True, treat query as a Python regex pattern. |
+| `include_pattern` | string \| null | no | `null` | Optional glob pattern to limit search to matching files (e.g. "*.py"). |
+| `ref` | string \| null | no | `null` | Branch, tag, or commit SHA. Defaults to the repo's default branch. |
+| `max_results` | integer | no | `50` | Maximum number of matching lines to return (default: 50). |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "search_code", arguments: {"owner": "lqdflying", "repo": "chathub", "query": "search query"} })
+
+### todo_update
+Update the status of a single todo item by its 0-based index.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `index` | integer | yes |  | 0-based position of the task in the list. |
+| `status` | string | yes |  | New status - "pending", "in_progress", or "completed". |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "todo_update", arguments: {"index": 5, "status": "value"} })
+
+### todo_write
+Update the in-session task list for tracking multi-step work.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `todos` | array<object> | yes |  | List of task objects. Each must have:<br>   - "content": task description (str)<br>   - "status": "pending" \| "in_progress" \| "completed" |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "todo_write", arguments: {"todos": [{}]} })
+
+### trigger_workflow
+Trigger a workflow_dispatch event to run a CI/CD workflow.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `owner` | string | yes |  | Repository owner (user or organization). |
+| `repo` | string | yes |  | Repository name. |
+| `workflow_id` | string | yes |  | Workflow filename (e.g. "ci.yml") or numeric ID. |
+| `ref` | string | yes |  | Branch or tag name to run the workflow on (e.g. "main"). |
+| `inputs` | object \| null | no | `null` | Optional key/value inputs defined in the workflow's workflow_dispatch config. |
+
+Example:
+CallMcpTool({ server: "githubmcp", toolName: "trigger_workflow", arguments: {"owner": "lqdflying", "repo": "chathub", "workflow_id": 5, "ref": "main"} })
