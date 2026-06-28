@@ -51,7 +51,6 @@ services:
       # ANTHROPICCOMPATIBLE_API_KEY=...
       # ANTHROPICCOMPATIBLE_PROXY_URL=https://your-host/ai
       # ANTHROPICCOMPATIBLE_AUTH_MODE=bearer  # or 'api-key' (default)
-      # ANTHROPICCOMPATIBLE_DEFAULT_HEADERS=  # newline-separated custom headers (see .env.example)
     ports:
       - '3210:3210'
 
