@@ -35,6 +35,17 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
       return { apiKey, baseURL };
     }
 
+    case ModelProvider.AnthropicCompatible: {
+      const apiKey = apiKeyManager.pick(
+        payload?.apiKey || llmConfig['ANTHROPICCOMPATIBLE_API_KEY'],
+      );
+      const baseURL = payload?.baseURL || process.env['ANTHROPICCOMPATIBLE_PROXY_URL'];
+      const authMode =
+        payload?.authType || llmConfig['ANTHROPICCOMPATIBLE_AUTH_MODE'] || 'api-key';
+
+      return { apiKey, authMode, ...(baseURL ? { baseURL } : {}) };
+    }
+
     default: {
       const originalUpper = provider.toUpperCase();
       let keyUpper = originalUpper;

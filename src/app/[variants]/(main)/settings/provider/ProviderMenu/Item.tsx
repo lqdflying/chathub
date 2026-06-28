@@ -8,6 +8,8 @@ import { Center, Flexbox } from 'react-layout-kit';
 
 import { AiProviderListItem, AiProviderSourceEnum } from '@/types/aiProvider';
 
+import { resolveProviderIcon } from '../utils/resolveProviderIcon';
+
 export const useStyles = createStyles(({ css, token }) => ({
   active: css`
     background: ${token.colorFillSecondary};
@@ -64,7 +66,7 @@ const ProviderItem = memo<ProviderItemProps>(
               style={{ borderRadius: 6 }}
             />
           ) : (
-            <ProviderIcon provider={id} size={24} style={{ borderRadius: 6 }} type={'avatar'} />
+            <ProviderIcon provider={resolveProviderIcon(id)} size={24} style={{ borderRadius: 6 }} type={'avatar'} />
           )}
           {name}
         </Flexbox>

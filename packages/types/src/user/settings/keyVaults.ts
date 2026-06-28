@@ -3,6 +3,10 @@ export interface OpenAICompatibleKeyVault {
   baseURL?: string;
 }
 
+export interface AnthropicCompatibleKeyVault extends OpenAICompatibleKeyVault {
+  authMode?: 'api-key' | 'bearer';
+}
+
 export interface AzureOpenAIKeyVault {
   apiKey?: string;
   apiVersion?: string;
@@ -31,7 +35,7 @@ export interface SearchEngineKeyVaults {
 
 export interface UserKeyVaults extends SearchEngineKeyVaults {
   anthropic?: OpenAICompatibleKeyVault;
-  anthropiccompatible?: OpenAICompatibleKeyVault;
+  anthropiccompatible?: AnthropicCompatibleKeyVault;
   azure?: AzureOpenAIKeyVault;
   azureai?: AzureOpenAIKeyVault;
   comfyui?: ComfyUIKeyVault;

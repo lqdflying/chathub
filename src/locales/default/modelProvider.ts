@@ -1,4 +1,10 @@
 export default {
+  anthropicCompatible: {
+    authMode: {
+      desc: 'Select authentication method. Use x-api-key for native Anthropic, or Bearer for providers like HaloCloud.',
+      title: 'Auth Mode',
+    },
+  },
   azure: {
     azureApiVersion: {
       desc: 'Azure 的 API 版本，遵循 YYYY-MM-DD 格式，查阅[最新版本](https://learn.microsoft.com/zh-cn/azure/ai-services/openai/reference#chat-completions)',

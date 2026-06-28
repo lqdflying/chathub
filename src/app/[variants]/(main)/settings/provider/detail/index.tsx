@@ -1,4 +1,5 @@
 import ProviderGrid from '../(list)/ProviderGrid';
+import AnthropicCompatible from './anthropiccompatible';
 import Azure from './azure';
 import AzureAI from './azureai';
 import DefaultPage from './default/ProviderDetialPage';
@@ -10,6 +11,9 @@ const ProviderDetailPage = (props: { id?: string | null }) => {
   switch (id) {
     case 'all': {
       return <ProviderGrid />;
+    }
+    case 'anthropiccompatible': {
+      return <AnthropicCompatible />;
     }
     case 'azure': {
       return <Azure />;

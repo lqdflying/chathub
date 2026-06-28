@@ -33,7 +33,7 @@ const AnthropicCompatible: ModelProviderCard = {
   ],
   checkModel: 'claude-sonnet-4-6',
   description:
-    'Connect to services that expose the native Anthropic Messages API. Uses Anthropic-style x-api-key authentication and a fixed Claude model list.',
+    'Connect to services that expose the native Anthropic Messages API. Supports both Anthropic-style x-api-key and Bearer token authentication.',
   disableBrowserRequest: true,
   id: ModelProvider.AnthropicCompatible,
   modelList: { showModelFetcher: false },

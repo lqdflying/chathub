@@ -5,6 +5,8 @@ import { Flexbox } from 'react-layout-kit';
 
 import { AiProviderListItem } from '@/types/aiProvider';
 
+import { resolveProviderIcon } from '../../utils/resolveProviderIcon';
+
 const GroupItem = memo<AiProviderListItem>(({ id, name, source, logo }) => {
   return (
     <>
@@ -18,7 +20,7 @@ const GroupItem = memo<AiProviderListItem>(({ id, name, source, logo }) => {
             style={{ borderRadius: 6 }}
           />
         ) : (
-          <ProviderIcon provider={id} size={24} style={{ borderRadius: 6 }} type={'avatar'} />
+          <ProviderIcon provider={resolveProviderIcon(id)} size={24} style={{ borderRadius: 6 }} type={'avatar'} />
         )}
         {name}
       </Flexbox>

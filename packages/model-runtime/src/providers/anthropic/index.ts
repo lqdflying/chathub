@@ -93,6 +93,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
 
   baseURL: string;
   apiKey?: string;
+  protected authToken?: string;
   private id: string;
 
   private isDebug() {
@@ -101,24 +102,28 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
 
   constructor({
     apiKey,
+    authToken,
     baseURL = DEFAULT_BASE_URL,
     id,
     defaultHeaders,
     ...res
   }: AnthropicAIParams = {}) {
-    if (!apiKey) throw AgentRuntimeError.createError(AgentRuntimeErrorType.InvalidProviderAPIKey);
+    if (!apiKey && !authToken)
+      throw AgentRuntimeError.createError(AgentRuntimeErrorType.InvalidProviderAPIKey);
 
     const betaHeaders = process.env.ANTHROPIC_BETA_HEADERS;
     const resolvedBaseURL = normalizeAnthropicBaseURL(baseURL);
 
     this.client = new Anthropic({
-      apiKey,
+      apiKey: apiKey ?? null,
+      authToken,
       baseURL: resolvedBaseURL,
       defaultHeaders: { ...defaultHeaders, 'anthropic-beta': betaHeaders },
       ...res,
     });
     this.baseURL = this.client.baseURL;
     this.apiKey = apiKey;
+    this.authToken = authToken;
     this.id = id || ModelProvider.Anthropic;
   }
 
@@ -307,7 +312,9 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
     const response = await fetch(url, {
       headers: {
         'anthropic-version': '2023-06-01',
-        'x-api-key': `${this.apiKey}`,
+        ...(this.authToken
+          ? { Authorization: `Bearer ${this.authToken}` }
+          : { 'x-api-key': `${this.apiKey}` }),
       },
       method: 'GET',
     });

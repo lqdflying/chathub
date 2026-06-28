@@ -32,6 +32,7 @@ import {
 } from '@/types/aiProvider';
 
 import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } from '../../const';
+import { resolveProviderIcon } from '../../utils/resolveProviderIcon';
 import Checker, { CheckErrorRender } from './Checker';
 import EnableSwitch from './EnableSwitch';
 import { SkeletonInput } from './SkeletonInput';
@@ -390,7 +391,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
             </Flexbox>
           ) : (
             <>
-              <ProviderCombine provider={id} size={24} />
+              <ProviderCombine provider={resolveProviderIcon(id)} size={24} />
               <Tooltip title={t('providerModels.config.helpDoc')}>
                 <Link
                   href={urlJoin(BASE_PROVIDER_DOC_URL, id)}

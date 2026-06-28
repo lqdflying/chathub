@@ -8,6 +8,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import { AiProviderListItem } from '@/types/aiProvider';
 
+import { resolveProviderIcon } from '../../utils/resolveProviderIcon';
 import EnableSwitch from './EnableSwitch';
 import { useStyles } from './style';
 
@@ -38,7 +39,7 @@ const ProviderCard = memo<ProviderCardProps>(
               <Flexbox align={'center'} horizontal justify={'space-between'}>
                 {source === 'builtin' ? (
                   <ProviderCombine
-                    provider={id}
+                    provider={resolveProviderIcon(id)}
                     size={24}
                     style={{ color: theme.colorText }}
                     title={name}
@@ -49,7 +50,7 @@ const ProviderCard = memo<ProviderCardProps>(
                       <Avatar alt={name || id} avatar={logo} size={28} />
                     ) : (
                       <ProviderIcon
-                        provider={id}
+                        provider={resolveProviderIcon(id)}
                         size={24}
                         style={{ borderRadius: 6 }}
                         type={'avatar'}

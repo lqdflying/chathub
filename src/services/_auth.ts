@@ -1,5 +1,10 @@
 import { LOBE_CHAT_AUTH_HEADER, isDeprecatedEdition } from '@lobechat/const';
-import { AzureOpenAIKeyVault, ClientSecretPayload, OpenAICompatibleKeyVault } from '@lobechat/types';
+import {
+  AnthropicCompatibleKeyVault,
+  AzureOpenAIKeyVault,
+  ClientSecretPayload,
+  OpenAICompatibleKeyVault,
+} from '@lobechat/types';
 import { clientApiKeyManager } from '@lobechat/utils/client';
 import { ModelProvider } from 'model-bank';
 
@@ -22,6 +27,15 @@ export const getProviderAuthPayload = (
         /** @deprecated */
         azureApiVersion: keyVaults.apiVersion,
         baseURL: keyVaults.baseURL || keyVaults.endpoint,
+      };
+    }
+
+    case ModelProvider.AnthropicCompatible: {
+      const vault = keyVaults as unknown as AnthropicCompatibleKeyVault;
+      return {
+        apiKey: clientApiKeyManager.pick(vault?.apiKey),
+        authType: vault?.authMode,
+        baseURL: vault?.baseURL,
       };
     }
 

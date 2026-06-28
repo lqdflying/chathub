@@ -47,6 +47,10 @@ services:
       # OpenAI-compatible gateway:
       # OPENAICOMPATIBLE_API_KEY=...
       # OPENAICOMPATIBLE_PROXY_URL=https://your-host/v1
+      # Anthropic-compatible gateway:
+      # ANTHROPICCOMPATIBLE_API_KEY=...
+      # ANTHROPICCOMPATIBLE_PROXY_URL=https://your-host/ai
+      # ANTHROPICCOMPATIBLE_AUTH_MODE=bearer  # or 'api-key' (default)
     ports:
       - '3210:3210'
 
@@ -102,6 +106,7 @@ Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [w
 | MiniMax | `MINIMAX_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | OpenAI-compatible | `OPENAICOMPATIBLE_API_KEY` + `OPENAICOMPATIBLE_PROXY_URL` |
+| Anthropic-compatible | `ANTHROPICCOMPATIBLE_API_KEY` + `ANTHROPICCOMPATIBLE_PROXY_URL` + optional `ANTHROPICCOMPATIBLE_AUTH_MODE` |
 | Ollama | auto-discovered (set `ENABLED_OLLAMA=0` to disable) |
 
 For the complete provider/env map (Azure, Bedrock, OpenRouter, and 40+ others), see [`src/envs/llm.ts`](src/envs/llm.ts).
