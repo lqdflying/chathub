@@ -212,6 +212,54 @@ describe('convertOpenAIMessages', () => {
     expect((result[0] as any).reasoning_content).toBe('some reasoning content');
   });
 
+  it('should strip reasoning_content for openaicompatible provider', async () => {
+    const messages = [
+      {
+        role: 'assistant',
+        content: 'Hello',
+        reasoning: { content: 'some reasoning', duration: 100 },
+        reasoning_content: 'some reasoning content',
+      },
+    ] as any;
+
+    const result = await convertOpenAIMessages(messages, 'openaicompatible');
+
+    expect(result).toEqual([{ role: 'assistant', content: 'Hello' }]);
+    expect((result[0] as any).reasoning).toBeUndefined();
+    expect((result[0] as any).reasoning_content).toBeUndefined();
+  });
+
+  it('should preserve reasoning_content for deepseek provider', async () => {
+    const messages = [
+      {
+        role: 'assistant',
+        content: 'Hello',
+        reasoning: { content: 'some reasoning', duration: 100 },
+      },
+    ] as any;
+
+    const result = await convertOpenAIMessages(messages, 'deepseek');
+
+    expect(result).toEqual([
+      { role: 'assistant', content: 'Hello', reasoning_content: 'some reasoning' },
+    ]);
+    expect((result[0] as any).reasoning_content).toBe('some reasoning');
+  });
+
+  it('should preserve reasoning_content when no provider is passed (backward compat)', async () => {
+    const messages = [
+      {
+        role: 'assistant',
+        content: 'Hello',
+        reasoning: { content: 'some reasoning' },
+      },
+    ] as any;
+
+    const result = await convertOpenAIMessages(messages);
+
+    expect((result[0] as any).reasoning_content).toBe('some reasoning');
+  });
+
   it('should preserve null content and reasoning_content on tool-only assistant (Moonshot Kimi)', async () => {
     const messages = [
       {

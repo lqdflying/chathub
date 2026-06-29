@@ -256,7 +256,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           apiMode?: string;
         };
 
-        const messages = await convertOpenAIMessages(chatCompletionPayload.messages);
+        const messages = await convertOpenAIMessages(chatCompletionPayload.messages, this.id);
 
         let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
 

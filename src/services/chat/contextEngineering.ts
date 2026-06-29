@@ -126,7 +126,10 @@ export const contextEngineering = async ({
       }),
 
       // 7. Placeholder variables processing
-      new PlaceholderVariablesProcessor({ variableGenerators: VARIABLE_GENERATORS }),
+      new PlaceholderVariablesProcessor({
+        provider,
+        variableGenerators: VARIABLE_GENERATORS,
+      }),
 
       // 8. Message content processing
       new MessageContentProcessor({

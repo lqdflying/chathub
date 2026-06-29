@@ -1,5 +1,7 @@
 import debug from 'debug';
 
+import { VOLATILE_GENERATOR_KEYS } from '@lobechat/utils/client';
+
 import { BaseProcessor } from '../base/BaseProcessor';
 import type { PipelineContext, ProcessorOptions } from '../types';
 
@@ -10,6 +12,13 @@ const placeholderVariablesRegex = /{{(.*?)}}/g;
 export interface PlaceholderVariablesConfig {
   /** Recursive parsing depth, default is 2 */
   depth?: number;
+  /**
+   * The runtime provider id. When `openaicompatible`, volatile placeholder
+   * generators (time, random, uuid, etc.) are skipped in SYSTEM messages so
+   * the system prompt stays byte-stable across requests and OpenAI prompt
+   * caching keeps hitting. Other providers expand all placeholders as before.
+   */
+  provider?: string;
   /** Variable generators mapping, key is variable name, value is generator function */
   variableGenerators: Record<string, () => string>;
 }
@@ -154,7 +163,7 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
 
       try {
         const originalMessage = JSON.stringify(message);
-        const processedMessage = this.processMessagePlaceholders(message, depth);
+        const processedMessage = this.processMessagePlaceholders(message, depth, isSystem);
 
         if (JSON.stringify(processedMessage) !== originalMessage) {
           clonedContext.messages[i] = processedMessage;
@@ -175,17 +184,35 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
 
   /**
    * 处理单个消息的占位符变量
+   *
+   * @param message 消息对象
+   * @param depth 递归深度
+   * @param isSystem 是否为系统消息 — 当 provider 为 `openaicompatible` 时，
+   *   系统消息会跳过 volatile 生成器以保持 prompt-cache 前缀稳定。
    */
-  private processMessagePlaceholders(message: any, depth: number): any {
+  private processMessagePlaceholders(message: any, depth: number, isSystem = false): any {
     if (!message?.content) return message;
 
     const { content } = message;
+
+    // For `openaicompatible` system messages, filter out volatile generators
+    // (time, random, uuid, etc.) so the system prompt stays byte-stable across
+    // requests and OpenAI prompt caching keeps hitting. All other providers and
+    // message roles expand all placeholders as before.
+    const generators =
+      isSystem && this.config.provider === 'openaicompatible'
+        ? Object.fromEntries(
+            Object.entries(this.config.variableGenerators).filter(
+              ([key]) => !VOLATILE_GENERATOR_KEYS.has(key),
+            ),
+          )
+        : this.config.variableGenerators;
 
     // Handle string type directly
     if (typeof content === 'string') {
       return {
         ...message,
-        content: parsePlaceholderVariables(content, this.config.variableGenerators, depth),
+        content: parsePlaceholderVariables(content, generators, depth),
       };
     }
 
@@ -197,7 +224,7 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
           item?.type === 'text'
             ? {
                 ...item,
-                text: parsePlaceholderVariables(item.text, this.config.variableGenerators, depth),
+                text: parsePlaceholderVariables(item.text, generators, depth),
               }
             : item,
         ),

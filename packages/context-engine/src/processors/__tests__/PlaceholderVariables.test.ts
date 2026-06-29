@@ -396,5 +396,95 @@ describe('PlaceholderVariablesProcessor', () => {
       // Only system + last user were processed
       expect(result.metadata.placeholderVariablesProcessed).toBe(2);
     });
+
+    it('should skip volatile placeholders in system messages for openaicompatible provider', async () => {
+      const generators = {
+        date: () => '2023-12-25',
+        random: () => '12345',
+        time: () => '14:30:45',
+      };
+
+      const processor = new PlaceholderVariablesProcessor({
+        provider: 'openaicompatible',
+        variableGenerators: generators,
+      });
+
+      const context = {
+        initialState: {
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'openaicompatible',
+          systemRole: '',
+          tools: [],
+        },
+        messages: [
+          {
+            id: 'sys',
+            role: 'system',
+            content: 'System at {{time}} on {{date}} with {{random}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          {
+            id: '1',
+            role: 'user',
+            content: 'Latest user at {{time}} with {{random}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+        metadata: { model: 'gpt-5.5', maxTokens: 4096 },
+        isAborted: false,
+        executedProcessors: [],
+      };
+
+      const result = await processor.process(context as any);
+
+      // System message: only stable generators (date) expanded; volatile ones (time, random) left as-is
+      expect(result.messages[0].content).toBe(
+        'System at {{time}} on 2023-12-25 with {{random}}',
+      );
+      // Latest user message: ALL generators expanded (volatile values are fine here)
+      expect(result.messages[1].content).toBe('Latest user at 14:30:45 with 12345');
+    });
+
+    it('should expand ALL placeholders in system messages for non-openaicompatible providers', async () => {
+      const generators = {
+        date: () => '2023-12-25',
+        time: () => '14:30:45',
+      };
+
+      const processor = new PlaceholderVariablesProcessor({
+        provider: 'openai',
+        variableGenerators: generators,
+      });
+
+      const context = {
+        initialState: {
+          messages: [],
+          model: 'gpt-4',
+          provider: 'openai',
+          systemRole: '',
+          tools: [],
+        },
+        messages: [
+          {
+            id: 'sys',
+            role: 'system',
+            content: 'System at {{time}} on {{date}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+        metadata: { model: 'gpt-4', maxTokens: 4096 },
+        isAborted: false,
+        executedProcessors: [],
+      };
+
+      const result = await processor.process(context as any);
+
+      // All placeholders expanded (backward compat for non-openaicompatible)
+      expect(result.messages[0].content).toBe('System at 14:30:45 on 2023-12-25');
+    });
   });
 });

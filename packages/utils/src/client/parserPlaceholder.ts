@@ -114,6 +114,33 @@ export const VARIABLE_GENERATORS = {
 } as Record<string, () => string>;
 
 /**
+ * Placeholder generators whose values change within a single session (time,
+ * randomness, UUIDs). Expanding these in a SYSTEM message on every request
+ * breaks the prompt-cache prefix for providers that cache by byte-identical
+ * prefix (OpenAI, Anthropic). Callers that want byte-stable system messages
+ * (e.g. the `openaicompatible` provider) should skip these keys when
+ * expanding system messages.
+ */
+export const VOLATILE_GENERATOR_KEYS = new Set<string>([
+  'time',
+  'datetime',
+  'iso',
+  'timestamp',
+  'hour',
+  'minute',
+  'second',
+  'random',
+  'random_bool',
+  'random_float',
+  'random_hex',
+  'random_int',
+  'random_string',
+  'random_digit',
+  'uuid',
+  'uuid_short',
+]);
+
+/**
  * 从文本中提取所有 {{variable}} 占位符的变量名
  * @param text 包含模板变量的字符串
  * @returns 变量名数组，如 ['date', 'nickname']

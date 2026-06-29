@@ -24,7 +24,23 @@ export const convertMessageContent = async (
   return content;
 };
 
-export const convertOpenAIMessages = async (messages: OpenAI.ChatCompletionMessageParam[]) => {
+/**
+ * Convert ChatCompletion messages for the OpenAI-compatible Chat Completions path.
+ *
+ * @param messages - The raw messages from the payload.
+ * @param provider - The runtime provider id (e.g. `openai`, `openaicompatible`,
+ *   `deepseek`, `moonshot`). When `openaicompatible`, the DeepSeek-specific
+ *   `reasoning_content` field is NOT injected into assistant messages because it
+ *   is not part of the OpenAI Chat Completions schema and can pollute the
+ *   prompt-cache key on strict gateways. All other providers keep the existing
+ *   behavior so DeepSeek/Moonshot multi-turn reasoning continuity is preserved.
+ */
+export const convertOpenAIMessages = async (
+  messages: OpenAI.ChatCompletionMessageParam[],
+  provider?: string,
+) => {
+  const skipReasoningContent = provider === 'openaicompatible';
+
   return (await Promise.all(
     messages.map(async (message) => {
       const msg = message as any;
@@ -61,14 +77,19 @@ export const convertOpenAIMessages = async (messages: OpenAI.ChatCompletionMessa
       if (msg.tool_call_id !== undefined) result.tool_call_id = msg.tool_call_id;
       if (msg.function_call !== undefined) result.function_call = msg.function_call;
 
-      // it's compatible for DeepSeek
-      if (msg.reasoning_content !== undefined) result.reasoning_content = msg.reasoning_content;
+      // `reasoning_content` is a DeepSeek/Moonshot-specific field. For the
+      // `openaicompatible` provider (gpt-5.5 etc.), skip it entirely so it does
+      // not leak into the gateway request and pollute the prompt-cache key.
+      if (!skipReasoningContent) {
+        // it's compatible for DeepSeek
+        if (msg.reasoning_content !== undefined) result.reasoning_content = msg.reasoning_content;
 
-      // DeepSeek returns reasoning in stream deltas as reasoning_content, but the frontend
-      // stores it as msg.reasoning.content. Map it back so multi-turn / tool-calling
-      // conversations preserve the reasoning chain (only when reasoning_content is absent).
-      if (result.reasoning_content === undefined && msg.reasoning?.content !== undefined)
-        result.reasoning_content = msg.reasoning.content;
+        // DeepSeek returns reasoning in stream deltas as reasoning_content, but the frontend
+        // stores it as msg.reasoning.content. Map it back so multi-turn / tool-calling
+        // conversations preserve the reasoning chain (only when reasoning_content is absent).
+        if (result.reasoning_content === undefined && msg.reasoning?.content !== undefined)
+          result.reasoning_content = msg.reasoning.content;
+      }
 
       return result;
     }),
