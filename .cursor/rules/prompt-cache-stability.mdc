@@ -1,0 +1,51 @@
+---
+description: Prompt-cache prefix stability rules for LLM providers — preventing cache misses from message mutations
+globs: packages/context-engine/**/*.ts, packages/model-runtime/**/*.ts, packages/fetch-sse/**/*.ts, src/services/chat/**/*.ts
+alwaysApply: false
+---
+
+# Prompt-Cache Prefix Stability
+
+LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte change in an earlier message invalidates the cache for the entire session. Follow these rules when modifying the chat pipeline.
+
+## What breaks the cache prefix
+
+1. **Re-expanding volatile placeholders in system/historical messages.** Generators like `{{time}}`, `{{datetime}}`, `{{iso}}`, `{{timestamp}}`, `{{hour}}`, `{{minute}}`, `{{second}}`, `{{random*}}`, `{{uuid*}}` change every request. Only expand them in the **latest user message**, never in system or historical messages.
+
+2. **Leaking provider-internal fields into the request body.** Fields like `reasoning_content` (DeepSeek-specific), `provider`, `apiMode`, `enabledContextCaching`, `enabledSearch`, `responseMode`, `thinkingBudget`, `urlContext`, `reasoning_split` must not appear in the gateway request. They change the serialized payload and break the cache key.
+
+3. **Leaking API-mode-specific fields into the wrong path.** `text` (GPT-5 verbosity), `verbosity`, `truncation` are Responses API fields — never send them on `/v1/chat/completions`.
+
+4. **Mutating thinking/reasoning blocks between requests.** Anthropic requires thinking blocks passed back **unchanged** (including `signature`). Manufacturing duplicate thinking blocks or dropping the signature breaks both caching and multi-turn continuity.
+
+## Rules by layer
+
+### Context Engine (`packages/context-engine/`)
+
+- `PlaceholderVariablesProcessor`: Only expand **system** + **latest user** message. For `openaicompatible` provider, additionally skip volatile generators in system messages (use `VOLATILE_GENERATOR_KEYS` set). Historical user/assistant messages must remain untouched.
+- `MessageContentProcessor`: Replay exactly **one** signed `thinking` block + standalone `redacted_thinking` blocks. Never duplicate thinking text across multiple signatures.
+- `SystemRoleInjector` / `ToolSystemRoleProvider`: These inject raw templates every request. `Date.now()` in `id`/`createdAt` fields is OK because `MessageCleanupProcessor` strips them — but if cleanup ever stops stripping `id`, these timestamps would leak into the prefix.
+
+### Model Runtime (`packages/model-runtime/`)
+
+- `convertOpenAIMessages`: Gates `reasoning_content` injection on provider. For `openaicompatible`, skip it entirely. For `deepseek`/`moonshot`, keep it.
+- `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. Responses-API-only fields (`text`, `verbosity`, `truncation`) are gated to `apiMode === 'responses'`.
+- `anthropic` context builder: Pass through `thinking` and `redacted_thinking` blocks unchanged; never add `cache_control` to thinking/redacted blocks.
+
+### Fetch SSE (`packages/fetch-sse/`)
+
+- Separate `flagged_reasoning_signature` (redacted) from `reasoning_signature` (regular) in the stream event handler. Store them in distinct fields (`signature` vs `redactedSignatures`) on `ModelReasoning`.
+- Anthropic emits at most one regular `thinking` block per assistant turn — `signature` is `string`, not `string[]`.
+
+## Cross-package import rule
+
+**Never import from `@lobechat/utils/client` inside `packages/context-engine/` or `packages/model-runtime/`.** That barrel re-exports browser-only code (`useUserStore`, `navigator`) which breaks the server-side Docker build. If you need a constant from `parserPlaceholder.ts`, inline it or create a shared pure-JS module.
+
+## Testing checklist for cache-related changes
+
+- Assert historical messages are NOT re-expanded (PlaceholderVariables tests)
+- Assert volatile generators are skipped in system messages for `openaicompatible`
+- Assert `reasoning_content` is NOT present for `openaicompatible` provider
+- Assert Responses-API-only fields are NOT present in Chat Completions mode
+- Assert thinking blocks round-trip unchanged (signature, redacted data)
+- Run `bash scripts/type-check-tsc.sh` — build failures from bad imports do NOT show up in `bun run type-check`
