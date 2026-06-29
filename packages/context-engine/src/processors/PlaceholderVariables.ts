@@ -1,9 +1,33 @@
 import debug from 'debug';
 
-import { VOLATILE_GENERATOR_KEYS } from '@lobechat/utils/client';
-
 import { BaseProcessor } from '../base/BaseProcessor';
 import type { PipelineContext, ProcessorOptions } from '../types';
+
+/**
+ * Placeholder generators whose values change within a single session (time,
+ * randomness, UUIDs). Expanding these in a SYSTEM message on every request
+ * breaks the prompt-cache prefix for providers that cache by byte-identical
+ * prefix (OpenAI). Kept in sync with the generators defined in
+ * `packages/utils/src/client/parserPlaceholder.ts`.
+ */
+const VOLATILE_GENERATOR_KEYS = new Set<string>([
+  'time',
+  'datetime',
+  'iso',
+  'timestamp',
+  'hour',
+  'minute',
+  'second',
+  'random',
+  'random_bool',
+  'random_float',
+  'random_hex',
+  'random_int',
+  'random_string',
+  'random_digit',
+  'uuid',
+  'uuid_short',
+]);
 
 const log = debug('context-engine:processor:PlaceholderVariablesProcessor');
 
