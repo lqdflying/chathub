@@ -330,5 +330,71 @@ describe('PlaceholderVariablesProcessor', () => {
 
       expect(result.metadata.placeholderVariablesProcessed).toBe(0);
     });
+
+    it('should only expand placeholders in system and last user message (cache stability)', async () => {
+      const processor = new PlaceholderVariablesProcessor({
+        variableGenerators: mockVariableGenerators,
+      });
+
+      const context = {
+        initialState: {
+          messages: [],
+          model: 'gpt-4',
+          provider: 'openai',
+          systemRole: '',
+          tools: [],
+        },
+        messages: [
+          {
+            id: 'sys',
+            role: 'system',
+            content: 'System prompt at {{date}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          {
+            id: '1',
+            role: 'user',
+            content: 'Old user message at {{time}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          {
+            id: '2',
+            role: 'assistant',
+            content: 'Assistant reply at {{time}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          {
+            id: '3',
+            role: 'user',
+            content: 'Latest user message at {{time}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+        metadata: {
+          model: 'gpt-4',
+          maxTokens: 4096,
+        },
+        isAborted: false,
+        executedProcessors: [],
+      };
+
+      const result = await processor.process(context as any);
+
+      // System message: expanded
+      expect(result.messages[0].content).toBe('System prompt at 2023-12-25');
+      // Historical user message (NOT the last): unchanged — keeps prompt-cache prefix stable
+      expect(result.messages[1].content).toBe('Old user message at {{time}}');
+      // Historical assistant message: unchanged
+      expect(result.messages[2].content).toBe('Assistant reply at {{time}}');
+      // Latest user message: expanded
+      expect(result.messages[3].content).toBe('Latest user message at 14:30:45');
+
+      // Only system + last user were processed
+      expect(result.metadata.placeholderVariablesProcessed).toBe(2);
+    });
   });
 });

@@ -241,7 +241,13 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
   });
 
   let thinking = '';
+  // Anthropic emits exactly one signed `thinking` block per assistant turn
+  // (docs: "the thinking block opens, a single signature_delta arrives").
+  // We keep an array for resilience but only use the first entry; if the API
+  // ever emits multiple regular thinking blocks, the type would need to grow.
   let thinkingSignatures: string[] = [];
+  // `redacted_thinking` blocks ARE allowed in multiples within one response.
+  let redactedSignatures: string[] = [];
 
   const thinkingController = createSmoothMessage({
     onTextUpdate: (delta, text) => {
@@ -382,7 +388,11 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
           break;
         }
 
-        case 'flagged_reasoning_signature':
+        case 'flagged_reasoning_signature': {
+          redactedSignatures.push(data);
+          break;
+        }
+
         case 'reasoning_signature': {
           thinkingSignatures.push(data);
           break;
@@ -464,10 +474,11 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         grounding,
         images: images.length > 0 ? images : undefined,
         observationId,
-        reasoning: !!thinking
+        reasoning: !!thinking || thinkingSignatures.length > 0 || redactedSignatures.length > 0
           ? {
-              content: thinking,
-              signature: thinkingSignatures.length === 1 ? thinkingSignatures[0] : thinkingSignatures.length > 1 ? thinkingSignatures : undefined,
+              content: thinking || undefined,
+              signature: thinkingSignatures[0],
+              redactedSignatures: redactedSignatures.length > 0 ? redactedSignatures : undefined,
             }
           : undefined,
         speed,

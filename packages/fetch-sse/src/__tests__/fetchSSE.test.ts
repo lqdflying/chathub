@@ -233,6 +233,61 @@ describe('fetchSSE', () => {
         type: 'done',
       });
     });
+
+    it('should capture reasoning signature in onFinish reasoning', async () => {
+      const mockOnFinish = vi.fn();
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (url: string, options: FetchEventSourceInit) => {
+          options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+          options.onmessage!({ event: 'reasoning', data: JSON.stringify('Let me think') } as any);
+          options.onmessage!({
+            event: 'reasoning_signature',
+            data: JSON.stringify('sig-abc123'),
+          } as any);
+          options.onmessage!({ event: 'text', data: JSON.stringify('Answer') } as any);
+        },
+      );
+
+      await fetchSSE('/', { onFinish: mockOnFinish, responseAnimation: 'none' });
+
+      expect(mockOnFinish).toHaveBeenCalledWith('Answer', {
+        observationId: null,
+        toolCalls: undefined,
+        reasoning: { content: 'Let me think', signature: 'sig-abc123' },
+        traceId: null,
+        type: 'done',
+      });
+    });
+
+    it('should separate redacted (flagged) signatures from regular signatures', async () => {
+      const mockOnFinish = vi.fn();
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (url: string, options: FetchEventSourceInit) => {
+          options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+          options.onmessage!({
+            event: 'flagged_reasoning_signature',
+            data: JSON.stringify('redacted-data-1'),
+          } as any);
+          options.onmessage!({
+            event: 'flagged_reasoning_signature',
+            data: JSON.stringify('redacted-data-2'),
+          } as any);
+          options.onmessage!({ event: 'text', data: JSON.stringify('Response') } as any);
+        },
+      );
+
+      await fetchSSE('/', { onFinish: mockOnFinish, responseAnimation: 'none' });
+
+      expect(mockOnFinish).toHaveBeenCalledWith('Response', {
+        observationId: null,
+        toolCalls: undefined,
+        reasoning: { redactedSignatures: ['redacted-data-1', 'redacted-data-2'] },
+        traceId: null,
+        type: 'done',
+      });
+    });
   });
 
   it('should handle grounding event', async () => {

@@ -425,10 +425,12 @@ describe('contextEngineering', () => {
         provider: 'openai',
       });
 
+      // Only the last user message and system messages are expanded;
+      // historical assistant messages keep their original content for prompt-cache stability.
       expect(result[0].content).toBe(
         'Hello TestUser, today is 2023-12-25 and the time is 14:30:45',
       );
-      expect(result[1].content).toBe('Hi there! Your random number is 12345');
+      expect(result[1].content).toBe('Hi there! Your random number is {{random}}');
     });
 
     it('should process placeholder variables in array content', async () => {

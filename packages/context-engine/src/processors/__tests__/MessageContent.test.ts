@@ -336,6 +336,112 @@ describe('MessageContentProcessor', () => {
         },
       ]);
     });
+
+    it('should include thinking block when signature exists but content is empty (omitted display)', async () => {
+      const processor = new MessageContentProcessor({
+        model: 'claude-opus-4-7',
+        provider: 'anthropic',
+        isCanUseVision: mockIsCanUseVision,
+        fileContext: { enabled: false },
+      });
+
+      const messages: UIChatMessage[] = [
+        {
+          id: 'test',
+          role: 'assistant',
+          content: 'Final answer.',
+          reasoning: {
+            signature: 'encrypted-sig',
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          meta: {},
+        },
+      ];
+
+      const result = await processor.process(createContext(messages));
+
+      const content = result.messages[0].content as any[];
+      expect(content[0]).toEqual({
+        signature: 'encrypted-sig',
+        thinking: '',
+        type: 'thinking',
+      });
+      expect(content[1]).toEqual({ text: 'Final answer.', type: 'text' });
+    });
+
+    it('should replay redacted thinking blocks from redactedSignatures', async () => {
+      const processor = new MessageContentProcessor({
+        model: 'claude-opus-4-7',
+        provider: 'anthropic',
+        isCanUseVision: mockIsCanUseVision,
+        fileContext: { enabled: false },
+      });
+
+      const messages: UIChatMessage[] = [
+        {
+          id: 'test',
+          role: 'assistant',
+          content: 'Response text.',
+          reasoning: {
+            redactedSignatures: ['redacted-1', 'redacted-2'],
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          meta: {},
+        },
+      ];
+
+      const result = await processor.process(createContext(messages));
+
+      const content = result.messages[0].content as any[];
+      expect(content).toEqual([
+        { data: 'redacted-1', type: 'redacted_thinking' },
+        { data: 'redacted-2', type: 'redacted_thinking' },
+        { text: 'Response text.', type: 'text' },
+      ]);
+    });
+
+    it('should not duplicate thinking text across multiple signatures', async () => {
+      const processor = new MessageContentProcessor({
+        model: 'claude-opus-4-7',
+        provider: 'anthropic',
+        isCanUseVision: mockIsCanUseVision,
+        fileContext: { enabled: false },
+      });
+
+      const messages: UIChatMessage[] = [
+        {
+          id: 'test',
+          role: 'assistant',
+          content: 'Answer.',
+          reasoning: {
+            content: 'Single thinking block text.',
+            signature: 'sig-1',
+            redactedSignatures: ['redacted-a'],
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          meta: {},
+        },
+      ];
+
+      const result = await processor.process(createContext(messages));
+
+      const content = result.messages[0].content as any[];
+      // Exactly ONE thinking block with the signature, plus ONE redacted block
+      const thinkingBlocks = content.filter((c: any) => c.type === 'thinking');
+      expect(thinkingBlocks).toHaveLength(1);
+      expect(thinkingBlocks[0]).toEqual({
+        signature: 'sig-1',
+        thinking: 'Single thinking block text.',
+        type: 'thinking',
+      });
+
+      const redactedBlocks = content.filter((c: any) => c.type === 'redacted_thinking');
+      expect(redactedBlocks).toHaveLength(1);
+      expect(redactedBlocks[0]).toEqual({ data: 'redacted-a', type: 'redacted_thinking' });
+    });
   });
 
   describe('Message processing metadata', () => {

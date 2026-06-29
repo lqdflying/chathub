@@ -213,26 +213,34 @@ export class MessageContentProcessor extends BaseProcessor {
    * 处理助手消息内容
    */
   private async processAssistantMessage(message: any): Promise<any> {
-    const shouldIncludeThinking = message.reasoning && !!message.reasoning?.content;
+    const reasoning = message.reasoning;
+    const hasThinkingContent = !!reasoning?.content;
+    const hasSignature = !!reasoning?.signature;
+    const hasRedacted = !!reasoning?.redactedSignatures?.length;
 
-    if (shouldIncludeThinking) {
+    if (hasThinkingContent || hasSignature || hasRedacted) {
       const contentParts: UserMessageContentPart[] = [];
-      const sig = message.reasoning!.signature;
 
-      if (Array.isArray(sig) && sig.length > 1) {
-        for (const s of sig) {
-          contentParts.push({
-            signature: s,
-            thinking: message.reasoning!.content,
-            type: 'thinking',
-          } as any);
-        }
-      } else {
+      // One signed thinking block carrying the (possibly empty for omitted display) thinking text.
+      // Anthropic requires passing thinking blocks back unchanged for multi-turn continuity.
+      // Anthropic emits at most one regular `thinking` block per assistant turn, so a single
+      // `signature` field is sufficient. `redacted_thinking` blocks (below) can be multiple.
+      if (hasThinkingContent || hasSignature) {
         contentParts.push({
-          signature: Array.isArray(sig) ? sig[0] : sig ?? '',
-          thinking: message.reasoning!.content,
+          signature: reasoning!.signature ?? '',
+          thinking: reasoning!.content ?? '',
           type: 'thinking',
         } as any);
+      }
+
+      // Redacted thinking blocks are opaque encrypted data with no text content.
+      if (hasRedacted) {
+        for (const data of reasoning!.redactedSignatures) {
+          contentParts.push({
+            data,
+            type: 'redacted_thinking',
+          } as any);
+        }
       }
 
       contentParts.push({

@@ -10,7 +10,17 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
   baseURL: defaultBaseURL,
   chatCompletion: {
     handlePayload: (payload) => {
+      // Explicit allowlist of fields forwarded to the gateway.
+      // Internal routing/feature flags (enabledContextCaching, enabledSearch,
+      // provider, responseMode, thinkingBudget, urlContext, reasoning_split) are
+      // intentionally stripped so they never leak into the provider request body.
+      //
+      // `text` (GPT-5 verbosity), `verbosity`, and `truncation` are Responses
+      // API fields (see OpenAI API definition). They are only forwarded when
+      // the request routes to Responses mode; in Chat Completions mode they
+      // would cause rejection on strict OpenAI-compatible gateways.
       const {
+        apiMode,
         frequency_penalty,
         max_tokens,
         messages,
@@ -23,15 +33,24 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
         stop,
         stream,
         temperature,
+        text,
         tool_choice,
         tools,
         top_p,
+        truncation,
+        verbosity,
       } = payload as any;
+
+      const isResponses = apiMode === 'responses';
 
       const result: Record<string, any> = {
         model,
         stream: stream ?? true,
       };
+
+      // Preserve apiMode for factory-level Responses/Chat routing; the factory
+      // strips it before the request reaches the provider.
+      if (apiMode !== undefined) result.apiMode = apiMode;
 
       if (messages !== undefined) result.messages = messages;
       if (temperature !== undefined) result.temperature = temperature;
@@ -46,6 +65,14 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       if (tool_choice !== undefined) result.tool_choice = tool_choice;
       if (reasoning_effort !== undefined) result.reasoning_effort = reasoning_effort;
       if (reasoning !== undefined) result.reasoning = reasoning;
+
+      // Responses-API-only fields — sending these to /v1/chat/completions
+      // causes rejection on strict OpenAI-compatible gateways.
+      if (isResponses) {
+        if (text !== undefined) result.text = text;
+        if (verbosity !== undefined) result.verbosity = verbosity;
+        if (truncation !== undefined) result.truncation = truncation;
+      }
 
       return result as any;
     },

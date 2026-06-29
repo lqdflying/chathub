@@ -125,6 +125,25 @@ describe('anthropicHelpers', () => {
 
       await expect(buildAnthropicBlock(content)).rejects.toThrow('Invalid image URL: invalid-url');
     });
+
+    it('should pass through thinking blocks unchanged', async () => {
+      const content: UserMessageContentPart = {
+        signature: 'sig-abc',
+        thinking: 'Let me think about this.',
+        type: 'thinking',
+      };
+      const result = await buildAnthropicBlock(content);
+      expect(result).toEqual(content);
+    });
+
+    it('should pass through redacted_thinking blocks unchanged', async () => {
+      const content = {
+        data: 'encrypted-redacted-thinking-data',
+        type: 'redacted_thinking',
+      } as const;
+      const result = await buildAnthropicBlock(content as any);
+      expect(result).toEqual(content);
+    });
   });
 
   describe('buildAnthropicMessage', () => {
