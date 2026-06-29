@@ -18,7 +18,9 @@ export const convertOpenAIUsage = (
   const totalInputTokens = inputCitationTokens + inputTextTokens;
 
   const cachedTokens =
-    (usage as any).prompt_cache_hit_tokens || usage.prompt_tokens_details?.cached_tokens;
+    (usage as any).prompt_cache_hit_tokens ||
+    (usage as any).cached_tokens ||
+    usage.prompt_tokens_details?.cached_tokens;
 
   const inputCacheMissTokens =
     (usage as any).prompt_cache_miss_tokens || totalInputTokens - cachedTokens;
@@ -58,8 +60,12 @@ export const convertOpenAIUsage = (
   const finalData = {};
 
   Object.entries(data).forEach(([key, value]) => {
-    // For Moonshot, when inputCachedTokens is defined, keep inputCacheMissTokens even if 0
-    if (key === 'inputCacheMissTokens' && payload?.provider === 'moonshot' && data.inputCachedTokens !== undefined) {
+    // For Moonshot and OpenAI-compatible, when inputCachedTokens is defined, keep inputCacheMissTokens even if 0
+    if (
+      key === 'inputCacheMissTokens' &&
+      (payload?.provider === 'moonshot' || payload?.provider === 'openaicompatible') &&
+      data.inputCachedTokens !== undefined
+    ) {
       // @ts-ignore
       finalData[key] = value;
       return;

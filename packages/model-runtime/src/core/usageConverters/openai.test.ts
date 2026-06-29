@@ -100,6 +100,30 @@ describe('convertUsage', () => {
     });
   });
 
+  it('should handle top-level cached tokens (Kimi K2+ shape)', () => {
+    // Arrange
+    const usageWithTopLevelCachedTokens = {
+      cached_tokens: 30,
+      completion_tokens: 50,
+      prompt_tokens: 100,
+      total_tokens: 150,
+    } as OpenAI.Completions.CompletionUsage;
+
+    // Act
+    const result = convertOpenAIUsage(usageWithTopLevelCachedTokens);
+
+    // Assert
+    expect(result).toEqual({
+      inputTextTokens: 100,
+      inputCachedTokens: 30,
+      inputCacheMissTokens: 70, // 100 - 30
+      totalInputTokens: 100,
+      totalOutputTokens: 50,
+      outputTextTokens: 50,
+      totalTokens: 150,
+    });
+  });
+
   it('should handle audio tokens in input correctly', () => {
     // Arrange
     const usageWithAudioInput = {
