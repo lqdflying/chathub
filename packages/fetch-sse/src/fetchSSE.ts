@@ -241,7 +241,7 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
   });
 
   let thinking = '';
-  let thinkingSignature: string | undefined;
+  let thinkingSignatures: string[] = [];
 
   const thinkingController = createSmoothMessage({
     onTextUpdate: (delta, text) => {
@@ -382,8 +382,9 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
           break;
         }
 
+        case 'flagged_reasoning_signature':
         case 'reasoning_signature': {
-          thinkingSignature = data;
+          thinkingSignatures.push(data);
           break;
         }
 
@@ -463,7 +464,12 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         grounding,
         images: images.length > 0 ? images : undefined,
         observationId,
-        reasoning: !!thinking ? { content: thinking, signature: thinkingSignature } : undefined,
+        reasoning: !!thinking
+          ? {
+              content: thinking,
+              signature: thinkingSignatures.length === 1 ? thinkingSignatures[0] : thinkingSignatures.length > 1 ? thinkingSignatures : undefined,
+            }
+          : undefined,
         speed,
         toolCalls,
         traceId,

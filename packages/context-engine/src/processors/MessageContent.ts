@@ -213,21 +213,32 @@ export class MessageContentProcessor extends BaseProcessor {
    * 处理助手消息内容
    */
   private async processAssistantMessage(message: any): Promise<any> {
-    // 检查是否有推理内容（thinking mode）
-    const shouldIncludeThinking = message.reasoning && !!message.reasoning?.signature;
+    const shouldIncludeThinking = message.reasoning && !!message.reasoning?.content;
 
     if (shouldIncludeThinking) {
-      const contentParts: UserMessageContentPart[] = [
-        {
-          signature: message.reasoning!.signature,
+      const contentParts: UserMessageContentPart[] = [];
+      const sig = message.reasoning!.signature;
+
+      if (Array.isArray(sig) && sig.length > 1) {
+        for (const s of sig) {
+          contentParts.push({
+            signature: s,
+            thinking: message.reasoning!.content,
+            type: 'thinking',
+          } as any);
+        }
+      } else {
+        contentParts.push({
+          signature: Array.isArray(sig) ? sig[0] : sig ?? '',
           thinking: message.reasoning!.content,
           type: 'thinking',
-        },
-        {
-          text: message.content,
-          type: 'text',
-        },
-      ];
+        } as any);
+      }
+
+      contentParts.push({
+        text: message.content,
+        type: 'text',
+      });
 
       return {
         ...message,

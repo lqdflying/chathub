@@ -9,8 +9,11 @@ export const buildAnthropicBlock = async (
   content: UserMessageContentPart,
 ): Promise<Anthropic.ContentBlock | Anthropic.ImageBlockParam | undefined> => {
   switch (content.type) {
+    case 'redacted_thinking': {
+      return content as any;
+    }
+
     case 'thinking': {
-      // just pass-through the content
       return content as any;
     }
 

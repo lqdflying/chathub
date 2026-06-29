@@ -133,9 +133,24 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
       `Starting placeholder variables processing with ${Object.keys(this.config.variableGenerators).length} generators`,
     );
 
-    // 处理每条消息的占位符变量
+    // Find the index of the last user message — only it and system messages get processed.
+    // Historical messages were already expanded when originally sent; re-expanding
+    // time-based variables ({{time}}, {{datetime}}, etc.) on every request would
+    // break prompt-cache prefix stability for both Anthropic and OpenAI providers.
+    let lastUserMessageIndex = -1;
+    for (let i = clonedContext.messages.length - 1; i >= 0; i--) {
+      if (clonedContext.messages[i].role === 'user') {
+        lastUserMessageIndex = i;
+        break;
+      }
+    }
+
     for (let i = 0; i < clonedContext.messages.length; i++) {
       const message = clonedContext.messages[i];
+
+      const isSystem = message.role === 'system';
+      const isLastUserMessage = i === lastUserMessageIndex;
+      if (!isSystem && !isLastUserMessage) continue;
 
       try {
         const originalMessage = JSON.stringify(message);
@@ -148,11 +163,9 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
         }
       } catch (error) {
         log.extend('error')(`Error processing placeholders in message ${message.id}: ${error}`);
-        // 继续处理其他消息
       }
     }
 
-    // 更新元数据
     clonedContext.metadata.placeholderVariablesProcessed = processedCount;
 
     log(`Placeholder variables processing completed, processed ${processedCount} messages`);

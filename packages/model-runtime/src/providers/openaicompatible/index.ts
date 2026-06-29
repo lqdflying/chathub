@@ -10,12 +10,44 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
   baseURL: defaultBaseURL,
   chatCompletion: {
     handlePayload: (payload) => {
-      const { model, stream, ...rest } = payload;
-      return {
-        ...rest,
+      const {
+        frequency_penalty,
+        max_tokens,
+        messages,
+        model,
+        n,
+        presence_penalty,
+        reasoning,
+        reasoning_effort,
+        response_format,
+        stop,
+        stream,
+        temperature,
+        tool_choice,
+        tools,
+        top_p,
+      } = payload as any;
+
+      const result: Record<string, any> = {
         model,
         stream: stream ?? true,
-      } as any;
+      };
+
+      if (messages !== undefined) result.messages = messages;
+      if (temperature !== undefined) result.temperature = temperature;
+      if (top_p !== undefined) result.top_p = top_p;
+      if (max_tokens !== undefined) result.max_tokens = max_tokens;
+      if (frequency_penalty !== undefined) result.frequency_penalty = frequency_penalty;
+      if (presence_penalty !== undefined) result.presence_penalty = presence_penalty;
+      if (n !== undefined) result.n = n;
+      if (stop !== undefined) result.stop = stop;
+      if (response_format !== undefined) result.response_format = response_format;
+      if (tools !== undefined) result.tools = tools;
+      if (tool_choice !== undefined) result.tool_choice = tool_choice;
+      if (reasoning_effort !== undefined) result.reasoning_effort = reasoning_effort;
+      if (reasoning !== undefined) result.reasoning = reasoning;
+
+      return result as any;
     },
   },
   debug: {
