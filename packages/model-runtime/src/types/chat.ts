@@ -113,11 +113,14 @@ export interface ChatStreamPayload {
   reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   responseMode?: 'stream' | 'json';
   response_format?: ChatResponseFormat;
+  responseStateMode?: 'provider' | 'stateless';
   /**
    * @title 是否开启流式请求
    * @default true
    */
   stream?: boolean;
+  store?: boolean;
+  prompt_cache_key?: string;
   /**
    * @title 生成文本的随机度量，用于控制文本的创造性和多样性
    * @default 1

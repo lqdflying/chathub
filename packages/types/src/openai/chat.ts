@@ -99,6 +99,7 @@ export interface ChatStreamPayload {
    * @default openai
    */
   provider?: string;
+  responseStateMode?: 'provider' | 'stateless';
   responseMode?: 'stream' | 'json';
   response_format?: ChatResponseFormat;
   /**
@@ -106,6 +107,8 @@ export interface ChatStreamPayload {
    * @default true
    */
   stream?: boolean;
+  store?: boolean;
+  prompt_cache_key?: string;
   /**
    * @title 生成文本的随机度量，用于控制文本的创造性和多样性
    * @default 1

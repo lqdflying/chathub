@@ -1034,6 +1034,74 @@ describe('LobeOpenAICompatibleFactory', () => {
         expect(mockResponsesCreate).toHaveBeenCalled();
       });
 
+      it('should keep Responses API stateless unless response state is explicitly enabled', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: {
+            useResponse: true,
+          },
+          provider: ModelProvider.OpenAI,
+        });
+
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const prod = new ReadableStream();
+        const debug = new ReadableStream();
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockResolvedValue({ tee: () => [prod, debug] } as any);
+
+        await inst.chat({
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-5-mini',
+          temperature: 0,
+        });
+
+        expect(mockResponsesCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            store: false,
+          }),
+          expect.any(Object),
+        );
+        expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('prompt_cache_key');
+        expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('responseStateMode');
+      });
+
+      it('should enable Responses state and derive prompt_cache_key when explicitly configured', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: {
+            useResponse: true,
+          },
+          provider: ModelProvider.OpenAI,
+        });
+
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const prod = new ReadableStream();
+        const debug = new ReadableStream();
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockResolvedValue({ tee: () => [prod, debug] } as any);
+
+        await inst.chat({
+          messages: [
+            { content: 'Keep the response brief.', role: 'system' },
+            { content: 'hi', role: 'user' },
+          ],
+          model: 'gpt-5-mini',
+          responseStateMode: 'provider',
+          temperature: 0,
+        });
+
+        expect(mockResponsesCreate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            prompt_cache_key: expect.stringMatching(/^compat_cc_[a-f0-9]{32}$/),
+            store: true,
+          }),
+          expect.any(Object),
+        );
+        expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('responseStateMode');
+      });
+
       it('should route to Responses API when model matches useResponseModels', async () => {
         const LobeMockProviderUseResponseModels = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',

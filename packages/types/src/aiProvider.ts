@@ -136,6 +136,7 @@ const AiProviderSettingsSchema = z.object({
 
 export interface AiProviderConfig {
   enableResponseApi?: boolean;
+  responseStateMode?: 'provider' | 'stateless';
 }
 
 // create
@@ -239,6 +240,7 @@ export const UpdateAiProviderConfigSchema = z.object({
   config: z
     .object({
       enableResponseApi: z.boolean().optional(),
+      responseStateMode: z.enum(['provider', 'stateless']).optional(),
     })
     .optional(),
   fetchOnClient: z.boolean().nullable().optional(),

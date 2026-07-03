@@ -317,11 +317,16 @@ class ChatService {
       model = findDeploymentName(model, provider);
     }
 
-    const apiMode = aiProviderSelectors.isProviderEnableResponseApi(provider)(
-      getAiInfraStoreState(),
-    )
+    const aiInfraStoreState = getAiInfraStoreState();
+    const apiMode = aiProviderSelectors.isProviderEnableResponseApi(provider)(aiInfraStoreState)
       ? 'responses'
       : undefined;
+    const responseStateMode =
+      apiMode === 'responses' &&
+      provider === ModelProvider.OpenAICompatible &&
+      aiProviderSelectors.isProviderResponseStateEnabled(provider)(aiInfraStoreState)
+        ? 'provider'
+        : undefined;
 
     // Get the chat config to check streaming preference
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
@@ -332,7 +337,7 @@ class ChatService {
           model: DEFAULT_AGENT_CONFIG.model,
           stream: chatConfig.enableStreaming !== false, // Default to true if not set
         },
-        { ...res, apiMode, model },
+        { ...res, apiMode, model, responseStateMode },
       ),
     );
 
