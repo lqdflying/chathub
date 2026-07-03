@@ -215,14 +215,19 @@ export const buildAnthropicTools = (
   if (!tools) return;
 
   return tools.map(
-    (tool, index): Anthropic.Tool => ({
-      cache_control:
-        options.enabledContextCaching && index === tools.length - 1
-          ? { type: 'ephemeral' }
-          : undefined,
-      description: tool.function.description,
-      input_schema: tool.function.parameters as Anthropic.Tool.InputSchema,
-      name: tool.function.name,
-    }),
+    (tool, index): Anthropic.Tool => {
+      // In openai SDK v6+, ChatCompletionTool is a discriminated union (function | custom).
+      // This codebase only ever produces function tools, so narrow to that variant.
+      const fn = (tool as OpenAI.ChatCompletionFunctionTool).function;
+      return {
+        cache_control:
+          options.enabledContextCaching && index === tools.length - 1
+            ? { type: 'ephemeral' }
+            : undefined,
+        description: fn.description,
+        input_schema: fn.parameters as Anthropic.Tool.InputSchema,
+        name: fn.name,
+      };
+    },
   );
 };

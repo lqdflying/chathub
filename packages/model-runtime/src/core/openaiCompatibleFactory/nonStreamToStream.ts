@@ -37,10 +37,10 @@ export const transformResponseToStream = (data: OpenAI.ChatCompletion) =>
             role: choice.message.role,
             tool_calls: choice.message.tool_calls?.map(
               (tool, index): OpenAI.ChatCompletionChunk.Choice.Delta.ToolCall => ({
-                function: tool.function,
+                function: (tool as OpenAI.ChatCompletionMessageFunctionToolCall).function,
                 id: tool.id,
                 index,
-                type: tool.type,
+                type: 'function',
               }),
             ),
           },

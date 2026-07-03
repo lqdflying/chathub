@@ -59,7 +59,7 @@ export const CHAT_MODELS_BLOCK_LIST = [
 ];
 
 type ConstructorOptions<T extends Record<string, any> = any> = ClientOptions & T;
-export type CreateImageOptions = Omit<ClientOptions, 'apiKey'> & {
+export type CreateImageOptions = Omit<ClientOptions, 'apiKey' | 'provider'> & {
   apiKey: string;
   provider: string;
 };
@@ -186,7 +186,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
     constructor(options: ClientOptions & Record<string, any> = {}) {
       const _options = {
         ...options,
-        apiKey: options.apiKey?.trim() || DEFAULT_API_LEY,
+        apiKey:
+          (typeof options.apiKey === 'string' ? options.apiKey.trim() : options.apiKey) ||
+          DEFAULT_API_LEY,
         baseURL: options.baseURL?.trim() || DEFAULT_BASE_URL,
       };
       const { apiKey, baseURL = DEFAULT_BASE_URL, ...res } = _options;
@@ -371,7 +373,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         log('using custom createImage implementation');
         return customCreateImage(payload, {
           ...this._options,
-          apiKey: this._options.apiKey!,
+          apiKey: this._options.apiKey as string,
           provider,
         });
       }
@@ -497,7 +499,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         const toolCalls = res.choices[0].message.tool_calls!;
 
         try {
-          return toolCalls.map((item) => ({
+          return (toolCalls as OpenAI.ChatCompletionMessageFunctionToolCall[]).map((item) => ({
             arguments: JSON.parse(item.function.arguments),
             name: item.function.name,
           }));
@@ -1003,7 +1005,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('received %d tool calls from Chat Completions API', toolCalls?.length || 0);
 
       try {
-        const result = toolCalls.map((item) => ({
+        const result = (
+          toolCalls as OpenAI.ChatCompletionMessageFunctionToolCall[]
+        ).map((item) => ({
           arguments: JSON.parse(item.function.arguments),
           name: item.function.name,
         }));
