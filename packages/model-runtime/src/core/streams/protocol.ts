@@ -203,7 +203,9 @@ export const createSSEProtocolTransformer = (
 
       const buffers = Array.isArray(result) ? result : [result];
 
-      buffers.forEach(({ type, id, data }) => {
+      buffers.filter(Boolean).forEach(({ type, id, data }) => {
+        if (data === undefined) return;
+
         controller.enqueue(`id: ${id}\n`);
         controller.enqueue(`event: ${type}\n`);
         controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);

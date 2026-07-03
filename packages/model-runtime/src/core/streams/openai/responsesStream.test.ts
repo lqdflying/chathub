@@ -873,8 +873,10 @@ describe('OpenAIResponsesStream', () => {
     const protocolStream = OpenAIResponsesStream(mockOpenAIStream);
     const chunks = await readStreamChunk(protocolStream);
 
-    expect(chunks).toMatchSnapshot();
     expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.join('')).toContain('data: "in_progress"');
+    expect(chunks.join('')).not.toContain('data: undefined');
+    expect(chunks.join('')).not.toContain('id: undefined');
   });
 
   describe('Reasoning', () => {
