@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 
 import { AgentRuntimeErrorType } from '../../../types/error';
+import { normalizeOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatCache';
 import { convertOpenAIResponseUsage } from '../../usageConverters';
 import {
   ChatPayloadForTransformStream,
@@ -156,9 +157,11 @@ const transformOpenAIStream = (
 
       case 'response.completed': {
         if (chunk.response.usage) {
+          const response = normalizeOpenAICompatCacheUsage(chunk.response).json;
+
           return {
-            data: convertOpenAIResponseUsage(chunk.response.usage, payload),
-            id: chunk.response.id,
+            data: convertOpenAIResponseUsage(response.usage!, payload),
+            id: response.id,
             type: 'usage',
           };
         }

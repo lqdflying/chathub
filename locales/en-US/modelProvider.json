@@ -298,6 +298,10 @@
         "desc": "Utilizes OpenAI's next-generation request format specification to unlock advanced features like chain of thought",
         "title": "Use Responses API Specification"
       },
+      "responsesState": {
+        "desc": "Allow the upstream provider to store Responses state for previous_response_id reuse. Enable only for trusted proxies or providers that support it.",
+        "title": "Enable Responses State Cache"
+      },
       "waitingForMore": "More models are currently <1>planned for integration</1>, please stay tuned"
     },
     "createNew": {

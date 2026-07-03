@@ -111,6 +111,12 @@ const isProviderEnableResponseApi = (id: string) => (s: AIProviderStoreState) =>
   return false;
 };
 
+const isProviderResponseStateEnabled = (id: string) => (s: AIProviderStoreState) => {
+  const providerCfg = providerConfigById(id)(s);
+
+  return providerCfg?.config?.responseStateMode === 'provider';
+};
+
 const isInitAiProviderRuntimeState = (s: AIProviderStoreState) => !!s.isInitAiProviderRuntimeState;
 
 export const aiProviderSelectors = {
@@ -128,6 +134,7 @@ export const aiProviderSelectors = {
   isProviderFetchOnClient,
   isProviderHasBuiltinSearch,
   isProviderHasBuiltinSearchConfig,
+  isProviderResponseStateEnabled,
   isProviderLoading,
   providerConfigById,
   providerKeyVaults,

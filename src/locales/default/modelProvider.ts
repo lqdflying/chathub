@@ -301,6 +301,10 @@ export default {
         desc: '采用 OpenAI 新一代请求格式规范，解锁思维链等进阶特性',
         title: '使用 Responses API 规范',
       },
+      responsesState: {
+        desc: '允许上游保存 Responses 状态以复用 previous_response_id。仅在可信代理或服务商支持该能力时开启',
+        title: '启用 Responses 状态缓存',
+      },
       waitingForMore: '更多模型正在 <1>计划接入</1> 中，敬请期待',
     },
     createNew: {

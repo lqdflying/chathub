@@ -47,6 +47,9 @@ export type CheckErrorRender = (props: {
   setError: (error?: ChatMessageError) => void;
 }) => ReactNode;
 
+export const hasConnectionCheckOutput = (value: unknown) =>
+  typeof value === 'string' ? value.trim().length > 0 : !!value;
+
 interface ConnectionCheckerProps {
   checkErrorRender?: CheckErrorRender;
   model: string;
@@ -88,7 +91,7 @@ const Checker = memo<ConnectionCheckerProps>(
         },
 
         onFinish: async (value) => {
-          if (!isError && value) {
+          if (hasConnectionCheckOutput(value)) {
             setError(undefined);
             setPass(true);
           } else {

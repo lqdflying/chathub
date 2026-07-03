@@ -151,6 +151,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
       configUpdating,
       isFetchOnClient,
       enableResponseApi,
+      enableResponseState,
       isProviderEndpointNotEmpty,
       isProviderApiKeyNotEmpty,
     ] = useAiInfraStore((s) => [
@@ -161,6 +162,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
       aiProviderSelectors.isProviderConfigUpdating(id)(s),
       aiProviderSelectors.isProviderFetchOnClient(id)(s),
       aiProviderSelectors.isProviderEnableResponseApi(id)(s),
+      aiProviderSelectors.isProviderResponseStateEnabled(id)(s),
       aiProviderSelectors.isActiveProviderEndpointNotEmpty(s),
       aiProviderSelectors.isActiveProviderApiKeyNotEmpty(s),
     ]);
@@ -192,6 +194,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
     });
 
     const isCustom = source === AiProviderSourceEnum.Custom;
+    const supportResponsesState = supportResponsesApi && id === 'openaicompatible';
 
     const apiKeyItem: FormItemProps[] = !showApiKey
       ? []
@@ -323,6 +326,21 @@ const ProviderConfig = memo<ProviderConfigProps>(
             label: t('providerModels.config.responsesApi.title'),
             minWidth: undefined,
             name: ['config', 'enableResponseApi'],
+          }
+        : undefined,
+      supportResponsesState && enableResponseApi
+        ? {
+            children: isLoading ? (
+              <Skeleton.Button active />
+            ) : (
+              <Switch checked={enableResponseState} loading={configUpdating} />
+            ),
+            desc: t('providerModels.config.responsesState.desc'),
+            getValueFromEvent: (checked: boolean) => (checked ? 'provider' : 'stateless'),
+            getValueProps: (value?: string) => ({ checked: value === 'provider' }),
+            label: t('providerModels.config.responsesState.title'),
+            minWidth: undefined,
+            name: ['config', 'responseStateMode'],
           }
         : undefined,
       clientFetchItem,

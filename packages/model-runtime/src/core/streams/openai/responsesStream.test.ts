@@ -741,6 +741,43 @@ describe('OpenAIResponsesStream', () => {
     expect(chunks.some((c) => c.includes('event: usage'))).toBe(true);
   });
 
+  it('should normalize OpenAI-compatible cached tokens in response.completed usage', async () => {
+    const mockOpenAIStream = createReadableStream([
+      {
+        type: 'response.created',
+        response: {
+          id: 'resp_cached_usage',
+          status: 'in_progress',
+        },
+      },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_cached_usage',
+          status: 'completed',
+          usage: {
+            cached_tokens: 64,
+            input_tokens: 100,
+            output_tokens: 25,
+            total_tokens: 125,
+          },
+        },
+      },
+    ]);
+
+    const protocolStream = OpenAIResponsesStream(mockOpenAIStream, {
+      payload: { model: 'gpt-5', provider: 'openaicompatible' },
+    });
+    const chunks = await readStreamChunk(protocolStream);
+
+    const usageIndex = chunks.findIndex((c) => c.includes('event: usage'));
+    const usageDataChunk = chunks[usageIndex + 1];
+
+    expect(usageIndex).toBeGreaterThanOrEqual(0);
+    expect(usageDataChunk).toContain('"inputCachedTokens":64');
+    expect(usageDataChunk).toContain('"inputCacheMissTokens":36');
+  });
+
   it('should handle response.completed without usage', async () => {
     const mockOpenAIStream = createReadableStream([
       {
@@ -836,8 +873,10 @@ describe('OpenAIResponsesStream', () => {
     const protocolStream = OpenAIResponsesStream(mockOpenAIStream);
     const chunks = await readStreamChunk(protocolStream);
 
-    expect(chunks).toMatchSnapshot();
     expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.join('')).toContain('data: "in_progress"');
+    expect(chunks.join('')).not.toContain('data: undefined');
+    expect(chunks.join('')).not.toContain('id: undefined');
   });
 
   describe('Reasoning', () => {

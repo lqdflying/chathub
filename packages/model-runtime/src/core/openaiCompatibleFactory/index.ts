@@ -38,6 +38,10 @@ import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBu
 import { OpenAIResponsesStream, OpenAIStream, OpenAIStreamOptions } from '../streams';
 import { createOpenAICompatibleImage } from './createImage';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
+import {
+  deriveCompatPromptCacheKey,
+  normalizeOpenAICompatCacheUsage,
+} from './openaicompatCache';
 
 export * from './nonStreamToStream';
 
@@ -775,12 +779,22 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           ? (responses?.handlePayload(payload, this._options) as ChatStreamPayload)
           : payload;
 
+      const responseStateMode = res.responseStateMode;
+      const storeOverride = res.store;
+      const statefulResponses = responseStateMode === 'provider';
+
       // remove penalty params
       delete res.apiMode;
       delete res.frequency_penalty;
       delete res.presence_penalty;
+      delete res.responseStateMode;
+      delete res.store;
 
       const input = await convertOpenAIResponseInputs(messages as any);
+      const promptCacheKey =
+        statefulResponses && !(res as any).prompt_cache_key
+          ? await deriveCompatPromptCacheKey({ ...res, input, model: payload.model }, payload.model)
+          : '';
 
       const isStreaming = payload.stream !== false;
       log(
@@ -792,6 +806,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const postPayload = {
         ...res,
+        ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
         ...(reasoning || reasoning_effort
           ? {
               reasoning: {
@@ -801,7 +816,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             }
           : {}),
         input,
-        store: false,
+        store: storeOverride ?? statefulResponses,
         stream: !isStreaming ? undefined : isStreaming,
         tools: tools?.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
       } as OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams;
@@ -852,13 +867,15 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         debugResponse(response);
       }
 
+      const normalizedResponse = normalizeOpenAICompatCacheUsage(response).json;
+
       if (responseMode === 'json') {
         log('returning JSON response mode');
-        return Response.json(response);
+        return Response.json(normalizedResponse);
       }
 
       log('transforming non-streaming Responses API response to stream');
-      const stream = transformResponseAPIToStream(response as OpenAI.Responses.Response);
+      const stream = transformResponseAPIToStream(normalizedResponse as OpenAI.Responses.Response);
 
       return StreamingResponse(
         OpenAIResponsesStream(stream, { ...streamOptions, enableStreaming: false, inputStartAt }),
