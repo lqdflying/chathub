@@ -18,9 +18,15 @@ export const handleOpenAIError = (
     else if (error.cause) {
       errorResult = error.cause;
     }
-    // if there is no other request error, the error object is a Response like object
+    // if there is no other request error, the error object is a Response like object.
+    // In openai SDK v5+, `error.headers` is a Web `Headers` instance, not a plain
+    // record; normalize to a plain object so downstream JSON serialization is stable.
     else {
-      errorResult = { headers: error.headers, status: error.status };
+      const headers =
+        error.headers && typeof error.headers.entries === 'function'
+          ? Object.fromEntries(error.headers.entries())
+          : error.headers;
+      errorResult = { headers, status: error.status };
     }
 
     return {

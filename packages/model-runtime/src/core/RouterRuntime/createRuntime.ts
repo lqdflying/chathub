@@ -137,7 +137,9 @@ export const createRouterRuntime = ({
     constructor(options: ClientOptions & Record<string, any> = {}) {
       this._options = {
         ...options,
-        apiKey: options.apiKey?.trim() || DEFAULT_API_LEY,
+        apiKey:
+          (typeof options.apiKey === 'string' ? options.apiKey.trim() : options.apiKey) ||
+          DEFAULT_API_LEY,
         baseURL: options.baseURL?.trim(),
       };
 

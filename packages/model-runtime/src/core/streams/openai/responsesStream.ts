@@ -131,7 +131,9 @@ const transformOpenAIStream = (
       }
 
       case 'response.output_text.annotation.added': {
-        const citations = chunk.annotation;
+        // In openai SDK v6+, the annotation field is typed as `unknown`.
+        // Cast to the URL-citation shape we actually consume here.
+        const citations = chunk.annotation as { title?: string; url?: string };
 
         if (streamContext.returnedCitationArray) {
           streamContext.returnedCitationArray.push({

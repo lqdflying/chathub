@@ -378,7 +378,7 @@ describe('LobeGoogleAI', () => {
             message: 'api is undefined',
           },
         };
-        const apiError = new OpenAI.APIError(400, errorInfo, 'module error', {});
+        const apiError = new OpenAI.APIError(400, errorInfo, 'module error', undefined);
 
         vi.spyOn(instance['client'].models, 'generateContentStream').mockRejectedValue(apiError);
 
