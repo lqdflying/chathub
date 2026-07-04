@@ -10,7 +10,7 @@ import {
   Tooltip,
 } from '@lobehub/ui';
 import { useDebounceFn } from 'ahooks';
-import { Radio, Select, Skeleton, Switch } from 'antd';
+import { Form as AntdForm, Radio, Select, Skeleton, Switch } from 'antd';
 import { createStyles } from 'antd-style';
 import { Loader2Icon, LockIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -190,7 +190,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
     } = settings || {};
     const { t } = useTranslation('modelProvider');
     const [form] = Form.useForm();
-    const selectedOpenAICompatCachePreset = Form.useWatch(
+    const selectedOpenAICompatCachePreset = AntdForm.useWatch(
       ['config', 'openAICompatCache', 'preset'],
       form,
     ) as OpenAICompatCachePreset | undefined;
