@@ -6,7 +6,7 @@ import { ModelIcon } from '@lobehub/icons';
 import { Alert, Button, Highlighter, Icon, Select } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
 import { Loader2Icon } from 'lucide-react';
-import { ReactNode, memo, useState } from 'react';
+import { ReactNode, memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -50,6 +50,9 @@ export type CheckErrorRender = (props: {
 export const hasConnectionCheckOutput = (value: unknown) =>
   typeof value === 'string' ? value.trim().length > 0 : !!value;
 
+export const resolveConnectionCheckModel = (selectedModel: string | undefined, fallback: string) =>
+  selectedModel?.trim() || fallback;
+
 interface ConnectionCheckerProps {
   checkErrorRender?: CheckErrorRender;
   model: string;
@@ -76,7 +79,15 @@ const Checker = memo<ConnectionCheckerProps>(
     const theme = useTheme();
     const [error, setError] = useState<ChatMessageError | undefined>();
 
+    useEffect(() => {
+      setCheckModel(model);
+      setPass(false);
+      setError(undefined);
+    }, [model]);
+
     const checkConnection = async () => {
+      const activeCheckModel = resolveConnectionCheckModel(checkModel, model);
+
       // Clear previous check results immediately
       setPass(false);
       setError(undefined);
@@ -91,7 +102,7 @@ const Checker = memo<ConnectionCheckerProps>(
         },
 
         onFinish: async (value) => {
-          if (hasConnectionCheckOutput(value)) {
+          if (!isError && hasConnectionCheckOutput(value)) {
             setError(undefined);
             setPass(true);
           } else {
@@ -113,12 +124,12 @@ const Checker = memo<ConnectionCheckerProps>(
               role: 'user',
             },
           ],
-          model,
+          model: activeCheckModel,
           provider,
         },
         trace: {
           sessionId: `connection:${provider}`,
-          topicId: model,
+          topicId: activeCheckModel,
           traceName: TraceNameMap.ConnectivityChecker,
         },
       });
@@ -139,6 +150,8 @@ const Checker = memo<ConnectionCheckerProps>(
             listItemHeight={36}
             onSelect={async (value) => {
               setCheckModel(value);
+              setPass(false);
+              setError(undefined);
               await updateAiProviderConfig(provider, {
                 ...currentConfig,
                 checkModel: value,

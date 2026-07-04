@@ -57,6 +57,37 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
   });
 
+  it('sends apikl.ai Chat Completions cache hints upstream', async () => {
+    await instance.chat({
+      messages: [
+        { content: 'Keep the response brief.', role: 'system' },
+        { content: 'Hello', role: 'user' },
+      ],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        chat: {
+          promptCacheKey: true,
+          sessionHeader: true,
+        },
+        preset: 'apikl.ai',
+        responses: {
+          promptCacheKey: 'derived',
+          sessionHeader: false,
+          store: 'default',
+        },
+      },
+    });
+
+    expect(instance['client'].chat.completions.create).toHaveBeenCalled();
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    const createOptions = (instance['client'].chat.completions.create as Mock).mock.calls[0][1];
+
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+    expect(createCall).not.toHaveProperty('openAICompatCache');
+    expect(createOptions.headers.Session_id).toBe(createCall.prompt_cache_key);
+  });
+
   it('uses Responses API when apiMode is responses', async () => {
     await instance.chat({
       apiMode: 'responses',
@@ -75,6 +106,58 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
     expect(createCall).not.toHaveProperty('store');
     expect(createCall.input).toEqual([{ content: 'Hello', role: 'user' }]);
+  });
+
+  it('sends apikl.ai Responses cache hints and omits rejected parameter fields', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      max_output_tokens: 512,
+      max_tokens: 4096,
+      messages: [
+        { content: 'Keep the response brief.', role: 'system' },
+        { content: 'Hello', role: 'user' },
+      ],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        chat: {
+          promptCacheKey: true,
+          sessionHeader: true,
+        },
+        preset: 'apikl.ai',
+        responses: {
+          promptCacheKey: 'derived',
+          sessionHeader: false,
+          store: 'default',
+        },
+      },
+      openAICompatResponsesParams: {
+        maxOutputTokens: false,
+        maxTokens: false,
+        truncation: 'off',
+        verbosity: 'text',
+      },
+      responseStateMode: 'provider',
+      truncation: 'auto',
+      verbosity: 'medium',
+    } as any);
+
+    expect(instance['client'].responses.create).toHaveBeenCalled();
+    expect(instance['client'].chat.completions.create).not.toHaveBeenCalled();
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    const createOptions = (instance['client'].responses.create as Mock).mock.calls[0][1];
+
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+    expect(createCall.text).toEqual({ verbosity: 'medium' });
+    expect(createCall).not.toHaveProperty('max_output_tokens');
+    expect(createCall).not.toHaveProperty('max_tokens');
+    expect(createCall).not.toHaveProperty('openAICompatCache');
+    expect(createCall).not.toHaveProperty('openAICompatResponsesParams');
+    expect(createCall).not.toHaveProperty('responseStateMode');
+    expect(createCall).not.toHaveProperty('store');
+    expect(createCall).not.toHaveProperty('truncation');
+    expect(createCall).not.toHaveProperty('verbosity');
+    expect(createOptions.headers).not.toHaveProperty('Session_id');
   });
 
   it('forwards documented Chat Completions fields and strips internal routing fields', async () => {
