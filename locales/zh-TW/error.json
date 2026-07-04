@@ -87,7 +87,7 @@
     "ComfyUIServiceUnavailable": "無法連接 ComfyUI 服務，請確認 ComfyUI 是否正常運行，或檢查服務位址設定是否正確",
     "ComfyUIUploadFailed": "ComfyUI 圖片上傳失敗，請檢查伺服器連線或重試",
     "ComfyUIWorkflowError": "ComfyUI 工作流程執行失敗，請檢查工作流程設定",
-    "ConnectionCheckFailed": "請求返回為空，請檢查 API 代理地址末尾是否未包含 `/v1`",
+    "ConnectionCheckFailed": "請求返回為空，請檢查 API 代理地址是否以 `/v1` 結尾，並確認所選模型支援目前的 API 路由",
     "CreateMessageError": "很抱歉，訊息未能正常發送，請複製內容後重新發送，刷新頁面後此訊息將不會保留",
     "ExceededContextWindow": "當前請求內容超出模型可處理的長度，請減少內容量後重試",
     "FreePlanLimit": "目前為免費用戶，無法使用該功能，請升級到付費計劃後繼續使用",

@@ -1,4 +1,4 @@
 interface:
   display_name: "ChatHub Provider Probe"
   short_description: "Probe OpenAI-compatible ChatHub gateways"
-  default_prompt: "Use $chathub-provider-probe to test my ChatHub OpenAI-compatible provider and compare Chat Completions, Responses, and cache behavior."
+  default_prompt: "Use $chathub-provider-probe to test my ChatHub OpenAI-compatible provider, compare Chat Completions and Responses cache behavior, and recommend the matching cache preset or custom settings matrix."

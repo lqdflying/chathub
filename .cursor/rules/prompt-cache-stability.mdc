@@ -1,6 +1,6 @@
 ---
-description: Prompt-cache prefix stability rules for LLM providers — preventing cache misses from message mutations
-globs: packages/context-engine/**/*.ts, packages/model-runtime/**/*.ts, packages/fetch-sse/**/*.ts, src/services/chat/**/*.ts
+description: Prompt-cache prefix stability and OpenAI-compatible cache matrix rules — preventing cache misses from message mutations and incorrect cache hints
+globs: packages/context-engine/**/*.ts, packages/model-runtime/**/*.ts, packages/fetch-sse/**/*.ts, src/services/chat/**/*.ts, src/app/**/settings/provider/**/*.tsx, skills/chathub-provider-probe/**
 alwaysApply: false
 ---
 
@@ -29,8 +29,42 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 ### Model Runtime (`packages/model-runtime/`)
 
 - `convertOpenAIMessages`: Gates `reasoning_content` injection on provider. For `openaicompatible`, skip it entirely. For `deepseek`/`moonshot`, keep it.
-- `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. Responses-API-only fields (`text`, `verbosity`, `truncation`) are gated to `apiMode === 'responses'`.
+- `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. In Responses mode, apply `openAICompatResponsesParams` so built-in presets get verified behavior and `Custom` can freely test `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity` shapes.
+- OpenAI-compatible cache hints are controlled by provider config `openAICompatCache`, not ad hoc request mutations:
+  - Chat Completions can send body `prompt_cache_key`, `Session_id` header, both, or neither.
+  - Responses can send derived body `prompt_cache_key`, `Session_id` header, and `store` as `default` / `true` / `false`.
+  - `responseStateMode: "provider"` is legacy compatibility only; when no matrix exists it normalizes to the `pptoken.org` Responses behavior.
+  - Responses `Session_id`-only mode must not force a body `prompt_cache_key`.
+  - Strip `openAICompatCache`, `responseStateMode`, `apiMode`, and other runtime-only fields before upstream request bodies are sent.
 - `anthropic` context builder: Pass through `thinking` and `redacted_thinking` blocks unchanged; never add `cache_control` to thinking/redacted blocks.
+
+### OpenAI-Compatible Cache Presets
+
+- `pptoken.org`: Responses API on; Chat cache hints off; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`.
+- `apikl.ai`: Responses API on; Chat `prompt_cache_key`, no `Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
+- `Custom`: exact Chat/Responses cache matrix and Responses parameter fields confirmed by the provider probe.
+
+Selecting a built-in preset writes the full matrix, defaults the API route radio to Responses API, and keeps detailed cache/parameter controls hidden. `Custom` expands every matrix field for provider-probe testing.
+
+### OpenAI-Compatible Cache Debugging
+
+- Start with `DEBUG_OPENAICOMPATIBLE_CACHE=1`. It logs redacted request and usage summaries for both `/v1/chat/completions` and `/v1/responses`: route, model, cache-key/session-header presence plus hash, payload fingerprint, turn/input shape, tool names/count, store, and cached-token usage when available.
+- Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` only when exact Chat Completions payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
+- Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` only when exact Responses payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
+- When live ChatHub behavior disagrees with the provider probe, compare `DEBUG_OPENAICOMPATIBLE_CACHE=1` payload fingerprints and turn/tool shapes across rounds before changing cache presets.
+- For the `apikl.ai` Responses preset, `params.hasTextVerbosity:true` without `cache.promptCacheKey.present:true` means only part of the preset/config reached the runtime.
+- For the `apikl.ai` Chat preset, `cache.promptCacheKey.present:true` with `cache.sessionId.present:false` is expected. Use `Custom` to retest Chat `Session_id`; do not enable it in the built-in preset without a real multi-turn ChatHub verification.
+
+### Probe Workflow
+
+When using or updating `skills/chathub-provider-probe`:
+
+- Interactive cache rounds use `--runs 6` by default, including the first cache round.
+- Run one selected strategy per unconfirmed endpoint per round.
+- Pause after every round for user/provider dashboard confirmation before trying another strategy.
+- Track `/v1/chat/completions` and `/v1/responses` separately. A confirmed hit on one endpoint does not prove the other endpoint works.
+- If one endpoint is confirmed, lock that strategy and continue only the unconfirmed endpoint.
+- Use `cache-matrix` only for non-interactive exhaustion after explicit user approval.
 
 ### Fetch SSE (`packages/fetch-sse/`)
 
@@ -47,5 +81,8 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 - Assert volatile generators are skipped in system messages for `openaicompatible`
 - Assert `reasoning_content` is NOT present for `openaicompatible` provider
 - Assert Responses-API-only fields are NOT present in Chat Completions mode
+- Assert OpenAI-compatible cache matrix fields produce the intended body/header shape for both Chat Completions and Responses
+- Assert Responses `Session_id`-only mode does NOT send body `prompt_cache_key`
+- Assert `openAICompatCache` does NOT leak into upstream request bodies
 - Assert thinking blocks round-trip unchanged (signature, redacted data)
 - Run `bash scripts/type-check-tsc.sh` — build failures from bad imports do NOT show up in `bun run type-check`

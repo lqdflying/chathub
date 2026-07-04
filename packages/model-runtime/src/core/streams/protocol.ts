@@ -9,6 +9,7 @@ import { nanoid } from '../../utils/uuid';
 import type { ComputeChatCostOptions } from '../usageConverters/utils/computeChatCost';
 
 export type ChatPayloadForTransformStream = {
+  debugOpenAICompatCache?: boolean;
   model?: string;
   pricing?: Pricing;
   pricingOptions?: ComputeChatCostOptions;

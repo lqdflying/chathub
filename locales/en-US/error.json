@@ -87,7 +87,7 @@
     "ComfyUIServiceUnavailable": "Failed to connect to the ComfyUI service. Please ensure it is running properly and the service URL is correctly configured.",
     "ComfyUIUploadFailed": "Failed to upload image to ComfyUI. Please check the server connection or try again.",
     "ComfyUIWorkflowError": "ComfyUI workflow execution failed. Please verify the workflow configuration.",
-    "ConnectionCheckFailed": "The request returned empty. Please check if the API proxy address does not end with `/v1`.",
+    "ConnectionCheckFailed": "The request returned empty. Check that the API proxy address ends with `/v1` and that the selected model supports the current API route.",
     "CreateMessageError": "Sorry, the message could not be sent successfully. Please copy the content and try sending it again. This message will not be retained after refreshing the page.",
     "ExceededContextWindow": "The current request content exceeds the length that the model can handle. Please reduce the amount of content and try again.",
     "FreePlanLimit": "You are currently a free user and cannot use this feature. Please upgrade to a paid plan to continue using it.",

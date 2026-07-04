@@ -99,6 +99,55 @@ describe('OpenAIStream', () => {
     expect(chunks).toEqual([]);
   });
 
+  it('should log cache debug usage when enabled', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockOpenAIStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({
+          choices: [],
+          id: 'chatcmpl-cache',
+          usage: {
+            completion_tokens: 7,
+            prompt_tokens: 128,
+            prompt_tokens_details: { cached_tokens: 64 },
+            total_tokens: 135,
+          },
+        });
+        controller.close();
+      },
+    });
+
+    const protocolStream = OpenAIStream(mockOpenAIStream, {
+      payload: {
+        debugOpenAICompatCache: true,
+        model: 'gpt-5.5',
+        provider: 'openaicompatible',
+      },
+    });
+
+    // @ts-ignore
+    for await (const _chunk of protocolStream) {
+      // drain stream
+    }
+
+    const cacheLog = consoleLogSpy.mock.calls.find(
+      ([label]) => label === '[openai-compatible-cache-debug:usage]',
+    );
+    expect(cacheLog).toBeDefined();
+    expect(JSON.parse(cacheLog![1] as string)).toMatchObject({
+      cachedTokens: 64,
+      cacheMissTokens: 64,
+      model: 'gpt-5.5',
+      outputTokens: 7,
+      promptTokens: 128,
+      responseId: 'chatcmpl-cache',
+      route: '/chat/completions',
+      totalTokens: 135,
+    });
+
+    consoleLogSpy.mockRestore();
+  });
+
   it('should handle delta content null', async () => {
     const mockOpenAIStream = new ReadableStream({
       start(controller) {

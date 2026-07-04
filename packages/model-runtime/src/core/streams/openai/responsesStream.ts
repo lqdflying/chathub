@@ -4,6 +4,7 @@ import type { Stream } from 'openai/streaming';
 
 import { AgentRuntimeErrorType } from '../../../types/error';
 import { normalizeOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatCache';
+import { debugOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatDebug';
 import { convertOpenAIResponseUsage } from '../../usageConverters';
 import {
   ChatPayloadForTransformStream,
@@ -160,6 +161,26 @@ const transformOpenAIStream = (
       case 'response.completed': {
         if (chunk.response.usage) {
           const response = normalizeOpenAICompatCacheUsage(chunk.response).json;
+          if (payload?.debugOpenAICompatCache) {
+            const usage = response.usage!;
+            const cachedTokens = usage.input_tokens_details?.cached_tokens ?? null;
+
+            debugOpenAICompatCacheUsage({
+              model: payload.model,
+              route: '/responses',
+              usage: {
+                cachedTokens,
+                cacheMissTokens:
+                  cachedTokens === null || usage.input_tokens === undefined
+                    ? null
+                    : usage.input_tokens - cachedTokens,
+                inputTokens: usage.input_tokens,
+                outputTokens: usage.output_tokens,
+                responseId: response.id,
+                totalTokens: usage.total_tokens,
+              },
+            });
+          }
 
           return {
             data: convertOpenAIResponseUsage(response.usage!, payload),

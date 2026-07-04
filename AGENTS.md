@@ -18,6 +18,8 @@ When writing or updating an **implementation plan** (e.g. Cursor Plan mode / `Cr
 
 Overview, stack, naming, wiki workflow: **`.cursor/rules/project.mdc`**. Per-model API toggles (extendParams): **`.cursor/rules/provider-model-options.mdc`**. Commands and test constraints: **`.cursor/rules/commands.mdc`**. MCP management UI patterns: **`.cursor/rules/mcp-management-ui.mdc`**.
 
+When changing provider/runtime behavior, cache diagnostics, or user-facing provider settings, update **both** repo-local OpenWiki (`openwiki/`) and the GitHub wiki clone (`wiki/`) when relevant. `wiki/` is a separate git repository on branch `master`; verify it with `git -C wiki branch -avv` before wiki commits or pushes.
+
 ## OpenWiki
 
 This repository has documentation located in the repo-local `openwiki/` directory.

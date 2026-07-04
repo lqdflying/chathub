@@ -1,6 +1,10 @@
 import { isProviderDisableBrowserRequest } from '@/config/modelProviders';
 import { AIProviderStoreState } from '@/store/aiInfra/initialState';
-import { AiProviderRuntimeConfig } from '@/types/aiProvider';
+import {
+  AiProviderRuntimeConfig,
+  normalizeOpenAICompatCacheConfig,
+  normalizeOpenAICompatResponsesParamsConfig,
+} from '@/types/aiProvider';
 import { GlobalLLMProviderKey } from '@/types/user/settings';
 
 // List
@@ -117,6 +121,18 @@ const isProviderResponseStateEnabled = (id: string) => (s: AIProviderStoreState)
   return providerCfg?.config?.responseStateMode === 'provider';
 };
 
+const providerOpenAICompatCacheConfig = (id: string) => (s: AIProviderStoreState) => {
+  const providerCfg = providerConfigById(id)(s);
+
+  return normalizeOpenAICompatCacheConfig(providerCfg?.config);
+};
+
+const providerOpenAICompatResponsesParamsConfig = (id: string) => (s: AIProviderStoreState) => {
+  const providerCfg = providerConfigById(id)(s);
+
+  return normalizeOpenAICompatResponsesParamsConfig(providerCfg?.config);
+};
+
 const isInitAiProviderRuntimeState = (s: AIProviderStoreState) => !!s.isInitAiProviderRuntimeState;
 
 export const aiProviderSelectors = {
@@ -134,8 +150,10 @@ export const aiProviderSelectors = {
   isProviderFetchOnClient,
   isProviderHasBuiltinSearch,
   isProviderHasBuiltinSearchConfig,
-  isProviderResponseStateEnabled,
   isProviderLoading,
+  isProviderResponseStateEnabled,
   providerConfigById,
   providerKeyVaults,
+  providerOpenAICompatCacheConfig,
+  providerOpenAICompatResponsesParamsConfig,
 };

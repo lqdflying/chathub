@@ -10,7 +10,7 @@ import {
   Tooltip,
 } from '@lobehub/ui';
 import { useDebounceFn } from 'ahooks';
-import { Skeleton, Switch } from 'antd';
+import { Form as AntdForm, Radio, Select, Skeleton, Switch } from 'antd';
 import { createStyles } from 'antd-style';
 import { Loader2Icon, LockIcon } from 'lucide-react';
 import Link from 'next/link';
@@ -29,6 +29,15 @@ import {
   AiProviderDetailItem,
   AiProviderSourceEnum,
   AiProviderSourceType,
+  OPENAI_COMPAT_CACHE_PRESETS,
+  type OpenAICompatCacheConfig,
+  type OpenAICompatCachePreset,
+  type OpenAICompatResponsesTruncationMode,
+  type OpenAICompatResponsesVerbosityMode,
+  normalizeOpenAICompatCacheConfig,
+  normalizeOpenAICompatResponsesParamsConfig,
+  openAICompatCachePresetConfig,
+  openAICompatResponsesParamsPresetConfig,
 } from '@/types/aiProvider';
 
 import { KeyVaultsConfigKey, LLMProviderApiTokenKey, LLMProviderBaseUrlKey } from '../../const';
@@ -61,7 +70,11 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
   `,
   form: css`
-    .${prefixCls}-form-item-control:has(.${prefixCls}-input,.${prefixCls}-select) {
+    .${prefixCls}-form-item-control:has(
+        .${prefixCls}-input,
+        .${prefixCls}-radio-group,
+        .${prefixCls}-select
+      ) {
       flex: none;
       width: min(70%, 800px);
       min-width: min(70%, 800px) !important;
@@ -86,6 +99,17 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     &:hover {
       color: ${token.colorText};
       background: ${token.colorFill};
+    }
+  `,
+  routeSegment: css`
+    display: flex !important;
+    width: 100%;
+
+    .${prefixCls}-radio-button-wrapper {
+      flex: 1;
+      min-width: 0;
+      text-align: center;
+      white-space: nowrap;
     }
   `,
   switchLoading: css`
@@ -116,6 +140,64 @@ export interface ProviderConfigProps extends Omit<AiProviderDetailItem, 'enabled
   title?: ReactNode;
 }
 
+const openAICompatCacheResponseStateMode = (cache: OpenAICompatCacheConfig) =>
+  cache.responses?.promptCacheKey === 'derived' ? 'provider' : 'stateless';
+
+const openAICompatCachePresetLabelKey: Record<OpenAICompatCachePreset, string> = {
+  'apikl.ai': 'apiklAi',
+  custom: 'custom',
+  'pptoken.org': 'pptokenOrg',
+};
+
+const normalizeOpenAICompatValues = (values: any) => {
+  const nextCache = normalizeOpenAICompatCacheConfig(values?.config);
+  const nextConfig = {
+    ...values?.config,
+    openAICompatCache: nextCache,
+    openAICompatResponsesParams: normalizeOpenAICompatResponsesParamsConfig({
+      ...values?.config,
+      openAICompatCache: nextCache,
+    }),
+    responseStateMode: openAICompatCacheResponseStateMode(nextCache),
+  };
+
+  return {
+    ...values,
+    config: nextConfig,
+  };
+};
+
+const resolveOpenAICompatValues = (changedValues: any, values: any) => {
+  const changedCache = changedValues?.config?.openAICompatCache;
+  const changedResponsesParams = changedValues?.config?.openAICompatResponsesParams;
+  if (!changedCache && !changedResponsesParams) return values;
+
+  const currentCache = normalizeOpenAICompatCacheConfig(values?.config);
+  const currentResponsesParams = normalizeOpenAICompatResponsesParamsConfig(values?.config);
+  const presetChanged = !!changedCache && Object.prototype.hasOwnProperty.call(changedCache, 'preset');
+  const nextCache = presetChanged
+    ? changedCache.preset === 'custom'
+      ? { ...currentCache, preset: 'custom' as const }
+      : openAICompatCachePresetConfig(changedCache.preset as OpenAICompatCachePreset)
+    : { ...currentCache, preset: 'custom' as const };
+  const nextResponsesParams = presetChanged
+    ? changedCache.preset === 'custom'
+      ? currentResponsesParams
+      : openAICompatResponsesParamsPresetConfig(changedCache.preset as OpenAICompatCachePreset)
+    : currentResponsesParams;
+
+  return {
+    ...values,
+    config: {
+      ...values?.config,
+      ...(presetChanged && changedCache.preset !== 'custom' ? { enableResponseApi: true } : {}),
+      openAICompatCache: nextCache,
+      openAICompatResponsesParams: nextResponsesParams,
+      responseStateMode: openAICompatCacheResponseStateMode(nextCache),
+    },
+  };
+};
+
 const ProviderConfig = memo<ProviderConfigProps>(
   ({
     apiKeyItems,
@@ -141,6 +223,10 @@ const ProviderConfig = memo<ProviderConfigProps>(
     } = settings || {};
     const { t } = useTranslation('modelProvider');
     const [form] = Form.useForm();
+    const selectedOpenAICompatCachePreset = AntdForm.useWatch(
+      ['config', 'openAICompatCache', 'preset'],
+      form,
+    ) as OpenAICompatCachePreset | undefined;
     const { cx, styles, theme } = useStyles();
 
     const [
@@ -150,8 +236,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
       isLoading,
       configUpdating,
       isFetchOnClient,
-      enableResponseApi,
-      enableResponseState,
       isProviderEndpointNotEmpty,
       isProviderApiKeyNotEmpty,
     ] = useAiInfraStore((s) => [
@@ -161,18 +245,31 @@ const ProviderConfig = memo<ProviderConfigProps>(
       aiProviderSelectors.isAiProviderConfigLoading(id)(s),
       aiProviderSelectors.isProviderConfigUpdating(id)(s),
       aiProviderSelectors.isProviderFetchOnClient(id)(s),
-      aiProviderSelectors.isProviderEnableResponseApi(id)(s),
-      aiProviderSelectors.isProviderResponseStateEnabled(id)(s),
       aiProviderSelectors.isActiveProviderEndpointNotEmpty(s),
       aiProviderSelectors.isActiveProviderApiKeyNotEmpty(s),
     ]);
+
+    const supportOpenAICompatCache = supportResponsesApi && id === 'openaicompatible';
 
     useLayoutEffect(() => {
       if (isLoading) return;
 
       // set the first time
-      form.setFieldsValue(data);
-    }, [isLoading, id, data]);
+      form.setFieldsValue(
+        supportOpenAICompatCache
+          ? {
+              ...data,
+              config: {
+                ...data?.config,
+                openAICompatCache: normalizeOpenAICompatCacheConfig(data?.config),
+                openAICompatResponsesParams: normalizeOpenAICompatResponsesParamsConfig(
+                  data?.config,
+                ),
+              },
+            }
+          : data,
+      );
+    }, [isLoading, id, data, supportOpenAICompatCache]);
 
     // 标记是否正在进行连接测试
     const isCheckingConnection = useRef(false);
@@ -194,7 +291,89 @@ const ProviderConfig = memo<ProviderConfigProps>(
     });
 
     const isCustom = source === AiProviderSourceEnum.Custom;
-    const supportResponsesState = supportResponsesApi && id === 'openaicompatible';
+    const resolvedOpenAICompatCachePreset = supportOpenAICompatCache
+      ? selectedOpenAICompatCachePreset || normalizeOpenAICompatCacheConfig(data?.config).preset
+      : 'custom';
+    const showOpenAICompatCacheMatrix =
+      supportOpenAICompatCache && resolvedOpenAICompatCachePreset === 'custom';
+    const responseApiRouteOptions = [
+      {
+        label: t('providerModels.config.responsesApi.options.chatCompletions'),
+        value: false,
+      },
+      {
+        label: t('providerModels.config.responsesApi.options.responses'),
+        value: true,
+      },
+    ];
+    const openAICompatCachePresetOptions = OPENAI_COMPAT_CACHE_PRESETS.map((preset) => ({
+      label: t(
+        `providerModels.config.openAICompatCache.preset.options.${openAICompatCachePresetLabelKey[preset]}`,
+      ),
+      value: preset,
+    }));
+    const openAICompatPromptCacheKeyOptions = [
+      {
+        label: t('providerModels.config.openAICompatCache.promptCacheKey.options.off'),
+        value: 'off',
+      },
+      {
+        label: t('providerModels.config.openAICompatCache.promptCacheKey.options.derived'),
+        value: 'derived',
+      },
+    ];
+    const openAICompatStoreOptions = [
+      {
+        label: t('providerModels.config.openAICompatCache.store.options.default'),
+        value: 'default',
+      },
+      {
+        label: t('providerModels.config.openAICompatCache.store.options.true'),
+        value: 'true',
+      },
+      {
+        label: t('providerModels.config.openAICompatCache.store.options.false'),
+        value: 'false',
+      },
+    ];
+    const openAICompatResponsesTruncationOptions: Array<{
+      label: string;
+      value: OpenAICompatResponsesTruncationMode;
+    }> = [
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.truncation.options.off'),
+        value: 'off',
+      },
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.truncation.options.auto'),
+        value: 'auto',
+      },
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.truncation.options.disabled'),
+        value: 'disabled',
+      },
+    ];
+    const openAICompatResponsesVerbosityOptions: Array<{
+      label: string;
+      value: OpenAICompatResponsesVerbosityMode;
+    }> = [
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.verbosity.options.off'),
+        value: 'off',
+      },
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.verbosity.options.text'),
+        value: 'text',
+      },
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.verbosity.options.topLevel'),
+        value: 'top-level',
+      },
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.verbosity.options.both'),
+        value: 'both',
+      },
+    ];
 
     const apiKeyItem: FormItemProps[] = !showApiKey
       ? []
@@ -312,6 +491,138 @@ const ProviderConfig = memo<ProviderConfigProps>(
       name: 'fetchOnClient',
     };
 
+    const openAICompatCacheItems: FormItemProps[] = supportOpenAICompatCache
+      ? [
+          {
+            children: isLoading ? (
+              <Skeleton.Button active />
+            ) : (
+              <Select disabled={configUpdating} options={openAICompatCachePresetOptions} />
+            ),
+            desc: t('providerModels.config.openAICompatCache.preset.desc'),
+            label: t('providerModels.config.openAICompatCache.preset.title'),
+            name: ['config', 'openAICompatCache', 'preset'],
+          },
+          ...(showOpenAICompatCacheMatrix
+            ? [
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Switch loading={configUpdating} />
+                  ),
+                  desc: t('providerModels.config.openAICompatCache.chatPromptCacheKey.desc'),
+                  getValueFromEvent: (checked: boolean) => checked,
+                  getValueProps: (value?: boolean) => ({ checked: !!value }),
+                  label: t('providerModels.config.openAICompatCache.chatPromptCacheKey.title'),
+                  minWidth: undefined,
+                  name: ['config', 'openAICompatCache', 'chat', 'promptCacheKey'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Switch loading={configUpdating} />
+                  ),
+                  desc: t('providerModels.config.openAICompatCache.chatSessionHeader.desc'),
+                  getValueFromEvent: (checked: boolean) => checked,
+                  getValueProps: (value?: boolean) => ({ checked: !!value }),
+                  label: t('providerModels.config.openAICompatCache.chatSessionHeader.title'),
+                  minWidth: undefined,
+                  name: ['config', 'openAICompatCache', 'chat', 'sessionHeader'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Select disabled={configUpdating} options={openAICompatPromptCacheKeyOptions} />
+                  ),
+                  desc: t('providerModels.config.openAICompatCache.responsesPromptCacheKey.desc'),
+                  label: t('providerModels.config.openAICompatCache.responsesPromptCacheKey.title'),
+                  name: ['config', 'openAICompatCache', 'responses', 'promptCacheKey'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Switch loading={configUpdating} />
+                  ),
+                  desc: t('providerModels.config.openAICompatCache.responsesSessionHeader.desc'),
+                  getValueFromEvent: (checked: boolean) => checked,
+                  getValueProps: (value?: boolean) => ({ checked: !!value }),
+                  label: t('providerModels.config.openAICompatCache.responsesSessionHeader.title'),
+                  minWidth: undefined,
+                  name: ['config', 'openAICompatCache', 'responses', 'sessionHeader'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Select disabled={configUpdating} options={openAICompatStoreOptions} />
+                  ),
+                  desc: t('providerModels.config.openAICompatCache.responsesStore.desc'),
+                  label: t('providerModels.config.openAICompatCache.responsesStore.title'),
+                  name: ['config', 'openAICompatCache', 'responses', 'store'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Switch loading={configUpdating} />
+                  ),
+                  desc: t('providerModels.config.openAICompatResponsesParams.maxTokens.desc'),
+                  getValueFromEvent: (checked: boolean) => checked,
+                  getValueProps: (value?: boolean) => ({ checked: !!value }),
+                  label: t('providerModels.config.openAICompatResponsesParams.maxTokens.title'),
+                  minWidth: undefined,
+                  name: ['config', 'openAICompatResponsesParams', 'maxTokens'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Switch loading={configUpdating} />
+                  ),
+                  desc: t('providerModels.config.openAICompatResponsesParams.maxOutputTokens.desc'),
+                  getValueFromEvent: (checked: boolean) => checked,
+                  getValueProps: (value?: boolean) => ({ checked: !!value }),
+                  label: t(
+                    'providerModels.config.openAICompatResponsesParams.maxOutputTokens.title',
+                  ),
+                  minWidth: undefined,
+                  name: ['config', 'openAICompatResponsesParams', 'maxOutputTokens'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Select
+                      disabled={configUpdating}
+                      options={openAICompatResponsesTruncationOptions}
+                    />
+                  ),
+                  desc: t('providerModels.config.openAICompatResponsesParams.truncation.desc'),
+                  label: t('providerModels.config.openAICompatResponsesParams.truncation.title'),
+                  name: ['config', 'openAICompatResponsesParams', 'truncation'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Select
+                      disabled={configUpdating}
+                      options={openAICompatResponsesVerbosityOptions}
+                    />
+                  ),
+                  desc: t('providerModels.config.openAICompatResponsesParams.verbosity.desc'),
+                  label: t('providerModels.config.openAICompatResponsesParams.verbosity.title'),
+                  name: ['config', 'openAICompatResponsesParams', 'verbosity'],
+                },
+              ]
+            : []),
+        ]
+      : [];
+
     const configItems = [
       ...apiKeyItem,
       endpointItem,
@@ -320,29 +631,21 @@ const ProviderConfig = memo<ProviderConfigProps>(
             children: isLoading ? (
               <Skeleton.Button active />
             ) : (
-              <Switch loading={configUpdating} value={enableResponseApi} />
+              <Radio.Group
+                buttonStyle="solid"
+                className={styles.routeSegment}
+                disabled={configUpdating}
+                optionType="button"
+                options={responseApiRouteOptions}
+              />
             ),
             desc: t('providerModels.config.responsesApi.desc'),
+            getValueProps: (value?: boolean) => ({ value: !!value }),
             label: t('providerModels.config.responsesApi.title'),
-            minWidth: undefined,
             name: ['config', 'enableResponseApi'],
           }
         : undefined,
-      supportResponsesState && enableResponseApi
-        ? {
-            children: isLoading ? (
-              <Skeleton.Button active />
-            ) : (
-              <Switch checked={enableResponseState} loading={configUpdating} />
-            ),
-            desc: t('providerModels.config.responsesState.desc'),
-            getValueFromEvent: (checked: boolean) => (checked ? 'provider' : 'stateless'),
-            getValueProps: (value?: string) => ({ checked: value === 'provider' }),
-            label: t('providerModels.config.responsesState.title'),
-            minWidth: undefined,
-            name: ['config', 'responseStateMode'],
-          }
-        : undefined,
+      ...openAICompatCacheItems,
       clientFetchItem,
       showChecker
         ? {
@@ -360,7 +663,12 @@ const ProviderConfig = memo<ProviderConfigProps>(
                   // 设置连接测试状态，阻止 onValuesChange 的重复请求
                   isCheckingConnection.current = true;
                   // 主动保存表单最新值，确保 fetchAiProviderRuntimeState 获取最新数据
-                  await updateAiProviderConfig(id, form.getFieldsValue());
+                  const values = form.getFieldsValue(true);
+                  const nextValues = supportOpenAICompatCache
+                    ? normalizeOpenAICompatValues(values)
+                    : values;
+                  if (nextValues !== values) form.setFieldsValue(nextValues);
+                  await updateAiProviderConfig(id, nextValues);
                 }}
                 provider={id}
               />
@@ -432,8 +740,14 @@ const ProviderConfig = memo<ProviderConfigProps>(
         className={cx(styles.form, className)}
         form={form}
         items={[model]}
-        onValuesChange={(_, values) => {
-          debouncedHandleValueChange(id, values);
+        onValuesChange={(changedValues, values) => {
+          const nextValues = supportOpenAICompatCache
+            ? resolveOpenAICompatValues(changedValues, values)
+            : values;
+
+          if (nextValues !== values) form.setFieldsValue(nextValues);
+
+          debouncedHandleValueChange(id, nextValues);
         }}
         variant={'borderless'}
         {...FORM_STYLE}

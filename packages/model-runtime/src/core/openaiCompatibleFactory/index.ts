@@ -42,6 +42,7 @@ import {
   deriveCompatPromptCacheKey,
   normalizeOpenAICompatCacheUsage,
 } from './openaicompatCache';
+import { debugOpenAICompatCacheRequest, debugOpenAICompatCacheUsage } from './openaicompatDebug';
 
 export * from './nonStreamToStream';
 
@@ -57,6 +58,55 @@ export const CHAT_MODELS_BLOCK_LIST = [
   'whisper',
   'dall-e',
 ];
+
+const openAICompatStoreValue = (store?: 'default' | 'false' | 'true') => {
+  if (store === 'true') return true;
+  if (store === 'false') return false;
+  return undefined;
+};
+
+const shouldDebugOpenAICompatCache = (providerId?: string) =>
+  providerId === 'openaicompatible' && process.env.DEBUG_OPENAICOMPATIBLE_CACHE === '1';
+
+const recordValue = (value: unknown): Record<string, any> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
+
+const applyOpenAICompatResponsesParams = (
+  payload: Record<string, any>,
+  params?: ChatStreamPayload['openAICompatResponsesParams'],
+) => {
+  if (!params) return payload;
+
+  const next = { ...payload };
+  const text = recordValue(next.text);
+  const maxTokens = next.max_tokens;
+  const maxOutputTokens = next.max_output_tokens ?? maxTokens;
+  const verbosity = next.verbosity ?? text.verbosity;
+
+  delete next.max_output_tokens;
+  delete next.max_tokens;
+  delete next.text;
+  delete next.truncation;
+  delete next.verbosity;
+
+  if (params.maxTokens && maxTokens !== undefined) next.max_tokens = maxTokens;
+  if (params.maxOutputTokens && maxOutputTokens !== undefined) {
+    next.max_output_tokens = maxOutputTokens;
+  }
+  if (params.truncation && params.truncation !== 'off') next.truncation = params.truncation;
+
+  const verbosityMode = params.verbosity || 'off';
+  if (verbosityMode === 'text' || verbosityMode === 'both') {
+    const textPayload = { ...text };
+    if (verbosity !== undefined) textPayload.verbosity = verbosity;
+    if (Object.keys(textPayload).length > 0) next.text = textPayload;
+  }
+  if ((verbosityMode === 'top-level' || verbosityMode === 'both') && verbosity !== undefined) {
+    next.verbosity = verbosity;
+  }
+
+  return next;
+};
 
 type ConstructorOptions<T extends Record<string, any> = any> = ClientOptions & T;
 export type CreateImageOptions = Omit<ClientOptions, 'apiKey' | 'provider'> & {
@@ -215,6 +265,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       try {
         const log = debug(`${this.logPrefix}:chat`);
         const inputStartAt = Date.now();
+        const debugOpenAICompatCache = shouldDebugOpenAICompatCache(this.id);
 
         log('chat called with model: %s, stream: %s', payload.model, payload.stream ?? true);
 
@@ -255,14 +306,55 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             } as OpenAI.ChatCompletionCreateParamsStreaming);
 
         if ((postPayload as any).apiMode === 'responses') {
-          return this.handleResponseAPIMode(processedPayload, options);
+          const responsePayload = { ...postPayload } as ChatStreamPayload & Record<string, any>;
+          const runtimePayload = processedPayload as Record<string, any>;
+
+          for (const key of [
+            'openAICompatCache',
+            'openAICompatResponsesParams',
+            'responseStateMode',
+          ] as const) {
+            if (runtimePayload[key] !== undefined) responsePayload[key] = runtimePayload[key];
+          }
+          if (
+            responsePayload.prompt_cache_key === undefined &&
+            runtimePayload.prompt_cache_key !== undefined
+          ) {
+            responsePayload.prompt_cache_key = runtimePayload.prompt_cache_key;
+          }
+          if (responsePayload.store === undefined && runtimePayload.store !== undefined) {
+            responsePayload.store = runtimePayload.store;
+          }
+
+          return this.handleResponseAPIMode(responsePayload, options);
         }
 
-        const { apiMode: _apiMode, ...chatCompletionPayload } = postPayload as typeof postPayload & {
+        const {
+          apiMode: _apiMode,
+          openAICompatCache: _openAICompatCache,
+          openAICompatResponsesParams: _openAICompatResponsesParams,
+          ...chatCompletionPayload
+        } = postPayload as typeof postPayload & {
           apiMode?: string;
+          openAICompatCache?: ChatStreamPayload['openAICompatCache'];
+          openAICompatResponsesParams?: ChatStreamPayload['openAICompatResponsesParams'];
         };
 
         const messages = await convertOpenAIMessages(chatCompletionPayload.messages, this.id);
+        const openAICompatCache = payload.openAICompatCache || processedPayload.openAICompatCache;
+        const chatCache = openAICompatCache?.chat;
+        const explicitChatCacheKey =
+          typeof (chatCompletionPayload as any).prompt_cache_key === 'string'
+            ? (chatCompletionPayload as any).prompt_cache_key
+            : '';
+        const derivedChatCacheKey =
+          !explicitChatCacheKey && (chatCache?.promptCacheKey || chatCache?.sessionHeader)
+            ? await deriveCompatPromptCacheKey(
+                { ...chatCompletionPayload, messages, model: payload.model },
+                payload.model,
+              )
+            : '';
+        const chatCacheKey = explicitChatCacheKey || derivedChatCacheKey;
 
         let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
 
@@ -273,6 +365,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             model: payload.model,
             pricing: await getModelPricing(payload.model, this.id),
             provider: this.id,
+            debugOpenAICompatCache,
           },
         };
 
@@ -286,6 +379,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         } else {
           const finalPayload = {
             ...chatCompletionPayload,
+            ...(chatCache?.promptCacheKey && chatCacheKey
+              ? { prompt_cache_key: chatCacheKey }
+              : {}),
             messages,
             ...(chatCompletion?.noUserId ? {} : { user: options?.user }),
             stream_options:
@@ -293,8 +389,21 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
                 ? { include_usage: true }
                 : undefined,
           };
+          const requestHeaders = {
+            Accept: '*/*',
+            ...options?.requestHeaders,
+            ...(chatCache?.sessionHeader && chatCacheKey ? { Session_id: chatCacheKey } : {}),
+          };
 
           log('sending chat completion request with %d messages', messages.length);
+
+          if (debugOpenAICompatCache) {
+            debugOpenAICompatCacheRequest({
+              headers: requestHeaders,
+              payload: finalPayload,
+              route: '/chat/completions',
+            });
+          }
 
           if (debugParams?.chatCompletion?.()) {
             console.log('[requestPayload]');
@@ -303,7 +412,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
           response = await this.client.chat.completions.create(finalPayload, {
             // https://github.com/lobehub/lobe-chat/pull/318
-            headers: { Accept: '*/*', ...options?.requestHeaders },
+            headers: requestHeaders,
             signal: options?.signal,
           });
         }
@@ -775,6 +884,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('handleResponseAPIMode called with model: %s', payload.model);
 
       const inputStartAt = Date.now();
+      const debugOpenAICompatCache = shouldDebugOpenAICompatCache(this.id);
 
       const { messages, reasoning_effort, tools, reasoning, responseMode, ...res } =
         responses?.handlePayload
@@ -783,20 +893,41 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const responseStateMode = res.responseStateMode;
       const storeOverride = res.store;
-      const statefulResponses = responseStateMode === 'provider';
+      const responseCache = res.openAICompatCache?.responses;
+      const responsesParams = res.openAICompatResponsesParams;
+      const statefulResponses = !res.openAICompatCache && responseStateMode === 'provider';
+      const responseCacheNeedsKey =
+        responseCache?.promptCacheKey === 'derived' || responseCache?.sessionHeader;
 
       // remove penalty params
       delete res.apiMode;
       delete res.frequency_penalty;
+      delete res.openAICompatCache;
+      delete res.openAICompatResponsesParams;
       delete res.presence_penalty;
       delete res.responseStateMode;
       delete res.store;
 
       const input = await convertOpenAIResponseInputs(messages as any);
-      const promptCacheKey =
-        statefulResponses && !(res as any).prompt_cache_key
-          ? await deriveCompatPromptCacheKey({ ...res, input, model: payload.model }, payload.model)
+      const responseParamsPayload = applyOpenAICompatResponsesParams(res, responsesParams);
+      const explicitPromptCacheKey =
+        typeof responseParamsPayload.prompt_cache_key === 'string'
+          ? responseParamsPayload.prompt_cache_key
           : '';
+      const derivedPromptCacheKey =
+        !explicitPromptCacheKey && (statefulResponses || responseCacheNeedsKey)
+          ? await deriveCompatPromptCacheKey(
+              { ...responseParamsPayload, input, model: payload.model },
+              payload.model,
+            )
+          : '';
+      const promptCacheKey = explicitPromptCacheKey || derivedPromptCacheKey;
+      const shouldSendPromptCacheKey =
+        !!promptCacheKey &&
+        (statefulResponses || responseCache?.promptCacheKey === 'derived' || !!explicitPromptCacheKey);
+      const matrixStore = openAICompatStoreValue(responseCache?.store);
+      const store =
+        storeOverride !== undefined ? storeOverride : matrixStore !== undefined ? matrixStore : undefined;
 
       const isStreaming = payload.stream !== false;
       log(
@@ -807,8 +938,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       );
 
       const postPayload = {
-        ...res,
-        ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
+        ...responseParamsPayload,
+        ...(shouldSendPromptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
         ...(reasoning || reasoning_effort
           ? {
               reasoning: {
@@ -818,7 +949,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             }
           : {}),
         input,
-        store: storeOverride ?? statefulResponses,
+        ...(store !== undefined || statefulResponses ? { store: store ?? true } : {}),
         stream: !isStreaming ? undefined : isStreaming,
         tools: tools?.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
       } as OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams;
@@ -829,9 +960,21 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       log('sending responses.create request');
+      const requestHeaders = {
+        ...options?.requestHeaders,
+        ...(responseCache?.sessionHeader && promptCacheKey ? { Session_id: promptCacheKey } : {}),
+      };
+
+      if (debugOpenAICompatCache) {
+        debugOpenAICompatCacheRequest({
+          headers: requestHeaders,
+          payload: postPayload,
+          route: '/responses',
+        });
+      }
 
       const response = await this.client.responses.create(postPayload, {
-        headers: options?.requestHeaders,
+        headers: requestHeaders,
         signal: options?.signal,
       });
 
@@ -842,6 +985,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           model: payload.model,
           pricing: await getModelPricing(payload.model, this.id),
           provider: this.id,
+          debugOpenAICompatCache,
         },
       };
 
@@ -870,6 +1014,28 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       const normalizedResponse = normalizeOpenAICompatCacheUsage(response).json;
+      if (debugOpenAICompatCache) {
+        const usage = (normalizedResponse as OpenAI.Responses.Response).usage;
+        const cachedTokens = usage?.input_tokens_details?.cached_tokens ?? null;
+
+        if (usage) {
+          debugOpenAICompatCacheUsage({
+            model: payload.model,
+            route: '/responses',
+            usage: {
+              cachedTokens,
+              cacheMissTokens:
+                cachedTokens === null || usage.input_tokens === undefined
+                  ? null
+                  : usage.input_tokens - cachedTokens,
+              inputTokens: usage.input_tokens,
+              outputTokens: usage.output_tokens,
+              responseId: (normalizedResponse as OpenAI.Responses.Response).id,
+              totalTokens: usage.total_tokens,
+            },
+          });
+        }
+      }
 
       if (responseMode === 'json') {
         log('returning JSON response mode');

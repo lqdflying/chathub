@@ -128,6 +128,35 @@ describe('LobeOpenAICompatibleFactory', () => {
       expect(result).toBeInstanceOf(Response);
     });
 
+    it('should send configured Chat Completions cache hints for OpenAI-compatible payloads', async () => {
+      const mockStream = new ReadableStream();
+      const mockCreateMethod = vi
+        .spyOn(instance['client'].chat.completions, 'create')
+        .mockResolvedValue(mockStream as any);
+
+      await instance.chat({
+        messages: [
+          { content: 'Keep the response brief.', role: 'system' },
+          { content: 'Hello', role: 'user' },
+        ],
+        model: 'gpt-5-mini',
+        openAICompatCache: {
+          chat: {
+            promptCacheKey: true,
+            sessionHeader: true,
+          },
+        },
+        temperature: 0,
+      });
+
+      const requestPayload = mockCreateMethod.mock.calls[0][0] as any;
+      const requestOptions = mockCreateMethod.mock.calls[0][1] as any;
+
+      expect(requestPayload.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+      expect(requestPayload).not.toHaveProperty('openAICompatCache');
+      expect(requestOptions.headers.Session_id).toBe(requestPayload.prompt_cache_key);
+    });
+
     describe('streaming response', () => {
       it('should handle multiple data chunks correctly', async () => {
         const mockStream = new ReadableStream({
@@ -1056,14 +1085,10 @@ describe('LobeOpenAICompatibleFactory', () => {
           temperature: 0,
         });
 
-        expect(mockResponsesCreate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            store: false,
-          }),
-          expect.any(Object),
-        );
+        expect(mockResponsesCreate).toHaveBeenCalledWith(expect.any(Object), expect.any(Object));
         expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('prompt_cache_key');
         expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('responseStateMode');
+        expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('store');
       });
 
       it('should enable Responses state and derive prompt_cache_key when explicitly configured', async () => {
@@ -1100,6 +1125,89 @@ describe('LobeOpenAICompatibleFactory', () => {
           expect.any(Object),
         );
         expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('responseStateMode');
+      });
+
+      it('should send configured Responses cache hints without leaking internal config', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: {
+            useResponse: true,
+          },
+          provider: ModelProvider.OpenAI,
+        });
+
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const prod = new ReadableStream();
+        const debug = new ReadableStream();
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockResolvedValue({ tee: () => [prod, debug] } as any);
+
+        await inst.chat({
+          messages: [
+            { content: 'Keep the response brief.', role: 'system' },
+            { content: 'hi', role: 'user' },
+          ],
+          model: 'gpt-5-mini',
+          openAICompatCache: {
+            responses: {
+              promptCacheKey: 'derived',
+              sessionHeader: true,
+              store: 'false',
+            },
+          },
+          responseStateMode: 'provider',
+          temperature: 0,
+        });
+
+        const requestPayload = mockResponsesCreate.mock.calls[0][0] as any;
+        const requestOptions = mockResponsesCreate.mock.calls[0][1] as any;
+
+        expect(requestPayload.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+        expect(requestPayload.store).toBe(false);
+        expect(requestPayload).not.toHaveProperty('openAICompatCache');
+        expect(requestPayload).not.toHaveProperty('responseStateMode');
+        expect(requestOptions.headers.Session_id).toBe(requestPayload.prompt_cache_key);
+      });
+
+      it('should allow Responses Session_id without sending prompt_cache_key', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: {
+            useResponse: true,
+          },
+          provider: ModelProvider.OpenAI,
+        });
+
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const prod = new ReadableStream();
+        const debug = new ReadableStream();
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockResolvedValue({ tee: () => [prod, debug] } as any);
+
+        await inst.chat({
+          messages: [
+            { content: 'Keep the response brief.', role: 'system' },
+            { content: 'hi', role: 'user' },
+          ],
+          model: 'gpt-5-mini',
+          openAICompatCache: {
+            responses: {
+              promptCacheKey: 'off',
+              sessionHeader: true,
+              store: 'default',
+            },
+          },
+          temperature: 0,
+        });
+
+        const requestPayload = mockResponsesCreate.mock.calls[0][0] as any;
+        const requestOptions = mockResponsesCreate.mock.calls[0][1] as any;
+
+        expect(requestPayload).not.toHaveProperty('prompt_cache_key');
+        expect(requestPayload).not.toHaveProperty('store');
+        expect(requestOptions.headers.Session_id).toMatch(/^compat_cc_[a-f0-9]{32}$/);
       });
 
       it('should route to Responses API when model matches useResponseModels', async () => {

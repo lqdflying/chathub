@@ -4,6 +4,7 @@ import type { Stream } from 'openai/streaming';
 
 import { ChatStreamCallbacks } from '../../../types';
 import { AgentRuntimeErrorType, ILobeAgentRuntimeErrorType } from '../../../types/error';
+import { debugOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatDebug';
 import { convertOpenAIUsage } from '../../usageConverters';
 import {
   ChatPayloadForTransformStream,
@@ -42,6 +43,34 @@ const processMarkdownBase64Images = (text: string): { cleanedText: string; urls:
   return { cleanedText, urls };
 };
 
+const debugOpenAICompatChatUsage = (
+  usage: OpenAI.Completions.CompletionUsage,
+  payload?: ChatPayloadForTransformStream,
+  responseId?: string,
+) => {
+  if (!payload?.debugOpenAICompatCache) return;
+
+  const cachedTokens =
+    (usage as any).prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? null;
+
+  debugOpenAICompatCacheUsage({
+    model: payload.model,
+    route: '/chat/completions',
+    usage: {
+      cachedTokens,
+      cacheMissTokens:
+        (usage as any).prompt_cache_miss_tokens ??
+        (cachedTokens === null || usage.prompt_tokens === undefined
+          ? null
+          : usage.prompt_tokens - cachedTokens),
+      outputTokens: usage.completion_tokens,
+      promptTokens: usage.prompt_tokens,
+      responseId,
+      totalTokens: usage.total_tokens,
+    },
+  });
+};
+
 const transformOpenAIStream = (
   chunk: OpenAI.ChatCompletionChunk,
   streamContext: StreamContext,
@@ -76,6 +105,7 @@ const transformOpenAIStream = (
     if (!Array.isArray(chunk.choices) || chunk.choices.length === 0) {
       if (chunk.usage) {
         const usage = chunk.usage;
+        debugOpenAICompatChatUsage(usage, payload, chunk.id);
         return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
       }
 
@@ -233,6 +263,7 @@ const transformOpenAIStream = (
 
       if (chunk.usage) {
         const usage = chunk.usage;
+        debugOpenAICompatChatUsage(usage, payload, chunk.id);
         return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
       }
 
@@ -303,6 +334,7 @@ const transformOpenAIStream = (
         // 如果 content 是空字符串但 chunk 带有 usage，则优先返回 usage（例如 Gemini image-preview 最终会在单独的 chunk 中返回 usage）
         if (content === '' && chunk.usage) {
           const usage = chunk.usage;
+          debugOpenAICompatChatUsage(usage, payload, chunk.id);
           return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
         }
 
@@ -418,6 +450,7 @@ const transformOpenAIStream = (
     // litellm 的返回结果中，存在 delta 为空，但是有 usage 的情况
     if (chunk.usage) {
       const usage = chunk.usage;
+      debugOpenAICompatChatUsage(usage, payload, chunk.id);
       return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
     }
 

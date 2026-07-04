@@ -1,14 +1,19 @@
 // @vitest-environment node
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as debugStreamModule from '../../utils/debugStream';
 import { LobeOpenAICompatibleAI } from './index';
 
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
 describe('LobeOpenAICompatibleAI', () => {
   let instance: InstanceType<typeof LobeOpenAICompatibleAI>;
+  let originalCacheDebug: string | undefined;
+  let originalResponsesDebug: string | undefined;
 
   beforeEach(() => {
+    originalCacheDebug = process.env.DEBUG_OPENAICOMPATIBLE_CACHE;
+    originalResponsesDebug = process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES;
     instance = new LobeOpenAICompatibleAI({
       apiKey: 'test',
       baseURL: 'https://gateway.example.com/v1',
@@ -24,6 +29,10 @@ describe('LobeOpenAICompatibleAI', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    if (originalCacheDebug === undefined) delete process.env.DEBUG_OPENAICOMPATIBLE_CACHE;
+    else process.env.DEBUG_OPENAICOMPATIBLE_CACHE = originalCacheDebug;
+    if (originalResponsesDebug === undefined) delete process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES;
+    else process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES = originalResponsesDebug;
   });
 
   it('uses Chat Completions by default', async () => {
@@ -57,6 +66,37 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
   });
 
+  it('sends apikl.ai Chat Completions cache hints upstream', async () => {
+    await instance.chat({
+      messages: [
+        { content: 'Keep the response brief.', role: 'system' },
+        { content: 'Hello', role: 'user' },
+      ],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        chat: {
+          promptCacheKey: true,
+          sessionHeader: true,
+        },
+        preset: 'apikl.ai',
+        responses: {
+          promptCacheKey: 'derived',
+          sessionHeader: false,
+          store: 'default',
+        },
+      },
+    });
+
+    expect(instance['client'].chat.completions.create).toHaveBeenCalled();
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    const createOptions = (instance['client'].chat.completions.create as Mock).mock.calls[0][1];
+
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+    expect(createCall).not.toHaveProperty('openAICompatCache');
+    expect(createOptions.headers.Session_id).toBe(createCall.prompt_cache_key);
+  });
+
   it('uses Responses API when apiMode is responses', async () => {
     await instance.chat({
       apiMode: 'responses',
@@ -70,11 +110,63 @@ describe('LobeOpenAICompatibleAI', () => {
     const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
     expect(createCall).toMatchObject({
       model: 'gpt-5.5',
-      store: false,
       stream: true,
     });
     expect(createCall).not.toHaveProperty('apiMode');
+    expect(createCall).not.toHaveProperty('store');
     expect(createCall.input).toEqual([{ content: 'Hello', role: 'user' }]);
+  });
+
+  it('sends apikl.ai Responses cache hints and omits rejected parameter fields', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      max_output_tokens: 512,
+      max_tokens: 4096,
+      messages: [
+        { content: 'Keep the response brief.', role: 'system' },
+        { content: 'Hello', role: 'user' },
+      ],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        chat: {
+          promptCacheKey: true,
+          sessionHeader: true,
+        },
+        preset: 'apikl.ai',
+        responses: {
+          promptCacheKey: 'derived',
+          sessionHeader: false,
+          store: 'default',
+        },
+      },
+      openAICompatResponsesParams: {
+        maxOutputTokens: false,
+        maxTokens: false,
+        truncation: 'off',
+        verbosity: 'text',
+      },
+      responseStateMode: 'provider',
+      truncation: 'auto',
+      verbosity: 'medium',
+    } as any);
+
+    expect(instance['client'].responses.create).toHaveBeenCalled();
+    expect(instance['client'].chat.completions.create).not.toHaveBeenCalled();
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    const createOptions = (instance['client'].responses.create as Mock).mock.calls[0][1];
+
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+    expect(createCall.text).toEqual({ verbosity: 'medium' });
+    expect(createCall).not.toHaveProperty('max_output_tokens');
+    expect(createCall).not.toHaveProperty('max_tokens');
+    expect(createCall).not.toHaveProperty('openAICompatCache');
+    expect(createCall).not.toHaveProperty('openAICompatResponsesParams');
+    expect(createCall).not.toHaveProperty('responseStateMode');
+    expect(createCall).not.toHaveProperty('store');
+    expect(createCall).not.toHaveProperty('truncation');
+    expect(createCall).not.toHaveProperty('verbosity');
+    expect(createOptions.headers).not.toHaveProperty('Session_id');
   });
 
   it('forwards documented Chat Completions fields and strips internal routing fields', async () => {
@@ -151,26 +243,194 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('truncation');
   });
 
-  it('forwards Responses-API-only fields (text, verbosity, truncation) in Responses mode', async () => {
+  it('normalizes portable Responses fields in Responses mode', async () => {
     await instance.chat({
       apiMode: 'responses',
       messages: [{ content: 'Hello', role: 'user' }],
+      max_output_tokens: 512,
+      max_tokens: 4096,
       model: 'gpt-5.5',
-      text: { verbosity: 'low' },
+      openAICompatResponsesParams: {
+        maxOutputTokens: false,
+        maxTokens: false,
+        truncation: 'off',
+        verbosity: 'text',
+      },
       truncation: 'auto',
       verbosity: 'medium',
-    });
+    } as any);
 
     expect(instance['client'].responses.create).toHaveBeenCalled();
 
     const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
-    // The factory forwards the original payload to Responses mode, so these
-    // Responses-API fields survive through handleResponseAPIMode.
     expect(createCall).toMatchObject({
       model: 'gpt-5.5',
+      text: { verbosity: 'medium' },
+    });
+    expect(createCall).not.toHaveProperty('max_output_tokens');
+    expect(createCall).not.toHaveProperty('max_tokens');
+    expect(createCall).not.toHaveProperty('truncation');
+    expect(createCall).not.toHaveProperty('verbosity');
+  });
+
+  it('allows custom Responses parameter compatibility fields when configured', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      max_output_tokens: 512,
+      max_tokens: 4096,
+      model: 'gpt-5.5',
+      openAICompatResponsesParams: {
+        maxOutputTokens: true,
+        maxTokens: true,
+        truncation: 'auto',
+        verbosity: 'both',
+      },
       text: { verbosity: 'low' },
+      truncation: 'disabled',
+      verbosity: 'medium',
+    } as any);
+
+    expect(instance['client'].responses.create).toHaveBeenCalled();
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall).toMatchObject({
+      max_output_tokens: 512,
+      max_tokens: 4096,
+      model: 'gpt-5.5',
+      text: { verbosity: 'medium' },
       truncation: 'auto',
       verbosity: 'medium',
     });
+  });
+
+  it('enables Responses debug stream logging with DEBUG_OPENAICOMPATIBLE_RESPONSES', async () => {
+    process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES = '1';
+    const debugStreamSpy = vi
+      .spyOn(debugStreamModule, 'debugStream')
+      .mockImplementation(() => Promise.resolve());
+
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.5',
+    });
+
+    expect(debugStreamSpy).toHaveBeenCalled();
+  });
+
+  it('logs redacted cache debug summaries without raw prompt text', async () => {
+    process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await instance.chat({
+      messages: [
+        { content: 'System secret text', role: 'system' },
+        { content: 'User secret text', role: 'user' },
+      ],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        chat: {
+          promptCacheKey: true,
+          sessionHeader: true,
+        },
+        preset: 'apikl.ai',
+      },
+      tools: [
+        {
+          function: {
+            name: 'lookup_private_data',
+            parameters: { properties: { query: { type: 'string' } }, type: 'object' },
+          },
+          type: 'function',
+        },
+      ],
+    });
+
+    const cacheLog = consoleLogSpy.mock.calls.find(
+      ([label]) => label === '[openai-compatible-cache-debug:request]',
+    );
+
+    expect(cacheLog).toBeDefined();
+    const summary = JSON.parse(cacheLog![1] as string);
+    expect(summary).toMatchObject({
+      cache: {
+        promptCacheKey: { present: true },
+        sessionId: { present: true },
+      },
+      model: 'gpt-5.5',
+      route: '/chat/completions',
+      tools: {
+        count: 1,
+        names: ['lookup_private_data'],
+      },
+      turnShape: {
+        count: 2,
+        sequence: ['system:text', 'user:text'],
+      },
+    });
+    expect(cacheLog![1]).not.toContain('System secret text');
+    expect(cacheLog![1]).not.toContain('User secret text');
+    expect(cacheLog![1]).not.toContain('properties');
+
+    consoleLogSpy.mockRestore();
+  });
+
+  it('logs redacted Responses cache debug summaries without raw prompt text', async () => {
+    process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [
+        { content: 'System secret text', role: 'system' },
+        { content: 'User secret text', role: 'user' },
+      ],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        preset: 'apikl.ai',
+        responses: {
+          promptCacheKey: 'derived',
+          sessionHeader: false,
+          store: 'default',
+        },
+      },
+      openAICompatResponsesParams: {
+        maxOutputTokens: false,
+        maxTokens: false,
+        truncation: 'off',
+        verbosity: 'text',
+      },
+      responseStateMode: 'provider',
+      verbosity: 'medium',
+    } as any);
+
+    const cacheLog = consoleLogSpy.mock.calls.find(
+      ([label]) => label === '[openai-compatible-cache-debug:request]',
+    );
+
+    expect(cacheLog).toBeDefined();
+    const summary = JSON.parse(cacheLog![1] as string);
+    expect(summary).toMatchObject({
+      cache: {
+        promptCacheKey: { present: true },
+        sessionId: { present: false },
+        store: null,
+      },
+      model: 'gpt-5.5',
+      params: {
+        hasTextVerbosity: true,
+        hasTopLevelVerbosity: false,
+      },
+      route: '/responses',
+      turnShape: {
+        count: 2,
+        sequence: ['developer:text', 'user:text'],
+      },
+    });
+    expect(cacheLog![1]).not.toContain('System secret text');
+    expect(cacheLog![1]).not.toContain('User secret text');
+
+    consoleLogSpy.mockRestore();
   });
 });
