@@ -178,7 +178,7 @@ After the baseline, parameter, and cache probes, report these sections:
    - Say what requires runtime changes, such as stripping unsupported Responses fields, mapping `verbosity` to `text.verbosity`, adding `Session_id`, or adding chat-route cache hints.
    - Recommend the OpenAI-compatible provider settings when the strategy is expressible by the current UI:
      - `pptoken.org` preset for Responses derived `prompt_cache_key`, no `Session_id`, `store:true`, with Chat cache off.
-     - `apikl.ai` preset for Chat `prompt_cache_key + Session_id` and Responses derived `prompt_cache_key`, no `Session_id`, `store:false`.
+     - `apikl.ai` preset for Chat `prompt_cache_key + Session_id` and Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
      - `Custom` with exact Chat/Responses matrix fields for any other confirmed strategy.
 4. Safety:
    - Do not print API keys.

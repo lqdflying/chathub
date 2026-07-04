@@ -839,6 +839,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       const shouldSendPromptCacheKey =
         !!promptCacheKey &&
         (statefulResponses || responseCache?.promptCacheKey === 'derived' || !!explicitPromptCacheKey);
+      const matrixStore = openAICompatStoreValue(responseCache?.store);
+      const store =
+        storeOverride !== undefined ? storeOverride : matrixStore !== undefined ? matrixStore : undefined;
 
       const isStreaming = payload.stream !== false;
       log(
@@ -860,7 +863,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             }
           : {}),
         input,
-        store: storeOverride ?? openAICompatStoreValue(responseCache?.store) ?? statefulResponses,
+        ...(store !== undefined || statefulResponses ? { store: store ?? true } : {}),
         stream: !isStreaming ? undefined : isStreaming,
         tools: tools?.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
       } as OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams;

@@ -10,7 +10,7 @@ ChatHub exposes cache controls for the built-in `openaicompatible` provider beca
 | Chat `Session_id` | `/v1/chat/completions` | Sends the same derived key as the `Session_id` request header. |
 | Responses `prompt_cache_key` | `/v1/responses` | Derives and sends `prompt_cache_key` when set to `Auto-generate`. |
 | Responses `Session_id` | `/v1/responses` | Sends a derived `Session_id` header, even when `prompt_cache_key` is disabled. |
-| Responses `store` | `/v1/responses` | Sends `store: true`, `store: false`, or leaves the runtime/provider default when set to Default. |
+| Responses `store` | `/v1/responses` | Sends `store: true`, sends `store: false`, or omits `store` when set to Default. |
 
 Preset selection writes the full matrix. Any manual edit changes the preset to `Custom`.
 
@@ -19,7 +19,7 @@ Preset selection writes the full matrix. Any manual edit changes the preset to `
 | Preset | Route preference | Chat Completions cache | Responses cache | Probe status |
 | --- | --- | --- | --- | --- |
 | `pptoken.org` | Responses API | Chat cache off/unverified | `prompt_cache_key: derived`, no `Session_id`, `store: true` | Matches the previous ChatHub Responses state-cache behavior. |
-| `apikl.ai` | Responses API | `prompt_cache_key` + `Session_id` | `prompt_cache_key: derived`, no `Session_id`, `store: false` | User-confirmed cache hits; Chat observed intermittently, Responses observed stably in the latest six-round probes. |
+| `apikl.ai` | Responses API | `prompt_cache_key` + `Session_id` | `prompt_cache_key: derived`, no `Session_id`, `store: Default` | Use when `store:false` is rejected but prompt-cache-key routing works; Chat observed intermittently, Responses should be verified after deployment. |
 
 ## Runtime Notes
 

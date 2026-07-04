@@ -200,7 +200,7 @@ export const openAICompatCachePresetConfig = (
       responses: {
         promptCacheKey: 'derived',
         sessionHeader: false,
-        store: 'false',
+        store: 'default',
       },
     };
   }

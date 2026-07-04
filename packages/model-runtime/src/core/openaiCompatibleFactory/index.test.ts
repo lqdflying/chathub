@@ -1085,14 +1085,10 @@ describe('LobeOpenAICompatibleFactory', () => {
           temperature: 0,
         });
 
-        expect(mockResponsesCreate).toHaveBeenCalledWith(
-          expect.objectContaining({
-            store: false,
-          }),
-          expect.any(Object),
-        );
+        expect(mockResponsesCreate).toHaveBeenCalledWith(expect.any(Object), expect.any(Object));
         expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('prompt_cache_key');
         expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('responseStateMode');
+        expect(mockResponsesCreate.mock.calls[0][0]).not.toHaveProperty('store');
       });
 
       it('should enable Responses state and derive prompt_cache_key when explicitly configured', async () => {
@@ -1210,7 +1206,7 @@ describe('LobeOpenAICompatibleFactory', () => {
         const requestOptions = mockResponsesCreate.mock.calls[0][1] as any;
 
         expect(requestPayload).not.toHaveProperty('prompt_cache_key');
-        expect(requestPayload.store).toBe(false);
+        expect(requestPayload).not.toHaveProperty('store');
         expect(requestOptions.headers.Session_id).toMatch(/^compat_cc_[a-f0-9]{32}$/);
       });
 

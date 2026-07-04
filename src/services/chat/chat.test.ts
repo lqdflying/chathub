@@ -1191,7 +1191,7 @@ describe('ChatService', () => {
                 responses: {
                   promptCacheKey: 'derived',
                   sessionHeader: false,
-                  store: 'false',
+                  store: 'default',
                 },
               },
             },
@@ -1223,7 +1223,7 @@ describe('ChatService', () => {
           responses: {
             promptCacheKey: 'derived',
             sessionHeader: false,
-            store: 'false',
+            store: 'default',
           },
         },
         stream: true,
@@ -1232,7 +1232,7 @@ describe('ChatService', () => {
       expect(body).not.toHaveProperty('store');
     });
 
-    it('should map OpenAI-compatible Responses cache matrix to response state and store', async () => {
+    it('should map OpenAI-compatible Responses cache matrix to response state and omit default store', async () => {
       useAiInfraStore.setState({
         aiProviderRuntimeConfig: {
           openaicompatible: {
@@ -1247,7 +1247,7 @@ describe('ChatService', () => {
                 responses: {
                   promptCacheKey: 'derived',
                   sessionHeader: false,
-                  store: 'false',
+                  store: 'default',
                 },
               },
             },
@@ -1274,12 +1274,12 @@ describe('ChatService', () => {
           responses: {
             promptCacheKey: 'derived',
             sessionHeader: false,
-            store: 'false',
+            store: 'default',
           },
         },
         responseStateMode: 'provider',
-        store: false,
       });
+      expect(body).not.toHaveProperty('store');
     });
 
     it('should keep Responses Session_id-only cache custom mode stateless', async () => {

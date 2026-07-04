@@ -41,7 +41,7 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 ### OpenAI-Compatible Cache Presets
 
 - `pptoken.org`: Responses API on; Chat cache hints off; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`.
-- `apikl.ai`: Responses API on; Chat `prompt_cache_key + Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:false`.
+- `apikl.ai`: Responses API on; Chat `prompt_cache_key + Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
 - `Custom`: exact Chat/Responses matrix fields confirmed by the provider probe.
 
 Selecting a preset writes the full matrix. Any manual matrix edit should set preset to `custom`.

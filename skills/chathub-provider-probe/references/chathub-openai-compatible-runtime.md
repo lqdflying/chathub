@@ -29,7 +29,7 @@ Current behavior to compare:
 Preset recommendations:
 
 - `pptoken.org`: Responses API on; Chat Completions cache off; Responses `prompt_cache_key` derived, no `Session_id`, `store:true`. This matches the legacy ChatHub response-state behavior.
-- `apikl.ai`: Responses API on; Chat Completions `prompt_cache_key + Session_id`; Responses `prompt_cache_key` derived, no `Session_id`, `store:false`.
+- `apikl.ai`: Responses API on; Chat Completions `prompt_cache_key + Session_id`; Responses `prompt_cache_key` derived, no `Session_id`, `store:default` (omit `store`).
 - Use `Custom` when the probe confirms a different per-endpoint combination.
 
 Compatibility conclusions:
