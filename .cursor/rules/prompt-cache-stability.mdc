@@ -46,6 +46,13 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 
 Selecting a built-in preset writes the full matrix, defaults the API route radio to Responses API, and keeps detailed cache/parameter controls hidden. `Custom` expands every matrix field for provider-probe testing.
 
+### OpenAI-Compatible Cache Debugging
+
+- Start with `DEBUG_OPENAICOMPATIBLE_CACHE=1`. It logs redacted request and usage summaries for both `/v1/chat/completions` and `/v1/responses`: route, model, cache-key/session-header presence plus hash, payload fingerprint, turn/input shape, tool names/count, store, and cached-token usage when available.
+- Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` only when exact Chat Completions payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
+- Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` only when exact Responses payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
+- When live ChatHub behavior disagrees with the provider probe, compare `DEBUG_OPENAICOMPATIBLE_CACHE=1` payload fingerprints and turn/tool shapes across rounds before changing cache presets.
+
 ### Probe Workflow
 
 When using or updating `skills/chathub-provider-probe`:

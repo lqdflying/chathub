@@ -24,6 +24,11 @@ Current behavior to compare:
 - ChatHub does not currently use `previous_response_id` for OpenAI-compatible provider state.
 - ChatHub's OpenAI-compatible path does not emit Anthropic `cache_control` content blocks.
 - ChatHub's OpenAI-compatible Chat Completions path now supports configured `prompt_cache_key` and `Session_id`; if both are disabled, any chat-route cache hit is automatic provider prefix caching.
+- Cache troubleshooting debug:
+  - `DEBUG_OPENAICOMPATIBLE_CACHE=1` logs redacted Chat/Responses request fingerprints, turn/input shapes, tool names/count, cache-key/session-header summaries, and final cached-token usage when usage is available.
+  - `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` prints full Chat Completions request and stream/response data.
+  - `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` prints full Responses request and stream/response data.
+  - Prefer the redacted cache debug first; full route debug can expose prompt, tool, and file context.
 
 Preset recommendations:
 

@@ -31,6 +31,7 @@ Use this skill to run live, low-cost API simulations against a ChatHub OpenAI-co
    Summarize `cacheSummary.responses`, `cacheSummary.chatCompletions`, and `cacheSummary.round`, then pause and ask the user to check provider dashboard/logs for the request IDs before trying another strategy.
 7. Keep probing until both endpoint families are user-confirmed or every usable strategy in this skill has been exhausted. If one endpoint is confirmed and the other is not, lock the confirmed strategy and continue matrix testing only the unconfirmed endpoint.
 8. After detection is complete, provide a concise provider report. Use the script's `providerReport` field first, especially `providerReport.recommendedSettings.checklist`, then explain the findings in human-readable form.
+9. If the probe result differs from real ChatHub sessions, ask the user to enable `DEBUG_OPENAICOMPATIBLE_CACHE=1` in the ChatHub server runtime and compare the redacted request fingerprints, turn/input shapes, tool names/count, cache-key/session-header summaries, and final cached-token usage across rounds. Only ask for `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` or `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` when exact raw payload/stream inspection is required, because those modes can expose prompt and tool content.
 
 ## Confirmation Loop
 
@@ -164,6 +165,7 @@ Use this interactive order. Do not stop after a Responses API hit; Chat Completi
 - Treat cache stability separately from cache mechanism detection. A `1/2` post-warm-up hit rate means the mechanism is confirmed but intermittent; do not summarize that as fully complete or stable.
 - If multiple strategies are run sequentially without a user confirmation pause, later strategies may be warmed by earlier rounds. Treat those results as non-isolated and rerun the candidate strategy in a fresh bounded round before calling it confirmed.
 - If cache-read tokens appear only because all input tokens were moved into `cache_read_input_tokens`, warn that this can be a proxy-side billing rewrite. Confirm with provider dashboard/logs.
+- If provider-probe cache behavior and deployed ChatHub behavior disagree, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1` first. Compare redacted payload fingerprints and turn/tool shapes before changing presets; a different fingerprint or early turn shape usually means ChatHub is sending a different cache prefix from the probe.
 - If `cache_control` content blocks work in an OpenAI-compatible route, identify that as Anthropic-style behavior. ChatHub's OpenAI-compatible path does not currently emit Anthropic cache-control blocks.
 - Treat dashboard confirmation as authoritative for billing/cache behavior when API usage fields and vendor UI disagree.
 

@@ -36,3 +36,10 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 - Built-in presets apply their verified Responses parameter behavior. `Custom` applies the expanded parameter matrix exactly, so unknown providers can be tested freely.
 - Cache keys are derived from stable prompt parts such as model, system/developer messages, first user message, reasoning effort, and tools.
 - The derived key is currently injected only for cache-hit-capable model families recognized by the runtime.
+
+## Debugging Cache Misses
+
+- Start with `DEBUG_OPENAICOMPATIBLE_CACHE=1` on the ChatHub server. It logs redacted request fingerprints, turn/input shapes, tool names/count, cache-key/session-header summaries, and cached-token usage for both Chat Completions and Responses.
+- Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` for full raw Chat Completions request and stream inspection.
+- Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` for full raw Responses request and stream inspection.
+- Full route debug can expose prompt, tool, and file context. Prefer the redacted cache debug when comparing ChatHub sessions with provider-probe or Codex behavior.

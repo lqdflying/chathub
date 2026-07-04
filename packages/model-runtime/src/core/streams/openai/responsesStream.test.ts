@@ -6,6 +6,51 @@ import { createReadableStream, readStreamChunk } from '../utils';
 import { OpenAIResponsesStream } from './responsesStream';
 
 describe('OpenAIResponsesStream', () => {
+  it('should log cache debug usage when enabled', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const mockOpenAIStream = createReadableStream([
+      {
+        response: {
+          id: 'resp_cache',
+          usage: {
+            input_tokens: 128,
+            input_tokens_details: { cached_tokens: 64 },
+            output_tokens: 7,
+            total_tokens: 135,
+          },
+        },
+        type: 'response.completed',
+      },
+    ]);
+
+    await readStreamChunk(
+      OpenAIResponsesStream(mockOpenAIStream as any, {
+        payload: {
+          debugOpenAICompatCache: true,
+          model: 'gpt-5.5',
+          provider: 'openaicompatible',
+        },
+      }),
+    );
+
+    const cacheLog = consoleLogSpy.mock.calls.find(
+      ([label]) => label === '[openai-compatible-cache-debug:usage]',
+    );
+    expect(cacheLog).toBeDefined();
+    expect(JSON.parse(cacheLog![1] as string)).toMatchObject({
+      cachedTokens: 64,
+      cacheMissTokens: 64,
+      inputTokens: 128,
+      model: 'gpt-5.5',
+      outputTokens: 7,
+      responseId: 'resp_cache',
+      route: '/responses',
+      totalTokens: 135,
+    });
+
+    consoleLogSpy.mockRestore();
+  });
+
   it('should transform OpenAI stream to protocol stream', async () => {
     const mockOpenAIStream = createReadableStream([
       {

@@ -81,6 +81,7 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
   },
   debug: {
     chatCompletion: () => process.env.DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION === '1',
+    responses: () => process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES === '1',
   },
   models: async ({ client }) => {
     try {

@@ -42,6 +42,7 @@ import {
   deriveCompatPromptCacheKey,
   normalizeOpenAICompatCacheUsage,
 } from './openaicompatCache';
+import { debugOpenAICompatCacheRequest, debugOpenAICompatCacheUsage } from './openaicompatDebug';
 
 export * from './nonStreamToStream';
 
@@ -63,6 +64,9 @@ const openAICompatStoreValue = (store?: 'default' | 'false' | 'true') => {
   if (store === 'false') return false;
   return undefined;
 };
+
+const shouldDebugOpenAICompatCache = (providerId?: string) =>
+  providerId === 'openaicompatible' && process.env.DEBUG_OPENAICOMPATIBLE_CACHE === '1';
 
 const recordValue = (value: unknown): Record<string, any> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
@@ -261,6 +265,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       try {
         const log = debug(`${this.logPrefix}:chat`);
         const inputStartAt = Date.now();
+        const debugOpenAICompatCache = shouldDebugOpenAICompatCache(this.id);
 
         log('chat called with model: %s, stream: %s', payload.model, payload.stream ?? true);
 
@@ -360,6 +365,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             model: payload.model,
             pricing: await getModelPricing(payload.model, this.id),
             provider: this.id,
+            debugOpenAICompatCache,
           },
         };
 
@@ -383,8 +389,21 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
                 ? { include_usage: true }
                 : undefined,
           };
+          const requestHeaders = {
+            Accept: '*/*',
+            ...options?.requestHeaders,
+            ...(chatCache?.sessionHeader && chatCacheKey ? { Session_id: chatCacheKey } : {}),
+          };
 
           log('sending chat completion request with %d messages', messages.length);
+
+          if (debugOpenAICompatCache) {
+            debugOpenAICompatCacheRequest({
+              headers: requestHeaders,
+              payload: finalPayload,
+              route: '/chat/completions',
+            });
+          }
 
           if (debugParams?.chatCompletion?.()) {
             console.log('[requestPayload]');
@@ -393,11 +412,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
           response = await this.client.chat.completions.create(finalPayload, {
             // https://github.com/lobehub/lobe-chat/pull/318
-            headers: {
-              Accept: '*/*',
-              ...options?.requestHeaders,
-              ...(chatCache?.sessionHeader && chatCacheKey ? { Session_id: chatCacheKey } : {}),
-            },
+            headers: requestHeaders,
             signal: options?.signal,
           });
         }
@@ -869,6 +884,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('handleResponseAPIMode called with model: %s', payload.model);
 
       const inputStartAt = Date.now();
+      const debugOpenAICompatCache = shouldDebugOpenAICompatCache(this.id);
 
       const { messages, reasoning_effort, tools, reasoning, responseMode, ...res } =
         responses?.handlePayload
@@ -944,12 +960,21 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       log('sending responses.create request');
+      const requestHeaders = {
+        ...options?.requestHeaders,
+        ...(responseCache?.sessionHeader && promptCacheKey ? { Session_id: promptCacheKey } : {}),
+      };
+
+      if (debugOpenAICompatCache) {
+        debugOpenAICompatCacheRequest({
+          headers: requestHeaders,
+          payload: postPayload,
+          route: '/responses',
+        });
+      }
 
       const response = await this.client.responses.create(postPayload, {
-        headers: {
-          ...options?.requestHeaders,
-          ...(responseCache?.sessionHeader && promptCacheKey ? { Session_id: promptCacheKey } : {}),
-        },
+        headers: requestHeaders,
         signal: options?.signal,
       });
 
@@ -960,6 +985,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           model: payload.model,
           pricing: await getModelPricing(payload.model, this.id),
           provider: this.id,
+          debugOpenAICompatCache,
         },
       };
 
@@ -988,6 +1014,28 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       const normalizedResponse = normalizeOpenAICompatCacheUsage(response).json;
+      if (debugOpenAICompatCache) {
+        const usage = (normalizedResponse as OpenAI.Responses.Response).usage;
+        const cachedTokens = usage?.input_tokens_details?.cached_tokens ?? null;
+
+        if (usage) {
+          debugOpenAICompatCacheUsage({
+            model: payload.model,
+            route: '/responses',
+            usage: {
+              cachedTokens,
+              cacheMissTokens:
+                cachedTokens === null || usage.input_tokens === undefined
+                  ? null
+                  : usage.input_tokens - cachedTokens,
+              inputTokens: usage.input_tokens,
+              outputTokens: usage.output_tokens,
+              responseId: (normalizedResponse as OpenAI.Responses.Response).id,
+              totalTokens: usage.total_tokens,
+            },
+          });
+        }
+      }
 
       if (responseMode === 'json') {
         log('returning JSON response mode');
