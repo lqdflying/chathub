@@ -149,6 +149,24 @@ const openAICompatCachePresetLabelKey: Record<OpenAICompatCachePreset, string> =
   'pptoken.org': 'pptokenOrg',
 };
 
+const normalizeOpenAICompatValues = (values: any) => {
+  const nextCache = normalizeOpenAICompatCacheConfig(values?.config);
+  const nextConfig = {
+    ...values?.config,
+    openAICompatCache: nextCache,
+    openAICompatResponsesParams: normalizeOpenAICompatResponsesParamsConfig({
+      ...values?.config,
+      openAICompatCache: nextCache,
+    }),
+    responseStateMode: openAICompatCacheResponseStateMode(nextCache),
+  };
+
+  return {
+    ...values,
+    config: nextConfig,
+  };
+};
+
 const resolveOpenAICompatValues = (changedValues: any, values: any) => {
   const changedCache = changedValues?.config?.openAICompatCache;
   const changedResponsesParams = changedValues?.config?.openAICompatResponsesParams;
@@ -645,7 +663,12 @@ const ProviderConfig = memo<ProviderConfigProps>(
                   // 设置连接测试状态，阻止 onValuesChange 的重复请求
                   isCheckingConnection.current = true;
                   // 主动保存表单最新值，确保 fetchAiProviderRuntimeState 获取最新数据
-                  await updateAiProviderConfig(id, form.getFieldsValue());
+                  const values = form.getFieldsValue(true);
+                  const nextValues = supportOpenAICompatCache
+                    ? normalizeOpenAICompatValues(values)
+                    : values;
+                  if (nextValues !== values) form.setFieldsValue(nextValues);
+                  await updateAiProviderConfig(id, nextValues);
                 }}
                 provider={id}
               />

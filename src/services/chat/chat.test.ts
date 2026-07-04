@@ -1294,6 +1294,57 @@ describe('ChatService', () => {
       expect(body).not.toHaveProperty('store');
     });
 
+    it('should expand OpenAI-compatible preset-only cache config before sending Responses requests', async () => {
+      useAiInfraStore.setState({
+        aiProviderRuntimeConfig: {
+          openaicompatible: {
+            config: {
+              enableResponseApi: true,
+              openAICompatCache: {
+                preset: 'apikl.ai',
+              },
+            },
+            keyVaults: {},
+            settings: {},
+          } as any,
+        },
+      });
+
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'openaicompatible',
+        },
+        {},
+      );
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        apiMode: 'responses',
+        openAICompatCache: {
+          chat: {
+            promptCacheKey: true,
+            sessionHeader: true,
+          },
+          preset: 'apikl.ai',
+          responses: {
+            promptCacheKey: 'derived',
+            sessionHeader: false,
+            store: 'default',
+          },
+        },
+        openAICompatResponsesParams: {
+          maxOutputTokens: false,
+          maxTokens: false,
+          truncation: 'off',
+          verbosity: 'text',
+        },
+        responseStateMode: 'provider',
+      });
+      expect(body).not.toHaveProperty('store');
+    });
+
     it('should keep Responses Session_id-only cache custom mode stateless', async () => {
       useAiInfraStore.setState({
         aiProviderRuntimeConfig: {

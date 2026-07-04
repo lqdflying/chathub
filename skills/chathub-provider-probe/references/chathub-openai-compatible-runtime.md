@@ -29,6 +29,7 @@ Current behavior to compare:
   - `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` prints full Chat Completions request and stream/response data.
   - `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` prints full Responses request and stream/response data.
   - Prefer the redacted cache debug first; full route debug can expose prompt, tool, and file context.
+  - For the `apikl.ai` Responses preset, expected cache debug is `promptCacheKey.present:true`, `sessionId.present:false`, and `params.hasTextVerbosity:true`. If verbosity is present but `promptCacheKey` is absent, ChatHub is applying only part of the saved preset/config.
 
 Preset recommendations:
 

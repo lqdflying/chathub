@@ -52,6 +52,7 @@ Selecting a built-in preset writes the full matrix, defaults the API route radio
 - Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` only when exact Chat Completions payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
 - Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` only when exact Responses payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
 - When live ChatHub behavior disagrees with the provider probe, compare `DEBUG_OPENAICOMPATIBLE_CACHE=1` payload fingerprints and turn/tool shapes across rounds before changing cache presets.
+- For the `apikl.ai` Responses preset, `params.hasTextVerbosity:true` without `cache.promptCacheKey.present:true` means only part of the preset/config reached the runtime.
 
 ### Probe Workflow
 

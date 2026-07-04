@@ -250,15 +250,16 @@ export const normalizeOpenAICompatCacheConfig = (
   const base = defaultOpenAICompatCacheConfig();
   const cache = config?.openAICompatCache || {};
   const preset = cache.preset || base.preset;
+  const presetBase = openAICompatCachePresetConfig(preset);
 
   return {
     chat: {
-      ...base.chat,
+      ...presetBase.chat,
       ...cache.chat,
     },
     preset,
     responses: {
-      ...base.responses,
+      ...presetBase.responses,
       ...cache.responses,
     },
   };
