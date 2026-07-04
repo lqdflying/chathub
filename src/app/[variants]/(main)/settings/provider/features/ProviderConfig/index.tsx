@@ -70,7 +70,11 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
   `,
   form: css`
-    .${prefixCls}-form-item-control:has(.${prefixCls}-input,.${prefixCls}-select) {
+    .${prefixCls}-form-item-control:has(
+        .${prefixCls}-input,
+        .${prefixCls}-radio-group,
+        .${prefixCls}-select
+      ) {
       flex: none;
       width: min(70%, 800px);
       min-width: min(70%, 800px) !important;
@@ -95,6 +99,17 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     &:hover {
       color: ${token.colorText};
       background: ${token.colorFill};
+    }
+  `,
+  routeSegment: css`
+    display: flex !important;
+    width: 100%;
+
+    .${prefixCls}-radio-button-wrapper {
+      flex: 1;
+      min-width: 0;
+      text-align: center;
+      white-space: nowrap;
     }
   `,
   switchLoading: css`
@@ -599,6 +614,8 @@ const ProviderConfig = memo<ProviderConfigProps>(
               <Skeleton.Button active />
             ) : (
               <Radio.Group
+                buttonStyle="solid"
+                className={styles.routeSegment}
                 disabled={configUpdating}
                 optionType="button"
                 options={responseApiRouteOptions}
@@ -607,7 +624,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
             desc: t('providerModels.config.responsesApi.desc'),
             getValueProps: (value?: boolean) => ({ value: !!value }),
             label: t('providerModels.config.responsesApi.title'),
-            minWidth: undefined,
             name: ['config', 'enableResponseApi'],
           }
         : undefined,
