@@ -30,11 +30,12 @@ Current behavior to compare:
   - `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` prints full Responses request and stream/response data.
   - Prefer the redacted cache debug first; full route debug can expose prompt, tool, and file context.
   - For the `apikl.ai` Responses preset, expected cache debug is `promptCacheKey.present:true`, `sessionId.present:false`, and `params.hasTextVerbosity:true`. If verbosity is present but `promptCacheKey` is absent, ChatHub is applying only part of the saved preset/config.
+  - For the `apikl.ai` Chat preset, expected cache debug is `promptCacheKey.present:true` and `sessionId.present:false`. Chat `Session_id` is Custom-only because real multi-turn ChatHub sessions can fail even when repeated single-turn probes pass.
 
 Preset recommendations:
 
 - `pptoken.org`: Responses API on; Chat Completions cache off; Responses `prompt_cache_key` derived, no `Session_id`, `store:true`. This matches the legacy ChatHub response-state behavior.
-- `apikl.ai`: Responses API on; Chat Completions `prompt_cache_key + Session_id`; Responses `prompt_cache_key` derived, no `Session_id`, `store:default` (omit `store`).
+- `apikl.ai`: Responses API on; Chat Completions `prompt_cache_key` without `Session_id`; Responses `prompt_cache_key` derived, no `Session_id`, `store:default` (omit `store`).
 - Use `Custom` when the probe confirms a different per-endpoint or Responses-parameter combination; built-in presets keep the detailed matrix hidden.
 
 Compatibility conclusions:

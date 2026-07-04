@@ -1217,7 +1217,7 @@ describe('ChatService', () => {
         openAICompatCache: {
           chat: {
             promptCacheKey: true,
-            sessionHeader: true,
+            sessionHeader: false,
           },
           preset: 'apikl.ai',
           responses: {
@@ -1276,6 +1276,10 @@ describe('ChatService', () => {
       expect(body).toMatchObject({
         apiMode: 'responses',
         openAICompatCache: {
+          chat: {
+            promptCacheKey: true,
+            sessionHeader: false,
+          },
           preset: 'apikl.ai',
           responses: {
             promptCacheKey: 'derived',
@@ -1325,7 +1329,7 @@ describe('ChatService', () => {
         openAICompatCache: {
           chat: {
             promptCacheKey: true,
-            sessionHeader: true,
+            sessionHeader: false,
           },
           preset: 'apikl.ai',
           responses: {

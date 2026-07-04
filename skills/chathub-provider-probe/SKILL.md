@@ -185,7 +185,7 @@ After the baseline, parameter, and cache probes, report these sections:
    - Say what can be expressed by the current settings matrix, such as omitting unsupported Responses fields, mapping `verbosity` to `text.verbosity`, adding `Session_id`, or adding chat-route cache hints.
    - Recommend the OpenAI-compatible provider settings when the strategy is expressible by the current UI:
      - `pptoken.org` preset for Responses derived `prompt_cache_key`, no `Session_id`, `store:true`, with Chat cache off.
-     - `apikl.ai` preset for Chat `prompt_cache_key + Session_id` and Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
+     - `apikl.ai` preset for Chat `prompt_cache_key` without `Session_id` and Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
      - `Custom` with exact Chat/Responses cache matrix fields and Responses parameter fields for any other confirmed strategy.
    - Built-in presets keep the detailed matrix hidden; select `Custom` when reporting individual matrix fields to test, including `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity`.
    - Always show all UI choices from `providerReport.recommendedSettings.checklist`: route, preset, Chat cache fields, Responses cache fields, Responses `max_tokens`, Responses `max_output_tokens`, Responses `truncation`, and Responses `verbosity`.

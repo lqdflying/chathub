@@ -211,7 +211,7 @@ export const openAICompatCachePresetConfig = (
     return {
       chat: {
         promptCacheKey: true,
-        sessionHeader: true,
+        sessionHeader: false,
       },
       preset,
       responses: {
@@ -252,6 +252,8 @@ export const normalizeOpenAICompatCacheConfig = (
   const preset = cache.preset || base.preset;
   const presetBase = openAICompatCachePresetConfig(preset);
 
+  if (preset !== 'custom') return presetBase;
+
   return {
     chat: {
       ...presetBase.chat,
@@ -270,6 +272,8 @@ export const normalizeOpenAICompatResponsesParamsConfig = (
 ): OpenAICompatResponsesParamsConfig => {
   const cache = normalizeOpenAICompatCacheConfig(config);
   const base = openAICompatResponsesParamsPresetConfig(cache.preset || 'custom');
+
+  if (cache.preset !== 'custom') return base;
 
   return {
     ...base,

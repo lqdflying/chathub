@@ -1307,7 +1307,7 @@ function buildRecommendedSettings(currentReport, apiBehavior, cacheBehavior) {
   if (preset === 'apikl.ai') {
     settings.cache = {
       chatPromptCacheKey: { label: 'Chat prompt_cache_key', value: 'Checked' },
-      chatSessionId: { label: 'Chat Session_id', value: 'Checked' },
+      chatSessionId: { label: 'Chat Session_id', value: 'Unchecked' },
       responsesPromptCacheKey: { label: 'Responses prompt_cache_key', value: 'Auto-generate' },
       responsesSessionId: { label: 'Responses Session_id', value: 'Unchecked' },
       responsesStore: { label: 'Responses store', value: 'Default' },

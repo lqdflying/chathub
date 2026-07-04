@@ -97,5 +97,5 @@ Prefer this enablement order for ChatHub OpenAI-compatible providers:
 Current ChatHub setting presets:
 
 - `pptoken.org`: Responses API on; Chat Completions cache hints off; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:true`.
-- `apikl.ai`: Responses API on; Chat Completions uses derived `prompt_cache_key` plus `Session_id`; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:default` (omit `store`). Use Custom `store:false` only when a fresh probe confirms the provider still accepts it.
+- `apikl.ai`: Responses API on; Chat Completions uses derived `prompt_cache_key` without `Session_id`; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:default` (omit `store`). Use Custom for Chat `Session_id` or `store:false` only when a fresh real-session probe confirms the provider still accepts it.
 - `Custom`: use when a probe confirms another combination from the matrix. Manual setting edits should be reported as the exact Chat/Responses cache fields and Responses parameter fields, not only as "cache enabled."

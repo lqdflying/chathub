@@ -25,7 +25,7 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 | Preset | Route preference | Chat Completions cache | Responses cache | Probe status |
 | --- | --- | --- | --- | --- |
 | `pptoken.org` | Responses API | Chat cache off/unverified | `prompt_cache_key: derived`, no `Session_id`, `store: true` | Matches the previous ChatHub Responses state-cache behavior. |
-| `apikl.ai` | Responses API | `prompt_cache_key` + `Session_id` | `prompt_cache_key: derived`, no `Session_id`, `store: Default` | Use when `store:false` is rejected but prompt-cache-key routing works; Chat observed intermittently, Responses should be verified after deployment. |
+| `apikl.ai` | Responses API | `prompt_cache_key`, no `Session_id` | `prompt_cache_key: derived`, no `Session_id`, `store: Default` | Use when `store:false` is rejected but prompt-cache-key routing works; Chat `Session_id` is left to Custom mode because real multi-turn ChatHub sessions can fail through this proxy shape. |
 
 ## Runtime Notes
 
@@ -44,3 +44,4 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 - Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` for full raw Responses request and stream inspection.
 - Full route debug can expose prompt, tool, and file context. Prefer the redacted cache debug when comparing ChatHub sessions with provider-probe or Codex behavior.
 - For the `apikl.ai` preset on Responses, the cache debug should show `promptCacheKey.present:true`, `sessionId.present:false`, and `params.hasTextVerbosity:true`. If verbosity is present but `promptCacheKey` is absent, the saved config is only partially applying the preset.
+- For the `apikl.ai` preset on Chat Completions, the cache debug should show `promptCacheKey.present:true` and `sessionId.present:false`. Chat `Session_id` remains Custom-only because it can break real multi-turn sessions even when a repeated single-turn probe succeeds.

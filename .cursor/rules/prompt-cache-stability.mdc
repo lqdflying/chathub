@@ -41,7 +41,7 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 ### OpenAI-Compatible Cache Presets
 
 - `pptoken.org`: Responses API on; Chat cache hints off; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`.
-- `apikl.ai`: Responses API on; Chat `prompt_cache_key + Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
+- `apikl.ai`: Responses API on; Chat `prompt_cache_key`, no `Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
 - `Custom`: exact Chat/Responses cache matrix and Responses parameter fields confirmed by the provider probe.
 
 Selecting a built-in preset writes the full matrix, defaults the API route radio to Responses API, and keeps detailed cache/parameter controls hidden. `Custom` expands every matrix field for provider-probe testing.
@@ -53,6 +53,7 @@ Selecting a built-in preset writes the full matrix, defaults the API route radio
 - Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` only when exact Responses payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
 - When live ChatHub behavior disagrees with the provider probe, compare `DEBUG_OPENAICOMPATIBLE_CACHE=1` payload fingerprints and turn/tool shapes across rounds before changing cache presets.
 - For the `apikl.ai` Responses preset, `params.hasTextVerbosity:true` without `cache.promptCacheKey.present:true` means only part of the preset/config reached the runtime.
+- For the `apikl.ai` Chat preset, `cache.promptCacheKey.present:true` with `cache.sessionId.present:false` is expected. Use `Custom` to retest Chat `Session_id`; do not enable it in the built-in preset without a real multi-turn ChatHub verification.
 
 ### Probe Workflow
 
