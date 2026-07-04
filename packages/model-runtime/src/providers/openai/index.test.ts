@@ -53,6 +53,33 @@ describe('LobeOpenAI', () => {
       expect(result).toBeInstanceOf(Response);
     });
 
+    it('should not forward internal provider field to Chat Completions', async () => {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-4',
+        provider: 'openai',
+      } as any);
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload).not.toHaveProperty('provider');
+    });
+
+    it('should not forward internal provider field through gpt-5 prune path', async () => {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-5-mini',
+        provider: 'openai',
+        reasoning_effort: 'high',
+      } as any);
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload).toMatchObject({
+        model: 'gpt-5-mini',
+        reasoning_effort: 'high',
+      });
+      expect(requestPayload).not.toHaveProperty('provider');
+    });
+
     describe('Error', () => {
       it('should return ProviderBizError with an openai error response when OpenAI.APIError is thrown', async () => {
         // Arrange
@@ -263,6 +290,7 @@ describe('LobeOpenAI', () => {
       const payload = {
         messages: [{ content: 'Hello', role: 'user' as const }],
         model: 'gpt-5.5',
+        provider: 'openai',
         temperature: 0.7,
       };
 
@@ -272,6 +300,7 @@ describe('LobeOpenAI', () => {
       expect(instance['client'].chat.completions.create).not.toHaveBeenCalled();
       const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
       expect(createCall.model).toBe('gpt-5.5');
+      expect(createCall).not.toHaveProperty('provider');
     });
 
     it('should use responses API when enabledSearch is true', async () => {

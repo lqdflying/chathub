@@ -31,12 +31,22 @@ export const params = {
   chatCompletion: {
     handlePayload: (payload) => {
       const {
+        apiMode: _apiMode,
         enabledSearch,
+        enabledContextCaching: _enabledContextCaching,
         frequency_penalty: _frequencyPenalty,
         model,
+        openAICompatCache: _openAICompatCache,
+        openAICompatResponsesParams: _openAICompatResponsesParams,
         presence_penalty: _presencePenalty,
+        provider: _provider,
+        reasoning_split: _reasoningSplit,
+        responseMode: _responseMode,
+        responseStateMode: _responseStateMode,
         temperature: _temperature,
+        thinkingBudget: _thinkingBudget,
         top_p: _topP,
+        urlContext: _urlContext,
         ...rest
       } = payload;
 
@@ -45,7 +55,7 @@ export const params = {
       }
 
       if (prunePrefixes.some((prefix) => model.startsWith(prefix))) {
-        return pruneReasoningPayload(payload) as any;
+        return pruneReasoningPayload({ ...rest, model } as ChatStreamPayload) as any;
       }
 
       if (model.includes('-search-')) {
@@ -85,13 +95,23 @@ export const params = {
   responses: {
     handlePayload: (payload) => {
       const {
+        apiMode: _apiMode,
         enabledSearch,
+        enabledContextCaching: _enabledContextCaching,
         frequency_penalty: _frequencyPenalty,
         model,
+        openAICompatCache: _openAICompatCache,
+        openAICompatResponsesParams: _openAICompatResponsesParams,
         presence_penalty: _presencePenalty,
+        provider: _provider,
+        reasoning_split: _reasoningSplit,
+        responseMode: _responseMode,
+        responseStateMode: _responseStateMode,
         temperature: _temperature,
+        thinkingBudget: _thinkingBudget,
         tools,
         top_p: _topP,
+        urlContext: _urlContext,
         verbosity,
         ...rest
       } = payload;
