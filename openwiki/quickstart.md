@@ -47,5 +47,6 @@ This repo is a monorepo with workspaces under `packages/*` and the main app unde
 - [Model runtime details](architecture/model-runtime.md)
 - [Context engineering](architecture/context-engineering.md)
 - [MCP and tools](integrations/mcp-and-tools.md)
+- [OpenAI-compatible cache matrix](integrations/openai-compatible-cache-matrix.md)
 - [Authentication and env](operations/auth-and-env.md)
 - [Testing guidance](testing.md)

@@ -12,9 +12,9 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
     handlePayload: (payload) => {
       // Explicit allowlist of fields forwarded to the gateway.
       // Internal routing/feature flags (enabledContextCaching, enabledSearch,
-      // provider, responseMode, responseStateMode, thinkingBudget, urlContext,
-      // reasoning_split) are intentionally stripped so they never leak into the
-      // provider request body.
+      // provider, openAICompatCache, responseMode, responseStateMode,
+      // thinkingBudget, urlContext, reasoning_split) are intentionally stripped
+      // so they never leak into the provider request body.
       //
       // `text` (GPT-5 verbosity), `verbosity`, and `truncation` are Responses
       // API fields (see OpenAI API definition). They are only forwarded when

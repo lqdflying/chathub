@@ -41,6 +41,13 @@ When stripping request-body fields such as legacy generic sampling params or use
 - Keep their model lists fixed to model-bank IDs sourced from the native provider lists; do not re-enable arbitrary add/fetch UI without a separate design.
 - Native model search is **opt-in**: model cards keep `abilities.search: false` (no auto-tag) but retain `settings.searchImpl: 'params'` so the "Use the model's built-in search engine" toggle appears in the search panel. When the toggle is OFF (default), ChatHub uses its own web-browsing tools; when ON, the `enabledSearch` param is sent to the gateway API.
 - OpenAI-compatible Responses API mode is opt-in only. Default to Chat Completions mode; enable Responses API only when the gateway documents `/v1/responses`, typed event streaming, and compatible tool/search behavior.
+- OpenAI-compatible cache behavior is a provider-settings matrix, not a model gear option. Preserve `openAICompatCache` shape end to end:
+  - presets: `custom`, `pptoken.org`, `apikl.ai`
+  - Chat: `promptCacheKey`, `sessionHeader`
+  - Responses: `promptCacheKey` (`off` / `derived`), `sessionHeader`, `store` (`default` / `true` / `false`)
+  - selecting a non-custom preset writes the full matrix and enables Responses API; manual matrix edits switch the preset to `custom`
+  - legacy `responseStateMode: "provider"` maps to the `pptoken.org` Responses behavior when no matrix exists
+  - runtime must strip `openAICompatCache` and other internal fields before sending upstream requests
 - Anthropic-compatible calls target Anthropic Messages semantics; expose Anthropic-only toggles only when the compatibility endpoint documents the same accepted request fields.
 
 ## UI pattern: one provider panel at a time
@@ -67,6 +74,7 @@ When **MiniMax** rejects requests with context overflow (**`bad_request_error` /
 ## Testing and regression
 
 - Add or extend **runtime unit tests** on `build*Payload` / `handlePayload` when behavior is non-trivial (thinking toggles, tool + thinking interaction, optional fields like `thinking.keep`).
+- For OpenAI-compatible cache changes, test both `/v1/chat/completions` and `/v1/responses` body/header shapes, including `Session_id`-only Responses mode and legacy `responseStateMode` normalization.
 - After changes, run **`bash scripts/type-check-tsc.sh`** and targeted **`bun test`** for touched packages.
 
 ## Shipping

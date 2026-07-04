@@ -298,6 +298,50 @@
         "desc": "采用 OpenAI 新一代请求格式规范，解锁思维链等进阶特性",
         "title": "使用 Responses API 规范"
       },
+      "openAICompatCache": {
+        "chatPromptCacheKey": {
+          "desc": "为 /v1/chat/completions 请求生成并发送 prompt_cache_key",
+          "title": "Chat 发送 prompt_cache_key"
+        },
+        "chatSessionHeader": {
+          "desc": "为 /v1/chat/completions 请求发送 Session_id 请求头",
+          "title": "Chat 发送 Session_id"
+        },
+        "preset": {
+          "desc": "按已验证的代理服务商写入整套缓存参数；手动修改后会切换为自定义",
+          "options": {
+            "apiklAi": "apikl.ai",
+            "custom": "自定义",
+            "pptokenOrg": "pptoken.org"
+          },
+          "title": "OpenAI 兼容缓存预设"
+        },
+        "promptCacheKey": {
+          "options": {
+            "derived": "自动生成",
+            "off": "不发送"
+          }
+        },
+        "responsesPromptCacheKey": {
+          "desc": "为 /v1/responses 请求生成并发送 prompt_cache_key",
+          "title": "Responses prompt_cache_key"
+        },
+        "responsesSessionHeader": {
+          "desc": "为 /v1/responses 请求发送 Session_id 请求头",
+          "title": "Responses Session_id"
+        },
+        "responsesStore": {
+          "desc": "控制 /v1/responses 的 store 字段；默认表示由运行时或服务商决定",
+          "title": "Responses store"
+        },
+        "store": {
+          "options": {
+            "default": "默认",
+            "false": "false",
+            "true": "true"
+          }
+        }
+      },
       "responsesState": {
         "desc": "允许上游保存 Responses 状态以复用 previous_response_id。仅在可信代理或服务商支持该能力时开启",
         "title": "启用 Responses 状态缓存"

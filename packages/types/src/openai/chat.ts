@@ -57,6 +57,18 @@ export interface OpenAIChatMessage {
   tool_calls?: MessageToolCall[];
 }
 
+export interface OpenAICompatCacheRequestConfig {
+  chat?: {
+    promptCacheKey?: boolean;
+    sessionHeader?: boolean;
+  };
+  responses?: {
+    promptCacheKey?: 'derived' | 'off';
+    sessionHeader?: boolean;
+    store?: 'default' | 'false' | 'true';
+  };
+}
+
 /**
  * @title Chat Stream Payload
  */
@@ -99,6 +111,7 @@ export interface ChatStreamPayload {
    * @default openai
    */
   provider?: string;
+  openAICompatCache?: OpenAICompatCacheRequestConfig;
   responseStateMode?: 'provider' | 'stateless';
   responseMode?: 'stream' | 'json';
   response_format?: ChatResponseFormat;

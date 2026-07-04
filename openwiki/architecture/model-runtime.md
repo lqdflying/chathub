@@ -34,6 +34,8 @@ The OpenAI-compatible factory is central to this repo's model support. Git histo
 
 The recent OpenAI SDK upgrade kept this path working by normalizing the new `Headers`-backed APIError shape and by adapting Responses-stream parsing where the SDK now types some annotation payloads as `unknown`.
 
+Provider-specific cache hint combinations are documented in [OpenAI-compatible cache matrix](../integrations/openai-compatible-cache-matrix.md).
+
 Be careful when editing this area because it affects:
 
 - streaming and non-streaming request behavior

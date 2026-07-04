@@ -61,6 +61,18 @@ export interface OpenAIChatMessage {
   tool_calls?: MessageToolCall[];
 }
 
+export interface OpenAICompatCacheRequestConfig {
+  chat?: {
+    promptCacheKey?: boolean;
+    sessionHeader?: boolean;
+  };
+  responses?: {
+    promptCacheKey?: 'derived' | 'off';
+    sessionHeader?: boolean;
+    store?: 'default' | 'false' | 'true';
+  };
+}
+
 /**
  * @title Chat Stream Payload
  */
@@ -95,6 +107,7 @@ export interface ChatStreamPayload {
    * @title 返回的文本数量
    */
   n?: number;
+  openAICompatCache?: OpenAICompatCacheRequestConfig;
   /**
    * @title 控制生成文本中的惩罚系数，用于减少主题的变化
    * @default 0

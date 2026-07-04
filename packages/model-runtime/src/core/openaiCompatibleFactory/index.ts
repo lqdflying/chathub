@@ -58,6 +58,12 @@ export const CHAT_MODELS_BLOCK_LIST = [
   'dall-e',
 ];
 
+const openAICompatStoreValue = (store?: 'default' | 'false' | 'true') => {
+  if (store === 'true') return true;
+  if (store === 'false') return false;
+  return undefined;
+};
+
 type ConstructorOptions<T extends Record<string, any> = any> = ClientOptions & T;
 export type CreateImageOptions = Omit<ClientOptions, 'apiKey' | 'provider'> & {
   apiKey: string;
@@ -258,11 +264,30 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           return this.handleResponseAPIMode(processedPayload, options);
         }
 
-        const { apiMode: _apiMode, ...chatCompletionPayload } = postPayload as typeof postPayload & {
+        const {
+          apiMode: _apiMode,
+          openAICompatCache: _openAICompatCache,
+          ...chatCompletionPayload
+        } = postPayload as typeof postPayload & {
           apiMode?: string;
+          openAICompatCache?: ChatStreamPayload['openAICompatCache'];
         };
 
         const messages = await convertOpenAIMessages(chatCompletionPayload.messages, this.id);
+        const openAICompatCache = payload.openAICompatCache || processedPayload.openAICompatCache;
+        const chatCache = openAICompatCache?.chat;
+        const explicitChatCacheKey =
+          typeof (chatCompletionPayload as any).prompt_cache_key === 'string'
+            ? (chatCompletionPayload as any).prompt_cache_key
+            : '';
+        const derivedChatCacheKey =
+          !explicitChatCacheKey && (chatCache?.promptCacheKey || chatCache?.sessionHeader)
+            ? await deriveCompatPromptCacheKey(
+                { ...chatCompletionPayload, messages, model: payload.model },
+                payload.model,
+              )
+            : '';
+        const chatCacheKey = explicitChatCacheKey || derivedChatCacheKey;
 
         let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
 
@@ -286,6 +311,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         } else {
           const finalPayload = {
             ...chatCompletionPayload,
+            ...(chatCache?.promptCacheKey && chatCacheKey
+              ? { prompt_cache_key: chatCacheKey }
+              : {}),
             messages,
             ...(chatCompletion?.noUserId ? {} : { user: options?.user }),
             stream_options:
@@ -303,7 +331,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
           response = await this.client.chat.completions.create(finalPayload, {
             // https://github.com/lobehub/lobe-chat/pull/318
-            headers: { Accept: '*/*', ...options?.requestHeaders },
+            headers: {
+              Accept: '*/*',
+              ...options?.requestHeaders,
+              ...(chatCache?.sessionHeader && chatCacheKey ? { Session_id: chatCacheKey } : {}),
+            },
             signal: options?.signal,
           });
         }
@@ -783,20 +815,30 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const responseStateMode = res.responseStateMode;
       const storeOverride = res.store;
-      const statefulResponses = responseStateMode === 'provider';
+      const responseCache = res.openAICompatCache?.responses;
+      const statefulResponses = !res.openAICompatCache && responseStateMode === 'provider';
+      const responseCacheNeedsKey =
+        responseCache?.promptCacheKey === 'derived' || responseCache?.sessionHeader;
 
       // remove penalty params
       delete res.apiMode;
       delete res.frequency_penalty;
+      delete res.openAICompatCache;
       delete res.presence_penalty;
       delete res.responseStateMode;
       delete res.store;
 
       const input = await convertOpenAIResponseInputs(messages as any);
-      const promptCacheKey =
-        statefulResponses && !(res as any).prompt_cache_key
+      const explicitPromptCacheKey =
+        typeof (res as any).prompt_cache_key === 'string' ? (res as any).prompt_cache_key : '';
+      const derivedPromptCacheKey =
+        !explicitPromptCacheKey && (statefulResponses || responseCacheNeedsKey)
           ? await deriveCompatPromptCacheKey({ ...res, input, model: payload.model }, payload.model)
           : '';
+      const promptCacheKey = explicitPromptCacheKey || derivedPromptCacheKey;
+      const shouldSendPromptCacheKey =
+        !!promptCacheKey &&
+        (statefulResponses || responseCache?.promptCacheKey === 'derived' || !!explicitPromptCacheKey);
 
       const isStreaming = payload.stream !== false;
       log(
@@ -808,7 +850,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const postPayload = {
         ...res,
-        ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
+        ...(shouldSendPromptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
         ...(reasoning || reasoning_effort
           ? {
               reasoning: {
@@ -818,7 +860,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             }
           : {}),
         input,
-        store: storeOverride ?? statefulResponses,
+        store: storeOverride ?? openAICompatStoreValue(responseCache?.store) ?? statefulResponses,
         stream: !isStreaming ? undefined : isStreaming,
         tools: tools?.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
       } as OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams;
@@ -831,7 +873,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('sending responses.create request');
 
       const response = await this.client.responses.create(postPayload, {
-        headers: options?.requestHeaders,
+        headers: {
+          ...options?.requestHeaders,
+          ...(responseCache?.sessionHeader && promptCacheKey ? { Session_id: promptCacheKey } : {}),
+        },
         signal: options?.signal,
       });
 

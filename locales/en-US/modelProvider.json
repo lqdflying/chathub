@@ -298,6 +298,50 @@
         "desc": "Utilizes OpenAI's next-generation request format specification to unlock advanced features like chain of thought",
         "title": "Use Responses API Specification"
       },
+      "openAICompatCache": {
+        "chatPromptCacheKey": {
+          "desc": "Generate and send prompt_cache_key for /v1/chat/completions requests",
+          "title": "Chat prompt_cache_key"
+        },
+        "chatSessionHeader": {
+          "desc": "Send the Session_id request header for /v1/chat/completions requests",
+          "title": "Chat Session_id"
+        },
+        "preset": {
+          "desc": "Apply a full cache parameter set verified for a proxy provider; manual edits switch to Custom",
+          "options": {
+            "apiklAi": "apikl.ai",
+            "custom": "Custom",
+            "pptokenOrg": "pptoken.org"
+          },
+          "title": "OpenAI-compatible cache preset"
+        },
+        "promptCacheKey": {
+          "options": {
+            "derived": "Auto-generate",
+            "off": "Do not send"
+          }
+        },
+        "responsesPromptCacheKey": {
+          "desc": "Generate and send prompt_cache_key for /v1/responses requests",
+          "title": "Responses prompt_cache_key"
+        },
+        "responsesSessionHeader": {
+          "desc": "Send the Session_id request header for /v1/responses requests",
+          "title": "Responses Session_id"
+        },
+        "responsesStore": {
+          "desc": "Control the /v1/responses store field; Default leaves the runtime/provider default in place",
+          "title": "Responses store"
+        },
+        "store": {
+          "options": {
+            "default": "Default",
+            "false": "false",
+            "true": "true"
+          }
+        }
+      },
       "responsesState": {
         "desc": "Allow the upstream provider to store Responses state for previous_response_id reuse. Enable only for trusted proxies or providers that support it.",
         "title": "Enable Responses State Cache"

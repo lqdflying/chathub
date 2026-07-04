@@ -52,6 +52,12 @@ const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
 const isAnthropicRuntimeProvider = (provider?: string) =>
   provider === ModelProvider.Anthropic || provider === ModelProvider.AnthropicCompatible;
 
+const openAICompatStoreValue = (store?: 'default' | 'false' | 'true') => {
+  if (store === 'true') return true;
+  if (store === 'false') return false;
+  return undefined;
+};
+
 interface GetChatCompletionPayload extends Partial<Omit<ChatStreamPayload, 'messages'>> {
   messages: UIChatMessage[];
 }
@@ -321,12 +327,19 @@ class ChatService {
     const apiMode = aiProviderSelectors.isProviderEnableResponseApi(provider)(aiInfraStoreState)
       ? 'responses'
       : undefined;
+    const openAICompatCache =
+      provider === ModelProvider.OpenAICompatible
+        ? aiProviderSelectors.providerOpenAICompatCacheConfig(provider)(aiInfraStoreState)
+        : undefined;
+    const responseCache = openAICompatCache?.responses;
+    const responseCacheEnabled = responseCache?.promptCacheKey === 'derived';
     const responseStateMode =
       apiMode === 'responses' &&
       provider === ModelProvider.OpenAICompatible &&
-      aiProviderSelectors.isProviderResponseStateEnabled(provider)(aiInfraStoreState)
+      responseCacheEnabled
         ? 'provider'
         : undefined;
+    const store = apiMode === 'responses' ? openAICompatStoreValue(responseCache?.store) : undefined;
 
     // Get the chat config to check streaming preference
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
@@ -337,7 +350,7 @@ class ChatService {
           model: DEFAULT_AGENT_CONFIG.model,
           stream: chatConfig.enableStreaming !== false, // Default to true if not set
         },
-        { ...res, apiMode, model, responseStateMode },
+        { ...res, apiMode, model, openAICompatCache, responseStateMode, store },
       ),
     );
 
