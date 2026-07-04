@@ -51,7 +51,7 @@ After each round, inspect `cacheSummary.responses`, `cacheSummary.chatCompletion
 
 Run one strategy per unconfirmed endpoint per round. The first cache round and later interactive rounds use six runs by default. Do not run a full matrix interactively unless the user explicitly asks to skip confirmation pauses.
 
-The standard round order covers Responses strategies `prompt-key-session-header`, `implicit-derived-key`, `prompt-key-store-true`, `prompt-key-store-false`, `session-header-only`, `codex-client-metadata`, and `previous-response`; and Chat Completions strategies `chat-session-header-prompt-cache-key`, `chat-session-header`, `chat-prompt-cache-key`, and `chat-repeat`.
+The standard round order covers Responses strategies `prompt-key-session-header`, `implicit-derived-key`, `prompt-key-store-default`, `prompt-key-store-true`, `prompt-key-store-false`, `session-header-only`, `codex-client-metadata`, and `previous-response`; and Chat Completions strategies `chat-session-header-prompt-cache-key`, `chat-session-header`, `chat-prompt-cache-key`, and `chat-repeat`.
 
 If Chat Completions is confirmed but Responses is not, lock the chat strategy and continue one Responses round:
 
@@ -83,19 +83,21 @@ The script also emits `providerReport`, which summarizes:
 - how `/v1/responses` behaves
 - which cache-hit mechanism worked for each endpoint
 - request IDs to verify in provider logs
+- `providerReport.recommendedSettings.checklist` with every UI option to set, including Responses `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity`
 - recommended ChatHub settings or compatibility changes
 
 Current OpenAI-compatible cache presets in the settings UI:
 
 - `pptoken.org`: Responses API on; Chat cache hints off; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`.
 - `apikl.ai`: Responses API on; Chat `prompt_cache_key + Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
-- `Custom`: use the exact matrix fields confirmed by the probe when the provider differs from the presets.
+- `Custom`: use the exact cache and Responses parameter fields confirmed by the probe when the provider differs from the presets. Built-in presets keep the detailed matrix hidden; `Custom` expands every option, including `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity`.
 
 Responses API follow-up probes:
 
 ```bash
 node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-session-header --runs 6
 node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy implicit-derived-key
+node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-default
 node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-true
 node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-false
 node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-previous-response
@@ -115,7 +117,7 @@ When API usage reports a cache hit, pause and ask the user to confirm the reques
 Track stability separately from mechanism detection. The first request is the warm-up candidate; stable cache behavior means every later request in the round reports cache-read tokens. If only some later requests hit, report the strategy as confirmed intermittent, include `hitRate`, `stability`, max cached tokens, and request IDs, then rerun the same endpoint/strategy with a fresh key and more rounds before calling it stable:
 
 ```bash
-node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-round --endpoint responses --responseStrategy prompt-key-store-false --confirmedChatStrategy chat-session-header-prompt-cache-key --runs 6
+node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-round --endpoint responses --responseStrategy prompt-key-store-default --confirmedChatStrategy chat-session-header-prompt-cache-key --runs 6
 ```
 
 Optional late-stage probes for gateways that appear to accept non-standard cache hints:

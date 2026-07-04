@@ -331,6 +331,10 @@ class ChatService {
       provider === ModelProvider.OpenAICompatible
         ? aiProviderSelectors.providerOpenAICompatCacheConfig(provider)(aiInfraStoreState)
         : undefined;
+    const openAICompatResponsesParams =
+      provider === ModelProvider.OpenAICompatible
+        ? aiProviderSelectors.providerOpenAICompatResponsesParamsConfig(provider)(aiInfraStoreState)
+        : undefined;
     const responseCache = openAICompatCache?.responses;
     const responseCacheEnabled = responseCache?.promptCacheKey === 'derived';
     const responseStateMode =
@@ -350,7 +354,15 @@ class ChatService {
           model: DEFAULT_AGENT_CONFIG.model,
           stream: chatConfig.enableStreaming !== false, // Default to true if not set
         },
-        { ...res, apiMode, model, openAICompatCache, responseStateMode, store },
+        {
+          ...res,
+          apiMode,
+          model,
+          openAICompatCache,
+          openAICompatResponsesParams,
+          responseStateMode,
+          store,
+        },
       ),
     );
 

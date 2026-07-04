@@ -8,6 +8,7 @@ const DEFAULT_CACHE_RUNS = 6;
 const DEFAULT_RESPONSE_CACHE_STRATEGIES = [
   'prompt-key-session-header',
   'implicit-derived-key',
+  'prompt-key-store-default',
   'prompt-key-store-true',
   'prompt-key-store-false',
   'session-header-only',
@@ -192,9 +193,21 @@ async function runParams() {
       method: 'POST',
     }),
   );
+  await record('responses.verbosity.both', () =>
+    request('/responses', {
+      body: { ...responseBase, text: { verbosity: 'low' }, verbosity: 'low' },
+      method: 'POST',
+    }),
+  );
   await record('responses.truncation.auto', () =>
     request('/responses', {
       body: { ...responseBase, truncation: 'auto' },
+      method: 'POST',
+    }),
+  );
+  await record('responses.truncation.disabled', () =>
+    request('/responses', {
+      body: { ...responseBase, truncation: 'disabled' },
       method: 'POST',
     }),
   );
@@ -863,7 +876,7 @@ function finalizeDiagnosis(currentReport) {
   const textVerbosity = byName['responses.verbosity.textObject'];
   if (topVerbosity && !topVerbosity.ok && textVerbosity?.ok) {
     currentReport.diagnosis.discrepancies.push(
-      'Responses rejects top-level verbosity but accepts text.verbosity; ChatHub OpenAI-compatible mapping should use text: { verbosity } for this provider.',
+      'Responses rejects top-level verbosity but accepts text.verbosity; this provider requires verbosity under text.',
     );
   }
 
@@ -892,6 +905,7 @@ function buildProviderReport(currentReport) {
     apiBehavior,
     cacheBehavior,
     recommendations: buildRecommendations(currentReport, apiBehavior, cacheBehavior),
+    recommendedSettings: buildRecommendedSettings(currentReport, apiBehavior, cacheBehavior),
     summary: buildProviderSummary(currentReport, apiBehavior, cacheBehavior),
   };
 }
@@ -933,7 +947,7 @@ function buildEndpointReport(currentReport, { endpoint, label }) {
       rejected.some((item) => item.name === 'responses.verbosity.topLevel') &&
       currentReport.results.some((result) => result.name === 'responses.verbosity.textObject' && result.ok)
     ) {
-      notes.push('Use text.verbosity instead of top-level verbosity.');
+      notes.push('Requires text.verbosity instead of top-level verbosity.');
     }
   } else if (cacheReadValues.length === 0) {
     notes.push('No cache usage field was exposed by observed Chat Completions responses.');
@@ -1033,6 +1047,9 @@ function describeCacheMechanism(summary) {
   if (strategy === 'prompt-key-store-true') {
     return 'Stable Responses prompt_cache_key with store:true; this matches ChatHub response-state cache hints.';
   }
+  if (strategy === 'prompt-key-store-default') {
+    return 'Stable Responses prompt_cache_key with no store field; this matches ChatHub cache matrix store:default.';
+  }
   if (strategy === 'prompt-key-store-false') {
     return 'Stable Responses prompt_cache_key with store:false; tests cache independent from stored response state.';
   }
@@ -1060,6 +1077,282 @@ function describeCacheMechanism(summary) {
   return summary?.strategyDescription || 'Cache strategy not described.';
 }
 
+function resultByName(currentReport, name) {
+  return currentReport.results.find((result) => result.name === name);
+}
+
+function resultStatus(currentReport, name) {
+  const result = resultByName(currentReport, name);
+  if (!result) return 'not-tested';
+  return result.ok ? 'accepted' : 'rejected';
+}
+
+function checkedValue(checked) {
+  return checked ? 'Checked' : 'Unchecked';
+}
+
+function providerHost() {
+  try {
+    return new URL(baseURL).hostname.toLowerCase();
+  } catch {
+    return baseURL.toLowerCase();
+  }
+}
+
+function isApiklProvider() {
+  return providerHost().endsWith('apikl.ai');
+}
+
+function isPptokenProvider() {
+  return providerHost().endsWith('pptoken.org');
+}
+
+function cacheSettingsForStrategy(strategy, endpoint) {
+  if (endpoint === '/chat/completions') {
+    if (strategy === 'chat-session-header-prompt-cache-key') {
+      return { chatPromptCacheKey: true, chatSessionId: true };
+    }
+    if (strategy === 'chat-session-header') {
+      return { chatPromptCacheKey: false, chatSessionId: true };
+    }
+    if (strategy === 'chat-prompt-cache-key') {
+      return { chatPromptCacheKey: true, chatSessionId: false };
+    }
+    return { chatPromptCacheKey: false, chatSessionId: false };
+  }
+
+  if (strategy === 'prompt-key-session-header') {
+    return {
+      responsesPromptCacheKey: 'Auto-generate',
+      responsesSessionId: true,
+      responsesStore: 'true',
+    };
+  }
+  if (strategy === 'prompt-key-store-true') {
+    return {
+      responsesPromptCacheKey: 'Auto-generate',
+      responsesSessionId: false,
+      responsesStore: 'true',
+    };
+  }
+  if (strategy === 'prompt-key-store-default') {
+    return {
+      responsesPromptCacheKey: 'Auto-generate',
+      responsesSessionId: false,
+      responsesStore: 'Default',
+    };
+  }
+  if (strategy === 'prompt-key-store-false') {
+    return {
+      responsesPromptCacheKey: 'Auto-generate',
+      responsesSessionId: false,
+      responsesStore: 'false',
+    };
+  }
+  if (strategy === 'session-header-only') {
+    return {
+      responsesPromptCacheKey: 'Do not send',
+      responsesSessionId: true,
+      responsesStore: 'true',
+    };
+  }
+  if (strategy === 'implicit-derived-key') {
+    return {
+      responsesPromptCacheKey: 'Do not send',
+      responsesSessionId: false,
+      responsesStore: 'true',
+    };
+  }
+
+  return {
+    responsesPromptCacheKey: 'Do not send',
+    responsesSessionId: false,
+    responsesStore: 'Default',
+  };
+}
+
+function responseParamSettings(currentReport) {
+  const maxTokens = resultStatus(currentReport, 'responses.max_tokens');
+  const maxOutputTokens = resultStatus(currentReport, 'responses.max_output_tokens');
+  const truncationAuto = resultStatus(currentReport, 'responses.truncation.auto');
+  const truncationDisabled = resultStatus(currentReport, 'responses.truncation.disabled');
+  const verbosityTop = resultStatus(currentReport, 'responses.verbosity.topLevel');
+  const verbosityText = resultStatus(currentReport, 'responses.verbosity.textObject');
+  const verbosityBoth = resultStatus(currentReport, 'responses.verbosity.both');
+
+  const truncation =
+    truncationAuto === 'accepted'
+      ? 'auto'
+      : truncationDisabled === 'accepted'
+        ? 'disabled'
+        : 'Do not send';
+  const verbosity =
+    verbosityText === 'accepted'
+      ? 'text.verbosity'
+      : verbosityTop === 'accepted'
+        ? 'top-level verbosity'
+        : verbosityBoth === 'accepted'
+          ? 'text.verbosity + top-level verbosity'
+          : 'Do not send';
+
+  return {
+    maxOutputTokens: {
+      reason:
+        maxOutputTokens === 'accepted'
+          ? 'Probe accepted responses.max_output_tokens.'
+          : maxOutputTokens === 'rejected'
+            ? 'Probe rejected responses.max_output_tokens.'
+            : 'Not tested in this run; omit unless a params probe accepts it.',
+      value: checkedValue(maxOutputTokens === 'accepted'),
+    },
+    maxTokens: {
+      reason:
+        maxTokens === 'accepted'
+          ? 'Probe accepted responses.max_tokens.'
+          : maxTokens === 'rejected'
+            ? 'Probe rejected responses.max_tokens.'
+            : 'Not tested in this run; omit unless a params probe accepts it.',
+      value: checkedValue(maxTokens === 'accepted'),
+    },
+    truncation: {
+      reason:
+        truncationAuto === 'accepted'
+          ? 'Probe accepted truncation:auto.'
+          : truncationDisabled === 'accepted'
+            ? 'Probe accepted truncation:disabled.'
+            : truncationAuto === 'rejected' || truncationDisabled === 'rejected'
+              ? 'Probe rejected tested truncation modes.'
+              : 'Not tested in this run; omit unless a params probe accepts it.',
+      value: truncation,
+    },
+    verbosity: {
+      reason:
+        verbosityText === 'accepted'
+          ? 'Probe accepted text.verbosity.'
+          : verbosityTop === 'accepted'
+            ? 'Probe accepted top-level verbosity.'
+            : verbosityBoth === 'accepted'
+              ? 'Probe accepted both verbosity shapes together.'
+              : verbosityText === 'rejected' || verbosityTop === 'rejected' || verbosityBoth === 'rejected'
+                ? 'Probe rejected tested verbosity shapes.'
+                : 'Not tested in this run; omit unless a params probe accepts it.',
+      value: verbosity,
+    },
+  };
+}
+
+function cacheReportForEndpoint(cacheBehavior, endpoint) {
+  if (endpoint === '/responses') {
+    if (cacheBehavior.responses?.tested) return cacheBehavior.responses;
+    if (cacheBehavior.singleEndpoint?.endpoint === '/responses') return cacheBehavior.singleEndpoint;
+  }
+  if (endpoint === '/chat/completions') {
+    if (cacheBehavior.chatCompletions?.tested) return cacheBehavior.chatCompletions;
+    if (cacheBehavior.singleEndpoint?.endpoint === '/chat/completions') return cacheBehavior.singleEndpoint;
+  }
+  return null;
+}
+
+function buildRecommendedSettings(currentReport, apiBehavior, cacheBehavior) {
+  const responseCache = cacheReportForEndpoint(cacheBehavior, '/responses');
+  const chatCache = cacheReportForEndpoint(cacheBehavior, '/chat/completions');
+  const responseCacheSettings = cacheSettingsForStrategy(responseCache?.strategy, '/responses');
+  const chatCacheSettings = cacheSettingsForStrategy(chatCache?.strategy, '/chat/completions');
+  const responsesParams = responseParamSettings(currentReport);
+  const route =
+    responseCache?.likelyHit || apiBehavior.responses.works ? 'Responses API' : 'Chat Completions';
+  const preset = isApiklProvider() ? 'apikl.ai' : isPptokenProvider() ? 'pptoken.org' : 'Custom';
+
+  const builtInPreset = preset !== 'Custom';
+  const settings = {
+    route: {
+      label: 'OpenAI-compatible API route',
+      value: route,
+    },
+    preset: {
+      label: 'OpenAI-compatible cache preset',
+      value: preset,
+    },
+    cache: {
+      chatPromptCacheKey: {
+        label: 'Chat prompt_cache_key',
+        value: checkedValue(Boolean(chatCacheSettings.chatPromptCacheKey)),
+      },
+      chatSessionId: {
+        label: 'Chat Session_id',
+        value: checkedValue(Boolean(chatCacheSettings.chatSessionId)),
+      },
+      responsesPromptCacheKey: {
+        label: 'Responses prompt_cache_key',
+        value: responseCacheSettings.responsesPromptCacheKey,
+      },
+      responsesSessionId: {
+        label: 'Responses Session_id',
+        value: checkedValue(Boolean(responseCacheSettings.responsesSessionId)),
+      },
+      responsesStore: {
+        label: 'Responses store',
+        value: responseCacheSettings.responsesStore,
+      },
+    },
+    notes: [
+      builtInPreset
+        ? 'Built-in preset hides these detailed fields in the UI; the values below are the hidden matrix.'
+        : 'Custom preset expands every cache and Responses parameter compatibility field.',
+      'Dashboard/provider-log confirmation remains authoritative for cache billing.',
+    ],
+    responsesParams,
+  };
+
+  if (preset === 'apikl.ai') {
+    settings.cache = {
+      chatPromptCacheKey: { label: 'Chat prompt_cache_key', value: 'Checked' },
+      chatSessionId: { label: 'Chat Session_id', value: 'Checked' },
+      responsesPromptCacheKey: { label: 'Responses prompt_cache_key', value: 'Auto-generate' },
+      responsesSessionId: { label: 'Responses Session_id', value: 'Unchecked' },
+      responsesStore: { label: 'Responses store', value: 'Default' },
+    };
+    settings.responsesParams = {
+      maxOutputTokens: {
+        reason: 'apikl.ai preset omits this field because the params probe rejects it.',
+        value: 'Unchecked',
+      },
+      maxTokens: {
+        reason: 'apikl.ai preset omits this field because the params probe rejects it.',
+        value: 'Unchecked',
+      },
+      truncation: {
+        reason: 'apikl.ai preset omits this field because the params probe rejects it.',
+        value: 'Do not send',
+      },
+      verbosity: {
+        reason: 'apikl.ai preset sends the accepted Responses verbosity shape.',
+        value: 'text.verbosity',
+      },
+    };
+  } else if (preset === 'pptoken.org') {
+    settings.cache = {
+      chatPromptCacheKey: { label: 'Chat prompt_cache_key', value: 'Unchecked' },
+      chatSessionId: { label: 'Chat Session_id', value: 'Unchecked' },
+      responsesPromptCacheKey: { label: 'Responses prompt_cache_key', value: 'Auto-generate' },
+      responsesSessionId: { label: 'Responses Session_id', value: 'Unchecked' },
+      responsesStore: { label: 'Responses store', value: 'true' },
+    };
+  }
+
+  settings.checklist = [
+    settings.route,
+    settings.preset,
+    ...Object.values(settings.cache),
+    { label: 'Responses max_tokens', ...settings.responsesParams.maxTokens },
+    { label: 'Responses max_output_tokens', ...settings.responsesParams.maxOutputTokens },
+    { label: 'Responses truncation', ...settings.responsesParams.truncation },
+    { label: 'Responses verbosity', ...settings.responsesParams.verbosity },
+  ];
+
+  return settings;
+}
+
 function buildRecommendations(currentReport, apiBehavior, cacheBehavior) {
   const recommendations = [];
   if (!baseURL.endsWith('/v1')) {
@@ -1073,13 +1366,15 @@ function buildRecommendations(currentReport, apiBehavior, cacheBehavior) {
       ['responses.max_tokens', 'responses.max_output_tokens'].includes(item.name),
     )
   ) {
-    recommendations.push('Do not send max_tokens or max_output_tokens in Responses mode for this provider.');
+    recommendations.push(
+      'Use Custom Responses parameter compatibility to omit rejected max_tokens/max_output_tokens fields.',
+    );
   }
   if (
     apiBehavior.responses.rejectedCalls.some((item) => item.name === 'responses.verbosity.topLevel') &&
     currentReport.results.some((result) => result.name === 'responses.verbosity.textObject' && result.ok)
   ) {
-    recommendations.push('Map verbosity to text.verbosity for Responses mode.');
+    recommendations.push('Use Custom Responses verbosity mode text.verbosity for this provider.');
   }
   const responseCache = cacheBehavior.responses || cacheBehavior.singleEndpoint;
   const chatCache = cacheBehavior.chatCompletions;
@@ -1426,6 +1721,13 @@ function responseCacheStrategy(strategy, promptCacheKey) {
       headers: {},
       includePromptCacheKey: true,
       store: false,
+    },
+    'prompt-key-store-default': {
+      description:
+        'Responses request with prompt_cache_key and no store field. Matches ChatHub OpenAI-compatible cache matrix store:default.',
+      headers: {},
+      includePromptCacheKey: true,
+      store: undefined,
     },
     'prompt-key-store-true': {
       description:

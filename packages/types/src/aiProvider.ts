@@ -137,12 +137,15 @@ const AiProviderSettingsSchema = z.object({
 export interface AiProviderConfig {
   enableResponseApi?: boolean;
   openAICompatCache?: OpenAICompatCacheConfig;
+  openAICompatResponsesParams?: OpenAICompatResponsesParamsConfig;
   responseStateMode?: 'provider' | 'stateless';
 }
 
 export type OpenAICompatCachePreset = 'custom' | 'pptoken.org' | 'apikl.ai';
 export type OpenAICompatCachePromptCacheKeyMode = 'off' | 'derived';
 export type OpenAICompatCacheStoreMode = 'default' | 'true' | 'false';
+export type OpenAICompatResponsesTruncationMode = 'auto' | 'disabled' | 'off';
+export type OpenAICompatResponsesVerbosityMode = 'both' | 'off' | 'text' | 'top-level';
 
 export interface OpenAICompatCacheConfig {
   chat?: {
@@ -155,6 +158,13 @@ export interface OpenAICompatCacheConfig {
     sessionHeader?: boolean;
     store?: OpenAICompatCacheStoreMode;
   };
+}
+
+export interface OpenAICompatResponsesParamsConfig {
+  maxOutputTokens?: boolean;
+  maxTokens?: boolean;
+  truncation?: OpenAICompatResponsesTruncationMode;
+  verbosity?: OpenAICompatResponsesVerbosityMode;
 }
 
 export const OPENAI_COMPAT_CACHE_PRESETS = ['custom', 'pptoken.org', 'apikl.ai'] as const;
@@ -170,6 +180,13 @@ export const defaultOpenAICompatCacheConfig = (): OpenAICompatCacheConfig => ({
     sessionHeader: false,
     store: 'default',
   },
+});
+
+export const defaultOpenAICompatResponsesParamsConfig = (): OpenAICompatResponsesParamsConfig => ({
+  maxOutputTokens: false,
+  maxTokens: false,
+  truncation: 'off',
+  verbosity: 'off',
 });
 
 export const openAICompatCachePresetConfig = (
@@ -208,6 +225,21 @@ export const openAICompatCachePresetConfig = (
   return defaultOpenAICompatCacheConfig();
 };
 
+export const openAICompatResponsesParamsPresetConfig = (
+  preset: OpenAICompatCachePreset,
+): OpenAICompatResponsesParamsConfig => {
+  if (preset === 'apikl.ai') {
+    return {
+      maxOutputTokens: false,
+      maxTokens: false,
+      truncation: 'off',
+      verbosity: 'text',
+    };
+  }
+
+  return defaultOpenAICompatResponsesParamsConfig();
+};
+
 export const normalizeOpenAICompatCacheConfig = (
   config?: AiProviderConfig,
 ): OpenAICompatCacheConfig => {
@@ -232,9 +264,28 @@ export const normalizeOpenAICompatCacheConfig = (
   };
 };
 
+export const normalizeOpenAICompatResponsesParamsConfig = (
+  config?: AiProviderConfig,
+): OpenAICompatResponsesParamsConfig => {
+  const cache = normalizeOpenAICompatCacheConfig(config);
+  const base = openAICompatResponsesParamsPresetConfig(cache.preset || 'custom');
+
+  return {
+    ...base,
+    ...config?.openAICompatResponsesParams,
+  };
+};
+
 const OpenAICompatCachePresetSchema = z.enum(OPENAI_COMPAT_CACHE_PRESETS);
 const OpenAICompatCachePromptCacheKeyModeSchema = z.enum(['off', 'derived']);
 const OpenAICompatCacheStoreModeSchema = z.enum(['default', 'true', 'false']);
+const OpenAICompatResponsesTruncationModeSchema = z.enum(['off', 'auto', 'disabled']);
+const OpenAICompatResponsesVerbosityModeSchema = z.enum([
+  'off',
+  'text',
+  'top-level',
+  'both',
+]);
 
 const OpenAICompatCacheSchema = z.object({
   chat: z
@@ -251,6 +302,13 @@ const OpenAICompatCacheSchema = z.object({
       store: OpenAICompatCacheStoreModeSchema.optional(),
     })
     .optional(),
+});
+
+const OpenAICompatResponsesParamsSchema = z.object({
+  maxOutputTokens: z.boolean().optional(),
+  maxTokens: z.boolean().optional(),
+  truncation: OpenAICompatResponsesTruncationModeSchema.optional(),
+  verbosity: OpenAICompatResponsesVerbosityModeSchema.optional(),
 });
 
 // create
@@ -355,6 +413,7 @@ export const UpdateAiProviderConfigSchema = z.object({
     .object({
       enableResponseApi: z.boolean().optional(),
       openAICompatCache: OpenAICompatCacheSchema.optional(),
+      openAICompatResponsesParams: OpenAICompatResponsesParamsSchema.optional(),
       responseStateMode: z.enum(['provider', 'stateless']).optional(),
     })
     .optional(),

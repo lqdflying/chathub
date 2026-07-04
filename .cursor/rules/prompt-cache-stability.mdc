@@ -29,7 +29,7 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 ### Model Runtime (`packages/model-runtime/`)
 
 - `convertOpenAIMessages`: Gates `reasoning_content` injection on provider. For `openaicompatible`, skip it entirely. For `deepseek`/`moonshot`, keep it.
-- `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. Responses-API-only fields (`text`, `verbosity`, `truncation`) are gated to `apiMode === 'responses'`.
+- `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. In Responses mode, apply `openAICompatResponsesParams` so built-in presets get verified behavior and `Custom` can freely test `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity` shapes.
 - OpenAI-compatible cache hints are controlled by provider config `openAICompatCache`, not ad hoc request mutations:
   - Chat Completions can send body `prompt_cache_key`, `Session_id` header, both, or neither.
   - Responses can send derived body `prompt_cache_key`, `Session_id` header, and `store` as `default` / `true` / `false`.
@@ -42,9 +42,9 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 
 - `pptoken.org`: Responses API on; Chat cache hints off; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`.
 - `apikl.ai`: Responses API on; Chat `prompt_cache_key + Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
-- `Custom`: exact Chat/Responses matrix fields confirmed by the provider probe.
+- `Custom`: exact Chat/Responses cache matrix and Responses parameter fields confirmed by the provider probe.
 
-Selecting a preset writes the full matrix. Any manual matrix edit should set preset to `custom`.
+Selecting a built-in preset writes the full matrix, defaults the API route radio to Responses API, and keeps detailed cache/parameter controls hidden. `Custom` expands every matrix field for provider-probe testing.
 
 ### Probe Workflow
 

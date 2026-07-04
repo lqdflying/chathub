@@ -295,8 +295,12 @@
       },
       "helpDoc": "Configuration Guide",
       "responsesApi": {
-        "desc": "Utilizes OpenAI's next-generation request format specification to unlock advanced features like chain of thought",
-        "title": "Use Responses API Specification"
+        "desc": "Choose the OpenAI-compatible request route; some proxy providers only support one route or parameter shape",
+        "options": {
+          "chatCompletions": "Chat Completions",
+          "responses": "Responses API"
+        },
+        "title": "OpenAI-compatible API route"
       },
       "openAICompatCache": {
         "chatPromptCacheKey": {
@@ -340,6 +344,35 @@
             "false": "false",
             "true": "true"
           }
+        }
+      },
+      "openAICompatResponsesParams": {
+        "maxOutputTokens": {
+          "desc": "Send the model max-output setting as max_output_tokens to /v1/responses",
+          "title": "Responses max_output_tokens"
+        },
+        "maxTokens": {
+          "desc": "Send the model max-output setting as max_tokens to /v1/responses",
+          "title": "Responses max_tokens"
+        },
+        "truncation": {
+          "desc": "Control the /v1/responses truncation field",
+          "options": {
+            "auto": "auto",
+            "disabled": "disabled",
+            "off": "Do not send"
+          },
+          "title": "Responses truncation"
+        },
+        "verbosity": {
+          "desc": "Control how text verbosity is sent to /v1/responses",
+          "options": {
+            "both": "text.verbosity + top-level verbosity",
+            "off": "Do not send",
+            "text": "text.verbosity",
+            "topLevel": "top-level verbosity"
+          },
+          "title": "Responses verbosity"
         }
       },
       "responsesState": {

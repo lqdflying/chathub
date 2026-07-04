@@ -69,6 +69,13 @@ export interface OpenAICompatCacheRequestConfig {
   };
 }
 
+export interface OpenAICompatResponsesParamsRequestConfig {
+  maxOutputTokens?: boolean;
+  maxTokens?: boolean;
+  truncation?: 'auto' | 'disabled' | 'off';
+  verbosity?: 'both' | 'off' | 'text' | 'top-level';
+}
+
 /**
  * @title Chat Stream Payload
  */
@@ -112,6 +119,7 @@ export interface ChatStreamPayload {
    */
   provider?: string;
   openAICompatCache?: OpenAICompatCacheRequestConfig;
+  openAICompatResponsesParams?: OpenAICompatResponsesParamsRequestConfig;
   responseStateMode?: 'provider' | 'stateless';
   responseMode?: 'stream' | 'json';
   response_format?: ChatResponseFormat;
@@ -121,6 +129,7 @@ export interface ChatStreamPayload {
    */
   stream?: boolean;
   store?: boolean;
+  max_output_tokens?: number;
   prompt_cache_key?: string;
   /**
    * @title 生成文本的随机度量，用于控制文本的创造性和多样性

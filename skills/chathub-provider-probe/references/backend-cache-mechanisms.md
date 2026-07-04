@@ -75,6 +75,7 @@ Observed behavior:
 Probe implication:
 
 - Test `--strategy implicit-derived-key` to detect backend-side key derivation.
+- Test `--strategy prompt-key-store-default` for ChatHub's `apikl.ai` Responses shape: derived `prompt_cache_key`, no `Session_id`, and omitted `store`.
 - Keep the model name, reasoning effort, tools, system prompt, and first user turn stable across rounds.
 - Run Chat Completions cache probes too; a sub2api-like gateway may derive or rewrite cache hints differently for OpenAI-compatible chat versus Responses-style requests.
 - If cache-read fields appear suspiciously equal to all input tokens, treat it as possible proxy billing rewrite until the dashboard confirms a real upstream hit.
@@ -97,4 +98,4 @@ Current ChatHub setting presets:
 
 - `pptoken.org`: Responses API on; Chat Completions cache hints off; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:true`.
 - `apikl.ai`: Responses API on; Chat Completions uses derived `prompt_cache_key` plus `Session_id`; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:default` (omit `store`). Use Custom `store:false` only when a fresh probe confirms the provider still accepts it.
-- `Custom`: use when a probe confirms another combination from the matrix. Manual setting edits should be reported as the exact Chat/Responses fields, not only as "cache enabled."
+- `Custom`: use when a probe confirms another combination from the matrix. Manual setting edits should be reported as the exact Chat/Responses cache fields and Responses parameter fields, not only as "cache enabled."

@@ -45,9 +45,10 @@ When stripping request-body fields such as legacy generic sampling params or use
   - presets: `custom`, `pptoken.org`, `apikl.ai`
   - Chat: `promptCacheKey`, `sessionHeader`
   - Responses: `promptCacheKey` (`off` / `derived`), `sessionHeader`, `store` (`default` / `true` / `false`)
-  - selecting a non-custom preset writes the full matrix and enables Responses API; manual matrix edits switch the preset to `custom`
+  - Responses parameter compatibility lives in `openAICompatResponsesParams`: `maxTokens`, `maxOutputTokens`, `truncation`, and `verbosity`
+  - selecting a non-custom preset writes the full matrix, defaults the route radio to Responses API, and keeps detailed matrix controls hidden; `custom` expands all cache and Responses parameter controls
   - legacy `responseStateMode: "provider"` maps to the `pptoken.org` Responses behavior when no matrix exists
-  - runtime must strip `openAICompatCache` and other internal fields before sending upstream requests
+  - runtime must strip `openAICompatCache`, `openAICompatResponsesParams`, and other internal fields before sending upstream requests; do not apply `apikl.ai` Responses parameter behavior globally to unknown providers
 - Anthropic-compatible calls target Anthropic Messages semantics; expose Anthropic-only toggles only when the compatibility endpoint documents the same accepted request fields.
 
 ## UI pattern: one provider panel at a time

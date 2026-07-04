@@ -12,17 +12,17 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
     handlePayload: (payload) => {
       // Explicit allowlist of fields forwarded to the gateway.
       // Internal routing/feature flags (enabledContextCaching, enabledSearch,
-      // provider, openAICompatCache, responseMode, responseStateMode,
+      // provider, openAICompatCache, openAICompatResponsesParams, responseMode, responseStateMode,
       // thinkingBudget, urlContext, reasoning_split) are intentionally stripped
       // so they never leak into the provider request body.
       //
-      // `text` (GPT-5 verbosity), `verbosity`, and `truncation` are Responses
-      // API fields (see OpenAI API definition). They are only forwarded when
-      // the request routes to Responses mode; in Chat Completions mode they
-      // would cause rejection on strict OpenAI-compatible gateways.
+      // `text`, `verbosity`, and `truncation` are Responses API fields. They
+      // are only forwarded into Responses mode, where the runtime matrix can
+      // decide which compatibility shape to send upstream.
       const {
         apiMode,
         frequency_penalty,
+        max_output_tokens,
         max_tokens,
         messages,
         model,
@@ -69,9 +69,8 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       if (reasoning_effort !== undefined) result.reasoning_effort = reasoning_effort;
       if (reasoning !== undefined) result.reasoning = reasoning;
 
-      // Responses-API-only fields — sending these to /v1/chat/completions
-      // causes rejection on strict OpenAI-compatible gateways.
       if (isResponses) {
+        if (max_output_tokens !== undefined) result.max_output_tokens = max_output_tokens;
         if (text !== undefined) result.text = text;
         if (verbosity !== undefined) result.verbosity = verbosity;
         if (truncation !== undefined) result.truncation = truncation;

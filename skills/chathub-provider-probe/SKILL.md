@@ -30,7 +30,7 @@ Use this skill to run live, low-cost API simulations against a ChatHub OpenAI-co
    ```
    Summarize `cacheSummary.responses`, `cacheSummary.chatCompletions`, and `cacheSummary.round`, then pause and ask the user to check provider dashboard/logs for the request IDs before trying another strategy.
 7. Keep probing until both endpoint families are user-confirmed or every usable strategy in this skill has been exhausted. If one endpoint is confirmed and the other is not, lock the confirmed strategy and continue matrix testing only the unconfirmed endpoint.
-8. After detection is complete, provide a concise provider report. Use the script's `providerReport` field first, then explain the findings in human-readable form.
+8. After detection is complete, provide a concise provider report. Use the script's `providerReport` field first, especially `providerReport.recommendedSettings.checklist`, then explain the findings in human-readable form.
 
 ## Confirmation Loop
 
@@ -56,12 +56,12 @@ node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase c
 When validating a dashboard-confirmed but intermittent strategy, rerun only that same endpoint and strategy with a fresh generated key and more rounds:
 
 ```bash
-node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-round --endpoint responses --responseStrategy prompt-key-store-false --confirmedChatStrategy chat-session-header-prompt-cache-key --runs 6
+node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-round --endpoint responses --responseStrategy prompt-key-store-default --confirmedChatStrategy chat-session-header-prompt-cache-key --runs 6
 ```
 
 In summaries, report `hitRate`, `stability`, `stableAfterWarmup`, and `intermittentHit` from `cacheSummary`. Explain that the first request is a warm-up candidate and the expected stable pattern is that every later request reports cache-read tokens. If only one later request hits, call it intermittent even when the user confirms that one request in the dashboard.
 
-The standard Responses strategy order is `prompt-key-session-header`, `implicit-derived-key`, `prompt-key-store-true`, `prompt-key-store-false`, `session-header-only`, `codex-client-metadata`, then `previous-response`. The standard Chat Completions strategy order is `chat-session-header-prompt-cache-key`, `chat-session-header`, `chat-prompt-cache-key`, then `chat-repeat`.
+The standard Responses strategy order is `prompt-key-session-header`, `implicit-derived-key`, `prompt-key-store-default`, `prompt-key-store-true`, `prompt-key-store-false`, `session-header-only`, `codex-client-metadata`, then `previous-response`. The standard Chat Completions strategy order is `chat-session-header-prompt-cache-key`, `chat-session-header`, `chat-prompt-cache-key`, then `chat-repeat`.
 
 If Chat Completions is confirmed but Responses is not, lock the chat strategy and continue one Responses round at a time:
 
@@ -107,19 +107,24 @@ Use this interactive order. Do not stop after a Responses API hit; Chat Completi
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy implicit-derived-key
    ```
    This covers sub2api-style automatic key derivation for GPT/Codex-like models from model, reasoning, tools, system prompt, and the first user turn.
-5. If Responses still needs comparison with ChatHub's current runtime shape:
+5. If Responses needs comparison with ChatHub's `apikl.ai` runtime shape:
+   ```bash
+   node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-default
+   ```
+   This sends a derived `prompt_cache_key`, no `Session_id`, and no `store` field.
+6. If Responses still needs comparison with ChatHub's legacy response-state runtime shape:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-true
    ```
-6. If the provider rejects `store:true` or treats cache independently of stored response state, try:
+7. If the provider rejects `store:true` or treats cache independently of stored response state, try:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-false
    ```
-7. If Responses still has no confirmed strategy, continue the Responses strategy order one round at a time. Include `--confirmedChatStrategy <strategy>` when the user already confirmed Chat Completions:
+8. If Responses still has no confirmed strategy, continue the Responses strategy order one round at a time. Include `--confirmedChatStrategy <strategy>` when the user already confirmed Chat Completions:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-round --endpoint responses --responseStrategy session-header-only --confirmedChatStrategy chat-session-header-prompt-cache-key --runs 6
    ```
-8. If Chat Completions cache is unclear, test chat route strategies explicitly:
+9. If Chat Completions cache is unclear, test chat route strategies explicitly:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-chat-repeat --strategy chat-session-header-prompt-cache-key --runs 6
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-chat-repeat --strategy chat-session-header --runs 6
@@ -127,22 +132,22 @@ Use this interactive order. Do not stop after a Responses API hit; Chat Completi
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-chat-repeat --strategy chat-repeat --runs 6
    ```
    Run only one of these commands per round, then pause for dashboard confirmation. Report whether `/chat/completions` exposes cache-read usage. If it does not, say chat cache is unconfirmed, not impossible.
-9. If Chat Completions still has no confirmed strategy, continue the Chat Completions strategy order one round at a time:
+10. If Chat Completions still has no confirmed strategy, continue the Chat Completions strategy order one round at a time:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-round --endpoint chat --chatStrategy chat-session-header --confirmedResponseStrategy prompt-key-session-header --runs 6
    ```
    Include `--confirmedResponseStrategy <strategy>` when the user already confirmed Responses.
-10. If running manually outside `cache-matrix` and no Responses prompt-key strategy works, try provider state via `previous_response_id`:
+11. If running manually outside `cache-matrix` and no Responses prompt-key strategy works, try provider state via `previous_response_id`:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-previous-response
    ```
    Explain that this tests provider-managed conversation state, not necessarily prompt cache billing. CLIProxy-style backends may strip `previous_response_id`.
-11. Only when the standard matrix is exhausted, or when a backend appears to be Anthropic-compatible behind an OpenAI facade, try cache-control content blocks on both endpoint families:
+12. Only when the standard matrix is exhausted, or when a backend appears to be Anthropic-compatible behind an OpenAI facade, try cache-control content blocks on both endpoint families:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy cache-control-content-blocks
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-chat-repeat --strategy chat-cache-control-content
    ```
-12. Pause after each cache round and ask the user to verify vendor dashboard/logs. Report which strategy is compatible with ChatHub as-is and which would require code changes.
+13. Pause after each cache round and ask the user to verify vendor dashboard/logs. Report which strategy is compatible with ChatHub as-is and which would require code changes.
 
 ## Interpretation Rules
 
@@ -150,8 +155,8 @@ Use this interactive order. Do not stop after a Responses API hit; Chat Completi
 - If `/models` returns HTML or a web app, the base URL is probably missing `/v1`.
 - If Chat Completions works but Responses fails, identify rejected fields from the parameter probe before recommending code changes.
 - If Responses returns `text/event-stream` when `stream` is omitted, tell the user to keep ChatHub streaming enabled for this provider.
-- If `max_tokens` is rejected by Responses, tell the user to disable the agent max-tokens setting for Responses mode or patch the runtime to strip it for this provider.
-- If top-level `verbosity` is rejected but `text: { verbosity }` works, identify this as a ChatHub OpenAI-compatible Responses mapping discrepancy.
+- If `max_tokens` is rejected by Responses, recommend Custom Responses parameter compatibility with `max_tokens` omitted, or a built-in preset that already omits it.
+- If top-level `verbosity` is rejected but `text: { verbosity }` works, recommend Custom Responses `verbosity = text.verbosity` or a built-in preset that already uses it.
 - Treat these usage fields as cache-read signals: `prompt_tokens_details.cached_tokens`, `input_tokens_details.cached_tokens`, `cached_tokens`, `prompt_cache_hit_tokens`, `cache_read_input_tokens`, camelCase equivalents, `usageMetadata.cachedContentTokenCount`, and `timings.cache_n`.
 - Treat `cache_creation_input_tokens`, `cached_creation_tokens`, and `input_tokens_details.cached_creation_tokens` as cache-write signals, not proof that the next request hit the cache.
 - Responses and Chat Completions can have different cache behavior. A confirmed `/responses` hit does not prove `/chat/completions` hits, and a chat miss does not disprove Responses cache support.
@@ -175,11 +180,13 @@ After the baseline, parameter, and cache probes, report these sections:
    - Include max observed cache-read tokens, hit rate after the first warm-up request, stability status, and the request IDs the user should verify in provider logs.
 3. ChatHub compatibility:
    - Say what works as-is.
-   - Say what requires runtime changes, such as stripping unsupported Responses fields, mapping `verbosity` to `text.verbosity`, adding `Session_id`, or adding chat-route cache hints.
+   - Say what can be expressed by the current settings matrix, such as omitting unsupported Responses fields, mapping `verbosity` to `text.verbosity`, adding `Session_id`, or adding chat-route cache hints.
    - Recommend the OpenAI-compatible provider settings when the strategy is expressible by the current UI:
      - `pptoken.org` preset for Responses derived `prompt_cache_key`, no `Session_id`, `store:true`, with Chat cache off.
      - `apikl.ai` preset for Chat `prompt_cache_key + Session_id` and Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
-     - `Custom` with exact Chat/Responses matrix fields for any other confirmed strategy.
+     - `Custom` with exact Chat/Responses cache matrix fields and Responses parameter fields for any other confirmed strategy.
+   - Built-in presets keep the detailed matrix hidden; select `Custom` when reporting individual matrix fields to test, including `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity`.
+   - Always show all UI choices from `providerReport.recommendedSettings.checklist`: route, preset, Chat cache fields, Responses cache fields, Responses `max_tokens`, Responses `max_output_tokens`, Responses `truncation`, and Responses `verbosity`.
 4. Safety:
    - Do not print API keys.
    - Remind the user to rotate any key pasted into chat.
@@ -194,6 +201,8 @@ The probe script emits JSON. Use these fields first:
 - `diagnosis.baseUrlAdvice`
 - `diagnosis.discrepancies`
 - `providerReport`
+- `providerReport.recommendedSettings`
+- `providerReport.recommendedSettings.checklist`
 - `cacheSummary`
 - for `--phase cache-both`, `cacheSummary.responses`, `cacheSummary.chatCompletions`, and `cacheSummary.comparison`
 - for `--phase cache-round`, `cacheSummary.round`, `cacheSummary.round.userConfirmationRequired`, `cacheSummary.round.responses.testedStrategy`, and `cacheSummary.round.chatCompletions.testedStrategy`

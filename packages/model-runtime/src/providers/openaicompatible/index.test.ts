@@ -70,10 +70,10 @@ describe('LobeOpenAICompatibleAI', () => {
     const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
     expect(createCall).toMatchObject({
       model: 'gpt-5.5',
-      store: false,
       stream: true,
     });
     expect(createCall).not.toHaveProperty('apiMode');
+    expect(createCall).not.toHaveProperty('store');
     expect(createCall.input).toEqual([{ content: 'Hello', role: 'user' }]);
   });
 
@@ -151,24 +151,62 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('truncation');
   });
 
-  it('forwards Responses-API-only fields (text, verbosity, truncation) in Responses mode', async () => {
+  it('normalizes portable Responses fields in Responses mode', async () => {
     await instance.chat({
       apiMode: 'responses',
       messages: [{ content: 'Hello', role: 'user' }],
+      max_output_tokens: 512,
+      max_tokens: 4096,
       model: 'gpt-5.5',
-      text: { verbosity: 'low' },
+      openAICompatResponsesParams: {
+        maxOutputTokens: false,
+        maxTokens: false,
+        truncation: 'off',
+        verbosity: 'text',
+      },
       truncation: 'auto',
       verbosity: 'medium',
-    });
+    } as any);
 
     expect(instance['client'].responses.create).toHaveBeenCalled();
 
     const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
-    // The factory forwards the original payload to Responses mode, so these
-    // Responses-API fields survive through handleResponseAPIMode.
     expect(createCall).toMatchObject({
       model: 'gpt-5.5',
+      text: { verbosity: 'medium' },
+    });
+    expect(createCall).not.toHaveProperty('max_output_tokens');
+    expect(createCall).not.toHaveProperty('max_tokens');
+    expect(createCall).not.toHaveProperty('truncation');
+    expect(createCall).not.toHaveProperty('verbosity');
+  });
+
+  it('allows custom Responses parameter compatibility fields when configured', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      max_output_tokens: 512,
+      max_tokens: 4096,
+      model: 'gpt-5.5',
+      openAICompatResponsesParams: {
+        maxOutputTokens: true,
+        maxTokens: true,
+        truncation: 'auto',
+        verbosity: 'both',
+      },
       text: { verbosity: 'low' },
+      truncation: 'disabled',
+      verbosity: 'medium',
+    } as any);
+
+    expect(instance['client'].responses.create).toHaveBeenCalled();
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall).toMatchObject({
+      max_output_tokens: 512,
+      max_tokens: 4096,
+      model: 'gpt-5.5',
+      text: { verbosity: 'medium' },
       truncation: 'auto',
       verbosity: 'medium',
     });

@@ -1226,6 +1226,12 @@ describe('ChatService', () => {
             store: 'default',
           },
         },
+        openAICompatResponsesParams: {
+          maxOutputTokens: false,
+          maxTokens: false,
+          truncation: 'off',
+          verbosity: 'text',
+        },
         stream: true,
       });
       expect(body).not.toHaveProperty('apiMode');
@@ -1277,6 +1283,12 @@ describe('ChatService', () => {
             store: 'default',
           },
         },
+        openAICompatResponsesParams: {
+          maxOutputTokens: false,
+          maxTokens: false,
+          truncation: 'off',
+          verbosity: 'text',
+        },
         responseStateMode: 'provider',
       });
       expect(body).not.toHaveProperty('store');
@@ -1323,6 +1335,12 @@ describe('ChatService', () => {
             store: 'default',
           },
         },
+        openAICompatResponsesParams: {
+          maxOutputTokens: false,
+          maxTokens: false,
+          truncation: 'off',
+          verbosity: 'off',
+        },
       });
       expect(body).not.toHaveProperty('responseStateMode');
       expect(body).not.toHaveProperty('store');
@@ -1367,6 +1385,12 @@ describe('ChatService', () => {
           },
         },
         responseStateMode: 'provider',
+        openAICompatResponsesParams: {
+          maxOutputTokens: false,
+          maxTokens: false,
+          truncation: 'off',
+          verbosity: 'off',
+        },
         store: true,
       });
     });
