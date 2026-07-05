@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { buildMoonshotPayload, normalizeMessagesForMoonshot } from './index';
+import * as debugStreamModule from '../../utils/debugStream';
+import { LobeMoonshotAI, buildMoonshotPayload, normalizeMessagesForMoonshot } from './index';
 
 describe('normalizeMessagesForMoonshot', () => {
   it('keeps user / system / tool messages untouched', () => {
@@ -256,6 +257,49 @@ describe('buildMoonshotPayload — tool-call safety', () => {
 
     const assistant = (result.messages as any[]).find((m) => m.role === 'assistant');
     expect(assistant?.reasoning_content).toBe('');
+  });
+});
+
+describe('LobeMoonshotAI debug', () => {
+  it('logs structured request summary with DEBUG_MOONSHOT_CHAT_COMPLETION', async () => {
+    const instance = new LobeMoonshotAI({ apiKey: 'test-key' });
+    const mockProdStream = new ReadableStream() as any;
+    const mockDebugStream = new ReadableStream() as any;
+    mockDebugStream.toReadableStream = () => mockDebugStream;
+
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
+    });
+    vi.stubEnv('DEBUG_MOONSHOT_CHAT_COMPLETION', '1');
+    const debugStreamSpy = vi
+      .spyOn(debugStreamModule, 'debugStream')
+      .mockImplementation(() => Promise.resolve());
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'kimi-k2.5',
+        temperature: 0,
+      } as any);
+
+      expect(debugStreamModule.debugStream).toHaveBeenCalled();
+      const providerDebugCall = logSpy.mock.calls.find(
+        ([label]) => label === '[provider-debug:request]',
+      );
+      expect(providerDebugCall).toBeDefined();
+      expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+        model: 'kimi-k2.5',
+        provider: 'moonshot',
+        route: '/chat/completions',
+        tools: { count: 0 },
+        turnShape: { count: 1, sequence: ['user:text'] },
+      });
+    } finally {
+      debugStreamSpy.mockRestore();
+      logSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 });
 

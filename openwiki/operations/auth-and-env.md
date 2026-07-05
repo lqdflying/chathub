@@ -24,6 +24,20 @@ A notable recent change in `src/server/modules/ModelRuntime/index.ts` is special
 
 The README presents Docker + PostgreSQL as the primary deployment target. Migrations run automatically in the container startup flow, and the README points readers to the Docker deployment wiki for upgrade procedures and troubleshooting.
 
+## Provider debug environment variables
+
+Provider runtime debugging is opt-in and should be used only for active troubleshooting. The provider chat-completion flags emit raw request payloads and stream chunks, and some providers also emit a redacted structured request-shape line:
+
+```bash
+DEBUG_MOONSHOT_CHAT_COMPLETION=1
+DEBUG_DEEPSEEK_CHAT_COMPLETION=1
+DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1
+```
+
+The structured line starts with `[provider-debug:request]` and includes provider, redacted base URL, upstream route, model, stream flag, payload fingerprint, turn shape, tools summary, and key parameter presence. It is intended for diagnosing endpoint/path errors such as Moonshot `url.not_found` without immediately inspecting full prompt text.
+
+The same flags still enable raw `[requestPayload]` and stream logs, so do not leave them enabled in privacy-sensitive production sessions. For OpenAI-compatible cache diagnostics, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1`, which is a separate redacted cache-focused logger.
+
 ## Change guidance
 
 If you add or rename environment variables, update all of these places together:

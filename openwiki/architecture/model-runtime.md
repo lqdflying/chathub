@@ -36,6 +36,16 @@ The recent OpenAI SDK upgrade kept this path working by normalizing the new `Hea
 
 Provider-specific cache hint combinations are documented in [OpenAI-compatible cache matrix](../integrations/openai-compatible-cache-matrix.md).
 
+## Provider request debug
+
+Moonshot, DeepSeek, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with redacted base URL, upstream route, model, turn shape, tools summary, and payload fingerprint:
+
+- `DEBUG_MOONSHOT_CHAT_COMPLETION=1`
+- `DEBUG_DEEPSEEK_CHAT_COMPLETION=1`
+- `DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1`
+
+Use this first for endpoint/path problems such as `url.not_found`, then inspect the raw payload only if the structured request shape is not enough. The raw debug logs can include prompt and response content.
+
 Be careful when editing this area because it affects:
 
 - streaming and non-streaming request behavior

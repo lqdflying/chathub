@@ -1280,21 +1280,36 @@ describe('LobeOpenAICompatibleFactory', () => {
         // Mock environment variable
         process.env.DEBUG_MOCKPROVIDER_CHAT_COMPLETION = '1';
         vi.spyOn(debugStreamModule, 'debugStream').mockImplementation(() => Promise.resolve());
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-        // Execute test
-        // Run your test function, ensuring it calls debugStream when conditions are met
-        // Hypothetical test function call, you may need to adjust based on actual situation
-        await instance.chat({
-          messages: [{ content: 'Hello', role: 'user' }],
-          model: 'mistralai/mistral-7b-instruct:free',
-          temperature: 0,
-        });
+        try {
+          // Execute test
+          // Run your test function, ensuring it calls debugStream when conditions are met
+          // Hypothetical test function call, you may need to adjust based on actual situation
+          await instance.chat({
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'mistralai/mistral-7b-instruct:free',
+            temperature: 0,
+          });
 
-        // Verify debugStream is called
-        expect(debugStreamModule.debugStream).toHaveBeenCalled();
+          // Verify debugStream is called
+          expect(debugStreamModule.debugStream).toHaveBeenCalled();
 
-        // Restore original environment variable value
-        process.env.DEBUG_MOCKPROVIDER_CHAT_COMPLETION = originalDebugValue;
+          const providerDebugCall = logSpy.mock.calls.find(
+            ([label]) => label === '[provider-debug:request]',
+          );
+          expect(providerDebugCall).toBeDefined();
+          expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+            model: 'mistralai/mistral-7b-instruct:free',
+            provider: 'groq',
+            route: '/chat/completions',
+            tools: { count: 0 },
+            turnShape: { count: 1, sequence: ['user:text'] },
+          });
+        } finally {
+          logSpy.mockRestore();
+          process.env.DEBUG_MOCKPROVIDER_CHAT_COMPLETION = originalDebugValue;
+        }
       });
     });
   });

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
+import * as debugStreamModule from '../../utils/debugStream';
 import { LobeAnthropicCompatibleAI } from './index';
 
 describe('LobeAnthropicCompatibleAI', () => {
@@ -68,6 +69,55 @@ describe('LobeAnthropicCompatibleAI', () => {
       expect((instance as any).authToken).toBeUndefined();
 
       vi.unstubAllEnvs();
+    });
+  });
+
+  describe('debug', () => {
+    it('logs structured request summary with DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION', async () => {
+      const instance = new LobeAnthropicCompatibleAI({
+        apiKey: 'secret-compatible-key',
+        baseURL: 'https://api.anthropicproxy.example/v1',
+      });
+      const mockProdStream = new ReadableStream() as any;
+      const mockDebugStream = new ReadableStream() as any;
+      mockDebugStream.toReadableStream = () => mockDebugStream;
+
+      vi.spyOn((instance as any).client.messages, 'create').mockResolvedValue({
+        tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
+      });
+      vi.stubEnv('DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION', '1');
+      const debugStreamSpy = vi
+        .spyOn(debugStreamModule, 'debugStream')
+        .mockImplementation(() => Promise.resolve());
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+      try {
+        await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-sonnet-4-6',
+          temperature: 0,
+        });
+
+        expect(debugStreamModule.debugStream).toHaveBeenCalled();
+        const providerDebugCall = logSpy.mock.calls.find(
+          ([label]) => label === '[provider-debug:request]',
+        );
+        expect(providerDebugCall).toBeDefined();
+        const summary = JSON.parse(providerDebugCall?.[1] as string);
+        expect(summary).toMatchObject({
+          model: 'claude-sonnet-4-6',
+          provider: 'anthropiccompatible',
+          route: '/messages',
+          tools: { count: 0 },
+          turnShape: { count: 1, sequence: ['user:text'] },
+        });
+        expect(summary.baseURL).not.toContain('anthropicproxy');
+        expect(JSON.stringify(summary)).not.toContain('secret-compatible-key');
+      } finally {
+        debugStreamSpy.mockRestore();
+        logSpy.mockRestore();
+        vi.unstubAllEnvs();
+      }
     });
   });
 });
