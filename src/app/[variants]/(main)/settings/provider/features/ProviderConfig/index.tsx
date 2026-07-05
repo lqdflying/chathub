@@ -218,6 +218,14 @@ export interface ProviderConfigProps extends Omit<AiProviderDetailItem, 'enabled
 const openAICompatCacheResponseStateMode = (cache: OpenAICompatCacheConfig) =>
   cache.responses?.promptCacheKey === 'derived' ? 'provider' : 'stateless';
 
+const normalizeProviderConfigValues = (values: any) => {
+  if (values?.checkModel !== null) return values;
+
+  const { checkModel, ...rest } = values;
+
+  return rest;
+};
+
 const openAICompatCachePresetLabelKey: Record<OpenAICompatCachePreset, string> = {
   'apikl.ai': 'promptKeyStore',
   custom: 'custom',
@@ -226,19 +234,20 @@ const openAICompatCachePresetLabelKey: Record<OpenAICompatCachePreset, string> =
 };
 
 const normalizeOpenAICompatValues = (values: any) => {
-  const nextCache = normalizeOpenAICompatCacheConfig(values?.config);
+  const normalizedValues = normalizeProviderConfigValues(values);
+  const nextCache = normalizeOpenAICompatCacheConfig(normalizedValues?.config);
   const nextConfig = {
-    ...values?.config,
+    ...normalizedValues?.config,
     openAICompatCache: nextCache,
     openAICompatResponsesParams: normalizeOpenAICompatResponsesParamsConfig({
-      ...values?.config,
+      ...normalizedValues?.config,
       openAICompatCache: nextCache,
     }),
     responseStateMode: openAICompatCacheResponseStateMode(nextCache),
   };
 
   return {
-    ...values,
+    ...normalizedValues,
     config: nextConfig,
   };
 };
@@ -772,7 +781,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
                   // 设置连接测试状态，阻止 onValuesChange 的重复请求
                   isCheckingConnection.current = true;
                   // 主动保存表单最新值，确保 fetchAiProviderRuntimeState 获取最新数据
-                  const values = form.getFieldsValue(true);
+                  const values = normalizeProviderConfigValues(form.getFieldsValue(true));
                   const nextValues = supportOpenAICompatCache
                     ? normalizeOpenAICompatValues(values)
                     : values;
@@ -850,11 +859,14 @@ const ProviderConfig = memo<ProviderConfigProps>(
         form={form}
         items={[model]}
         onValuesChange={(changedValues, values) => {
-          const nextValues = supportOpenAICompatCache
+          const resolvedValues = supportOpenAICompatCache
             ? resolveOpenAICompatValues(changedValues, values)
             : values;
+          const nextValues = normalizeProviderConfigValues(resolvedValues);
 
-          if (nextValues !== values) form.setFieldsValue(nextValues);
+          if (nextValues !== resolvedValues || nextValues !== values) {
+            form.setFieldsValue(nextValues);
+          }
 
           debouncedHandleValueChange(id, nextValues);
         }}

@@ -407,7 +407,10 @@ export const UpdateAiProviderSchema = z.object({
 export type UpdateAiProviderParams = z.infer<typeof UpdateAiProviderSchema>;
 
 export const UpdateAiProviderConfigSchema = z.object({
-  checkModel: z.string().optional(),
+  checkModel: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    z.string().optional(),
+  ),
   config: z
     .object({
       enableResponseApi: z.boolean().optional(),
