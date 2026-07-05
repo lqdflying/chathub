@@ -12,6 +12,18 @@ describe('buildMinimaxOpenAIChatPayload', () => {
     expect(out.reasoning_split).toBe(true);
   });
 
+  it('connectivity probe keeps reasoning_split false and respects max_tokens', () => {
+    const out = buildMinimaxOpenAIChatPayload({
+      max_tokens: 256,
+      messages: [{ content: 'hello', role: 'user' }],
+      model: 'MiniMax-M2.5',
+      reasoning_split: false,
+    } as any);
+
+    expect(out.reasoning_split).toBe(false);
+    expect(out.max_tokens).toBe(256);
+  });
+
   it('sets reasoning_split false when payload has reasoning_split: false', () => {
     const out = buildMinimaxOpenAIChatPayload({
       messages: [{ content: 'hi', role: 'user' }],

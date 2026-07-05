@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { hasConnectionCheckOutput, resolveConnectionCheckModel } from './Checker';
+import { hasConnectionCheckOutput, hasConnectionCheckResult } from './connectionCheckParams';
+import { resolveConnectionCheckModel } from './Checker';
 
 describe('ProviderConfig Checker', () => {
   it('accepts non-empty text returned by compatible gateways', () => {
@@ -10,6 +11,10 @@ describe('ProviderConfig Checker', () => {
   it('rejects empty text responses', () => {
     expect(hasConnectionCheckOutput('')).toBe(false);
     expect(hasConnectionCheckOutput('   \n')).toBe(false);
+  });
+
+  it('accepts reasoning-only connectivity output', () => {
+    expect(hasConnectionCheckResult('', { content: 'trace' })).toBe(true);
   });
 
   it('uses the selected checker model when present', () => {

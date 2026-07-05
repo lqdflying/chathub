@@ -14,6 +14,14 @@ import { useProviderName } from '@/hooks/useProviderName';
 import { chatService } from '@/services/chat';
 import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 
+import {
+  buildConnectionCheckParams,
+  hasConnectionCheckOutput,
+  hasConnectionCheckResult,
+} from './connectionCheckParams';
+
+export { hasConnectionCheckOutput, hasConnectionCheckResult } from './connectionCheckParams';
+
 const Error = memo<{ error: ChatMessageError }>(({ error }) => {
   const { t } = useTranslation('error');
   const providerName = useProviderName(error.body?.provider);
@@ -46,9 +54,6 @@ export type CheckErrorRender = (props: {
   error?: ChatMessageError;
   setError: (error?: ChatMessageError) => void;
 }) => ReactNode;
-
-export const hasConnectionCheckOutput = (value: unknown) =>
-  typeof value === 'string' ? value.trim().length > 0 : !!value;
 
 export const resolveConnectionCheckModel = (selectedModel: string | undefined, fallback: string) =>
   selectedModel?.trim() || fallback;
@@ -101,8 +106,8 @@ const Checker = memo<ConnectionCheckerProps>(
           isError = true;
         },
 
-        onFinish: async (value) => {
-          if (!isError && hasConnectionCheckOutput(value)) {
+        onFinish: async (value, context) => {
+          if (!isError && hasConnectionCheckResult(value, context?.reasoning)) {
             setError(undefined);
             setPass(true);
           } else {
@@ -117,16 +122,7 @@ const Checker = memo<ConnectionCheckerProps>(
         onLoadingChange: (loading) => {
           setLoading(loading);
         },
-        params: {
-          messages: [
-            {
-              content: 'hello',
-              role: 'user',
-            },
-          ],
-          model: activeCheckModel,
-          provider,
-        },
+        params: buildConnectionCheckParams(provider, activeCheckModel),
         trace: {
           sessionId: `connection:${provider}`,
           topicId: activeCheckModel,

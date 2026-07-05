@@ -143,6 +143,19 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(result).not.toHaveProperty('presence_penalty');
   });
 
+  it('kimi-k2.5 connectivity probe with thinking disabled sends disabled thinking', () => {
+    const result = buildMoonshotPayload({
+      max_tokens: 256,
+      messages: [{ content: 'hello', role: 'user' }],
+      model: 'kimi-k2.5',
+      stream: true,
+      thinking: { type: 'disabled' },
+    } as any);
+
+    expect(result.thinking).toEqual({ type: 'disabled' });
+    expect(result.max_tokens).toBe(256);
+  });
+
   it('kimi-k2.5 + tools + thinking disabled keeps tools and sends disabled thinking without legacy sampling', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],
