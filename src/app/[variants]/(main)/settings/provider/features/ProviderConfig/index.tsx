@@ -71,22 +71,96 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     }
   `,
   form: css`
+    container-type: inline-size;
+
+    .${prefixCls}-row {
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .${prefixCls}-form-item-label {
+      flex: 1 1 220px !important;
+      min-width: min(100%, 220px);
+      overflow: visible;
+    }
+
+    .${prefixCls}-form-item-label > label {
+      width: 100%;
+      white-space: normal;
+    }
+
+    .${prefixCls}-form-item-label > label > div,
+    .${prefixCls}-form-item-label > label > div > div {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .${prefixCls}-form-item-label > label > div > div > div {
+      flex-wrap: wrap;
+      min-width: 0;
+      line-height: 1.3;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .${prefixCls}-form-item-label small {
+      overflow: visible;
+      overflow-wrap: anywhere;
+    }
+
     .${prefixCls}-form-item-control:has(
         .${prefixCls}-input,
         .${prefixCls}-radio-group,
         .${prefixCls}-select
       ) {
-      flex: none;
-      width: min(70%, 800px);
-      min-width: min(70%, 800px) !important;
+      flex: 1 1 320px !important;
+      width: auto;
+      max-width: 800px;
+      min-width: min(100%, 320px) !important;
     }
     ${responsive.mobile} {
       width: 100%;
       min-width: unset !important;
+
+      .${prefixCls}-form-item-control:has(
+          .${prefixCls}-input,
+          .${prefixCls}-radio-group,
+          .${prefixCls}-select
+        ) {
+        flex-basis: 100% !important;
+        max-width: 100%;
+      }
     }
     .${prefixCls}-select-selection-overflow-item {
       font-size: 12px;
     }
+  `,
+  fieldInfoIcon: css`
+    cursor: help;
+
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+
+    color: ${token.colorTextDescription};
+
+    &:hover {
+      color: ${token.colorText};
+    }
+  `,
+  fieldLabel: css`
+    display: inline-flex;
+    align-items: center;
+
+    max-width: 100%;
+    min-width: 0;
+  `,
+  fieldLabelText: css`
+    min-width: 0;
+
+    line-height: 1.3;
+    white-space: normal;
+    overflow-wrap: anywhere;
   `,
   help: css`
     border-radius: 50%;
@@ -316,16 +390,37 @@ const ProviderConfig = memo<ProviderConfigProps>(
       ),
       value: preset,
     }));
-    const openAICompatCachePresetLabel = (
-      <Flexbox align={'center'} gap={6} horizontal>
-        {t('providerModels.config.openAICompatCache.preset.title')}
-        <Tooltip title={t('providerModels.config.openAICompatCache.preset.tooltip')}>
-          <span style={{ display: 'inline-flex' }}>
-            <Icon icon={CircleHelpIcon} size={14} style={{ opacity: 0.66 }} />
-          </span>
-        </Tooltip>
+    const openAICompatCachePresetDesc = (
+      <Flexbox gap={6}>
+        <span>{t('providerModels.config.openAICompatCache.preset.desc')}</span>
+        <span>{t('providerModels.config.openAICompatCache.preset.tooltip')}</span>
       </Flexbox>
     );
+    const renderLabelWithInfo = (
+      label: FormItemProps['label'],
+      desc?: FormItemProps['desc'],
+    ) => {
+      if (!desc) return label;
+
+      return (
+        <Flexbox align={'center'} className={styles.fieldLabel} gap={6} horizontal>
+          <span className={styles.fieldLabelText}>{label}</span>
+          <Tooltip title={desc}>
+            <span className={styles.fieldInfoIcon}>
+              <Icon icon={CircleHelpIcon} size={13} />
+            </span>
+          </Tooltip>
+        </Flexbox>
+      );
+    };
+    const toTooltipDescriptionItem = (item: FormItemProps): FormItemProps =>
+      item.desc
+        ? {
+            ...item,
+            desc: undefined,
+            label: renderLabelWithInfo(item.label, item.desc),
+          }
+        : item;
     const openAICompatPromptCacheKeyOptions = [
       {
         label: t('providerModels.config.openAICompatCache.promptCacheKey.options.off'),
@@ -513,8 +608,8 @@ const ProviderConfig = memo<ProviderConfigProps>(
             ) : (
               <Select disabled={configUpdating} options={openAICompatCachePresetOptions} />
             ),
-            desc: t('providerModels.config.openAICompatCache.preset.desc'),
-            label: openAICompatCachePresetLabel,
+            desc: openAICompatCachePresetDesc,
+            label: t('providerModels.config.openAICompatCache.preset.title'),
             name: ['config', 'openAICompatCache', 'preset'],
           },
           ...(showOpenAICompatCacheMatrix
@@ -697,7 +792,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
 
     const logoUrl = data?.logo ?? logo;
     const model: FormGroupItemType = {
-      children: configItems,
+      children: configItems.map(toTooltipDescriptionItem),
 
       defaultActive: true,
 
