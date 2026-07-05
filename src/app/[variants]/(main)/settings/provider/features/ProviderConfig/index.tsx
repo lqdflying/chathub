@@ -12,7 +12,7 @@ import {
 import { useDebounceFn } from 'ahooks';
 import { Form as AntdForm, Radio, Select, Skeleton, Switch } from 'antd';
 import { createStyles } from 'antd-style';
-import { Loader2Icon, LockIcon } from 'lucide-react';
+import { CircleHelpIcon, Loader2Icon, LockIcon } from 'lucide-react';
 import Link from 'next/link';
 import { ReactNode, memo, useCallback, useLayoutEffect, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
@@ -35,6 +35,7 @@ import {
   type OpenAICompatResponsesTruncationMode,
   type OpenAICompatResponsesVerbosityMode,
   normalizeOpenAICompatCacheConfig,
+  normalizeOpenAICompatCachePreset,
   normalizeOpenAICompatResponsesParamsConfig,
   openAICompatCachePresetConfig,
   openAICompatResponsesParamsPresetConfig,
@@ -144,9 +145,10 @@ const openAICompatCacheResponseStateMode = (cache: OpenAICompatCacheConfig) =>
   cache.responses?.promptCacheKey === 'derived' ? 'provider' : 'stateless';
 
 const openAICompatCachePresetLabelKey: Record<OpenAICompatCachePreset, string> = {
-  'apikl.ai': 'apiklAi',
+  'apikl.ai': 'promptKeyStore',
   custom: 'custom',
-  'pptoken.org': 'pptokenOrg',
+  'pptoken.org': 'promptKeyStore',
+  'prompt-key-store': 'promptKeyStore',
 };
 
 const normalizeOpenAICompatValues = (values: any) => {
@@ -292,7 +294,9 @@ const ProviderConfig = memo<ProviderConfigProps>(
 
     const isCustom = source === AiProviderSourceEnum.Custom;
     const resolvedOpenAICompatCachePreset = supportOpenAICompatCache
-      ? selectedOpenAICompatCachePreset || normalizeOpenAICompatCacheConfig(data?.config).preset
+      ? normalizeOpenAICompatCachePreset(
+          selectedOpenAICompatCachePreset || normalizeOpenAICompatCacheConfig(data?.config).preset,
+        )
       : 'custom';
     const showOpenAICompatCacheMatrix =
       supportOpenAICompatCache && resolvedOpenAICompatCachePreset === 'custom';
@@ -312,6 +316,16 @@ const ProviderConfig = memo<ProviderConfigProps>(
       ),
       value: preset,
     }));
+    const openAICompatCachePresetLabel = (
+      <Flexbox align={'center'} gap={6} horizontal>
+        {t('providerModels.config.openAICompatCache.preset.title')}
+        <Tooltip title={t('providerModels.config.openAICompatCache.preset.tooltip')}>
+          <span style={{ display: 'inline-flex' }}>
+            <Icon icon={CircleHelpIcon} size={14} style={{ opacity: 0.66 }} />
+          </span>
+        </Tooltip>
+      </Flexbox>
+    );
     const openAICompatPromptCacheKeyOptions = [
       {
         label: t('providerModels.config.openAICompatCache.promptCacheKey.options.off'),
@@ -500,7 +514,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
               <Select disabled={configUpdating} options={openAICompatCachePresetOptions} />
             ),
             desc: t('providerModels.config.openAICompatCache.preset.desc'),
-            label: t('providerModels.config.openAICompatCache.preset.title'),
+            label: openAICompatCachePresetLabel,
             name: ['config', 'openAICompatCache', 'preset'],
           },
           ...(showOpenAICompatCacheMatrix

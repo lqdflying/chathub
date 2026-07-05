@@ -75,7 +75,8 @@ Observed behavior:
 Probe implication:
 
 - Test `--strategy implicit-derived-key` to detect backend-side key derivation.
-- Test `--strategy prompt-key-store-default` for ChatHub's `apikl.ai` Responses shape: derived `prompt_cache_key`, no `Session_id`, and omitted `store`.
+- Test `--strategy prompt-key-store-true` for ChatHub's built-in `Prompt key + store` Responses shape: derived `prompt_cache_key`, no `Session_id`, and `store:true`.
+- Test `--strategy prompt-key-store-default` only as a fallback comparison for gateways that cache with an omitted `store` field.
 - Keep the model name, reasoning effort, tools, system prompt, and first user turn stable across rounds.
 - Run Chat Completions cache probes too; a sub2api-like gateway may derive or rewrite cache hints differently for OpenAI-compatible chat versus Responses-style requests.
 - If cache-read fields appear suspiciously equal to all input tokens, treat it as possible proxy billing rewrite until the dashboard confirms a real upstream hit.
@@ -96,6 +97,7 @@ Prefer this enablement order for ChatHub OpenAI-compatible providers:
 
 Current ChatHub setting presets:
 
-- `pptoken.org`: Responses API on; Chat Completions cache hints off; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:true`.
-- `apikl.ai`: Responses API on; Chat Completions uses derived `prompt_cache_key` without `Session_id`; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:default` (omit `store`). Use Custom for Chat `Session_id` or `store:false` only when a fresh real-session probe confirms the provider still accepts it.
+- `Prompt key + store`: Responses API on; Chat Completions uses derived `prompt_cache_key` without `Session_id`; Responses uses derived `prompt_cache_key`, no `Session_id`, and `store:true`; optional Responses parameter fields are omitted. This is the shared mode verified for `pptoken.org` and `apikl.ai`.
 - `Custom`: use when a probe confirms another combination from the matrix. Manual setting edits should be reported as the exact Chat/Responses cache fields and Responses parameter fields, not only as "cache enabled."
+
+Final ChatHub finding: cache misses previously observed under the separate `pptoken.org`/`apikl.ai` presets were not caused by provider identity alone. `apikl.ai` can cache with `store:true`, and `pptoken.org` can cache Chat Completions when chat `prompt_cache_key` is enabled. Treat intermittent single-round misses as possible provider shard/warmup behavior until request fingerprints, turn shape, tool fingerprint, and cache hints prove a matrix mismatch.

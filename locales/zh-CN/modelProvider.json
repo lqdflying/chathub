@@ -312,13 +312,13 @@
           "title": "Chat 发送 Session_id"
         },
         "preset": {
-          "desc": "按已验证的代理服务商写入整套缓存参数；手动修改后会切换为自定义",
+          "desc": "按已验证的内置模式写入整套缓存参数；手动修改后会切换为自定义",
           "options": {
-            "apiklAi": "apikl.ai",
             "custom": "自定义",
-            "pptokenOrg": "pptoken.org"
+            "promptKeyStore": "Prompt key + store"
           },
-          "title": "OpenAI 兼容缓存预设"
+          "title": "OpenAI 兼容缓存预设",
+          "tooltip": "已在 pptoken.org 与 apikl.ai 验证的内置模式。Chat Completions 发送 prompt_cache_key；Responses 发送自动生成的 prompt_cache_key 与 store:true；不发送 Session_id。其他网关组合请使用自定义。"
         },
         "promptCacheKey": {
           "options": {

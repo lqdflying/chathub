@@ -42,13 +42,16 @@ When stripping request-body fields such as legacy generic sampling params or use
 - Native model search is **opt-in**: model cards keep `abilities.search: false` (no auto-tag) but retain `settings.searchImpl: 'params'` so the "Use the model's built-in search engine" toggle appears in the search panel. When the toggle is OFF (default), ChatHub uses its own web-browsing tools; when ON, the `enabledSearch` param is sent to the gateway API.
 - OpenAI-compatible Responses API mode is opt-in only. Default to Chat Completions mode; enable Responses API only when the gateway documents `/v1/responses`, typed event streaming, and compatible tool/search behavior.
 - OpenAI-compatible cache behavior is a provider-settings matrix, not a model gear option. Preserve `openAICompatCache` shape end to end:
-  - presets: `custom`, `pptoken.org`, `apikl.ai`
+  - visible presets: `prompt-key-store`, `custom`
+  - legacy saved presets `pptoken.org` and `apikl.ai` must parse and normalize to `prompt-key-store`
   - Chat: `promptCacheKey`, `sessionHeader`
   - Responses: `promptCacheKey` (`off` / `derived`), `sessionHeader`, `store` (`default` / `true` / `false`)
   - Responses parameter compatibility lives in `openAICompatResponsesParams`: `maxTokens`, `maxOutputTokens`, `truncation`, and `verbosity`
   - selecting a non-custom preset writes the full matrix, defaults the route radio to Responses API, and keeps detailed matrix controls hidden; `custom` expands all cache and Responses parameter controls
-  - legacy `responseStateMode: "provider"` maps to the `pptoken.org` Responses behavior when no matrix exists
-  - runtime must strip `openAICompatCache`, `openAICompatResponsesParams`, and other internal fields before sending upstream requests; do not apply `apikl.ai` Responses parameter behavior globally to unknown providers
+  - `prompt-key-store` means Chat body `prompt_cache_key`, no Chat `Session_id`; Responses body `prompt_cache_key`, no Responses `Session_id`, `store:true`; omit optional Responses `maxTokens`, `maxOutputTokens`, `truncation`, and `verbosity`
+  - legacy `responseStateMode: "provider"` maps to `prompt-key-store` when no matrix exists
+  - runtime must strip `openAICompatCache`, `openAICompatResponsesParams`, and other internal fields before sending upstream requests
+  - final cache finding: old `pptoken.org` vs `apikl.ai` provider labels were not the root cause of misses; `apikl.ai` can cache with `store:true`, and `pptoken.org` can cache Chat Completions when chat `prompt_cache_key` is enabled
 - Anthropic-compatible calls target Anthropic Messages semantics; expose Anthropic-only toggles only when the compatibility endpoint documents the same accepted request fields.
 
 ## UI pattern: one provider panel at a time

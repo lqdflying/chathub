@@ -6,10 +6,10 @@ import {
 } from './aiProvider';
 
 describe('OpenAI-compatible provider config normalization', () => {
-  it('expands a preset-only apikl.ai cache config to the verified matrix', () => {
+  it('expands prompt-key-store to the shared built-in matrix', () => {
     const cache = normalizeOpenAICompatCacheConfig({
       openAICompatCache: {
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
       },
     });
 
@@ -18,19 +18,19 @@ describe('OpenAI-compatible provider config normalization', () => {
         promptCacheKey: true,
         sessionHeader: false,
       },
-      preset: 'apikl.ai',
+      preset: 'prompt-key-store',
       responses: {
         promptCacheKey: 'derived',
         sessionHeader: false,
-        store: 'default',
+        store: 'true',
       },
     });
   });
 
-  it('keeps preset-specific Responses params when only the preset is saved', () => {
+  it('omits Responses extra params for the shared built-in preset', () => {
     const params = normalizeOpenAICompatResponsesParamsConfig({
       openAICompatCache: {
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
       },
     });
 
@@ -38,9 +38,33 @@ describe('OpenAI-compatible provider config normalization', () => {
       maxOutputTokens: false,
       maxTokens: false,
       truncation: 'off',
-      verbosity: 'text',
+      verbosity: 'off',
     });
   });
+
+  it.each(['apikl.ai', 'pptoken.org'] as const)(
+    'normalizes legacy %s preset to prompt-key-store',
+    (preset) => {
+      const cache = normalizeOpenAICompatCacheConfig({
+        openAICompatCache: {
+          preset,
+        },
+      });
+
+      expect(cache).toEqual({
+        chat: {
+          promptCacheKey: true,
+          sessionHeader: false,
+        },
+        preset: 'prompt-key-store',
+        responses: {
+          promptCacheKey: 'derived',
+          sessionHeader: false,
+          store: 'true',
+        },
+      });
+    },
+  );
 
   it('ignores stale hidden matrix overrides for built-in presets', () => {
     const cache = normalizeOpenAICompatCacheConfig({
@@ -49,11 +73,11 @@ describe('OpenAI-compatible provider config normalization', () => {
           promptCacheKey: false,
           sessionHeader: true,
         },
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
         responses: {
           promptCacheKey: 'off',
           sessionHeader: true,
-          store: 'true',
+          store: 'default',
         },
       },
       openAICompatResponsesParams: {
@@ -65,7 +89,7 @@ describe('OpenAI-compatible provider config normalization', () => {
     });
     const params = normalizeOpenAICompatResponsesParamsConfig({
       openAICompatCache: {
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
       },
       openAICompatResponsesParams: {
         maxOutputTokens: true,
@@ -80,18 +104,18 @@ describe('OpenAI-compatible provider config normalization', () => {
         promptCacheKey: true,
         sessionHeader: false,
       },
-      preset: 'apikl.ai',
+      preset: 'prompt-key-store',
       responses: {
         promptCacheKey: 'derived',
         sessionHeader: false,
-        store: 'default',
+        store: 'true',
       },
     });
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
       truncation: 'off',
-      verbosity: 'text',
+      verbosity: 'off',
     });
   });
 

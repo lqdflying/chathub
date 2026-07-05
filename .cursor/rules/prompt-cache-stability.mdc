@@ -33,18 +33,22 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 - OpenAI-compatible cache hints are controlled by provider config `openAICompatCache`, not ad hoc request mutations:
   - Chat Completions can send body `prompt_cache_key`, `Session_id` header, both, or neither.
   - Responses can send derived body `prompt_cache_key`, `Session_id` header, and `store` as `default` / `true` / `false`.
-  - `responseStateMode: "provider"` is legacy compatibility only; when no matrix exists it normalizes to the `pptoken.org` Responses behavior.
+  - `responseStateMode: "provider"` is legacy compatibility only; when no matrix exists it normalizes to `Prompt key + store`.
+  - Legacy saved `pptoken.org` and `apikl.ai` preset values must parse and normalize to `Prompt key + store`.
   - Responses `Session_id`-only mode must not force a body `prompt_cache_key`.
   - Strip `openAICompatCache`, `responseStateMode`, `apiMode`, and other runtime-only fields before upstream request bodies are sent.
 - `anthropic` context builder: Pass through `thinking` and `redacted_thinking` blocks unchanged; never add `cache_control` to thinking/redacted blocks.
 
 ### OpenAI-Compatible Cache Presets
 
-- `pptoken.org`: Responses API on; Chat cache hints off; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`.
-- `apikl.ai`: Responses API on; Chat `prompt_cache_key`, no `Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
+- `Prompt key + store`: Responses API on; Chat `prompt_cache_key`, no `Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`; optional Responses params omitted. This is the shared built-in mode verified for `pptoken.org` and `apikl.ai`.
 - `Custom`: exact Chat/Responses cache matrix and Responses parameter fields confirmed by the provider probe.
 
 Selecting a built-in preset writes the full matrix, defaults the API route radio to Responses API, and keeps detailed cache/parameter controls hidden. `Custom` expands every matrix field for provider-probe testing.
+
+Final root-cause finding: previous cache misses were not caused by a strict provider identity difference between `pptoken.org` and `apikl.ai`. The old split was wrong because `apikl.ai` can cache with `store:true`, and `pptoken.org` can cache Chat Completions when chat `prompt_cache_key` is enabled. The effective shared fix is route-specific hints: Chat body `prompt_cache_key`; Responses body `prompt_cache_key + store:true`; no `Session_id`.
+
+Not root causes by themselves: API route choice alone, provider-name preset labels, `Session_id` absence, or `store:true` being "pptoken-only". Intermittent single-round misses can still come from provider-side cache shard/warmup behavior or request-shape changes.
 
 ### OpenAI-Compatible Cache Debugging
 
@@ -52,8 +56,9 @@ Selecting a built-in preset writes the full matrix, defaults the API route radio
 - Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` only when exact Chat Completions payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
 - Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` only when exact Responses payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
 - When live ChatHub behavior disagrees with the provider probe, compare `DEBUG_OPENAICOMPATIBLE_CACHE=1` payload fingerprints and turn/tool shapes across rounds before changing cache presets.
-- For the `apikl.ai` Responses preset, `params.hasTextVerbosity:true` without `cache.promptCacheKey.present:true` means only part of the preset/config reached the runtime.
-- For the `apikl.ai` Chat preset, `cache.promptCacheKey.present:true` with `cache.sessionId.present:false` is expected. Use `Custom` to retest Chat `Session_id`; do not enable it in the built-in preset without a real multi-turn ChatHub verification.
+- For `Prompt key + store` Responses, expect `cache.promptCacheKey.present:true`, `cache.sessionId.present:false`, `cache.store:true`, and optional Responses params omitted.
+- For `Prompt key + store` Chat Completions, expect `cache.promptCacheKey.present:true` and `cache.sessionId.present:false`.
+- Compare `fingerprint`, `turnShape`, `tools.fingerprint`, cache hint presence, and `cachedTokens` before changing the matrix; one missed round is not proof the preset is wrong.
 
 ### Probe Workflow
 

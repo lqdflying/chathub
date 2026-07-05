@@ -20,18 +20,18 @@ ChatHub exposes cache and Responses-parameter controls for the built-in `openaic
 
 Preset selection writes the full matrix. Built-in presets keep the matrix hidden; `Custom` expands every cache and Responses-parameter option for provider-probe testing.
 
-## Confirmed Presets
+## Built-In Presets
 
 | Preset | Route preference | Chat Completions cache | Responses cache | Probe status |
 | --- | --- | --- | --- | --- |
-| `pptoken.org` | Responses API | Chat cache off/unverified | `prompt_cache_key: derived`, no `Session_id`, `store: true` | Matches the previous ChatHub Responses state-cache behavior. |
-| `apikl.ai` | Responses API | `prompt_cache_key`, no `Session_id` | `prompt_cache_key: derived`, no `Session_id`, `store: Default` | Use when `store:false` is rejected but prompt-cache-key routing works; Chat `Session_id` is left to Custom mode because real multi-turn ChatHub sessions can fail through this proxy shape. |
+| `Prompt key + store` | Responses API | `prompt_cache_key`, no `Session_id` | `prompt_cache_key: derived`, no `Session_id`, `store: true` | Shared built-in mode verified for `pptoken.org` and `apikl.ai`; optional Responses parameter fields are omitted. |
 
 ## Runtime Notes
 
 - The matrix is stored under provider config as `openAICompatCache`.
 - Responses parameter compatibility is stored under provider config as `openAICompatResponsesParams`.
-- `responseStateMode: "provider"` remains a legacy input and normalizes to the `pptoken.org` Responses preset when no matrix exists.
+- `responseStateMode: "provider"` remains a legacy input and normalizes to the `Prompt key + store` preset when no matrix exists.
+- Legacy saved `pptoken.org` and `apikl.ai` preset values are accepted and normalized to `Prompt key + store`.
 - Runtime-only fields are stripped before upstream request bodies are sent.
 - Built-in presets apply their verified Responses parameter behavior. `Custom` applies the expanded parameter matrix exactly, so unknown providers can be tested freely.
 - Cache keys are derived from stable prompt parts such as model, system/developer messages, first user message, reasoning effort, and tools.
@@ -43,5 +43,6 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 - Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` for full raw Chat Completions request and stream inspection.
 - Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` for full raw Responses request and stream inspection.
 - Full route debug can expose prompt, tool, and file context. Prefer the redacted cache debug when comparing ChatHub sessions with provider-probe or Codex behavior.
-- For the `apikl.ai` preset on Responses, the cache debug should show `promptCacheKey.present:true`, `sessionId.present:false`, and `params.hasTextVerbosity:true`. If verbosity is present but `promptCacheKey` is absent, the saved config is only partially applying the preset.
-- For the `apikl.ai` preset on Chat Completions, the cache debug should show `promptCacheKey.present:true` and `sessionId.present:false`. Chat `Session_id` remains Custom-only because it can break real multi-turn sessions even when a repeated single-turn probe succeeds.
+- For `Prompt key + store` on Responses, the cache debug should show `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`, and no optional Responses parameter fields. If `promptCacheKey` is absent, the saved config is only partially applying the preset.
+- For `Prompt key + store` on Chat Completions, the cache debug should show `promptCacheKey.present:true` and `sessionId.present:false`. Chat `Session_id` remains Custom-only because it can break real multi-turn sessions even when a repeated single-turn probe succeeds.
+- Final finding: the previous cache misses were not caused by a strict provider identity difference between `pptoken.org` and `apikl.ai`. The effective shared fix is route-specific cache hints: Chat body `prompt_cache_key`; Responses body `prompt_cache_key + store:true`; no `Session_id`. Intermittent single-round misses can still come from provider-side shard/warmup behavior or request-shape changes.

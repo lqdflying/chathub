@@ -108,15 +108,16 @@ Use this interactive order. Do not stop after a Responses API hit; Chat Completi
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy implicit-derived-key
    ```
    This covers sub2api-style automatic key derivation for GPT/Codex-like models from model, reasoning, tools, system prompt, and the first user turn.
-5. If Responses needs comparison with ChatHub's `apikl.ai` runtime shape:
+5. If Responses needs comparison with an omitted `store` field:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-default
    ```
    This sends a derived `prompt_cache_key`, no `Session_id`, and no `store` field.
-6. If Responses still needs comparison with ChatHub's legacy response-state runtime shape:
+6. If Responses still needs comparison with ChatHub's built-in `Prompt key + store` mode:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-true
    ```
+   This sends a derived `prompt_cache_key`, no `Session_id`, and `store:true`.
 7. If the provider rejects `store:true` or treats cache independently of stored response state, try:
    ```bash
    node skills/chathub-provider-probe/scripts/probe-openai-compatible.mjs --phase cache-key --strategy prompt-key-store-false
@@ -184,8 +185,7 @@ After the baseline, parameter, and cache probes, report these sections:
    - Say what works as-is.
    - Say what can be expressed by the current settings matrix, such as omitting unsupported Responses fields, mapping `verbosity` to `text.verbosity`, adding `Session_id`, or adding chat-route cache hints.
    - Recommend the OpenAI-compatible provider settings when the strategy is expressible by the current UI:
-     - `pptoken.org` preset for Responses derived `prompt_cache_key`, no `Session_id`, `store:true`, with Chat cache off.
-     - `apikl.ai` preset for Chat `prompt_cache_key` without `Session_id` and Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
+     - `Prompt key + store` preset for Chat `prompt_cache_key` without `Session_id` and Responses derived `prompt_cache_key`, no `Session_id`, `store:true`, with optional Responses params omitted. This is the shared built-in mode verified for `pptoken.org` and `apikl.ai`.
      - `Custom` with exact Chat/Responses cache matrix fields and Responses parameter fields for any other confirmed strategy.
    - Built-in presets keep the detailed matrix hidden; select `Custom` when reporting individual matrix fields to test, including `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity`.
    - Always show all UI choices from `providerReport.recommendedSettings.checklist`: route, preset, Chat cache fields, Responses cache fields, Responses `max_tokens`, Responses `max_output_tokens`, Responses `truncation`, and Responses `verbosity`.

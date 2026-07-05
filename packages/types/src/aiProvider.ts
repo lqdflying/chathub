@@ -141,7 +141,11 @@ export interface AiProviderConfig {
   responseStateMode?: 'provider' | 'stateless';
 }
 
-export type OpenAICompatCachePreset = 'custom' | 'pptoken.org' | 'apikl.ai';
+export type OpenAICompatVisibleCachePreset = 'prompt-key-store' | 'custom';
+export type OpenAICompatLegacyCachePreset = 'pptoken.org' | 'apikl.ai';
+export type OpenAICompatCachePreset =
+  | OpenAICompatVisibleCachePreset
+  | OpenAICompatLegacyCachePreset;
 export type OpenAICompatCachePromptCacheKeyMode = 'off' | 'derived';
 export type OpenAICompatCacheStoreMode = 'default' | 'true' | 'false';
 export type OpenAICompatResponsesTruncationMode = 'auto' | 'disabled' | 'off';
@@ -167,7 +171,16 @@ export interface OpenAICompatResponsesParamsConfig {
   verbosity?: OpenAICompatResponsesVerbosityMode;
 }
 
-export const OPENAI_COMPAT_CACHE_PRESETS = ['custom', 'pptoken.org', 'apikl.ai'] as const;
+export const OPENAI_COMPAT_CACHE_PRESETS = ['prompt-key-store', 'custom'] as const;
+export const OPENAI_COMPAT_LEGACY_CACHE_PRESETS = ['pptoken.org', 'apikl.ai'] as const;
+
+export const normalizeOpenAICompatCachePreset = (
+  preset?: OpenAICompatCachePreset,
+): OpenAICompatVisibleCachePreset => {
+  if (preset === 'pptoken.org' || preset === 'apikl.ai') return 'prompt-key-store';
+
+  return preset || 'custom';
+};
 
 export const defaultOpenAICompatCacheConfig = (): OpenAICompatCacheConfig => ({
   chat: {
@@ -192,13 +205,15 @@ export const defaultOpenAICompatResponsesParamsConfig = (): OpenAICompatResponse
 export const openAICompatCachePresetConfig = (
   preset: OpenAICompatCachePreset,
 ): OpenAICompatCacheConfig => {
-  if (preset === 'pptoken.org') {
+  const normalizedPreset = normalizeOpenAICompatCachePreset(preset);
+
+  if (normalizedPreset === 'prompt-key-store') {
     return {
       chat: {
-        promptCacheKey: false,
+        promptCacheKey: true,
         sessionHeader: false,
       },
-      preset,
+      preset: normalizedPreset,
       responses: {
         promptCacheKey: 'derived',
         sessionHeader: false,
@@ -207,36 +222,12 @@ export const openAICompatCachePresetConfig = (
     };
   }
 
-  if (preset === 'apikl.ai') {
-    return {
-      chat: {
-        promptCacheKey: true,
-        sessionHeader: false,
-      },
-      preset,
-      responses: {
-        promptCacheKey: 'derived',
-        sessionHeader: false,
-        store: 'default',
-      },
-    };
-  }
-
   return defaultOpenAICompatCacheConfig();
 };
 
 export const openAICompatResponsesParamsPresetConfig = (
-  preset: OpenAICompatCachePreset,
+  _preset: OpenAICompatCachePreset,
 ): OpenAICompatResponsesParamsConfig => {
-  if (preset === 'apikl.ai') {
-    return {
-      maxOutputTokens: false,
-      maxTokens: false,
-      truncation: 'off',
-      verbosity: 'text',
-    };
-  }
-
   return defaultOpenAICompatResponsesParamsConfig();
 };
 
@@ -244,12 +235,12 @@ export const normalizeOpenAICompatCacheConfig = (
   config?: AiProviderConfig,
 ): OpenAICompatCacheConfig => {
   if (!config?.openAICompatCache && config?.responseStateMode === 'provider') {
-    return openAICompatCachePresetConfig('pptoken.org');
+    return openAICompatCachePresetConfig('prompt-key-store');
   }
 
   const base = defaultOpenAICompatCacheConfig();
   const cache = config?.openAICompatCache || {};
-  const preset = cache.preset || base.preset;
+  const preset = normalizeOpenAICompatCachePreset(cache.preset || base.preset);
   const presetBase = openAICompatCachePresetConfig(preset);
 
   if (preset !== 'custom') return presetBase;
@@ -281,7 +272,10 @@ export const normalizeOpenAICompatResponsesParamsConfig = (
   };
 };
 
-const OpenAICompatCachePresetSchema = z.enum(OPENAI_COMPAT_CACHE_PRESETS);
+const OpenAICompatCachePresetSchema = z.enum([
+  ...OPENAI_COMPAT_CACHE_PRESETS,
+  ...OPENAI_COMPAT_LEGACY_CACHE_PRESETS,
+] as [OpenAICompatCachePreset, ...OpenAICompatCachePreset[]]);
 const OpenAICompatCachePromptCacheKeyModeSchema = z.enum(['off', 'derived']);
 const OpenAICompatCacheStoreModeSchema = z.enum(['default', 'true', 'false']);
 const OpenAICompatResponsesTruncationModeSchema = z.enum(['off', 'auto', 'disabled']);
