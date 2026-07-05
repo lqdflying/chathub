@@ -30,6 +30,15 @@ Each real capability should be traced through **all** of these unless intentiona
 
 If the doc says a field applies **only** to certain model IDs, gate **`extendParams` on those cards** and gate runtime branches on `payload.model` — do not send the field for other ids.
 
+## Fetched model list normalization
+
+When a provider supports **Fetch models**, the fetched API list must be normalized to the same capability model as the built-in model bank:
+
+- Use `processModelList(..., MODEL_LIST_CONFIGS.<provider>, ModelProvider.<Provider>)` or an equivalent provider-specific normalizer in `packages/model-runtime/src/providers/<provider>/`.
+- Add provider keywords in `packages/model-runtime/src/utils/modelParse.ts` for newly released ids so fetched models get `functionCall`, `reasoning`, `vision`, `video`, `search`, and `imageOutput` consistently.
+- If the remote model table cannot store `settings.extendParams`, add a **read-time only** settings inference in `packages/database/src/repositories/aiInfra/index.ts` for the exact provider/model family. Do not persist inferred `settings` into the remote model record.
+- Keep inference provider-scoped. For example, DeepSeek V4 can infer `['enableReasoning', 'reasoningEffort']`, MiniMax M-series can infer `['minimaxReasoningSplit']`, Moonshot K2.5/K2.6 can infer their documented toggles, but Kimi K2.7 Code must not expose a toggle because thinking/preserved reasoning is forced by the provider.
+
 ## Provider context and stripped request fields
 
 When stripping request-body fields such as legacy generic sampling params or user-supplied `provider`, preserve the trusted server-side provider context from routing/runtime initialization. Runtime converters, tracing, and stream error handling may still need `payload.provider` internally (for example OpenAI-compatible usage accounting for `xai` and `moonshot`), but that value must come from the trusted route/provider selection, not the serialized client body.
@@ -39,16 +48,9 @@ When stripping request-body fields such as legacy generic sampling params or use
 `openaicompatible` and `anthropiccompatible` are compatibility shims for known built-in model cards, not arbitrary capability clones of OpenAI/Anthropic:
 
 - Keep their model lists fixed to model-bank IDs sourced from the native provider lists; do not re-enable arbitrary add/fetch UI without a separate design.
-- Native model search is **opt-in**: model cards keep `abilities.search: false` (no auto-tag) but retain `settings.searchImpl: 'params'` so the "Use the model's built-in search engine" toggle appears in the search panel. When the toggle is OFF (default), ChatHub uses its own web-browsing tools; when ON, the `enabledSearch` param is sent to the gateway API.
+- Native model search is **opt-in**: model cards keep `abilities.search: false` (no auto-tag) but retain `settings.searchImpl: 'params'` so the "Use the model's built-in search engine" toggle appears in the search panel. When the toggle is OFF (default), ChatHub uses its own web-browsing tools; when ON, `enabledSearch` is carried in the internal payload for runtime/tool handling, and provider adapters must only send upstream search fields documented by that provider.
 - OpenAI-compatible Responses API mode is opt-in only. Default to Chat Completions mode; enable Responses API only when the gateway documents `/v1/responses`, typed event streaming, and compatible tool/search behavior.
-- OpenAI-compatible cache behavior is a provider-settings matrix, not a model gear option. Preserve `openAICompatCache` shape end to end:
-  - presets: `custom`, `pptoken.org`, `apikl.ai`
-  - Chat: `promptCacheKey`, `sessionHeader`
-  - Responses: `promptCacheKey` (`off` / `derived`), `sessionHeader`, `store` (`default` / `true` / `false`)
-  - Responses parameter compatibility lives in `openAICompatResponsesParams`: `maxTokens`, `maxOutputTokens`, `truncation`, and `verbosity`
-  - selecting a non-custom preset writes the full matrix, defaults the route radio to Responses API, and keeps detailed matrix controls hidden; `custom` expands all cache and Responses parameter controls
-  - legacy `responseStateMode: "provider"` maps to the `pptoken.org` Responses behavior when no matrix exists
-  - runtime must strip `openAICompatCache`, `openAICompatResponsesParams`, and other internal fields before sending upstream requests; do not apply `apikl.ai` Responses parameter behavior globally to unknown providers
+- OpenAI-compatible cache behavior is a provider-settings matrix, not a model gear option. Preserve `openAICompatCache` and `openAICompatResponsesParams` end to end: visible presets are `prompt-key-store` and `custom`, legacy saved presets `pptoken.org` and `apikl.ai` normalize to `prompt-key-store`, and runtime strips internal cache fields before upstream requests. Detailed cache matrix, debugging, and provider-probe guidance lives in `.cursor/rules/prompt-cache-stability.mdc`.
 - Anthropic-compatible calls target Anthropic Messages semantics; expose Anthropic-only toggles only when the compatibility endpoint documents the same accepted request fields.
 
 ## UI pattern: one provider panel at a time
@@ -76,7 +78,7 @@ When **MiniMax** rejects requests with context overflow (**`bad_request_error` /
 
 - Add or extend **runtime unit tests** on `build*Payload` / `handlePayload` when behavior is non-trivial (thinking toggles, tool + thinking interaction, optional fields like `thinking.keep`).
 - For OpenAI-compatible cache changes, test both `/v1/chat/completions` and `/v1/responses` body/header shapes, including `Session_id`-only Responses mode and legacy `responseStateMode` normalization.
-- After changes, run **`bash scripts/type-check-tsc.sh`** and targeted **`bun test`** for touched packages.
+- After changes, run **`bash scripts/type-check-tsc.sh`** and targeted Vitest commands from `.cursor/rules/commands.mdc` (for example, **`bunx vitest run --silent='passed-only' '<file>'`**) for touched packages.
 
 ## Shipping
 

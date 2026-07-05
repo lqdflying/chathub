@@ -1,4 +1,5 @@
 import { normalizeCompatSeedJSON } from './openaicompatCache';
+import { buildEffectiveProviderURL } from '../../utils/providerDebug';
 
 type OpenAICompatRoute = '/chat/completions' | '/responses';
 
@@ -105,10 +106,12 @@ const cacheSummary = (payload: Record<string, any>, headers?: Record<string, any
 });
 
 export const debugOpenAICompatCacheRequest = ({
+  baseURL,
   headers,
   payload,
   route,
 }: {
+  baseURL?: string;
   headers?: Record<string, any>;
   payload: Record<string, any>;
   route: OpenAICompatRoute;
@@ -120,6 +123,7 @@ export const debugOpenAICompatCacheRequest = ({
     '[openai-compatible-cache-debug:request]',
     JSON.stringify({
       cache: cacheSummary(payload, headers),
+      effectiveURL: buildEffectiveProviderURL(baseURL, route),
       fingerprint: stableHash(payload),
       model: payload.model,
       params: responseParamShape(payload),

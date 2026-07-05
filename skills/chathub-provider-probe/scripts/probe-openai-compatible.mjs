@@ -1045,10 +1045,10 @@ function describeCacheMechanism(summary) {
     return 'Stable Responses prompt_cache_key plus Session_id header with store:true.';
   }
   if (strategy === 'prompt-key-store-true') {
-    return 'Stable Responses prompt_cache_key with store:true; this matches ChatHub response-state cache hints.';
+    return 'Stable Responses prompt_cache_key with store:true; this matches ChatHub Prompt key + store built-in mode.';
   }
   if (strategy === 'prompt-key-store-default') {
-    return 'Stable Responses prompt_cache_key with no store field; this matches ChatHub cache matrix store:default.';
+    return 'Stable Responses prompt_cache_key with no store field; this is a fallback comparison for store-default gateways.';
   }
   if (strategy === 'prompt-key-store-false') {
     return 'Stable Responses prompt_cache_key with store:false; tests cache independent from stored response state.';
@@ -1089,22 +1089,6 @@ function resultStatus(currentReport, name) {
 
 function checkedValue(checked) {
   return checked ? 'Checked' : 'Unchecked';
-}
-
-function providerHost() {
-  try {
-    return new URL(baseURL).hostname.toLowerCase();
-  } catch {
-    return baseURL.toLowerCase();
-  }
-}
-
-function isApiklProvider() {
-  return providerHost().endsWith('apikl.ai');
-}
-
-function isPptokenProvider() {
-  return providerHost().endsWith('pptoken.org');
 }
 
 function cacheSettingsForStrategy(strategy, endpoint) {
@@ -1169,6 +1153,16 @@ function cacheSettingsForStrategy(strategy, endpoint) {
     responsesSessionId: false,
     responsesStore: 'Default',
   };
+}
+
+function matchesPromptKeyStorePreset(chatCacheSettings, responseCacheSettings) {
+  return (
+    chatCacheSettings.chatPromptCacheKey === true &&
+    chatCacheSettings.chatSessionId === false &&
+    responseCacheSettings.responsesPromptCacheKey === 'Auto-generate' &&
+    responseCacheSettings.responsesSessionId === false &&
+    responseCacheSettings.responsesStore === 'true'
+  );
 }
 
 function responseParamSettings(currentReport) {
@@ -1261,7 +1255,9 @@ function buildRecommendedSettings(currentReport, apiBehavior, cacheBehavior) {
   const responsesParams = responseParamSettings(currentReport);
   const route =
     responseCache?.likelyHit || apiBehavior.responses.works ? 'Responses API' : 'Chat Completions';
-  const preset = isApiklProvider() ? 'apikl.ai' : isPptokenProvider() ? 'pptoken.org' : 'Custom';
+  const preset = matchesPromptKeyStorePreset(chatCacheSettings, responseCacheSettings)
+    ? 'Prompt key + store'
+    : 'Custom';
 
   const builtInPreset = preset !== 'Custom';
   const settings = {
@@ -1304,39 +1300,31 @@ function buildRecommendedSettings(currentReport, apiBehavior, cacheBehavior) {
     responsesParams,
   };
 
-  if (preset === 'apikl.ai') {
+  if (preset === 'Prompt key + store') {
     settings.cache = {
       chatPromptCacheKey: { label: 'Chat prompt_cache_key', value: 'Checked' },
       chatSessionId: { label: 'Chat Session_id', value: 'Unchecked' },
       responsesPromptCacheKey: { label: 'Responses prompt_cache_key', value: 'Auto-generate' },
       responsesSessionId: { label: 'Responses Session_id', value: 'Unchecked' },
-      responsesStore: { label: 'Responses store', value: 'Default' },
+      responsesStore: { label: 'Responses store', value: 'true' },
     };
     settings.responsesParams = {
       maxOutputTokens: {
-        reason: 'apikl.ai preset omits this field because the params probe rejects it.',
+        reason: 'Prompt key + store omits this optional Responses field.',
         value: 'Unchecked',
       },
       maxTokens: {
-        reason: 'apikl.ai preset omits this field because the params probe rejects it.',
+        reason: 'Prompt key + store omits this optional Responses field.',
         value: 'Unchecked',
       },
       truncation: {
-        reason: 'apikl.ai preset omits this field because the params probe rejects it.',
+        reason: 'Prompt key + store omits this optional Responses field.',
         value: 'Do not send',
       },
       verbosity: {
-        reason: 'apikl.ai preset sends the accepted Responses verbosity shape.',
-        value: 'text.verbosity',
+        reason: 'Prompt key + store omits this optional Responses field.',
+        value: 'Do not send',
       },
-    };
-  } else if (preset === 'pptoken.org') {
-    settings.cache = {
-      chatPromptCacheKey: { label: 'Chat prompt_cache_key', value: 'Unchecked' },
-      chatSessionId: { label: 'Chat Session_id', value: 'Unchecked' },
-      responsesPromptCacheKey: { label: 'Responses prompt_cache_key', value: 'Auto-generate' },
-      responsesSessionId: { label: 'Responses Session_id', value: 'Unchecked' },
-      responsesStore: { label: 'Responses store', value: 'true' },
     };
   }
 
@@ -1724,14 +1712,14 @@ function responseCacheStrategy(strategy, promptCacheKey) {
     },
     'prompt-key-store-default': {
       description:
-        'Responses request with prompt_cache_key and no store field. Matches ChatHub OpenAI-compatible cache matrix store:default.',
+        'Responses request with prompt_cache_key and no store field. Tests store-default gateways as a fallback comparison.',
       headers: {},
       includePromptCacheKey: true,
       store: undefined,
     },
     'prompt-key-store-true': {
       description:
-        'Responses request with prompt_cache_key and store:true. Matches ChatHub response-state cache hints when enabled.',
+        'Responses request with prompt_cache_key and store:true. Matches ChatHub Prompt key + store built-in mode.',
       headers: {},
       includePromptCacheKey: true,
       store: true,

@@ -58,7 +58,10 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
       }
 
       const apiKey = apiKeyManager.pick(payload?.apiKey || llmConfig[`${keyUpper}_API_KEY`]);
-      const baseURL = payload?.baseURL || process.env[`${originalUpper}_PROXY_URL`];
+      const baseURL =
+        payload?.baseURL ||
+        llmConfig[`${originalUpper}_PROXY_URL`] ||
+        process.env[`${originalUpper}_PROXY_URL`];
 
       return baseURL ? { apiKey, baseURL } : { apiKey };
     }

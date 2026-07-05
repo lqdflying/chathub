@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment node
+import { describe, expect, it, vi } from 'vitest';
 
-import { buildDeepSeekPayload } from './index';
+import * as debugStreamModule from '../../utils/debugStream';
+import { LobeDeepSeekAI, buildDeepSeekPayload } from './index';
 
 describe('buildDeepSeekPayload', () => {
   const basePayload = {
@@ -193,5 +195,49 @@ describe('buildDeepSeekPayload', () => {
 
       expect((payload.messages as any)[0].content).toBe('tool result');
     });
+  });
+});
+
+describe('LobeDeepSeekAI debug', () => {
+  it('logs structured request summary with DEBUG_DEEPSEEK_CHAT_COMPLETION', async () => {
+    const instance = new LobeDeepSeekAI({ apiKey: 'test-key' });
+    const mockProdStream = new ReadableStream() as any;
+    const mockDebugStream = new ReadableStream() as any;
+    mockDebugStream.toReadableStream = () => mockDebugStream;
+
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
+    });
+    vi.stubEnv('DEBUG_DEEPSEEK_CHAT_COMPLETION', '1');
+    const debugStreamSpy = vi
+      .spyOn(debugStreamModule, 'debugStream')
+      .mockImplementation(() => Promise.resolve());
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'deepseek-v4-pro',
+        temperature: 0,
+      } as any);
+
+      expect(debugStreamModule.debugStream).toHaveBeenCalled();
+      const providerDebugCall = logSpy.mock.calls.find(
+        ([label]) => label === '[provider-debug:request]',
+      );
+      expect(providerDebugCall).toBeDefined();
+      expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+        effectiveURL: 'https://api.deepseek.com/chat/completions',
+        model: 'deepseek-v4-pro',
+        provider: 'deepseek',
+        route: '/chat/completions',
+        tools: { count: 0 },
+        turnShape: { count: 1, sequence: ['user:text'] },
+      });
+    } finally {
+      debugStreamSpy.mockRestore();
+      logSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 });

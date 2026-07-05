@@ -12,6 +12,11 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useProviderName } from '@/hooks/useProviderName';
 import { chatService } from '@/services/chat';
 
+import {
+  buildConnectionCheckParams,
+  hasConnectionCheckResult,
+} from '../../provider/features/ProviderConfig/connectionCheckParams';
+
 interface ConnectionCheckerProps {
   model: string;
   provider: string;
@@ -58,8 +63,8 @@ const Checker = memo<ConnectionCheckerProps>(({ model, provider }) => {
         setPass(false);
         isError = true;
       },
-      onFinish: async (value) => {
-        if (!isError && value) {
+      onFinish: async (value, context) => {
+        if (!isError && hasConnectionCheckResult(value, context?.reasoning)) {
           setError(undefined);
           setPass(true);
         } else {
@@ -74,16 +79,7 @@ const Checker = memo<ConnectionCheckerProps>(({ model, provider }) => {
       onLoadingChange: (loading) => {
         setLoading(loading);
       },
-      params: {
-        messages: [
-          {
-            content: '你好',
-            role: 'user',
-          },
-        ],
-        model,
-        provider,
-      },
+      params: buildConnectionCheckParams(provider, model),
       trace: {
         sessionId: `connection:${provider}`,
         topicId: model,

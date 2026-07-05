@@ -147,8 +147,8 @@ cd /tmp/chathub-wiki
 git add . && git commit -m "..." && git push origin master
 
 # Then replace workspace copy
-mv /home/opc/lobehub/wiki /home/opc/lobehub/wiki-broken
-cp -r /tmp/chathub-wiki /home/opc/lobehub/wiki
+mv /home/opc/chathub/wiki /home/opc/chathub/wiki-broken
+cp -r /tmp/chathub-wiki /home/opc/chathub/wiki
 ```
 
 ### NEVER do these

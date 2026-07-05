@@ -19,7 +19,7 @@ Current behavior to compare:
   - Chat Completions can send top-level `prompt_cache_key`, a `Session_id` header, both, or neither.
   - Responses can send derived `prompt_cache_key`, a `Session_id` header, and `store` as default/true/false.
   - Responses parameter compatibility is configured by `openAICompatResponsesParams`: `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity` send shape.
-  - The old `responseStateMode: "provider"` field is treated as legacy input and normalizes to the `pptoken.org` Responses preset when no cache matrix exists.
+  - The old `responseStateMode: "provider"` field is treated as legacy input and normalizes to the `Prompt key + store` preset when no cache matrix exists.
 - In Responses mode, ChatHub converts `messages` to Responses `input`, maps `reasoning_effort` into `reasoning.effort`, deletes frequency/presence penalties, applies the configured Responses cache hints, applies the configured Responses parameter matrix, and sets `stream: true` by default or omits `stream` if the user disables streaming.
 - ChatHub does not currently use `previous_response_id` for OpenAI-compatible provider state.
 - ChatHub's OpenAI-compatible path does not emit Anthropic `cache_control` content blocks.
@@ -29,14 +29,15 @@ Current behavior to compare:
   - `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` prints full Chat Completions request and stream/response data.
   - `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` prints full Responses request and stream/response data.
   - Prefer the redacted cache debug first; full route debug can expose prompt, tool, and file context.
-  - For the `apikl.ai` Responses preset, expected cache debug is `promptCacheKey.present:true`, `sessionId.present:false`, and `params.hasTextVerbosity:true`. If verbosity is present but `promptCacheKey` is absent, ChatHub is applying only part of the saved preset/config.
-  - For the `apikl.ai` Chat preset, expected cache debug is `promptCacheKey.present:true` and `sessionId.present:false`. Chat `Session_id` is Custom-only because real multi-turn ChatHub sessions can fail even when repeated single-turn probes pass.
+  - For the `Prompt key + store` Responses preset, expected cache debug is `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`, and optional Responses params omitted.
+  - For the `Prompt key + store` Chat preset, expected cache debug is `promptCacheKey.present:true` and `sessionId.present:false`. Chat `Session_id` is Custom-only because real multi-turn ChatHub sessions can fail even when repeated single-turn probes pass.
 
 Preset recommendations:
 
-- `pptoken.org`: Responses API on; Chat Completions cache off; Responses `prompt_cache_key` derived, no `Session_id`, `store:true`. This matches the legacy ChatHub response-state behavior.
-- `apikl.ai`: Responses API on; Chat Completions `prompt_cache_key` without `Session_id`; Responses `prompt_cache_key` derived, no `Session_id`, `store:default` (omit `store`).
+- `Prompt key + store`: Responses API on; Chat Completions `prompt_cache_key` without `Session_id`; Responses `prompt_cache_key` derived, no `Session_id`, `store:true`; optional Responses parameter fields omitted. This is the shared built-in mode verified for `pptoken.org` and `apikl.ai`.
 - Use `Custom` when the probe confirms a different per-endpoint or Responses-parameter combination; built-in presets keep the detailed matrix hidden.
+
+Final root-cause finding: previous cache misses were not caused by a strict provider identity difference between `pptoken.org` and `apikl.ai`. The old split was wrong because `apikl.ai` can cache with `store:true`, and `pptoken.org` can cache Chat Completions when chat `prompt_cache_key` is enabled. Intermittent misses can still come from provider-side cache shard/warmup behavior or request-shape changes.
 
 Compatibility conclusions:
 

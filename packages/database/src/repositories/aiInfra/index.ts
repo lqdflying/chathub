@@ -5,6 +5,7 @@ import {
   AiProviderModelListItem,
   EnabledAiModel,
   ModelProvider,
+  type ExtendParamsType,
 } from 'model-bank';
 import pMap from 'p-map';
 
@@ -88,6 +89,53 @@ const inferProviderSearchDefaults = (
   return (providerId && PROVIDER_SEARCH_DEFAULTS[providerId]) || PROVIDER_SEARCH_DEFAULTS.default;
 };
 
+const inferProviderExtendParams = (
+  providerId: string,
+  item: { abilities?: { reasoning?: boolean }; id: string },
+): ExtendParamsType[] | undefined => {
+  const modelId = item.id.toLowerCase();
+
+  if (providerId === ModelProvider.DeepSeek) {
+    if (
+      modelId.includes('deepseek-v4') ||
+      modelId.includes('deepseek-reasoner') ||
+      item.abilities?.reasoning
+    ) {
+      return ['enableReasoning', 'reasoningEffort'];
+    }
+  }
+
+  if (providerId === ModelProvider.Minimax) {
+    if (modelId.includes('minimax-m') || item.abilities?.reasoning) {
+      return ['minimaxReasoningSplit'];
+    }
+  }
+
+  if (providerId === ModelProvider.Moonshot) {
+    if (modelId === 'kimi-k2.5') return ['enableReasoning'];
+    if (modelId === 'kimi-k2.6') return ['enableReasoning', 'moonshotPreservedReasoning'];
+  }
+
+  return undefined;
+};
+
+// Only inject non-persistent option-panel settings for providers whose fetched
+// model cards cannot carry model-bank settings through the remote model table.
+const injectExtendParamSettings = (providerId: string, item: any) => {
+  if (item?.settings?.extendParams?.length) return item;
+
+  const extendParams = inferProviderExtendParams(providerId, item);
+  if (!extendParams?.length) return item;
+
+  return {
+    ...item,
+    settings: {
+      ...item.settings,
+      extendParams,
+    },
+  };
+};
+
 // 仅在读取时注入 settings; 根据 abilities.search 来添加或删去settings 中的 search 相关字段
 const injectSearchSettings = (providerId: string, item: any) => {
   const abilities = item?.abilities || {};
@@ -125,6 +173,9 @@ const injectSearchSettings = (providerId: string, item: any) => {
   // 兼容老版本中数据库没有存储 abilities.search 字段的情况
   return item;
 };
+
+export const injectModelSettings = (providerId: string, item: any) =>
+  injectSearchSettings(providerId, injectExtendParamSettings(providerId, item));
 
 export class AiInfraRepos {
   private userId: string;
@@ -240,7 +291,7 @@ export class AiInfraRepos {
               sort: user.sort || undefined,
               type: user.type || item.type,
             };
-            return injectSearchSettings(provider.id, mergedModel); // 用户修改本地模型，检查搜索设置
+            return injectModelSettings(provider.id, mergedModel); // 用户修改本地模型，检查搜索设置
           })
           .filter((item) => (filterEnabled ? item.enabled : true));
       },
@@ -257,7 +308,7 @@ export class AiInfraRepos {
             !FIXED_MODEL_LIST_PROVIDERS.has(item.providerId)
           : !FIXED_MODEL_LIST_PROVIDERS.has(item.providerId),
       )
-      .map((item) => injectSearchSettings(item.providerId, item));
+      .map((item) => injectModelSettings(item.providerId, item));
 
     return [...builtinModelList.flat(), ...appendedUserModels].sort(
       (a, b) => (a?.sort || -1) - (b?.sort || -1),
@@ -306,7 +357,7 @@ export class AiInfraRepos {
     // 这里不修改搜索设置不影响使用，但是为了get数据统一
     const mergedModel = mergeArrayById(defaultModels, userModels) as AiProviderModelListItem[];
 
-    return mergedModel.map((m) => injectSearchSettings(providerId, m));
+    return mergedModel.map((m) => injectModelSettings(providerId, m));
   };
 
   /**

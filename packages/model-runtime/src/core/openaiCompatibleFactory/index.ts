@@ -32,6 +32,7 @@ import { getModelPropertyWithFallback } from '../../utils/getFallbackModelProper
 import { getModelPricing } from '../../utils/getModelPricing';
 import { handleOpenAIError } from '../../utils/handleOpenAIError';
 import { postProcessModelList } from '../../utils/postProcessModelList';
+import { debugProviderRequest } from '../../utils/providerDebug';
 import { StreamingResponse } from '../../utils/response';
 import { LobeRuntimeAI } from '../BaseAI';
 import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBuilders/openai';
@@ -399,6 +400,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
           if (debugOpenAICompatCache) {
             debugOpenAICompatCacheRequest({
+              baseURL: this.baseURL,
               headers: requestHeaders,
               payload: finalPayload,
               route: '/chat/completions',
@@ -406,6 +408,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           }
 
           if (debugParams?.chatCompletion?.()) {
+            debugProviderRequest({
+              baseURL: this.baseURL,
+              payload: finalPayload,
+              provider: this.id,
+              route: '/chat/completions',
+            });
             console.log('[requestPayload]');
             console.log(JSON.stringify(finalPayload), '\n');
           }
@@ -967,6 +975,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       if (debugOpenAICompatCache) {
         debugOpenAICompatCacheRequest({
+          baseURL: this.baseURL,
           headers: requestHeaders,
           payload: postPayload,
           route: '/responses',

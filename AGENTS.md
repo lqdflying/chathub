@@ -18,7 +18,7 @@ When writing or updating an **implementation plan** (e.g. Cursor Plan mode / `Cr
 
 Overview, stack, naming, wiki workflow: **`.cursor/rules/project.mdc`**. Per-model API toggles (extendParams): **`.cursor/rules/provider-model-options.mdc`**. Commands and test constraints: **`.cursor/rules/commands.mdc`**. MCP management UI patterns: **`.cursor/rules/mcp-management-ui.mdc`**.
 
-When changing provider/runtime behavior, cache diagnostics, or user-facing provider settings, update **both** repo-local OpenWiki (`openwiki/`) and the GitHub wiki clone (`wiki/`) when relevant. `wiki/` is a separate git repository on branch `master`; verify it with `git -C wiki branch -avv` before wiki commits or pushes.
+When changing provider/runtime behavior, cache diagnostics, or user-facing provider settings, update repo-local OpenWiki (`openwiki/`) when documentation is part of the requested change or clearly necessary. Update the GitHub wiki clone (`wiki/`) only if it exists and wiki publication is relevant or explicitly requested. `wiki/` is a separate git repository on branch `master`; verify it with `git -C wiki branch -avv` before wiki commits or pushes. If `wiki/` is absent, note that the clone was unavailable rather than bootstrapping it implicitly.
 
 ## OpenWiki
 
@@ -29,4 +29,4 @@ Start here:
 
 OpenWiki includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
 
-When working in this repository, read the OpenWiki quickstart first, then follow its links to the relevant architecture, workflow, domain, operation, and testing notes.
+For non-trivial, unfamiliar, architectural, workflow, integration, or provider/runtime work, read the OpenWiki quickstart first, then follow its links to the relevant architecture, workflow, domain, operation, and testing notes.

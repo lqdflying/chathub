@@ -312,13 +312,13 @@
           "title": "Chat Session_id"
         },
         "preset": {
-          "desc": "Apply a full cache parameter set verified for a proxy provider; manual edits switch to Custom",
+          "desc": "Apply a full cache parameter set from a verified built-in mode; manual edits switch to Custom",
           "options": {
-            "apiklAi": "apikl.ai",
             "custom": "Custom",
-            "pptokenOrg": "pptoken.org"
+            "promptKeyStore": "Prompt key + store"
           },
-          "title": "OpenAI-compatible cache preset"
+          "title": "OpenAI-compatible cache preset",
+          "tooltip": "Built-in cache mode verified with pptoken.org and apikl.ai. Chat Completions sends prompt_cache_key. Responses sends a derived prompt_cache_key with store:true. Session_id is not sent. Use Custom for other gateway combinations."
         },
         "promptCacheKey": {
           "options": {

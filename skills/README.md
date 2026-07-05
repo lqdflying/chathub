@@ -88,8 +88,7 @@ The script also emits `providerReport`, which summarizes:
 
 Current OpenAI-compatible cache presets in the settings UI:
 
-- `pptoken.org`: Responses API on; Chat cache hints off; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`.
-- `apikl.ai`: Responses API on; Chat `prompt_cache_key`, no `Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:default` (omit `store`).
+- `Prompt key + store`: Responses API on; Chat `prompt_cache_key`, no `Session_id`; Responses derived `prompt_cache_key`, no `Session_id`, `store:true`; optional Responses parameter fields omitted. This is the shared mode verified for `pptoken.org` and `apikl.ai`.
 - `Custom`: use the exact cache and Responses parameter fields confirmed by the probe when the provider differs from the presets. Built-in presets keep the detailed matrix hidden; `Custom` expands every option, including `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity`.
 
 Responses API follow-up probes:

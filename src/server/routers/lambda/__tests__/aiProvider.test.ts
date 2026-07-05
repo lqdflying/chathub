@@ -183,6 +183,23 @@ describe('aiProviderRouter', () => {
         mockGateKeeper.encrypt,
       );
     });
+
+    it('should tolerate null checkModel from saved provider settings', async () => {
+      const mockUpdateConfig = vi.fn();
+      vi.mocked(AiProviderModel).prototype.updateConfig = mockUpdateConfig;
+
+      const caller = aiProviderRouter.createCaller(createMockContext());
+      await caller.updateAiProviderConfig({
+        id: mockProviderId,
+        value: { checkModel: null as any, config: { enableResponseApi: false } },
+      });
+
+      expect(mockUpdateConfig).toHaveBeenCalledWith(
+        mockProviderId,
+        { checkModel: undefined, config: { enableResponseApi: false } },
+        mockGateKeeper.encrypt,
+      );
+    });
   });
 
   describe('updateAiProviderOrder', () => {

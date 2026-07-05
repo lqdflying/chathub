@@ -289,19 +289,33 @@ describe('LobeAnthropicAI', () => {
 
       process.env.DEBUG_ANTHROPIC_CHAT_COMPLETION = '1';
       vi.spyOn(debugStreamModule, 'debugStream').mockImplementation(() => Promise.resolve());
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      // Act
-      await instance.chat({
-        messages: [{ content: 'Hello', role: 'user' }],
-        model: 'claude-3-haiku-20240307',
-        temperature: 0,
-      });
+      try {
+        // Act
+        await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-3-haiku-20240307',
+          temperature: 0,
+        });
 
-      // Assert
-      expect(debugStreamModule.debugStream).toHaveBeenCalled();
-
-      // Cleanup
-      process.env.DEBUG_ANTHROPIC_CHAT_COMPLETION = originalDebugValue;
+        // Assert
+        expect(debugStreamModule.debugStream).toHaveBeenCalled();
+        const providerDebugCall = logSpy.mock.calls.find(
+          ([label]) => label === '[provider-debug:request]',
+        );
+        expect(providerDebugCall).toBeDefined();
+        expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+          effectiveURL: 'https://api.anthropic.com/v1/messages',
+          model: 'claude-3-haiku-20240307',
+          provider: 'anthropic',
+          route: '/v1/messages',
+          turnShape: { count: 1, sequence: ['user:text'] },
+        });
+      } finally {
+        logSpy.mockRestore();
+        process.env.DEBUG_ANTHROPIC_CHAT_COMPLETION = originalDebugValue;
+      }
     });
 
     describe('chat with tools', () => {

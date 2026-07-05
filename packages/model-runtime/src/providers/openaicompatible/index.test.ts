@@ -66,7 +66,7 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
   });
 
-  it('sends apikl.ai Chat Completions cache hints upstream', async () => {
+  it('sends prompt-key-store Chat Completions cache hints upstream', async () => {
     await instance.chat({
       messages: [
         { content: 'Keep the response brief.', role: 'system' },
@@ -76,13 +76,13 @@ describe('LobeOpenAICompatibleAI', () => {
       openAICompatCache: {
         chat: {
           promptCacheKey: true,
-          sessionHeader: true,
+          sessionHeader: false,
         },
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
         responses: {
           promptCacheKey: 'derived',
           sessionHeader: false,
-          store: 'default',
+          store: 'true',
         },
       },
     });
@@ -94,7 +94,7 @@ describe('LobeOpenAICompatibleAI', () => {
 
     expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
     expect(createCall).not.toHaveProperty('openAICompatCache');
-    expect(createOptions.headers.Session_id).toBe(createCall.prompt_cache_key);
+    expect(createOptions.headers).not.toHaveProperty('Session_id');
   });
 
   it('uses Responses API when apiMode is responses', async () => {
@@ -117,7 +117,7 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall.input).toEqual([{ content: 'Hello', role: 'user' }]);
   });
 
-  it('sends apikl.ai Responses cache hints and omits rejected parameter fields', async () => {
+  it('sends prompt-key-store Responses cache hints and omits extra parameter fields', async () => {
     await instance.chat({
       apiMode: 'responses',
       max_output_tokens: 512,
@@ -130,20 +130,20 @@ describe('LobeOpenAICompatibleAI', () => {
       openAICompatCache: {
         chat: {
           promptCacheKey: true,
-          sessionHeader: true,
+          sessionHeader: false,
         },
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
         responses: {
           promptCacheKey: 'derived',
           sessionHeader: false,
-          store: 'default',
+          store: 'true',
         },
       },
       openAICompatResponsesParams: {
         maxOutputTokens: false,
         maxTokens: false,
         truncation: 'off',
-        verbosity: 'text',
+        verbosity: 'off',
       },
       responseStateMode: 'provider',
       truncation: 'auto',
@@ -157,13 +157,13 @@ describe('LobeOpenAICompatibleAI', () => {
     const createOptions = (instance['client'].responses.create as Mock).mock.calls[0][1];
 
     expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
-    expect(createCall.text).toEqual({ verbosity: 'medium' });
     expect(createCall).not.toHaveProperty('max_output_tokens');
     expect(createCall).not.toHaveProperty('max_tokens');
     expect(createCall).not.toHaveProperty('openAICompatCache');
     expect(createCall).not.toHaveProperty('openAICompatResponsesParams');
     expect(createCall).not.toHaveProperty('responseStateMode');
-    expect(createCall).not.toHaveProperty('store');
+    expect(createCall.store).toBe(true);
+    expect(createCall).not.toHaveProperty('text');
     expect(createCall).not.toHaveProperty('truncation');
     expect(createCall).not.toHaveProperty('verbosity');
     expect(createOptions.headers).not.toHaveProperty('Session_id');
@@ -332,9 +332,9 @@ describe('LobeOpenAICompatibleAI', () => {
       openAICompatCache: {
         chat: {
           promptCacheKey: true,
-          sessionHeader: true,
+          sessionHeader: false,
         },
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
       },
       tools: [
         {
@@ -356,8 +356,9 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(summary).toMatchObject({
       cache: {
         promptCacheKey: { present: true },
-        sessionId: { present: true },
+        sessionId: { present: false },
       },
+      effectiveURL: 'https://gateway.example.com/v1/chat/completions',
       model: 'gpt-5.5',
       route: '/chat/completions',
       tools: {
@@ -388,18 +389,18 @@ describe('LobeOpenAICompatibleAI', () => {
       ],
       model: 'gpt-5.5',
       openAICompatCache: {
-        preset: 'apikl.ai',
+        preset: 'prompt-key-store',
         responses: {
           promptCacheKey: 'derived',
           sessionHeader: false,
-          store: 'default',
+          store: 'true',
         },
       },
       openAICompatResponsesParams: {
         maxOutputTokens: false,
         maxTokens: false,
         truncation: 'off',
-        verbosity: 'text',
+        verbosity: 'off',
       },
       responseStateMode: 'provider',
       verbosity: 'medium',
@@ -415,11 +416,12 @@ describe('LobeOpenAICompatibleAI', () => {
       cache: {
         promptCacheKey: { present: true },
         sessionId: { present: false },
-        store: null,
+        store: true,
       },
+      effectiveURL: 'https://gateway.example.com/v1/responses',
       model: 'gpt-5.5',
       params: {
-        hasTextVerbosity: true,
+        hasTextVerbosity: false,
         hasTopLevelVerbosity: false,
       },
       route: '/responses',

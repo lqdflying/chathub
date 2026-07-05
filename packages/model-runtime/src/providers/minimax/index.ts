@@ -1,8 +1,10 @@
 import { ModelProvider, minimax as minimaxChatModels } from 'model-bank';
+import type OpenAI from 'openai';
 
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
 import { resolveParameters } from '../../core/parameterResolver';
 import type { ChatStreamPayload } from '../../types';
+import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
 import { createMiniMaxImage } from './createImage';
 
 export const getMinimaxMaxOutputs = (modelId: string): number | undefined => {
@@ -74,6 +76,25 @@ export const buildMinimaxOpenAIChatPayload = (payload: ChatStreamPayload) => {
   } as any;
 };
 
+const fetchMinimaxModels = async ({ client }: { client: OpenAI }): Promise<any[]> => {
+  try {
+    const modelsPage = (await client.models.list()) as any;
+    const modelList: Array<{ created?: number; id: string }> = modelsPage.data || [];
+
+    return processModelList(
+      modelList.map((model) => ({
+        created: model.created,
+        id: model.id,
+      })),
+      MODEL_LIST_CONFIGS.minimax,
+      ModelProvider.Minimax,
+    );
+  } catch (error) {
+    console.warn('Failed to fetch MiniMax models:', error);
+    return [];
+  }
+};
+
 export const LobeMinimaxAI = createOpenAICompatibleRuntime({
   baseURL: 'https://api.minimax.io/v1',
   chatCompletion: {
@@ -83,5 +104,6 @@ export const LobeMinimaxAI = createOpenAICompatibleRuntime({
   debug: {
     chatCompletion: () => process.env.DEBUG_MINIMAX_CHAT_COMPLETION === '1',
   },
+  models: fetchMinimaxModels,
   provider: ModelProvider.Minimax,
 });

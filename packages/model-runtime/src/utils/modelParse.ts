@@ -31,8 +31,8 @@ export const MODEL_LIST_CONFIGS = {
     visionKeywords: [],
   },
   deepseek: {
-    functionCallKeywords: ['v3', 'r1', 'deepseek-chat'],
-    reasoningKeywords: ['r1', 'deepseek-reasoner', 'v3.1', 'v3.2'],
+    functionCallKeywords: ['v3', 'v4', 'r1', 'deepseek-chat'],
+    reasoningKeywords: ['r1', 'deepseek-reasoner', 'v3.1', 'v3.2', 'v4'],
     visionKeywords: ['ocr'],
   },
   google: {
@@ -60,14 +60,16 @@ export const MODEL_LIST_CONFIGS = {
     visionKeywords: [],
   },
   minimax: {
-    functionCallKeywords: ['minimax'],
-    reasoningKeywords: ['-m'],
-    visionKeywords: ['-vl', 'Text-01'],
+    functionCallKeywords: ['minimax', 'm3'],
+    reasoningKeywords: ['-m', 'm3'],
+    videoKeywords: ['m3'],
+    visionKeywords: ['-vl', 'text-01', 'm3'],
   },
   moonshot: {
     functionCallKeywords: ['moonshot', 'kimi'],
-    reasoningKeywords: ['thinking'],
-    visionKeywords: ['vision', 'kimi-latest', 'kimi-thinking-preview'],
+    reasoningKeywords: ['thinking', 'k2.7'],
+    videoKeywords: ['k2.7'],
+    visionKeywords: ['vision', 'kimi-latest', 'kimi-thinking-preview', 'k2.7'],
   },
   openai: {
     excludeKeywords: ['audio'],

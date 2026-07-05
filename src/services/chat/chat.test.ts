@@ -1176,6 +1176,35 @@ describe('ChatService', () => {
       });
     });
 
+    it('should ignore stale Responses API config for non-OpenAI-compatible providers', async () => {
+      useAiInfraStore.setState({
+        aiProviderRuntimeConfig: {
+          deepseek: {
+            config: { enableResponseApi: true },
+            keyVaults: {},
+            settings: {},
+          } as any,
+        },
+      });
+
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'deepseek',
+        },
+        {},
+      );
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        messages: [],
+        model: 'gpt-5.5',
+        stream: true,
+      });
+      expect(body).not.toHaveProperty('apiMode');
+    });
+
     it('should include OpenAI-compatible cache matrix for Chat Completions mode', async () => {
       useAiInfraStore.setState({
         aiProviderRuntimeConfig: {
@@ -1187,11 +1216,11 @@ describe('ChatService', () => {
                   promptCacheKey: true,
                   sessionHeader: true,
                 },
-                preset: 'apikl.ai',
+                preset: 'prompt-key-store',
                 responses: {
                   promptCacheKey: 'derived',
                   sessionHeader: false,
-                  store: 'default',
+                  store: 'true',
                 },
               },
             },
@@ -1219,18 +1248,18 @@ describe('ChatService', () => {
             promptCacheKey: true,
             sessionHeader: false,
           },
-          preset: 'apikl.ai',
+          preset: 'prompt-key-store',
           responses: {
             promptCacheKey: 'derived',
             sessionHeader: false,
-            store: 'default',
+            store: 'true',
           },
         },
         openAICompatResponsesParams: {
           maxOutputTokens: false,
           maxTokens: false,
           truncation: 'off',
-          verbosity: 'text',
+          verbosity: 'off',
         },
         stream: true,
       });
@@ -1238,7 +1267,7 @@ describe('ChatService', () => {
       expect(body).not.toHaveProperty('store');
     });
 
-    it('should map OpenAI-compatible Responses cache matrix to response state and omit default store', async () => {
+    it('should map OpenAI-compatible Responses cache matrix to response state and store:true', async () => {
       useAiInfraStore.setState({
         aiProviderRuntimeConfig: {
           openaicompatible: {
@@ -1249,11 +1278,11 @@ describe('ChatService', () => {
                   promptCacheKey: true,
                   sessionHeader: true,
                 },
-                preset: 'apikl.ai',
+                preset: 'prompt-key-store',
                 responses: {
                   promptCacheKey: 'derived',
                   sessionHeader: false,
-                  store: 'default',
+                  store: 'true',
                 },
               },
             },
@@ -1280,22 +1309,22 @@ describe('ChatService', () => {
             promptCacheKey: true,
             sessionHeader: false,
           },
-          preset: 'apikl.ai',
+          preset: 'prompt-key-store',
           responses: {
             promptCacheKey: 'derived',
             sessionHeader: false,
-            store: 'default',
+            store: 'true',
           },
         },
         openAICompatResponsesParams: {
           maxOutputTokens: false,
           maxTokens: false,
           truncation: 'off',
-          verbosity: 'text',
+          verbosity: 'off',
         },
         responseStateMode: 'provider',
+        store: true,
       });
-      expect(body).not.toHaveProperty('store');
     });
 
     it('should expand OpenAI-compatible preset-only cache config before sending Responses requests', async () => {
@@ -1305,7 +1334,7 @@ describe('ChatService', () => {
             config: {
               enableResponseApi: true,
               openAICompatCache: {
-                preset: 'apikl.ai',
+                preset: 'prompt-key-store',
               },
             },
             keyVaults: {},
@@ -1331,22 +1360,22 @@ describe('ChatService', () => {
             promptCacheKey: true,
             sessionHeader: false,
           },
-          preset: 'apikl.ai',
+          preset: 'prompt-key-store',
           responses: {
             promptCacheKey: 'derived',
             sessionHeader: false,
-            store: 'default',
+            store: 'true',
           },
         },
         openAICompatResponsesParams: {
           maxOutputTokens: false,
           maxTokens: false,
           truncation: 'off',
-          verbosity: 'text',
+          verbosity: 'off',
         },
         responseStateMode: 'provider',
+        store: true,
       });
-      expect(body).not.toHaveProperty('store');
     });
 
     it('should keep Responses Session_id-only cache custom mode stateless', async () => {
@@ -1401,7 +1430,7 @@ describe('ChatService', () => {
       expect(body).not.toHaveProperty('store');
     });
 
-    it('should normalize legacy Responses state cache to the pptoken.org preset', async () => {
+    it('should normalize legacy Responses state cache to the prompt-key-store preset', async () => {
       useAiInfraStore.setState({
         aiProviderRuntimeConfig: {
           openaicompatible: {
@@ -1429,10 +1458,10 @@ describe('ChatService', () => {
         apiMode: 'responses',
         openAICompatCache: {
           chat: {
-            promptCacheKey: false,
+            promptCacheKey: true,
             sessionHeader: false,
           },
-          preset: 'pptoken.org',
+          preset: 'prompt-key-store',
           responses: {
             promptCacheKey: 'derived',
             sessionHeader: false,

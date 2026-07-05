@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { buildMoonshotPayload, normalizeMessagesForMoonshot } from './index';
+import * as debugStreamModule from '../../utils/debugStream';
+import { LobeMoonshotAI, buildMoonshotPayload, normalizeMessagesForMoonshot } from './index';
 
 describe('normalizeMessagesForMoonshot', () => {
   it('keeps user / system / tool messages untouched', () => {
@@ -142,6 +143,19 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(result).not.toHaveProperty('presence_penalty');
   });
 
+  it('kimi-k2.5 connectivity probe with thinking disabled sends disabled thinking', () => {
+    const result = buildMoonshotPayload({
+      max_tokens: 256,
+      messages: [{ content: 'hello', role: 'user' }],
+      model: 'kimi-k2.5',
+      stream: true,
+      thinking: { type: 'disabled' },
+    } as any);
+
+    expect(result.thinking).toEqual({ type: 'disabled' });
+    expect(result.max_tokens).toBe(256);
+  });
+
   it('kimi-k2.5 + tools + thinking disabled keeps tools and sends disabled thinking without legacy sampling', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],
@@ -197,6 +211,36 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(result).not.toHaveProperty('thinking');
     expect(result).not.toHaveProperty('temperature');
     expect(result).not.toHaveProperty('top_p');
+  });
+
+  it('kimi-k2.7-code uses native thinking and preserves reasoning_content on assistant tool calls', () => {
+    const result = buildMoonshotPayload({
+      messages: [
+        { content: 'hi', role: 'user' },
+        {
+          content: null,
+          role: 'assistant',
+          tool_calls: [
+            {
+              function: { arguments: '{"x":1}', name: 'get_time' },
+              id: 'call_time',
+              type: 'function',
+            },
+          ],
+        },
+        { content: '{"time":"now"}', role: 'tool', tool_call_id: 'call_time' },
+      ],
+      model: 'kimi-k2.7-code',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result).not.toHaveProperty('thinking');
+    expect(result).not.toHaveProperty('temperature');
+    const assistant = (result.messages as any[]).find((m) => m.role === 'assistant');
+    expect(assistant?.reasoning_content).toBe('');
   });
 
   it('kimi-k2-0905-preview + tools strips legacy sampling and omits thinking', () => {
@@ -256,6 +300,50 @@ describe('buildMoonshotPayload — tool-call safety', () => {
 
     const assistant = (result.messages as any[]).find((m) => m.role === 'assistant');
     expect(assistant?.reasoning_content).toBe('');
+  });
+});
+
+describe('LobeMoonshotAI debug', () => {
+  it('logs structured request summary with DEBUG_MOONSHOT_CHAT_COMPLETION', async () => {
+    const instance = new LobeMoonshotAI({ apiKey: 'test-key' });
+    const mockProdStream = new ReadableStream() as any;
+    const mockDebugStream = new ReadableStream() as any;
+    mockDebugStream.toReadableStream = () => mockDebugStream;
+
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
+    });
+    vi.stubEnv('DEBUG_MOONSHOT_CHAT_COMPLETION', '1');
+    const debugStreamSpy = vi
+      .spyOn(debugStreamModule, 'debugStream')
+      .mockImplementation(() => Promise.resolve());
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'kimi-k2.5',
+        temperature: 0,
+      } as any);
+
+      expect(debugStreamModule.debugStream).toHaveBeenCalled();
+      const providerDebugCall = logSpy.mock.calls.find(
+        ([label]) => label === '[provider-debug:request]',
+      );
+      expect(providerDebugCall).toBeDefined();
+      expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+        effectiveURL: 'https://api.moonshot.cn/v1/chat/completions',
+        model: 'kimi-k2.5',
+        provider: 'moonshot',
+        route: '/chat/completions',
+        tools: { count: 0 },
+        turnShape: { count: 1, sequence: ['user:text'] },
+      });
+    } finally {
+      debugStreamSpy.mockRestore();
+      logSpy.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 });
 

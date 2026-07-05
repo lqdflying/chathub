@@ -18,8 +18,9 @@ const deepseekChatModels: AIChatModelCard[] = [
     pricing: {
       currency: 'USD',
       units: [
-        { name: 'textInput', rate: 0.8, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 2.4, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.003625, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput', rate: 0.435, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 0.87, strategy: 'fixed', unit: 'millionTokens' },
       ],
     },
     releasedAt: '2026-04-01',
@@ -44,8 +45,9 @@ const deepseekChatModels: AIChatModelCard[] = [
     pricing: {
       currency: 'USD',
       units: [
-        { name: 'textInput', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'textOutput', rate: 0.9, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.0028, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput', rate: 0.14, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 0.28, strategy: 'fixed', unit: 'millionTokens' },
       ],
     },
     releasedAt: '2026-04-01',

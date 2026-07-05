@@ -3,13 +3,18 @@ import type OpenAI from 'openai';
 
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
 import type { ChatStreamPayload } from '../../types';
+import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
 
 // Shared constants and helpers
 const MOONSHOT_SEARCH_TOOL = { function: { name: '$web_search' }, type: 'builtin_function' } as any;
 /** kimi-k2.5 / kimi-k2.6: Moonshot accepts `thinking: { type, keep? }` per API schemas. */
 const isKimiK25StyleThinkingModel = (model: string) =>
   model === 'kimi-k2.5' || model === 'kimi-k2.6';
-const isKimiNativeThinkingModel = (model: string) => model.startsWith('kimi-k2-thinking');
+const isKimiK27CodeModel = (model: string) => model === 'kimi-k2.7-code';
+const isKimiNativeThinkingModel = (model: string) =>
+  model.startsWith('kimi-k2-thinking') || isKimiK27CodeModel(model);
+const shouldPreserveAssistantReasoning = (model: string) =>
+  isKimiK25StyleThinkingModel(model) || isKimiK27CodeModel(model);
 const hasValidReasoning = (reasoning: any) => reasoning?.content && !reasoning?.signature;
 
 const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T[] | undefined => {
@@ -68,11 +73,11 @@ export const normalizeMessagesForMoonshot = (
 };
 
 /**
- * Kimi K2.5 / K2.6 with `thinking: enabled` requires every assistant message that
- * carries tool calls to include `reasoning_content` (may be empty). Some history
- * shapes omit it (e.g. tool-only turns or null content).
+ * Kimi models with preserved thinking require every assistant message that carries
+ * tool calls to include `reasoning_content` (may be empty). Some history shapes
+ * omit it (e.g. tool-only turns or null content).
  */
-const patchK25AssistantToolCallReasoning = (
+const patchAssistantToolCallReasoning = (
   msgs: OpenAI.ChatCompletionMessageParam[],
 ): OpenAI.ChatCompletionMessageParam[] =>
   msgs.map((m: any) => {
@@ -116,8 +121,8 @@ export const buildMoonshotPayload = (
     isThinkingEnabled,
   ) as OpenAI.ChatCompletionMessageParam[];
 
-  if (isK25Style && isThinkingEnabled) {
-    normalizedMessages = patchK25AssistantToolCallReasoning(normalizedMessages);
+  if (shouldPreserveAssistantReasoning(model) && isThinkingEnabled) {
+    normalizedMessages = patchAssistantToolCallReasoning(normalizedMessages);
   }
 
   // Handle search tools
@@ -178,11 +183,15 @@ const fetchMoonshotModels = async ({ client }: { client: OpenAI }): Promise<any[
     const modelList: Array<{ context_length?: number; id: string; supports_image_in?: boolean }> =
       modelsPage.data || [];
 
-    return modelList.map((model) => ({
-      contextWindowTokens: model.context_length,
-      id: model.id,
-      vision: model.supports_image_in,
-    }));
+    return processModelList(
+      modelList.map((model) => ({
+        contextWindowTokens: model.context_length,
+        id: model.id,
+        vision: model.supports_image_in,
+      })),
+      MODEL_LIST_CONFIGS.moonshot,
+      ModelProvider.Moonshot,
+    );
   } catch (error) {
     console.warn('Failed to fetch Moonshot models:', error);
     return [];

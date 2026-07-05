@@ -36,6 +36,23 @@ The recent OpenAI SDK upgrade kept this path working by normalizing the new `Hea
 
 Provider-specific cache hint combinations are documented in [OpenAI-compatible cache matrix](../integrations/openai-compatible-cache-matrix.md).
 
+## Model fetch normalization
+
+Providers that expose `/models` can return new model ids before ChatHub's built-in model list is refreshed. The runtime still needs to normalize fetched ids through provider-specific capability rules so the UI can detect function calling, reasoning, vision, video, search, and image-output support.
+
+DeepSeek, MiniMax, and Moonshot use provider-specific model fetchers rather than a raw generic list. The fetchers call the shared model parser with provider configs, and the database repository adds read-time-only `settings.extendParams` for fetched models where the remote model table cannot store option-panel settings. This keeps fetched DeepSeek V4 and MiniMax M-series models usable in the model option panel, while Moonshot Kimi K2.7 Code remains reasoning-capable without a toggle because the provider forces thinking/preserved reasoning.
+
+## Provider request debug
+
+Moonshot, MiniMax, DeepSeek, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with redacted base URL, full `effectiveURL`, upstream route, model, turn shape, tools summary, and payload fingerprint:
+
+- `DEBUG_MOONSHOT_CHAT_COMPLETION=1`
+- `DEBUG_MINIMAX_CHAT_COMPLETION=1`
+- `DEBUG_DEEPSEEK_CHAT_COMPLETION=1`
+- `DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1`
+
+Use this first for endpoint/path problems such as `url.not_found`, then inspect the raw payload only if the structured request shape is not enough. The raw debug logs can include prompt and response content.
+
 Be careful when editing this area because it affects:
 
 - streaming and non-streaming request behavior

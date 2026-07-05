@@ -18,6 +18,7 @@ import { debugStream } from '../../utils/debugStream';
 import { desensitizeUrl } from '../../utils/desensitizeUrl';
 import { getModelPricing } from '../../utils/getModelPricing';
 import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
+import { debugProviderRequest } from '../../utils/providerDebug';
 import { StreamingResponse } from '../../utils/response';
 import { createAnthropicGenerateObject } from './generateObject';
 import { handleAnthropicError } from './handleAnthropicError';
@@ -97,7 +98,11 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
   private id: string;
 
   private isDebug() {
-    return process.env.DEBUG_ANTHROPIC_CHAT_COMPLETION === '1';
+    return (
+      process.env.DEBUG_ANTHROPIC_CHAT_COMPLETION === '1' ||
+      (this.id === ModelProvider.AnthropicCompatible &&
+        process.env.DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION === '1')
+    );
   }
 
   constructor({
@@ -131,18 +136,25 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
     try {
       const anthropicPayload = await this.buildAnthropicPayload(payload);
       const inputStartAt = Date.now();
+      const requestPayload = {
+        ...anthropicPayload,
+        metadata: options?.user ? { user_id: options?.user } : undefined,
+        stream: true,
+      };
 
       if (this.isDebug()) {
+        debugProviderRequest({
+          baseURL: this.baseURL,
+          payload: requestPayload,
+          provider: this.id,
+          route: '/v1/messages',
+        });
         console.log('[requestPayload]');
         console.log(JSON.stringify(anthropicPayload), '\n');
       }
 
       const response = await this.client.messages.create(
-        {
-          ...anthropicPayload,
-          metadata: options?.user ? { user_id: options?.user } : undefined,
-          stream: true,
-        },
+        requestPayload,
         {
           signal: options?.signal,
         },
