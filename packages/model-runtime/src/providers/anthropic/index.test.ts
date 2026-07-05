@@ -306,9 +306,10 @@ describe('LobeAnthropicAI', () => {
         );
         expect(providerDebugCall).toBeDefined();
         expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+          effectiveURL: 'https://api.anthropic.com/v1/messages',
           model: 'claude-3-haiku-20240307',
           provider: 'anthropic',
-          route: '/messages',
+          route: '/v1/messages',
           turnShape: { count: 1, sequence: ['user:text'] },
         });
       } finally {

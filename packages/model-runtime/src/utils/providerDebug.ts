@@ -111,6 +111,13 @@ const paramShape = (payload: Record<string, any>) => ({
   thinkingType: asRecord(payload.thinking).type ?? null,
 });
 
+export const buildEffectiveProviderURL = (baseURL: string | undefined, route: ProviderDebugRoute) => {
+  if (!baseURL) return route;
+  if (/^https?:\/\//i.test(route)) return route;
+
+  return `${baseURL.replace(/\/+$/, '')}/${route.replace(/^\/+/, '')}`;
+};
+
 export const buildProviderDebugRequest = ({
   baseURL,
   payload,
@@ -126,6 +133,7 @@ export const buildProviderDebugRequest = ({
 
   return {
     baseURL: baseURL ? desensitizeUrl(baseURL) : null,
+    effectiveURL: buildEffectiveProviderURL(baseURL, route),
     model: payload.model,
     params: paramShape(payload),
     payloadFingerprint: stableHash(sanitizeForDebug(payload)),

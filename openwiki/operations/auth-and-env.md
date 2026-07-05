@@ -18,6 +18,8 @@ The current repo also contains a dedicated background document at `doc/credentia
 
 The main provider environment map lives in `src/envs/llm.ts`, which is referenced from the README as the canonical provider/env source. That config drives how server runtime code resolves keys and base URLs for providers like OpenAI, Anthropic, Azure, and provider-compatible gateways.
 
+Moonshot supports `MOONSHOT_PROXY_URL` for a custom OpenAI-compatible base URL. Runtime precedence is request/user-provider `baseURL` first, then `MOONSHOT_PROXY_URL`, then the built-in `https://api.moonshot.cn/v1` default.
+
 A notable recent change in `src/server/modules/ModelRuntime/index.ts` is special handling for Anthropic-compatible auth mode and proxy URL resolution. This makes provider configuration a live compatibility surface rather than a static list of keys.
 
 ## Deployment notes
@@ -34,7 +36,7 @@ DEBUG_DEEPSEEK_CHAT_COMPLETION=1
 DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1
 ```
 
-The structured line starts with `[provider-debug:request]` and includes provider, redacted base URL, upstream route, model, stream flag, payload fingerprint, turn shape, tools summary, and key parameter presence. It is intended for diagnosing endpoint/path errors such as Moonshot `url.not_found` without immediately inspecting full prompt text.
+The structured line starts with `[provider-debug:request]` and includes provider, redacted base URL, full `effectiveURL`, upstream route, model, stream flag, payload fingerprint, turn shape, tools summary, and key parameter presence. It is intended for diagnosing endpoint/path errors such as Moonshot `url.not_found` without immediately inspecting full prompt text.
 
 The same flags still enable raw `[requestPayload]` and stream logs, so do not leave them enabled in privacy-sensitive production sessions. For OpenAI-compatible cache diagnostics, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1`, which is a separate redacted cache-focused logger.
 

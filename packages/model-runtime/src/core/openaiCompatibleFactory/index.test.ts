@@ -1300,6 +1300,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           );
           expect(providerDebugCall).toBeDefined();
           expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+            effectiveURL: 'https://api.groq.com/openai/v1/chat/completions',
             model: 'mistralai/mistral-7b-instruct:free',
             provider: 'groq',
             route: '/chat/completions',

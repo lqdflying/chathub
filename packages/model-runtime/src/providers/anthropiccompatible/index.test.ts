@@ -105,9 +105,10 @@ describe('LobeAnthropicCompatibleAI', () => {
         expect(providerDebugCall).toBeDefined();
         const summary = JSON.parse(providerDebugCall?.[1] as string);
         expect(summary).toMatchObject({
+          effectiveURL: 'https://api.anthropicproxy.example/v1/messages',
           model: 'claude-sonnet-4-6',
           provider: 'anthropiccompatible',
-          route: '/messages',
+          route: '/v1/messages',
           tools: { count: 0 },
           turnShape: { count: 1, sequence: ['user:text'] },
         });

@@ -24,6 +24,7 @@ describe('providerDebug', () => {
     });
 
     expect(summary).toMatchObject({
+      effectiveURL: 'https://api.secretproxy.example/v1/chat/completions',
       model: 'test-model',
       params: {
         hasTemperature: true,
@@ -68,6 +69,7 @@ describe('providerDebug', () => {
       const [label, body] = logSpy.mock.calls[0];
       expect(label).toBe('[provider-debug:request]');
       expect(JSON.parse(body as string)).toMatchObject({
+        effectiveURL: 'https://api.secretproxy.example/v1/chat/completions',
         provider: 'deepseek',
         route: '/chat/completions',
       });

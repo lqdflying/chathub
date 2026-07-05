@@ -400,6 +400,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
           if (debugOpenAICompatCache) {
             debugOpenAICompatCacheRequest({
+              baseURL: this.baseURL,
               headers: requestHeaders,
               payload: finalPayload,
               route: '/chat/completions',
@@ -974,6 +975,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       if (debugOpenAICompatCache) {
         debugOpenAICompatCacheRequest({
+          baseURL: this.baseURL,
           headers: requestHeaders,
           payload: postPayload,
           route: '/responses',

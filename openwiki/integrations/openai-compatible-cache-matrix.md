@@ -39,7 +39,7 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 
 ## Debugging Cache Misses
 
-- Start with `DEBUG_OPENAICOMPATIBLE_CACHE=1` on the ChatHub server. It logs redacted request fingerprints, turn/input shapes, tool names/count, cache-key/session-header summaries, and cached-token usage for both Chat Completions and Responses.
+- Start with `DEBUG_OPENAICOMPATIBLE_CACHE=1` on the ChatHub server. It logs full `effectiveURL`, redacted request fingerprints, turn/input shapes, tool names/count, cache-key/session-header summaries, and cached-token usage for both Chat Completions and Responses.
 - Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` for full raw Chat Completions request and stream inspection.
 - Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` for full raw Responses request and stream inspection.
 - Full route debug can expose prompt, tool, and file context. Prefer the redacted cache debug when comparing ChatHub sessions with provider-probe or Codex behavior.

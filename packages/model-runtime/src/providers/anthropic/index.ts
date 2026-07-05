@@ -147,7 +147,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
           baseURL: this.baseURL,
           payload: requestPayload,
           provider: this.id,
-          route: '/messages',
+          route: '/v1/messages',
         });
         console.log('[requestPayload]');
         console.log(JSON.stringify(anthropicPayload), '\n');

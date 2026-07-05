@@ -227,6 +227,7 @@ describe('LobeDeepSeekAI debug', () => {
       );
       expect(providerDebugCall).toBeDefined();
       expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+        effectiveURL: 'https://api.deepseek.com/chat/completions',
         model: 'deepseek-v4-pro',
         provider: 'deepseek',
         route: '/chat/completions',

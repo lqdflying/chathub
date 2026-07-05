@@ -358,6 +358,7 @@ describe('LobeOpenAICompatibleAI', () => {
         promptCacheKey: { present: true },
         sessionId: { present: false },
       },
+      effectiveURL: 'https://gateway.example.com/v1/chat/completions',
       model: 'gpt-5.5',
       route: '/chat/completions',
       tools: {
@@ -417,6 +418,7 @@ describe('LobeOpenAICompatibleAI', () => {
         sessionId: { present: false },
         store: true,
       },
+      effectiveURL: 'https://gateway.example.com/v1/responses',
       model: 'gpt-5.5',
       params: {
         hasTextVerbosity: false,

@@ -302,6 +302,7 @@ describe('LobeMoonshotAI debug', () => {
       );
       expect(providerDebugCall).toBeDefined();
       expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
+        effectiveURL: 'https://api.moonshot.cn/v1/chat/completions',
         model: 'kimi-k2.5',
         provider: 'moonshot',
         route: '/chat/completions',

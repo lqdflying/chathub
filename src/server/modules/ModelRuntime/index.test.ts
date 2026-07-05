@@ -346,6 +346,32 @@ describe('initModelRuntimeWithUserPayload method', () => {
       expect(runtime['_runtime']).toBeInstanceOf(LobeMoonshotAI);
     });
 
+    it('Moonshot AI provider: without endpoint uses MOONSHOT_PROXY_URL', async () => {
+      vi.mocked(getLLMConfig).mockReturnValueOnce({
+        MOONSHOT_API_KEY: 'test-moonshot-key',
+        MOONSHOT_PROXY_URL: 'https://moonshot-proxy.example/v1',
+      } as any);
+
+      const runtime = await initModelRuntimeWithUserPayload(ModelProvider.Moonshot, {});
+
+      expect(runtime['_runtime']).toBeInstanceOf(LobeMoonshotAI);
+      expect(runtime['_runtime'].baseURL).toBe('https://moonshot-proxy.example/v1');
+    });
+
+    it('Moonshot AI provider: user endpoint overrides MOONSHOT_PROXY_URL', async () => {
+      vi.mocked(getLLMConfig).mockReturnValueOnce({
+        MOONSHOT_API_KEY: 'test-moonshot-key',
+        MOONSHOT_PROXY_URL: 'https://moonshot-proxy.example/v1',
+      } as any);
+
+      const runtime = await initModelRuntimeWithUserPayload(ModelProvider.Moonshot, {
+        baseURL: 'https://user-moonshot.example/v1',
+      });
+
+      expect(runtime['_runtime']).toBeInstanceOf(LobeMoonshotAI);
+      expect(runtime['_runtime'].baseURL).toBe('https://user-moonshot.example/v1');
+    });
+
     it('Qwen AI provider: without apikey', async () => {
       const jwtPayload: ClientSecretPayload = {};
       const runtime = await initModelRuntimeWithUserPayload(ModelProvider.Qwen, jwtPayload);

@@ -42,6 +42,7 @@ services:
       # OPENAI_API_KEY=...
       # ANTHROPIC_API_KEY=...
       # MOONSHOT_API_KEY=...
+      # MOONSHOT_PROXY_URL=https://your-moonshot-compatible-host/v1
       # MINIMAX_API_KEY=...
       # DEEPSEEK_API_KEY=...
       # OpenAI-compatible gateway:
@@ -102,7 +103,7 @@ Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [w
 | OpenAI (GPT) | `OPENAI_API_KEY` |
 | Anthropic (Claude) | `ANTHROPIC_API_KEY` |
 | Google (Gemini) | `GOOGLE_API_KEY` |
-| Moonshot (Kimi) | `MOONSHOT_API_KEY` |
+| Moonshot (Kimi) | `MOONSHOT_API_KEY` + optional `MOONSHOT_PROXY_URL` |
 | MiniMax | `MINIMAX_API_KEY` |
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | OpenAI-compatible | `OPENAICOMPATIBLE_API_KEY` + `OPENAICOMPATIBLE_PROXY_URL` |
