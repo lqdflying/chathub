@@ -17,7 +17,7 @@ import { Loader2Icon, TriangleAlert } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { FORM_STYLE } from '@/const/layoutTokens';
+import { useSettingsFormStyle } from '@/hooks/useSettingsFormStyle';
 import { useUserStore } from '@/store/user';
 import { settingsSelectors } from '@/store/user/selectors';
 
@@ -32,6 +32,7 @@ const ChatAppearance = memo(() => {
   const theme = useTheme();
   const [setSettings, isUserStateInit] = useUserStore((s) => [s.setSettings, s.isUserStateInit]);
   const [loading, setLoading] = useState(false);
+  const settingsFormStyle = useSettingsFormStyle();
 
   if (!isUserStateInit) return <Skeleton active paragraph={{ rows: 5 }} title={false} />;
 
@@ -167,7 +168,7 @@ const ChatAppearance = memo(() => {
         setLoading(false);
       }}
       variant={'borderless'}
-      {...FORM_STYLE}
+      {...settingsFormStyle}
     />
   );
 });

@@ -8,7 +8,7 @@ import { Ban, Gauge, Loader2Icon, Monitor, Moon, Sun, Waves } from 'lucide-react
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { FORM_STYLE } from '@/const/layoutTokens';
+import { useSettingsFormStyle } from '@/hooks/useSettingsFormStyle';
 import { imageUrl } from '@/const/url';
 import { localeOptions } from '@/locales/resources';
 import { useGlobalStore } from '@/store/global';
@@ -33,6 +33,7 @@ const Common = memo(() => {
     s.isStatusInit,
   ]);
   const [loading, setLoading] = useState(false);
+  const settingsFormStyle = useSettingsFormStyle();
 
   const handleLangChange = (value: LocaleMode) => {
     switchLocale(value);
@@ -142,7 +143,7 @@ const Common = memo(() => {
         setLoading(false);
       }}
       variant={'borderless'}
-      {...FORM_STYLE}
+      {...settingsFormStyle}
     />
   );
 });

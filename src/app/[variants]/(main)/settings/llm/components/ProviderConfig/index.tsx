@@ -28,7 +28,7 @@ import {
   LLMProviderConfigKey,
   LLMProviderModelListKey,
 } from '@/app/[variants]/(main)/settings/llm/const';
-import { FORM_STYLE } from '@/const/layoutTokens';
+import { useSettingsFormStyle } from '@/hooks/useSettingsFormStyle';
 import { AES_GCM_URL, BASE_PROVIDER_DOC_URL } from '@/const/url';
 import { isServerMode } from '@/const/version';
 import { useUserStore } from '@/store/user';
@@ -70,6 +70,12 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
     ${responsive.mobile} {
       width: 100%;
       min-width: unset !important;
+
+      .${prefixCls}-form-item-control:has(.${prefixCls}-input,.${prefixCls}-select) {
+        flex: none;
+        width: 100%;
+        min-width: unset !important;
+      }
     }
     .${prefixCls}-select-selection-overflow-item {
       font-size: 12px;
@@ -131,6 +137,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
     const { t } = useTranslation('setting');
     const [form] = Form.useForm();
     const { cx, styles } = useStyles();
+    const settingsFormStyle = useSettingsFormStyle();
     const [
       toggleProviderEnabled,
       setSettings,
@@ -294,7 +301,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
         form={form}
         items={[model]}
         onValuesChange={debounce(setSettings, 100)}
-        {...FORM_STYLE}
+        {...settingsFormStyle}
       />
     );
   },

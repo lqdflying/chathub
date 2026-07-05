@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { enableAuth } from '@/const/auth';
+import { useProviderName } from '@/hooks/useProviderName';
 import { useQueryRoute } from '@/hooks/useQueryRoute';
 import { useShowMobileWorkspace } from '@/hooks/useShowMobileWorkspace';
 import { SettingsTabs } from '@/store/global/initialState';
@@ -19,15 +20,16 @@ const Header = memo(() => {
   const showMobileWorkspace = useShowMobileWorkspace();
 
   const [activeSettingsKey, setActiveSettingsKey] = useQueryState('active');
-  const [providerName, setProviderName] = useQueryState('provider');
+  const [providerId, setProviderName] = useQueryState('provider');
+  const displayProviderName = useProviderName(providerId ?? '');
 
   const isSessionActive = useSessionStore((s) => !!s.activeId);
-  const isProvider = providerName ? true : false;
+  const isProvider = providerId ? true : false;
 
   const handleBackClick = () => {
     if (isSessionActive && showMobileWorkspace) {
       router.push('/chat');
-    } else if (activeSettingsKey === 'provider' && providerName !== null) {
+    } else if (activeSettingsKey === 'provider' && providerId !== null) {
       setProviderName(null);
       setActiveSettingsKey('provider');
     } else {
@@ -42,7 +44,7 @@ const Header = memo(() => {
           title={
             <Flexbox align={'center'} gap={8} horizontal>
               <span style={{ lineHeight: 1.2 }}>
-                {isProvider ? providerName : t(`tab.${activeSettingsKey as SettingsTabs}`)}
+                {isProvider ? displayProviderName : t(`tab.${activeSettingsKey as SettingsTabs}`)}
               </span>
             </Flexbox>
           }

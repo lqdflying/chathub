@@ -21,7 +21,7 @@ import urlJoin from 'url-join';
 import { z } from 'zod';
 
 import { FormInput, FormPassword } from '@/components/FormInput';
-import { FORM_STYLE } from '@/const/layoutTokens';
+import { useSettingsFormStyle } from '@/hooks/useSettingsFormStyle';
 import { AES_GCM_URL, BASE_PROVIDER_DOC_URL } from '@/const/url';
 import { isDesktop, isServerMode } from '@/const/version';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
@@ -119,16 +119,42 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       min-width: min(100%, 320px) !important;
     }
     ${responsive.mobile} {
+      container-type: normal;
       width: 100%;
       min-width: unset !important;
+
+      .${prefixCls}-row {
+        flex-direction: column;
+        flex-wrap: nowrap;
+      }
+
+      .${prefixCls}-form-item {
+        margin-bottom: 16px;
+      }
+
+      .${prefixCls}-form-item-label {
+        flex: none !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: unset !important;
+        padding-bottom: 4px;
+      }
+
+      .${prefixCls}-form-item-control {
+        flex: none !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: unset !important;
+      }
 
       .${prefixCls}-form-item-control:has(
           .${prefixCls}-input,
           .${prefixCls}-radio-group,
           .${prefixCls}-select
         ) {
-        flex-basis: 100% !important;
+        flex-basis: auto !important;
         max-width: 100%;
+        min-width: unset !important;
       }
     }
     .${prefixCls}-select-selection-overflow-item {
@@ -313,6 +339,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
       form,
     ) as OpenAICompatCachePreset | undefined;
     const { cx, styles, theme } = useStyles();
+    const settingsFormStyle = useSettingsFormStyle();
 
     const [
       data,
@@ -871,7 +898,7 @@ const ProviderConfig = memo<ProviderConfigProps>(
           debouncedHandleValueChange(id, nextValues);
         }}
         variant={'borderless'}
-        {...FORM_STYLE}
+        {...settingsFormStyle}
       />
     );
   },

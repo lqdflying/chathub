@@ -153,7 +153,6 @@ const ModelList = memo<ModelListProps>(
       >
         <Flexbox
           gap={16}
-          paddingInline={mobile ? 12 : 0}
           style={{
             background: mobile ? theme.colorBgContainer : undefined,
             paddingBottom: 16,

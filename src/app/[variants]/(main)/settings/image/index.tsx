@@ -8,7 +8,7 @@ import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { FormSliderWithInput } from '@/components/FormInput';
-import { FORM_STYLE } from '@/const/layoutTokens';
+import { useSettingsFormStyle } from '@/hooks/useSettingsFormStyle';
 import { MAX_DEFAULT_IMAGE_NUM, MIN_DEFAULT_IMAGE_NUM } from '@/const/settings';
 import { useUserStore } from '@/store/user';
 import { settingsSelectors } from '@/store/user/slices/settings/selectors';
@@ -20,6 +20,7 @@ const ImageSettings = memo(() => {
 
   const imageSettings = useUserStore(settingsSelectors.currentImageSettings);
   const [setSettings, isUserStateInit] = useUserStore((s) => [s.setSettings, s.isUserStateInit]);
+  const settingsFormStyle = useSettingsFormStyle();
 
   if (!isUserStateInit) {
     return <Skeleton active paragraph={{ rows: 1 }} title={false} />;
@@ -64,7 +65,7 @@ const ImageSettings = memo(() => {
         }
       }}
       variant={'borderless'}
-      {...FORM_STYLE}
+      {...settingsFormStyle}
     />
   );
 });

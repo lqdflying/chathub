@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import TextArea from '@/components/TextArea';
-import { FORM_STYLE } from '@/const/layoutTokens';
+import { useSettingsFormStyle } from '@/hooks/useSettingsFormStyle';
 import ModelSelect from '@/features/ModelSelect';
 import { useUserStore } from '@/store/user';
 import { settingsSelectors } from '@/store/user/selectors';
@@ -32,6 +32,7 @@ const SystemAgentForm = memo(
       s.isUserStateInit,
     ]);
     const [loading, setLoading] = useState(false);
+    const settingsFormStyle = useSettingsFormStyle();
 
     if (!isUserStateInit) return <Skeleton active paragraph={{ rows: 5 }} title={false} />;
 
@@ -112,7 +113,7 @@ const SystemAgentForm = memo(
     };
 
     return (
-      <Form form={form} initialValues={settings} items={[systemAgentSettings]} {...FORM_STYLE} />
+      <Form form={form} initialValues={settings} items={[systemAgentSettings]} {...settingsFormStyle} />
     );
   },
 );

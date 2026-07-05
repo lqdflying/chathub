@@ -21,7 +21,7 @@ const ProviderDetail = memo<ProviderDetailProps>(({ showConfig = true, ...card }
   useFetchAiProviderItem(card.id);
 
   return (
-    <Flexbox gap={24} paddingBlock={8}>
+    <Flexbox gap={24} paddingBlock={8} paddingInline={isMobile ? 12 : 0}>
       {/* ↓ cloud slot ↓ */}
 
       {/* ↑ cloud slot ↑ */}
