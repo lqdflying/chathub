@@ -48,19 +48,9 @@ When stripping request-body fields such as legacy generic sampling params or use
 `openaicompatible` and `anthropiccompatible` are compatibility shims for known built-in model cards, not arbitrary capability clones of OpenAI/Anthropic:
 
 - Keep their model lists fixed to model-bank IDs sourced from the native provider lists; do not re-enable arbitrary add/fetch UI without a separate design.
-- Native model search is **opt-in**: model cards keep `abilities.search: false` (no auto-tag) but retain `settings.searchImpl: 'params'` so the "Use the model's built-in search engine" toggle appears in the search panel. When the toggle is OFF (default), ChatHub uses its own web-browsing tools; when ON, the `enabledSearch` param is sent to the gateway API.
+- Native model search is **opt-in**: model cards keep `abilities.search: false` (no auto-tag) but retain `settings.searchImpl: 'params'` so the "Use the model's built-in search engine" toggle appears in the search panel. When the toggle is OFF (default), ChatHub uses its own web-browsing tools; when ON, `enabledSearch` is carried in the internal payload for runtime/tool handling, and provider adapters must only send upstream search fields documented by that provider.
 - OpenAI-compatible Responses API mode is opt-in only. Default to Chat Completions mode; enable Responses API only when the gateway documents `/v1/responses`, typed event streaming, and compatible tool/search behavior.
-- OpenAI-compatible cache behavior is a provider-settings matrix, not a model gear option. Preserve `openAICompatCache` shape end to end:
-  - visible presets: `prompt-key-store`, `custom`
-  - legacy saved presets `pptoken.org` and `apikl.ai` must parse and normalize to `prompt-key-store`
-  - Chat: `promptCacheKey`, `sessionHeader`
-  - Responses: `promptCacheKey` (`off` / `derived`), `sessionHeader`, `store` (`default` / `true` / `false`)
-  - Responses parameter compatibility lives in `openAICompatResponsesParams`: `maxTokens`, `maxOutputTokens`, `truncation`, and `verbosity`
-  - selecting a non-custom preset writes the full matrix, defaults the route radio to Responses API, and keeps detailed matrix controls hidden; `custom` expands all cache and Responses parameter controls
-  - `prompt-key-store` means Chat body `prompt_cache_key`, no Chat `Session_id`; Responses body `prompt_cache_key`, no Responses `Session_id`, `store:true`; omit optional Responses `maxTokens`, `maxOutputTokens`, `truncation`, and `verbosity`
-  - legacy `responseStateMode: "provider"` maps to `prompt-key-store` when no matrix exists
-  - runtime must strip `openAICompatCache`, `openAICompatResponsesParams`, and other internal fields before sending upstream requests
-  - final cache finding: old `pptoken.org` vs `apikl.ai` provider labels were not the root cause of misses; `apikl.ai` can cache with `store:true`, and `pptoken.org` can cache Chat Completions when chat `prompt_cache_key` is enabled
+- OpenAI-compatible cache behavior is a provider-settings matrix, not a model gear option. Preserve `openAICompatCache` and `openAICompatResponsesParams` end to end: visible presets are `prompt-key-store` and `custom`, legacy saved presets `pptoken.org` and `apikl.ai` normalize to `prompt-key-store`, and runtime strips internal cache fields before upstream requests. Detailed cache matrix, debugging, and provider-probe guidance lives in `.cursor/rules/prompt-cache-stability.mdc`.
 - Anthropic-compatible calls target Anthropic Messages semantics; expose Anthropic-only toggles only when the compatibility endpoint documents the same accepted request fields.
 
 ## UI pattern: one provider panel at a time
@@ -88,7 +78,7 @@ When **MiniMax** rejects requests with context overflow (**`bad_request_error` /
 
 - Add or extend **runtime unit tests** on `build*Payload` / `handlePayload` when behavior is non-trivial (thinking toggles, tool + thinking interaction, optional fields like `thinking.keep`).
 - For OpenAI-compatible cache changes, test both `/v1/chat/completions` and `/v1/responses` body/header shapes, including `Session_id`-only Responses mode and legacy `responseStateMode` normalization.
-- After changes, run **`bash scripts/type-check-tsc.sh`** and targeted **`bun test`** for touched packages.
+- After changes, run **`bash scripts/type-check-tsc.sh`** and targeted Vitest commands from `.cursor/rules/commands.mdc` (for example, **`bunx vitest run --silent='passed-only' '<file>'`**) for touched packages.
 
 ## Shipping
 

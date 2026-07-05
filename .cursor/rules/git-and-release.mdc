@@ -79,6 +79,29 @@ Version scheme: `v1.x.x` (ChatHub independent versioning, unrelated to upstream 
 
 **Docker build reliability:** `.github/workflows/docker-release.yml` frees unused runner disk (preinstalled SDK trees, `docker system prune`) before `docker build` so large Next.js images are less likely to hit **"No space left on device"** on `ubuntu-latest`.
 
+## Mandatory build-trigger preflight
+
+If the user asks to **"trigger build"**, **"trigger image build"**, **"new image"**, **"test build"**, **"canary"**, **"ship"**, or **"commit and push to trigger build"**, treat that as a request for the canary flow unless the change is docs/rules-only.
+
+Before running `git commit`, `git push`, or `git tag` for that request, the agent must re-read this file's **Release triggers**, **Docs / rules-only commits**, and **Fix / feature canary flow** sections and state the intended action:
+
+- current branch and whether it is non-`main`
+- whether the staged diff is docs/rules-only or contains code/config
+- commit message, including the required gitmoji prefix
+- whether a Docker image build is expected
+- exact canary tag to push, or `no tag` with the docs/rules-only reason
+
+Hard gates:
+
+- A **branch push is never a Docker image trigger**.
+- If code/config changed and the user asked to trigger a build, push a valid `vX.Y.Z-canary.N` tag after the branch push.
+- If the change is docs/rules-only, do not push a canary tag and do not claim a Docker image build was triggered.
+- After pushing a canary tag, verify the fork workflow with:
+  ```bash
+  gh run list -R lqdflying/chathub --workflow=docker-release.yml --limit 3
+  ```
+- The final response for a canary flow must include the pushed tag and the workflow run id/status.
+
 ## Docs / rules-only commits — no tag needed
 
 Commits that change **only** documentation or rules files (`.md`, `.mdc` in `.cursor/rules/`, wiki, etc.) do NOT need a canary tag. These commits don't affect the Docker image output, so triggering a Docker build is wasteful.
