@@ -13,6 +13,16 @@ describe('buildMinimaxOpenAIChatPayload', () => {
     expect(out.reasoning_split).toBe(true);
   });
 
+  it('uses MiniMax-M3 model-bank max output when max_tokens is omitted', () => {
+    const out = buildMinimaxOpenAIChatPayload({
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'MiniMax-M3',
+    } as any);
+
+    expect(out.max_tokens).toBe(32_768);
+    expect(out.reasoning_split).toBe(true);
+  });
+
   it('connectivity probe keeps reasoning_split false and respects max_tokens', () => {
     const out = buildMinimaxOpenAIChatPayload({
       max_tokens: 256,

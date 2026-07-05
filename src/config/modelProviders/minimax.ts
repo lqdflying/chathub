@@ -3,6 +3,20 @@ import { ModelProviderCard } from '@/types/llm';
 const Minimax: ModelProviderCard = {
   chatModels: [
     {
+      contextWindowTokens: 1_000_000,
+      description:
+        'Native multimodal Frontier Coding model with 1M context for agent reasoning, tool use, coding, long context, image input, and video input.',
+      displayName: 'MiniMax M3',
+      enabled: true,
+      functionCall: true,
+      id: 'MiniMax-M3',
+      maxOutput: 32_768,
+      reasoning: true,
+      releasedAt: '2026-06-01',
+      video: true,
+      vision: true,
+    },
+    {
       contextWindowTokens: 204_800,
       description:
         'The latest flagship model with self-evolution capabilities. Excels at complex task decomposition, Agent workflows, coding, and Office automation.',
@@ -109,13 +123,13 @@ const Minimax: ModelProviderCard = {
       search: true,
     },
   ],
-  checkModel: 'MiniMax-M2.5',
+  checkModel: 'MiniMax-M3',
   description:
     'MiniMax is a Chinese AI company providing advanced large language models with strong reasoning and coding capabilities.',
   disableBrowserRequest: true,
   enabled: true,
   id: 'minimax',
-  modelList: { showModelFetcher: false },
+  modelList: { showModelFetcher: true },
   name: 'MiniMax',
   proxyUrl: {
     placeholder: 'https://api.minimax.io/v1',
@@ -124,6 +138,7 @@ const Minimax: ModelProviderCard = {
     proxyUrl: {
       placeholder: 'https://api.minimax.io/v1',
     },
+    showModelFetcher: true,
     sdkType: 'openai',
   },
   url: 'https://www.minimaxi.com',

@@ -5,6 +5,26 @@ const minimaxChatModels: AIChatModelCard[] = [
     abilities: {
       functionCall: true,
       reasoning: true,
+      video: true,
+      vision: true,
+    },
+    contextWindowTokens: 1_000_000,
+    description:
+      'Native multimodal Frontier Coding model with 1M context for agent reasoning, tool use, coding, long context, image input, and video input.',
+    displayName: 'MiniMax M3',
+    enabled: true,
+    id: 'MiniMax-M3',
+    maxOutput: 32_768,
+    releasedAt: '2026-06-01',
+    settings: {
+      extendParams: ['minimaxReasoningSplit'],
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
     },
     contextWindowTokens: 204_800,
     description:

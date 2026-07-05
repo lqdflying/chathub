@@ -284,6 +284,51 @@ describe('modelParse', () => {
       });
     });
 
+    describe('provider-specific fetched model capability inference', () => {
+      it('deepseek: V4 fetched models infer reasoning and function calling', async () => {
+        const out = await processModelList(
+          [{ id: 'deepseek-v4-pro' }],
+          MODEL_LIST_CONFIGS.deepseek,
+          'deepseek',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+        });
+      });
+
+      it('minimax: MiniMax-M3 fetched models infer multimodal reasoning capabilities', async () => {
+        const out = await processModelList(
+          [{ id: 'MiniMax-M3' }],
+          MODEL_LIST_CONFIGS.minimax,
+          'minimax',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: true,
+          vision: true,
+        });
+      });
+
+      it('moonshot: kimi-k2.7-code fetched models infer native thinking and multimodal capabilities', async () => {
+        const out = await processModelList(
+          [{ id: 'kimi-k2.7-code' }],
+          MODEL_LIST_CONFIGS.moonshot,
+          'moonshot',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: true,
+          vision: true,
+        });
+      });
+    });
+
     describe('Detailed capability and property processing in processModelList', () => {
       const config = MODEL_LIST_CONFIGS.openai;
 

@@ -3,6 +3,7 @@ import type OpenAI from 'openai';
 
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
 import type { ChatStreamPayload, OpenAIChatMessage } from '../../types';
+import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
 
 /**
  * DeepSeek V4 thinking mode defaults to **enabled**.
@@ -103,10 +104,14 @@ const fetchDeepSeekModels = async ({ client }: { client: OpenAI }): Promise<any[
     const modelsPage = (await client.models.list()) as any;
     const modelList: Array<{ context_length?: number; id: string }> = modelsPage.data || [];
 
-    return modelList.map((model) => ({
-      contextWindowTokens: model.context_length,
-      id: model.id,
-    }));
+    return processModelList(
+      modelList.map((model) => ({
+        contextWindowTokens: model.context_length,
+        id: model.id,
+      })),
+      MODEL_LIST_CONFIGS.deepseek,
+      ModelProvider.DeepSeek,
+    );
   } catch (error) {
     console.warn('Failed to fetch DeepSeek models:', error);
     return [];

@@ -213,6 +213,36 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(result).not.toHaveProperty('top_p');
   });
 
+  it('kimi-k2.7-code uses native thinking and preserves reasoning_content on assistant tool calls', () => {
+    const result = buildMoonshotPayload({
+      messages: [
+        { content: 'hi', role: 'user' },
+        {
+          content: null,
+          role: 'assistant',
+          tool_calls: [
+            {
+              function: { arguments: '{"x":1}', name: 'get_time' },
+              id: 'call_time',
+              type: 'function',
+            },
+          ],
+        },
+        { content: '{"time":"now"}', role: 'tool', tool_call_id: 'call_time' },
+      ],
+      model: 'kimi-k2.7-code',
+      stream: true,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result).not.toHaveProperty('thinking');
+    expect(result).not.toHaveProperty('temperature');
+    const assistant = (result.messages as any[]).find((m) => m.role === 'assistant');
+    expect(assistant?.reasoning_content).toBe('');
+  });
+
   it('kimi-k2-0905-preview + tools strips legacy sampling and omits thinking', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],

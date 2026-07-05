@@ -41,6 +41,23 @@ const moonshotChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 262_144,
     description:
+      'Kimi K2.7 Code is a coding-focused agentic model built on K2.6. It uses forced thinking with preserved reasoning by default and supports image and video input in the official API.',
+    displayName: 'Kimi K2.7 Code',
+    enabled: true,
+    id: 'kimi-k2.7-code',
+    maxOutput: 32_768,
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      structuredOutput: true,
+      video: true,
+      vision: true,
+    },
+    contextWindowTokens: 262_144,
+    description:
       'Kimi K2.6 flagship chat model (256k context). Supports `thinking` on/off like K2.5; optionally Preserved Thinking (`thinking.keep`) for multi-turn reasoning_content per Moonshot API.',
     displayName: 'Kimi K2.6',
     enabled: true,
