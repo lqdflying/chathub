@@ -1176,6 +1176,35 @@ describe('ChatService', () => {
       });
     });
 
+    it('should ignore stale Responses API config for non-OpenAI-compatible providers', async () => {
+      useAiInfraStore.setState({
+        aiProviderRuntimeConfig: {
+          deepseek: {
+            config: { enableResponseApi: true },
+            keyVaults: {},
+            settings: {},
+          } as any,
+        },
+      });
+
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'deepseek',
+        },
+        {},
+      );
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        messages: [],
+        model: 'gpt-5.5',
+        stream: true,
+      });
+      expect(body).not.toHaveProperty('apiMode');
+    });
+
     it('should include OpenAI-compatible cache matrix for Chat Completions mode', async () => {
       useAiInfraStore.setState({
         aiProviderRuntimeConfig: {

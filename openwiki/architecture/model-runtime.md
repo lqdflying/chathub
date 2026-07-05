@@ -38,9 +38,10 @@ Provider-specific cache hint combinations are documented in [OpenAI-compatible c
 
 ## Provider request debug
 
-Moonshot, DeepSeek, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with redacted base URL, full `effectiveURL`, upstream route, model, turn shape, tools summary, and payload fingerprint:
+Moonshot, MiniMax, DeepSeek, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with redacted base URL, full `effectiveURL`, upstream route, model, turn shape, tools summary, and payload fingerprint:
 
 - `DEBUG_MOONSHOT_CHAT_COMPLETION=1`
+- `DEBUG_MINIMAX_CHAT_COMPLETION=1`
 - `DEBUG_DEEPSEEK_CHAT_COMPLETION=1`
 - `DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1`
 

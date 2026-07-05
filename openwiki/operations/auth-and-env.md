@@ -32,6 +32,7 @@ Provider runtime debugging is opt-in and should be used only for active troubles
 
 ```bash
 DEBUG_MOONSHOT_CHAT_COMPLETION=1
+DEBUG_MINIMAX_CHAT_COMPLETION=1
 DEBUG_DEEPSEEK_CHAT_COMPLETION=1
 DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1
 ```

@@ -324,9 +324,13 @@ class ChatService {
     }
 
     const aiInfraStoreState = getAiInfraStoreState();
-    const apiMode = aiProviderSelectors.isProviderEnableResponseApi(provider)(aiInfraStoreState)
+    const supportsOpenAICompatResponses = provider === ModelProvider.OpenAICompatible;
+    const configuredApiMode =
+      supportsOpenAICompatResponses &&
+      aiProviderSelectors.isProviderEnableResponseApi(provider)(aiInfraStoreState)
       ? 'responses'
       : undefined;
+    const apiMode = supportsOpenAICompatResponses ? res.apiMode || configuredApiMode : undefined;
     const openAICompatCache =
       provider === ModelProvider.OpenAICompatible
         ? aiProviderSelectors.providerOpenAICompatCacheConfig(provider)(aiInfraStoreState)
