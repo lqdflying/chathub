@@ -4,7 +4,7 @@ import { ActionIcon, copyToClipboard } from '@lobehub/ui';
 import { App } from 'antd';
 import { createStyles } from 'antd-style';
 import { CopyIcon, FileSpreadsheetIcon } from 'lucide-react';
-import { ComponentProps, memo, useCallback, useRef } from 'react';
+import React, { ComponentProps, memo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { extractTableRows, tableRowsToCsv, tableRowsToMarkdown } from './utils';
@@ -29,14 +29,26 @@ const useStyles = createStyles(({ css, responsive, token }) => ({
     transition: opacity 0.2s ${token.motionEaseInOut};
 
     ${responsive.mobile} {
+      position: static;
+
+      align-self: flex-end;
+      order: -1;
+
+      margin-block-end: 4px;
+
       opacity: 1;
     }
   `,
   container: css`
     position: relative;
+
+    display: flex;
+    flex-direction: column;
+
     max-width: 100%;
 
-    &:hover > div {
+    &:hover > div,
+    &:focus-within > div {
       opacity: 1;
     }
   `,
@@ -70,7 +82,11 @@ const MarkdownTable = memo<ComponentProps<'table'>>(({ children, ...rest }) => {
       <table ref={tableRef} {...rest}>
         {children}
       </table>
-      <div className={styles.actions}>
+      <div
+        aria-label={`${t('MarkdownTable.copyAsMarkdown')} / ${t('MarkdownTable.copyAsCsv')}`}
+        className={styles.actions}
+        role={'toolbar'}
+      >
         <ActionIcon
           icon={CopyIcon}
           onClick={() => handleCopy('markdown')}

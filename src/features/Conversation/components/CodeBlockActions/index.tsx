@@ -3,7 +3,7 @@
 import { ActionIcon, type HighlighterProps } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { ChevronsDownUpIcon, ChevronsUpDownIcon, DownloadIcon, WrapTextIcon } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { HtmlPreviewAction } from '@/components/HtmlPreview';
@@ -182,6 +182,7 @@ const CollapsibleCodeBody = memo<{ children: React.ReactNode; lines: number }>(
     const { t } = useTranslation('components');
     const [expanded, setExpanded] = useState(false);
     const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+    const buttonLabel = expanded ? t('CodeBlock.collapse') : t('CodeBlock.expand', { count: lines });
     const handleKeyDown = useCallback(
       (event: React.KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -197,6 +198,8 @@ const CollapsibleCodeBody = memo<{ children: React.ReactNode; lines: number }>(
         {children}
         {!expanded && <div className={styles.overlay} />}
         <div
+          aria-expanded={expanded}
+          aria-label={buttonLabel}
           className={styles.expandButton}
           onClick={toggleExpanded}
           onKeyDown={handleKeyDown}
@@ -204,7 +207,7 @@ const CollapsibleCodeBody = memo<{ children: React.ReactNode; lines: number }>(
           tabIndex={0}
         >
           {expanded ? <ChevronsDownUpIcon size={12} /> : <ChevronsUpDownIcon size={12} />}
-          {expanded ? t('CodeBlock.collapse') : t('CodeBlock.expand', { count: lines })}
+          {buttonLabel}
         </div>
       </div>
     );
