@@ -85,6 +85,39 @@ const resolveCacheTTL = (
   return undefined;
 };
 
+/**
+ * System message content can be a plain string or a structured content-part
+ * array (e.g. after MessageContentProcessor). Flatten it to Anthropic text
+ * blocks — a blind `as string` cast would serialize arrays as garbage and
+ * defeat the system-level cache breakpoint.
+ * `cache_control` goes on the LAST block only: Anthropic caches everything up
+ * to (and including) the marked block.
+ */
+export const buildAnthropicSystemPrompts = (
+  content: unknown,
+  enabledContextCaching: boolean,
+): Anthropic.TextBlockParam[] | undefined => {
+  const texts: string[] =
+    typeof content === 'string'
+      ? content
+        ? [content]
+        : []
+      : Array.isArray(content)
+        ? content
+            .filter((part: any) => part?.type === 'text' && !!part.text)
+            .map((part: any) => part.text as string)
+        : [];
+
+  if (texts.length === 0) return undefined;
+
+  return texts.map((text, index) => ({
+    cache_control:
+      enabledContextCaching && index === texts.length - 1 ? { type: 'ephemeral' as const } : undefined,
+    text,
+    type: 'text' as const,
+  }));
+};
+
 interface AnthropicAIParams extends ClientOptions {
   id?: string;
 }
@@ -220,15 +253,10 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
     const system_message = messages.find((m) => m.role === 'system');
     const user_messages = messages.filter((m) => m.role !== 'system');
 
-    const systemPrompts = !!system_message?.content
-      ? ([
-          {
-            cache_control: enabledContextCaching ? { type: 'ephemeral' } : undefined,
-            text: system_message?.content as string,
-            type: 'text',
-          },
-        ] as Anthropic.TextBlockParam[])
-      : undefined;
+    const systemPrompts = buildAnthropicSystemPrompts(
+      system_message?.content,
+      enabledContextCaching,
+    );
 
     const postMessages = await buildAnthropicMessages(user_messages, { enabledContextCaching });
 

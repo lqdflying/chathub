@@ -370,6 +370,38 @@ describe('MessageContentProcessor', () => {
       expect(content[1]).toEqual({ text: 'Final answer.', type: 'text' });
     });
 
+    it('should not emit a thinking block when reasoning has content but no signature', async () => {
+      const processor = new MessageContentProcessor({
+        model: 'claude-opus-4-7',
+        provider: 'anthropic',
+        isCanUseVision: mockIsCanUseVision,
+        fileContext: { enabled: false },
+      });
+
+      const messages: UIChatMessage[] = [
+        {
+          id: 'test',
+          role: 'assistant',
+          content: 'Answer from an OpenAI-compatible model.',
+          reasoning: {
+            content: 'unsigned reasoning from another provider',
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          meta: {},
+        },
+      ];
+
+      const result = await processor.process(createContext(messages));
+
+      // No fabricated `signature: ''` block — Anthropic rejects it. Content
+      // stays a plain string and reasoning survives for OpenAI-family replay.
+      expect(result.messages[0].content).toBe('Answer from an OpenAI-compatible model.');
+      expect((result.messages[0] as any).reasoning).toEqual({
+        content: 'unsigned reasoning from another provider',
+      });
+    });
+
     it('should replay redacted thinking blocks from redactedSignatures', async () => {
       const processor = new MessageContentProcessor({
         model: 'claude-opus-4-7',

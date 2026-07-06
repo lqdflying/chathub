@@ -32,7 +32,7 @@ describe('openaicompatCache', () => {
     expect(secondKey).toBe(firstKey);
   });
 
-  it('does not derive prompt_cache_key for unrelated models', async () => {
+  it('does not derive prompt_cache_key for unrelated models by default', async () => {
     await expect(
       deriveCompatPromptCacheKey(
         {
@@ -42,6 +42,19 @@ describe('openaicompatCache', () => {
         'claude-3-5-sonnet',
       ),
     ).resolves.toBe('');
+  });
+
+  it('derives prompt_cache_key for any model when the allowlist is bypassed', async () => {
+    const key = await deriveCompatPromptCacheKey(
+      {
+        input: [{ content: 'Hello', role: 'user' }],
+        model: 'claude-3-5-sonnet',
+      },
+      'claude-3-5-sonnet',
+      { bypassModelAllowlist: true },
+    );
+
+    expect(key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
   });
 
   it('normalizes common OpenAI-compatible cache usage fields for Responses usage', () => {

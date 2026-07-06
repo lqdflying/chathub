@@ -214,20 +214,24 @@ export class MessageContentProcessor extends BaseProcessor {
    */
   private async processAssistantMessage(message: any): Promise<any> {
     const reasoning = message.reasoning;
-    const hasThinkingContent = !!reasoning?.content;
     const hasSignature = !!reasoning?.signature;
     const hasRedacted = !!reasoning?.redactedSignatures?.length;
 
-    if (hasThinkingContent || hasSignature || hasRedacted) {
+    // Only signed/redacted reasoning becomes structured thinking blocks.
+    // Unsigned reasoning (from OpenAI-compatible providers or interrupted
+    // Anthropic streams) stays on `message.reasoning` — fabricating a
+    // `signature: ''` block makes Anthropic reject the request, while the
+    // OpenAI-family builders replay `message.reasoning` directly.
+    if (hasSignature || hasRedacted) {
       const contentParts: UserMessageContentPart[] = [];
 
       // One signed thinking block carrying the (possibly empty for omitted display) thinking text.
       // Anthropic requires passing thinking blocks back unchanged for multi-turn continuity.
       // Anthropic emits at most one regular `thinking` block per assistant turn, so a single
       // `signature` field is sufficient. `redacted_thinking` blocks (below) can be multiple.
-      if (hasThinkingContent || hasSignature) {
+      if (hasSignature) {
         contentParts.push({
-          signature: reasoning!.signature ?? '',
+          signature: reasoning!.signature,
           thinking: reasoning!.content ?? '',
           type: 'thinking',
         } as any);

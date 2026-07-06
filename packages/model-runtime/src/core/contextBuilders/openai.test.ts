@@ -448,6 +448,28 @@ describe('convertOpenAIResponseInputs', () => {
       { content: '杭州天气如何', role: 'user' },
     ]);
   });
+
+  it('should skip historical reasoning items for the openaicompatible provider', async () => {
+    const messages: OpenAIChatMessage[] = [
+      { content: 'system prompts', role: 'system' },
+      { content: '你好', role: 'user' },
+      {
+        content: 'hello',
+        role: 'assistant',
+        reasoning: { content: 'reasoning content', duration: 2706 },
+      },
+      { content: '杭州天气如何', role: 'user' },
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages, 'openaicompatible');
+
+    expect(result).toEqual([
+      { content: 'system prompts', role: 'developer' },
+      { content: '你好', role: 'user' },
+      { content: 'hello', role: 'assistant' },
+      { content: '杭州天气如何', role: 'user' },
+    ]);
+  });
 });
 
 describe('convertImageUrlToFile', () => {

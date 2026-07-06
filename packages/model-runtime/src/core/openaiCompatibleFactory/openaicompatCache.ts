@@ -117,8 +117,26 @@ const appendStableSeedParts = (parts: string[], parsedBody: Record<string, any>,
   return parts;
 };
 
-export const deriveCompatPromptCacheKey = async (parsedBody: Record<string, any>, model?: string) => {
-  if (!parsedBody || !shouldAutoInjectPromptCacheKeyForCompat(model || parsedBody.model)) return '';
+export interface DeriveCompatPromptCacheKeyOptions {
+  /**
+   * When the user explicitly enabled cache hints via the `openAICompatCache`
+   * matrix, the key must be derived for ANY model — the gpt-5/codex family
+   * allowlist only applies to implicit/legacy injection paths.
+   */
+  bypassModelAllowlist?: boolean;
+}
+
+export const deriveCompatPromptCacheKey = async (
+  parsedBody: Record<string, any>,
+  model?: string,
+  options?: DeriveCompatPromptCacheKeyOptions,
+) => {
+  if (!parsedBody) return '';
+  if (
+    !options?.bypassModelAllowlist &&
+    !shouldAutoInjectPromptCacheKeyForCompat(model || parsedBody.model)
+  )
+    return '';
 
   const seedParts = appendStableSeedParts([], parsedBody, model);
   if (seedParts.length === 0) return '';

@@ -353,6 +353,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             ? await deriveCompatPromptCacheKey(
                 { ...chatCompletionPayload, messages, model: payload.model },
                 payload.model,
+                // This branch only fires on explicit `openAICompatCache.chat`
+                // config, so the key must be derived for any model — the
+                // gpt-5/codex allowlist only guards implicit injection.
+                { bypassModelAllowlist: true },
               )
             : '';
         const chatCacheKey = explicitChatCacheKey || derivedChatCacheKey;
@@ -916,7 +920,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       delete res.responseStateMode;
       delete res.store;
 
-      const input = await convertOpenAIResponseInputs(messages as any);
+      const input = await convertOpenAIResponseInputs(messages as any, this.id);
       const responseParamsPayload = applyOpenAICompatResponsesParams(res, responsesParams);
       const explicitPromptCacheKey =
         typeof responseParamsPayload.prompt_cache_key === 'string'
@@ -927,6 +931,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           ? await deriveCompatPromptCacheKey(
               { ...responseParamsPayload, input, model: payload.model },
               payload.model,
+              // Explicit matrix config (`promptCacheKey: 'derived'` or
+              // `sessionHeader`) must derive for any model; the legacy
+              // implicit `responseStateMode: 'provider'` path keeps the
+              // gpt-5/codex allowlist.
+              { bypassModelAllowlist: !!responseCacheNeedsKey },
             )
           : '';
       const promptCacheKey = explicitPromptCacheKey || derivedPromptCacheKey;
@@ -1126,7 +1135,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       if (shouldUseResponses) {
         log('calling responses.create for tool calling');
-        const input = await convertOpenAIResponseInputs(messages as any);
+        const input = await convertOpenAIResponseInputs(messages as any, this.id);
 
         const res = await this.client.responses.create(
           {

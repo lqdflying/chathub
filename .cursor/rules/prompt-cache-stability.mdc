@@ -23,14 +23,15 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
 ### Context Engine (`packages/context-engine/`)
 
 - `PlaceholderVariablesProcessor`: Expand **system** + **latest user** messages only. Historical user/assistant messages must remain untouched. For `openaicompatible`, skip volatile generators in system messages with `VOLATILE_GENERATOR_KEYS`; other providers keep existing placeholder behavior unless cache requirements change.
-- `MessageContentProcessor`: Replay exactly **one** signed `thinking` block + standalone `redacted_thinking` blocks. Never duplicate thinking text across multiple signatures.
+- `MessageContentProcessor`: Replay exactly **one** signed `thinking` block + standalone `redacted_thinking` blocks. Never duplicate thinking text across multiple signatures. Never fabricate a thinking block with an empty signature — unsigned reasoning (OpenAI-compatible history, interrupted streams) stays on `message.reasoning` and is NOT converted into content parts; Anthropic rejects `signature: ''` blocks.
 - `SystemRoleInjector` / `ToolSystemRoleProvider`: These inject raw templates every request. `Date.now()` in `id`/`createdAt` fields is OK because `MessageCleanupProcessor` strips them — but if cleanup ever stops stripping `id`, these timestamps would leak into the prefix.
 
 ### Model Runtime (`packages/model-runtime/`)
 
 - `convertOpenAIMessages`: Gates `reasoning_content` injection on provider. For `openaicompatible`, skip it entirely. For `deepseek`/`moonshot`, keep it.
+- `convertOpenAIResponseInputs`: Same provider gate for the Responses path — for `openaicompatible`, historical `reasoning` items are NOT prepended to `input` (they perturb the Responses cache prefix and strict gateways reject them). Other providers keep the reasoning item.
 - Provider feature flags such as `enabledSearch` may exist inside `ChatStreamPayload` until the relevant runtime consumes them for routing or tool injection; strip them from the final upstream request body unless that upstream API explicitly documents the field.
-- `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. In Responses mode, apply `openAICompatResponsesParams` so built-in presets get verified behavior and `Custom` can freely test `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity` shapes.
+- `openaicompatible/handlePayload`: Explicit allowlist of Chat Completions fields. `reasoning` (the Responses-shaped object) is Responses-only; Chat Completions gets `reasoning_effort` only. In Responses mode, apply `openAICompatResponsesParams` so built-in presets get verified behavior and `Custom` can freely test `max_tokens`, `max_output_tokens`, `truncation`, and `verbosity` shapes.
 - OpenAI-compatible cache hints are controlled by provider config `openAICompatCache`, not ad hoc request mutations:
   - Chat Completions can send body `prompt_cache_key`, `Session_id` header, both, or neither.
   - Responses can send derived body `prompt_cache_key`, `Session_id` header, and `store` as `default` / `true` / `false`.
@@ -38,7 +39,8 @@ LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte chang
   - Legacy saved `pptoken.org` and `apikl.ai` preset values must parse and normalize to `Prompt key + store`.
   - Responses `Session_id`-only mode must not force a body `prompt_cache_key`.
   - Strip `openAICompatCache`, `openAICompatResponsesParams`, `responseStateMode`, `apiMode`, and other runtime-only fields before upstream request bodies are sent.
-- `anthropic` context builder: Pass through `thinking` and `redacted_thinking` blocks unchanged; never add `cache_control` to thinking/redacted blocks.
+  - Explicit matrix config derives `prompt_cache_key` for **any** model (`bypassModelAllowlist`); the gpt-5/codex `CACHE_KEY_MODELS` allowlist applies only to the legacy implicit `responseStateMode: "provider"` (no-matrix) path.
+- `anthropic` context builder: Pass through `thinking` and `redacted_thinking` blocks unchanged; never add `cache_control` to thinking/redacted blocks. System message content may be a text-part array — flatten it to text blocks (`buildAnthropicSystemPrompts`) with `cache_control` on the **last** block only; never cast content `as string`.
 
 ### OpenAI-Compatible Cache Presets
 
@@ -81,14 +83,23 @@ When using or updating `skills/chathub-provider-probe`:
 
 **Never import from `@lobechat/utils/client` inside `packages/context-engine/` or `packages/model-runtime/`.** That barrel re-exports browser-only code (`useUserStore`, `navigator`) which breaks the server-side Docker build. If you need a constant from `parserPlaceholder.ts`, inline it or create a shared pure-JS module.
 
+## Known hazards (documented, not fixed — keep in sync)
+
+1. **Duplicated gpt-5/codex model lists.** `CACHE_KEY_MODELS` (`packages/model-runtime/src/core/openaiCompatibleFactory/openaicompatCache.ts`), `prunePrefixes` and `flexSupportedModels` (`packages/model-runtime/src/providers/openai/index.ts`) each hardcode model-family heuristics independently. Adding a model family to one list does not propagate — touch all of them deliberately.
+2. **Chat vs Responses cache-key namespace divergence.** The seed builder reads `messages` for Chat Completions and `input` for Responses, so the same conversation derives different `compat_cc_` keys per route. Switching API route mid-session therefore always starts a cold cache — expected behavior, not a bug.
+3. **`VOLATILE_GENERATOR_KEYS` is hand-copied** between `packages/utils/src/client/parserPlaceholder.ts` and `packages/context-engine/src/processors/PlaceholderVariables.ts` (cross-package import is forbidden per the rule above). The two sets must be kept identical manually whenever a volatile generator is added.
+
 ## Testing checklist for cache-related changes
 
 - Assert historical messages are NOT re-expanded (PlaceholderVariables tests)
 - Assert volatile generators are skipped in system messages for `openaicompatible`
-- Assert `reasoning_content` is NOT present for `openaicompatible` provider
-- Assert Responses-API-only fields are NOT present in Chat Completions mode
+- Assert `reasoning_content` is NOT present for `openaicompatible` provider (Chat Completions), and no `reasoning` items appear in Responses `input`
+- Assert Responses-API-only fields (`reasoning`, `text`, `verbosity`, `truncation`) are NOT present in Chat Completions mode
 - Assert OpenAI-compatible cache matrix fields produce the intended body/header shape for both Chat Completions and Responses
+- Assert explicit matrix config derives `prompt_cache_key` for non gpt-5/codex models, and the legacy no-matrix path still respects the allowlist
 - Assert Responses `Session_id`-only mode does NOT send body `prompt_cache_key`
 - Assert `openAICompatCache` and `openAICompatResponsesParams` do NOT leak into upstream request bodies
 - Assert thinking blocks round-trip unchanged (signature, redacted data)
+- Assert unsigned reasoning (content without signature) does NOT produce a thinking content part
+- Assert array system-message content builds Anthropic text blocks with `cache_control` on the last block only
 - Run `bash scripts/type-check-tsc.sh` — build failures from bad imports do NOT show up in `bun run type-check`
