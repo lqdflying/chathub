@@ -193,6 +193,7 @@ const Thinking = memo<ThinkingProps>((props) => {
                 <Markdown
                   animated={thinkingAnimated}
                   citations={citations}
+                  enableGithubAlert
                   style={{
                     overflow: 'unset',
                   }}

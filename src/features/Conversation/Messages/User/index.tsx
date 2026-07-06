@@ -21,6 +21,8 @@ import { sessionSelectors } from '@/store/session/selectors';
 import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 
+import { renderCodeBlockActions, renderCodeBlockBody } from '../../components/CodeBlockActions';
+import MarkdownTable from '../../components/MarkdownTable';
 import { useDoubleClickEdit } from '../../hooks/useDoubleClickEdit';
 import { UserActionsBar } from './Actions';
 import { UserBelowMessage } from './BelowMessage';
@@ -103,23 +105,32 @@ const UserMessage = memo<UserMessageProps>((props) => {
   );
 
   const components = useMemo(
-    () =>
-      Object.fromEntries(
+    () => ({
+      ...Object.fromEntries(
         markdownElements.map((element) => {
           const Component = element.Component;
 
           return [element.tag, (props: any) => <Component {...props} id={id} />];
         }),
       ),
+      table: MarkdownTable,
+    }),
     [id],
   );
 
   const markdownProps = useMemo(
     () => ({
+      componentProps: {
+        highlight: {
+          actionsRender: renderCodeBlockActions,
+          bodyRender: renderCodeBlockBody,
+        },
+      },
       components,
       customRender: (dom: ReactNode, { text }: { text: string }) => (
         <UserMarkdownRender displayMode={displayMode} dom={dom} id={id} text={text} />
       ),
+      enableGithubAlert: true,
       rehypePlugins,
       remarkPlugins,
     }),

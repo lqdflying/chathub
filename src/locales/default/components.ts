@@ -4,6 +4,13 @@ export default {
     argumentPlaceholder: '参数 {{index}}',
     enterFirstArgument: '输入第一个参数...',
   },
+  CodeBlock: {
+    collapse: '收起代码',
+    download: '下载代码',
+    expand: '展开全部 {{count}} 行',
+    wrap: '自动换行',
+    wrapOff: '取消换行',
+  },
   DragUpload: {
     dragDesc: '拖拽文件到这里，支持上传多个图片。',
     dragFileDesc: '拖拽图片和文件到这里，支持上传多个图片和文件。',
@@ -107,6 +114,11 @@ export default {
     duplicateKeyError: '键名必须唯一',
     keyPlaceholder: '键',
     valuePlaceholder: '值',
+  },
+  MarkdownTable: {
+    copyAsCsv: '复制为 CSV',
+    copyAsMarkdown: '复制为 Markdown',
+    copySuccess: '表格复制成功',
   },
   MaxTokenSlider: {
     unlimited: '无限制',
