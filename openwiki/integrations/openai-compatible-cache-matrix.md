@@ -35,7 +35,10 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 - Runtime-only fields are stripped before upstream request bodies are sent.
 - Built-in presets apply their verified Responses parameter behavior. `Custom` applies the expanded parameter matrix exactly, so unknown providers can be tested freely.
 - Cache keys are derived from stable prompt parts such as model, system/developer messages, first user message, reasoning effort, and tools.
-- The derived key is currently injected only for cache-hit-capable model families recognized by the runtime.
+- When the matrix explicitly enables a cache hint (`prompt_cache_key` or `Session_id`), the key is derived for **any** model. The gpt-5/codex model-family allowlist applies only to the legacy implicit `responseStateMode: "provider"` (no-matrix) path.
+- The factory `store ?? true` fallback also applies only to that no-matrix legacy path — it matches the `Prompt key + store` normalization. With a saved matrix, `store: default` correctly omits the field.
+- Historical assistant `reasoning` is never serialized into Responses `input` for the `openaicompatible` provider (mirroring the Chat Completions `reasoning_content` rule), keeping the cached prefix stable.
+- The Chat and Responses routes derive different `compat_cc_` keys for the same conversation (different serializations), so switching the API route mid-session starts a cold cache — expected behavior.
 
 ## Debugging Cache Misses
 

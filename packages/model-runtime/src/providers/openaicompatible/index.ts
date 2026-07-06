@@ -16,9 +16,10 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       // thinkingBudget, urlContext, reasoning_split) are intentionally stripped
       // so they never leak into the provider request body.
       //
-      // `text`, `verbosity`, and `truncation` are Responses API fields. They
-      // are only forwarded into Responses mode, where the runtime matrix can
-      // decide which compatibility shape to send upstream.
+      // `reasoning`, `text`, `verbosity`, and `truncation` are Responses API
+      // fields. They are only forwarded into Responses mode, where the runtime
+      // matrix can decide which compatibility shape to send upstream. Chat
+      // Completions only understands `reasoning_effort`.
       const {
         apiMode,
         frequency_penalty,
@@ -67,9 +68,9 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       if (tools !== undefined) result.tools = tools;
       if (tool_choice !== undefined) result.tool_choice = tool_choice;
       if (reasoning_effort !== undefined) result.reasoning_effort = reasoning_effort;
-      if (reasoning !== undefined) result.reasoning = reasoning;
 
       if (isResponses) {
+        if (reasoning !== undefined) result.reasoning = reasoning;
         if (max_output_tokens !== undefined) result.max_output_tokens = max_output_tokens;
         if (text !== undefined) result.text = text;
         if (verbosity !== undefined) result.verbosity = verbosity;

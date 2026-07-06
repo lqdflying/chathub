@@ -4,6 +4,13 @@
     "argumentPlaceholder": "Argument {{index}}",
     "enterFirstArgument": "Enter first argument..."
   },
+  "CodeBlock": {
+    "collapse": "Collapse code",
+    "download": "Download code",
+    "expand": "Show all {{count}} lines",
+    "wrap": "Wrap lines",
+    "wrapOff": "Unwrap lines"
+  },
   "DragUpload": {
     "dragDesc": "Drag and drop files here to upload multiple images.",
     "dragFileDesc": "Drag and drop images and files here to upload multiple images and files.",
@@ -105,6 +112,11 @@
     "duplicateKeyError": "Key must be unique",
     "keyPlaceholder": "Key",
     "valuePlaceholder": "Value"
+  },
+  "MarkdownTable": {
+    "copyAsCsv": "Copy as CSV",
+    "copyAsMarkdown": "Copy as Markdown",
+    "copySuccess": "Table copied"
   },
   "MaxTokenSlider": {
     "unlimited": "Unlimited"

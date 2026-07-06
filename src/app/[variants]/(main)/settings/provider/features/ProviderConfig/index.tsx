@@ -122,13 +122,28 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       width: 100%;
       min-width: unset !important;
 
+      /* On mobile the lobehub Form switches antd Form.Item to layout="vertical",
+         so the item row is a COLUMN flex — the desktop flex-basis overrides
+         above (1 1 220px / 1 1 320px) would become vertical heights and open a
+         huge void between label and control. Neutralize them entirely. */
+      .${prefixCls}-row {
+        flex-direction: column;
+        gap: 4px;
+        align-items: stretch;
+        justify-content: flex-start;
+      }
+
+      .${prefixCls}-form-item-label,
+      .${prefixCls}-form-item-control,
       .${prefixCls}-form-item-control:has(
           .${prefixCls}-input,
           .${prefixCls}-radio-group,
           .${prefixCls}-select
         ) {
-        flex-basis: 100% !important;
+        flex: none !important;
+        width: 100%;
         max-width: 100%;
+        min-width: 0 !important;
       }
     }
     .${prefixCls}-select-selection-overflow-item {
@@ -185,6 +200,22 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       min-width: 0;
       text-align: center;
       white-space: nowrap;
+    }
+
+    ${responsive.mobile} {
+      .${prefixCls}-radio-button-wrapper {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        height: auto;
+        min-height: 32px;
+        padding-block: 4px;
+        padding-inline: 8px;
+
+        line-height: 1.3;
+        white-space: normal;
+      }
     }
   `,
   switchLoading: css`

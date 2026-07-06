@@ -8,7 +8,6 @@ import { ReactNode, memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { HtmlPreviewAction } from '@/components/HtmlPreview';
 import Avatar from '@/features/ChatItem/components/Avatar';
 import BorderSpacing from '@/features/ChatItem/components/BorderSpacing';
 import ErrorContent from '@/features/ChatItem/components/ErrorContent';
@@ -29,6 +28,8 @@ import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user
 
 import ErrorMessageExtra, { useErrorContent } from '../../Error';
 import { markdownElements } from '../../MarkdownElements';
+import { renderCodeBlockActions, renderCodeBlockBody } from '../../components/CodeBlockActions';
+import MarkdownTable from '../../components/MarkdownTable';
 import { useDoubleClickEdit } from '../../hooks/useDoubleClickEdit';
 import { normalizeThinkTags, processWithArtifact } from '../../utils/markdown';
 import { AssistantActionsBar } from './Actions';
@@ -38,13 +39,6 @@ import { AssistantMessageContent } from './MessageContent';
 const rehypePlugins = markdownElements.map((element) => element.rehypePlugin).filter(Boolean);
 const remarkPlugins = markdownElements.map((element) => element.remarkPlugin).filter(Boolean);
 
-const isHtmlCode = (content: string, language: string) => {
-  return (
-    language === 'html' ||
-    (language === '' && content.includes('<html>')) ||
-    (language === '' && content.includes('<!DOCTYPE html>'))
-  );
-};
 const MOBILE_AVATAR_SIZE = 32;
 
 interface AssistantMessageProps extends UIChatMessage {
@@ -137,14 +131,16 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
   // ======================================================================== //
 
   const components = useMemo(
-    () =>
-      Object.fromEntries(
+    () => ({
+      ...Object.fromEntries(
         markdownElements.map((element) => {
           const Component = element.Component;
 
           return [element.tag, (props: any) => <Component {...props} id={id} />];
         }),
       ),
+      table: MarkdownTable,
+    }),
     [id],
   );
 
@@ -154,22 +150,15 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
       citations: search?.citations,
       componentProps: {
         highlight: {
-          actionsRender: ({ content, actionIconSize, language, originalNode }: any) => {
-            const showHtmlPreview = isHtmlCode(content, language);
-
-            return (
-              <>
-                {showHtmlPreview && <HtmlPreviewAction content={content} size={actionIconSize} />}
-                {originalNode}
-              </>
-            );
-          },
+          actionsRender: renderCodeBlockActions,
+          bodyRender: renderCodeBlockBody,
           theme: highlighterTheme,
         },
         mermaid: { theme: mermaidTheme },
       },
       components,
       enableCustomFootnotes: true,
+      enableGithubAlert: true,
       rehypePlugins,
       remarkPlugins,
       showFootnotes:

@@ -96,13 +96,21 @@ export const convertOpenAIMessages = async (
   )) as OpenAI.ChatCompletionMessageParam[];
 };
 
-export const convertOpenAIResponseInputs = async (messages: OpenAIChatMessage[]) => {
+export const convertOpenAIResponseInputs = async (
+  messages: OpenAIChatMessage[],
+  provider?: string,
+) => {
+  // Mirror convertOpenAIMessages: for the generic `openaicompatible` provider,
+  // historical reasoning must not be serialized into the upstream `input` — it
+  // perturbs the Responses cache prefix and strict gateways reject it.
+  const skipReasoningContent = provider === 'openaicompatible';
+
   const groups = await Promise.all(
     messages.map(async (message): Promise<OpenAI.Responses.ResponseInputItem[]> => {
       const items: OpenAI.Responses.ResponseInputItem[] = [];
 
       // if message has reasoning, prepend it as a separate reasoning item
-      if (message.reasoning?.content) {
+      if (!skipReasoningContent && message.reasoning?.content) {
         items.push({
           summary: [{ text: message.reasoning.content, type: 'summary_text' }],
           type: 'reasoning',

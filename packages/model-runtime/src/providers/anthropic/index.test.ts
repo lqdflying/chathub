@@ -671,6 +671,51 @@ describe('LobeAnthropicAI', () => {
         });
       });
 
+      it('should flatten array system message content into text blocks', async () => {
+        const payload: ChatStreamPayload = {
+          messages: [
+            {
+              content: [
+                { text: 'You are a helpful assistant', type: 'text' },
+                { image_url: { url: 'data:image/png;base64,abc' }, type: 'image_url' },
+                { text: 'Always answer briefly', type: 'text' },
+              ] as any,
+              role: 'system',
+            },
+            { content: 'Hello', role: 'user' },
+          ],
+          model: 'claude-3-haiku-20240307',
+          temperature: 0.7,
+        };
+
+        const result = await instance['buildAnthropicPayload'](payload);
+
+        // text parts become blocks, non-text parts are ignored,
+        // cache_control goes on the LAST block only
+        expect(result.system).toEqual([
+          { cache_control: undefined, text: 'You are a helpful assistant', type: 'text' },
+          { cache_control: { type: 'ephemeral' }, text: 'Always answer briefly', type: 'text' },
+        ]);
+      });
+
+      it('should omit system when array content has no text parts', async () => {
+        const payload: ChatStreamPayload = {
+          messages: [
+            {
+              content: [{ image_url: { url: 'data:image/png;base64,abc' }, type: 'image_url' }] as any,
+              role: 'system',
+            },
+            { content: 'Hello', role: 'user' },
+          ],
+          model: 'claude-3-haiku-20240307',
+          temperature: 0.7,
+        };
+
+        const result = await instance['buildAnthropicPayload'](payload);
+
+        expect(result.system).toBeUndefined();
+      });
+
       it('should correctly build payload with tools', async () => {
         const tools: ChatCompletionTool[] = [
           { function: { name: 'tool1', description: 'desc1' }, type: 'function' },

@@ -169,6 +169,104 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createOptions.headers).not.toHaveProperty('Session_id');
   });
 
+  it('derives Chat Completions prompt_cache_key for non gpt-5/codex models when matrix enables it', async () => {
+    await instance.chat({
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'claude-3-5-sonnet',
+      openAICompatCache: {
+        chat: { promptCacheKey: true, sessionHeader: false },
+        preset: 'prompt-key-store',
+        responses: { promptCacheKey: 'derived', sessionHeader: false, store: 'true' },
+      },
+    });
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+  });
+
+  it('derives Responses cache hints for non gpt-5/codex models when matrix enables them', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'qwen-max',
+      openAICompatCache: {
+        chat: { promptCacheKey: true, sessionHeader: false },
+        preset: 'custom',
+        responses: { promptCacheKey: 'derived', sessionHeader: true, store: 'true' },
+      },
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    const createOptions = (instance['client'].responses.create as Mock).mock.calls[0][1];
+
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+    expect(createOptions.headers.Session_id).toBe(createCall.prompt_cache_key);
+  });
+
+  it('keeps the model allowlist for the legacy no-matrix responses path', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'claude-3-5-sonnet',
+      responseStateMode: 'provider',
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall).not.toHaveProperty('prompt_cache_key');
+    // legacy stateful mode still stores provider-side
+    expect(createCall.store).toBe(true);
+  });
+
+  it('omits store for custom matrix store:default while still sending prompt_cache_key', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        chat: { promptCacheKey: false, sessionHeader: false },
+        preset: 'custom',
+        responses: { promptCacheKey: 'derived', sessionHeader: false, store: 'default' },
+      },
+      responseStateMode: 'provider',
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+    expect(createCall).not.toHaveProperty('store');
+  });
+
+  it('forwards reasoning in Responses mode', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.5',
+      reasoning: { effort: 'high' },
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall.reasoning).toMatchObject({ effort: 'high' });
+  });
+
+  it('does not serialize historical reasoning into Responses input', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [
+        { content: 'Hello', role: 'user' },
+        {
+          content: 'Earlier answer',
+          reasoning: { content: 'historical chain of thought' },
+          role: 'assistant',
+        },
+        { content: 'Follow-up', role: 'user' },
+      ],
+      model: 'gpt-5.5',
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    const reasoningItems = createCall.input.filter((item: any) => item.type === 'reasoning');
+    expect(reasoningItems).toHaveLength(0);
+  });
+
   it('forwards documented Chat Completions fields and strips internal routing fields', async () => {
     await instance.chat({
       enabledContextCaching: true,
@@ -201,7 +299,6 @@ describe('LobeOpenAICompatibleAI', () => {
       max_tokens: 4096,
       model: 'gpt-5.5',
       presence_penalty: 0.3,
-      reasoning: { effort: 'high' },
       reasoning_effort: 'high',
       response_format: { type: 'json_object' },
       temperature: 0.7,
@@ -211,6 +308,7 @@ describe('LobeOpenAICompatibleAI', () => {
     });
 
     // Responses-API-only fields stripped in Chat Completions mode
+    expect(createCall).not.toHaveProperty('reasoning');
     expect(createCall).not.toHaveProperty('text');
     expect(createCall).not.toHaveProperty('verbosity');
     expect(createCall).not.toHaveProperty('truncation');
