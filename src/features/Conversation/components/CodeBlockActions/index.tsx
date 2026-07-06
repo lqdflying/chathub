@@ -181,6 +181,16 @@ const CollapsibleCodeBody = memo<{ children: React.ReactNode; lines: number }>(
     const { styles, cx } = useCollapseStyles();
     const { t } = useTranslation('components');
     const [expanded, setExpanded] = useState(false);
+    const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
+    const handleKeyDown = useCallback(
+      (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+
+        event.preventDefault();
+        toggleExpanded();
+      },
+      [toggleExpanded],
+    );
 
     return (
       <div className={cx(styles.container, !expanded && styles.collapsed)}>
@@ -188,7 +198,8 @@ const CollapsibleCodeBody = memo<{ children: React.ReactNode; lines: number }>(
         {!expanded && <div className={styles.overlay} />}
         <div
           className={styles.expandButton}
-          onClick={() => setExpanded(!expanded)}
+          onClick={toggleExpanded}
+          onKeyDown={handleKeyDown}
           role={'button'}
           tabIndex={0}
         >

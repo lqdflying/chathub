@@ -134,7 +134,7 @@ const UserMessage = memo<UserMessageProps>((props) => {
       rehypePlugins,
       remarkPlugins,
     }),
-    [displayMode],
+    [components, displayMode, id],
   );
 
   return (

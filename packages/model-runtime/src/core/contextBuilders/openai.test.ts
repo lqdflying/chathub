@@ -457,9 +457,10 @@ describe('convertOpenAIResponseInputs', () => {
         content: 'hello',
         role: 'assistant',
         reasoning: { content: 'reasoning content', duration: 2706 },
+        reasoning_content: 'legacy reasoning content',
       },
       { content: '杭州天气如何', role: 'user' },
-    ];
+    ] as any;
 
     const result = await convertOpenAIResponseInputs(messages, 'openaicompatible');
 
@@ -469,6 +470,8 @@ describe('convertOpenAIResponseInputs', () => {
       { content: 'hello', role: 'assistant' },
       { content: '杭州天气如何', role: 'user' },
     ]);
+    expect((result[2] as any).reasoning).toBeUndefined();
+    expect((result[2] as any).reasoning_content).toBeUndefined();
   });
 });
 

@@ -159,6 +159,7 @@ export const convertOpenAIResponseInputs = async (
         } as OpenAI.Responses.ResponseInputItem;
 
         delete (item as any).reasoning;
+        delete (item as any).reasoning_content;
         items.push(item);
         return items;
       }
@@ -186,6 +187,7 @@ export const convertOpenAIResponseInputs = async (
 
       // remove reasoning field from the message item
       delete (item as any).reasoning;
+      delete (item as any).reasoning_content;
 
       items.push(item);
       return items;

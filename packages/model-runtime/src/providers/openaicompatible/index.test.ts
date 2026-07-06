@@ -255,6 +255,7 @@ describe('LobeOpenAICompatibleAI', () => {
         {
           content: 'Earlier answer',
           reasoning: { content: 'historical chain of thought' },
+          reasoning_content: 'legacy reasoning content',
           role: 'assistant',
         },
         { content: 'Follow-up', role: 'user' },
@@ -265,6 +266,11 @@ describe('LobeOpenAICompatibleAI', () => {
     const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
     const reasoningItems = createCall.input.filter((item: any) => item.type === 'reasoning');
     expect(reasoningItems).toHaveLength(0);
+    expect(createCall.input).toEqual([
+      { content: 'Hello', role: 'user' },
+      { content: 'Earlier answer', role: 'assistant' },
+      { content: 'Follow-up', role: 'user' },
+    ]);
   });
 
   it('forwards documented Chat Completions fields and strips internal routing fields', async () => {
