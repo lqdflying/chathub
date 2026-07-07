@@ -1,5 +1,20 @@
 export type AuthType = 'basic' | 'bearer' | 'none';
 
+export interface ApiTesterHeaderRow {
+  enabled: boolean;
+  key: string;
+  value: string;
+}
+
+export interface ApiTesterProxyRequest {
+  body?: string;
+  headers?: Record<string, string>;
+  method: string;
+  url: string;
+}
+
+const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+
 /**
  * Validates that a URL starts with http:// or https://
  */
@@ -31,6 +46,68 @@ export const buildAuthHeader = (
     return `Basic ${btoa(`${username}:${password}`)}`;
   }
   return undefined;
+};
+
+export const buildRequestHeaders = (
+  rows: ApiTesterHeaderRow[],
+  authType: AuthType,
+  bearerToken: string,
+  basicUsername: string,
+  basicPassword: string,
+  contentType?: string,
+): Record<string, string> => {
+  const requestHeaders: Record<string, string> = {};
+
+  for (const h of rows) {
+    if (h.enabled && h.key.trim()) {
+      requestHeaders[h.key.trim()] = h.value;
+    }
+  }
+
+  const authHeader = buildAuthHeader(authType, bearerToken, basicUsername, basicPassword);
+  if (authHeader) requestHeaders['Authorization'] = authHeader;
+  if (contentType) requestHeaders['Content-Type'] = contentType;
+
+  return requestHeaders;
+};
+
+export const buildProxyRequestPayload = ({
+  authType,
+  basicPassword,
+  basicUsername,
+  bearerToken,
+  body,
+  contentType,
+  headers,
+  method,
+  url,
+}: {
+  authType: AuthType;
+  basicPassword: string;
+  basicUsername: string;
+  bearerToken: string;
+  body: string;
+  contentType: string;
+  headers: ApiTesterHeaderRow[];
+  method: string;
+  url: string;
+}): ApiTesterProxyRequest => {
+  const hasBody = BODY_METHODS.has(method);
+  const requestBody = hasBody && body.trim() ? body : undefined;
+
+  return {
+    body: requestBody,
+    headers: buildRequestHeaders(
+      headers,
+      authType,
+      bearerToken,
+      basicUsername,
+      basicPassword,
+      requestBody ? contentType : undefined,
+    ),
+    method,
+    url: url.trim(),
+  };
 };
 
 /**

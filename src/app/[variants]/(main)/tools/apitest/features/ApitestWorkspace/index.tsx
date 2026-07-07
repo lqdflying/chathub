@@ -7,15 +7,15 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { type AuthType, buildAuthHeader, formatJson, isValidUrl } from './helpers';
+import {
+  type ApiTesterHeaderRow,
+  type AuthType,
+  buildProxyRequestPayload,
+  formatJson,
+  isValidUrl,
+} from './helpers';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface HeaderRow {
-  enabled: boolean;
-  key: string;
-  value: string;
-}
 
 interface ResponseState {
   body: string;
@@ -166,7 +166,9 @@ const ApitestWorkspace = memo(() => {
   const [bearerToken, setBearerToken] = useState('');
   const [basicUsername, setBasicUsername] = useState('');
   const [basicPassword, setBasicPassword] = useState('');
-  const [headers, setHeaders] = useState<HeaderRow[]>([{ enabled: true, key: '', value: '' }]);
+  const [headers, setHeaders] = useState<ApiTesterHeaderRow[]>([
+    { enabled: true, key: '', value: '' },
+  ]);
   const [body, setBody] = useState('');
   const [contentType, setContentType] = useState('application/json');
   const [activeRequestTab, setActiveRequestTab] = useState('auth');
@@ -188,7 +190,7 @@ const ApitestWorkspace = memo(() => {
   }, []);
 
   const updateHeader = useCallback(
-    (index: number, field: keyof HeaderRow, val: string | boolean) => {
+    (index: number, field: keyof ApiTesterHeaderRow, val: string | boolean) => {
       setHeaders((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: val } : row)));
     },
     [],
@@ -216,34 +218,38 @@ const ApitestWorkspace = memo(() => {
       return;
     }
 
-    const requestHeaders: Record<string, string> = {};
-
-    const authHeader = buildAuthHeader(authType, bearerToken, basicUsername, basicPassword);
-    if (authHeader) requestHeaders['Authorization'] = authHeader;
-
-    const hasBody = BODY_METHODS.has(method);
-    if (hasBody && body.trim()) requestHeaders['Content-Type'] = contentType;
-
-    for (const h of headers) {
-      if (h.enabled && h.key.trim()) {
-        requestHeaders[h.key.trim()] = h.value;
-      }
-    }
-
     setLoading(true);
     const start = Date.now();
 
     try {
-      const res = await fetch(url.trim(), {
-        body: hasBody && body.trim() ? body : undefined,
-        headers: requestHeaders,
-        method,
+      const res = await fetch('/webapi/tools/apitest', {
+        body: JSON.stringify(
+          buildProxyRequestPayload({
+            authType,
+            basicPassword,
+            basicUsername,
+            bearerToken,
+            body,
+            contentType,
+            headers,
+            method,
+            url,
+          }),
+        ),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
       });
 
       const time = Date.now() - start;
-      const text = await res.text();
+      const payload = await res.json();
 
-      const ct = res.headers.get('content-type') || '';
+      if (!res.ok) {
+        throw new Error(payload?.error || `API Tester proxy failed with status ${res.status}`);
+      }
+
+      const text = payload.body || '';
+
+      const ct = payload.headers?.['content-type'] || payload.headers?.['Content-Type'] || '';
       let isJson = ct.includes('application/json');
       if (!isJson) {
         try {
@@ -254,17 +260,12 @@ const ApitestWorkspace = memo(() => {
         }
       }
 
-      const resHeaders: Record<string, string> = {};
-      res.headers.forEach((v, k) => {
-        resHeaders[k] = v;
-      });
-
       setResponse({
         body: text,
-        headers: resHeaders,
+        headers: payload.headers || {},
         isJson,
-        status: res.status,
-        statusText: res.statusText,
+        status: payload.status,
+        statusText: payload.statusText,
         time,
       });
     } catch (err) {
