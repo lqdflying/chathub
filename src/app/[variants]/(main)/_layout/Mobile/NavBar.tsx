@@ -9,7 +9,7 @@ import { rgba } from 'polished';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { MOBILE_TABBAR_HEIGHT } from '@/const/layoutTokens';
+import { MOBILE_TABBAR_HEIGHT, MOBILE_TABBAR_SAFE_HEIGHT } from '@/const/layoutTokens';
 import { useActiveTabKey } from '@/hooks/useActiveTabKey';
 import { SidebarTabKey } from '@/store/global/initialState';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
@@ -26,7 +26,11 @@ const useStyles = createStyles(({ css, token }) => ({
     inset-block-end: 0;
     inset-inline: 0 0;
 
-    padding-block-end: env(safe-area-inset-bottom);
+    display: flex;
+    align-items: flex-start;
+
+    height: ${MOBILE_TABBAR_SAFE_HEIGHT};
+    padding-block-end: env(safe-area-inset-bottom, 0);
     border-block-start: 1px solid ${token.colorBorderSecondary};
 
     background: ${token.colorBgContainer};

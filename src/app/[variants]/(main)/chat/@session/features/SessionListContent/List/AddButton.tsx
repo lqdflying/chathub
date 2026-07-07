@@ -17,11 +17,7 @@ const AddButton = memo<{ groupId?: string }>(({ groupId }) => {
   });
 
   return (
-    <Flexbox
-      flex={mobile ? 'none' : 1}
-      padding={mobile ? 16 : 0}
-      style={mobile ? { paddingBottom: 'calc(16px + env(safe-area-inset-bottom))' } : undefined}
-    >
+    <Flexbox flex={mobile ? 'none' : 1} padding={mobile ? 16 : 0}>
       <Button
         block
         icon={Plus}
