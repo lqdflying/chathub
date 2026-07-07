@@ -9,13 +9,13 @@ alwaysApply: true
 
 Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says "no branch" / "edit on `main` only".
 
-**Never edit implementation work directly on `main`.** If the current branch is already not `main`, continue on that branch by default; do **not** create a second topic branch unless the user explicitly asks, the current branch is clearly unrelated, or the work must be isolated.
+**Never edit implementation work directly on `main`.** If the current branch is already not `main`, continue on that branch by default even when the troubleshooting target changes before GA; do **not** create a second topic branch unless the user explicitly asks or the work must be isolated. Use separate commits with clear messages to distinguish different bugfix/feature phases on the same pre-GA branch.
 
 1. **Do not** use repo-editing tools (`apply_patch`, scripted bulk edits, etc.) while on `main` (see also: *Never commit fixes or features directly on `main`* under canary flow below).
 2. **If currently on `main`, branch from the current HEAD before editing** — never switch away and back just to branch:
    - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` directly from the current `main` HEAD.
    - Do **not** `git checkout main && git pull` unless the user explicitly asks to sync first.
-3. **If currently on a non-`main` branch, continue there by default.** All non-`main` branches are pre-GA work branches; they should be merged to `main` for GA and deleted afterward.
+3. **If currently on a non-`main` branch, continue there by default.** This still applies when the immediate target changes from one bug or feature to another before GA. Do not create a new branch just because the next fix touches a different area; separate the phases with distinct commits. All non-`main` branches are pre-GA work branches; they should be merged to `main` for GA and deleted afterward.
 4. **Uncommitted changes on `main`:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits. If Git blocks branch creation with a dirty tree, **`git stash push`**, create the branch, then **`git stash pop`**.
 5. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user explicitly asked to work on `main`).
 
@@ -40,7 +40,7 @@ Once a feature or fix branch has been merged into `main`, delete that branch loc
 
 ## Planning (Plan mode / implementation plans)
 
-When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default. Never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
+When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default even when the target changes, using distinct commits for each phase. Never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
 
 ## Agent commit policy (STRICT)
 

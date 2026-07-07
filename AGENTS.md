@@ -5,7 +5,7 @@ This file is for automated agents and assistants working in this repository. Aut
 ## Git and branches (required)
 
 - For every **bugfix** or **feature**: **do not** implement on **`main`**. If currently on `main`, create a **`fix/<short-slug>`** or **`feat/<short-slug>`** branch before editing.
-- If already on a non-`main` branch, continue there by default unless the user asks for a fresh branch or the current branch is clearly unrelated.
+- If already on a non-`main` branch, continue there by default even when the troubleshooting target changes before GA. Do not create another branch just because the next fix/feature touches a different area; use distinct commit messages to separate phases unless the user explicitly asks for a fresh/isolation branch.
 - **Never** `git commit`, `git tag`, or `git push` without an **explicit in-turn** user instruction (same turn).
 
 Full workflow (stash, canary/GA tags, Docker release, recovery): **`.cursor/rules/git-and-release.mdc`**.
