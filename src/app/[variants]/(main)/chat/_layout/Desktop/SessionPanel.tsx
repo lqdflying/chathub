@@ -6,7 +6,7 @@ import isEqual from 'fast-deep-equal';
 import { PropsWithChildren, memo, useEffect, useMemo, useState } from 'react';
 
 import { withSuspense } from '@/components/withSuspense';
-import { FOLDER_WIDTH } from '@/const/layoutTokens';
+import { CHAT_PANEL_GAP, FOLDER_WIDTH } from '@/const/layoutTokens';
 import { useIsSingleMode } from '@/hooks/useIsSingleMode';
 import { usePinnedAgentState } from '@/hooks/usePinnedAgentState';
 import { useGlobalStore } from '@/store/global';
@@ -17,6 +17,7 @@ import { TOOGLE_PANEL_BUTTON_ID } from '../../features/TogglePanelButton';
 export const useStyles = createStyles(({ css, token }) => ({
   panel: css`
     height: 100%;
+    border-inline-end: 1px solid ${token.colorBorderSecondary};
     color: ${token.colorTextSecondary};
     background: ${token.colorBgLayout};
 
@@ -98,7 +99,15 @@ const SessionPanel = memo<PropsWithChildren>(({ children }) => {
         size={{ height: '100%', width: sessionsWidth }}
       >
         <DraggablePanelContainer style={{ flex: 'none', height: '100%', minWidth: FOLDER_WIDTH }}>
-          {children}
+          <div
+            style={{
+              boxSizing: 'border-box',
+              height: '100%',
+              padding: `0 ${CHAT_PANEL_GAP}px ${CHAT_PANEL_GAP}px`,
+            }}
+          >
+            {children}
+          </div>
         </DraggablePanelContainer>
       </DraggablePanel>
     );

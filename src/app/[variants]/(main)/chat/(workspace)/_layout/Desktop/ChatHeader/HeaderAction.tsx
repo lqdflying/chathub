@@ -35,7 +35,7 @@ const HeaderAction = memo<{ className?: string }>(({ className }) => {
   const { isAgentEditable } = useServerConfigStore(featureFlagsSelectors);
 
   return (
-    <Flexbox className={className} gap={4} horizontal>
+    <Flexbox align={'center'} className={className} gap={3} horizontal>
       <ActionIcon
         icon={wideScreen ? SquareChartGanttIcon : PanelLeftRightDashedIcon}
         onClick={() => toggleWideScreen()}

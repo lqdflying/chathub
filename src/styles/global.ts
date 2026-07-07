@@ -31,6 +31,7 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
   * {
     scrollbar-color: ${token.colorFill} transparent;
     scrollbar-width: thin;
+    scroll-margin-block: 56px;
 
     ::-webkit-scrollbar {
       width: 0.75em;

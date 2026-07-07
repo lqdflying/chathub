@@ -12,8 +12,8 @@ export interface MobileChatSendButtonProps {
 const MobileChatSendButton = memo<MobileChatSendButtonProps>(
   ({ loading, onStop, onSend, disabled }) => {
     const size: ActionIconSize = {
-      blockSize: 36,
-      size: 16,
+      blockSize: 40,
+      size: 17,
     };
 
     return loading ? (
@@ -23,7 +23,7 @@ const MobileChatSendButton = memo<MobileChatSendButtonProps>(
         disabled={disabled}
         icon={SendHorizontal}
         onClick={onSend}
-        style={{ flex: 'none' }}
+        style={{ flex: 'none', minHeight: 40, minWidth: 44 }}
         type={'primary'}
       />
     );

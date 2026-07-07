@@ -1,6 +1,7 @@
 'use client';
 
 import { ChatHeader } from '@lobehub/ui/mobile';
+import { useTheme } from 'antd-style';
 import { memo, useState } from 'react';
 
 import { INBOX_SESSION_ID } from '@/const/session';
@@ -14,6 +15,7 @@ import ChatHeaderTitle from './ChatHeaderTitle';
 const MobileHeader = memo(() => {
   const router = useQueryRoute();
   const [open, setOpen] = useState(false);
+  const theme = useTheme();
 
   const { isAgentEditable } = useServerConfigStore(featureFlagsSelectors);
 
@@ -30,7 +32,10 @@ const MobileHeader = memo(() => {
         </>
       }
       showBackButton
-      style={{ width: '100%' }}
+      style={{
+        borderBlockEnd: `1px solid ${theme.colorBorderSecondary}`,
+        width: '100%',
+      }}
     />
   );
 });

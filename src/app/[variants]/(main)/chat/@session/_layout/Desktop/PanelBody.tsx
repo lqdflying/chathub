@@ -5,13 +5,15 @@ import { createStyles } from 'antd-style';
 import { PropsWithChildren, memo } from 'react';
 
 const useStyles = createStyles(
-  ({ css }) => css`
+  ({ css, token }) => css`
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
 
-    padding-block: 8px 0;
-    padding-inline: 8px;
+    padding-block: 8px;
+    padding-inline: 6px;
+
+    background: ${token.colorBgLayout};
   `,
 );
 

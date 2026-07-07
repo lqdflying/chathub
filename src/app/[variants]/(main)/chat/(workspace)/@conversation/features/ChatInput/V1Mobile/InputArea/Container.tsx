@@ -5,7 +5,7 @@ import { Flexbox } from 'react-layout-kit';
 const container = css`
   height: inherit;
   padding-block: 0;
-  padding-inline: 8px;
+  padding-inline: 10px;
 `;
 
 interface InnerContainerProps {
@@ -20,7 +20,7 @@ interface InnerContainerProps {
 const InnerContainer: FC<InnerContainerProps> = memo(
   ({ children, expand, textAreaRightAddons, textAreaLeftAddons, bottomAddons, topAddons }) =>
     expand ? (
-      <Flexbox className={cx(container)} gap={8}>
+      <Flexbox className={cx(container)} gap={10}>
         <Flexbox gap={8} horizontal justify={'flex-end'}>
           {textAreaLeftAddons}
           {textAreaRightAddons}

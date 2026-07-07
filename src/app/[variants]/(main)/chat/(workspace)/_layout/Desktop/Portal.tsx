@@ -7,6 +7,7 @@ import { PropsWithChildren, memo, useState } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import {
+  CHAT_PANEL_RADIUS,
   CHAT_PORTAL_MAX_WIDTH,
   CHAT_PORTAL_TOOL_UI_WIDTH,
   CHAT_PORTAL_WIDTH,
@@ -25,11 +26,13 @@ const useStyles = createStyles(({ css, token }) => ({
   drawer: css`
     z-index: 10;
     height: 100%;
+    border-inline-start: 1px solid ${token.colorBorderSecondary};
     background: ${token.colorBgLayout};
   `,
   panel: css`
     overflow: hidden;
     height: 100%;
+    border-start-end-radius: ${CHAT_PANEL_RADIUS}px;
     background: ${token.colorBgContainerSecondary};
   `,
 }));

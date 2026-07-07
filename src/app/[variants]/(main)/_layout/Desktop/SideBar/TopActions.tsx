@@ -5,6 +5,7 @@ import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { TOUCH_TARGET_SIZE } from '@/const/layoutTokens';
 import { useGlobalStore } from '@/store/global';
 import { SidebarTabKey } from '@/store/global/initialState';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
@@ -14,8 +15,8 @@ import { settingsSelectors } from '@/store/user/selectors';
 import { HotkeyEnum } from '@/types/hotkey';
 
 const ICON_SIZE: ActionIconProps['size'] = {
-  blockSize: 40,
-  size: 24,
+  blockSize: TOUCH_TARGET_SIZE,
+  size: 20,
   strokeWidth: 2,
 };
 
@@ -42,7 +43,7 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
   const isToolsActive = tab === SidebarTabKey.Tools;
 
   return (
-    <Flexbox gap={8}>
+    <Flexbox gap={6}>
       <Link
         aria-label={t('tab.chat')}
         href={'/chat'}

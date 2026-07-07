@@ -8,7 +8,7 @@ import SessionHeader from './SessionHeader';
 const MobileLayout = ({ children }: PropsWithChildren) => {
   return (
     <MobileContentLayout header={<SessionHeader />} withNav>
-      <div style={{ padding: '8px 16px' }}>
+      <div style={{ padding: '10px 14px 8px' }}>
         <SessionSearchBar mobile />
       </div>
       {children}

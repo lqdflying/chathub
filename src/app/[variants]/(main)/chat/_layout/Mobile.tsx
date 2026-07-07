@@ -14,7 +14,7 @@ const useStyles = createStyles(({ css, token }) => ({
   main: css`
     position: relative;
     overflow: hidden;
-    background: ${token.colorBgLayout};
+    background: ${token.colorBgContainer};
   `,
 }));
 

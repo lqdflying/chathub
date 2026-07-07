@@ -22,7 +22,7 @@ import { GroupMemberWithAgent } from '@/types/session';
 import TogglePanelButton from '../../../../features/TogglePanelButton';
 import Tags from './Tags';
 
-const useStyles = createStyles(({ css }) => ({
+const useStyles = createStyles(({ css, token }) => ({
   container: css`
     position: relative;
     overflow: hidden;
@@ -37,8 +37,9 @@ const useStyles = createStyles(({ css }) => ({
     overflow: hidden;
 
     font-size: 14px;
-    font-weight: bold;
+    font-weight: 600;
     line-height: 1.2;
+    color: ${token.colorText};
     text-overflow: ellipsis;
     white-space: nowrap;
   `,
@@ -93,7 +94,7 @@ const Main = memo<{ className?: string }>(({ className }) => {
 
   if (isGroup) {
     return (
-      <Flexbox align={'center'} className={className} gap={12} horizontal>
+      <Flexbox align={'center'} className={className} gap={10} horizontal>
         {!isPinned && !showSessionPanel && <TogglePanelButton />}
         <GroupAvatar
           avatars={[
@@ -106,7 +107,7 @@ const Main = memo<{ className?: string }>(({ className }) => {
             })) || []),
           ]}
           onClick={() => openChatSettings()}
-          size={32}
+          size={30}
           title={title}
         />
         <Flexbox align={'center'} className={styles.container} gap={8} horizontal>
@@ -118,13 +119,13 @@ const Main = memo<{ className?: string }>(({ className }) => {
   }
 
   return (
-    <Flexbox align={'center'} className={className} gap={12} horizontal>
+      <Flexbox align={'center'} className={className} gap={10} horizontal>
       {!isPinned && !showSessionPanel && <TogglePanelButton />}
       <Avatar
         avatar={avatar}
         background={backgroundColor}
         onClick={() => openChatSettings()}
-        size={32}
+        size={30}
         title={title}
       />
       <Flexbox align={'center'} className={styles.container} gap={8} horizontal>

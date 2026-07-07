@@ -130,11 +130,12 @@ const SessionItem = memo<SessionItemProps>(({ id }) => {
         showAction={open}
         styles={{
           container: {
-            gap: 12,
+            gap: 10,
           },
           content: {
-            gap: 6,
+            gap: 4,
             maskImage: `linear-gradient(90deg, #000 90%, transparent)`,
+            minWidth: 0,
           },
         }}
         title={title}

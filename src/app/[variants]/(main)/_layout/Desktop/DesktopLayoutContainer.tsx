@@ -3,6 +3,8 @@ import { usePathname } from 'next/navigation';
 import { PropsWithChildren, Suspense, memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
+import { SHELL_BORDER_RADIUS } from '@/const/layoutTokens';
+
 import SideBar from './SideBar';
 
 const DesktopLayoutContainer = memo<PropsWithChildren>(({ children }) => {
@@ -17,9 +19,10 @@ const DesktopLayoutContainer = memo<PropsWithChildren>(({ children }) => {
       <Flexbox
         style={{
           background: theme.colorBgLayout,
-          borderInlineStart: `1px solid ${theme.colorBorderSecondary}`,
-          borderStartStartRadius: !hideSideBar ? 12 : undefined,
-          borderTop: `1px solid ${theme.colorBorderSecondary}`,
+          borderInlineStart: hideSideBar ? undefined : `1px solid ${theme.colorBorderSecondary}`,
+          borderStartStartRadius: !hideSideBar ? SHELL_BORDER_RADIUS : undefined,
+          borderTop: hideSideBar ? undefined : `1px solid ${theme.colorBorderSecondary}`,
+          boxShadow: !hideSideBar ? `0 0 0 1px ${theme.colorFillQuaternary}` : undefined,
           overflow: 'hidden',
         }}
         width={'100%'}

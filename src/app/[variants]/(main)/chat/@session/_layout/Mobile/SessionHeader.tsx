@@ -2,6 +2,7 @@
 
 import { ActionIcon } from '@lobehub/ui';
 import { ChatHeader } from '@lobehub/ui/mobile';
+import { useTheme } from 'antd-style';
 import { MessageSquarePlus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { memo } from 'react';
@@ -17,6 +18,7 @@ import { mobileHeaderSticky } from '@/styles/mobileHeader';
 const Header = memo(() => {
   const [createSession] = useSessionStore((s) => [s.createSession]);
   const router = useRouter();
+  const theme = useTheme();
   const { showCreateSession } = useServerConfigStore(featureFlagsSelectors);
 
   return (
@@ -36,7 +38,11 @@ const Header = memo(() => {
           />
         )
       }
-      style={mobileHeaderSticky}
+      style={{
+        ...mobileHeaderSticky,
+        background: theme.colorBgContainer,
+        borderBlockEnd: `1px solid ${theme.colorBorderSecondary}`,
+      }}
     />
   );
 });

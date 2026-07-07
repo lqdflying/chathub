@@ -1,6 +1,8 @@
 import { ReactNode } from 'react';
 import { Flexbox, type FlexboxProps } from 'react-layout-kit';
 
+import { MOBILE_TABBAR_HEIGHT } from '@/const/layoutTokens';
+
 interface MobileContentLayoutProps extends FlexboxProps {
   header?: ReactNode;
   withNav?: boolean;
@@ -23,8 +25,8 @@ const MobileContentLayout = ({
         overflowY: 'auto',
         position: 'relative',
         ...style,
-        // TabNav Height
-        paddingBottom: withNav ? 48 : style?.paddingBottom,
+        // TabNav height plus the browser safe-area inset.
+        paddingBottom: withNav ? `calc(${MOBILE_TABBAR_HEIGHT}px + env(safe-area-inset-bottom))` : style?.paddingBottom,
       }}
       width="100%"
       {...rest}
@@ -46,8 +48,8 @@ const MobileContentLayout = ({
           overflowY: 'auto',
           position: 'relative',
           ...style,
-          // TabNav Height
-          paddingBottom: withNav ? 48 : style?.paddingBottom,
+          // TabNav height plus the browser safe-area inset.
+          paddingBottom: withNav ? `calc(${MOBILE_TABBAR_HEIGHT}px + env(safe-area-inset-bottom))` : style?.paddingBottom,
         }}
         width="100%"
         {...rest}

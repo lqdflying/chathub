@@ -25,6 +25,12 @@ const useStyles = createStyles(({ css, token }) => ({
     z-index: 100;
     inset-block-end: 0;
     inset-inline: 0 0;
+
+    padding-block-end: env(safe-area-inset-bottom);
+    border-block-start: 1px solid ${token.colorBorderSecondary};
+
+    background: ${token.colorBgContainer};
+    box-shadow: 0 -1px 0 ${token.colorFillQuaternary};
   `,
 }));
 

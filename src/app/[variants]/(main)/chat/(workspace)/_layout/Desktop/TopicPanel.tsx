@@ -5,13 +5,19 @@ import { createStyles, useResponsive } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { PropsWithChildren, memo, useEffect, useState } from 'react';
 
-import { CHAT_SIDEBAR_WIDTH } from '@/const/layoutTokens';
+import { CHAT_PANEL_RADIUS, CHAT_SIDEBAR_WIDTH } from '@/const/layoutTokens';
 import { useChatStore } from '@/store/chat';
 import { chatPortalSelectors } from '@/store/chat/slices/portal/selectors';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 
 const useStyles = createStyles(({ css, token }) => ({
+  container: css`
+    overflow: hidden;
+    height: 100%;
+    border-start-end-radius: ${CHAT_PANEL_RADIUS}px;
+    background: ${token.colorBgContainerSecondary};
+  `,
   content: css`
     display: flex;
     flex-direction: column;
@@ -19,7 +25,8 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
   drawer: css`
     z-index: 20;
-    background: ${token.colorBgContainerSecondary};
+    border-inline-start: 1px solid ${token.colorBorderSecondary};
+    background: ${token.colorBgLayout};
   `,
   header: css`
     border-block-end: 1px solid ${token.colorBorderSecondary};
@@ -66,6 +73,7 @@ const TopicPanel = memo(({ children }: PropsWithChildren) => {
       }}
     >
       <DraggablePanelContainer
+        className={styles.container}
         style={{
           flex: 'none',
           height: '100%',

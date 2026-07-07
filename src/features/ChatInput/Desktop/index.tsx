@@ -22,6 +22,7 @@ import FilePreview from './FilePreview';
 const useStyles = createStyles(({ css, token }) => ({
   container: css`
     margin-block-start: -5px;
+    transition: background-color 160ms ${token.motionEaseOut};
 
     .show-on-hover {
       opacity: 0;
@@ -46,6 +47,27 @@ const useStyles = createStyles(({ css, token }) => ({
     padding: 12px;
 
     background: ${token.colorBgContainerSecondary};
+  `,
+  inputShell: css`
+    overflow: hidden;
+
+    width: 100%;
+    min-width: 0;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+
+    background: ${token.colorBgContainer};
+    box-shadow: 0 1px 0 ${token.colorFillQuaternary};
+
+    transition:
+      border-color 160ms ${token.motionEaseOut},
+      box-shadow 160ms ${token.motionEaseOut};
+
+    &:focus-within,
+    &:hover {
+      border-color: ${token.colorBorder};
+      box-shadow: 0 0 0 2px ${token.colorFillQuaternary};
+    }
   `,
 }));
 
@@ -82,30 +104,32 @@ const DesktopChatInput = memo<{ showFootnote?: boolean }>(({ showFootnote }) => 
         paddingBlock={showFootnote ? '0 8px' : '0 12px'}
         paddingInline={12}
       >
-        <ChatInput
-          defaultHeight={chatInputHeight || 32}
-          footer={
-            <ChatInputActionBar
-              left={<ActionBar />}
-              right={<SendArea />}
-              style={{
-                paddingRight: 8,
-              }}
-            />
-          }
-          fullscreen={expand}
-          header={showTypoBar && <TypoBar />}
-          maxHeight={320}
-          minHeight={36}
-          onSizeChange={(height) => {
-            updateSystemStatus({ chatInputHeight: height });
-          }}
-          resize={true}
-          slashMenuRef={slashMenuRef}
-        >
-          {expand && fileNode}
-          <InputEditor />
-        </ChatInput>
+        <Flexbox className={styles.inputShell}>
+          <ChatInput
+            defaultHeight={chatInputHeight || 32}
+            footer={
+              <ChatInputActionBar
+                left={<ActionBar />}
+                right={<SendArea />}
+                style={{
+                  paddingInline: '8px 8px',
+                }}
+              />
+            }
+            fullscreen={expand}
+            header={showTypoBar && <TypoBar />}
+            maxHeight={320}
+            minHeight={36}
+            onSizeChange={(height) => {
+              updateSystemStatus({ chatInputHeight: height });
+            }}
+            resize={true}
+            slashMenuRef={slashMenuRef}
+          >
+            {expand && fileNode}
+            <InputEditor />
+          </ChatInput>
+        </Flexbox>
         {showFootnote && !expand && (
           <Center style={{ pointerEvents: 'none', zIndex: 100 }}>
             <Text className={styles.footnote} type={'secondary'}>

@@ -29,8 +29,13 @@ export const useStyles = createStyles(({ css, token }) => ({
   `,
   top: css`
     position: sticky;
+    z-index: 2;
     inset-block-start: 0;
-    padding-block-start: 10px;
+
+    padding-block: 10px 8px;
+    border-block-end: 1px solid ${token.colorBorderSecondary};
+
+    background: ${token.colorBgLayout};
   `,
 }));
 
@@ -203,7 +208,7 @@ const Header = memo(() => {
   };
 
   return (
-    <Flexbox className={styles.top} gap={16} paddingInline={8}>
+    <Flexbox className={styles.top} gap={10} paddingInline={8}>
       <Flexbox align={'flex-start'} horizontal justify={'space-between'}>
         <Flexbox
           align={'center'}
@@ -211,10 +216,10 @@ const Header = memo(() => {
           horizontal
           style={{
             paddingInlineStart: 4,
-            paddingTop: 2,
+            paddingTop: 1,
           }}
         >
-          <ProductLogo className={styles.logo} size={36} type={'text'} />
+          <ProductLogo className={styles.logo} size={32} type={'text'} />
         </Flexbox>
         <Flexbox align={'center'} gap={4} horizontal>
           <TogglePanelButton />

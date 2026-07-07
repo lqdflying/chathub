@@ -25,12 +25,13 @@ export const useStyles = createStyles(
     },
   ) => {
     const blockStylish = css`
-      padding-block: 8px;
+      padding-block: 9px;
       padding-inline: 12px;
-      border: 1px solid ${rgba(token.colorBorderSecondary, 0.66)};
+      border: 1px solid ${rgba(token.colorBorderSecondary, 0.58)};
       border-radius: ${token.borderRadiusLG}px;
 
       background-color: ${token.colorBgContainer};
+      box-shadow: 0 1px 0 ${rgba(token.colorFill, 0.2)};
     `;
 
     const rawStylish = css`
@@ -38,7 +39,7 @@ export const useStyles = createStyles(
     `;
 
     const rawContainerStylish = css`
-      margin-block-end: -16px;
+      margin-block-end: -12px;
       transition: background-color 100ms ${token.motionEaseOut};
     `;
 
@@ -83,7 +84,7 @@ export const useStyles = createStyles(
 
           width: 100%;
           max-width: 100vw;
-          padding-block: 24px 12px;
+          padding-block: 18px 10px;
           padding-inline: 12px;
 
           time {
@@ -103,6 +104,8 @@ export const useStyles = createStyles(
           }
 
           &:hover {
+            background: ${variant === 'docs' ? rgba(token.colorFillQuaternary, 0.58) : 'transparent'};
+
             time,
             div[role='menubar'] {
               pointer-events: unset;
@@ -111,15 +114,15 @@ export const useStyles = createStyles(
           }
 
           ${responsive.mobile} {
-            padding-block-start: ${variant === 'docs' ? '16px' : '12px'};
-            padding-inline: 8px;
+            padding-block: ${variant === 'docs' ? '14px 8px' : '10px 8px'};
+            padding-inline: 10px;
           }
         `,
       ),
       editingContainer: cx(
         editingStylish,
         css`
-          padding-block: 8px 12px;
+          padding-block: 8px 10px;
           padding-inline: 12px;
           border: 1px solid ${token.colorBorderSecondary};
 
@@ -181,7 +184,7 @@ export const useStyles = createStyles(
           position: relative;
           overflow: hidden;
           max-width: 100%;
-          margin-block-start: ${time ? -16 : 0}px;
+          margin-block-start: ${time ? -12 : 0}px;
 
           ${responsive.mobile} {
             overflow-x: auto;

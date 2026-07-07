@@ -15,20 +15,27 @@ const useStyles = createStyles(({ css, token }) => {
   return {
     container: css`
       flex: none;
-      padding-block: 12px 12px;
+
+      padding-block: 10px calc(10px + env(safe-area-inset-bottom));
       border-block-start: 1px solid ${rgba(token.colorBorder, 0.25)};
-      background: ${token.colorFillQuaternary};
+
+      background: ${token.colorBgContainer};
+      box-shadow: 0 -1px 0 ${token.colorFillQuaternary};
     `,
     expand: css`
       position: absolute;
       height: 100%;
+      padding-block: 12px calc(12px + env(safe-area-inset-bottom));
+      background: ${token.colorBgContainer};
     `,
     expandButton: css`
       position: absolute;
-      inset-inline-start: 14px;
+      z-index: 1;
+      inset-inline-start: 16px;
     `,
     textarea: css`
       flex: 1;
+      border-radius: ${token.borderRadiusLG}px;
       transition: none !important;
     `,
   };
@@ -87,7 +94,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
     return (
       <Flexbox
         className={cx(styles.container, expand && styles.expand, className)}
-        gap={12}
+        gap={10}
         style={style}
       >
         {topAddons && <Flexbox style={showAddons ? {} : { display: 'none' }}>{topAddons}</Flexbox>}
@@ -103,7 +110,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
               icon={expand ? ChevronDown : ChevronUp}
               onClick={() => setExpand?.(!expand)}
               size={{ blockSize: 24, borderRadius: '50%', size: 14 }}
-              style={expand ? { top: 6 } : {}}
+              style={expand ? { top: 8 } : {}}
             />
           )}
           <InnerContainer
@@ -138,7 +145,7 @@ const MobileChatInputArea = forwardRef<TextAreaRef, MobileChatInputAreaProps>(
               }}
               placeholder={t('sendPlaceholder')}
               ref={ref}
-              style={{ height: 36, paddingBlock: 6 }}
+              style={{ height: 38, paddingBlock: 7 }}
               value={value}
               variant={expand ? 'borderless' : 'filled'}
             />
