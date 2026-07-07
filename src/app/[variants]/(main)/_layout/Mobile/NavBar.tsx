@@ -27,7 +27,7 @@ const useStyles = createStyles(({ css, token }) => ({
     inset-inline: 0 0;
 
     display: flex;
-    align-items: flex-start;
+    align-items: center;
 
     height: ${MOBILE_TABBAR_SAFE_HEIGHT};
     padding-block-end: env(safe-area-inset-bottom, 0);

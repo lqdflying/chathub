@@ -2,7 +2,7 @@ import type { ActionIconProps, FormProps } from '@lobehub/ui';
 
 export const HEADER_HEIGHT = 64;
 export const MOBILE_NABBAR_HEIGHT = 44;
-export const MOBILE_TABBAR_HEIGHT = 48;
+export const MOBILE_TABBAR_HEIGHT = 56;
 export const MOBILE_TABBAR_SAFE_HEIGHT = `calc(${MOBILE_TABBAR_HEIGHT}px + env(safe-area-inset-bottom, 0))`;
 export const CHAT_TEXTAREA_MAX_HEIGHT = 800;
 export const CHAT_TEXTAREA_HEIGHT = 160;
