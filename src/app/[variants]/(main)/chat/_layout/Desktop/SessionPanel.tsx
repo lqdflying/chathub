@@ -17,9 +17,13 @@ import { TOOGLE_PANEL_BUTTON_ID } from '../../features/TogglePanelButton';
 export const useStyles = createStyles(({ css, token }) => ({
   panel: css`
     height: 100%;
-    border-inline-end: 1px solid ${token.colorBorderSecondary};
+    border-inline-end: 1px solid ${token.colorBorder};
+
     color: ${token.colorTextSecondary};
-    background: ${token.colorBgLayout};
+
+    background:
+      linear-gradient(180deg, ${token.colorBgLayout} 0%, ${token.colorBgContainerSecondary} 100%);
+    box-shadow: inset -1px 0 0 ${token.colorFillQuaternary};
 
     #${TOOGLE_PANEL_BUTTON_ID} {
       opacity: 0;

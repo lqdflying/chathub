@@ -1,7 +1,7 @@
 'use client';
 
 import { SideNav } from '@lobehub/ui';
-import { useTheme } from 'antd-style';
+import { createStyles, useTheme } from 'antd-style';
 import { Suspense, memo } from 'react';
 
 import { isDesktop } from '@/const/version';
@@ -18,6 +18,17 @@ import BottomActions from './BottomActions';
 import PinList from './PinList';
 import TopActions from './TopActions';
 
+const useStyles = createStyles(({ css, token }) => ({
+  actionGroup: css`
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  `,
+  nav: css`
+    border-inline-end: 1px solid ${token.colorBorderSecondary};
+  `,
+}));
+
 const Top = () => {
   const [isPinned] = usePinnedAgentState();
   const sidebarKey = useActiveTabKey();
@@ -26,6 +37,7 @@ const Top = () => {
 };
 
 const Nav = memo(() => {
+  const { styles } = useStyles();
   const theme = useTheme();
   const isSingleMode = useIsSingleMode();
   const inZenMode = useGlobalStore(systemStatusSelectors.inZenMode);
@@ -41,16 +53,16 @@ const Nav = memo(() => {
           </div>
         }
         bottomActions={
-          <div className={electronStylish.nodrag}>
+          <div className={`${electronStylish.nodrag} ${styles.actionGroup}`}>
             <BottomActions />
           </div>
         }
-        className={electronStylish.draggable}
+        className={`${electronStylish.draggable} ${styles.nav}`}
         style={{
           height: '100%',
           zIndex: 100,
           ...(isDesktop
-            ? { background: 'transparent', borderInlineEnd: 0, paddingBlockStart: 8 }
+            ? { background: theme.colorBgLayout, paddingBlockStart: 8 }
             : { background: theme.colorBgLayout }),
         }}
         topActions={
@@ -60,6 +72,7 @@ const Nav = memo(() => {
               style={{
                 display: 'flex',
                 flexDirection: 'column',
+                gap: 8,
                 maxHeight: isDesktop ? 'calc(100vh - 180px)' : 'calc(100vh - 150px)',
               }}
             >

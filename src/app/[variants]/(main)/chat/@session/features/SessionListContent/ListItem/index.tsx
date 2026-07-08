@@ -11,11 +11,22 @@ const { Item } = List;
 const useStyles = createStyles(({ css, token }) => {
   return {
     active: css`
-      border-color: ${rgba(token.colorPrimary, 0.22)};
-      background: ${rgba(token.colorPrimary, 0.08)};
+      border-color: ${rgba(token.colorPrimary, 0.34)};
+      background: linear-gradient(
+        90deg,
+        ${rgba(token.colorPrimary, 0.13)} 0%,
+        ${rgba(token.colorPrimary, 0.07)} 100%
+      );
+      box-shadow: inset 0 0 0 1px ${rgba(token.colorPrimary, 0.04)};
+
+      &::before {
+        opacity: 1;
+      }
     `,
     container: css`
       position: relative;
+
+      overflow: hidden;
 
       min-height: 58px;
       margin-block: 1px;
@@ -26,7 +37,25 @@ const useStyles = createStyles(({ css, token }) => {
 
       transition:
         background-color 160ms ${token.motionEaseOut},
-        border-color 160ms ${token.motionEaseOut};
+        border-color 160ms ${token.motionEaseOut},
+        box-shadow 160ms ${token.motionEaseOut};
+
+      &::before {
+        content: '';
+
+        position: absolute;
+        inset-block: 8px;
+        inset-inline-start: 0;
+
+        width: 3px;
+        border-start-end-radius: 3px;
+        border-end-end-radius: 3px;
+
+        opacity: 0;
+        background: ${token.colorPrimary};
+
+        transition: opacity 160ms ${token.motionEaseOut};
+      }
 
       &:hover {
         border-color: ${rgba(token.colorBorderSecondary, 0.68)};

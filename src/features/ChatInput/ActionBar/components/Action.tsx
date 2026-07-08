@@ -1,6 +1,7 @@
 'use client';
 
 import { ActionIcon, type ActionIconProps } from '@lobehub/ui';
+import { createStyles } from 'antd-style';
 import { isUndefined } from 'lodash-es';
 import { memo } from 'react';
 import useMergeState from 'use-merge-value';
@@ -19,6 +20,20 @@ interface ActionProps extends Omit<ActionIconProps, 'popover'> {
   trigger?: ActionDropdownProps['trigger'];
 }
 
+const useStyles = createStyles(({ css, token }) => ({
+  action: css`
+    color: ${token.colorTextTertiary};
+    transition:
+      background-color 160ms ${token.motionEaseOut},
+      color 160ms ${token.motionEaseOut};
+
+    &:hover {
+      color: ${token.colorText};
+      background: ${token.colorFillQuaternary};
+    }
+  `,
+}));
+
 const Action = memo<ActionProps>(
   ({
     showTooltip,
@@ -34,6 +49,7 @@ const Action = memo<ActionProps>(
     onClick,
     ...rest
   }) => {
+    const { styles } = useStyles();
     const [show, setShow] = useMergeState(false, {
       onChange: onOpenChange,
       value: open,
@@ -41,6 +57,7 @@ const Action = memo<ActionProps>(
     const mobile = useServerConfigStore((s) => s.isMobile);
     const iconNode = (
       <ActionIcon
+        className={styles.action}
         disabled={disabled}
         icon={icon}
         loading={loading}

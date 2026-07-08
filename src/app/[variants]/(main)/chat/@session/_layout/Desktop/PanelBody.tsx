@@ -13,7 +13,8 @@ const useStyles = createStyles(
     padding-block: 8px;
     padding-inline: 6px;
 
-    background: ${token.colorBgLayout};
+    background:
+      linear-gradient(180deg, ${token.colorBgLayout} 0%, ${token.colorBgContainerSecondary} 100%);
   `,
 );
 

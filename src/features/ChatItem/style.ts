@@ -27,11 +27,13 @@ export const useStyles = createStyles(
     const blockStylish = css`
       padding-block: 9px;
       padding-inline: 12px;
-      border: 1px solid ${rgba(token.colorBorderSecondary, 0.58)};
+      border: 1px solid ${rgba(token.colorBorder, 0.72)};
       border-radius: ${token.borderRadiusLG}px;
 
-      background-color: ${token.colorBgContainer};
-      box-shadow: 0 1px 0 ${rgba(token.colorFill, 0.2)};
+      background-color: ${token.colorBgElevated};
+      box-shadow:
+        0 1px 0 ${rgba(token.colorFill, 0.26)},
+        0 6px 18px ${rgba(token.colorFillSecondary, 0.22)};
     `;
 
     const rawStylish = css`
@@ -104,7 +106,7 @@ export const useStyles = createStyles(
           }
 
           &:hover {
-            background: ${variant === 'docs' ? rgba(token.colorFillQuaternary, 0.58) : 'transparent'};
+            background: ${variant === 'docs' ? rgba(token.colorFillQuaternary, 0.72) : 'transparent'};
 
             time,
             div[role='menubar'] {

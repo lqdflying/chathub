@@ -37,8 +37,8 @@ const LANGUAGE_EXTENSIONS: Record<string, string> = {
   shell: 'sh',
   sql: 'sql',
   swift: 'swift',
-  typescript: 'ts',
   tsx: 'tsx',
+  typescript: 'ts',
   xml: 'xml',
   yaml: 'yml',
 };
@@ -149,7 +149,7 @@ const useCollapseStyles = createStyles(({ css, token }) => ({
 
     padding-block: 4px;
     padding-inline: 12px;
-    border: 1px solid ${token.colorBorderSecondary};
+    border: 1px solid ${token.colorBorder};
     border-radius: 16px;
 
     font-size: 12px;
@@ -170,9 +170,9 @@ const useCollapseStyles = createStyles(({ css, token }) => ({
     inset-block-end: 0;
     inset-inline: 0;
 
-    height: 72px;
+    height: 84px;
 
-    background: linear-gradient(to bottom, transparent, ${token.colorBgContainer});
+    background: linear-gradient(to bottom, transparent, ${token.colorBgElevated});
   `,
 }));
 

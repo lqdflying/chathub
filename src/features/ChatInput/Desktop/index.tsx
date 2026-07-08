@@ -3,6 +3,7 @@
 import { ChatInput, ChatInputActionBar } from '@lobehub/editor/react';
 import { Text } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
+import { rgba } from 'polished';
 import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
@@ -53,11 +54,13 @@ const useStyles = createStyles(({ css, token }) => ({
 
     width: 100%;
     min-width: 0;
-    border: 1px solid ${token.colorBorderSecondary};
+    border: 1px solid ${token.colorBorder};
     border-radius: ${token.borderRadiusLG}px;
 
-    background: ${token.colorBgContainer};
-    box-shadow: 0 1px 0 ${token.colorFillQuaternary};
+    background: ${token.colorBgElevated};
+    box-shadow:
+      0 1px 0 ${token.colorFillQuaternary},
+      0 10px 28px ${rgba(token.colorFillSecondary, 0.24)};
 
     transition:
       border-color 160ms ${token.motionEaseOut},
@@ -65,8 +68,10 @@ const useStyles = createStyles(({ css, token }) => ({
 
     &:focus-within,
     &:hover {
-      border-color: ${token.colorBorder};
-      box-shadow: 0 0 0 2px ${token.colorFillQuaternary};
+      border-color: ${token.colorPrimaryBorder};
+      box-shadow:
+        0 0 0 2px ${token.colorPrimaryBg},
+        0 10px 28px ${rgba(token.colorFillSecondary, 0.28)};
     }
   `,
 }));
