@@ -76,9 +76,8 @@ const applyOpenAICompatResponsesParams = (
   payload: Record<string, any>,
   params?: ChatStreamPayload['openAICompatResponsesParams'],
 ) => {
-  if (!params) return payload;
-
   const next = { ...payload };
+  const config = params || {};
   const text = recordValue(next.text);
   const maxTokens = next.max_tokens;
   const maxOutputTokens = next.max_output_tokens ?? maxTokens;
@@ -90,13 +89,13 @@ const applyOpenAICompatResponsesParams = (
   delete next.truncation;
   delete next.verbosity;
 
-  if (params.maxTokens && maxTokens !== undefined) next.max_tokens = maxTokens;
-  if (params.maxOutputTokens && maxOutputTokens !== undefined) {
+  if (config.maxTokens && maxTokens !== undefined) next.max_tokens = maxTokens;
+  if (config.maxOutputTokens && maxOutputTokens !== undefined) {
     next.max_output_tokens = maxOutputTokens;
   }
-  if (params.truncation && params.truncation !== 'off') next.truncation = params.truncation;
+  if (config.truncation && config.truncation !== 'off') next.truncation = config.truncation;
 
-  const verbosityMode = params.verbosity || 'off';
+  const verbosityMode = config.verbosity || 'off';
   if (verbosityMode === 'text' || verbosityMode === 'both') {
     const textPayload = { ...text };
     if (verbosity !== undefined) textPayload.verbosity = verbosity;

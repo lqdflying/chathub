@@ -1170,6 +1170,39 @@ describe('LobeOpenAICompatibleFactory', () => {
         expect(requestOptions.headers.Session_id).toBe(requestPayload.prompt_cache_key);
       });
 
+      it('should omit portable Responses params by default', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: {
+            useResponse: true,
+          },
+          provider: ModelProvider.OpenAI,
+        });
+
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const prod = new ReadableStream();
+        const debug = new ReadableStream();
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockResolvedValue({ tee: () => [prod, debug] } as any);
+
+        await inst.chat({
+          max_output_tokens: 512,
+          max_tokens: 4096,
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-5-mini',
+          truncation: 'auto',
+          verbosity: 'medium',
+        });
+
+        const requestPayload = mockResponsesCreate.mock.calls[0][0] as any;
+
+        expect(requestPayload).not.toHaveProperty('max_output_tokens');
+        expect(requestPayload).not.toHaveProperty('max_tokens');
+        expect(requestPayload).not.toHaveProperty('truncation');
+        expect(requestPayload).not.toHaveProperty('verbosity');
+      });
+
       it('should allow Responses Session_id without sending prompt_cache_key', async () => {
         const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',

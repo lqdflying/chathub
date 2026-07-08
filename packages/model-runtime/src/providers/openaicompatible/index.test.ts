@@ -169,6 +169,42 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createOptions.headers).not.toHaveProperty('Session_id');
   });
 
+  it('omits extra Responses params for built-in cache preset without explicit params', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      max_output_tokens: 512,
+      max_tokens: 4096,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.5',
+      openAICompatCache: {
+        chat: {
+          promptCacheKey: true,
+          sessionHeader: false,
+        },
+        preset: 'prompt-key-store',
+        responses: {
+          promptCacheKey: 'derived',
+          sessionHeader: false,
+          store: 'true',
+        },
+      },
+      responseStateMode: 'provider',
+      truncation: 'auto',
+      verbosity: 'medium',
+    } as any);
+
+    expect(instance['client'].responses.create).toHaveBeenCalled();
+    expect(instance['client'].chat.completions.create).not.toHaveBeenCalled();
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
+    expect(createCall.store).toBe(true);
+    expect(createCall).not.toHaveProperty('max_output_tokens');
+    expect(createCall).not.toHaveProperty('max_tokens');
+    expect(createCall).not.toHaveProperty('truncation');
+    expect(createCall).not.toHaveProperty('verbosity');
+  });
+
   it('derives Chat Completions prompt_cache_key for non gpt-5/codex models when matrix enables it', async () => {
     await instance.chat({
       messages: [{ content: 'Hello', role: 'user' }],
