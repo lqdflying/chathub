@@ -27,6 +27,11 @@ export const buildConnectionCheckParams = (provider: string, model: string) => {
         ...base,
         reasoning_split: false,
       };
+    case 'openaicompatible':
+      return {
+        ...base,
+        apiMode: 'chatCompletion' as const,
+      };
     default:
       return base;
   }

@@ -331,23 +331,30 @@ class ChatService {
       ? 'responses'
       : undefined;
     const apiMode = supportsOpenAICompatResponses ? res.apiMode || configuredApiMode : undefined;
-    const openAICompatCache =
+    const isOpenAICompatResponsesMode =
+      supportsOpenAICompatResponses && apiMode === 'responses';
+    const providerOpenAICompatCache =
       provider === ModelProvider.OpenAICompatible
         ? aiProviderSelectors.providerOpenAICompatCacheConfig(provider)(aiInfraStoreState)
         : undefined;
+    const openAICompatCache =
+      providerOpenAICompatCache && !isOpenAICompatResponsesMode
+        ? {
+            chat: providerOpenAICompatCache.chat,
+            preset: providerOpenAICompatCache.preset,
+          }
+        : providerOpenAICompatCache;
     const openAICompatResponsesParams =
-      provider === ModelProvider.OpenAICompatible
+      isOpenAICompatResponsesMode
         ? aiProviderSelectors.providerOpenAICompatResponsesParamsConfig(provider)(aiInfraStoreState)
         : undefined;
     const responseCache = openAICompatCache?.responses;
     const responseCacheEnabled = responseCache?.promptCacheKey === 'derived';
     const responseStateMode =
-      apiMode === 'responses' &&
-      provider === ModelProvider.OpenAICompatible &&
-      responseCacheEnabled
+      isOpenAICompatResponsesMode && responseCacheEnabled
         ? 'provider'
         : undefined;
-    const store = apiMode === 'responses' ? openAICompatStoreValue(responseCache?.store) : undefined;
+    const store = isOpenAICompatResponsesMode ? openAICompatStoreValue(responseCache?.store) : undefined;
 
     // Get the chat config to check streaming preference
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());

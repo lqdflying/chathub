@@ -27,6 +27,13 @@ describe('connectionCheckParams', () => {
     expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
   });
 
+  it('forces OpenAI-compatible connectivity probes through Chat Completions', () => {
+    const params = buildConnectionCheckParams('openaicompatible', 'gpt-5.5');
+
+    expect(params.apiMode).toBe('chatCompletion');
+    expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
+  });
+
   it('accepts reasoning-only connectivity output', () => {
     expect(hasConnectionCheckResult('', { content: 'thinking trace' })).toBe(true);
   });

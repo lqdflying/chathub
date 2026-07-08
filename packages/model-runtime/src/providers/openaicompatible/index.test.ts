@@ -318,6 +318,7 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('text');
     expect(createCall).not.toHaveProperty('verbosity');
     expect(createCall).not.toHaveProperty('truncation');
+    expect(createCall).not.toHaveProperty('max_output_tokens');
 
     // Internal routing / feature fields stripped
     expect(createCall).not.toHaveProperty('apiMode');
@@ -345,6 +346,24 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('text');
     expect(createCall).not.toHaveProperty('verbosity');
     expect(createCall).not.toHaveProperty('truncation');
+  });
+
+  it('strips Responses-only max_output_tokens in Chat Completions mode', async () => {
+    await instance.chat({
+      apiMode: 'chatCompletion',
+      max_output_tokens: 512,
+      max_tokens: 256,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.5',
+    } as any);
+
+    expect(instance['client'].chat.completions.create).toHaveBeenCalled();
+    expect(instance['client'].responses.create).not.toHaveBeenCalled();
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    expect(createCall.max_tokens).toBe(256);
+    expect(createCall).not.toHaveProperty('max_output_tokens');
+    expect(createCall).not.toHaveProperty('apiMode');
   });
 
   it('normalizes portable Responses fields in Responses mode', async () => {

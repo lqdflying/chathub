@@ -80,6 +80,7 @@ export interface OpenAICompatResponsesParamsRequestConfig {
  * @title Chat Stream Payload
  */
 export interface ChatStreamPayload {
+  apiMode?: 'chatCompletion' | 'responses';
   /**
    * 是否开启搜索
    */

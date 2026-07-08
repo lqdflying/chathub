@@ -1249,22 +1249,78 @@ describe('ChatService', () => {
             sessionHeader: false,
           },
           preset: 'prompt-key-store',
-          responses: {
-            promptCacheKey: 'derived',
-            sessionHeader: false,
-            store: 'true',
-          },
-        },
-        openAICompatResponsesParams: {
-          maxOutputTokens: false,
-          maxTokens: false,
-          truncation: 'off',
-          verbosity: 'off',
         },
         stream: true,
       });
       expect(body).not.toHaveProperty('apiMode');
+      expect(body.openAICompatCache).not.toHaveProperty('responses');
+      expect(body).not.toHaveProperty('openAICompatResponsesParams');
+      expect(body).not.toHaveProperty('responseStateMode');
       expect(body).not.toHaveProperty('store');
+    });
+
+    it('should honor an explicit Chat Completions override for OpenAI Compatible checks', async () => {
+      useAiInfraStore.setState({
+        aiProviderRuntimeConfig: {
+          openaicompatible: {
+            config: {
+              enableResponseApi: true,
+              openAICompatCache: {
+                chat: {
+                  promptCacheKey: true,
+                  sessionHeader: true,
+                },
+                preset: 'prompt-key-store',
+                responses: {
+                  promptCacheKey: 'derived',
+                  sessionHeader: false,
+                  store: 'true',
+                },
+              },
+              openAICompatResponsesParams: {
+                maxOutputTokens: true,
+                maxTokens: false,
+                truncation: 'auto',
+                verbosity: 'text',
+              },
+            },
+            keyVaults: {},
+            settings: {},
+          } as any,
+        },
+      });
+
+      await chatService.getChatCompletion(
+        {
+          apiMode: 'chatCompletion',
+          max_tokens: 256,
+          messages: [],
+          model: 'gpt-5.5',
+          provider: 'openaicompatible',
+        },
+        {},
+      );
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        apiMode: 'chatCompletion',
+        max_tokens: 256,
+        messages: [],
+        model: 'gpt-5.5',
+        openAICompatCache: {
+          chat: {
+            promptCacheKey: true,
+            sessionHeader: false,
+          },
+          preset: 'prompt-key-store',
+        },
+        stream: true,
+      });
+      expect(body.openAICompatCache).not.toHaveProperty('responses');
+      expect(body).not.toHaveProperty('openAICompatResponsesParams');
+      expect(body).not.toHaveProperty('responseStateMode');
+      expect(body).not.toHaveProperty('store');
+      expect(body).not.toHaveProperty('max_output_tokens');
     });
 
     it('should map OpenAI-compatible Responses cache matrix to response state and store:true', async () => {
