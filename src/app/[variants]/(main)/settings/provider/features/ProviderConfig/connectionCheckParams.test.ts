@@ -7,10 +7,17 @@ import {
 } from './connectionCheckParams';
 
 describe('connectionCheckParams', () => {
-  it('caps max_tokens for all providers', () => {
+  it('caps max_tokens for non-OpenAI-compatible providers', () => {
     expect(buildConnectionCheckParams('openai', 'gpt-4o').max_tokens).toBe(
       CONNECTION_CHECK_MAX_TOKENS,
     );
+  });
+
+  it('omits token limit fields for OpenAI-compatible connectivity probes', () => {
+    const params = buildConnectionCheckParams('openaicompatible', 'gpt-5.5');
+
+    expect(params).not.toHaveProperty('max_tokens');
+    expect(params).not.toHaveProperty('max_output_tokens');
   });
 
   it('disables Kimi thinking for moonshot connectivity probes', () => {

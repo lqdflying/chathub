@@ -18,6 +18,7 @@ import { modelProviderSelectors } from '@/store/user/selectors';
 import { DalleManifest } from '@/tools/dalle';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
+import { buildConnectionCheckParams } from '../../app/[variants]/(main)/settings/provider/features/ProviderConfig/connectionCheckParams';
 import { API_ENDPOINTS } from '../_url';
 import * as helpers from './helper';
 import { chatService } from './index';
@@ -1538,6 +1539,46 @@ describe('ChatService', () => {
   });
 
   describe('fetchPresetTaskResult', () => {
+    it('should keep OpenAI-compatible Chat Completions connection checks token-limit free', async () => {
+      const { fetchSSE } = await import('@lobechat/fetch-sse');
+      const mockFetchSSE = vi.fn().mockResolvedValue(new Response('mock response'));
+      vi.mocked(fetchSSE).mockImplementation(mockFetchSSE);
+
+      useAiInfraStore.setState({
+        aiProviderRuntimeConfig: {
+          openaicompatible: {
+            config: {
+              enableResponseApi: false,
+              openAICompatResponsesParams: {
+                maxOutputTokens: true,
+                maxTokens: true,
+                truncation: 'off',
+                verbosity: 'off',
+              },
+            },
+            keyVaults: {},
+            settings: {},
+          } as any,
+        },
+      });
+
+      await chatService.fetchPresetTaskResult({
+        abortController: new AbortController(),
+        onLoadingChange: vi.fn(),
+        params: buildConnectionCheckParams('openaicompatible', 'gpt-5.5'),
+        trace: {},
+      });
+
+      const body = JSON.parse(mockFetchSSE.mock.calls[0][1].body);
+      expect(body).toMatchObject({
+        model: 'gpt-5.5',
+        stream: true,
+      });
+      expect(body).not.toHaveProperty('apiMode');
+      expect(body).not.toHaveProperty('max_tokens');
+      expect(body).not.toHaveProperty('max_output_tokens');
+    });
+
     it('should handle successful chat completion response', async () => {
       // Mock getChatCompletion to simulate successful completion
       const getChatCompletionSpy = vi

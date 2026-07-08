@@ -11,23 +11,28 @@ export const hasConnectionCheckResult = (
 export const buildConnectionCheckParams = (provider: string, model: string) => {
   const base = {
     messages: [{ content: 'hello', role: 'user' as const }],
-    max_tokens: CONNECTION_CHECK_MAX_TOKENS,
     model,
     provider,
   };
+  const cappedBase = {
+    ...base,
+    max_tokens: CONNECTION_CHECK_MAX_TOKENS,
+  };
 
   switch (provider) {
+    case 'openaicompatible':
+      return base;
     case 'moonshot':
       return {
-        ...base,
+        ...cappedBase,
         thinking: { type: 'disabled' as const },
       };
     case 'minimax':
       return {
-        ...base,
+        ...cappedBase,
         reasoning_split: false,
       };
     default:
-      return base;
+      return cappedBase;
   }
 };
