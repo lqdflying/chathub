@@ -1,6 +1,6 @@
 'use client';
 
-import { useResponsive, useTheme } from 'antd-style';
+import { createStyles, useResponsive } from 'antd-style';
 import { parseAsStringEnum, useQueryState } from 'nuqs';
 import { memo, useRef } from 'react';
 import { Flexbox } from 'react-layout-kit';
@@ -15,11 +15,24 @@ import { LayoutProps } from '../type';
 import Header from './Header';
 import SideBar from './SideBar';
 
+const useStyles = createStyles(({ css, token }) => ({
+  content: css`
+    min-width: 0;
+    background: ${token.colorBgContainer};
+  `,
+  shell: css`
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    background: ${token.colorBgLayout};
+  `,
+}));
+
 const Layout = memo<LayoutProps>((props) => {
   const { showLLM = true } = props;
   const ref = useRef<HTMLDivElement | null>(null);
   const { md = true } = useResponsive();
-  const theme = useTheme();
+  const { styles } = useStyles();
 
   const [activeTab, setActiveTab] = useQueryState(
     'active',
@@ -30,17 +43,17 @@ const Layout = memo<LayoutProps>((props) => {
 
   return (
     <Flexbox
+      className={styles.shell}
       height={'100%'}
       horizontal={md}
       ref={ref}
-      style={{ background: theme.colorBgContainer, flex: '1', position: 'relative' }}
     >
       {md ? (
         <SideBar>{category}</SideBar>
       ) : (
         <Header getContainer={() => ref.current!}>{category}</Header>
       )}
-      <SettingContainer maxWidth={'none'}>
+      <SettingContainer className={styles.content} maxWidth={'none'}>
         <SettingsContent activeTab={activeTab} mobile={false} showLLM={showLLM} />
       </SettingContainer>
       <InitClientDB />

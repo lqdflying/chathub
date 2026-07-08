@@ -3,7 +3,7 @@
 import { MCP } from '@lobehub/icons';
 import { Button, DraggablePanel, Icon } from '@lobehub/ui';
 import { App, Empty, Input } from 'antd';
-import { createStyles, useTheme } from 'antd-style';
+import { createStyles } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { Package, PackagePlus, Search } from 'lucide-react';
 import Link from 'next/link';
@@ -18,18 +18,30 @@ import { useFetchInstalledPlugins } from '@/hooks/useFetchInstalledPlugins';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 
-const useStyles = createStyles(({ css, token }) => ({
+const useStyles = createStyles(({ css, prefixCls, token }) => ({
   detailHeader: css`
-    flex-shrink: 0;
     display: flex;
+    flex-shrink: 0;
+    gap: 10px;
     align-items: center;
-    gap: 8px;
-    padding-block: ${token.paddingMD}px;
-    padding-inline: ${token.paddingMD}px;
-    border-bottom: 1px solid ${token.colorBorderSecondary};
+
+    min-height: 65px;
+    padding-block: ${token.paddingSM}px;
+    padding-inline: ${token.paddingLG}px;
+    border-block-end: 1px solid ${token.colorBorderSecondary};
+
+    background: ${token.colorBgContainer};
+  `,
+  detailPane: css`
+    min-width: 0;
+    background: ${token.colorBgContainerSecondary};
+  `,
+  emptyState: css`
+    background: ${token.colorBgContainerSecondary};
   `,
   headerActions: css`
     display: flex;
+    flex-shrink: 0;
     gap: 8px;
   `,
   headerIcon: css`
@@ -39,15 +51,58 @@ const useStyles = createStyles(({ css, token }) => ({
 
     width: 36px;
     height: 36px;
-    border-radius: 50%;
+    border: 1px solid ${token.colorPrimaryBorder};
+    border-radius: ${token.borderRadiusLG}px;
+
+    color: ${token.colorPrimary};
 
     background-color: ${token.colorPrimaryBg};
   `,
   headerTitle: css`
+    overflow: hidden;
     flex: 1;
+
     font-size: ${token.fontSizeLG}px;
-    font-weight: 500;
+    font-weight: 600;
     color: ${token.colorText};
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  `,
+  list: css`
+    overflow-y: auto;
+    box-sizing: border-box;
+    height: 100%;
+    padding: 6px;
+  `,
+  root: css`
+    overflow: hidden;
+
+    box-sizing: border-box;
+    min-height: 0;
+    padding: ${token.paddingLG}px;
+
+    background: ${token.colorBgContainer};
+  `,
+  splitPanel: css`
+    position: relative;
+
+    overflow: hidden;
+
+    box-sizing: border-box;
+    min-height: 0;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadiusLG}px;
+
+    background: ${token.colorBgContainer};
+  `,
+  toolbar: css`
+    flex-shrink: 0;
+    padding: 2px;
+
+    .${prefixCls}-input-affix-wrapper {
+      border-color: ${token.colorBorderSecondary};
+      background: ${token.colorBgContainerSecondary};
+    }
   `,
 }));
 
@@ -55,7 +110,6 @@ const McpManagement = memo(() => {
   const { t } = useTranslation('setting');
   const { t: tPlugin } = useTranslation('plugin');
   const { modal } = App.useApp();
-  const theme = useTheme();
   const { styles } = useStyles();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -129,7 +183,7 @@ const McpManagement = memo(() => {
           onValueChange={updateNewDevPlugin}
           open={showDevModal}
         />
-        <Center height={'75vh'} paddingBlock={40}>
+        <Center className={styles.root} height={'75vh'} paddingBlock={40}>
           <Empty
             description={t('mcpManagement.empty')}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -177,8 +231,14 @@ const McpManagement = memo(() => {
         value={selectedPlugin as any}
       />
 
-      <Flexbox gap={12} height={'100%'} style={{ overflow: 'hidden' }} width={'100%'}>
-        <Flexbox align={'center'} gap={8} horizontal justify={'space-between'}>
+      <Flexbox className={styles.root} gap={12} height={'100%'} width={'100%'}>
+        <Flexbox
+          align={'center'}
+          className={styles.toolbar}
+          gap={8}
+          horizontal
+          justify={'space-between'}
+        >
           <Input
             allowClear
             onChange={(e) => setSearchKeywords(e.target.value)}
@@ -200,22 +260,12 @@ const McpManagement = memo(() => {
         </Flexbox>
 
         <Flexbox
+          className={styles.splitPanel}
           flex={1}
           horizontal
-          style={{
-            borderTop: `1px solid ${theme.colorBorderSecondary}`,
-            overflow: 'hidden',
-            position: 'relative',
-          }}
         >
           <DraggablePanel maxWidth={540} minWidth={320} placement={'left'}>
-            <Flexbox
-              gap={2}
-              height={'100%'}
-              paddingBlock={4}
-              paddingInline={4}
-              style={{ overflowY: 'auto' }}
-            >
+            <Flexbox className={styles.list} gap={2}>
               {filteredList.map((item) => {
                 const plugin = installedPlugins.find((p) => p.identifier === item.identifier);
                 const runtimeType = plugin?.runtimeType as
@@ -244,10 +294,10 @@ const McpManagement = memo(() => {
 
           {selectedId ? (
             <Flexbox
+              className={styles.detailPane}
               height={'100%'}
               ref={ref}
               style={{
-                background: theme.colorBgContainerSecondary,
                 overflowX: 'hidden',
                 overflowY: 'hidden',
               }}
@@ -299,10 +349,8 @@ const McpManagement = memo(() => {
             </Flexbox>
           ) : (
             <Center
+              className={styles.emptyState}
               height={'100%'}
-              style={{
-                background: theme.colorBgContainerSecondary,
-              }}
               width={'100%'}
             >
               <Empty

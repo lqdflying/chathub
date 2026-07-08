@@ -34,6 +34,25 @@ bun run db:migrate           # Run migrations
 bun run db:studio            # Open Drizzle Studio
 ```
 
+## Performance safety for verification
+
+Do **not** run full test suites or repo-wide heavy checks by default. This workspace can hit severe memory pressure and swap exhaustion, which makes full-suite runs disruptive.
+
+Avoid unless the user explicitly asks and accepts the memory/performance risk:
+- `bun run test`
+- `bun run test-app`
+- broad `vitest run` without a specific file/path
+- `bun run lint` when targeted lint/style checks are sufficient
+- repo-wide checks when touched-file verification is enough
+
+Prefer targeted verification:
+- `bunx vitest run --silent='passed-only' '[specific-file]'`
+- targeted `bunx eslint --quiet '[touched-file]'`
+- targeted `bunx stylelint '[touched-file]'`
+- `git diff --check`
+
+If a full suite or repo-wide command is truly needed, ask the user first and mention the performance/memory risk.
+
 ## DB migration safety net (MANDATORY)
 
 Every migration that adds a **table** or **column** must also add an idempotent `ensure*` helper:
@@ -46,6 +65,7 @@ See `ensureAgentAssistantMemory.cjs` and `ensureMcpOAuthTokens.cjs` for template
 ## Hard "never do" list
 
 - **Never** `bun run test` — runs the full suite, ~10 min.
+- **Never** run full test suites or broad `vitest run` by default — this workspace can exhaust memory/swap. Use targeted tests.
 - **Never** `bun run db:push` against production — bypasses migration tracking.
 - **Never** `pnpm i18n` — CI translates all locales automatically.
 - Wrap vitest file paths in single quotes: `'src/store/chat/**'`.

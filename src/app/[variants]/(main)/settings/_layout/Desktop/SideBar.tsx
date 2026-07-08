@@ -11,10 +11,15 @@ import PanelTitle from '@/components/PanelTitle';
 
 const useStyles = createStyles(({ token, css }) => ({
   container: css`
-    padding-block: 0 16px;
+    padding-block: 8px 16px;
     padding-inline: 12px;
     border-inline-end: 1px solid ${token.colorBorderSecondary};
-    background: ${token.colorBgLayout};
+    background:
+      linear-gradient(180deg, ${token.colorBgLayout} 0%, ${token.colorBgContainer} 100%);
+  `,
+  menuWrap: css`
+    min-height: 0;
+    padding-block: 2px;
   `,
 }));
 
@@ -30,12 +35,12 @@ const SidebarLayout = ({ children, className, title, desc, ...rest }: SidebarLay
     <Flexbox
       className={cx(styles.container, className)}
       flex={'none'}
-      gap={20}
+      gap={18}
       width={280}
       {...rest}
     >
       <PanelTitle desc={desc || t('header.desc')} title={title || t('header.title')} />
-      <Flexbox flex={1}>
+      <Flexbox className={styles.menuWrap} flex={1}>
         <Suspense fallback={<CircleLoading />}>{children}</Suspense>
       </Flexbox>
       <BrandWatermark paddingInline={12} />

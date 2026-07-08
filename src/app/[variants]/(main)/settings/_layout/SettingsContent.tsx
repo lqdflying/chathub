@@ -53,6 +53,8 @@ interface SettingsContentProps {
   showLLM?: boolean;
 }
 
+const denseTabs = new Set<string>([SettingsTabs.Agent, SettingsTabs.Provider, SettingsTabs.Mcp]);
+
 const SettingsContent = ({ mobile, activeTab, showLLM = true }: SettingsContentProps) => {
   const shouldRenderLLMTabs = (tab: string) => {
     const isLLMTab =
@@ -78,18 +80,21 @@ const SettingsContent = ({ mobile, activeTab, showLLM = true }: SettingsContentP
     return activeTab ? renderComponent(activeTab) : renderComponent(SettingsTabs.Common);
   }
 
-  const getDisplayStyle = (tabName: string): CSSProperties => ({
-    alignItems: 'center',
-    display: activeTab === tabName ? 'flex' : 'none',
-    flexDirection: 'column',
-    gap: 64,
-    height: '100%',
-    paddingBlock:
-      [SettingsTabs.Agent, SettingsTabs.Provider].includes(tabName as any) || mobile ? 0 : 24,
-    paddingInline:
-      [SettingsTabs.Agent, SettingsTabs.Provider].includes(tabName as any) || mobile ? 0 : 32,
-    width: '100%',
-  });
+  const getDisplayStyle = (tabName: string): CSSProperties => {
+    const isDenseTab = denseTabs.has(tabName);
+
+    return {
+      alignItems: 'center',
+      display: activeTab === tabName ? 'flex' : 'none',
+      flexDirection: 'column',
+      gap: isDenseTab ? 0 : 56,
+      height: '100%',
+      minHeight: 0,
+      paddingBlock: isDenseTab || mobile ? 0 : 32,
+      paddingInline: isDenseTab || mobile ? 0 : 40,
+      width: '100%',
+    };
+  };
 
   return (
     <Flexbox height={'100%'} width={'100%'}>

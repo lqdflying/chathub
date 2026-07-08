@@ -18,14 +18,19 @@ import { SettingsTabs } from '@/store/global/initialState';
 const useStyles = createStyles(({ token, css }) => ({
   container: css`
     position: relative;
+
     flex: none;
-    height: 54px;
+
+    height: 56px;
+    border-block-end: 1px solid ${token.colorBorderSecondary};
+
     background: ${token.colorBgLayout};
   `,
   title: css`
-    font-size: 18px;
-    font-weight: 700;
+    font-size: 17px;
+    font-weight: 600;
     line-height: 1.2;
+    color: ${token.colorText};
   `,
 }));
 
@@ -81,15 +86,16 @@ const Header = memo<HeaderProps>(({ children, getContainer, title }) => {
         rootStyle={{ position: 'absolute' }}
         style={{
           background: theme.colorBgLayout,
-          borderRight: `1px solid ${theme.colorSplit}`,
+          borderRight: `1px solid ${theme.colorBorderSecondary}`,
         }}
         styles={{
           body: {
             display: 'flex',
             flexDirection: 'column',
-            gap: 20,
+            gap: 18,
             justifyContent: 'space-between',
-            padding: 16,
+            paddingBlock: 16,
+            paddingInline: 12,
           },
           header: { display: 'none' },
           mask: { background: 'transparent' },
