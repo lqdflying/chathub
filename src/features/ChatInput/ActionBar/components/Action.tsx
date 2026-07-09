@@ -46,7 +46,7 @@ const Action = memo<ActionProps>(
         loading={loading}
         onClick={(e) => {
           if (onClick) return onClick(e);
-          setShow(true);
+          setShow(!show);
         }}
         title={
           isUndefined(showTooltip) ? (mobile ? undefined : title) : showTooltip ? title : undefined
