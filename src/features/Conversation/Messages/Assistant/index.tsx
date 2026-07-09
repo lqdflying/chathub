@@ -20,7 +20,6 @@ import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 import { chatGroupSelectors, useChatGroupStore } from '@/store/chatGroup';
-import { useGlobalStore } from '@/store/global';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { useUserStore } from '@/store/user';
@@ -171,17 +170,11 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
     [animated, components, role, search, highlighterTheme, mermaidTheme],
   );
 
-  const [isInbox] = useSessionStore((s) => [sessionSelectors.isInboxSession(s)]);
-  const [toggleSystemRole] = useGlobalStore((s) => [s.toggleSystemRole]);
   const openChatSettings = useOpenChatSettings();
 
   const onAvatarClick = useCallback(() => {
-    if (!isInbox) {
-      toggleSystemRole(true);
-    } else {
-      openChatSettings();
-    }
-  }, [isInbox]);
+    openChatSettings();
+  }, [openChatSettings]);
 
   const onDoubleClick = useDoubleClickEdit({ disableEditing, error, id, index, role });
 

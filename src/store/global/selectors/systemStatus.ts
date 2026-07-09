@@ -8,7 +8,6 @@ export const systemStatus = (s: GlobalState) => s.status;
 const sessionGroupKeys = (s: GlobalState): string[] =>
   s.status.expandSessionGroupKeys || INITIAL_STATUS.expandSessionGroupKeys;
 
-const showSystemRole = (s: GlobalState) => s.status.showSystemRole;
 const mobileShowTopic = (s: GlobalState) => s.status.mobileShowTopic;
 const mobileShowPortal = (s: GlobalState) => s.status.mobileShowPortal;
 const showChatSideBar = (s: GlobalState) => !s.status.zenMode && s.status.showChatSideBar;
@@ -90,7 +89,6 @@ export const systemStatusSelectors = {
   showImagePanel,
   showImageTopicPanel,
   showSessionPanel,
-  showSystemRole,
   systemStatus,
   themeMode,
   wideScreen,

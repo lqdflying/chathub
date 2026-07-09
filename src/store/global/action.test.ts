@@ -236,19 +236,6 @@ describe('createPreferenceSlice', () => {
     });
   });
 
-  describe('toggleSystemRole', () => {
-    it('should toggle system role', () => {
-      const { result } = renderHook(() => useGlobalStore());
-
-      act(() => {
-        useGlobalStore.setState({ isStatusInit: true });
-        result.current.toggleSystemRole(true);
-      });
-
-      expect(result.current.status.showSystemRole).toBe(true);
-    });
-  });
-
   describe('updatePreference', () => {
     it('should update status', () => {
       const { result } = renderHook(() => useGlobalStore());

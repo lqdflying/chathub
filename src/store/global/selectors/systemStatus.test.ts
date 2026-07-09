@@ -38,7 +38,6 @@ describe('systemStatusSelectors', () => {
   describe('basic selectors', () => {
     const s: GlobalState = merge(initialState, {
       status: {
-        showSystemRole: true,
         mobileShowTopic: true,
         mobileShowPortal: true,
         showChatSideBar: true,
@@ -56,7 +55,6 @@ describe('systemStatusSelectors', () => {
     });
 
     it('should return correct values for basic selectors', () => {
-      expect(systemStatusSelectors.showSystemRole(s)).toBe(true);
       expect(systemStatusSelectors.mobileShowTopic(s)).toBe(true);
       expect(systemStatusSelectors.mobileShowPortal(s)).toBe(true);
       expect(systemStatusSelectors.showChatSideBar(s)).toBe(true);
