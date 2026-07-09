@@ -4,10 +4,6 @@ import { createStyles } from 'antd-style';
 import { memo, useEffect } from 'react';
 import { Flexbox, FlexboxProps } from 'react-layout-kit';
 
-import { CONVERSATION_MIN_WIDTH } from '@/const/layoutTokens';
-import { useGlobalStore } from '@/store/global';
-import { systemStatusSelectors } from '@/store/global/selectors';
-
 const useStyles = createStyles(({ css, token }) => ({
   container: css`
     align-self: center;
@@ -25,18 +21,13 @@ interface WideScreenContainerProps extends FlexboxProps {
 const WideScreenContainer = memo<WideScreenContainerProps>(
   ({ children, className, onChange, ...rest }) => {
     const { cx, styles } = useStyles();
-    const wideScreen = useGlobalStore(systemStatusSelectors.wideScreen);
 
     useEffect(() => {
       onChange?.();
-    }, [wideScreen]);
+    }, []);
 
     return (
-      <Flexbox
-        className={cx(styles.container, className)}
-        width={wideScreen ? '100%' : `min(${CONVERSATION_MIN_WIDTH}px, 100%)`}
-        {...rest}
-      >
+      <Flexbox className={cx(styles.container, className)} width={'100%'} {...rest}>
         {children}
       </Flexbox>
     );
