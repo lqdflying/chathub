@@ -4,9 +4,18 @@ import {
   buildAuthHeader,
   buildProxyRequestPayload,
   buildRequestHeaders,
+  detectHighlightLanguage,
   formatJson,
+  getResponseSize,
   isValidUrl,
 } from './helpers';
+import { type ApiTesterRequestDraft, createEmptyDraft, createHeaderRow } from './types';
+
+const draftWith = (overrides: Partial<ApiTesterRequestDraft>): ApiTesterRequestDraft => ({
+  ...createEmptyDraft(),
+  headers: [],
+  ...overrides,
+});
 
 describe('isValidUrl', () => {
   it('accepts http URLs', () => {
@@ -59,44 +68,78 @@ describe('buildAuthHeader', () => {
 
 describe('buildRequestHeaders', () => {
   it('builds bearer auth headers', () => {
-    expect(buildRequestHeaders([], 'bearer', 'token123', '', '')).toEqual({
-      Authorization: 'Bearer token123',
-    });
+    expect(buildRequestHeaders(draftWith({ authType: 'bearer', bearerToken: 'token123' }))).toEqual(
+      {
+        Authorization: 'Bearer token123',
+      },
+    );
   });
 
   it('keeps auth tab Authorization above duplicate custom header', () => {
     expect(
       buildRequestHeaders(
-        [{ enabled: true, key: 'Authorization', value: 'Bearer custom-token' }],
-        'bearer',
-        'auth-tab-token',
-        '',
-        '',
+        draftWith({
+          authType: 'bearer',
+          bearerToken: 'auth-tab-token',
+          headers: [createHeaderRow('Authorization', 'Bearer custom-token')],
+        }),
       ),
     ).toEqual({ Authorization: 'Bearer auth-tab-token' });
   });
 
+  it('skips disabled header rows', () => {
+    const disabled = createHeaderRow('X-Disabled', 'nope');
+    disabled.enabled = false;
+    expect(
+      buildRequestHeaders(draftWith({ headers: [disabled, createHeaderRow('X-On', 'yes')] })),
+    ).toEqual({ 'X-On': 'yes' });
+  });
+
   it('includes content type only when provided', () => {
-    expect(buildRequestHeaders([], 'none', '', '', '', 'application/json')).toEqual({
+    expect(buildRequestHeaders(draftWith({}), 'application/json')).toEqual({
       'Content-Type': 'application/json',
     });
+  });
+
+  it('adds api key as custom header', () => {
+    expect(
+      buildRequestHeaders(
+        draftWith({
+          apiKeyLocation: 'header',
+          apiKeyName: 'X-Api-Key',
+          apiKeyValue: 'secret',
+          authType: 'apikey',
+        }),
+      ),
+    ).toEqual({ 'X-Api-Key': 'secret' });
+  });
+
+  it('does not add api key header when location is query', () => {
+    expect(
+      buildRequestHeaders(
+        draftWith({
+          apiKeyLocation: 'query',
+          apiKeyName: 'api_key',
+          apiKeyValue: 'secret',
+          authType: 'apikey',
+        }),
+      ),
+    ).toEqual({});
   });
 });
 
 describe('buildProxyRequestPayload', () => {
   it('builds GET bearer request without body', () => {
     expect(
-      buildProxyRequestPayload({
-        authType: 'bearer',
-        basicPassword: '',
-        basicUsername: '',
-        bearerToken: 'token123',
-        body: '{"unused":true}',
-        contentType: 'application/json',
-        headers: [],
-        method: 'GET',
-        url: ' https://api.example.com/users ',
-      }),
+      buildProxyRequestPayload(
+        draftWith({
+          authType: 'bearer',
+          bearerToken: 'token123',
+          body: '{"unused":true}',
+          method: 'GET',
+          url: ' https://api.example.com/users ',
+        }),
+      ),
     ).toEqual({
       body: undefined,
       headers: { Authorization: 'Bearer token123' },
@@ -107,22 +150,39 @@ describe('buildProxyRequestPayload', () => {
 
   it('adds body and content type for POST requests', () => {
     expect(
-      buildProxyRequestPayload({
-        authType: 'none',
-        basicPassword: '',
-        basicUsername: '',
-        bearerToken: '',
-        body: '{"name":"test"}',
-        contentType: 'application/json',
-        headers: [{ enabled: true, key: 'X-Test', value: 'yes' }],
-        method: 'POST',
-        url: 'https://api.example.com/users',
-      }),
+      buildProxyRequestPayload(
+        draftWith({
+          body: '{"name":"test"}',
+          headers: [createHeaderRow('X-Test', 'yes')],
+          method: 'POST',
+          url: 'https://api.example.com/users',
+        }),
+      ),
     ).toEqual({
       body: '{"name":"test"}',
       headers: { 'Content-Type': 'application/json', 'X-Test': 'yes' },
       method: 'POST',
       url: 'https://api.example.com/users',
+    });
+  });
+
+  it('appends api key to the query string', () => {
+    expect(
+      buildProxyRequestPayload(
+        draftWith({
+          apiKeyLocation: 'query',
+          apiKeyName: 'api_key',
+          apiKeyValue: 'secret',
+          authType: 'apikey',
+          method: 'GET',
+          url: 'https://api.example.com/users?page=1',
+        }),
+      ),
+    ).toEqual({
+      body: undefined,
+      headers: {},
+      method: 'GET',
+      url: 'https://api.example.com/users?page=1&api_key=secret',
     });
   });
 });
@@ -140,5 +200,41 @@ describe('formatJson', () => {
   it('handles nested objects', () => {
     const result = formatJson('{"a":{"b":1}}');
     expect(result).toBe('{\n  "a": {\n    "b": 1\n  }\n}');
+  });
+});
+
+describe('getResponseSize', () => {
+  it('counts ascii bytes', () => {
+    expect(getResponseSize('hello')).toBe(5);
+  });
+
+  it('counts multibyte characters as UTF-8 bytes', () => {
+    expect(getResponseSize('日本')).toBe(6);
+  });
+
+  it('returns 0 for empty body', () => {
+    expect(getResponseSize('')).toBe(0);
+  });
+});
+
+describe('detectHighlightLanguage', () => {
+  it('detects json from content type', () => {
+    expect(detectHighlightLanguage('application/json; charset=utf-8', '')).toBe('json');
+  });
+
+  it('detects html from content type', () => {
+    expect(detectHighlightLanguage('text/html', '<html></html>')).toBe('html');
+  });
+
+  it('detects xml from content type', () => {
+    expect(detectHighlightLanguage('application/xml', '<a/>')).toBe('xml');
+  });
+
+  it('sniffs json body without content type', () => {
+    expect(detectHighlightLanguage('', '{"a":1}')).toBe('json');
+  });
+
+  it('falls back to text', () => {
+    expect(detectHighlightLanguage('text/plain', 'hello')).toBe('text');
   });
 });

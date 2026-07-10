@@ -1,19 +1,5 @@
-export type AuthType = 'basic' | 'bearer' | 'none';
-
-export interface ApiTesterHeaderRow {
-  enabled: boolean;
-  key: string;
-  value: string;
-}
-
-export interface ApiTesterProxyRequest {
-  body?: string;
-  headers?: Record<string, string>;
-  method: string;
-  url: string;
-}
-
-const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+import { BODY_METHODS } from './constants';
+import type { ApiTesterProxyRequest, ApiTesterRequestDraft, AuthType } from './types';
 
 /**
  * Validates that a URL starts with http:// or https://
@@ -30,7 +16,7 @@ export const isValidUrl = (url: string): boolean => {
 
 /**
  * Builds the Authorization header value based on auth type.
- * Returns undefined if auth type is 'none' or required fields are empty.
+ * Returns undefined if auth type is 'none' / 'apikey' or required fields are empty.
  */
 export const buildAuthHeader = (
   type: AuthType,
@@ -49,64 +35,73 @@ export const buildAuthHeader = (
 };
 
 export const buildRequestHeaders = (
-  rows: ApiTesterHeaderRow[],
-  authType: AuthType,
-  bearerToken: string,
-  basicUsername: string,
-  basicPassword: string,
+  draft: ApiTesterRequestDraft,
   contentType?: string,
 ): Record<string, string> => {
   const requestHeaders: Record<string, string> = {};
 
-  for (const h of rows) {
+  for (const h of draft.headers) {
     if (h.enabled && h.key.trim()) {
       requestHeaders[h.key.trim()] = h.value;
     }
   }
 
-  const authHeader = buildAuthHeader(authType, bearerToken, basicUsername, basicPassword);
+  const authHeader = buildAuthHeader(
+    draft.authType,
+    draft.bearerToken,
+    draft.basicUsername,
+    draft.basicPassword,
+  );
   if (authHeader) requestHeaders['Authorization'] = authHeader;
+
+  if (
+    draft.authType === 'apikey' &&
+    draft.apiKeyLocation === 'header' &&
+    draft.apiKeyName.trim() &&
+    draft.apiKeyValue.trim()
+  ) {
+    requestHeaders[draft.apiKeyName.trim()] = draft.apiKeyValue.trim();
+  }
+
   if (contentType) requestHeaders['Content-Type'] = contentType;
 
   return requestHeaders;
 };
 
-export const buildProxyRequestPayload = ({
-  authType,
-  basicPassword,
-  basicUsername,
-  bearerToken,
-  body,
-  contentType,
-  headers,
-  method,
-  url,
-}: {
-  authType: AuthType;
-  basicPassword: string;
-  basicUsername: string;
-  bearerToken: string;
-  body: string;
-  contentType: string;
-  headers: ApiTesterHeaderRow[];
-  method: string;
-  url: string;
-}): ApiTesterProxyRequest => {
-  const hasBody = BODY_METHODS.has(method);
-  const requestBody = hasBody && body.trim() ? body : undefined;
+/**
+ * Appends an API key as a query parameter, tolerating URLs that the URL
+ * constructor cannot parse (falls back to manual string concatenation).
+ */
+const appendQueryApiKey = (url: string, name: string, value: string): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.append(name, value);
+    return parsed.toString();
+  } catch {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+  }
+};
+
+export const buildProxyRequestPayload = (draft: ApiTesterRequestDraft): ApiTesterProxyRequest => {
+  const hasBody = BODY_METHODS.has(draft.method);
+  const requestBody = hasBody && draft.body.trim() ? draft.body : undefined;
+
+  let url = draft.url.trim();
+  if (
+    draft.authType === 'apikey' &&
+    draft.apiKeyLocation === 'query' &&
+    draft.apiKeyName.trim() &&
+    draft.apiKeyValue.trim()
+  ) {
+    url = appendQueryApiKey(url, draft.apiKeyName.trim(), draft.apiKeyValue.trim());
+  }
 
   return {
     body: requestBody,
-    headers: buildRequestHeaders(
-      headers,
-      authType,
-      bearerToken,
-      basicUsername,
-      basicPassword,
-      requestBody ? contentType : undefined,
-    ),
-    method,
-    url: url.trim(),
+    headers: buildRequestHeaders(draft, requestBody ? draft.contentType : undefined),
+    method: draft.method,
+    url,
   };
 };
 
@@ -116,4 +111,36 @@ export const buildProxyRequestPayload = ({
  */
 export const formatJson = (text: string): string => {
   return JSON.stringify(JSON.parse(text), null, 2);
+};
+
+/**
+ * Byte length of a response body (UTF-8).
+ */
+export const getResponseSize = (body: string): number => {
+  return new TextEncoder().encode(body).length;
+};
+
+/**
+ * Picks a syntax-highlighting language for the response body based on the
+ * Content-Type header, falling back to sniffing the body itself.
+ */
+export const detectHighlightLanguage = (
+  contentType: string,
+  body: string,
+): 'html' | 'json' | 'text' | 'xml' => {
+  const ct = contentType.toLowerCase();
+  if (ct.includes('json')) return 'json';
+  if (ct.includes('html')) return 'html';
+  if (ct.includes('xml')) return 'xml';
+
+  const trimmed = body.trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      JSON.parse(trimmed);
+      return 'json';
+    } catch {
+      /* not JSON */
+    }
+  }
+  return 'text';
 };
