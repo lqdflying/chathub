@@ -1,6 +1,20 @@
 import { BODY_METHODS } from './constants';
 import type { ApiTesterProxyRequest, ApiTesterRequestDraft, AuthType } from './types';
 
+const toBase64 = (text: string): string => {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+};
+
+const hasHeader = (headers: Record<string, string>, key: string): boolean => {
+  const normalized = key.toLowerCase();
+  return Object.keys(headers).some((header) => header.toLowerCase() === normalized);
+};
+
 /**
  * Validates that a URL starts with http:// or https://
  */
@@ -29,7 +43,7 @@ export const buildAuthHeader = (
   }
   if (type === 'basic') {
     if (!username && !password) return undefined;
-    return `Basic ${btoa(`${username}:${password}`)}`;
+    return `Basic ${toBase64(`${username}:${password}`)}`;
   }
   return undefined;
 };
@@ -63,7 +77,9 @@ export const buildRequestHeaders = (
     requestHeaders[draft.apiKeyName.trim()] = draft.apiKeyValue.trim();
   }
 
-  if (contentType) requestHeaders['Content-Type'] = contentType;
+  if (contentType && !hasHeader(requestHeaders, 'Content-Type')) {
+    requestHeaders['Content-Type'] = contentType;
+  }
 
   return requestHeaders;
 };
@@ -78,8 +94,13 @@ const appendQueryApiKey = (url: string, name: string, value: string): string => 
     parsed.searchParams.append(name, value);
     return parsed.toString();
   } catch {
-    const separator = url.includes('?') ? '&' : '?';
-    return `${url}${separator}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+    const hashIndex = url.indexOf('#');
+    const beforeFragment = hashIndex < 0 ? url : url.slice(0, hashIndex);
+    const fragment = hashIndex < 0 ? '' : url.slice(hashIndex);
+    const separator = beforeFragment.includes('?') ? '&' : '?';
+    return `${beforeFragment}${separator}${encodeURIComponent(name)}=${encodeURIComponent(
+      value,
+    )}${fragment}`;
   }
 };
 

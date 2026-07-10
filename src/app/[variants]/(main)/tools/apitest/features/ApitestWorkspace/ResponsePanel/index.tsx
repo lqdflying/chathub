@@ -2,7 +2,7 @@
 
 import { Divider, Tabs, Tag, Typography } from 'antd';
 import { createStyles } from 'antd-style';
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -51,6 +51,10 @@ const ResponsePanel = memo<ResponsePanelProps>(({ response }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('tools');
   const [activeTab, setActiveTab] = useState('body');
+
+  useEffect(() => {
+    setActiveTab('body');
+  }, [response]);
 
   const headerCount = Object.keys(response.headers).length;
 

@@ -2,7 +2,7 @@ import { ssrfSafeFetch } from 'ssrf-safe-fetch';
 import { z } from 'zod';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
-const BODY_METHODS = new Set<string>(['POST', 'PUT', 'PATCH']);
+const BODY_METHODS = new Set<string>(['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 
 const HeaderRecordSchema = z.record(z.string(), z.string());
 
@@ -22,8 +22,13 @@ export interface ApiTesterResponse {
   statusText: string;
 }
 
+interface ExecuteApiTesterRequestOptions {
+  signal?: AbortSignal;
+}
+
 export const executeApiTesterRequest = async (
   request: ApiTesterRequest,
+  options: ExecuteApiTesterRequestOptions = {},
 ): Promise<ApiTesterResponse> => {
   const url = new URL(request.url);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -31,11 +36,15 @@ export const executeApiTesterRequest = async (
   }
 
   const hasBody = BODY_METHODS.has(request.method);
-  const response = await ssrfSafeFetch(request.url, {
+  const fetchOptions: RequestInit = {
     body: hasBody && request.body ? request.body : undefined,
     headers: request.headers,
     method: request.method,
-  });
+  };
+
+  if (options.signal) fetchOptions.signal = options.signal;
+
+  const response = await ssrfSafeFetch(request.url, fetchOptions);
 
   const responseHeaders: Record<string, string> = {};
   response.headers.forEach((value, key) => {

@@ -1,6 +1,6 @@
 export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 
-export const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+export const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 
 export const CONTENT_TYPES = [
   { label: 'application/json', value: 'application/json' },

@@ -4,7 +4,7 @@ import { ActionIcon, CopyButton, Highlighter } from '@lobehub/ui';
 import { Button } from 'antd';
 import { createStyles } from 'antd-style';
 import { Download } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -63,6 +63,10 @@ const ResponseBody = memo<ResponseBodyProps>(({ response }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('tools');
   const [rawMode, setRawMode] = useState(false);
+
+  useEffect(() => {
+    setRawMode(false);
+  }, [response]);
 
   const formattedBody = useMemo(() => {
     if (!response.isJson || !response.body) return response.body;
@@ -124,7 +128,7 @@ const ResponseBody = memo<ResponseBodyProps>(({ response }) => {
           </Highlighter>
         </div>
       ) : (
-        <pre className={styles.codeBlock}>{displayBody || '(empty body)'}</pre>
+        <pre className={styles.codeBlock}>{displayBody || t('apitest.emptyBody')}</pre>
       )}
     </Flexbox>
   );

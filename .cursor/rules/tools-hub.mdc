@@ -13,6 +13,8 @@ Left sidebar entry (Wrench icon, `SidebarTabKey.Tools`, always visible). All uti
 | Tool | Route | DB table |
 |------|-------|----------|
 | Picbed (image hosting) | `/tools/picbed` | `picbed_images` |
+| Password Generator | `/tools/password` | none |
+| API Tester | `/tools/apitest` | none |
 
 ## Key files
 
@@ -29,3 +31,34 @@ Left sidebar entry (Wrench icon, `SidebarTabKey.Tools`, always visible). All uti
 4. Add tRPC router in `src/server/routers/lambda/` + register in `lambda/index.ts`.
 5. Add nav entry in `Nav.tsx`.
 6. Add route to middleware matcher in `src/middleware.ts`.
+
+## API Tester safety notes
+
+API Tester sends user-entered URLs through the server-side proxy at
+`src/app/(backend)/webapi/tools/apitest/route.ts`, which delegates to
+`src/server/services/apiTester/index.ts`.
+
+- Keep outbound requests behind `ssrfSafeFetch`; do not replace it with raw
+  `fetch` on the server.
+- Thread cancellation and timeout signals to the actual outbound fetch. Client
+  cancellation alone only aborts the browser-to-ChatHub request.
+- Do not persist request secrets in browser storage. History entries must
+  redact bearer tokens, basic passwords, API keys, Authorization/Cookie-style
+  headers, and query API key values before entering localStorage.
+- cURL import/export is best-effort but should match documented cURL behavior
+  for supported flags. In particular, `-G` / `--get` moves `-d` data into the
+  query string, `--json` implies a JSON request body plus JSON headers, and
+  short options may attach their values (`-XPOST`, `-dfoo=bar`). Reject
+  unsupported methods or ambiguous option combinations instead of importing a
+  misleading request.
+- Request body support must stay aligned across `BODY_METHODS`, the request UI,
+  payload builder, cURL export, and server service. GET and HEAD do not send
+  bodies; POST, PUT, PATCH, DELETE, and OPTIONS may.
+- Normalize stored history requests through current draft defaults before
+  rendering or restoring them. Repair valid legacy header rows and discard
+  entries with unsupported methods or unusable request shapes.
+- Global request shortcuts must not fire while an API Tester modal or drawer is
+  open. History restore/delete actions must be keyboard accessible, and
+  response-local tab/raw state must reset when a new response arrives.
+- All visible strings belong in `src/locales/default/tools.ts` and both served
+  locale JSON files.

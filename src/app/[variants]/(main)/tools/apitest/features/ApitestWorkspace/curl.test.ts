@@ -52,7 +52,10 @@ describe('parseCurl', () => {
   });
 
   it('handles backslash-newline continuations', () => {
-    const parsed = parseCurl(`curl \\\n  -X PUT \\\n  https://example.com \\\n  -d 'x'`);
+    const parsed = parseCurl(`curl \
+  -X PUT \
+  https://example.com \
+  -d 'x'`);
     expect(parsed?.method).toBe('PUT');
     expect(parsed?.url).toBe('https://example.com');
     expect(parsed?.body).toBe('x');
@@ -69,9 +72,48 @@ describe('parseCurl', () => {
     expect(parsed?.body).toBe('a=1&b=2');
   });
 
+  it('maps -G data flags to query params instead of a POST body', () => {
+    const parsed = parseCurl(`curl -G https://example.com/search -d q=test -d page=1`);
+    expect(parsed?.method).toBe('GET');
+    expect(parsed?.url).toBe('https://example.com/search?q=test&page=1');
+    expect(parsed?.body).toBeUndefined();
+  });
+
+  it('preserves existing query strings and fragments when importing -G', () => {
+    const parsed = parseCurl(`curl --get 'https://example.com/search?sort=asc#top' -d q=test`);
+    expect(parsed?.url).toBe('https://example.com/search?sort=asc&q=test#top');
+  });
+
+  it('keeps HEAD when -G is combined with -I', () => {
+    const parsed = parseCurl(`curl -I -G https://example.com/search -d q=test`);
+    expect(parsed?.method).toBe('HEAD');
+    expect(parsed?.url).toBe('https://example.com/search?q=test');
+    expect(parsed?.body).toBeUndefined();
+  });
+
   it('encodes --data-urlencode values', () => {
     const parsed = parseCurl(`curl https://example.com --data-urlencode 'q=a b'`);
     expect(parsed?.body).toBe('q=a%20b');
+  });
+
+  it('parses --json as a JSON POST body with JSON headers', () => {
+    const parsed = parseCurl(`curl https://example.com --json '{"a":1}'`);
+    expect(parsed?.method).toBe('POST');
+    expect(parsed?.body).toBe('{"a":1}');
+    expect(parsed?.contentType).toBe('application/json');
+    expect(parsed?.headers).toEqual([{ key: 'Accept', value: 'application/json' }]);
+  });
+
+  it('concatenates repeated --json body parts without form separators', () => {
+    const parsed = parseCurl(`curl https://example.com --json '{"a":' --json '1}'`);
+    expect(parsed?.body).toBe('{"a":1}');
+  });
+
+  it('does not add default Accept for --json when explicitly provided', () => {
+    const parsed = parseCurl(
+      `curl https://example.com -H 'Accept: text/plain' --json '{"a":1}'`,
+    );
+    expect(parsed?.headers).toEqual([{ key: 'Accept', value: 'text/plain' }]);
   });
 
   it('ignores noise flags', () => {
@@ -83,6 +125,28 @@ describe('parseCurl', () => {
     const parsed = parseCurl(`curl --request DELETE --url https://example.com/item/1`);
     expect(parsed?.method).toBe('DELETE');
     expect(parsed?.url).toBe('https://example.com/item/1');
+  });
+
+  it('supports attached short option values', () => {
+    const parsed = parseCurl(
+      `curl -XPOST -HAccept:application/json -uuser:pass -dfoo=bar https://example.com`,
+    );
+
+    expect(parsed?.method).toBe('POST');
+    expect(parsed?.headers).toEqual([{ key: 'Accept', value: 'application/json' }]);
+    expect(parsed?.basicUsername).toBe('user');
+    expect(parsed?.basicPassword).toBe('pass');
+    expect(parsed?.body).toBe('foo=bar');
+    expect(parsed?.url).toBe('https://example.com');
+  });
+
+  it('rejects unsupported imported methods', () => {
+    expect(parseCurl(`curl -X TRACE https://example.com`)).toBeNull();
+    expect(parseCurl(`curl -XTRACE https://example.com`)).toBeNull();
+  });
+
+  it('rejects ambiguous combined short options that require values', () => {
+    expect(parseCurl(`curl -XPOSTHAccept:application/json https://example.com`)).toBeNull();
   });
 
   it('maps -I to HEAD', () => {
@@ -124,7 +188,7 @@ describe('parsedCurlToDraft', () => {
 });
 
 describe('buildCurl', () => {
-  it('renders method, url, headers and body', () => {
+  it('renders method, url, headers and JSON body', () => {
     const draft = createEmptyDraft();
     draft.method = 'POST';
     draft.url = 'https://example.com/api';
@@ -134,8 +198,20 @@ describe('buildCurl', () => {
     const curl = buildCurl(draft);
     expect(curl).toContain(`curl -X POST 'https://example.com/api'`);
     expect(curl).toContain(`-H 'X-Test: yes'`);
-    expect(curl).toContain(`-H 'Content-Type: application/json'`);
-    expect(curl).toContain(`--data '{"a":1}'`);
+    expect(curl).toContain(`--json '{"a":1}'`);
+    expect(curl).not.toContain(`-H 'Content-Type: application/json'`);
+  });
+
+  it('renders non-json bodies with --data', () => {
+    const draft = createEmptyDraft();
+    draft.method = 'POST';
+    draft.url = 'https://example.com/form';
+    draft.contentType = 'application/x-www-form-urlencoded';
+    draft.body = 'a=1';
+
+    const curl = buildCurl(draft);
+    expect(curl).toContain(`-H 'Content-Type: application/x-www-form-urlencoded'`);
+    expect(curl).toContain(`--data 'a=1'`);
   });
 
   it('escapes single quotes in values', () => {
@@ -144,7 +220,9 @@ describe('buildCurl', () => {
     draft.url = 'https://example.com';
     draft.body = `{"name":"O'Brien"}`;
 
-    expect(buildCurl(draft)).toContain(String.raw`--data '{"name":"O'\''Brien"}'`);
+    const curl = buildCurl(draft);
+    expect(curl).toContain('--json');
+    expect(curl).toContain(String.raw`O'\''Brien`);
   });
 
   it('round-trips through parseCurl', () => {
@@ -160,5 +238,16 @@ describe('buildCurl', () => {
     expect(reparsed?.url).toBe('https://example.com/items/9');
     expect(reparsed?.body).toBe('{"done":true}');
     expect(reparsed?.bearerToken).toBe('tok123');
+  });
+
+  it('keeps DELETE bodies in exported cURL', () => {
+    const draft = createEmptyDraft();
+    draft.method = 'DELETE';
+    draft.url = 'https://example.com/items/9';
+    draft.body = '{"reason":"duplicate"}';
+
+    const curl = buildCurl(draft);
+    expect(curl).toContain(`curl -X DELETE 'https://example.com/items/9'`);
+    expect(curl).toContain(`--json '{"reason":"duplicate"}'`);
   });
 });

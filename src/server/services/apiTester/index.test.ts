@@ -60,6 +60,43 @@ describe('executeApiTesterRequest', () => {
     });
   });
 
+  it('passes an abort signal to ssrfSafeFetch when provided', async () => {
+    vi.mocked(ssrfSafeFetch).mockResolvedValueOnce(new Response('', { status: 204 }));
+    const controller = new AbortController();
+
+    await executeApiTesterRequest(
+      {
+        method: 'DELETE',
+        url: 'https://api.example.com/users/1',
+      },
+      { signal: controller.signal },
+    );
+
+    expect(ssrfSafeFetch).toHaveBeenCalledWith('https://api.example.com/users/1', {
+      body: undefined,
+      headers: undefined,
+      method: 'DELETE',
+      signal: controller.signal,
+    });
+  });
+
+  it('sends body for DELETE requests', async () => {
+    vi.mocked(ssrfSafeFetch).mockResolvedValueOnce(new Response('', { status: 204 }));
+
+    await executeApiTesterRequest({
+      body: '{"reason":"duplicate"}',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'DELETE',
+      url: 'https://api.example.com/users/1',
+    });
+
+    expect(ssrfSafeFetch).toHaveBeenCalledWith('https://api.example.com/users/1', {
+      body: '{"reason":"duplicate"}',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'DELETE',
+    });
+  });
+
   it('rejects non-http urls', async () => {
     await expect(
       executeApiTesterRequest({

@@ -61,6 +61,13 @@ describe('buildAuthHeader', () => {
     expect(header).toBe(`Basic ${btoa('user:pass')}`);
   });
 
+  it('encodes unicode basic auth credentials as UTF-8', () => {
+    const encoded = buildAuthHeader('basic', '', '用户', '密码')?.replace('Basic ', '');
+    expect(new TextDecoder().decode(Uint8Array.from(atob(encoded!), (char) => char.charCodeAt(0)))).toBe(
+      '用户:密码',
+    );
+  });
+
   it('returns undefined for basic with empty username and password', () => {
     expect(buildAuthHeader('basic', '', '', '')).toBeUndefined();
   });
@@ -99,6 +106,17 @@ describe('buildRequestHeaders', () => {
     expect(buildRequestHeaders(draftWith({}), 'application/json')).toEqual({
       'Content-Type': 'application/json',
     });
+  });
+
+  it('preserves explicit content-type header rows over body tab content type', () => {
+    expect(
+      buildRequestHeaders(
+        draftWith({
+          headers: [createHeaderRow('Content-Type', 'multipart/form-data; boundary=abc')],
+        }),
+        'application/json',
+      ),
+    ).toEqual({ 'Content-Type': 'multipart/form-data; boundary=abc' });
   });
 
   it('adds api key as custom header', () => {
@@ -166,6 +184,23 @@ describe('buildProxyRequestPayload', () => {
     });
   });
 
+  it('keeps body for DELETE and OPTIONS requests', () => {
+    for (const method of ['DELETE', 'OPTIONS']) {
+      expect(
+        buildProxyRequestPayload(
+          draftWith({
+            body: '{"reason":"duplicate"}',
+            method,
+            url: 'https://api.example.com/users/1',
+          }),
+        ),
+      ).toMatchObject({
+        body: '{"reason":"duplicate"}',
+        method,
+      });
+    }
+  });
+
   it('appends api key to the query string', () => {
     expect(
       buildProxyRequestPayload(
@@ -184,6 +219,21 @@ describe('buildProxyRequestPayload', () => {
       method: 'GET',
       url: 'https://api.example.com/users?page=1&api_key=secret',
     });
+  });
+
+  it('appends api key before URL fragments in fallback mode', () => {
+    expect(
+      buildProxyRequestPayload(
+        draftWith({
+          apiKeyLocation: 'query',
+          apiKeyName: 'api_key',
+          apiKeyValue: 'secret',
+          authType: 'apikey',
+          method: 'GET',
+          url: 'https://api.example.com/users/%zz#section',
+        }),
+      ).url,
+    ).toBe('https://api.example.com/users/%zz?api_key=secret#section');
   });
 });
 

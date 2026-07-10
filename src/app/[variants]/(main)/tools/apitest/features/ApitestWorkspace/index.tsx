@@ -34,6 +34,11 @@ const useStyles = createStyles(({ css }) => ({
   `,
 }));
 
+const isInOverlay = (target: EventTarget | null): boolean => {
+  if (!(target instanceof Element)) return false;
+  return !!target.closest('.ant-modal, .ant-drawer, [role="dialog"]');
+};
+
 const ApitestWorkspace = memo(() => {
   const { styles } = useStyles();
   const { t } = useTranslation('tools');
@@ -189,17 +194,18 @@ const ApitestWorkspace = memo(() => {
     abortRef.current?.abort();
   }, []);
 
-  // Ctrl/Cmd + Enter sends from anywhere on the page
+  // Ctrl/Cmd + Enter is page-scoped; modal/drawer inputs own their shortcuts.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        if (importOpen || historyOpen || isInOverlay(event.target)) return;
         event.preventDefault();
         handleSend();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [handleSend]);
+  }, [handleSend, historyOpen, importOpen]);
 
   // ── History actions ─────────────────────────────────────────────────────────
 

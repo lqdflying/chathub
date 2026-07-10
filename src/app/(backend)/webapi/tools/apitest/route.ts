@@ -8,10 +8,30 @@ import {
 
 export const runtime = 'nodejs';
 
+const SERVER_REQUEST_TIMEOUT_MS = 60_000;
+
+const anySignal = (signals: AbortSignal[]): AbortSignal => {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      abort();
+      break;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+  }
+  return controller.signal;
+};
+
 export const POST = async (req: Request) => {
   try {
     const payload = ApiTesterRequestSchema.parse(await req.json());
-    const response = await executeApiTesterRequest(payload);
+    const timeoutSignal = AbortSignal.timeout(SERVER_REQUEST_TIMEOUT_MS);
+    const response = await executeApiTesterRequest(payload, {
+      signal: anySignal([req.signal, timeoutSignal]),
+    });
 
     return NextResponse.json(response);
   } catch (error) {

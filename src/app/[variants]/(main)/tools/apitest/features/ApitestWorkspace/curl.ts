@@ -1,3 +1,4 @@
+import { HTTP_METHODS } from './constants';
 import { buildProxyRequestPayload } from './helpers';
 import { type ApiTesterRequestDraft, createEmptyDraft, createHeaderRow } from './types';
 
@@ -102,6 +103,28 @@ const IGNORED_FLAGS = new Set([
 
 const DATA_FLAGS = new Set(['--data', '--data-ascii', '--data-binary', '--data-raw', '-d']);
 
+const SUPPORTED_METHODS = new Set(HTTP_METHODS);
+
+const hasHeader = (headers: { key: string; value: string }[], key: string): boolean => {
+  const normalized = key.toLowerCase();
+  return headers.some((header) => header.key.toLowerCase() === normalized);
+};
+
+const appendQueryData = (url: string, data: string): string => {
+  if (!data) return url;
+
+  const hashIndex = url.indexOf('#');
+  const beforeFragment = hashIndex < 0 ? url : url.slice(0, hashIndex);
+  const fragment = hashIndex < 0 ? '' : url.slice(hashIndex);
+  const separator = beforeFragment.includes('?')
+    ? beforeFragment.endsWith('?') || beforeFragment.endsWith('&')
+      ? ''
+      : '&'
+    : '?';
+
+  return `${beforeFragment}${separator}${data}${fragment}`;
+};
+
 /**
  * Parses a `curl ...` command line into a request description.
  * Returns null when the input is not a recognizable curl command.
@@ -116,6 +139,9 @@ export const parseCurl = (command: string): ParsedCurlRequest | null => {
   let basicUsername: string | undefined;
   let basicPassword: string | undefined;
   let contentType: string | undefined;
+  let useDataAsQuery = false;
+  let jsonBody = false;
+  const jsonParts: string[] = [];
   const headers: { key: string; value: string }[] = [];
   const dataParts: string[] = [];
 
@@ -123,10 +149,13 @@ export const parseCurl = (command: string): ParsedCurlRequest | null => {
     const token = tokens[i];
     const next = () => tokens[++i] ?? '';
 
-    if (token === '-X' || token === '--request') {
-      method = next().toUpperCase();
-    } else if (token === '-H' || token === '--header') {
-      const raw = next();
+    if (token === '-X' || token === '--request' || token.startsWith('-X')) {
+      const raw = token === '-X' || token === '--request' ? next() : token.slice(2);
+      const nextMethod = raw.toUpperCase();
+      if (!SUPPORTED_METHODS.has(nextMethod)) return null;
+      method = nextMethod;
+    } else if (token === '-H' || token === '--header' || token.startsWith('-H')) {
+      const raw = token === '-H' || token === '--header' ? next() : token.slice(2);
       const colonIndex = raw.indexOf(':');
       if (colonIndex < 0) continue;
       const key = raw.slice(0, colonIndex).trim();
@@ -142,10 +171,23 @@ export const parseCurl = (command: string): ParsedCurlRequest | null => {
       } else {
         headers.push({ key, value });
       }
-    } else if (DATA_FLAGS.has(token)) {
-      dataParts.push(next());
+    } else if (DATA_FLAGS.has(token) || token.startsWith('-d')) {
+      dataParts.push(DATA_FLAGS.has(token) ? next() : token.slice(2));
     } else
       switch (token) {
+        case '-G':
+        case '--get': {
+          useDataAsQuery = true;
+
+          break;
+        }
+        case '--json': {
+          jsonBody = true;
+          jsonParts.push(next());
+          contentType = 'application/json';
+
+          break;
+        }
         case '--data-urlencode': {
           const raw = next();
           const eqIndex = raw.indexOf('=');
@@ -159,7 +201,7 @@ export const parseCurl = (command: string): ParsedCurlRequest | null => {
         }
         case '-u':
         case '--user': {
-          const raw = next();
+          const raw = token === '-u' || token === '--user' ? next() : token.slice(2);
           const colonIndex = raw.indexOf(':');
           basicUsername = colonIndex < 0 ? raw : raw.slice(0, colonIndex);
           basicPassword = colonIndex < 0 ? '' : raw.slice(colonIndex + 1);
@@ -198,6 +240,29 @@ export const parseCurl = (command: string): ParsedCurlRequest | null => {
         default: {
           if (IGNORED_FLAGS_WITH_ARG.has(token)) {
             next();
+          } else if (token.startsWith('-u') && token.length > 2) {
+            const raw = token.slice(2);
+            const colonIndex = raw.indexOf(':');
+            basicUsername = colonIndex < 0 ? raw : raw.slice(0, colonIndex);
+            basicPassword = colonIndex < 0 ? '' : raw.slice(colonIndex + 1);
+          } else if (token.startsWith('-A') && token.length > 2) {
+            headers.push({ key: 'User-Agent', value: token.slice(2) });
+          } else if (token.startsWith('-b') && token.length > 2) {
+            headers.push({ key: 'Cookie', value: token.slice(2) });
+          } else if (token.startsWith('-e') && token.length > 2) {
+            headers.push({ key: 'Referer', value: token.slice(2) });
+          } else if (token.startsWith('-m') && token.length > 2) {
+            // consumed ignored option value attached to short flag
+          } else if (token.startsWith('-o') && token.length > 2) {
+            // consumed ignored option value attached to short flag
+          } else if (token.startsWith('-w') && token.length > 2) {
+            // consumed ignored option value attached to short flag
+          } else if (token.startsWith('-') && !token.startsWith('--')) {
+            const flags = token.slice(1);
+            const unsupportedValueFlag = [...flags].some((flag) =>
+              ['A', 'b', 'd', 'e', 'H', 'm', 'o', 'u', 'w', 'X'].includes(flag),
+            );
+            if (unsupportedValueFlag) return null;
           } else if (IGNORED_FLAGS.has(token) || token.startsWith('-')) {
             // unknown flag — skip it (best effort)
           } else if (!url) {
@@ -209,7 +274,18 @@ export const parseCurl = (command: string): ParsedCurlRequest | null => {
 
   if (!url) return null;
 
-  const body = dataParts.length > 0 ? dataParts.join('&') : undefined;
+  const joinedData = jsonBody
+    ? [...dataParts, jsonParts.join('')].filter(Boolean).join('&')
+    : dataParts.length > 0
+      ? dataParts.join('&')
+      : undefined;
+  const body = joinedData && !useDataAsQuery ? joinedData : undefined;
+  if (joinedData && useDataAsQuery) {
+    url = appendQueryData(url, joinedData);
+  }
+  if (jsonBody && !hasHeader(headers, 'Accept')) {
+    headers.push({ key: 'Accept', value: 'application/json' });
+  }
 
   return {
     basicPassword,
@@ -218,7 +294,7 @@ export const parseCurl = (command: string): ParsedCurlRequest | null => {
     body,
     contentType,
     headers,
-    method: method || (body ? 'POST' : 'GET'),
+    method: method || (useDataAsQuery ? 'GET' : body ? 'POST' : 'GET'),
     url,
   };
 };
@@ -258,13 +334,17 @@ const shellQuote = (text: string): string => `'${text.replaceAll("'", String.raw
 export const buildCurl = (draft: ApiTesterRequestDraft): string => {
   const payload = buildProxyRequestPayload(draft);
   const lines: string[] = [`curl -X ${payload.method} ${shellQuote(payload.url)}`];
+  const isJsonBody =
+    payload.body !== undefined &&
+    (payload.headers?.['Content-Type'] || payload.headers?.['content-type']) === 'application/json';
 
   for (const [key, value] of Object.entries(payload.headers ?? {})) {
+    if (isJsonBody && key.toLowerCase() === 'content-type') continue;
     lines.push(`-H ${shellQuote(`${key}: ${value}`)}`);
   }
 
   if (payload.body !== undefined) {
-    lines.push(`--data ${shellQuote(payload.body)}`);
+    lines.push(`${isJsonBody ? '--json' : '--data'} ${shellQuote(payload.body)}`);
   }
 
   return lines.join(' \\\n  ');

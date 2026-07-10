@@ -23,16 +23,32 @@ const METHOD_COLORS: Record<string, string> = {
 
 const useStyles = createStyles(({ css, token }) => ({
   entry: css`
-    cursor: pointer;
-
-    padding: 10px;
+    overflow: hidden;
     border: 1px solid ${token.colorBorderSecondary};
     border-radius: ${token.borderRadius}px;
 
     transition: background 0.2s;
+    background: transparent;
 
-    &:hover {
+    &:hover,
+    &:focus-within {
       background: ${token.colorFillTertiary};
+    }
+  `,
+  restoreButton: css`
+    cursor: pointer;
+
+    min-width: 0;
+    border: 0;
+
+    color: inherit;
+    text-align: start;
+
+    background: transparent;
+
+    &:focus-visible {
+      outline: 2px solid ${token.colorPrimaryBorder};
+      outline-offset: -2px;
     }
   `,
   meta: css`
@@ -70,7 +86,13 @@ const HistoryDrawer = memo<HistoryDrawerProps>(
       <Drawer
         extra={
           entries.length > 0 && (
-            <Popconfirm onConfirm={onClear} title={t('apitest.clearHistoryConfirm')}>
+            <Popconfirm
+              cancelText={t('apitest.cancel')}
+              okButtonProps={{ danger: true }}
+              okText={t('apitest.clearHistory')}
+              onConfirm={onClear}
+              title={t('apitest.clearHistoryConfirm')}
+            >
               <Button danger size={'small'} type={'text'}>
                 {t('apitest.clearHistory')}
               </Button>
@@ -89,42 +111,51 @@ const HistoryDrawer = memo<HistoryDrawerProps>(
           <Flexbox gap={8}>
             {entries.map((entry) => (
               <Tooltip key={entry.id} mouseEnterDelay={0.5} title={t('apitest.restore')}>
-                <div className={styles.entry} onClick={() => onRestore(entry)}>
-                  <Flexbox gap={6}>
-                    <Flexbox align={'center'} gap={8} horizontal>
-                      <Tag color={METHOD_COLORS[entry.request.method] ?? 'default'}>
-                        {entry.request.method}
-                      </Tag>
-                      {entry.response && (
-                        <Tag color={statusColor(entry.response.status)}>
-                          {entry.response.status}
+                <Flexbox align={'stretch'} className={styles.entry} horizontal>
+                  <button
+                    aria-label={t('apitest.restoreHistoryEntry', {
+                      method: entry.request.method,
+                      url: entry.request.url,
+                    })}
+                    className={styles.restoreButton}
+                    onClick={() => onRestore(entry)}
+                    type={'button'}
+                  >
+                    <Flexbox gap={6} style={{ padding: 10 }}>
+                      <Flexbox align={'center'} gap={8} horizontal>
+                        <Tag color={METHOD_COLORS[entry.request.method] ?? 'default'}>
+                          {entry.request.method}
                         </Tag>
-                      )}
-                      <span style={{ flex: 1 }} />
-                      <Button
-                        danger
-                        icon={<Trash2 size={12} />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(entry.id);
-                        }}
-                        size={'small'}
-                        type={'text'}
-                      />
-                    </Flexbox>
-                    <Typography.Text className={styles.url}>{entry.request.url}</Typography.Text>
-                    <Flexbox align={'center'} gap={12} horizontal>
-                      <span className={styles.meta}>
-                        {new Date(entry.createdAt).toLocaleString()}
-                      </span>
-                      {entry.response && (
+                        {entry.response && (
+                          <Tag color={statusColor(entry.response.status)}>
+                            {entry.response.status}
+                          </Tag>
+                        )}
+                      </Flexbox>
+                      <Typography.Text className={styles.url}>{entry.request.url}</Typography.Text>
+                      <Flexbox align={'center'} gap={12} horizontal>
                         <span className={styles.meta}>
-                          {entry.response.time}ms · {formatSize(entry.response.size)}
+                          {new Date(entry.createdAt).toLocaleString()}
                         </span>
-                      )}
+                        {entry.response && (
+                          <span className={styles.meta}>
+                            {entry.response.time}ms · {formatSize(entry.response.size)}
+                          </span>
+                        )}
+                      </Flexbox>
                     </Flexbox>
+                  </button>
+                  <Flexbox justify={'center'} style={{ padding: '8px 8px 8px 0' }}>
+                    <Button
+                      aria-label={t('apitest.deleteHistoryEntry')}
+                      danger
+                      icon={<Trash2 size={12} />}
+                      onClick={() => onDelete(entry.id)}
+                      size={'small'}
+                      type={'text'}
+                    />
                   </Flexbox>
-                </div>
+                </Flexbox>
               </Tooltip>
             ))}
           </Flexbox>
