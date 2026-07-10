@@ -58,7 +58,20 @@ API Tester sends user-entered URLs through the server-side proxy at
   rendering or restoring them. Repair valid legacy header rows and discard
   entries with unsupported methods or unusable request shapes.
 - Global request shortcuts must not fire while an API Tester modal or drawer is
-  open. History restore/delete actions must be keyboard accessible, and
-  response-local tab/raw state must reset when a new response arrives.
+  open. History restore/delete actions must be keyboard accessible.
+- Response tabs are labeled `Response Body` and `Response Headers`. Every new
+  response resets the outer panel to `Response Body`.
+- Valid JSON responses expose `Tree | Formatted | Raw` and default to `Tree`;
+  non-JSON, malformed, empty, or oversized JSON responses expose only the safe
+  text views and default to `Formatted`. A new response must reset this local
+  mode based on the new body.
+- Build JSON trees with a fixed node budget (`JSON_TREE_MAX_NODES`) and return
+  an explicit overflow result instead of partial tree data. Oversized valid JSON
+  stays available through Formatted/Raw with a localized explanation.
+- Use Ant Design `Tree` with a fixed virtualized height and an accessible name;
+  preserve its native focus, expansion, and keyboard behavior. Render stable
+  one-line rows so virtualization measurements remain reliable.
+- Copy uses pretty JSON in Tree/Formatted and exact response text in Raw.
+  Download always uses the exact original response body.
 - All visible strings belong in `src/locales/default/tools.ts` and both served
   locale JSON files.

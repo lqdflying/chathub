@@ -37,3 +37,6 @@ export const REQUEST_TIMEOUT_MS = 60_000;
 
 /** Above this size Shiki highlighting becomes too slow — fall back to a plain <pre>. */
 export const HIGHLIGHT_MAX_CHARS = 100_000;
+
+/** Bound recursive conversion so large JSON responses cannot block the response panel. */
+export const JSON_TREE_MAX_NODES = 2_000;

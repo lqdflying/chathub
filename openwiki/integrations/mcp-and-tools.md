@@ -71,8 +71,19 @@ Important invariants:
   discard entries with unsupported methods or unusable request shapes.
 - Scope `Ctrl`/`Cmd` + `Enter` to the request workspace so modal and drawer
   interactions cannot send the underlying request. History actions must remain
-  keyboard accessible, and response Body/Headers plus Raw/Formatted state
-  should reset when a new response arrives.
+  keyboard accessible.
+- The response tabs are `Response Body` and `Response Headers`. Each new
+  response returns to `Response Body` and resets its local view mode.
+- Valid JSON defaults to an expandable `Tree` view, with `Formatted` and `Raw`
+  alternatives. The tree uses Ant Design's named, virtualized tree primitive so
+  its native focus and keyboard expansion behavior remain available. Root and
+  first-level containers start expanded; deeper branches are user-controlled.
+- Tree construction is bounded by `JSON_TREE_MAX_NODES` (2,000 nodes). Empty,
+  non-JSON, malformed, and oversized payloads remain usable in text views;
+  oversized valid JSON also shows a localized fallback explanation rather than
+  rendering a partial tree.
+- Copy uses pretty JSON in Tree/Formatted and exact response text in Raw.
+  Download always preserves the exact original response body.
 
 ## What to watch for
 

@@ -43,6 +43,10 @@ export default {
     importCurlPlaceholder:
       'curl -X POST https://api.example.com/v1/users -H "Content-Type: application/json" -d \'{"name":"test"}\'',
     invalidUrl: 'Please enter a valid URL (must start with http:// or https://)',
+    jsonTree: 'Tree',
+    jsonTreeLabel: 'JSON response tree',
+    jsonTreeTooLarge:
+      'This JSON response is too large for Tree view. Use Formatted or Raw view instead.',
     method: 'Method',
     networkError: 'Network error',
     paramKey: 'Key',
@@ -52,7 +56,7 @@ export default {
     raw: 'Raw',
     remove: 'Remove',
     response: 'Response',
-    responseBody: 'Body',
+    responseBody: 'Response Body',
     responseHeaders: 'Response Headers',
     restore: 'Click to restore',
     restoreHistoryEntry: 'Restore {{method}} request to {{url}}',
