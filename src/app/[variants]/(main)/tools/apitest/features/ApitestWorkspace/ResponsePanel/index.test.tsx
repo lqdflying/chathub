@@ -30,7 +30,7 @@ vi.mock('react-i18next', () => ({
         'apitest.networkError': 'Network error',
         'apitest.raw': 'Raw',
         'apitest.responseBody': 'Body',
-        'apitest.responseHeaders': 'Headers',
+        'apitest.responseHeaders': 'Response Headers',
       })[key] ?? key,
   }),
 }));
@@ -54,7 +54,7 @@ describe('ResponsePanel', () => {
     await user.click(screen.getByRole('button', { name: 'Raw' }));
     expect(screen.getByText('{"a":1}')).toBeTruthy();
 
-    await user.click(screen.getByRole('tab', { name: 'Headers (1)' }));
+    await user.click(screen.getByRole('tab', { name: 'Response Headers (1)' }));
     expect(screen.getByText('content-type')).toBeTruthy();
 
     rerender(<ResponsePanel response={makeResponse({ body: '{"b":2}', size: 7, time: 10 })} />);

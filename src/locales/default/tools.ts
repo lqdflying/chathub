@@ -53,7 +53,7 @@ export default {
     remove: 'Remove',
     response: 'Response',
     responseBody: 'Body',
-    responseHeaders: 'Headers',
+    responseHeaders: 'Response Headers',
     restore: 'Click to restore',
     restoreHistoryEntry: 'Restore {{method}} request to {{url}}',
     send: 'Send',
