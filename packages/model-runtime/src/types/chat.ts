@@ -101,6 +101,7 @@ export interface ChatStreamPayload {
   /**
    * @title 生成文本的最大长度
    */
+  max_output_tokens?: number;
   max_tokens?: number;
   /**
    * @title 聊天信息列表
@@ -121,28 +122,27 @@ export interface ChatStreamPayload {
    * @default 0
    */
   presence_penalty?: number;
+  prompt_cache_key?: string;
   provider?: string;
   /**
    * MiniMax OpenAI-compatible (`api.minimax.io/v1`): when true, interleaved thinking is
    * exposed as `reasoning_details` (see MiniMax OpenAI API `reasoning_split`).
    */
-  reasoning_split?: boolean;
   reasoning?: {
     effort?: string;
     summary?: string;
   };
-  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  reasoning_split?: boolean;
   responseMode?: 'stream' | 'json';
-  response_format?: ChatResponseFormat;
   responseStateMode?: 'provider' | 'stateless';
+  response_format?: ChatResponseFormat;
+  store?: boolean;
   /**
    * @title 是否开启流式请求
    * @default true
    */
   stream?: boolean;
-  store?: boolean;
-  max_output_tokens?: number;
-  prompt_cache_key?: string;
   /**
    * @title 生成文本的随机度量，用于控制文本的创造性和多样性
    * @default 1
@@ -161,12 +161,12 @@ export interface ChatStreamPayload {
      * Ignored for `thinking.type: "enabled"` on models that still use budget_tokens.
      */
     effort?: 'low' | 'medium' | 'high' | 'max' | 'xhigh';
-    type: 'adaptive' | 'disabled' | 'enabled';
     /**
      * Moonshot `kimi-k2.6` only: Preserved Thinking — forward historical `reasoning_content`
      * when `keep` is `all` (see Moonshot chat API `KimiK26ChatRequest`).
      */
     keep?: 'all' | null;
+    type: 'adaptive' | 'disabled' | 'enabled';
   };
   thinkingBudget?: number;
   tool_choice?: string;

@@ -1,20 +1,24 @@
 import type { AIChatModelCard, AIImageModelCard } from '../types/aiModel';
 import { gptImage1ParamsSchema, openaiChatModels } from './openai';
 
-const gpt55 = openaiChatModels.find((model) => model.id === 'gpt-5.5')!;
-const { searchProvider: _searchProvider, ...gpt55Settings } =
-  gpt55.settings ?? {};
+const compatibleChatModelIds = ['gpt-5.6-sol', 'gpt-5.5'];
 
 const openaicompatibleModels: Array<AIChatModelCard | AIImageModelCard> = [
-  {
-    ...gpt55,
-    abilities: {
-      ...gpt55.abilities,
-      search: false,
-    },
-    enabled: true,
-    settings: gpt55Settings,
-  },
+  ...compatibleChatModelIds.map((modelId) => {
+    const sourceModel = openaiChatModels.find((model) => model.id === modelId)!;
+    const settings = { ...sourceModel.settings };
+    delete settings.searchProvider;
+
+    return {
+      ...sourceModel,
+      abilities: {
+        ...sourceModel.abilities,
+        search: false,
+      },
+      enabled: true,
+      settings,
+    };
+  }),
   {
     description:
       'OpenAI-compatible image generation model for gateways exposing GPT Image 2 through the Images API.',

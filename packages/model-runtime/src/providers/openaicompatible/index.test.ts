@@ -247,6 +247,53 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall.reasoning).toMatchObject({ effort: 'high' });
   });
 
+  it('forwards Sol max reasoning effort in Chat Completions mode', async () => {
+    await instance.chat({
+      enabledSearch: false,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.6-sol',
+      provider: 'openaicompatible',
+      reasoning: { effort: 'low' },
+      reasoning_effort: 'max',
+      responseMode: 'stream',
+    });
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    expect(createCall).toMatchObject({
+      model: 'gpt-5.6-sol',
+      reasoning_effort: 'max',
+    });
+    expect(createCall).not.toHaveProperty('enabledSearch');
+    expect(createCall).not.toHaveProperty('provider');
+    expect(createCall).not.toHaveProperty('reasoning');
+    expect(createCall).not.toHaveProperty('responseMode');
+  });
+
+  it('maps Sol max reasoning effort into Responses mode', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      enabledContextCaching: true,
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.6-sol',
+      provider: 'openaicompatible',
+      reasoning_effort: 'max',
+      reasoning_split: true,
+      responseMode: 'stream',
+    });
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall).toMatchObject({
+      model: 'gpt-5.6-sol',
+      reasoning: { effort: 'max' },
+    });
+    expect(createCall).not.toHaveProperty('apiMode');
+    expect(createCall).not.toHaveProperty('enabledContextCaching');
+    expect(createCall).not.toHaveProperty('provider');
+    expect(createCall).not.toHaveProperty('reasoning_effort');
+    expect(createCall).not.toHaveProperty('reasoning_split');
+    expect(createCall).not.toHaveProperty('responseMode');
+  });
+
   it('does not serialize historical reasoning into Responses input', async () => {
     await instance.chat({
       apiMode: 'responses',

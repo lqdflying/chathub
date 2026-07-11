@@ -10,7 +10,13 @@ import {
   REASONING_BUDGET_TOKEN_ADAPTIVE,
   supportsAnthropicAdaptiveThinking,
 } from '@lobechat/model-runtime';
-import { ChatErrorType, TracePayload, TraceTagMap, UIChatMessage } from '@lobechat/types';
+import {
+  ChatErrorType,
+  TracePayload,
+  TraceTagMap,
+  UIChatMessage,
+  resolveGPT5ReasoningEffort,
+} from '@lobechat/types';
 import { PluginRequestPayload, createHeadersWithPluginSettings } from '@lobehub/chat-plugin-sdk';
 import { merge } from 'lodash-es';
 import { ModelProvider } from 'model-bank';
@@ -241,10 +247,10 @@ class ChatService {
       }
 
       if (modelExtendParams!.includes('gpt5ReasoningEffort') && chatConfig.gpt5ReasoningEffort) {
-        let effort = chatConfig.gpt5ReasoningEffort as string;
-        if (payload.model.startsWith('gpt-5.5') && (effort === 'minimal' || effort === 'none')) {
-          effort = 'low';
-        }
+        const { effort } = resolveGPT5ReasoningEffort(
+          payload.model,
+          chatConfig.gpt5ReasoningEffort,
+        );
         extendParams.reasoning_effort = effort;
       }
 

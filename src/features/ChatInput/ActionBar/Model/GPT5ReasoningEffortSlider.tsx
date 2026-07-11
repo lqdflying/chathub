@@ -1,4 +1,5 @@
 import { Slider } from 'antd';
+import { resolveGPT5ReasoningEffort } from '@lobechat/types';
 import { memo, useCallback, useMemo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
@@ -7,9 +8,6 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selector
 
 import { mergeDiscreteSliderShell } from './discreteSliderShell';
 
-type Gpt5LegacyEffort = 'minimal' | 'low' | 'medium' | 'high';
-type Gpt55Effort = 'low' | 'medium' | 'high' | 'xhigh';
-
 const GPT5ReasoningEffortSlider = memo(() => {
   const [model, config, updateAgentChatConfig] = useAgentStore((s) => [
     agentSelectors.currentAgentModel(s),
@@ -17,58 +15,42 @@ const GPT5ReasoningEffortSlider = memo(() => {
     s.updateAgentChatConfig,
   ]);
 
-  const isGpt55Family = model.startsWith('gpt-5.5');
-
-  const { effortValues, marks, max } = useMemo(() => {
-    if (isGpt55Family) {
-      const values: Gpt55Effort[] = ['low', 'medium', 'high', 'xhigh'];
-      return {
-        effortValues: values,
-        marks: Object.fromEntries(values.map((v, i) => [i, v])) as Record<number, string>,
-        max: 3,
-      };
-    }
-    const values: Gpt5LegacyEffort[] = ['minimal', 'low', 'medium', 'high'];
-    return {
-      effortValues: values,
-      marks: Object.fromEntries(values.map((v, i) => [i, v])) as Record<number, string>,
-      max: 3,
-    };
-  }, [isGpt55Family]);
-
-  const rawEffort = config.gpt5ReasoningEffort || 'medium';
-  const gpt5ReasoningEffort = (() => {
-    if (!isGpt55Family) return rawEffort;
-    if (rawEffort === 'none' || rawEffort === 'minimal') return 'low';
-    if (effortValues.includes(rawEffort as Gpt55Effort)) return rawEffort as Gpt55Effort;
-    return 'medium';
-  })();
-  const indexValue = effortValues.indexOf(gpt5ReasoningEffort as any);
-  const currentValue = indexValue === -1 ? effortValues.indexOf('medium') : indexValue;
+  const { effort, effortValues } = resolveGPT5ReasoningEffort(
+    model,
+    config.gpt5ReasoningEffort,
+  );
+  const marks = useMemo(
+    () =>
+      Object.fromEntries(effortValues.map((effortValue, index) => [index, effortValue])) as Record<
+        number,
+        string
+      >,
+    [effortValues],
+  );
+  const currentValue = effortValues.indexOf(effort);
 
   const updateGPT5ReasoningEffort = useCallback(
     (value: number) => {
       const effort = effortValues[value];
-      if (effort) updateAgentChatConfig({ gpt5ReasoningEffort: effort as any });
+      if (effort) updateAgentChatConfig({ gpt5ReasoningEffort: effort });
     },
     [effortValues, updateAgentChatConfig],
   );
 
-  // First mark is centered on the left rail end; labels extend ~50% leftward. Legacy
-  // GPT-5.x uses "minimal" (wider than "low" on gpt-5.5) — extra start inset on non-5.5.
-  const sliderGutter = isGpt55Family
-    ? { paddingInline: 12 as const }
-    : { paddingInlineEnd: 10 as const, paddingInlineStart: 26 as const };
+  const isLegacyGpt5Family = effortValues[0] === 'minimal';
+  const sliderGutter = isLegacyGpt5Family
+    ? { paddingInlineEnd: 10 as const, paddingInlineStart: 26 as const }
+    : { paddingInline: 12 as const };
 
   return (
     <Flexbox style={mergeDiscreteSliderShell(sliderGutter)}>
       <Slider
         marks={marks}
-        max={max}
+        max={effortValues.length - 1}
         min={0}
         onChange={updateGPT5ReasoningEffort}
         step={1}
-        styles={{ mark: { fontSize: isGpt55Family ? 11 : 10 } }}
+        styles={{ mark: { fontSize: effortValues.length > 4 ? 10 : 11 } }}
         tooltip={{ open: false }}
         value={currentValue}
       />

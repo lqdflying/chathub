@@ -3,6 +3,78 @@ import { z } from 'zod';
 
 import { SearchMode } from '../search';
 
+export type GPT5ReasoningEffort =
+  | 'none'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
+
+export interface GPT5ReasoningEffortResolution {
+  effort: GPT5ReasoningEffort;
+  effortValues: readonly GPT5ReasoningEffort[];
+}
+
+const GPT56_SOL_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
+  'none',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+];
+const GPT55_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+];
+const LEGACY_GPT5_REASONING_EFFORTS: readonly GPT5ReasoningEffort[] = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+];
+
+export const resolveGPT5ReasoningEffort = (
+  model: string,
+  requestedEffort: GPT5ReasoningEffort | undefined,
+): GPT5ReasoningEffortResolution => {
+  if (model === 'gpt-5.6-sol') {
+    return {
+      effort: GPT56_SOL_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
+        ? (requestedEffort as GPT5ReasoningEffort)
+        : 'medium',
+      effortValues: GPT56_SOL_REASONING_EFFORTS,
+    };
+  }
+
+  if (model.startsWith('gpt-5.5')) {
+    if (requestedEffort === 'none' || requestedEffort === 'minimal') {
+      return {
+        effort: 'low',
+        effortValues: GPT55_REASONING_EFFORTS,
+      };
+    }
+
+    return {
+      effort: GPT55_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
+        ? (requestedEffort as GPT5ReasoningEffort)
+        : 'medium',
+      effortValues: GPT55_REASONING_EFFORTS,
+    };
+  }
+
+  return {
+    effort: LEGACY_GPT5_REASONING_EFFORTS.includes(requestedEffort as GPT5ReasoningEffort)
+      ? (requestedEffort as GPT5ReasoningEffort)
+      : 'medium',
+    effortValues: LEGACY_GPT5_REASONING_EFFORTS,
+  };
+};
+
 export interface WorkingModel {
   model: string;
   provider: string;
@@ -40,7 +112,7 @@ export interface LobeAgentChatConfig {
   enableReasoningEffort?: boolean;
   reasoningBudgetToken?: number;
   reasoningEffort?: 'low' | 'medium' | 'high';
-  gpt5ReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  gpt5ReasoningEffort?: GPT5ReasoningEffort;
   /**
    * 输出文本详细程度控制
    */
@@ -103,18 +175,22 @@ export const AgentChatConfigSchema = z.object({
   enableAutoCreateTopic: z.boolean().optional(),
   enableCompressHistory: z.boolean().optional(),
   enableDailyMemorySummary: z.boolean().optional(),
-  enablePeriodicAssistantMemoryRollup: z.boolean().optional(),
   enableHistoryCount: z.boolean().optional(),
-  enableTokenThresholdAutoCompact: z.boolean().optional(),
-  enableUserMemoryArchive: z.boolean().optional(),
   enableMaxTokens: z.boolean().optional(),
+  enablePeriodicAssistantMemoryRollup: z.boolean().optional(),
   enableReasoning: z.boolean().optional(),
   enableReasoningEffort: z.boolean().optional(),
-  moonshotPreservedReasoning: z.boolean().optional(),
-  minimaxReasoningSplit: z.boolean().optional(),
   enableStreaming: z.boolean().optional(),
+  enableTokenThresholdAutoCompact: z.boolean().optional(),
+  enableUserMemoryArchive: z.boolean().optional(),
+  gpt5ReasoningEffort: z
+    .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    .optional(),
   historyCount: z.number().optional(),
+  minimaxReasoningSplit: z.boolean().optional(),
+  moonshotPreservedReasoning: z.boolean().optional(),
   reasoningBudgetToken: z.number().optional(),
+  reasoningEffort: z.enum(['low', 'medium', 'high']).optional(),
   searchFCModel: z
     .object({
       model: z.string(),
@@ -123,9 +199,4 @@ export const AgentChatConfigSchema = z.object({
     .optional(),
   searchMode: z.enum(['off', 'on', 'auto']).optional(),
   textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
-  gpt5ReasoningEffort: z.preprocess(
-    (v) => (v === 'none' ? 'low' : v),
-    z.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
-  ),
-  reasoningEffort: z.enum(['low', 'medium', 'high']).optional(),
 });

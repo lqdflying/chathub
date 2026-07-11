@@ -6,24 +6,56 @@ import openaiChatModels from './aiModels/openai';
 import openaicompatible from './aiModels/openaicompatible';
 
 describe('compatible provider fixed model lists', () => {
-  it('locks OpenAI Compatible to GPT-5.5 and GPT Image 2', () => {
+  it('locks OpenAI Compatible to GPT-5.6 Sol, GPT-5.5, and GPT Image 2', () => {
+    const sourceGpt56Sol = openaiChatModels.find((model) => model.id === 'gpt-5.6-sol');
     const sourceGpt55 = openaiChatModels.find((model) => model.id === 'gpt-5.5');
-    expect(sourceGpt55).toBeDefined();
-    expect(openaicompatible.map((model) => model.id)).toEqual(['gpt-5.5', 'gpt-image-2']);
-    expect(openaicompatible.find((model) => model.id === 'gpt-5.5')).toMatchObject({
+    expect(sourceGpt56Sol).toMatchObject({
       abilities: {
-        search: false,
+        functionCall: true,
+        reasoning: true,
+        search: true,
+        structuredOutput: true,
+        vision: true,
       },
-      enabled: true,
+      contextWindowTokens: 1_050_000,
+      displayName: 'GPT-5.6 Sol',
+      maxOutput: 128_000,
+      pricing: {
+        units: [
+          { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textOutput', rate: 30, strategy: 'fixed', unit: 'millionTokens' },
+          { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+        ],
+      },
+      releasedAt: '2026-07-09',
       settings: {
         extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
         searchImpl: 'params',
       },
-      type: 'chat',
     });
-    expect(openaicompatible.find((model) => model.id === 'gpt-5.5')?.settings).not.toHaveProperty(
-      'searchProvider',
-    );
+    expect(sourceGpt55).toBeDefined();
+    expect(openaicompatible.map((model) => model.id)).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.5',
+      'gpt-image-2',
+    ]);
+
+    for (const modelId of ['gpt-5.6-sol', 'gpt-5.5']) {
+      const compatibleModel = openaicompatible.find((model) => model.id === modelId);
+      expect(compatibleModel).toMatchObject({
+        abilities: {
+          search: false,
+        },
+        enabled: true,
+        settings: {
+          extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+          searchImpl: 'params',
+        },
+        type: 'chat',
+      });
+      expect(compatibleModel?.settings).not.toHaveProperty('searchProvider');
+    }
+
     expect(openaicompatible.find((model) => model.id === 'gpt-image-2')).toMatchObject({
       enabled: true,
       parameters: expect.any(Object),

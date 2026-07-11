@@ -7,6 +7,20 @@ const OpenAICompatible: ModelProviderCard = {
     {
       contextWindowTokens: 1_050_000,
       description:
+        'GPT-5.6 Sol through an OpenAI-compatible Chat Completions or Responses gateway.',
+      displayName: 'GPT-5.6 Sol',
+      enabled: true,
+      functionCall: true,
+      id: 'gpt-5.6-sol',
+      maxOutput: 128_000,
+      reasoning: true,
+      releasedAt: '2026-07-09',
+      search: false,
+      vision: true,
+    },
+    {
+      contextWindowTokens: 1_050_000,
+      description:
         'GPT-5.5 through an OpenAI-compatible Chat Completions gateway.',
       displayName: 'GPT-5.5',
       enabled: true,

@@ -253,6 +253,46 @@ describe('ChatService', () => {
         );
       });
 
+      it.each([
+        ['gpt-5.6-sol', 'none', 'none'],
+        ['gpt-5.6-sol', 'max', 'max'],
+        ['gpt-5.5', 'none', 'low'],
+        ['gpt-5.5', 'minimal', 'low'],
+        ['gpt-5.5', 'max', 'medium'],
+        ['gpt-5.4', 'none', 'medium'],
+        ['gpt-5.4', 'max', 'medium'],
+      ] as const)(
+        'should normalize GPT-5 effort for %s from %s to %s',
+        async (model, savedEffort, expectedEffort) => {
+          const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+          const messages = [{ content: 'Test GPT-5 reasoning effort', role: 'user' }] as UIChatMessage[];
+
+          vi.spyOn(aiModelSelectors, 'isModelHasExtendParams').mockReturnValue(() => true);
+          vi.spyOn(aiModelSelectors, 'modelExtendParams').mockReturnValue(() => [
+            'gpt5ReasoningEffort',
+          ]);
+          vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockReturnValue({
+            gpt5ReasoningEffort: savedEffort,
+            searchMode: 'off',
+          } as any);
+
+          await chatService.createAssistantMessage({
+            messages,
+            model,
+            plugins: [],
+            provider: 'openaicompatible',
+          });
+
+          expect(getChatCompletionSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+              model,
+              reasoning_effort: expectedEffort,
+            }),
+            undefined,
+          );
+        },
+      );
+
       it('should set thinkingBudget when model supports thinkingBudget and user configures it', async () => {
         const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
         const messages = [{ content: 'Test thinking budget', role: 'user' }] as UIChatMessage[];

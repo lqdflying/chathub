@@ -36,6 +36,21 @@ The recent OpenAI SDK upgrade kept this path working by normalizing the new `Hea
 
 Provider-specific cache hint combinations are documented in [OpenAI-compatible cache matrix](../integrations/openai-compatible-cache-matrix.md).
 
+### Fixed OpenAI-compatible catalog
+
+The `openaicompatible` provider intentionally uses a fixed, non-editable model list instead of exposing arbitrary model fetching. Its chat catalog clones `gpt-5.6-sol` and `gpt-5.5` from the native OpenAI model bank, preserves their option settings, and disables the native-search ability so search remains an explicit compatible-provider option. `gpt-image-2` remains the fixed image model.
+
+`gpt-5.5` remains the provider connection-check model because compatible gateways may expose GPT-5.5 before they add GPT-5.6 Sol.
+
+GPT-5 reasoning effort is normalized by model before the request reaches the runtime:
+
+- `gpt-5.6-sol`: `none`, `low`, `medium`, `high`, `xhigh`, `max`
+- GPT-5.5 family: `low`, `medium`, `high`, `xhigh`; saved `none` or `minimal` values map to `low`
+- Earlier GPT-5 models: `minimal`, `low`, `medium`, `high`
+- Unsupported saved values from a model switch fall back to `medium`
+
+The internal request uses `reasoning_effort` for both compatible API modes. Chat Completions forwards it as the top-level `reasoning_effort` field. Responses removes that top-level field and sends `reasoning: { effort }` instead. This endpoint mapping permits GPT-5.6 Sol's `max` value without introducing a new upstream field or changing the compatible-provider cache matrix.
+
 ## Model fetch normalization
 
 Providers that expose `/models` can return new model ids before ChatHub's built-in model list is refreshed. The runtime still needs to normalize fetched ids through provider-specific capability rules so the UI can detect function calling, reasoning, vision, video, search, and image-output support.

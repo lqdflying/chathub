@@ -28,6 +28,35 @@ export const openaiChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 1_050_000,
     description:
+      "GPT-5.6 Sol is OpenAI's frontier model for complex professional work, coding, and agentic workflows with an expanded reasoning range.",
+    displayName: 'GPT-5.6 Sol',
+    enabled: true,
+    id: 'gpt-5.6-sol',
+    maxOutput: 128_000,
+    pricing: {
+      units: [
+        { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 30, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-07-09',
+    settings: {
+      extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
+      searchImpl: 'params',
+    },
+    type: 'chat',
+  },
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      search: true,
+      structuredOutput: true,
+      vision: true,
+    },
+    contextWindowTokens: 1_050_000,
+    description:
       "GPT-5.5 is OpenAI's newest frontier model for complex professional work, coding, and agentic workflows with an expanded context window.",
     displayName: 'GPT-5.5',
     enabled: true,
