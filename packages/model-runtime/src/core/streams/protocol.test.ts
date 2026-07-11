@@ -235,11 +235,13 @@ describe('createTokenSpeedCalculator', async () => {
 });
 
 describe('createSSEProtocolTransformer', () => {
-  const processChunk = async (transformer: TransformStream, chunk: any) => {
+  const processChunks = async (transformer: TransformStream, chunks: any[]) => {
     const results: any[] = [];
     const readable = new ReadableStream({
       start(controller) {
-        controller.enqueue(chunk);
+        for (const chunk of chunks) {
+          controller.enqueue(chunk);
+        }
         controller.close();
       },
     });
@@ -254,6 +256,9 @@ describe('createSSEProtocolTransformer', () => {
 
     return results;
   };
+
+  const processChunk = async (transformer: TransformStream, chunk: any) =>
+    processChunks(transformer, [chunk]);
 
   it('should convert chunk into SSE formatted lines without enforcing terminal (default)', async () => {
     const transformerFn = (chunk: any) => ({ type: 'text', id: chunk.id, data: chunk.data });
@@ -325,5 +330,56 @@ describe('createSSEProtocolTransformer', () => {
     const results = await processChunk(transformer, { id: 'skip', data: undefined });
 
     expect(results).toEqual([]);
+  });
+
+  it('should strip GPT-5.6 placeholder-only reasoning comments while preserving title text', async () => {
+    const transformerFn = (chunk: any) => ({ type: 'reasoning', id: chunk.id, data: chunk.data });
+    const transformer = createSSEProtocolTransformer(transformerFn as any);
+
+    const results = await processChunk(transformer, {
+      data: '**Planning weather data crawling**\n\n<!-- -->',
+      id: 'reasoning_1',
+    });
+
+    expect(results).toEqual([
+      `id: reasoning_1\n`,
+      `event: reasoning\n`,
+      `data: ${JSON.stringify('**Planning weather data crawling**\n\n')}\n\n`,
+    ]);
+  });
+
+  it('should drop reasoning comments when the placeholder is split across chunks', async () => {
+    const transformerFn = (chunk: any) => ({ type: 'reasoning', id: chunk.id, data: chunk.data });
+    const transformer = createSSEProtocolTransformer(transformerFn as any);
+
+    const results = await processChunks(transformer, [
+      { data: '**Planning weather data crawling**\n\n<', id: 'reasoning_1' },
+      { data: '!-- -->', id: 'reasoning_1' },
+    ]);
+
+    expect(results).toEqual([
+      `id: reasoning_1\n`,
+      `event: reasoning\n`,
+      `data: ${JSON.stringify('**Planning weather data crawling**\n\n')}\n\n`,
+    ]);
+  });
+
+  it('should preserve a trailing less-than character when the reasoning stream ends', async () => {
+    const transformerFn = (chunk: any) => ({ type: 'reasoning', id: chunk.id, data: chunk.data });
+    const transformer = createSSEProtocolTransformer(transformerFn as any);
+
+    const results = await processChunk(transformer, {
+      data: 'Compare 2 <',
+      id: 'reasoning_1',
+    });
+
+    expect(results).toEqual([
+      `id: reasoning_1\n`,
+      `event: reasoning\n`,
+      `data: ${JSON.stringify('Compare 2 ')}\n\n`,
+      `id: reasoning_1\n`,
+      `event: reasoning\n`,
+      `data: ${JSON.stringify('<')}\n\n`,
+    ]);
   });
 });

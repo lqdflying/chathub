@@ -622,6 +622,35 @@ describe('OpenAIResponsesStream', () => {
     expect(chunks.some((c) => c.includes(' the problem...'))).toBe(true);
   });
 
+  it('should strip empty HTML comments from GPT-5.6 reasoning summaries', async () => {
+    const mockOpenAIStream = createReadableStream([
+      {
+        response: {
+          id: 'resp_gpt56_reasoning',
+          status: 'in_progress',
+        },
+        type: 'response.created',
+      },
+      {
+        delta: '**Planning weather data crawling**\n\n<!-- -->',
+        item_id: 'reasoning_gpt56',
+        output_index: 0,
+        summary_index: 0,
+        type: 'response.reasoning_summary_text.delta',
+      },
+    ]);
+    const onThinkingMock = vi.fn();
+    const protocolStream = OpenAIResponsesStream(mockOpenAIStream, {
+      callbacks: { onThinking: onThinkingMock },
+    });
+    const chunks = await readStreamChunk(protocolStream);
+
+    expect(chunks.join('')).toContain('**Planning weather data crawling**');
+    expect(chunks.join('')).not.toContain('<!-- -->');
+    expect(onThinkingMock).toHaveBeenCalledOnce();
+    expect(onThinkingMock).toHaveBeenCalledWith('**Planning weather data crawling**\n\n');
+  });
+
   it('should handle response.output_text.annotation.added', async () => {
     const mockOpenAIStream = createReadableStream([
       {

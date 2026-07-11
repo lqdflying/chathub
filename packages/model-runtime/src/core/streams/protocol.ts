@@ -110,6 +110,47 @@ export interface StreamProtocolToolCallChunk {
   type: 'tool_calls';
 }
 
+// OpenAI reasoning summaries can contain this placeholder in raw SSE.
+// Buffer partial markers because providers may split them across chunks.
+// https://github.com/openai/codex/issues/31664
+const EMPTY_REASONING_HTML_COMMENT_PLACEHOLDER = /<!--\s*-->/g;
+const EMPTY_REASONING_HTML_COMMENT_PLACEHOLDER_MARKER = '<!-- -->';
+
+const getTrailingReasoningHtmlCommentStart = (value: string) => {
+  const maxPrefixLength = Math.min(
+    EMPTY_REASONING_HTML_COMMENT_PLACEHOLDER_MARKER.length - 1,
+    value.length,
+  );
+
+  for (let length = maxPrefixLength; length > 0; length -= 1) {
+    const possiblePrefix = value.slice(-length);
+
+    if (EMPTY_REASONING_HTML_COMMENT_PLACEHOLDER_MARKER.startsWith(possiblePrefix)) {
+      return possiblePrefix;
+    }
+  }
+
+  return '';
+};
+
+const sanitizeReasoningProtocolData = (
+  data: string,
+  pendingHtmlCommentStart: string,
+): { data?: string; pendingHtmlCommentStart: string } => {
+  const combinedData = pendingHtmlCommentStart + data;
+  const bufferedCommentStart = getTrailingReasoningHtmlCommentStart(combinedData);
+  const completeData = bufferedCommentStart
+    ? combinedData.slice(0, -bufferedCommentStart.length)
+    : combinedData;
+  const sanitizedData = completeData.replaceAll(EMPTY_REASONING_HTML_COMMENT_PLACEHOLDER, '');
+
+  if (sanitizedData.trim().length === 0 && combinedData.includes('<!--')) {
+    return { data: undefined, pendingHtmlCommentStart: bufferedCommentStart };
+  }
+
+  return { data: sanitizedData, pendingHtmlCommentStart: bufferedCommentStart };
+};
+
 export const generateToolCallId = (index: number, functionName?: string) =>
   `${functionName || 'unknown_tool_call'}_${index}_${nanoid()}`;
 
@@ -182,9 +223,17 @@ export const createSSEProtocolTransformer = (
 ) => {
   let hasTerminalEvent = false;
   const requireTerminalEvent = Boolean(options?.requireTerminalEvent);
+  let pendingReasoningHtmlCommentStart = '';
+  let pendingReasoningId: string | undefined;
 
   return new TransformStream({
     flush(controller) {
+      if (pendingReasoningHtmlCommentStart) {
+        controller.enqueue(`id: ${pendingReasoningId ?? streamStack?.id ?? ''}\n`);
+        controller.enqueue(`event: reasoning\n`);
+        controller.enqueue(`data: ${JSON.stringify(pendingReasoningHtmlCommentStart)}\n\n`);
+      }
+
       // If the upstream closes without sending a terminal event, emit a final error event
       if (requireTerminalEvent && !hasTerminalEvent) {
         const id = streamStack?.id || 'stream_end';
@@ -205,14 +254,37 @@ export const createSSEProtocolTransformer = (
       const buffers = Array.isArray(result) ? result : [result];
 
       buffers.filter(Boolean).forEach(({ type, id, data }) => {
-        if (data === undefined) return;
+        if (type !== 'reasoning' || typeof data !== 'string') {
+          if (pendingReasoningHtmlCommentStart) {
+            controller.enqueue(`id: ${pendingReasoningId || id}\n`);
+            controller.enqueue(`event: reasoning\n`);
+            controller.enqueue(`data: ${JSON.stringify(pendingReasoningHtmlCommentStart)}\n\n`);
+            pendingReasoningHtmlCommentStart = '';
+            pendingReasoningId = undefined;
+          }
+
+          if (data === undefined) return;
+
+          controller.enqueue(`id: ${id}\n`);
+          controller.enqueue(`event: ${type}\n`);
+          controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
+
+          if (type === 'stop' || type === 'usage' || type === 'error') hasTerminalEvent = true;
+          return;
+        }
+
+        const sanitizedResult = sanitizeReasoningProtocolData(
+          data,
+          pendingReasoningHtmlCommentStart,
+        );
+        pendingReasoningHtmlCommentStart = sanitizedResult.pendingHtmlCommentStart;
+        pendingReasoningId = pendingReasoningHtmlCommentStart ? id : undefined;
+
+        if (sanitizedResult.data === undefined) return;
 
         controller.enqueue(`id: ${id}\n`);
-        controller.enqueue(`event: ${type}\n`);
-        controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
-
-        // mark terminal when receiving any of these events
-        if (type === 'stop' || type === 'usage' || type === 'error') hasTerminalEvent = true;
+        controller.enqueue(`event: reasoning\n`);
+        controller.enqueue(`data: ${JSON.stringify(sanitizedResult.data)}\n\n`);
       });
     },
   });

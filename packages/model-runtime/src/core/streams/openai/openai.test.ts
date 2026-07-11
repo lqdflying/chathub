@@ -79,6 +79,52 @@ describe('OpenAIStream', () => {
     expect(onCompletionMock).toHaveBeenCalledTimes(1);
   });
 
+  it('should strip empty HTML comments from GPT-5.6 reasoning content', async () => {
+    const mockOpenAIStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({
+          choices: [
+            {
+              delta: {
+                content: null,
+                reasoning_content: '**Planning weather data crawling**\n\n<!-- -->',
+              },
+              index: 0,
+            },
+          ],
+          id: 'chatcmpl-gpt56-reasoning',
+        });
+        controller.enqueue({
+          choices: [
+            {
+              delta: { content: 'Weather result' },
+              finish_reason: 'stop',
+              index: 0,
+            },
+          ],
+          id: 'chatcmpl-gpt56-reasoning',
+        });
+        controller.close();
+      },
+    });
+    const onThinkingMock = vi.fn();
+    const protocolStream = OpenAIStream(mockOpenAIStream, {
+      callbacks: { onThinking: onThinkingMock },
+    });
+    const decoder = new TextDecoder();
+    const chunks = [];
+
+    // @ts-ignore
+    for await (const chunk of protocolStream) {
+      chunks.push(decoder.decode(chunk, { stream: true }));
+    }
+
+    expect(chunks.join('')).toContain('**Planning weather data crawling**');
+    expect(chunks.join('')).not.toContain('<!-- -->');
+    expect(onThinkingMock).toHaveBeenCalledOnce();
+    expect(onThinkingMock).toHaveBeenCalledWith('**Planning weather data crawling**\n\n');
+  });
+
   it('should handle empty stream', async () => {
     const mockStream = new ReadableStream({
       start(controller) {
