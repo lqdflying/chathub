@@ -186,10 +186,14 @@ describe('OpenAIStream', () => {
       model: 'gpt-5.5',
       outputTokens: 7,
       promptTokens: 128,
-      responseId: 'chatcmpl-cache',
+      responseId: {
+        hash: expect.stringMatching(/^[\da-f]{8}$/),
+        present: true,
+      },
       route: '/chat/completions',
       totalTokens: 135,
     });
+    expect(cacheLog![1]).not.toContain('chatcmpl-cache');
 
     consoleLogSpy.mockRestore();
   });
@@ -354,6 +358,97 @@ describe('OpenAIStream', () => {
     expect(chunks).toEqual(
       ['id: 456', 'event: text', `data: "Some contents"\n`].map((i) => `${i}\n`),
     );
+  });
+
+  it('should keep missing tool-call IDs stable across interleaved parallel chunks', async () => {
+    const mockOpenAIStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    function: { arguments: '{"city":"', name: 'get_weather' },
+                    index: 0,
+                    type: 'function',
+                  },
+                  {
+                    function: { arguments: '{"zone":"', name: 'get_time' },
+                    index: 1,
+                    type: 'function',
+                  },
+                ],
+              },
+              index: 0,
+            },
+          ],
+          id: 'parallel-tools',
+        });
+        controller.enqueue({
+          choices: [
+            {
+              delta: {
+                tool_calls: [{ function: { arguments: 'Paris"}' }, index: 0 }],
+              },
+              index: 0,
+            },
+          ],
+          id: 'parallel-tools',
+        });
+        controller.enqueue({
+          choices: [
+            {
+              delta: {
+                tool_calls: [{ function: { arguments: 'Europe/Paris"}' }, index: 1 }],
+              },
+              index: 0,
+            },
+          ],
+          id: 'parallel-tools',
+        });
+        controller.enqueue({
+          choices: [{ delta: {}, finish_reason: 'tool_calls', index: 0 }],
+          id: 'parallel-tools',
+        });
+        controller.close();
+      },
+    });
+    const onToolsCalling = vi.fn();
+
+    const protocolStream = OpenAIStream(mockOpenAIStream, {
+      callbacks: { onToolsCalling },
+    });
+    const reader = protocolStream.getReader();
+    while (!(await reader.read()).done) {
+      // Consume the protocol stream to drive callbacks.
+    }
+
+    expect(onToolsCalling).toHaveBeenCalledTimes(3);
+
+    const firstChunk = onToolsCalling.mock.calls[0][0];
+    const secondChunk = onToolsCalling.mock.calls[1][0];
+    const thirdChunk = onToolsCalling.mock.calls[2][0];
+    const firstToolId = firstChunk.chunk[0].id;
+    const secondToolId = firstChunk.chunk[1].id;
+
+    expect(firstToolId).toBeTruthy();
+    expect(secondToolId).toBeTruthy();
+    expect(firstToolId).not.toBe(secondToolId);
+    expect(secondChunk.chunk[0]).toMatchObject({ id: firstToolId, index: 0 });
+    expect(thirdChunk.chunk[0]).toMatchObject({ id: secondToolId, index: 1 });
+    expect(thirdChunk.toolsCalling).toEqual([
+      {
+        function: { arguments: '{"city":"Paris"}', name: 'get_weather' },
+        id: firstToolId,
+        type: 'function',
+      },
+      {
+        function: { arguments: '{"zone":"Europe/Paris"}', name: 'get_time' },
+        id: secondToolId,
+        type: 'function',
+      },
+    ]);
   });
 
   it('should handle other delta data', async () => {

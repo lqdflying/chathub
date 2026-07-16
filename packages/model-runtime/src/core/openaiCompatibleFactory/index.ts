@@ -26,7 +26,7 @@ import {
 import { AgentRuntimeErrorType, ILobeAgentRuntimeErrorType } from '../../types/error';
 import { CreateImagePayload, CreateImageResponse } from '../../types/image';
 import { AgentRuntimeError } from '../../utils/createError';
-import { debugResponse, debugStream } from '../../utils/debugStream';
+import { debugResponse } from '../../utils/debugStream';
 import { desensitizeUrl } from '../../utils/desensitizeUrl';
 import { getModelPropertyWithFallback } from '../../utils/getFallbackModelProperty';
 import { getModelPricing } from '../../utils/getModelPricing';
@@ -37,6 +37,7 @@ import { StreamingResponse } from '../../utils/response';
 import { LobeRuntimeAI } from '../BaseAI';
 import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBuilders/openai';
 import { OpenAIResponsesStream, OpenAIStream, OpenAIStreamOptions } from '../streams';
+import { tapAsyncIterable } from '../streams/protocol';
 import { createOpenAICompatibleImage } from './createImage';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
 import {
@@ -330,16 +331,14 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           return this.handleResponseAPIMode(responsePayload, options);
         }
 
-        const {
-          apiMode: _apiMode,
-          openAICompatCache: _openAICompatCache,
-          openAICompatResponsesParams: _openAICompatResponsesParams,
-          ...chatCompletionPayload
-        } = postPayload as typeof postPayload & {
+        const chatCompletionPayload = { ...postPayload } as typeof postPayload & {
           apiMode?: string;
           openAICompatCache?: ChatStreamPayload['openAICompatCache'];
           openAICompatResponsesParams?: ChatStreamPayload['openAICompatResponsesParams'];
         };
+        delete chatCompletionPayload.apiMode;
+        delete chatCompletionPayload.openAICompatCache;
+        delete chatCompletionPayload.openAICompatResponsesParams;
 
         const messages = await convertOpenAIMessages(chatCompletionPayload.messages, this.id);
         const openAICompatCache = payload.openAICompatCache || processedPayload.openAICompatCache;
@@ -367,10 +366,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           bizErrorTypeTransformer: chatCompletion?.handleStreamBizErrorType,
           callbacks: options?.callback,
           payload: {
+            debugOpenAICompatCache,
             model: payload.model,
             pricing: await getModelPricing(payload.model, this.id),
             provider: this.id,
-            debugOpenAICompatCache,
           },
         };
 
@@ -431,22 +430,32 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
         if (chatCompletionPayload.stream) {
           log('processing streaming response');
-          const [prod, useForDebug] = response.tee();
+          // Pass the raw SDK Stream directly (NO `tee()`). tee() splits the
+          // stream into two independent iterators but the debug branch lacks
+          // `return()` forwarding, so downstream cancellation (AbortController)
+          // does not propagate upstream and the unread debug branch retains
+          // queued results in memory. A single owned iterator (created inside
+          // OpenAIStream / handleStream via convertIterableToStream) keeps
+          // cancellation intact. Debug observation wraps that same iterable via
+          // tapAsyncIterable, which forwards `return()` to the underlying
+          // iterator.
+          let prodStream: Stream<OpenAI.ChatCompletionChunk> | ReadableStream = response as Stream<
+            OpenAI.ChatCompletionChunk
+          >;
 
           if (debugParams?.chatCompletion?.()) {
-            const useForDebugStream =
-              useForDebug instanceof ReadableStream ? useForDebug : useForDebug.toReadableStream();
-
-            debugStream(useForDebugStream).catch(console.error);
+            prodStream = tapAsyncIterable(prodStream, (chunk) => {
+              console.log(JSON.stringify(chunk));
+            });
           }
 
           return StreamingResponse(
             chatCompletion?.handleStream
-              ? chatCompletion.handleStream(prod, {
+              ? chatCompletion.handleStream(prodStream, {
                   callbacks: streamOptions.callbacks,
                   inputStartAt,
                 })
-              : OpenAIStream(prod, {
+              : OpenAIStream(prodStream, {
                   ...streamOptions,
                   inputStartAt,
                 }),
@@ -920,6 +929,17 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       delete res.responseStateMode;
       delete res.store;
 
+      // Normalize tool_choice to the Responses API shape so both the derived
+      // prompt-cache key and the upstream request body agree on the form.
+      const normalizedToolChoice = this.normalizeToolChoiceForResponses(
+        (res as any).tool_choice ?? payload.tool_choice,
+      );
+      if (normalizedToolChoice) {
+        (res as any).tool_choice = normalizedToolChoice;
+      } else {
+        delete (res as any).tool_choice;
+      }
+
       const input = await convertOpenAIResponseInputs(messages as any, this.id);
       const responseParamsPayload = applyOpenAICompatResponsesParams(res, responsesParams);
       const explicitPromptCacheKey =
@@ -1000,28 +1020,34 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         bizErrorTypeTransformer: chatCompletion?.handleStreamBizErrorType,
         callbacks: options?.callback,
         payload: {
+          debugOpenAICompatCache,
           model: payload.model,
           pricing: await getModelPricing(payload.model, this.id),
           provider: this.id,
-          debugOpenAICompatCache,
         },
       };
 
       if (isStreaming) {
         log('processing streaming Responses API response');
-        const stream = response as Stream<OpenAI.Responses.ResponseStreamEvent>;
-        const [prod, useForDebug] = stream.tee();
+        // Pass the raw SDK Stream directly (NO `tee()`). See the Chat
+        // Completions branch above for the cancellation rationale.
+        let prodStream: Stream<OpenAI.Responses.ResponseStreamEvent> | ReadableStream =
+          response as Stream<OpenAI.Responses.ResponseStreamEvent>;
 
         if (debugParams?.responses?.()) {
-          const useForDebugStream =
-            useForDebug instanceof ReadableStream ? useForDebug : useForDebug.toReadableStream();
-
-          debugStream(useForDebugStream).catch(console.error);
+          prodStream = tapAsyncIterable(prodStream, (chunk) => {
+            console.log(JSON.stringify(chunk));
+          });
         }
 
-        return StreamingResponse(OpenAIResponsesStream(prod, { ...streamOptions, inputStartAt }), {
-          headers: options?.headers,
-        });
+        return StreamingResponse(
+          OpenAIResponsesStream(
+            prodStream,
+            { ...streamOptions, inputStartAt },
+            { requireTerminalEvent: true },
+          ),
+          { headers: options?.headers },
+        );
       }
 
       log('processing non-streaming Responses API response');
@@ -1041,11 +1067,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             model: payload.model,
             route: '/responses',
             usage: {
-              cachedTokens,
               cacheMissTokens:
                 cachedTokens === null || usage.input_tokens === undefined
                   ? null
                   : usage.input_tokens - cachedTokens,
+              cachedTokens,
               inputTokens: usage.input_tokens,
               outputTokens: usage.output_tokens,
               responseId: (normalizedResponse as OpenAI.Responses.Response).id,
@@ -1064,7 +1090,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       const stream = transformResponseAPIToStream(normalizedResponse as OpenAI.Responses.Response);
 
       return StreamingResponse(
-        OpenAIResponsesStream(stream, { ...streamOptions, enableStreaming: false, inputStartAt }),
+        OpenAIResponsesStream(
+          stream,
+          { ...streamOptions, enableStreaming: false, inputStartAt },
+          { requireTerminalEvent: true },
+        ),
         {
           headers: options?.headers,
         },
@@ -1075,6 +1105,33 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       tool: ChatCompletionTool,
     ): OpenAI.Responses.Tool => {
       return { type: tool.type, ...tool.function } as any;
+    };
+
+    /**
+     * Normalize a Chat Completions `tool_choice` value to the Responses API
+     * shape. Chat Completions forced-function form is
+     * `{ type: 'function', function: { name } }`; the Responses API expects the
+     * flat `{ type: 'function', name }` form. String modes (`auto`/`none`/
+     * `required`) pass through unchanged.
+     */
+    private normalizeToolChoiceForResponses = (
+      toolChoice: ChatStreamPayload['tool_choice'],
+    ): OpenAI.Responses.Responses.ToolChoiceOptions | OpenAI.Responses.Responses.ToolChoiceFunction | undefined => {
+      if (toolChoice === undefined || toolChoice === null) return undefined;
+
+      if (typeof toolChoice === 'string') return toolChoice as OpenAI.Responses.Responses.ToolChoiceOptions;
+
+      const tc = toolChoice as any;
+      // Already in Responses form ({ type: 'function', name })
+      if (tc.type === 'function' && typeof tc.name === 'string') {
+        return { name: tc.name, type: 'function' };
+      }
+      // Chat Completions form ({ type: 'function', function: { name } })
+      if (tc.type === 'function' && tc.function && typeof tc.function.name === 'string') {
+        return { name: tc.function.name, type: 'function' };
+      }
+
+      return undefined;
     };
 
     private async generateObjectWithTools(

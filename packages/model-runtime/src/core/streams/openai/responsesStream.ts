@@ -21,6 +21,41 @@ import {
 } from '../protocol';
 import { OpenAIStreamOptions } from './openai';
 
+type ResponsesStreamState = {
+  succeeded: boolean;
+};
+
+const getResponsesToolState = (
+  chunk: { item_id?: string; output_index?: number },
+  streamContext: StreamContext,
+) => {
+  if (chunk.item_id) {
+    const toolState = streamContext.toolsByItemId?.get(chunk.item_id);
+    if (toolState) return toolState;
+  }
+
+  if (typeof chunk.output_index === 'number') {
+    const toolState = streamContext.toolsByOutputIndex?.get(chunk.output_index);
+    if (toolState) return toolState;
+  }
+
+  return streamContext.tool;
+};
+
+const createResponsesErrorChunk = (
+  streamContext: StreamContext,
+  message: string,
+  name: string,
+): StreamProtocolChunk => {
+  const errorData = {
+    body: { message, name },
+    message,
+    type: AgentRuntimeErrorType.ProviderBizError,
+  } satisfies ChatMessageError;
+
+  return { data: errorData, id: streamContext.id, type: 'error' };
+};
+
 const transformOpenAIStream = (
   chunk:
     | OpenAI.Responses.ResponseStreamEvent
@@ -37,6 +72,7 @@ const transformOpenAIStream = (
       },
   streamContext: StreamContext,
   payload?: ChatPayloadForTransformStream,
+  responsesStreamState?: ResponsesStreamState,
 ): StreamProtocolChunk | StreamProtocolChunk[] => {
   // handle the first chunk error
   if (FIRST_CHUNK_ERROR_KEY in chunk) {
@@ -76,16 +112,23 @@ const transformOpenAIStream = (
           case 'function_call': {
             streamContext.toolIndex =
               typeof streamContext.toolIndex === 'undefined' ? 0 : streamContext.toolIndex + 1;
-            streamContext.tool = {
+            const toolMeta = {
+              emittedArguments: '',
               id: chunk.item.call_id,
               index: streamContext.toolIndex,
               name: chunk.item.name,
             };
+            streamContext.tool = toolMeta;
+            if (!streamContext.toolsByItemId) streamContext.toolsByItemId = new Map();
+            if (!streamContext.toolsByOutputIndex) streamContext.toolsByOutputIndex = new Map();
+            if (chunk.item.id) streamContext.toolsByItemId.set(chunk.item.id, toolMeta);
+            streamContext.toolsByItemId.set(chunk.item.call_id, toolMeta);
+            streamContext.toolsByOutputIndex.set(chunk.output_index, toolMeta);
 
             return {
               data: [
                 {
-                  function: { arguments: chunk.item.arguments, name: chunk.item.name },
+                  function: { arguments: '', name: chunk.item.name },
                   id: chunk.item.call_id,
                   index: streamContext.toolIndex!,
                   type: 'function',
@@ -101,12 +144,15 @@ const transformOpenAIStream = (
       }
 
       case 'response.function_call_arguments.delta': {
+        const toolMeta = getResponsesToolState(chunk, streamContext);
+        if (toolMeta) toolMeta.emittedArguments = (toolMeta.emittedArguments || '') + chunk.delta;
+
         return {
           data: [
             {
-              function: { arguments: chunk.delta, name: streamContext.tool?.name },
-              id: streamContext.tool?.id,
-              index: streamContext.toolIndex!,
+              function: { arguments: chunk.delta, name: toolMeta?.name },
+              id: toolMeta?.id,
+              index: toolMeta?.index ?? streamContext.toolIndex!,
               type: 'function',
             } satisfies StreamToolCallChunkData,
           ],
@@ -114,7 +160,41 @@ const transformOpenAIStream = (
           type: 'tool_calls',
         } satisfies StreamProtocolToolCallChunk;
       }
+
+      case 'response.function_call_arguments.done': {
+        const toolMeta = getResponsesToolState(chunk, streamContext);
+        if (!toolMeta) {
+          return createResponsesErrorChunk(
+            streamContext,
+            `Unable to correlate completed arguments for tool ${chunk.name}`,
+            'tool_call_correlation_error',
+          );
+        }
+
+        if (toolMeta.emittedArguments) {
+          return [];
+        }
+
+        toolMeta.emittedArguments = chunk.arguments;
+        return {
+          data: [
+            {
+              function: { arguments: chunk.arguments, name: toolMeta.name },
+              id: toolMeta.id,
+              index: toolMeta.index,
+              type: 'function',
+            } satisfies StreamToolCallChunkData,
+          ],
+          id: streamContext.id,
+          type: 'tool_calls',
+        } satisfies StreamProtocolToolCallChunk;
+      }
+
       case 'response.output_text.delta': {
+        return { data: chunk.delta, id: chunk.item_id, type: 'text' };
+      }
+
+      case 'response.refusal.delta': {
         return { data: chunk.delta, id: chunk.item_id, type: 'text' };
       }
 
@@ -128,6 +208,10 @@ const transformOpenAIStream = (
       }
 
       case 'response.reasoning_summary_text.delta': {
+        return { data: chunk.delta, id: chunk.item_id, type: 'reasoning' };
+      }
+
+      case 'response.reasoning_text.delta': {
         return { data: chunk.delta, id: chunk.item_id, type: 'reasoning' };
       }
 
@@ -158,7 +242,42 @@ const transformOpenAIStream = (
         return { data: null, id: chunk.item.id, type: 'text' };
       }
 
+      case 'response.failed': {
+        const errObj = chunk.response?.error;
+        const message =
+          errObj?.message ||
+          (errObj?.code ? `Response failed: ${errObj.code}` : 'Response failed');
+        return createResponsesErrorChunk(
+          streamContext,
+          message,
+          errObj?.code || 'response_failed',
+        );
+      }
+
+      case 'response.incomplete': {
+        const reason = chunk.response?.incomplete_details?.reason;
+        const message = reason
+          ? `Response incomplete: ${reason}`
+          : 'Response incomplete';
+        return createResponsesErrorChunk(streamContext, message, reason || 'response_incomplete');
+      }
+
       case 'response.completed': {
+        const status = chunk.response?.status;
+        if (status !== 'completed') {
+          const reason =
+            chunk.response?.incomplete_details?.reason ||
+            chunk.response?.error?.code ||
+            status ||
+            'missing_status';
+          const message =
+            chunk.response?.error?.message ||
+            (reason ? `Response ${status}: ${reason}` : `Response ${status}`);
+          return createResponsesErrorChunk(streamContext, message, String(reason));
+        }
+
+        if (responsesStreamState) responsesStreamState.succeeded = true;
+
         if (chunk.response.usage) {
           const response = normalizeOpenAICompatCacheUsage(chunk.response).json;
           if (payload?.debugOpenAICompatCache) {
@@ -169,11 +288,11 @@ const transformOpenAIStream = (
               model: payload.model,
               route: '/responses',
               usage: {
-                cachedTokens,
                 cacheMissTokens:
                   cachedTokens === null || usage.input_tokens === undefined
                     ? null
                     : usage.input_tokens - cachedTokens,
+                cachedTokens,
                 inputTokens: usage.input_tokens,
                 outputTokens: usage.output_tokens,
                 responseId: response.id,
@@ -189,7 +308,15 @@ const transformOpenAIStream = (
           };
         }
 
-        return { data: chunk, id: streamContext.id, type: 'data' };
+        return { data: 'completed', id: chunk.response.id || streamContext.id, type: 'stop' };
+      }
+
+      case 'error': {
+        return createResponsesErrorChunk(
+          streamContext,
+          chunk.message || 'Responses stream error',
+          chunk.code || 'responses_stream_error',
+        );
       }
 
       default: {
@@ -227,15 +354,17 @@ export const OpenAIResponsesStream = (
     enableStreaming = true,
     payload,
   }: OpenAIStreamOptions = {},
+  lifecycleOptions: { requireTerminalEvent?: boolean } = {},
 ) => {
   const streamStack: StreamContext = { id: '' };
+  const responsesStreamState: ResponsesStreamState = { succeeded: false };
 
   const readableStream =
     stream instanceof ReadableStream ? stream : convertIterableToStream(stream);
 
   // use closure to pass payload to transformOpenAIStream
   const transformWithPayload: typeof transformOpenAIStream = (chunk, streamContext) =>
-    transformOpenAIStream(chunk, streamContext, payload);
+    transformOpenAIStream(chunk, streamContext, payload, responsesStreamState);
 
   return (
     readableStream
@@ -250,7 +379,15 @@ export const OpenAIResponsesStream = (
           streamStack,
         }),
       )
-      .pipeThrough(createSSEProtocolTransformer((c) => c, streamStack))
-      .pipeThrough(createCallbacksTransformer(callbacks))
+      .pipeThrough(
+        createSSEProtocolTransformer((chunk) => chunk, streamStack, {
+          requireTerminalEvent: lifecycleOptions.requireTerminalEvent,
+        }),
+      )
+      .pipeThrough(
+        createCallbacksTransformer(callbacks, {
+          shouldCallCompletion: () => responsesStreamState.succeeded,
+        }),
+      )
   );
 };

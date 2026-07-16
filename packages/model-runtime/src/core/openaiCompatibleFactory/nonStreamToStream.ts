@@ -89,42 +89,158 @@ export const transformResponseToStream = (data: OpenAI.ChatCompletion) =>
  * transform the OpenAI Response API data to stream format for non-streaming responses
  */
 export const transformResponseAPIToStream = (data: OpenAI.Responses.Response) =>
-  new ReadableStream({
+  new ReadableStream<OpenAI.Responses.ResponseStreamEvent>({
     start(controller) {
-      // Check if output exists and is an array
-      if (data.output && Array.isArray(data.output)) {
-        data.output.forEach((output) => {
-          switch (output.type) {
-            case 'message': {
-              // Check if content exists and is an array
-              if (output.content && Array.isArray(output.content)) {
-                output.content.forEach((content) => {
-                  switch (content.type) {
-                    case 'output_text': {
-                      // Only emit delta if text exists
-                      if (content.text) {
-                        controller.enqueue({
-                          delta: content.text,
-                          type: 'response.output_text.delta',
-                        });
-                      }
-                      break;
-                    }
-                  }
-                });
-              }
-              break;
-            }
-          }
-        });
-      }
+      let sequenceNumber = 0;
+      const enqueueEvent = (event: Omit<OpenAI.Responses.ResponseStreamEvent, 'sequence_number'>) => {
+        controller.enqueue({
+          ...event,
+          sequence_number: sequenceNumber,
+        } as OpenAI.Responses.ResponseStreamEvent);
+        sequenceNumber += 1;
+      };
 
-      // Always send response.completed event
-      controller.enqueue({
+      enqueueEvent({
+        response: {
+          ...data,
+          output: [],
+          status: 'in_progress',
+          usage: null,
+        },
+        type: 'response.created',
+      } as Omit<OpenAI.Responses.ResponseCreatedEvent, 'sequence_number'>);
+
+      data.output?.forEach((outputItem, outputIndex) => {
+        const itemId = outputItem.id || `${data.id}:output:${outputIndex}`;
+
+        enqueueEvent({
+          item: outputItem,
+          output_index: outputIndex,
+          type: 'response.output_item.added',
+        } as Omit<OpenAI.Responses.ResponseOutputItemAddedEvent, 'sequence_number'>);
+
+        switch (outputItem.type) {
+          case 'message': {
+            outputItem.content?.forEach((content, contentIndex) => {
+              if (content.type === 'output_text') {
+                if (content.text) {
+                  enqueueEvent({
+                    content_index: contentIndex,
+                    delta: content.text,
+                    item_id: itemId,
+                    logprobs: content.logprobs || [],
+                    output_index: outputIndex,
+                    type: 'response.output_text.delta',
+                  } as Omit<OpenAI.Responses.ResponseTextDeltaEvent, 'sequence_number'>);
+                }
+
+                content.annotations
+                  ?.filter((annotation) => annotation.type === 'url_citation')
+                  .forEach((annotation, annotationIndex) => {
+                    enqueueEvent({
+                      annotation,
+                      annotation_index: annotationIndex,
+                      content_index: contentIndex,
+                      item_id: itemId,
+                      output_index: outputIndex,
+                      type: 'response.output_text.annotation.added',
+                    } as Omit<
+                      OpenAI.Responses.ResponseOutputTextAnnotationAddedEvent,
+                      'sequence_number'
+                    >);
+                  });
+              } else if (content.type === 'refusal' && content.refusal) {
+                enqueueEvent({
+                  content_index: contentIndex,
+                  delta: content.refusal,
+                  item_id: itemId,
+                  output_index: outputIndex,
+                  type: 'response.refusal.delta',
+                } as Omit<OpenAI.Responses.ResponseRefusalDeltaEvent, 'sequence_number'>);
+              }
+            });
+            break;
+          }
+
+          case 'function_call': {
+            enqueueEvent({
+              arguments: outputItem.arguments,
+              item_id: itemId,
+              name: outputItem.name,
+              output_index: outputIndex,
+              type: 'response.function_call_arguments.done',
+            } as Omit<
+              OpenAI.Responses.ResponseFunctionCallArgumentsDoneEvent,
+              'sequence_number'
+            >);
+            break;
+          }
+
+          case 'reasoning': {
+            outputItem.summary.forEach((summary, summaryIndex) => {
+              enqueueEvent({
+                item_id: itemId,
+                output_index: outputIndex,
+                part: summary,
+                summary_index: summaryIndex,
+                type: 'response.reasoning_summary_part.added',
+              } as Omit<
+                OpenAI.Responses.ResponseReasoningSummaryPartAddedEvent,
+                'sequence_number'
+              >);
+
+              if (summary.text) {
+                enqueueEvent({
+                  delta: summary.text,
+                  item_id: itemId,
+                  output_index: outputIndex,
+                  summary_index: summaryIndex,
+                  type: 'response.reasoning_summary_text.delta',
+                } as Omit<
+                  OpenAI.Responses.ResponseReasoningSummaryTextDeltaEvent,
+                  'sequence_number'
+                >);
+              }
+            });
+
+            outputItem.content?.forEach((content, contentIndex) => {
+              if (!content.text) return;
+
+              enqueueEvent({
+                content_index: contentIndex,
+                delta: content.text,
+                item_id: itemId,
+                output_index: outputIndex,
+                type: 'response.reasoning_text.delta',
+              } as Omit<OpenAI.Responses.ResponseReasoningTextDeltaEvent, 'sequence_number'>);
+            });
+            break;
+          }
+        }
+
+        enqueueEvent({
+          item: outputItem,
+          output_index: outputIndex,
+          type: 'response.output_item.done',
+        } as Omit<OpenAI.Responses.ResponseOutputItemDoneEvent, 'sequence_number'>);
+      });
+
+      const terminalEventType =
+        data.status === 'completed'
+          ? 'response.completed'
+          : data.status === 'failed'
+            ? 'response.failed'
+            : 'response.incomplete';
+
+      enqueueEvent({
         response: data,
-        sequence_number: 999,
-        type: 'response.completed',
-      } as OpenAI.Responses.ResponseStreamEvent);
+        type: terminalEventType,
+      } as Omit<
+        | OpenAI.Responses.ResponseCompletedEvent
+        | OpenAI.Responses.ResponseFailedEvent
+        | OpenAI.Responses.ResponseIncompleteEvent,
+        'sequence_number'
+      >);
 
       controller.close();
     },

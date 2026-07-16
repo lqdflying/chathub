@@ -12,6 +12,7 @@ describe('OpenAIResponsesStream', () => {
       {
         response: {
           id: 'resp_cache',
+          status: 'completed',
           usage: {
             input_tokens: 128,
             input_tokens_details: { cached_tokens: 64 },
@@ -43,10 +44,14 @@ describe('OpenAIResponsesStream', () => {
       inputTokens: 128,
       model: 'gpt-5.5',
       outputTokens: 7,
-      responseId: 'resp_cache',
+      responseId: {
+        hash: expect.stringMatching(/^[\da-f]{8}$/),
+        present: true,
+      },
       route: '/responses',
       totalTokens: 135,
     });
+    expect(cacheLog![1]).not.toContain('resp_cache');
 
     consoleLogSpy.mockRestore();
   });
@@ -332,7 +337,7 @@ describe('OpenAIResponsesStream', () => {
     expect(chunks).toMatchSnapshot();
 
     expect(onStartMock).toHaveBeenCalledTimes(1);
-    expect(onCompletionMock).toHaveBeenCalledTimes(1);
+    expect(onCompletionMock).not.toHaveBeenCalled();
   });
   it('should handle first chunk error with FIRST_CHUNK_ERROR_KEY', async () => {
     const mockErrorChunk = {
@@ -503,6 +508,120 @@ describe('OpenAIResponsesStream', () => {
 
     expect(chunks).toMatchSnapshot();
     expect(chunks.some((c) => c.includes('search_web'))).toBe(true);
+  });
+
+  it('should correlate interleaved parallel tool deltas by item id', async () => {
+    const mockOpenAIStream = createReadableStream([
+      {
+        response: { id: 'resp_parallel_tools', status: 'in_progress' },
+        type: 'response.created',
+      },
+      {
+        item: {
+          arguments: '',
+          call_id: 'call_first',
+          id: 'item_first',
+          name: 'first_tool',
+          type: 'function_call',
+        },
+        output_index: 0,
+        type: 'response.output_item.added',
+      },
+      {
+        item: {
+          arguments: '',
+          call_id: 'call_second',
+          id: 'item_second',
+          name: 'second_tool',
+          type: 'function_call',
+        },
+        output_index: 1,
+        type: 'response.output_item.added',
+      },
+      {
+        delta: '{"second":true}',
+        item_id: 'item_second',
+        output_index: 1,
+        type: 'response.function_call_arguments.delta',
+      },
+      {
+        delta: '{"first":true}',
+        item_id: 'item_first',
+        output_index: 0,
+        type: 'response.function_call_arguments.delta',
+      },
+      {
+        arguments: '{"first":true}',
+        item_id: 'item_first',
+        name: 'first_tool',
+        output_index: 0,
+        type: 'response.function_call_arguments.done',
+      },
+      {
+        arguments: '{"second":true}',
+        item_id: 'item_second',
+        name: 'second_tool',
+        output_index: 1,
+        type: 'response.function_call_arguments.done',
+      },
+      {
+        response: { id: 'resp_parallel_tools', status: 'completed' },
+        type: 'response.completed',
+      },
+    ]);
+
+    const chunks = await readStreamChunk(
+      OpenAIResponsesStream(mockOpenAIStream, undefined, { requireTerminalEvent: true }),
+    );
+    const streamOutput = chunks.join('');
+
+    expect(streamOutput).toContain(
+      '"function":{"arguments":"{\\"second\\":true}","name":"second_tool"},"id":"call_second","index":1',
+    );
+    expect(streamOutput).toContain(
+      '"function":{"arguments":"{\\"first\\":true}","name":"first_tool"},"id":"call_first","index":0',
+    );
+    expect(streamOutput.match(/\\"first\\":true/g)).toHaveLength(1);
+    expect(streamOutput.match(/\\"second\\":true/g)).toHaveLength(1);
+  });
+
+  it('should emit finalized tool arguments when no deltas were received', async () => {
+    const mockOpenAIStream = createReadableStream([
+      {
+        response: { id: 'resp_done_only', status: 'in_progress' },
+        type: 'response.created',
+      },
+      {
+        item: {
+          arguments: '',
+          call_id: 'call_done_only',
+          id: 'item_done_only',
+          name: 'done_only_tool',
+          type: 'function_call',
+        },
+        output_index: 0,
+        type: 'response.output_item.added',
+      },
+      {
+        arguments: '{"value":42}',
+        item_id: 'item_done_only',
+        name: 'done_only_tool',
+        output_index: 0,
+        type: 'response.function_call_arguments.done',
+      },
+      {
+        response: { id: 'resp_done_only', status: 'completed' },
+        type: 'response.completed',
+      },
+    ]);
+
+    const chunks = await readStreamChunk(
+      OpenAIResponsesStream(mockOpenAIStream, undefined, { requireTerminalEvent: true }),
+    );
+
+    expect(chunks.join('')).toContain(
+      '"function":{"arguments":"{\\"value\\":42}","name":"done_only_tool"}',
+    );
   });
 
   it('should handle response.output_text.delta', async () => {
@@ -853,6 +972,8 @@ describe('OpenAIResponsesStream', () => {
   });
 
   it('should handle response.completed without usage', async () => {
+    const onCompletion = vi.fn();
+    const onFinal = vi.fn();
     const mockOpenAIStream = createReadableStream([
       {
         type: 'response.created',
@@ -870,10 +991,143 @@ describe('OpenAIResponsesStream', () => {
       },
     ]);
 
-    const protocolStream = OpenAIResponsesStream(mockOpenAIStream);
+    const protocolStream = OpenAIResponsesStream(
+      mockOpenAIStream,
+      { callbacks: { onCompletion, onFinal } },
+      { requireTerminalEvent: true },
+    );
     const chunks = await readStreamChunk(protocolStream);
 
     expect(chunks).toMatchSnapshot();
+    expect(chunks.join('')).toContain('event: stop');
+    expect(onCompletion).toHaveBeenCalledOnce();
+    expect(onFinal).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      event: {
+        response: {
+          error: { code: 'server_error', message: 'Upstream generation failed' },
+          id: 'resp_failed',
+          status: 'failed',
+        },
+        type: 'response.failed',
+      },
+      expectedMessage: 'Upstream generation failed',
+      name: 'failed',
+    },
+    {
+      event: {
+        response: {
+          id: 'resp_incomplete',
+          incomplete_details: { reason: 'max_output_tokens' },
+          status: 'incomplete',
+        },
+        type: 'response.incomplete',
+      },
+      expectedMessage: 'Response incomplete: max_output_tokens',
+      name: 'incomplete',
+    },
+    {
+      event: {
+        code: 'rate_limit_exceeded',
+        message: 'Too many requests',
+        param: null,
+        type: 'error',
+      },
+      expectedMessage: 'Too many requests',
+      name: 'explicit error',
+    },
+  ])(
+    'should terminate $name streams as errors without invoking completion',
+    async ({ event, expectedMessage }) => {
+      const onCompletion = vi.fn();
+      const onFinal = vi.fn();
+      const mockOpenAIStream = createReadableStream([
+        {
+          response: { id: 'resp_terminal_error', status: 'in_progress' },
+          type: 'response.created',
+        },
+        event,
+      ]);
+
+      const chunks = await readStreamChunk(
+        OpenAIResponsesStream(
+          mockOpenAIStream,
+          { callbacks: { onCompletion, onFinal } },
+          { requireTerminalEvent: true },
+        ),
+      );
+      const streamOutput = chunks.join('');
+
+      expect(streamOutput).toContain('event: error');
+      expect(streamOutput).toContain(expectedMessage);
+      expect(onCompletion).not.toHaveBeenCalled();
+      expect(onFinal).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('should surface refusal deltas as assistant text', async () => {
+    const onText = vi.fn();
+    const mockOpenAIStream = createReadableStream([
+      {
+        response: { id: 'resp_refusal', status: 'in_progress' },
+        type: 'response.created',
+      },
+      {
+        content_index: 0,
+        delta: 'I cannot help with that.',
+        item_id: 'msg_refusal',
+        output_index: 0,
+        type: 'response.refusal.delta',
+      },
+      {
+        response: { id: 'resp_refusal', status: 'completed' },
+        type: 'response.completed',
+      },
+    ]);
+
+    const chunks = await readStreamChunk(
+      OpenAIResponsesStream(
+        mockOpenAIStream,
+        { callbacks: { onText } },
+        { requireTerminalEvent: true },
+      ),
+    );
+
+    expect(chunks.join('')).toContain('I cannot help with that.');
+    expect(onText).toHaveBeenCalledWith('I cannot help with that.');
+  });
+
+  it('should synthesize an error when a strict stream ends without a terminal event', async () => {
+    const onCompletion = vi.fn();
+    const onFinal = vi.fn();
+    const mockOpenAIStream = createReadableStream([
+      {
+        response: { id: 'resp_truncated', status: 'in_progress' },
+        type: 'response.created',
+      },
+      {
+        delta: 'partial output',
+        item_id: 'msg_truncated',
+        type: 'response.output_text.delta',
+      },
+    ]);
+
+    const chunks = await readStreamChunk(
+      OpenAIResponsesStream(
+        mockOpenAIStream,
+        { callbacks: { onCompletion, onFinal } },
+        { requireTerminalEvent: true },
+      ),
+    );
+    const streamOutput = chunks.join('');
+
+    expect(streamOutput).toContain('event: error');
+    expect(streamOutput).toContain('Stream ended unexpectedly');
+    expect(onCompletion).not.toHaveBeenCalled();
+    expect(onFinal).toHaveBeenCalledOnce();
   });
 
   it('should handle unknown chunk type as data', async () => {

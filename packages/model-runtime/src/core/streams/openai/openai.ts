@@ -57,12 +57,12 @@ const debugOpenAICompatChatUsage = (
     model: payload.model,
     route: '/chat/completions',
     usage: {
-      cachedTokens,
       cacheMissTokens:
         (usage as any).prompt_cache_miss_tokens ??
         (cachedTokens === null || usage.prompt_tokens === undefined
           ? null
           : usage.prompt_tokens - cachedTokens),
+      cachedTokens,
       outputTokens: usage.completion_tokens,
       promptTokens: usage.prompt_tokens,
       responseId,
@@ -122,24 +122,34 @@ const transformOpenAIStream = (
 
       if (tool_calls.length > 0) {
         return {
-          data: item.delta.tool_calls.map((value, index): StreamToolCallChunkData => {
-            if (streamContext && !streamContext.tool) {
-              streamContext.tool = {
-                id: value.id!,
-                index: value.index,
-                name: value.function!.name!,
+          data: tool_calls.map((value, chunkIndex): StreamToolCallChunkData => {
+            if (!value.function) {
+              throw new TypeError('Tool call chunk is missing function data');
+            }
+
+            const toolIndex = typeof value.index === 'number' ? value.index : chunkIndex;
+            if (!streamContext.chatToolsByIndex) streamContext.chatToolsByIndex = new Map();
+
+            let toolState = streamContext.chatToolsByIndex.get(toolIndex);
+            if (!toolState) {
+              toolState = {
+                id: value.id || generateToolCallId(toolIndex, value.function.name),
+                index: toolIndex,
+                name: value.function.name || '',
               };
+              streamContext.chatToolsByIndex.set(toolIndex, toolState);
+            }
+
+            if (!toolState.name && value.function.name) {
+              toolState.name = value.function.name;
             }
 
             return {
               function: {
-                arguments: value.function?.arguments ?? '',
-                name: value.function?.name ?? null,
+                arguments: value.function.arguments ?? '',
+                name: value.function.name ?? null,
               },
-              id:
-                value.id ||
-                streamContext?.tool?.id ||
-                generateToolCallId(index, value.function?.name),
+              id: toolState.id,
 
               // mistral's tool calling don't have index and function field, it's data like:
               // [{"id":"xbhnmTtY7","function":{"name":"lobe-image-designer____text2image____builtin","arguments":"{\"prompts\": [\"A photo of a small, fluffy dog with a playful expression and wagging tail.\", \"A watercolor painting of a small, energetic dog with a glossy coat and bright eyes.\", \"A vector illustration of a small, adorable dog with a short snout and perky ears.\", \"A drawing of a small, scruffy dog with a mischievous grin and a wagging tail.\"], \"quality\": \"standard\", \"seeds\": [123456, 654321, 111222, 333444], \"size\": \"1024x1024\", \"style\": \"vivid\"}"}}]
@@ -148,7 +158,7 @@ const transformOpenAIStream = (
               // [{"id":"call_function_4752059746","type":"function","function":{"name":"lobe-image-designer____text2image____builtin","arguments":"{\"prompts\": [\"一个流浪的地球，背景是浩瀚"}}]
 
               // so we need to add these default values
-              index: typeof value.index !== 'undefined' ? value.index : index,
+              index: toolIndex,
               type: value.type || 'function',
             };
           }),

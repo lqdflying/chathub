@@ -145,25 +145,6 @@ exports[`OpenAIResponsesStream > Reasoning > summary 1`] = `
 ]
 `;
 
-exports[`OpenAIResponsesStream > should handle chunk errors in catch block 1`] = `
-[
-  "id: resp_error_catch
-",
-  "event: data
-",
-  "data: "in_progress"
-
-",
-  "id: undefined
-",
-  "event: reasoning
-",
-  "data: undefined
-
-",
-]
-`;
-
 exports[`OpenAIResponsesStream > should handle first chunk error with FIRST_CHUNK_ERROR_KEY 1`] = `
 [
   "id: first_chunk_error
@@ -213,7 +194,7 @@ exports[`OpenAIResponsesStream > should handle function_call in response.output_
 ",
   "event: tool_calls
 ",
-  "data: [{"function":{"arguments":"{\\"location\\": \\"San Francisco\\"}","name":"get_weather"},"id":"call_abc123","index":0,"type":"function"}]
+  "data: [{"function":{"arguments":"","name":"get_weather"},"id":"call_abc123","index":0,"type":"function"}]
 
 ",
 ]
@@ -258,14 +239,14 @@ exports[`OpenAIResponsesStream > should handle multiple function_calls with incr
 ",
   "event: tool_calls
 ",
-  "data: [{"function":{"arguments":"{\\"param\\": \\"value1\\"}","name":"tool_one"},"id":"call_1","index":0,"type":"function"}]
+  "data: [{"function":{"arguments":"","name":"tool_one"},"id":"call_1","index":0,"type":"function"}]
 
 ",
   "id: resp_multi_tool
 ",
   "event: tool_calls
 ",
-  "data: [{"function":{"arguments":"{\\"param\\": \\"value2\\"}","name":"tool_two"},"id":"call_2","index":1,"type":"function"}]
+  "data: [{"function":{"arguments":"","name":"tool_two"},"id":"call_2","index":1,"type":"function"}]
 
 ",
 ]
@@ -320,9 +301,9 @@ exports[`OpenAIResponsesStream > should handle response.completed without usage 
 ",
   "id: resp_completed_no_usage
 ",
-  "event: data
+  "event: stop
 ",
-  "data: {"type":"response.completed","response":{"id":"resp_completed_no_usage","status":"completed"}}
+  "data: "completed"
 
 ",
 ]
@@ -353,7 +334,7 @@ exports[`OpenAIResponsesStream > should handle response.function_call_arguments.
 ",
   "event: tool_calls
 ",
-  "data: [{"function":{"arguments":"{\\"query\\":","name":"search_web"},"id":"call_delta","index":0,"type":"function"}]
+  "data: [{"function":{"arguments":"","name":"search_web"},"id":"call_delta","index":0,"type":"function"}]
 
 ",
   "id: resp_delta_test
@@ -522,25 +503,6 @@ exports[`OpenAIResponsesStream > should handle response.reasoning_summary_text.d
   "event: reasoning
 ",
   "data: " the problem..."
-
-",
-]
-`;
-
-exports[`OpenAIResponsesStream > should handle stream chunk transformation error with null access 1`] = `
-[
-  "id: resp_error_test
-",
-  "event: data
-",
-  "data: "in_progress"
-
-",
-  "id: null
-",
-  "event: text
-",
-  "data: "test"
 
 ",
 ]

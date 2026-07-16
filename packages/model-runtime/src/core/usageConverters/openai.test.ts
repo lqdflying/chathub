@@ -100,6 +100,45 @@ describe('convertUsage', () => {
     });
   });
 
+  it('should handle top-level cached tokens from compatible providers', () => {
+    const usageWithTopLevelCachedTokens = {
+      cached_tokens: 30,
+      completion_tokens: 50,
+      prompt_tokens: 100,
+      total_tokens: 150,
+    } as OpenAI.Completions.CompletionUsage;
+
+    const result = convertOpenAIUsage(usageWithTopLevelCachedTokens);
+
+    expect(result).toEqual({
+      inputCacheMissTokens: 70,
+      inputCachedTokens: 30,
+      inputTextTokens: 100,
+      outputTextTokens: 50,
+      totalInputTokens: 100,
+      totalOutputTokens: 50,
+      totalTokens: 150,
+    });
+  });
+
+  it('should preserve zero cache misses for full compatible-provider cache hits', () => {
+    const fullCacheHitUsage = {
+      cached_tokens: 100,
+      completion_tokens: 50,
+      prompt_tokens: 100,
+      total_tokens: 150,
+    } as OpenAI.Completions.CompletionUsage;
+
+    const result = convertOpenAIUsage(fullCacheHitUsage, {
+      provider: 'openaicompatible',
+    });
+
+    expect(result).toMatchObject({
+      inputCacheMissTokens: 0,
+      inputCachedTokens: 100,
+    });
+  });
+
   it('should handle audio tokens in input correctly', () => {
     // Arrange
     const usageWithAudioInput = {
@@ -347,7 +386,7 @@ describe('convertUsage', () => {
       totalOutputTokens: 200,
       outputImageTokens: 60,
       outputReasoningTokens: 30,
-      outputTextTokens: 170, // 200 - 30
+      outputTextTokens: 110, // 200 - 30 - 60
       totalTokens: 300,
     });
   });

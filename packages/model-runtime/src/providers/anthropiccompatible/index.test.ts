@@ -105,14 +105,21 @@ describe('LobeAnthropicCompatibleAI', () => {
         expect(providerDebugCall).toBeDefined();
         const summary = JSON.parse(providerDebugCall?.[1] as string);
         expect(summary).toMatchObject({
-          effectiveURL: 'https://api.anthropicproxy.example/v1/messages',
+          effectiveURL: {
+            originHash: expect.stringMatching(/^[\da-f]{8}$/),
+            pathDepth: 2,
+            pathHash: expect.stringMatching(/^[\da-f]{8}$/),
+            present: true,
+            queryKeys: [],
+            relative: false,
+          },
           model: 'claude-sonnet-4-6',
           provider: 'anthropiccompatible',
           route: '/v1/messages',
           tools: { count: 0 },
           turnShape: { count: 1, sequence: ['user:text'] },
         });
-        expect(summary.baseURL).not.toContain('anthropicproxy');
+        expect(JSON.stringify(summary)).not.toContain('anthropicproxy');
         expect(JSON.stringify(summary)).not.toContain('secret-compatible-key');
       } finally {
         debugStreamSpy.mockRestore();

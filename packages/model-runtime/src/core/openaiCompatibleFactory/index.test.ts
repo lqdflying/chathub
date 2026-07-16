@@ -7,7 +7,6 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LobeOpenAICompatibleRuntime } from '../../core/BaseAI';
 import { ChatStreamCallbacks, ChatStreamPayload } from '../../types/chat';
 import { AgentRuntimeErrorType } from '../../types/error';
-import * as debugStreamModule from '../../utils/debugStream';
 import * as openaiHelpers from '../contextBuilders/openai';
 import { createOpenAICompatibleRuntime } from './index';
 
@@ -954,9 +953,9 @@ describe('LobeOpenAICompatibleFactory', () => {
         },
       });
 
-      vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
-        tee: () => [mockStream, mockStream],
-      } as any);
+      // The factory now passes the SDK response directly to handleStream
+      // (no Stream.tee()), so the mock must return the stream itself.
+      vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue(mockStream as any);
 
       const payload: ChatStreamPayload = {
         messages: [{ content: 'Test', role: 'user' }],
@@ -1258,49 +1257,45 @@ describe('LobeOpenAICompatibleFactory', () => {
     });
 
     describe('DEBUG', () => {
-      it('should call debugStream and return StreamingTextResponse when DEBUG_OPENROUTER_CHAT_COMPLETION is 1', async () => {
-        // Arrange
-        const mockProdStream = new ReadableStream() as any; // Mocked prod stream
-        const mockDebugStream = new ReadableStream({
-          start(controller) {
-            controller.enqueue('Debug stream content');
-            controller.close();
-          },
-        }) as any;
-        mockDebugStream.toReadableStream = () => mockDebugStream; // Add toReadableStream method
+      it('should tap the stream and return StreamingTextResponse when DEBUG_OPENROUTER_CHAT_COMPLETION is 1', async () => {
+        // Arrange — the response must be async-iterable so the pass-through
+        // debug tap (replacing the old Stream.tee() + debugStream path) can
+        // observe each chunk without splitting the stream.
+        const chunk = { id: 'c1', choices: [{ delta: { content: 'Hi' } }] };
+        const mockStream = (async function* () {
+          yield chunk;
+        })();
 
-        // Mock chat.completions.create return value, including mocked tee method
-        (instance['client'].chat.completions.create as Mock).mockResolvedValue({
-          tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
-        });
+        (instance['client'].chat.completions.create as Mock).mockResolvedValue(mockStream);
 
         // Save original environment variable value
         const originalDebugValue = process.env.DEBUG_MOCKPROVIDER_CHAT_COMPLETION;
 
         // Mock environment variable
         process.env.DEBUG_MOCKPROVIDER_CHAT_COMPLETION = '1';
-        vi.spyOn(debugStreamModule, 'debugStream').mockImplementation(() => Promise.resolve());
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
         try {
           // Execute test
-          // Run your test function, ensuring it calls debugStream when conditions are met
-          // Hypothetical test function call, you may need to adjust based on actual situation
           await instance.chat({
             messages: [{ content: 'Hello', role: 'user' }],
             model: 'mistralai/mistral-7b-instruct:free',
             temperature: 0,
           });
 
-          // Verify debugStream is called
-          expect(debugStreamModule.debugStream).toHaveBeenCalled();
-
           const providerDebugCall = logSpy.mock.calls.find(
             ([label]) => label === '[provider-debug:request]',
           );
           expect(providerDebugCall).toBeDefined();
           expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
-            effectiveURL: 'https://api.groq.com/openai/v1/chat/completions',
+            effectiveURL: {
+              originHash: expect.stringMatching(/^[\da-f]{8}$/),
+              pathDepth: 4,
+              pathHash: expect.stringMatching(/^[\da-f]{8}$/),
+              present: true,
+              queryKeys: [],
+              relative: false,
+            },
             model: 'mistralai/mistral-7b-instruct:free',
             provider: 'groq',
             route: '/chat/completions',

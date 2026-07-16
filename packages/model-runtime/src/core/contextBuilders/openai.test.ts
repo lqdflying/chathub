@@ -376,6 +376,7 @@ describe('convertOpenAIResponseInputs', () => {
         content: [
           { type: 'input_text', text: 'Here is an image' },
           {
+            detail: 'auto',
             type: 'input_image',
             image_url: 'data:image/jpeg;base64,test123',
           },
@@ -472,6 +473,112 @@ describe('convertOpenAIResponseInputs', () => {
     ]);
     expect((result[2] as any).reasoning).toBeUndefined();
     expect((result[2] as any).reasoning_content).toBeUndefined();
+  });
+
+  it('should emit assistant text before function_call items (mixed content)', async () => {
+    // Regression: an assistant turn with BOTH text commentary and tool_calls
+    // previously dropped the text entirely. It must be emitted as an input_text
+    // message item BEFORE the function_call items.
+    const messages: OpenAIChatMessage[] = [
+      {
+        role: 'assistant',
+        content: 'Let me search for that.',
+        tool_calls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'search', arguments: '{"q":"test"}' },
+          },
+        ],
+      } as any,
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([
+      { content: [{ text: 'Let me search for that.', type: 'input_text' }], role: 'assistant' },
+      {
+        arguments: '{"q":"test"}',
+        call_id: 'call_1',
+        name: 'search',
+        type: 'function_call',
+      },
+    ]);
+  });
+
+  it('should use input_text (not output_text) for assistant content parts', async () => {
+    // Regression: assistant content parts were reconstructed with type
+    // 'output_text', which is an OUTPUT-only content type. Easy-input assistant
+    // messages must use 'input_text'.
+    const messages: OpenAIChatMessage[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'previous answer' }],
+      } as any,
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([
+      {
+        content: [{ text: 'previous answer', type: 'input_text' }],
+        role: 'assistant',
+      },
+    ]);
+    expect((result[0] as any).content[0].type).toBe('input_text');
+  });
+
+  it('should preserve image detail when converting user image parts', async () => {
+    const messages: OpenAIChatMessage[] = [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: 'https://example.com/img.png', detail: 'high' },
+          },
+        ],
+      } as any,
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([
+      {
+        content: [
+          {
+            type: 'input_image',
+            image_url: 'https://example.com/img.png',
+            detail: 'high',
+          },
+        ],
+        role: 'user',
+      },
+    ]);
+  });
+
+  it('should not leak tool_calls or reasoning into user/system items', async () => {
+    const messages: OpenAIChatMessage[] = [
+      { content: 'sys', role: 'system' } as any,
+      {
+        content: 'hi',
+        role: 'user',
+        // Stray fields that must NOT leak into the Responses easy-input item.
+        tool_calls: [{ id: 'x', type: 'function', function: { name: 'x', arguments: '{}' } }],
+        tool_call_id: 'stray',
+        name: 'should-not-leak',
+      } as any,
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([
+      { content: 'sys', role: 'developer' },
+      { content: 'hi', role: 'user' },
+    ]);
+    expect((result[0] as any).tool_calls).toBeUndefined();
+    expect((result[1] as any).tool_calls).toBeUndefined();
+    expect((result[1] as any).reasoning).toBeUndefined();
   });
 });
 

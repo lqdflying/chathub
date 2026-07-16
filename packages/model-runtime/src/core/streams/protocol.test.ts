@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { createSSEDataExtractor, createTokenSpeedCalculator, createSSEProtocolTransformer } from './protocol';
+import {
+  convertIterableToStream,
+  createSSEDataExtractor,
+  createTokenSpeedCalculator,
+  createSSEProtocolTransformer,
+  tapAsyncIterable,
+} from './protocol';
 
 describe('createSSEDataExtractor', () => {
   // Helper function to convert string to Uint8Array
@@ -381,5 +387,115 @@ describe('createSSEProtocolTransformer', () => {
       `event: reasoning\n`,
       `data: ${JSON.stringify('<')}\n\n`,
     ]);
+  });
+});
+
+describe('tapAsyncIterable', () => {
+  it('should pass through all chunks to the observer and downstream', async () => {
+    const observed: number[] = [];
+    const source = (async function* () {
+      yield 1;
+      yield 2;
+      yield 3;
+    })();
+
+    const tapped = tapAsyncIterable(source, (chunk) => observed.push(chunk));
+
+    const results: number[] = [];
+    for await (const item of tapped) {
+      results.push(item);
+    }
+
+    expect(results).toEqual([1, 2, 3]);
+    expect(observed).toEqual([1, 2, 3]);
+  });
+
+  it('should forward return() to the underlying iterator (cancellation)', async () => {
+    const returnSpy = vi.fn();
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: vi.fn(async () => ({ done: false, value: 'x' })),
+      return: async () => {
+        returnSpy();
+        return { done: true, value: undefined };
+      },
+    };
+
+    const tapped = tapAsyncIterable(source, () => {}) as any;
+    await tapped.return();
+
+    expect(returnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should propagate return() through convertIterableToStream cancel()', async () => {
+    const returnSpy = vi.fn();
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: async () => ({ done: false, value: 'x' }),
+      return: async () => {
+        returnSpy();
+        return { done: true, value: undefined };
+      },
+    };
+
+    const tapped = tapAsyncIterable(source, () => {});
+    const readable = convertIterableToStream(tapped);
+
+    await readable.cancel();
+
+    expect(returnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should preserve a cancellation-safe toReadableStream method', async () => {
+    const returnSpy = vi.fn();
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: async () => ({ done: false, value: 'x' }),
+      return: async () => {
+        returnSpy();
+        return { done: true, value: undefined };
+      },
+      toReadableStream: vi.fn(),
+    };
+
+    const tapped = tapAsyncIterable(source, () => {}) as typeof source;
+    const readable = tapped.toReadableStream() as unknown as ReadableStream<string>;
+
+    await readable.cancel('downstream cancelled');
+
+    expect(returnSpy).toHaveBeenCalledTimes(1);
+    expect(source.toReadableStream).not.toHaveBeenCalled();
+  });
+
+  it('should return non-iterable sources unchanged', () => {
+    const notIterable = { foo: 'bar' } as any;
+    const result = tapAsyncIterable(notIterable, () => {});
+    expect(result).toBe(notIterable);
+  });
+
+  it('should not break the stream if the observer throws', async () => {
+    const source = (async function* () {
+      yield 'a';
+      yield 'b';
+    })();
+
+    const errorSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const tapped = tapAsyncIterable(source, () => {
+      throw new Error('observer boom');
+    });
+
+    const results: string[] = [];
+    for await (const item of tapped) {
+      results.push(item);
+    }
+    errorSpy.mockRestore();
+
+    expect(results).toEqual(['a', 'b']);
   });
 });

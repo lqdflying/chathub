@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as debugStreamModule from '../../utils/debugStream';
 import { LobeOpenAICompatibleAI } from './index';
 
 vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -457,17 +456,34 @@ describe('LobeOpenAICompatibleAI', () => {
 
   it('enables Responses debug stream logging with DEBUG_OPENAICOMPATIBLE_RESPONSES', async () => {
     process.env.DEBUG_OPENAICOMPATIBLE_RESPONSES = '1';
-    const debugStreamSpy = vi
-      .spyOn(debugStreamModule, 'debugStream')
-      .mockImplementation(() => Promise.resolve());
+    const responseEvents = [
+      {
+        response: { id: 'resp_debug', status: 'in_progress' },
+        type: 'response.created',
+      },
+      {
+        response: { id: 'resp_debug', status: 'completed' },
+        type: 'response.completed',
+      },
+    ];
+    const mockStream = (async function* () {
+      yield* responseEvents;
+    })();
+    vi.spyOn(instance['client'].responses, 'create').mockResolvedValueOnce(mockStream as any);
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await instance.chat({
-      apiMode: 'responses',
-      messages: [{ content: 'Hello', role: 'user' }],
-      model: 'gpt-5.5',
-    });
+    try {
+      const response = await instance.chat({
+        apiMode: 'responses',
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-5.5',
+      });
+      await response.text();
 
-    expect(debugStreamSpy).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(JSON.stringify(responseEvents[1]));
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
   });
 
   it('logs redacted cache debug summaries without raw prompt text', async () => {
@@ -509,12 +525,19 @@ describe('LobeOpenAICompatibleAI', () => {
         promptCacheKey: { present: true },
         sessionId: { present: false },
       },
-      effectiveURL: 'https://gateway.example.com/v1/chat/completions',
+      effectiveURL: {
+        originHash: expect.stringMatching(/^[\da-f]{8}$/),
+        pathDepth: 3,
+        pathHash: expect.stringMatching(/^[\da-f]{8}$/),
+        present: true,
+        queryKeys: [],
+        relative: false,
+      },
       model: 'gpt-5.5',
       route: '/chat/completions',
       tools: {
         count: 1,
-        names: ['lookup_private_data'],
+        fingerprint: expect.stringMatching(/^[\da-f]{8}$/),
       },
       turnShape: {
         count: 2,
@@ -523,6 +546,8 @@ describe('LobeOpenAICompatibleAI', () => {
     });
     expect(cacheLog![1]).not.toContain('System secret text');
     expect(cacheLog![1]).not.toContain('User secret text');
+    expect(cacheLog![1]).not.toContain('gateway.example.com');
+    expect(cacheLog![1]).not.toContain('lookup_private_data');
     expect(cacheLog![1]).not.toContain('properties');
 
     consoleLogSpy.mockRestore();
@@ -569,7 +594,14 @@ describe('LobeOpenAICompatibleAI', () => {
         sessionId: { present: false },
         store: true,
       },
-      effectiveURL: 'https://gateway.example.com/v1/responses',
+      effectiveURL: {
+        originHash: expect.stringMatching(/^[\da-f]{8}$/),
+        pathDepth: 2,
+        pathHash: expect.stringMatching(/^[\da-f]{8}$/),
+        present: true,
+        queryKeys: [],
+        relative: false,
+      },
       model: 'gpt-5.5',
       params: {
         hasTextVerbosity: false,
@@ -583,6 +615,7 @@ describe('LobeOpenAICompatibleAI', () => {
     });
     expect(cacheLog![1]).not.toContain('System secret text');
     expect(cacheLog![1]).not.toContain('User secret text');
+    expect(cacheLog![1]).not.toContain('gateway.example.com');
 
     consoleLogSpy.mockRestore();
   });

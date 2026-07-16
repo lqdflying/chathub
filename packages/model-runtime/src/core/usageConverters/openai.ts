@@ -18,10 +18,13 @@ export const convertOpenAIUsage = (
   const totalInputTokens = inputCitationTokens + inputTextTokens;
 
   const cachedTokens =
-    (usage as any).prompt_cache_hit_tokens || usage.prompt_tokens_details?.cached_tokens;
+    (usage as any).prompt_cache_hit_tokens ??
+    (usage as any).cached_tokens ??
+    usage.prompt_tokens_details?.cached_tokens;
 
   const inputCacheMissTokens =
-    (usage as any).prompt_cache_miss_tokens || totalInputTokens - cachedTokens;
+    (usage as any).prompt_cache_miss_tokens ??
+    (cachedTokens === undefined ? undefined : totalInputTokens - cachedTokens);
 
   const totalOutputTokens = usage.completion_tokens;
   const outputReasoning = usage.completion_tokens_details?.reasoning_tokens || 0;
@@ -58,8 +61,12 @@ export const convertOpenAIUsage = (
   const finalData = {};
 
   Object.entries(data).forEach(([key, value]) => {
-    // For Moonshot, when inputCachedTokens is defined, keep inputCacheMissTokens even if 0
-    if (key === 'inputCacheMissTokens' && payload?.provider === 'moonshot' && data.inputCachedTokens !== undefined) {
+    // A zero cache miss is meaningful when a compatible provider reports a full cache hit.
+    if (
+      key === 'inputCacheMissTokens' &&
+      (payload?.provider === 'moonshot' || payload?.provider === 'openaicompatible') &&
+      data.inputCachedTokens !== undefined
+    ) {
       // @ts-ignore
       finalData[key] = value;
       return;
@@ -94,9 +101,8 @@ export const convertOpenAIResponseUsage = (
   // For ResponseUsage, inputTextTokens is effectively totalInputTokens as no further breakdown is given.
   const inputTextTokens = totalInputTokens;
 
-  // For ResponseUsage, outputTextTokens is totalOutputTokens minus reasoning, as no audio output tokens are specified.
-  const outputTextTokens = totalOutputTokens - outputReasoningTokens;
   const outputImageTokens = (usage.output_tokens_details as any)?.image_tokens || 0;
+  const outputTextTokens = totalOutputTokens - outputReasoningTokens - outputImageTokens;
 
   // 3. Construct the comprehensive data object (matching ModelTokensUsage structure)
   const data = {

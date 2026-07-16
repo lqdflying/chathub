@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import * as debugStreamModule from '../../utils/debugStream';
 import { LobeMoonshotAI, buildMoonshotPayload, normalizeMessagesForMoonshot } from './index';
 
 describe('normalizeMessagesForMoonshot', () => {
@@ -306,33 +305,39 @@ describe('buildMoonshotPayload — tool-call safety', () => {
 describe('LobeMoonshotAI debug', () => {
   it('logs structured request summary with DEBUG_MOONSHOT_CHAT_COMPLETION', async () => {
     const instance = new LobeMoonshotAI({ apiKey: 'test-key' });
-    const mockProdStream = new ReadableStream() as any;
-    const mockDebugStream = new ReadableStream() as any;
-    mockDebugStream.toReadableStream = () => mockDebugStream;
-
-    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
-      tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
-    });
+    const chatChunk = {
+      choices: [{ delta: { content: 'Hello' }, finish_reason: 'stop', index: 0 }],
+      id: 'chatcmpl-moonshot-debug',
+    };
+    const mockStream = (async function* () {
+      yield chatChunk;
+    })();
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue(mockStream);
     vi.stubEnv('DEBUG_MOONSHOT_CHAT_COMPLETION', '1');
-    const debugStreamSpy = vi
-      .spyOn(debugStreamModule, 'debugStream')
-      .mockImplementation(() => Promise.resolve());
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     try {
-      await instance.chat({
+      const response = await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
         model: 'kimi-k2.5',
         temperature: 0,
       } as any);
+      await response.text();
 
-      expect(debugStreamModule.debugStream).toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(JSON.stringify(chatChunk));
       const providerDebugCall = logSpy.mock.calls.find(
         ([label]) => label === '[provider-debug:request]',
       );
       expect(providerDebugCall).toBeDefined();
       expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
-        effectiveURL: 'https://api.moonshot.cn/v1/chat/completions',
+        effectiveURL: {
+          originHash: expect.stringMatching(/^[\da-f]{8}$/),
+          pathDepth: 3,
+          pathHash: expect.stringMatching(/^[\da-f]{8}$/),
+          present: true,
+          queryKeys: [],
+          relative: false,
+        },
         model: 'kimi-k2.5',
         provider: 'moonshot',
         route: '/chat/completions',
@@ -340,7 +345,6 @@ describe('LobeMoonshotAI debug', () => {
         turnShape: { count: 1, sequence: ['user:text'] },
       });
     } finally {
-      debugStreamSpy.mockRestore();
       logSpy.mockRestore();
       vi.unstubAllEnvs();
     }

@@ -16,10 +16,22 @@ export type ChatPayloadForTransformStream = {
   provider?: string;
 };
 
+export interface StreamToolState {
+  emittedArguments?: string;
+  id: string;
+  index: number;
+  name: string;
+}
+
 /**
  * context in the stream to save temporarily data
  */
 export interface StreamContext {
+  /**
+   * Chat Completions tool metadata indexed by the normalized tool-call index.
+   * Some compatible providers omit IDs or indexes from continuation chunks.
+   */
+  chatToolsByIndex?: Map<number, StreamToolState>;
   id: string;
   /**
    * As pplx citations is in every chunk, but we only need to return it once
@@ -54,12 +66,17 @@ export interface StreamContext {
    * When `false`, content should be stored in the regular `content` field.
    */
   thinkingInContent?: boolean;
-  tool?: {
-    id: string;
-    index: number;
-    name: string;
-  };
+  tool?: StreamToolState;
   toolIndex?: number;
+  /**
+   * Responses tool metadata indexed by both item ID and call ID. Compatible
+   * gateways do not consistently use the same identifier in every event.
+   */
+  toolsByItemId?: Map<string, StreamToolState>;
+  /**
+   * Responses tool metadata indexed by the upstream output position.
+   */
+  toolsByOutputIndex?: Map<number, StreamToolState>;
   usage?: ModelUsage;
 }
 
@@ -177,8 +194,7 @@ export function readableFromAsyncIterable<T>(iterable: AsyncIterable<T>) {
   });
 }
 
-// make the response to the streamable format
-export const convertIterableToStream = <T>(stream: AsyncIterable<T>) => {
+export function convertIterableToStream<T>(stream: AsyncIterable<T>) {
   const iterable = chatStreamable(stream);
 
   // copy from https://github.com/vercel/ai/blob/d3aa5486529e3d1a38b30e3972b4f4c63ea4ae9a/packages/ai/streams/ai-stream.ts#L284
@@ -211,6 +227,69 @@ export const convertIterableToStream = <T>(stream: AsyncIterable<T>) => {
       }
     },
   });
+}
+
+// make the response to the streamable format
+/**
+ * Wrap an async iterable with a pass-through observer WITHOUT splitting it.
+ *
+ * Unlike SDK `Stream.tee()`, this preserves a single owned iterator: every
+ * chunk is forwarded to `observer` (for debug logging) and then yielded
+ * downstream, and `return()` (used by `ReadableStream.cancel()` →
+ * `convertIterableToStream`) propagates to the underlying iterator. This keeps
+ * upstream cancellation intact while still allowing per-chunk inspection.
+ *
+ * If the source is not async-iterable (e.g. a plain mock in tests), it is
+ * returned unchanged so the downstream converters handle it.
+ */
+export const tapAsyncIterable = <T>(
+  source: T,
+  observer: (chunk: T extends AsyncIterable<infer U> ? U : never) => void,
+): T => {
+  if (
+    source === null ||
+    source === undefined ||
+    typeof (source as any)[Symbol.asyncIterator] !== 'function'
+  ) {
+    return source;
+  }
+
+  const asyncSource = source as unknown as AsyncIterable<T extends AsyncIterable<infer U> ? U : never>;
+  const iterator = asyncSource[Symbol.asyncIterator]();
+  type Item = T extends AsyncIterable<infer U> ? U : never;
+
+  const tappedIterator = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    async next(): Promise<IteratorResult<Item>> {
+      const result = await iterator.next();
+      if (!result.done) {
+        try {
+          observer(result.value as Item);
+        } catch (err) {
+          // Observer failures must never break the production stream.
+          console.warn('[debug-tap] observer threw:', err);
+        }
+      }
+      return result as IteratorResult<Item>;
+    },
+    async return(value?: any): Promise<IteratorResult<Item>> {
+      // Forward cancellation to the underlying iterator so the upstream fetch
+      // is actually aborted.
+      if (typeof iterator.return === 'function') {
+        return (await iterator.return(value)) as IteratorResult<Item>;
+      }
+      return { done: true, value: undefined as any };
+    },
+    throw: iterator.throw?.bind(iterator),
+  };
+
+  if (typeof (source as any).toReadableStream === 'function') {
+    (tappedIterator as any).toReadableStream = () => convertIterableToStream(tappedIterator);
+  }
+
+  return tappedIterator as unknown as T;
 };
 
 /**
@@ -290,7 +369,10 @@ export const createSSEProtocolTransformer = (
   });
 };
 
-export function createCallbacksTransformer(cb: ChatStreamCallbacks | undefined) {
+export function createCallbacksTransformer(
+  cb: ChatStreamCallbacks | undefined,
+  options?: { shouldCallCompletion?: () => boolean },
+) {
   const textEncoder = new TextEncoder();
   let aggregatedText = '';
   let aggregatedThinking: string | undefined = undefined;
@@ -313,7 +395,7 @@ export function createCallbacksTransformer(cb: ChatStreamCallbacks | undefined) 
         usage,
       };
 
-      if (callbacks.onCompletion) {
+      if (callbacks.onCompletion && (options?.shouldCallCompletion?.() ?? true)) {
         await callbacks.onCompletion(data);
       }
 

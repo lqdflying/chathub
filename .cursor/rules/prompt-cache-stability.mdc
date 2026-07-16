@@ -8,6 +8,8 @@ alwaysApply: false
 
 LLM providers (OpenAI, Anthropic) cache by byte-identical prefix. Any byte change in an earlier message invalidates the cache for the entire session. Follow these rules when modifying the chat pipeline.
 
+For OpenAI-compatible request conversion, stream lifecycle, cancellation, tool correlation, usage, and diagnostic invariants, also follow `.cursor/rules/openai-compatible-runtime.mdc`.
+
 ## What breaks the cache prefix
 
 1. **Re-expanding placeholders in history or volatile system prompts.** Historical user/assistant messages were already expanded when originally sent and must not be re-expanded. System messages may be processed because templates can be injected each request, but for `openaicompatible`, volatile generators like `{{time}}`, `{{datetime}}`, `{{iso}}`, `{{timestamp}}`, `{{hour}}`, `{{minute}}`, `{{second}}`, `{{random*}}`, and `{{uuid*}}` must remain unexpanded in system messages. Latest user messages may expand placeholders.
@@ -55,7 +57,7 @@ Not root causes by themselves: API route choice alone, provider-name preset labe
 
 ### OpenAI-Compatible Cache Debugging
 
-- Start with `DEBUG_OPENAICOMPATIBLE_CACHE=1`. It logs structured, mostly redacted request and usage summaries for both `/v1/chat/completions` and `/v1/responses`: route, model, cache-key/session-header presence plus hash, payload fingerprint, turn/input shape, tool names/count, store, and cached-token usage when available. Treat logs as potentially sensitive because URLs and shape metadata can still reveal deployment details; scrub before sharing.
+- Start with `DEBUG_OPENAICOMPATIBLE_CACHE=1`. It logs structured, redacted request and usage summaries for both `/v1/chat/completions` and `/v1/responses`: route, model, hashed endpoint origin/path plus path depth and query-key names, cache-key/session-header presence plus hash, payload fingerprint, turn/input shape, tool count/fingerprint, store, hashed response IDs, and cached-token usage when available. It must not log URL credentials, hosts, path segments, query values, secret prefixes, tool names, or raw request/response IDs.
 - Use `DEBUG_OPENAICOMPATIBLE_CHAT_COMPLETION=1` only when exact Chat Completions payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
 - Use `DEBUG_OPENAICOMPATIBLE_RESPONSES=1` only when exact Responses payload or raw stream inspection is required. It prints full request/stream data and can expose prompt/tool content.
 - When live ChatHub behavior disagrees with the provider probe, compare `DEBUG_OPENAICOMPATIBLE_CACHE=1` payload fingerprints and turn/tool shapes across rounds before changing cache presets.

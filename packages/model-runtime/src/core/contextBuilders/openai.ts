@@ -96,6 +96,94 @@ export const convertOpenAIMessages = async (
   )) as OpenAI.ChatCompletionMessageParam[];
 };
 
+/**
+ * Extract assistant text content as Responses easy-input text parts.
+ * Used to preserve assistant commentary that precedes tool calls.
+ */
+function extractAssistantTextParts(
+  message: OpenAIChatMessage,
+): OpenAI.Responses.ResponseInputText[] {
+  if (message.content === null || message.content === undefined) return [];
+
+  if (typeof message.content === 'string') {
+    const trimmed = message.content.trim();
+    return trimmed.length > 0 ? [{ text: message.content, type: 'input_text' }] : [];
+  }
+
+  if (Array.isArray(message.content)) {
+    return message.content
+      .filter((c) => c.type === 'text' && (c as OpenAI.ChatCompletionContentPartText).text)
+      .map((c) => ({
+        text: (c as OpenAI.ChatCompletionContentPartText).text,
+        type: 'input_text' as const,
+      }));
+  }
+
+  return [];
+}
+
+/**
+ * Convert Chat Completions content to Responses assistant easy-input content.
+ * Non-text parts are dropped because historical assistant messages cannot
+ * contain user input images in this serializer.
+ */
+function toResponseInputTextContent(
+  content: OpenAIChatMessage['content'],
+): string | OpenAI.Responses.ResponseInputMessageContentList {
+  if (typeof content === 'string') return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .filter((c) => c.type === 'text')
+      .map((c) => ({
+        text: (c as OpenAI.ChatCompletionContentPartText).text,
+        type: 'input_text' as const,
+      }));
+  }
+
+  return '';
+}
+
+/**
+ * Convert user message content (string or parts) to Responses easy-input
+ * content, normalizing `input_text` and `input_image` parts (preserving image
+ * `detail` and converting image URLs as needed).
+ */
+async function toResponseInputContentAsync(
+  content: OpenAIChatMessage['content'],
+): Promise<string | OpenAI.Responses.ResponseInputMessageContentList> {
+  if (typeof content === 'string' || content === null || content === undefined) {
+    return content ?? '';
+  }
+
+  if (!Array.isArray(content)) return content as any;
+
+  return Promise.all(
+    content.map(async (c) => {
+      if (c.type === 'text') {
+        return { text: (c as OpenAI.ChatCompletionContentPartText).text, type: 'input_text' };
+      }
+
+      if (c.type === 'image_url') {
+        const image = (await convertMessageContent(
+          c as OpenAI.ChatCompletionContentPartImage,
+        )) as OpenAI.ChatCompletionContentPartImage;
+        const part: OpenAI.Responses.ResponseInputImage = {
+          detail: image.image_url?.detail ?? 'auto',
+          image_url: image.image_url?.url,
+          type: 'input_image',
+        };
+        return part;
+      }
+
+      // Drop unsupported part types rather than leaking Chat-Completions shapes.
+      return null;
+    }),
+  ).then((parts) =>
+    parts.filter((p): p is OpenAI.Responses.ResponseInputContent => p !== null),
+  ) as OpenAI.Responses.ResponseInputMessageContentList;
+}
+
 export const convertOpenAIResponseInputs = async (
   messages: OpenAIChatMessage[],
   provider?: string,
@@ -119,7 +207,19 @@ export const convertOpenAIResponseInputs = async (
 
       // if message is assistant messages with tool calls , transform it to function type item
       if (message.role === 'assistant' && message.tool_calls && message.tool_calls?.length > 0) {
-        message.tool_calls?.forEach((tool) => {
+        // Preserve assistant text content BEFORE the function_call items. The
+        // Responses API accepts interleaved message/function items in `input`, and
+        // dropping the text breaks multi-turn continuity and prompt-cache prefixes
+        // when the assistant turn had both commentary and tool calls.
+        const textParts = extractAssistantTextParts(message);
+        if (textParts.length > 0) {
+          items.push({
+            content: textParts,
+            role: 'assistant',
+          } as OpenAI.Responses.EasyInputMessage);
+        }
+
+        message.tool_calls.forEach((tool) => {
           items.push({
             arguments: tool.function.arguments,
             call_id: tool.id,
@@ -142,54 +242,29 @@ export const convertOpenAIResponseInputs = async (
       }
 
       if (message.role === 'system') {
-        items.push({ ...message, role: 'developer' } as OpenAI.Responses.ResponseInputItem);
+        items.push({
+          content: message.content,
+          role: 'developer',
+        } as OpenAI.Responses.EasyInputMessage);
         return items;
       }
 
-      // assistant messages without tool_calls: content must be output_text/refusal only
+      // assistant messages without tool_calls: easy-input content must use
+      // `input_text` (not `output_text`, which is an OUTPUT-only content type).
       if (message.role === 'assistant') {
-        const item = {
-          ...message,
-          content:
-            typeof message.content === 'string'
-              ? message.content
-              : (message.content || [])
-                  .filter((c) => c.type === 'text')
-                  .map((c) => ({ text: (c as OpenAI.ChatCompletionContentPartText).text, type: 'output_text' as const })),
-        } as OpenAI.Responses.ResponseInputItem;
-
-        delete (item as any).reasoning;
-        delete (item as any).reasoning_content;
-        items.push(item);
+        items.push({
+          content: toResponseInputTextContent(message.content),
+          role: 'assistant',
+        } as OpenAI.Responses.EasyInputMessage);
         return items;
       }
 
       // default item (user messages), also handle images
-      const item = {
-        ...message,
-        content:
-          typeof message.content === 'string'
-            ? message.content
-            : await Promise.all(
-                (message.content || []).map(async (c) => {
-                  if (c.type === 'text') {
-                    return { ...c, type: 'input_text' };
-                  }
+      items.push({
+        content: await toResponseInputContentAsync(message.content),
+        role: 'user',
+      } as OpenAI.Responses.EasyInputMessage);
 
-                  const image = await convertMessageContent(c as OpenAI.ChatCompletionContentPart);
-                  return {
-                    image_url: (image as OpenAI.ChatCompletionContentPartImage).image_url?.url,
-                    type: 'input_image',
-                  };
-                }),
-              ),
-      } as OpenAI.Responses.ResponseInputItem;
-
-      // remove reasoning field from the message item
-      delete (item as any).reasoning;
-      delete (item as any).reasoning_content;
-
-      items.push(item);
       return items;
     }),
   );
@@ -199,14 +274,13 @@ export const convertOpenAIResponseInputs = async (
 
 export const pruneReasoningPayload = (payload: ChatStreamPayload) => {
   const shouldStream = !disableStreamModels.has(payload.model);
-  const {
-    frequency_penalty: _frequencyPenalty,
-    presence_penalty: _presencePenalty,
-    stream_options,
-    temperature: _temperature,
-    top_p: _topP,
-    ...cleanedPayload
-  } = payload as any;
+  const cleanedPayload = { ...payload } as any;
+  const { stream_options } = cleanedPayload;
+  delete cleanedPayload.frequency_penalty;
+  delete cleanedPayload.presence_penalty;
+  delete cleanedPayload.stream_options;
+  delete cleanedPayload.temperature;
+  delete cleanedPayload.top_p;
 
   return {
     ...cleanedPayload,

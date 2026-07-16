@@ -1,20 +1,7 @@
-import { desensitizeUrl } from './desensitizeUrl';
+type ProviderDebugRoute = '/chat/completions' | '/responses' | '/v1/messages';
 
-type ProviderDebugRoute = '/chat/completions' | '/messages' | '/responses' | string;
-
-const secretKeys = new Set([
-  'api_key',
-  'apikey',
-  'apiKey',
-  'authorization',
-  'Authorization',
-  'authToken',
-  'cookie',
-  'password',
-  'secret',
-  'token',
-  'x-api-key',
-]);
+const SECRET_KEY_PATTERN =
+  /^(?:api[_-]?key|authorization|auth[_-]?token|cookie|password|secret|token|access[_-]?token|client[_-]?secret|x-api-key)$/i;
 
 const sanitizeForDebug = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(sanitizeForDebug);
@@ -23,7 +10,7 @@ const sanitizeForDebug = (value: unknown): unknown => {
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>).map(([key, item]) => [
       key,
-      secretKeys.has(key) ? '[redacted]' : sanitizeForDebug(item),
+      SECRET_KEY_PATTERN.test(key) ? '[redacted]' : sanitizeForDebug(item),
     ]),
   );
 };
@@ -39,13 +26,13 @@ const stableStringify = (value: unknown) => {
   }
 };
 
-const stableHash = (value: unknown) => {
+export const stableHash = (value: unknown) => {
   const text = typeof value === 'string' ? value : stableStringify(value);
-  let hash = 0x811c9dc5;
+  let hash = 2_166_136_261;
 
   for (let i = 0; i < text.length; i += 1) {
     hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+    hash = Math.imul(hash, 16_777_619);
   }
 
   return (hash >>> 0).toString(16).padStart(8, '0');
@@ -85,16 +72,11 @@ const sequenceSummary = (items: unknown) => {
 };
 
 const toolSummary = (tools: unknown) => {
-  if (!Array.isArray(tools)) return { count: 0, fingerprint: stableHash([]), names: [] as string[] };
-
-  const names = tools.map(
-    (tool: any) => tool?.function?.name || tool?.name || tool?.type || 'unknown',
-  );
+  if (!Array.isArray(tools)) return { count: 0, fingerprint: stableHash([]) };
 
   return {
     count: tools.length,
     fingerprint: stableHash(tools),
-    names,
   };
 };
 
@@ -115,7 +97,41 @@ export const buildEffectiveProviderURL = (baseURL: string | undefined, route: Pr
   if (!baseURL) return route;
   if (/^https?:\/\//i.test(route)) return route;
 
-  return `${baseURL.replace(/\/+$/, '')}/${route.replace(/^\/+/, '')}`;
+  try {
+    const parsedBaseURL = new URL(baseURL);
+    parsedBaseURL.pathname = `${parsedBaseURL.pathname.replace(/\/+$/, '')}/${route.replace(
+      /^\/+/,
+      '',
+    )}`;
+    return parsedBaseURL.toString();
+  } catch {
+    return `${baseURL.replace(/\/+$/, '')}/${route.replace(/^\/+/, '')}`;
+  }
+};
+
+export const summarizeProviderDebugURL = (value: string | undefined) => {
+  if (!value) return { present: false as const };
+
+  try {
+    const parsedURL = new URL(value, value.startsWith('/') ? 'https://relative.invalid' : undefined);
+    const isRelative = value.startsWith('/');
+    const pathSegments = parsedURL.pathname.split('/').filter(Boolean);
+
+    return {
+      originHash: isRelative ? undefined : stableHash(parsedURL.origin),
+      pathDepth: pathSegments.length,
+      pathHash: stableHash(parsedURL.pathname),
+      present: true as const,
+      queryKeys: [...new Set(parsedURL.searchParams.keys())].sort(),
+      relative: isRelative,
+    };
+  } catch {
+    return {
+      hash: stableHash(value),
+      present: true as const,
+      valid: false as const,
+    };
+  }
 };
 
 export const buildProviderDebugRequest = ({
@@ -132,8 +148,8 @@ export const buildProviderDebugRequest = ({
   const messages = payload.messages ?? payload.input;
 
   return {
-    baseURL: baseURL ? desensitizeUrl(baseURL) : null,
-    effectiveURL: buildEffectiveProviderURL(baseURL, route),
+    baseURL: summarizeProviderDebugURL(baseURL),
+    effectiveURL: summarizeProviderDebugURL(buildEffectiveProviderURL(baseURL, route)),
     model: payload.model,
     params: paramShape(payload),
     payloadFingerprint: stableHash(sanitizeForDebug(payload)),

@@ -1,8 +1,26 @@
 // @vitest-environment node
 import OpenAI from 'openai';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { OpenAIResponsesStream } from '../streams/openai/responsesStream';
+import { readStreamChunk } from '../streams/utils';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
+
+const readResponseEvents = async (response: OpenAI.Responses.Response) => {
+  const reader = transformResponseAPIToStream(response).getReader();
+  const events: OpenAI.Responses.ResponseStreamEvent[] = [];
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    events.push(value);
+  }
+
+  return events;
+};
+
+const responseEventTypes = (events: OpenAI.Responses.ResponseStreamEvent[]) =>
+  events.map((event) => event.type);
 
 describe('nonStreamToStream', () => {
   describe('transformResponseToStream', () => {
@@ -393,29 +411,22 @@ describe('nonStreamToStream', () => {
         model: 'gpt-4o-realtime-preview',
       } as any;
 
-      const stream = transformResponseAPIToStream(mockResponse);
-      const reader = stream.getReader();
-      const events: OpenAI.Responses.ResponseStreamEvent[] = [];
+      const events = await readResponseEvents(mockResponse);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        events.push(value);
-      }
-
-      expect(events).toEqual([
-        // First event: response.output_text.delta
-        {
-          delta: 'Hello! How can I help you today?',
-          type: 'response.output_text.delta',
-        },
-        // Second event: response.completed
-        {
-          response: mockResponse,
-          sequence_number: 999,
-          type: 'response.completed',
-        },
+      expect(responseEventTypes(events)).toEqual([
+        'response.created',
+        'response.output_item.added',
+        'response.output_text.delta',
+        'response.output_item.done',
+        'response.completed',
       ]);
+      expect(events.map((event) => event.sequence_number)).toEqual([0, 1, 2, 3, 4]);
+      expect(events[2]).toMatchObject({
+        delta: 'Hello! How can I help you today?',
+        item_id: 'msg_001',
+        output_index: 0,
+      });
+      expect(events.at(-1)).toMatchObject({ response: mockResponse });
     });
 
     it('should handle Response API without message output', async () => {
@@ -445,24 +456,15 @@ describe('nonStreamToStream', () => {
         model: 'gpt-4o-realtime-preview',
       } as any;
 
-      const stream = transformResponseAPIToStream(mockResponse);
-      const reader = stream.getReader();
-      const events: OpenAI.Responses.ResponseStreamEvent[] = [];
+      const events = await readResponseEvents(mockResponse);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        events.push(value);
-      }
-
-      // Should only produce response.completed event, no text deltas
-      expect(events).toEqual([
-        {
-          response: mockResponse,
-          sequence_number: 999,
-          type: 'response.completed',
-        },
+      expect(responseEventTypes(events)).toEqual([
+        'response.created',
+        'response.output_item.added',
+        'response.output_item.done',
+        'response.completed',
       ]);
+      expect(events.at(-1)).toMatchObject({ response: mockResponse });
     });
 
     it('should handle Response API with message but no text content', async () => {
@@ -499,24 +501,15 @@ describe('nonStreamToStream', () => {
         model: 'gpt-4o-realtime-preview',
       } as any;
 
-      const stream = transformResponseAPIToStream(mockResponse);
-      const reader = stream.getReader();
-      const events: OpenAI.Responses.ResponseStreamEvent[] = [];
+      const events = await readResponseEvents(mockResponse);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        events.push(value);
-      }
-
-      // Should only produce response.completed event because message has no text content
-      expect(events).toEqual([
-        {
-          response: mockResponse,
-          sequence_number: 999,
-          type: 'response.completed',
-        },
+      expect(responseEventTypes(events)).toEqual([
+        'response.created',
+        'response.output_item.added',
+        'response.output_item.done',
+        'response.completed',
       ]);
+      expect(events.some((event) => event.type === 'response.output_text.delta')).toBe(false);
     });
 
     it('should handle Response API with message id missing', async () => {
@@ -552,27 +545,19 @@ describe('nonStreamToStream', () => {
         model: 'gpt-4o-realtime-preview',
       } as any;
 
-      const stream = transformResponseAPIToStream(mockResponse);
-      const reader = stream.getReader();
-      const events: OpenAI.Responses.ResponseStreamEvent[] = [];
+      const events = await readResponseEvents(mockResponse);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        events.push(value);
-      }
-
-      expect(events).toEqual([
-        {
-          delta: 'Response without message ID',
-          type: 'response.output_text.delta',
-        },
-        {
-          response: mockResponse,
-          sequence_number: 999,
-          type: 'response.completed',
-        },
+      expect(responseEventTypes(events)).toEqual([
+        'response.created',
+        'response.output_item.added',
+        'response.output_text.delta',
+        'response.output_item.done',
+        'response.completed',
       ]);
+      expect(events[2]).toMatchObject({
+        delta: 'Response without message ID',
+        item_id: 'resp_missing_id:output:0',
+      });
     });
 
     it('should handle empty output array', async () => {
@@ -594,24 +579,10 @@ describe('nonStreamToStream', () => {
         model: 'gpt-4o-realtime-preview',
       } as any;
 
-      const stream = transformResponseAPIToStream(mockResponse);
-      const reader = stream.getReader();
-      const events: OpenAI.Responses.ResponseStreamEvent[] = [];
+      const events = await readResponseEvents(mockResponse);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        events.push(value);
-      }
-
-      // Should only produce response.completed event even with empty output
-      expect(events).toEqual([
-        {
-          response: mockResponse,
-          sequence_number: 999,
-          type: 'response.completed',
-        },
-      ]);
+      expect(responseEventTypes(events)).toEqual(['response.created', 'response.completed']);
+      expect(events.at(-1)).toMatchObject({ response: mockResponse });
     });
 
     it('should handle missing output field', async () => {
@@ -633,24 +604,144 @@ describe('nonStreamToStream', () => {
         model: 'gpt-4o-realtime-preview',
       } as any;
 
-      const stream = transformResponseAPIToStream(mockResponse as OpenAI.Responses.Response);
-      const reader = stream.getReader();
-      const events: OpenAI.Responses.ResponseStreamEvent[] = [];
+      const events = await readResponseEvents(mockResponse as OpenAI.Responses.Response);
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        events.push(value);
-      }
-
-      // Should only produce response.completed event since output is missing
-      expect(events).toEqual([
-        {
-          response: mockResponse,
-          sequence_number: 999,
-          type: 'response.completed',
-        },
-      ]);
+      expect(responseEventTypes(events)).toEqual(['response.created', 'response.completed']);
+      expect(events.at(-1)).toMatchObject({ response: mockResponse });
     });
+
+    it('should preserve reasoning, tools, refusal, citations, and usage through the protocol stream', async () => {
+      const mockResponse = {
+        id: 'resp_semantic_output',
+        model: 'gpt-5',
+        object: 'response',
+        output: [
+          {
+            id: 'reasoning_1',
+            status: 'completed',
+            summary: [{ text: 'Reasoning summary', type: 'summary_text' }],
+            type: 'reasoning',
+          },
+          {
+            arguments: '{"city":"Paris"}',
+            call_id: 'call_weather',
+            id: 'function_1',
+            name: 'get_weather',
+            status: 'completed',
+            type: 'function_call',
+          },
+          {
+            content: [
+              {
+                annotations: [
+                  {
+                    end_index: 16,
+                    start_index: 0,
+                    title: 'Weather source',
+                    type: 'url_citation',
+                    url: 'https://example.com/weather',
+                  },
+                ],
+                text: 'Weather is sunny.',
+                type: 'output_text',
+              },
+              {
+                refusal: 'I cannot provide restricted details.',
+                type: 'refusal',
+              },
+            ],
+            id: 'message_1',
+            role: 'assistant',
+            status: 'completed',
+            type: 'message',
+          },
+        ],
+        status: 'completed',
+        usage: {
+          input_tokens: 20,
+          input_tokens_details: { cached_tokens: 5 },
+          output_tokens: 10,
+          output_tokens_details: { reasoning_tokens: 3 },
+          total_tokens: 30,
+        },
+      } as unknown as OpenAI.Responses.Response;
+      const onCompletion = vi.fn();
+
+      const events = await readResponseEvents(mockResponse);
+      const protocolChunks = await readStreamChunk(
+        OpenAIResponsesStream(
+          transformResponseAPIToStream(mockResponse),
+          { callbacks: { onCompletion } },
+          { requireTerminalEvent: true },
+        ),
+      );
+      const protocolOutput = protocolChunks.join('');
+
+      expect(responseEventTypes(events)).toEqual([
+        'response.created',
+        'response.output_item.added',
+        'response.reasoning_summary_part.added',
+        'response.reasoning_summary_text.delta',
+        'response.output_item.done',
+        'response.output_item.added',
+        'response.function_call_arguments.done',
+        'response.output_item.done',
+        'response.output_item.added',
+        'response.output_text.delta',
+        'response.output_text.annotation.added',
+        'response.refusal.delta',
+        'response.output_item.done',
+        'response.completed',
+      ]);
+      expect(protocolOutput).toContain('event: reasoning');
+      expect(protocolOutput).toContain('Reasoning summary');
+      expect(protocolOutput).toContain('event: tool_calls');
+      expect(protocolOutput).toContain('get_weather');
+      expect(protocolOutput).toContain('{\\"city\\":\\"Paris\\"}');
+      expect(protocolOutput).toContain('Weather is sunny.');
+      expect(protocolOutput).toContain('I cannot provide restricted details.');
+      expect(protocolOutput).toContain('event: grounding');
+      expect(protocolOutput).toContain('https://example.com/weather');
+      expect(protocolOutput).toContain('event: usage');
+      expect(onCompletion).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      { expectedEventType: 'response.failed', status: 'failed' },
+      { expectedEventType: 'response.incomplete', status: 'incomplete' },
+      { expectedEventType: 'response.incomplete', status: 'cancelled' },
+    ])(
+      'should map $status responses to $expectedEventType without successful completion',
+      async ({ expectedEventType, status }) => {
+        const mockResponse = {
+          error:
+            status === 'failed'
+              ? { code: 'server_error', message: 'Generation failed' }
+              : null,
+          id: `resp_${status}`,
+          incomplete_details:
+            status === 'incomplete' ? { reason: 'max_output_tokens' } : null,
+          object: 'response',
+          output: [],
+          status,
+        } as unknown as OpenAI.Responses.Response;
+        const onCompletion = vi.fn();
+        const onFinal = vi.fn();
+
+        const events = await readResponseEvents(mockResponse);
+        const protocolChunks = await readStreamChunk(
+          OpenAIResponsesStream(
+            transformResponseAPIToStream(mockResponse),
+            { callbacks: { onCompletion, onFinal } },
+            { requireTerminalEvent: true },
+          ),
+        );
+
+        expect(events.at(-1)?.type).toBe(expectedEventType);
+        expect(protocolChunks.join('')).toContain('event: error');
+        expect(onCompletion).not.toHaveBeenCalled();
+        expect(onFinal).toHaveBeenCalledOnce();
+      },
+    );
   });
 });

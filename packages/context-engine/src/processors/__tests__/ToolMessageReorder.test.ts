@@ -237,7 +237,10 @@ describe('ToolMessageReorder', () => {
     expect(assistant.content).toBe('partial answer before tool');
   });
 
-  it('should correctly reorder when a tool message appears before the assistant message', async () => {
+  it('should reorder a tool message that appears before its assistant call (no duplication)', async () => {
+    // Regression: a valid tool result that appears in the history BEFORE its
+    // assistant call must be moved after that call and emitted exactly once.
+    // The previous inline-emit logic duplicated it, breaking strict APIs.
     const messages = [
       {
         role: 'system',
@@ -264,12 +267,69 @@ describe('ToolMessageReorder', () => {
 
     const { messages: output } = await proc.process(ctx);
 
-    // Verify reordering logic works and covers line 688 hasPushed check
-    // In this test, tool messages are duplicated but the second occurrence is skipped
-    expect(output.length).toBe(4); // Original has 3, assistant will add corresponding tool message again
+    // Exactly one ordered assistant-call/result pair, no duplication.
+    expect(output.length).toBe(3);
     expect(output[0].role).toBe('system');
-    expect(output[1].role).toBe('tool');
-    expect(output[2].role).toBe('assistant');
-    expect(output[3].role).toBe('tool'); // Tool message added by assistant's tool_calls
+    expect(output[1].role).toBe('assistant');
+    expect(output[1].tool_calls[0].id).toBe('tool_call_1');
+    expect(output[2].role).toBe('tool');
+    expect(output[2].tool_call_id).toBe('tool_call_1');
+  });
+
+  it('should keep multiple parallel tool results in tool_call order after a single assistant call', async () => {
+    const messages = [
+      { id: 'u1', role: 'user', content: 'run both' },
+      // Tool results appear BEFORE the assistant call and in reverse order.
+      { id: 't2', role: 'tool', tool_call_id: 'call_2', content: 'result-2' },
+      { id: 't1', role: 'tool', tool_call_id: 'call_1', content: 'result-1' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { id: 'call_1', type: 'function', function: { name: 'fn', arguments: '{}' } },
+          { id: 'call_2', type: 'function', function: { name: 'fn', arguments: '{}' } },
+        ],
+      },
+    ];
+
+    const proc = new ToolMessageReorder();
+    const { messages: output } = await proc.process(createContext(messages));
+
+    expect(output.map((m: any) => m.id)).toEqual(['u1', 'a1', 't1', 't2']);
+  });
+
+  it('should not reorder when tool results already follow their assistant call', async () => {
+    const messages = [
+      { id: 'u1', role: 'user', content: 'hi' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          { id: 'call_1', type: 'function', function: { name: 'fn', arguments: '{}' } },
+        ],
+      },
+      { id: 't1', role: 'tool', tool_call_id: 'call_1', content: 'result-1' },
+    ];
+
+    const proc = new ToolMessageReorder();
+    const { messages: output } = await proc.process(createContext(messages));
+
+    expect(output.map((m: any) => m.id)).toEqual(['u1', 'a1', 't1']);
+  });
+
+  it('should drop a tool result whose assistant tool_call is genuinely missing', async () => {
+    const messages = [
+      { id: 'u1', role: 'user', content: 'hi' },
+      // Orphan result: no assistant message references 'ghost_call'.
+      { id: 't_ghost', role: 'tool', tool_call_id: 'ghost_call', content: 'no caller' },
+      { id: 'a1', role: 'assistant', content: 'done' },
+    ];
+
+    const proc = new ToolMessageReorder();
+    const { messages: output } = await proc.process(createContext(messages));
+
+    expect(output.map((m: any) => m.id)).toEqual(['u1', 'a1']);
   });
 });

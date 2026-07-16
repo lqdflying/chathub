@@ -1,12 +1,14 @@
 import { normalizeCompatSeedJSON } from './openaicompatCache';
-import { buildEffectiveProviderURL } from '../../utils/providerDebug';
+import {
+  buildEffectiveProviderURL,
+  summarizeProviderDebugURL,
+} from '../../utils/providerDebug';
 
 type OpenAICompatRoute = '/chat/completions' | '/responses';
 
 type DebugSecretSummary =
   | {
       hash: string;
-      prefix: string;
       present: true;
     }
   | {
@@ -26,11 +28,11 @@ type DebugUsage = {
 
 const stableHash = (value: unknown) => {
   const text = typeof value === 'string' ? value : normalizeCompatSeedJSON(value);
-  let hash = 0x811c9dc5;
+  let hash = 2_166_136_261;
 
   for (let i = 0; i < text.length; i += 1) {
     hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+    hash = Math.imul(hash, 16_777_619);
   }
 
   return (hash >>> 0).toString(16).padStart(8, '0');
@@ -41,7 +43,6 @@ const summarizeSecret = (value: unknown): DebugSecretSummary => {
 
   return {
     hash: stableHash(value),
-    prefix: value.slice(0, 12),
     present: true,
   };
 };
@@ -80,14 +81,11 @@ const sequenceSummary = (items: unknown) => {
 };
 
 const toolSummary = (tools: unknown) => {
-  if (!Array.isArray(tools)) return { count: 0, fingerprint: stableHash([]), names: [] as string[] };
-
-  const names = tools.map((tool: any) => tool?.function?.name || tool?.name || tool?.type || 'unknown');
+  if (!Array.isArray(tools)) return { count: 0, fingerprint: stableHash([]) };
 
   return {
     count: tools.length,
     fingerprint: stableHash(tools),
-    names,
   };
 };
 
@@ -123,14 +121,14 @@ export const debugOpenAICompatCacheRequest = ({
     '[openai-compatible-cache-debug:request]',
     JSON.stringify({
       cache: cacheSummary(payload, headers),
-      effectiveURL: buildEffectiveProviderURL(baseURL, route),
+      effectiveURL: summarizeProviderDebugURL(buildEffectiveProviderURL(baseURL, route)),
       fingerprint: stableHash(payload),
       model: payload.model,
       params: responseParamShape(payload),
       reasoningEffort: payload.reasoning?.effort ?? payload.reasoning_effort ?? null,
       route,
       stream: payload.stream ?? null,
-      toolChoice: payload.tool_choice ?? null,
+      toolChoice: payload.tool_choice ? summarizeSecret(normalizeCompatSeedJSON(payload.tool_choice)) : null,
       tools: toolSummary(payload.tools),
       turnShape: sequence,
     }),
@@ -149,14 +147,14 @@ export const debugOpenAICompatCacheUsage = ({
   console.log(
     '[openai-compatible-cache-debug:usage]',
     JSON.stringify({
-      cachedTokens: usage.cachedTokens ?? null,
       cacheMissTokens: usage.cacheMissTokens ?? null,
+      cachedTokens: usage.cachedTokens ?? null,
       inputTokens: usage.inputTokens ?? null,
       model,
       outputTokens: usage.outputTokens ?? null,
       promptTokens: usage.promptTokens ?? null,
-      requestId: usage.requestId ?? null,
-      responseId: usage.responseId ?? null,
+      requestId: summarizeSecret(usage.requestId),
+      responseId: summarizeSecret(usage.responseId),
       route,
       totalTokens: usage.totalTokens ?? null,
     }),

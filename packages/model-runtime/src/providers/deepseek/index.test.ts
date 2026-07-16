@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import * as debugStreamModule from '../../utils/debugStream';
 import { LobeDeepSeekAI, buildDeepSeekPayload } from './index';
 
 describe('buildDeepSeekPayload', () => {
@@ -201,33 +200,39 @@ describe('buildDeepSeekPayload', () => {
 describe('LobeDeepSeekAI debug', () => {
   it('logs structured request summary with DEBUG_DEEPSEEK_CHAT_COMPLETION', async () => {
     const instance = new LobeDeepSeekAI({ apiKey: 'test-key' });
-    const mockProdStream = new ReadableStream() as any;
-    const mockDebugStream = new ReadableStream() as any;
-    mockDebugStream.toReadableStream = () => mockDebugStream;
-
-    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
-      tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
-    });
+    const chatChunk = {
+      choices: [{ delta: { content: 'Hello' }, finish_reason: 'stop', index: 0 }],
+      id: 'chatcmpl-deepseek-debug',
+    };
+    const mockStream = (async function* () {
+      yield chatChunk;
+    })();
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue(mockStream);
     vi.stubEnv('DEBUG_DEEPSEEK_CHAT_COMPLETION', '1');
-    const debugStreamSpy = vi
-      .spyOn(debugStreamModule, 'debugStream')
-      .mockImplementation(() => Promise.resolve());
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
     try {
-      await instance.chat({
+      const response = await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
         model: 'deepseek-v4-pro',
         temperature: 0,
       } as any);
+      await response.text();
 
-      expect(debugStreamModule.debugStream).toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(JSON.stringify(chatChunk));
       const providerDebugCall = logSpy.mock.calls.find(
         ([label]) => label === '[provider-debug:request]',
       );
       expect(providerDebugCall).toBeDefined();
       expect(JSON.parse(providerDebugCall?.[1] as string)).toMatchObject({
-        effectiveURL: 'https://api.deepseek.com/chat/completions',
+        effectiveURL: {
+          originHash: expect.stringMatching(/^[\da-f]{8}$/),
+          pathDepth: 2,
+          pathHash: expect.stringMatching(/^[\da-f]{8}$/),
+          present: true,
+          queryKeys: [],
+          relative: false,
+        },
         model: 'deepseek-v4-pro',
         provider: 'deepseek',
         route: '/chat/completions',
@@ -235,7 +240,6 @@ describe('LobeDeepSeekAI debug', () => {
         turnShape: { count: 1, sequence: ['user:text'] },
       });
     } finally {
-      debugStreamSpy.mockRestore();
       logSpy.mockRestore();
       vi.unstubAllEnvs();
     }

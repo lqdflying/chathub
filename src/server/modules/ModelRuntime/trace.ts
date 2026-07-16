@@ -64,6 +64,9 @@ export const createTraceOptions = (
             ? {
                 completionTokens: usage.outputTextTokens,
                 input: usage.totalInputTokens,
+                inputCacheMissTokens: usage.inputCacheMissTokens,
+                inputCachedTokens: usage.inputCachedTokens,
+                inputWriteCacheTokens: usage.inputWriteCacheTokens,
                 output: usage.totalOutputTokens,
                 promptTokens: usage.inputTextTokens,
                 totalTokens: usage.totalTokens,

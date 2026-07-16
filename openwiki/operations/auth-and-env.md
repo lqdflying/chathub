@@ -37,7 +37,7 @@ DEBUG_DEEPSEEK_CHAT_COMPLETION=1
 DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1
 ```
 
-The structured line starts with `[provider-debug:request]` and includes provider, redacted base URL, full `effectiveURL`, upstream route, model, stream flag, payload fingerprint, turn shape, tools summary, and key parameter presence. It is intended for diagnosing endpoint/path errors such as Moonshot `url.not_found` without immediately inspecting full prompt text.
+The structured line starts with `[provider-debug:request]` and includes provider, hashed endpoint origin/path, path depth, query-key names, upstream route, model, stream flag, payload fingerprint, turn shape, tool count/fingerprint, and key parameter presence. It omits URL credentials, hosts, path segments, query values, authorization secrets, and tool names. It is intended for comparing endpoint/request shape without immediately inspecting full prompt text.
 
 The same flags still enable raw `[requestPayload]` and stream logs, so do not leave them enabled in privacy-sensitive production sessions. For OpenAI-compatible cache diagnostics, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1`, which is a separate redacted cache-focused logger.
 

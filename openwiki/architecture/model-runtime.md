@@ -59,7 +59,7 @@ DeepSeek, MiniMax, and Moonshot use provider-specific model fetchers rather than
 
 ## Provider request debug
 
-Moonshot, MiniMax, DeepSeek, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with redacted base URL, full `effectiveURL`, upstream route, model, turn shape, tools summary, and payload fingerprint:
+Moonshot, MiniMax, DeepSeek, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with hashed endpoint origin/path, path depth, query-key names, upstream route, model, turn shape, tool count/fingerprint, and payload fingerprint. URL credentials, hosts, path segments, query values, authorization secrets, and tool names are omitted:
 
 - `DEBUG_MOONSHOT_CHAT_COMPLETION=1`
 - `DEBUG_MINIMAX_CHAT_COMPLETION=1`

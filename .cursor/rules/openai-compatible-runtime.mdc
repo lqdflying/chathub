@@ -1,0 +1,46 @@
+---
+description: OpenAI-compatible Chat Completions and Responses request, stream, usage, and diagnostic invariants
+globs: packages/model-runtime/src/core/contextBuilders/openai.ts, packages/model-runtime/src/core/openaiCompatibleFactory/**/*.ts, packages/model-runtime/src/core/streams/openai/**/*.ts, packages/model-runtime/src/core/usageConverters/openai.ts, packages/model-runtime/src/utils/providerDebug.ts, src/server/modules/ModelRuntime/trace.ts
+alwaysApply: false
+---
+
+# OpenAI-Compatible Runtime
+
+## Scope
+
+- Keep the default compatible path stateless. Do not add `previous_response_id` chaining without an explicit state lifecycle, persistence, retry, and cancellation design.
+- Chat Completions remains the default. Enable Responses only for gateways that document `/v1/responses`, typed events, tools, and the requested options.
+- Preserve trusted server-side `payload.provider` for internal conversion and accounting, but strip it and all runtime-only fields from upstream bodies.
+
+## Request Conversion
+
+- Responses input must use input-side content types: `input_text`, `input_image`, and `function_call_output`. Never replay `output_text` as input.
+- Default a converted Chat Completions `image_url.detail` to `auto` when the source omits it.
+- Preserve assistant text alongside tool calls. Emit exactly one tool result per `tool_call_id`; do not duplicate results when they arrive before their assistant call.
+- Convert `tool_choice` structurally. Keep Chat Completions and Responses field allowlists separate.
+
+## Stream Ownership and Lifecycle
+
+- Never use `Stream.tee()` for diagnostics. Observe chunks in-band and propagate iterator `return()` so downstream cancellation reaches the SDK transport.
+- Responses success requires an explicit `response.completed` with `status: completed`.
+- Treat `response.failed`, `response.incomplete`, explicit `error`, and strict EOF without a terminal event as errors.
+- Call `onCompletion` only after true success. Call `onFinal` once for success, failure, cancellation, or EOF cleanup.
+- Non-stream Responses must synthesize the same semantic event sequence as streaming: created, item/text/reasoning/refusal/tool events, usage, and the real terminal status.
+
+## Tool Correlation
+
+- Responses tool state is keyed by `item_id`, with `output_index` fallback. Chat Completions fallback state is keyed by normalized tool-call `index`.
+- Keep one stable tool ID and dense internal index per call across interleaved chunks.
+- Emit `function_call_arguments.done` only when deltas did not already emit the same arguments.
+
+## Usage and Tracing
+
+- Normalize cache hits from `prompt_cache_hit_tokens`, top-level `cached_tokens`, and `prompt_tokens_details.cached_tokens`.
+- Preserve `inputCacheMissTokens: 0` when a compatible provider reports a full cache hit.
+- Output text excludes reasoning, audio, and image tokens. Forward cache read, miss, and write counters into Langfuse.
+
+## Diagnostics and Tests
+
+- Structured logs must redact URL credentials/query values, API keys, authorization headers, cache keys, session IDs, and request identifiers. Log presence, counts, hashes, and payload shape instead.
+- Test both API modes, stream and non-stream parity, all terminal states, silent EOF, interleaved tools, cancellation propagation, cache usage, trace forwarding, and malformed chunks.
+- Follow `.cursor/rules/prompt-cache-stability.mdc` for cache matrices and prefix invariants.

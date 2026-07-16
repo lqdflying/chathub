@@ -169,7 +169,16 @@ export interface ChatStreamPayload {
     type: 'adaptive' | 'disabled' | 'enabled';
   };
   thinkingBudget?: number;
-  tool_choice?: string;
+  tool_choice?:
+    | string
+    | {
+        function: { name: string };
+        type: 'function';
+      }
+    | {
+        name: string;
+        type: 'function';
+      };
   tools?: ChatCompletionTool[];
   /**
    * @title 控制生成文本中最高概率的单个令牌
