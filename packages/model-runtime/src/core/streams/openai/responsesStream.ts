@@ -25,6 +25,83 @@ type ResponsesStreamState = {
   succeeded: boolean;
 };
 
+type ResponsesIteratorError = {
+  [key: string]: unknown;
+  [FIRST_CHUNK_ERROR_KEY]: true;
+  errorType?: (typeof AgentRuntimeErrorType)[keyof typeof AgentRuntimeErrorType];
+  message?: unknown;
+  name?: unknown;
+  provider?: unknown;
+  stack?: unknown;
+};
+
+const createResponsesErrorChunk = (
+  streamContext: StreamContext,
+  message: string,
+  name: string,
+): StreamProtocolChunk => {
+  const errorData = {
+    body: { message, name },
+    message,
+    type: AgentRuntimeErrorType.ProviderBizError,
+  } satisfies ChatMessageError;
+
+  return { data: errorData, id: streamContext.id, type: 'error' };
+};
+
+const isJSONSyntaxError = (error: ResponsesIteratorError) =>
+  error.name === 'SyntaxError' &&
+  typeof error.message === 'string' &&
+  /json|unexpected (?:end|token)|expected property name/i.test(error.message);
+
+const isHTMLResponseSyntaxError = (error: ResponsesIteratorError) =>
+  isJSONSyntaxError(error) &&
+  typeof error.message === 'string' &&
+  error.message.includes('<') &&
+  /<!doctype|<html|unexpected token ["']?</i.test(error.message);
+
+const createResponsesIteratorError = (
+  error: ResponsesIteratorError,
+  streamContext: StreamContext,
+): StreamProtocolChunk => {
+  const errorId = streamContext.id || 'first_chunk_error';
+
+  if (isHTMLResponseSyntaxError(error)) {
+    return createResponsesErrorChunk(
+      { ...streamContext, id: errorId },
+      'The provider returned HTML instead of a valid Responses API stream. Verify that the configured endpoint supports /v1/responses and check the provider or reverse proxy logs.',
+      'html_response',
+    );
+  }
+
+  if (isJSONSyntaxError(error)) {
+    return createResponsesErrorChunk(
+      { ...streamContext, id: errorId },
+      'The provider returned a malformed Responses API stream. Verify that it emits SSE events with valid JSON data.',
+      'invalid_json',
+    );
+  }
+
+  const errorBody = { ...error };
+  delete errorBody[FIRST_CHUNK_ERROR_KEY];
+  delete errorBody.name;
+  delete errorBody.stack;
+  const errorMessage =
+    'message' in errorBody && typeof errorBody.message === 'string'
+      ? errorBody.message
+      : JSON.stringify(errorBody);
+  const errorData = {
+    body: errorBody,
+    message: errorMessage,
+    type:
+      'errorType' in errorBody
+        ? (errorBody.errorType as typeof AgentRuntimeErrorType.ProviderBizError)
+        : AgentRuntimeErrorType.ProviderBizError,
+  } satisfies ChatMessageError;
+
+  return { data: errorData, id: errorId, type: 'error' };
+};
+
 const getResponsesToolState = (
   chunk: { item_id?: string; output_index?: number },
   streamContext: StreamContext,
@@ -40,20 +117,6 @@ const getResponsesToolState = (
   }
 
   return streamContext.tool;
-};
-
-const createResponsesErrorChunk = (
-  streamContext: StreamContext,
-  message: string,
-  name: string,
-): StreamProtocolChunk => {
-  const errorData = {
-    body: { message, name },
-    message,
-    type: AgentRuntimeErrorType.ProviderBizError,
-  } satisfies ChatMessageError;
-
-  return { data: errorData, id: streamContext.id, type: 'error' };
 };
 
 const transformOpenAIStream = (
@@ -74,28 +137,8 @@ const transformOpenAIStream = (
   payload?: ChatPayloadForTransformStream,
   responsesStreamState?: ResponsesStreamState,
 ): StreamProtocolChunk | StreamProtocolChunk[] => {
-  // handle the first chunk error
   if (FIRST_CHUNK_ERROR_KEY in chunk) {
-    delete chunk[FIRST_CHUNK_ERROR_KEY];
-    // @ts-ignore
-    delete chunk['name'];
-    // @ts-ignore
-    delete chunk['stack'];
-
-    const errorData = {
-      body: chunk,
-      message:
-        'message' in chunk
-          ? typeof chunk.message === 'string'
-            ? chunk.message
-            : JSON.stringify(chunk)
-          : JSON.stringify(chunk),
-      type:
-        'errorType' in chunk
-          ? (chunk.errorType as typeof AgentRuntimeErrorType.ProviderBizError)
-          : AgentRuntimeErrorType.ProviderBizError,
-    } satisfies ChatMessageError;
-    return { data: errorData, id: 'first_chunk_error', type: 'error' };
+    return createResponsesIteratorError(chunk as unknown as ResponsesIteratorError, streamContext);
   }
 
   try {

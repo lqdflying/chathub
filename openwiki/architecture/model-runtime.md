@@ -36,6 +36,21 @@ The recent OpenAI SDK upgrade kept this path working by normalizing the new `Hea
 
 Provider-specific cache hint combinations are documented in [OpenAI-compatible cache matrix](../integrations/openai-compatible-cache-matrix.md).
 
+### Responses stream errors
+
+Responses mode expects `/v1/responses` to return Server-Sent Events whose `data`
+values are valid JSON. The OpenAI SDK parses each event while advancing its async
+iterator. A provider, WAF, or reverse proxy that returns an HTML error page under a
+successful streaming response can therefore fail with a `SyntaxError` beginning
+with `Unexpected token '<'`.
+
+ChatHub converts iterator failures from both the first read and later reads into a
+terminal protocol error. HTML parse failures are reported as `html_response`;
+other JSON syntax failures are reported as `invalid_json`. User-facing errors do
+not include the raw HTML, malformed event body, or SDK stack. For
+`html_response`, verify that the configured endpoint implements `/v1/responses`
+streaming and inspect provider or reverse-proxy logs for the underlying response.
+
 ### Fixed OpenAI-compatible catalog
 
 The `openaicompatible` provider intentionally uses a fixed, non-editable model list instead of exposing arbitrary model fetching. Its chat catalog clones `gpt-5.6-sol` and `gpt-5.5` from the native OpenAI model bank, preserves their option settings, and disables the native-search ability so search remains an explicit compatible-provider option. `gpt-image-2` remains the fixed image model.

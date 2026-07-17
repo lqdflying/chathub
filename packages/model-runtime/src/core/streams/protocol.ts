@@ -179,6 +179,20 @@ const chatStreamable = async function* <T>(stream: AsyncIterable<T>) {
 
 const ERROR_CHUNK_PREFIX = '%FIRST_CHUNK_ERROR%: ';
 
+const enqueueIteratorError = <T>(
+  controller: ReadableStreamDefaultController<T>,
+  iteratorError: unknown,
+) => {
+  const error =
+    iteratorError instanceof Error ? iteratorError : new Error(String(iteratorError));
+
+  controller.enqueue(
+    (ERROR_CHUNK_PREFIX +
+      JSON.stringify({ message: error.message, name: error.name, stack: error.stack })) as T,
+  );
+  controller.close();
+};
+
 export function readableFromAsyncIterable<T>(iterable: AsyncIterable<T>) {
   let it = iterable[Symbol.asyncIterator]();
   return new ReadableStream<T>({
@@ -199,33 +213,24 @@ export function convertIterableToStream<T>(stream: AsyncIterable<T>) {
 
   // copy from https://github.com/vercel/ai/blob/d3aa5486529e3d1a38b30e3972b4f4c63ea4ae9a/packages/ai/streams/ai-stream.ts#L284
   // and add an error handle
-  let it = iterable[Symbol.asyncIterator]();
+  const iterator = iterable[Symbol.asyncIterator]();
+
+  const readNext = async (controller: ReadableStreamDefaultController<T>) => {
+    try {
+      const { done, value } = await iterator.next();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    } catch (error) {
+      enqueueIteratorError(controller, error);
+    }
+  };
 
   return new ReadableStream<T>({
     async cancel(reason) {
-      await it.return?.(reason);
+      await iterator.return?.(reason);
     },
-    async pull(controller) {
-      const { done, value } = await it.next();
-      if (done) controller.close();
-      else controller.enqueue(value);
-    },
-
-    async start(controller) {
-      try {
-        const { done, value } = await it.next();
-        if (done) controller.close();
-        else controller.enqueue(value);
-      } catch (e) {
-        const error = e as Error;
-
-        controller.enqueue(
-          (ERROR_CHUNK_PREFIX +
-            JSON.stringify({ message: error.message, name: error.name, stack: error.stack })) as T,
-        );
-        controller.close();
-      }
-    },
+    pull: readNext,
+    start: readNext,
   });
 }
 

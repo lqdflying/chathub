@@ -450,6 +450,34 @@ describe('tapAsyncIterable', () => {
     expect(returnSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('should convert iterator errors after the first item into an error chunk', async () => {
+    let readCount = 0;
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      async next(): Promise<IteratorResult<string>> {
+        readCount += 1;
+
+        if (readCount === 1) {
+          return { done: false, value: 'first item' };
+        }
+
+        throw new SyntaxError('Unexpected end of JSON input');
+      },
+    };
+    const reader = convertIterableToStream(source).getReader();
+
+    await expect(reader.read()).resolves.toEqual({ done: false, value: 'first item' });
+    const errorResult = await reader.read();
+    await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
+
+    expect(errorResult.done).toBe(false);
+    expect(errorResult.value).toContain('%FIRST_CHUNK_ERROR%:');
+    expect(errorResult.value).toContain('Unexpected end of JSON input');
+    expect(errorResult.value).toContain('SyntaxError');
+  });
+
   it('should preserve a cancellation-safe toReadableStream method', async () => {
     const returnSpy = vi.fn();
     const source = {

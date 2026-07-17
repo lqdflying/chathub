@@ -389,6 +389,91 @@ describe('OpenAIResponsesStream', () => {
     expect(chunks.some((c) => c.includes('id: first_chunk_error'))).toBe(true);
   });
 
+  it.each([
+    {
+      emittedEvents: [],
+      expectedId: 'first_chunk_error',
+      name: 'before the first event',
+    },
+    {
+      emittedEvents: [
+        {
+          response: { id: 'resp_html_error', status: 'in_progress' },
+          type: 'response.created',
+        },
+      ],
+      expectedId: 'resp_html_error',
+      name: 'after a valid event',
+    },
+  ])(
+    'should sanitize an HTML Responses stream failure $name',
+    async ({ emittedEvents, expectedId }) => {
+      const onCompletion = vi.fn();
+      const onFinal = vi.fn();
+      let eventIndex = 0;
+      const mockOpenAIStream = {
+        [Symbol.asyncIterator]() {
+          return this;
+        },
+        async next() {
+          if (eventIndex < emittedEvents.length) {
+            const value = emittedEvents[eventIndex];
+            eventIndex += 1;
+            return { done: false, value };
+          }
+
+          throw new SyntaxError(
+            `Unexpected token '<', "<!DOCTYPE html><title>Gateway error</title>" is not valid JSON`,
+          );
+        },
+      };
+
+      const chunks = await readStreamChunk(
+        OpenAIResponsesStream(
+          mockOpenAIStream as any,
+          { callbacks: { onCompletion, onFinal } },
+          { requireTerminalEvent: true },
+        ),
+      );
+      const streamOutput = chunks.join('');
+
+      expect(streamOutput).toContain(`id: ${expectedId}`);
+      expect(streamOutput).toContain('event: error');
+      expect(streamOutput).toContain('html_response');
+      expect(streamOutput).toContain(
+        'The provider returned HTML instead of a valid Responses API stream.',
+      );
+      expect(streamOutput).not.toContain('<!DOCTYPE');
+      expect(streamOutput).not.toContain('Gateway error');
+      expect(streamOutput).not.toContain('Unexpected token');
+      expect(onCompletion).not.toHaveBeenCalled();
+      expect(onFinal).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('should classify a non-HTML JSON parse failure as an invalid Responses stream', async () => {
+    const mockOpenAIStream = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      async next() {
+        throw new SyntaxError('Unexpected end of JSON input');
+      },
+    };
+
+    const chunks = await readStreamChunk(
+      OpenAIResponsesStream(mockOpenAIStream as any, undefined, {
+        requireTerminalEvent: true,
+      }),
+    );
+    const streamOutput = chunks.join('');
+
+    expect(streamOutput).toContain('event: error');
+    expect(streamOutput).toContain('invalid_json');
+    expect(streamOutput).toContain('The provider returned a malformed Responses API stream.');
+    expect(streamOutput).not.toContain('Unexpected end of JSON input');
+  });
+
   it('should handle response.created event', async () => {
     const mockOpenAIStream = createReadableStream([
       {
