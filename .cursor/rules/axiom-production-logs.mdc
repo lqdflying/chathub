@@ -1,0 +1,53 @@
+---
+description: Inspect production ChatHub logs safely through the Axiom MCP dataset
+alwaysApply: true
+---
+
+# Production Log Inspection with Axiom
+
+Use the `user-axiom` MCP server and the `chathub` dataset for production
+ChatHub logs.
+
+## Required workflow
+
+1. Read the MCP descriptors for `listDatasets` and `queryDataset` before calling
+   either tool.
+2. Call `listDatasets` and verify that `chathub` is an events dataset.
+3. Use `queryDataset` with APL beginning `['chathub']`.
+4. Pass the requested window through `startTime` and `endTime`; for example,
+   `startTime: "now-30m"` and `endTime: "now"`. Keep the API window narrow.
+5. Inspect the recent schema before filtering unfamiliar fields:
+   `['chathub'] | where _time > ago(30m) | getschema`.
+6. Query aggregates first, then retrieve only a small, relevant sample.
+
+## Useful production fields
+
+- Container logs use `_time`, `container_name`, `level`, `message`, and `msg`.
+- Model diagnostics may include `provider`, `model`, usage, response, and error
+  fields, but these fields can be empty on ordinary container log events.
+- Warnings and failures may exist only in `message`; empty structured
+  `error.*` or `base_resp.status_code` fields do not prove the logs are clean.
+
+## Baseline queries
+
+- Volume: `['chathub'] | summarize event_count=count(), first_event=min(_time),
+  latest_event=max(_time) by ['container_name'] | top 20 by event_count`
+- Levels: `['chathub'] | summarize event_count=count() by ['container_name'],
+  ['level'] | top 20 by event_count`
+- Latest sample: `['chathub'] | project _time, container_name, level, message,
+  msg | sort by _time desc | take 30`
+- Structured errors: filter with `isnotempty(['error.message'])`.
+- Text errors: filter the known `message` or `msg` field for `error`,
+  `exception`, or `failed`; never use full-row `search`.
+
+Run independent volume, level, error, and latest-sample queries in parallel.
+Use the same window for all queries and describe results as a snapshot at query
+time. Axiom timestamps are UTC; convert them to the user's timezone explicitly.
+
+## Privacy and reporting
+
+Never retrieve or report `messages`, `input`, `user`, response content, tokens,
+or secrets unless the user explicitly needs them. Prefer counts, categories,
+hashed identifiers, and narrowly projected operational fields. Separate
+critical errors from dependency warnings, deprecations, and debug telemetry,
+and do not claim health solely because structured error fields are empty.
