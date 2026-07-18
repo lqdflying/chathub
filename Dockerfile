@@ -26,6 +26,7 @@ RUN \
     # Copy proxychains to distroless
     && cp /usr/lib/$(arch)-linux-gnu/libproxychains.so.4 /distroless/lib/libproxychains.so.4 \
     && cp /usr/lib/$(arch)-linux-gnu/libdl.so.2 /distroless/lib/libdl.so.2 \
+    && cp /usr/lib/$(arch)-linux-gnu/librt.so.1 /distroless/lib/librt.so.1 \
     && cp /usr/bin/proxychains4 /distroless/bin/proxychains \
     && cp /etc/proxychains4.conf /distroless/etc/proxychains4.conf \
     # Copy node to distroless

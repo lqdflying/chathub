@@ -17,7 +17,12 @@ const isStandaloneMode = buildWithDocker || isDesktop;
 const standaloneConfig: NextConfig = {
   output: 'standalone',
   outputFileTracingIncludes: {
-    '*': ['public/**/*', '.next/static/**/*'],
+    '*': [
+      'public/**/*',
+      '.next/static/**/*',
+      'node_modules/.pnpm/pdfjs-dist@*/node_modules/@napi-rs/canvas/**/*',
+      'node_modules/@napi-rs/canvas-*/**/*',
+    ],
   },
 };
 
