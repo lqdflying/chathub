@@ -4,17 +4,16 @@ import debug from 'debug';
  * CHATHUB_DEBUG=1 only controls Pino log level. It does NOT auto-enable any
  * debug() namespaces.
  *
- * CHATHUB_TOOLS_DEBUG is a single server-side switch that auto-enables a
- * curated, PII-safe set of MCP and built-in tool debug() namespaces, selected
- * by the var's value:
+ * CHATHUB_TOOLS_DEBUG is a single server-side switch for prefixed JSON MCP and
+ * tool diagnostics, selected by the var's value:
  *
- * - unset / empty / 0 / false / off  → off (no auto-enable; behaves as before)
- * - 1 / true / on / safe             → dedicated safe metadata namespace
+ * - unset / empty / 0 / false / off  → off
+ * - 1 / true / on / safe             → safe metadata records
  * - verbose / 2                      → safe metadata + payload fingerprints
  *
- * Only dedicated ChatHub namespaces are auto-enabled. Existing lobe-mcp and
- * context-engine namespaces remain explicit DEBUG opt-ins because their log
- * contracts are broader and can include user-controlled strings.
+ * Existing chathub-tools, lobe-mcp, and context-engine debug() namespaces
+ * remain explicit DEBUG opt-ins. The structured logger uses the environment
+ * switch directly and does not auto-enable or duplicate those namespaces.
  *
  * Namespaces that log raw user input or secrets are never auto-enabled here:
  * `lobe-search:*` (raw search queries), `lobe-chat:*` (client store debug),
@@ -25,13 +24,12 @@ import debug from 'debug';
 export type ToolsDebugLevel = 'off' | 'safe' | 'verbose';
 
 /**
- * Curated safe namespaces: sanitized params / counts / IDs / timing only.
- * Auditable in one place — do not add a namespace without verifying it never
- * logs raw user input, prompts, secrets, or full request/response bodies.
+ * Legacy safe namespace, retained as an explicit DEBUG fallback when the
+ * structured environment switch does not already emit an event.
  */
 export const TOOLS_SAFE_NS: readonly string[] = ['chathub-tools:safe'];
 
-/** Added only at the verbose level; values are fingerprints, lengths, and bounded structure. */
+/** Legacy verbose namespace; values are fingerprints, lengths, and bounded structure. */
 export const TOOLS_VERBOSE_NS: readonly string[] = ['chathub-tools:verbose'];
 
 const OFF_VALUES = new Set(['', '0', 'false', 'off']);
@@ -57,25 +55,19 @@ const isRecognizedToolsDebugValue = (raw: string | undefined): boolean => {
 };
 
 /**
- * Build the merged namespace list: any explicitly-set DEBUG namespaces plus
- * the curated set(s) selected by the CHATHUB_TOOLS_DEBUG level, deduped.
+ * Build the explicitly-set DEBUG namespace list, deduped. Tool namespaces are
+ * no longer added from CHATHUB_TOOLS_DEBUG because that switch emits JSON.
  */
-const buildNamespaceList = (level: ToolsDebugLevel): string[] => {
+const buildNamespaceList = (): string[] => {
   const explicit = (process.env.DEBUG || '')
     .split(',')
     .map((ns) => ns.trim())
     .filter(Boolean);
 
-  const curated =
-    level === 'safe' ? [...TOOLS_SAFE_NS] : level === 'verbose' ? [...TOOLS_SAFE_NS, ...TOOLS_VERBOSE_NS] : [];
-
-  // Explicit DEBUG namespaces win; dedupe while preserving order.
-  return [...new Set([...explicit, ...curated])];
+  return [...new Set(explicit)];
 };
 
 export function bootstrapDebug() {
-  const level = parseToolsDebugLevel(process.env.CHATHUB_TOOLS_DEBUG);
-
   // Warn once on an unrecognized CHATHUB_TOOLS_DEBUG value so typos are visible.
   if (!isRecognizedToolsDebugValue(process.env.CHATHUB_TOOLS_DEBUG)) {
     // eslint-disable-next-line no-console
@@ -84,7 +76,7 @@ export function bootstrapDebug() {
     );
   }
 
-  const namespaces = buildNamespaceList(level);
+  const namespaces = buildNamespaceList();
   if (namespaces.length > 0) {
     debug.enable(namespaces.join(','));
   }
@@ -92,8 +84,8 @@ export function bootstrapDebug() {
 
 /**
  * Determine the Pino log level.
- * Explicit LOG_LEVEL always wins. CHATHUB_TOOLS_DEBUG uses debug() namespaces
- * and deliberately does not lower the global Pino threshold.
+ * Explicit LOG_LEVEL always wins. CHATHUB_TOOLS_DEBUG deliberately does not
+ * lower the global Pino threshold.
  */
 export function getPinoLevel(): string {
   if (process.env.LOG_LEVEL) return process.env.LOG_LEVEL;

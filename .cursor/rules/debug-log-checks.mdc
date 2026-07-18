@@ -5,28 +5,25 @@ alwaysApply: false
 
 # Checking Tool & Cache Debug Logs
 
-Two different debug switches, two different Axiom shapes. Do not assume a single
-`debug_namespace` query sees everything.
+Both dedicated switches emit prefixed JSON. Query their distinct
+`debug_namespace` values to select the desired diagnostic stream.
 
 ## The two switches
 
 | Switch | Level | What it turns on |
 |--------|-------|------------------|
-| `CHATHUB_TOOLS_DEBUG=1` | safe | `chathub-tools:safe` metadata events |
-| `CHATHUB_TOOLS_DEBUG=verbose` | verbose | safe events + `chathub-tools:verbose` fingerprints |
+| `CHATHUB_TOOLS_DEBUG=1` | safe | structured tool metadata events |
+| `CHATHUB_TOOLS_DEBUG=verbose` | verbose | safe events + structured payload fingerprints |
 | `DEBUG_OPENAICOMPATIBLE_CACHE=1` | — | redacted cache fingerprints + cached-token usage |
 
-## Critical gotcha: parsing pipeline splits the shape
+## Parsing shape
 
-These two do **not** land in Axiom the same way:
-
-- **Cache debug** → `log_format=prefixed_json`, parsed into the structured
-  `debug_namespace` field (value `openai-compatible-cache-debug`).
-- **Tools debug** (`chathub-tools:*`) → plain text into the
-  `message` field; `debug_namespace` is **empty**.
-
-So a `debug_namespace` query alone will **miss** the tools-debug lines even
-when they are flowing. Query the `message` text for those.
+- **Cache debug** → `log_format=prefixed_json`, with
+  `debug_namespace=openai-compatible-cache-debug`.
+- **Tools debug** → `log_format=prefixed_json`, with
+  `debug_namespace=chathub-tools-debug` and the suffix in `debug_event`.
+- Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text
+  fallback only when structured output is inactive for that event.
 
 ## Axiom queries
 
@@ -45,27 +42,28 @@ Cache hit rate:
   cached_pct = round(100.0 * sum(cachedTokens) / sum(inputTokens), 1) by model
 ```
 
-Tools debug (search the message text, not debug_namespace):
+Tools debug:
 ```apl
-['chathub'] | where ['message'] has_cs 'chathub-tools:'
-| extend ns = extract('(chathub-tools:(safe|verbose))', 1, ['message'])
-| summarize cnt=count() by ns | top 30 by cnt
+['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
+| summarize cnt=count() by debugLevel, debug_event | top 30 by cnt
 ```
 
 Tool-call failures:
 ```apl
-['chathub'] | where ['message'] has_cs 'chathub-tools:safe'
-  and (['message'] has_cs 'failed' or ['message'] has_cs 'error')
-| project _time, message | sort by _time desc | take 25
+['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
+  and (debug_event == 'call_tool_failed' or debug_event == 'call_tool_error')
+| project _time, debug_event, debugLevel, durationMs
+| sort by _time desc | take 25
 ```
 
 ## Verify the env var is actually live
 
-Absence of `chathub-tools:*` lines almost always means the var is
-not in the running container or the image predates the feature — not an app bug.
+Absence of `debug_namespace=chathub-tools-debug` records almost always means
+the var is not in the running container or the image predates structured tool
+diagnostics — not an app bug.
 
 ```bash
-docker inspect lobe-chat --format '{{.Config.Image}}'        # needs >= 1.0.13-canary.10
+docker inspect lobe-chat --format '{{.Config.Image}}'
 docker exec lobe-chat env | grep CHATHUB_TOOLS_DEBUG         # must print the value
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_TOOLS_DEBUG'
 ```
@@ -75,8 +73,9 @@ After changing the var, recreate: `docker compose up -d --force-recreate chathub
 
 ## Healthy signals
 
-- Tools: `event=client_initialized`, `event=list_tools_complete`, and
-  `event=call_tool_complete`, with counts/timing but no raw plugin names, URLs,
-  arguments, or results. Verbose string values appear only as length + hash metadata.
+- Tools: `debug_event=client_initialized`, `debug_event=list_tools_complete`,
+  and `debug_event=call_tool_complete`, with counts/timing but no raw plugin
+  names, URLs, arguments, or results. Verbose string values appear only as
+  length + hash metadata.
 - Cache: `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`;
   misses expected on new/large-context turns (cache re-prime).

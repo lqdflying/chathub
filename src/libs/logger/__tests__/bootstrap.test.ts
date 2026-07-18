@@ -78,17 +78,16 @@ describe('bootstrapDebug', () => {
     expect(enableSpy).toHaveBeenCalledWith('existing:ns');
   });
 
-  it('should enable the safe set when CHATHUB_TOOLS_DEBUG=1', () => {
+  it('should leave debug namespaces untouched when CHATHUB_TOOLS_DEBUG=1', () => {
     process.env.CHATHUB_TOOLS_DEBUG = '1';
 
     bootstrapDebug();
 
-    expect(enableSpy).toHaveBeenCalledWith(TOOLS_SAFE_NS.join(','));
-    expect(enableSpy).not.toHaveBeenCalledWith(expect.stringContaining(TOOLS_VERBOSE_NS[0]));
+    expect(enableSpy).not.toHaveBeenCalled();
   });
 
-  it('should merge safe set with existing DEBUG namespaces, deduped', () => {
-    process.env.DEBUG = `foo:*,${TOOLS_SAFE_NS[0]}`;
+  it('should preserve explicit tool namespaces with CHATHUB_TOOLS_DEBUG=1', () => {
+    process.env.DEBUG = `foo:*,${TOOLS_SAFE_NS[0]},${TOOLS_SAFE_NS[0]}`;
     process.env.CHATHUB_TOOLS_DEBUG = '1';
 
     bootstrapDebug();
@@ -96,34 +95,24 @@ describe('bootstrapDebug', () => {
     const called = enableSpy.mock.calls[0][0] as string;
     const parts = called.split(',');
     expect(parts[0]).toBe('foo:*');
-    // safe set present, and the overlapping namespace is not duplicated
     expect(parts.filter((p) => p === TOOLS_SAFE_NS[0])).toHaveLength(1);
-    for (const ns of TOOLS_SAFE_NS) expect(parts).toContain(ns);
   });
 
-  it('should enable safe + verbose sets when CHATHUB_TOOLS_DEBUG=verbose', () => {
+  it('should leave debug namespaces untouched when CHATHUB_TOOLS_DEBUG=verbose', () => {
     process.env.CHATHUB_TOOLS_DEBUG = 'verbose';
 
     bootstrapDebug();
 
-    const called = enableSpy.mock.calls[0][0] as string;
-    const parts = called.split(',');
-    for (const ns of [...TOOLS_SAFE_NS, ...TOOLS_VERBOSE_NS]) expect(parts).toContain(ns);
-    expect(parts.some((ns) => ns.startsWith('lobe-mcp:'))).toBe(false);
-    expect(parts.some((ns) => ns.startsWith('context-engine:'))).toBe(false);
+    expect(enableSpy).not.toHaveBeenCalled();
   });
 
-  it('should merge verbose sets with existing DEBUG namespaces, deduped', () => {
+  it('should preserve only explicit DEBUG namespaces at verbose level', () => {
     process.env.DEBUG = 'foo:*';
     process.env.CHATHUB_TOOLS_DEBUG = 'verbose';
 
     bootstrapDebug();
 
-    const called = enableSpy.mock.calls[0][0] as string;
-    const parts = called.split(',');
-    expect(new Set(parts).size).toBe(parts.length);
-    expect(parts[0]).toBe('foo:*');
-    for (const ns of [...TOOLS_SAFE_NS, ...TOOLS_VERBOSE_NS]) expect(parts).toContain(ns);
+    expect(enableSpy).toHaveBeenCalledWith('foo:*');
   });
 
   it('should warn once and treat unrecognized CHATHUB_TOOLS_DEBUG as off', () => {

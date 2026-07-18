@@ -43,17 +43,17 @@ The same flags still enable raw `[requestPayload]` and stream logs, so do not le
 
 ## Tool and MCP debug environment variable
 
-`CHATHUB_TOOLS_DEBUG` is a server-side switch for dedicated, PII-safe tool `debug()` namespaces. It works standalone and does not alter the global Pino level; use `CHATHUB_DEBUG=1` or `LOG_LEVEL` separately when global Pino debug output is wanted.
+`CHATHUB_TOOLS_DEBUG` is a server-side switch for dedicated, PII-safe prefixed-JSON tool diagnostics. It works standalone and does not alter the global Pino level; use `CHATHUB_DEBUG=1` or `LOG_LEVEL` separately when global Pino debug output is wanted.
 
 | Value | Effect |
 | --- | --- |
-| unset / `0` / `off` | Off — no auto-enable (default) |
-| `1` / `safe` | `chathub-tools:safe`: static events, counts, status, transport, timing |
-| `verbose` / `2` | Safe namespace + `chathub-tools:verbose`: bounded payload fingerprints |
+| unset / `0` / `off` | Structured tool diagnostics off (default) |
+| `1` / `safe` | Structured static events, counts, status, transport, and timing |
+| `verbose` / `2` | Safe records plus structured, bounded payload fingerprints |
 
-The safe namespace contains no request/response bodies or user-controlled identifiers. At verbose level, `sanitizeToolDebugPayload` redacts secret-key values, bounds arrays/object width/depth, and converts property names and every other string to `{ type, length, hash }`; it never preserves a raw short-string exception.
+Output uses `[chathub-tools-debug:<event>]` followed by one JSON object. The production parser maps this to `debug_namespace=chathub-tools-debug` and `debug_event=<event>`. Safe records contain no request/response bodies or user-controlled identifiers. At verbose level, `sanitizeToolDebugPayload` redacts secret-key values, bounds arrays/object width/depth, and converts property names and every other string to `{ type, length, hash }`; it never preserves a raw short-string exception.
 
-Any explicit `DEBUG=...` namespaces are preserved and merged (deduped). Existing `lobe-mcp:*`, `context-engine:*`, `lobe-search:*`, and `lobe-chat:*` namespaces are never auto-enabled; some have broader/raw logging contracts and should be explicit, short-lived troubleshooting opt-ins. An unrecognized `CHATHUB_TOOLS_DEBUG` value is treated as off with a one-line startup warning.
+Explicit `DEBUG=chathub-tools:safe|verbose` remains available as a legacy plain-text fallback. Structured output wins per event when both switches enable it, preventing duplicate records. Other explicit `DEBUG=...` namespaces are preserved and deduped. Existing `lobe-mcp:*`, `context-engine:*`, `lobe-search:*`, and `lobe-chat:*` namespaces are never auto-enabled; some have broader/raw logging contracts and should be explicit, short-lived troubleshooting opt-ins. An unrecognized `CHATHUB_TOOLS_DEBUG` value is treated as off with a one-line startup warning.
 
 ## Change guidance
 

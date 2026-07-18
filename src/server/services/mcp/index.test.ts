@@ -51,6 +51,71 @@ describe('MCPService', () => {
     });
   });
 
+  describe('structured tool diagnostics', () => {
+    const mockParams = {
+      args: ['--private-argument'],
+      command: 'private-command',
+      name: 'private-mcp-name',
+      type: 'stdio' as const,
+    };
+
+    it('emits safe list-tools metadata as prefixed JSON', async () => {
+      const originalToolsDebug = process.env.CHATHUB_TOOLS_DEBUG;
+      process.env.CHATHUB_TOOLS_DEBUG = '1';
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      mockClient.listTools.mockResolvedValue([
+        { description: 'private description', inputSchema: {}, name: 'private-tool-name' },
+      ]);
+
+      try {
+        await mcpService.listTools(mockParams);
+
+        const debugCall = consoleLogSpy.mock.calls.find(
+          ([prefix]) => prefix === '[chathub-tools-debug:list_tools_complete]',
+        );
+        expect(debugCall).toBeDefined();
+        const record = JSON.parse(debugCall![1]);
+        expect(record).toMatchObject({ count: 1, debugLevel: 'safe' });
+        expect(record.durationMs).toEqual(expect.any(Number));
+        expect(debugCall![1]).not.toMatch(
+          /private-argument|private-command|private-mcp-name|private-tool-name|private description/,
+        );
+      } finally {
+        consoleLogSpy.mockRestore();
+        if (originalToolsDebug === undefined) delete process.env.CHATHUB_TOOLS_DEBUG;
+        else process.env.CHATHUB_TOOLS_DEBUG = originalToolsDebug;
+      }
+    });
+
+    it('keeps raw failures out of safe call-tool records', async () => {
+      const originalToolsDebug = process.env.CHATHUB_TOOLS_DEBUG;
+      process.env.CHATHUB_TOOLS_DEBUG = '1';
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockClient.callTool.mockRejectedValue(new Error('private upstream failure'));
+
+      try {
+        await expect(mcpService.callTool(mockParams, 'private-tool-name', '{}')).rejects.toThrow(
+          TRPCError,
+        );
+
+        const debugCall = consoleLogSpy.mock.calls.find(
+          ([prefix]) => prefix === '[chathub-tools-debug:call_tool_failed]',
+        );
+        expect(debugCall).toBeDefined();
+        const record = JSON.parse(debugCall![1]);
+        expect(record).toMatchObject({ debugLevel: 'safe' });
+        expect(record.durationMs).toEqual(expect.any(Number));
+        expect(debugCall![1]).not.toMatch(/private upstream failure|private-tool-name/);
+      } finally {
+        consoleLogSpy.mockRestore();
+        consoleErrorSpy.mockRestore();
+        if (originalToolsDebug === undefined) delete process.env.CHATHUB_TOOLS_DEBUG;
+        else process.env.CHATHUB_TOOLS_DEBUG = originalToolsDebug;
+      }
+    });
+  });
+
   describe('OAuth token getter', () => {
     const oauthParams = {
       auth: { accessToken: 'stored-access-token', type: 'oauth2' as const },

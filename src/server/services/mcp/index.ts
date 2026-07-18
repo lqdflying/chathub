@@ -17,12 +17,12 @@ import {
   StdioMCPParams,
 } from '@/libs/mcp';
 import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
+import { logToolsDebugSafe } from '@/libs/logger/toolsDebug';
 
 import { mcpSystemDepsCheckService } from './deps';
 import { McpOAuthService } from './oauth';
 
 const log = debug('lobe-mcp:service');
-const safeLog = debug('chathub-tools:safe');
 
 export interface MCPOAuthContext {
   oauthService: McpOAuthService;
@@ -73,7 +73,10 @@ export class MCPService {
 
     try {
       const result = await client.listTools();
-      safeLog('event=list_tools_complete duration_ms=%d count=%d', Date.now() - start, result.length);
+      logToolsDebugSafe('list_tools_complete', {
+        count: result.length,
+        durationMs: Date.now() - start,
+      });
       log(
         `Tools listed successfully for params: %O, result count: %d`,
         loggableParams,
@@ -86,7 +89,7 @@ export class MCPService {
         parameters: item.inputSchema as PluginSchema,
       }));
     } catch (error) {
-      safeLog('event=list_tools_failed duration_ms=%d', Date.now() - start);
+      logToolsDebugSafe('list_tools_failed', { durationMs: Date.now() - start });
       let nextReTryTime = retryTime || 0;
 
       if ((error as Error).message === 'NoValidSessionId' && nextReTryTime <= 3) {
@@ -202,7 +205,7 @@ export class MCPService {
     try {
       // Delegate the call to the MCPClient instance
       const result = await client.callTool(toolName, args); // Pass args directly
-      safeLog('event=call_tool_complete duration_ms=%d', Date.now() - start);
+      logToolsDebugSafe('call_tool_complete', { durationMs: Date.now() - start });
       log(`Tool "${toolName}" called successfully for params: %O`, loggableParams);
       const { content, isError } = result;
 
@@ -223,7 +226,7 @@ export class MCPService {
 
       return text;
     } catch (error) {
-      safeLog('event=call_tool_failed duration_ms=%d', Date.now() - start);
+      logToolsDebugSafe('call_tool_failed', { durationMs: Date.now() - start });
       if (error instanceof McpError) {
         const mcpError = error as McpError;
 
@@ -275,7 +278,7 @@ export class MCPService {
           log('Evicting cached non-refreshable OAuth client; oauthContext now available');
           return this.startClientInitialization(key, params, oauthContext, true);
         } else {
-          safeLog('event=client_cache_hit transport=%s', params.type);
+          logToolsDebugSafe('client_cache_hit', { transport: params.type });
           return cached;
         }
       }
@@ -383,12 +386,12 @@ export class MCPService {
           this.fingerprint(params.auth.accessToken || ''),
         );
       }
-      safeLog('event=client_initialized transport=%s', params.type);
+      logToolsDebugSafe('client_initialized', { transport: params.type });
       log('New client initialized and cached for plugin: %s', params.name);
       return client;
     } catch (error) {
       if (client) await this.disconnectClient(client);
-      safeLog('event=client_initialization_failed transport=%s', params.type);
+      logToolsDebugSafe('client_initialization_failed', { transport: params.type });
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isStructuredMCPError = typeof error === 'object' && !!error && 'data' in error;
 

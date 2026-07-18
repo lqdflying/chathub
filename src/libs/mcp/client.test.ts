@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 
-import { sanitizeToolDebugPayload } from './client';
+import { sanitizeToolDebugPayload } from '@/libs/logger/toolsDebug';
 
 const getProperty = (value: any, key: string) =>
   value.entries.find(
@@ -15,6 +15,12 @@ describe('sanitizeToolDebugPayload', () => {
     expect(sanitizeToolDebugPayload(undefined)).toBeUndefined();
     expect(sanitizeToolDebugPayload(42)).toBe(42);
     expect(sanitizeToolDebugPayload(true)).toBe(true);
+  });
+
+  it('normalizes JSON-unsafe primitives without exposing their values', () => {
+    expect(sanitizeToolDebugPayload(42n)).toEqual({ type: 'bigint' });
+    expect(sanitizeToolDebugPayload(Symbol('private-symbol'))).toEqual({ type: 'symbol' });
+    expect(sanitizeToolDebugPayload(() => 'private-result')).toEqual({ type: 'function' });
   });
 
   it('redacts secret values by key, case-insensitively', () => {
@@ -97,6 +103,21 @@ describe('sanitizeToolDebugPayload', () => {
     sanitizeToolDebugPayload(input);
 
     expect(input).toEqual(snapshot);
+  });
+
+  it('replaces property values that cannot be read', () => {
+    const input = {};
+    Object.defineProperty(input, 'danger', {
+      enumerable: true,
+      get: () => {
+        throw new Error('private getter failure');
+      },
+    });
+
+    const out = sanitizeToolDebugPayload(input) as any;
+
+    expect(getProperty(out, 'danger').value).toEqual({ type: 'unavailable' });
+    expect(JSON.stringify(out)).not.toContain('private getter failure');
   });
 
   it('sanitizes a realistic MCP tool result shape', () => {

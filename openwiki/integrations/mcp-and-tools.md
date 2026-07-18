@@ -104,11 +104,13 @@ MCP code is easy to break in ways that only show up in deployment-specific paths
 `CHATHUB_TOOLS_DEBUG` is the one-switch entry point for tool and MCP diagnostics. Set it on the server (container env) and recreate the service; no rebuild is needed.
 
 ```bash
-CHATHUB_TOOLS_DEBUG=1        # chathub-tools:safe metadata only
-CHATHUB_TOOLS_DEBUG=verbose  # safe metadata + chathub-tools:verbose fingerprints
+CHATHUB_TOOLS_DEBUG=1        # structured safe metadata only
+CHATHUB_TOOLS_DEBUG=verbose  # safe metadata + structured payload fingerprints
 ```
 
-The safe namespace logs static event names, counts, transport kind, status, and timing only. Verbose payload views bound arrays, object width, and depth; property names and every non-secret string become length + SHA-256 fingerprint metadata, while secret-key values are redacted. The switch does not auto-enable existing `lobe-mcp:*`/`context-engine:*` namespaces and does not lower the global Pino level. Those broader namespaces remain explicit `DEBUG=...` opt-ins. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.
+Records use the same prefixed-JSON shape as the OpenAI-compatible cache logger: `[chathub-tools-debug:<event>] {json}`. In Axiom this populates `debug_namespace=chathub-tools-debug` and the event suffix as `debug_event`. Safe records contain static event names, counts, transport kind, status, and timing only. Verbose payload views bound arrays, object width, and depth; property names and every non-secret string become length + SHA-256 fingerprint metadata, while secret-key values are redacted.
+
+The switch does not auto-enable existing `chathub-tools:*`, `lobe-mcp:*`, or `context-engine:*` debug namespaces and does not lower the global Pino level. Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text fallback when the corresponding event is not already emitted as structured JSON. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.
 
 ## Change guidance
 
