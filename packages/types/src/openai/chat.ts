@@ -72,6 +72,7 @@ export interface OpenAICompatCacheRequestConfig {
 export interface OpenAICompatResponsesParamsRequestConfig {
   maxOutputTokens?: boolean;
   maxTokens?: boolean;
+  reasoningEffort?: 'both' | 'off' | 'reasoning' | 'top-level';
   truncation?: 'auto' | 'disabled' | 'off';
   verbosity?: 'both' | 'off' | 'text' | 'top-level';
 }

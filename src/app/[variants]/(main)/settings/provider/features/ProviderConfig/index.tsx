@@ -32,6 +32,7 @@ import {
   OPENAI_COMPAT_CACHE_PRESETS,
   type OpenAICompatCacheConfig,
   type OpenAICompatCachePreset,
+  type OpenAICompatResponsesReasoningEffortMode,
   type OpenAICompatResponsesTruncationMode,
   type OpenAICompatResponsesVerbosityMode,
   normalizeOpenAICompatCacheConfig,
@@ -502,6 +503,31 @@ const ProviderConfig = memo<ProviderConfigProps>(
         value: 'disabled',
       },
     ];
+    const openAICompatResponsesReasoningEffortOptions: Array<{
+      label: string;
+      value: OpenAICompatResponsesReasoningEffortMode;
+    }> = [
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.options.off'),
+        value: 'off',
+      },
+      {
+        label: t(
+          'providerModels.config.openAICompatResponsesParams.reasoningEffort.options.reasoning',
+        ),
+        value: 'reasoning',
+      },
+      {
+        label: t(
+          'providerModels.config.openAICompatResponsesParams.reasoningEffort.options.topLevel',
+        ),
+        value: 'top-level',
+      },
+      {
+        label: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.options.both'),
+        value: 'both',
+      },
+    ];
     const openAICompatResponsesVerbosityOptions: Array<{
       label: string;
       value: OpenAICompatResponsesVerbosityMode;
@@ -766,6 +792,21 @@ const ProviderConfig = memo<ProviderConfigProps>(
                   desc: t('providerModels.config.openAICompatResponsesParams.verbosity.desc'),
                   label: t('providerModels.config.openAICompatResponsesParams.verbosity.title'),
                   name: ['config', 'openAICompatResponsesParams', 'verbosity'],
+                },
+                {
+                  children: isLoading ? (
+                    <Skeleton.Button active />
+                  ) : (
+                    <Select
+                      disabled={configUpdating}
+                      options={openAICompatResponsesReasoningEffortOptions}
+                    />
+                  ),
+                  desc: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.desc'),
+                  label: t(
+                    'providerModels.config.openAICompatResponsesParams.reasoningEffort.title',
+                  ),
+                  name: ['config', 'openAICompatResponsesParams', 'reasoningEffort'],
                 },
               ]
             : []),

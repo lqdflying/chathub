@@ -37,6 +37,7 @@ describe('OpenAI-compatible provider config normalization', () => {
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
+      reasoningEffort: 'reasoning',
       truncation: 'off',
       verbosity: 'off',
     });
@@ -83,6 +84,7 @@ describe('OpenAI-compatible provider config normalization', () => {
       openAICompatResponsesParams: {
         maxOutputTokens: true,
         maxTokens: true,
+        reasoningEffort: 'both',
         truncation: 'auto',
         verbosity: 'both',
       },
@@ -94,6 +96,7 @@ describe('OpenAI-compatible provider config normalization', () => {
       openAICompatResponsesParams: {
         maxOutputTokens: true,
         maxTokens: true,
+        reasoningEffort: 'both',
         truncation: 'auto',
         verbosity: 'both',
       },
@@ -114,6 +117,7 @@ describe('OpenAI-compatible provider config normalization', () => {
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
+      reasoningEffort: 'reasoning',
       truncation: 'off',
       verbosity: 'off',
     });
@@ -140,6 +144,41 @@ describe('OpenAI-compatible provider config normalization', () => {
         sessionHeader: false,
         store: 'default',
       },
+    });
+  });
+
+  it('defaults custom reasoning effort mode to reasoning object', () => {
+    const params = normalizeOpenAICompatResponsesParamsConfig({
+      openAICompatCache: {
+        preset: 'custom',
+      },
+    });
+
+    expect(params).toEqual({
+      maxOutputTokens: false,
+      maxTokens: false,
+      reasoningEffort: 'reasoning',
+      truncation: 'off',
+      verbosity: 'off',
+    });
+  });
+
+  it('keeps custom reasoning effort overrides', () => {
+    const params = normalizeOpenAICompatResponsesParamsConfig({
+      openAICompatCache: {
+        preset: 'custom',
+      },
+      openAICompatResponsesParams: {
+        reasoningEffort: 'top-level',
+      },
+    });
+
+    expect(params).toEqual({
+      maxOutputTokens: false,
+      maxTokens: false,
+      reasoningEffort: 'top-level',
+      truncation: 'off',
+      verbosity: 'off',
     });
   });
 });

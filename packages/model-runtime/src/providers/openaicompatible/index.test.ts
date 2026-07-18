@@ -293,6 +293,41 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('responseMode');
   });
 
+  it('forwards top-level reasoning_effort in Responses top-level mode', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.6-sol',
+      openAICompatResponsesParams: { reasoningEffort: 'top-level' },
+      provider: 'openaicompatible',
+      reasoning_effort: 'high',
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall).toMatchObject({
+      model: 'gpt-5.6-sol',
+      reasoning_effort: 'high',
+    });
+    expect(createCall).not.toHaveProperty('reasoning');
+    expect(createCall).not.toHaveProperty('openAICompatResponsesParams');
+  });
+
+  it('strips reasoning params in Responses off mode', async () => {
+    await instance.chat({
+      apiMode: 'responses',
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'gpt-5.5',
+      openAICompatResponsesParams: { reasoningEffort: 'off' },
+      provider: 'openaicompatible',
+      reasoning: { effort: 'high' },
+      reasoning_effort: 'high',
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    expect(createCall).not.toHaveProperty('reasoning');
+    expect(createCall).not.toHaveProperty('reasoning_effort');
+  });
+
   it('does not serialize historical reasoning into Responses input', async () => {
     await instance.chat({
       apiMode: 'responses',

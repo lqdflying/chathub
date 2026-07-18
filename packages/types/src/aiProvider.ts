@@ -150,6 +150,7 @@ export type OpenAICompatCachePromptCacheKeyMode = 'off' | 'derived';
 export type OpenAICompatCacheStoreMode = 'default' | 'true' | 'false';
 export type OpenAICompatResponsesTruncationMode = 'auto' | 'disabled' | 'off';
 export type OpenAICompatResponsesVerbosityMode = 'both' | 'off' | 'text' | 'top-level';
+export type OpenAICompatResponsesReasoningEffortMode = 'both' | 'off' | 'reasoning' | 'top-level';
 
 export interface OpenAICompatCacheConfig {
   chat?: {
@@ -167,6 +168,7 @@ export interface OpenAICompatCacheConfig {
 export interface OpenAICompatResponsesParamsConfig {
   maxOutputTokens?: boolean;
   maxTokens?: boolean;
+  reasoningEffort?: OpenAICompatResponsesReasoningEffortMode;
   truncation?: OpenAICompatResponsesTruncationMode;
   verbosity?: OpenAICompatResponsesVerbosityMode;
 }
@@ -198,6 +200,7 @@ export const defaultOpenAICompatCacheConfig = (): OpenAICompatCacheConfig => ({
 export const defaultOpenAICompatResponsesParamsConfig = (): OpenAICompatResponsesParamsConfig => ({
   maxOutputTokens: false,
   maxTokens: false,
+  reasoningEffort: 'reasoning',
   truncation: 'off',
   verbosity: 'off',
 });
@@ -285,6 +288,12 @@ const OpenAICompatResponsesVerbosityModeSchema = z.enum([
   'top-level',
   'both',
 ]);
+const OpenAICompatResponsesReasoningEffortModeSchema = z.enum([
+  'off',
+  'reasoning',
+  'top-level',
+  'both',
+]);
 
 const OpenAICompatCacheSchema = z.object({
   chat: z
@@ -306,6 +315,7 @@ const OpenAICompatCacheSchema = z.object({
 const OpenAICompatResponsesParamsSchema = z.object({
   maxOutputTokens: z.boolean().optional(),
   maxTokens: z.boolean().optional(),
+  reasoningEffort: OpenAICompatResponsesReasoningEffortModeSchema.optional(),
   truncation: OpenAICompatResponsesTruncationModeSchema.optional(),
   verbosity: OpenAICompatResponsesVerbosityModeSchema.optional(),
 });

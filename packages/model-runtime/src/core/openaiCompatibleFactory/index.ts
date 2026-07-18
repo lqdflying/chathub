@@ -967,6 +967,13 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         storeOverride !== undefined ? storeOverride : matrixStore !== undefined ? matrixStore : undefined;
 
       const isStreaming = payload.stream !== false;
+      const reasoningEffortMode = responsesParams?.reasoningEffort ?? 'reasoning';
+      const sendReasoningObject =
+        !!(reasoning || reasoning_effort) &&
+        (reasoningEffortMode === 'reasoning' || reasoningEffortMode === 'both');
+      const sendTopLevelReasoningEffort =
+        !!reasoning_effort &&
+        (reasoningEffortMode === 'top-level' || reasoningEffortMode === 'both');
       log(
         'isStreaming: %s, hasTools: %s, hasReasoning: %s',
         isStreaming,
@@ -977,7 +984,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       const postPayload = {
         ...responseParamsPayload,
         ...(shouldSendPromptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
-        ...(reasoning || reasoning_effort
+        ...(sendReasoningObject
           ? {
               reasoning: {
                 ...reasoning,
@@ -985,6 +992,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
               },
             }
           : {}),
+        ...(sendTopLevelReasoningEffort ? { reasoning_effort } : {}),
         input,
         ...(store !== undefined || statefulResponses ? { store: store ?? true } : {}),
         stream: !isStreaming ? undefined : isStreaming,

@@ -355,6 +355,16 @@
           "desc": "Send the model max-output setting as max_tokens to /v1/responses",
           "title": "Responses max_tokens"
         },
+        "reasoningEffort": {
+          "desc": "Control how the reasoning effort parameter is sent to /v1/responses; some gateways only recognize one of the two fields",
+          "options": {
+            "both": "reasoning.effort + top-level reasoning_effort",
+            "off": "Do not send",
+            "reasoning": "reasoning.effort",
+            "topLevel": "Top-level reasoning_effort"
+          },
+          "title": "Responses reasoning effort"
+        },
         "truncation": {
           "desc": "Control the /v1/responses truncation field",
           "options": {

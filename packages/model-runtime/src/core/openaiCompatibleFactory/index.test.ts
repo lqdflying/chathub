@@ -1258,6 +1258,80 @@ describe('LobeOpenAICompatibleFactory', () => {
         expect(requestOptions.headers.Session_id).toMatch(/^compat_cc_[a-f0-9]{32}$/);
       });
 
+      it.each([
+        {
+          mode: undefined,
+          name: 'defaults to nested reasoning.effort when no mode configured',
+          wantReasoning: true,
+          wantTopLevel: false,
+        },
+        {
+          mode: 'reasoning',
+          name: 'sends only nested reasoning.effort in reasoning mode',
+          wantReasoning: true,
+          wantTopLevel: false,
+        },
+        {
+          mode: 'top-level',
+          name: 'sends only top-level reasoning_effort in top-level mode',
+          wantReasoning: false,
+          wantTopLevel: true,
+        },
+        {
+          mode: 'both',
+          name: 'sends both shapes in both mode',
+          wantReasoning: true,
+          wantTopLevel: true,
+        },
+        {
+          mode: 'off',
+          name: 'strips reasoning params entirely in off mode',
+          wantReasoning: false,
+          wantTopLevel: false,
+        },
+      ] as const)('$name', async ({ mode, wantReasoning, wantTopLevel }) => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: {
+            useResponse: true,
+          },
+          provider: ModelProvider.OpenAI,
+        });
+
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const prod = new ReadableStream();
+        const debug = new ReadableStream();
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockResolvedValue({ tee: () => [prod, debug] } as any);
+
+        await inst.chat({
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-5.6-sol',
+          openAICompatResponsesParams: {
+            ...(mode ? { reasoningEffort: mode } : {}),
+          },
+          reasoning_effort: 'high',
+          temperature: 0,
+        });
+
+        const requestPayload = mockResponsesCreate.mock.calls[0][0] as any;
+
+        if (wantReasoning) {
+          expect(requestPayload.reasoning).toEqual({ effort: 'high' });
+        } else {
+          expect(requestPayload).not.toHaveProperty('reasoning');
+        }
+
+        if (wantTopLevel) {
+          expect(requestPayload.reasoning_effort).toBe('high');
+        } else {
+          expect(requestPayload).not.toHaveProperty('reasoning_effort');
+        }
+
+        expect(requestPayload).not.toHaveProperty('openAICompatResponsesParams');
+      });
+
       it('should route to Responses API when model matches useResponseModels', async () => {
         const LobeMockProviderUseResponseModels = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',
