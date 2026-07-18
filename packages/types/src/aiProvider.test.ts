@@ -117,7 +117,46 @@ describe('OpenAI-compatible provider config normalization', () => {
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
-      reasoningEffort: 'reasoning',
+      reasoningEffort: 'both',
+      truncation: 'off',
+      verbosity: 'off',
+    });
+  });
+
+  it('honors a reasoningEffort override on built-in presets without touching the cache matrix', () => {
+    const cache = normalizeOpenAICompatCacheConfig({
+      openAICompatCache: {
+        preset: 'prompt-key-store',
+      },
+      openAICompatResponsesParams: {
+        reasoningEffort: 'top-level',
+      },
+    });
+    const params = normalizeOpenAICompatResponsesParamsConfig({
+      openAICompatCache: {
+        preset: 'prompt-key-store',
+      },
+      openAICompatResponsesParams: {
+        reasoningEffort: 'top-level',
+      },
+    });
+
+    expect(cache).toEqual({
+      chat: {
+        promptCacheKey: true,
+        sessionHeader: false,
+      },
+      preset: 'prompt-key-store',
+      responses: {
+        promptCacheKey: 'derived',
+        sessionHeader: false,
+        store: 'true',
+      },
+    });
+    expect(params).toEqual({
+      maxOutputTokens: false,
+      maxTokens: false,
+      reasoningEffort: 'top-level',
       truncation: 'off',
       verbosity: 'off',
     });

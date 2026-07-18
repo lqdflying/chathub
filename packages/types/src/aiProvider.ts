@@ -267,7 +267,12 @@ export const normalizeOpenAICompatResponsesParamsConfig = (
   const cache = normalizeOpenAICompatCacheConfig(config);
   const base = openAICompatResponsesParamsPresetConfig(cache.preset || 'custom');
 
-  if (cache.preset !== 'custom') return base;
+  if (cache.preset !== 'custom') {
+    // Reasoning effort shape is gateway-specific, not cache-specific: honor a
+    // saved override on any preset while the rest of the matrix stays preset-locked.
+    const reasoningEffort = config?.openAICompatResponsesParams?.reasoningEffort;
+    return reasoningEffort ? { ...base, reasoningEffort } : base;
+  }
 
   return {
     ...base,

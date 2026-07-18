@@ -291,6 +291,27 @@ const resolveOpenAICompatValues = (changedValues: any, values: any) => {
 
   const currentCache = normalizeOpenAICompatCacheConfig(values?.config);
   const currentResponsesParams = normalizeOpenAICompatResponsesParamsConfig(values?.config);
+
+  // The reasoning-effort shape is gateway-specific, not cache-specific: editing
+  // it alone must not flip the cache preset to Custom.
+  const isReasoningEffortOnlyChange =
+    !!changedResponsesParams &&
+    Object.keys(changedResponsesParams).every((key) => key === 'reasoningEffort');
+
+  if (isReasoningEffortOnlyChange && !changedCache) {
+    return {
+      ...values,
+      config: {
+        ...values?.config,
+        openAICompatCache: currentCache,
+        openAICompatResponsesParams: {
+          ...currentResponsesParams,
+          ...changedResponsesParams,
+        },
+      },
+    };
+  }
+
   const presetChanged = !!changedCache && Object.prototype.hasOwnProperty.call(changedCache, 'preset');
   const nextCache = presetChanged
     ? changedCache.preset === 'custom'
@@ -300,7 +321,13 @@ const resolveOpenAICompatValues = (changedValues: any, values: any) => {
   const nextResponsesParams = presetChanged
     ? changedCache.preset === 'custom'
       ? currentResponsesParams
-      : openAICompatResponsesParamsPresetConfig(changedCache.preset as OpenAICompatCachePreset)
+      : {
+          ...openAICompatResponsesParamsPresetConfig(changedCache.preset as OpenAICompatCachePreset),
+          // Preserve the gateway-specific reasoning shape across preset switches.
+          ...(currentResponsesParams.reasoningEffort
+            ? { reasoningEffort: currentResponsesParams.reasoningEffort }
+            : {}),
+        }
     : currentResponsesParams;
 
   return {
@@ -678,6 +705,19 @@ const ProviderConfig = memo<ProviderConfigProps>(
             label: t('providerModels.config.openAICompatCache.preset.title'),
             name: ['config', 'openAICompatCache', 'preset'],
           },
+          {
+            children: isLoading ? (
+              <Skeleton.Button active />
+            ) : (
+              <Select
+                disabled={configUpdating}
+                options={openAICompatResponsesReasoningEffortOptions}
+              />
+            ),
+            desc: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.desc'),
+            label: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.title'),
+            name: ['config', 'openAICompatResponsesParams', 'reasoningEffort'],
+          },
           ...(showOpenAICompatCacheMatrix
             ? [
                 {
@@ -792,21 +832,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
                   desc: t('providerModels.config.openAICompatResponsesParams.verbosity.desc'),
                   label: t('providerModels.config.openAICompatResponsesParams.verbosity.title'),
                   name: ['config', 'openAICompatResponsesParams', 'verbosity'],
-                },
-                {
-                  children: isLoading ? (
-                    <Skeleton.Button active />
-                  ) : (
-                    <Select
-                      disabled={configUpdating}
-                      options={openAICompatResponsesReasoningEffortOptions}
-                    />
-                  ),
-                  desc: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.desc'),
-                  label: t(
-                    'providerModels.config.openAICompatResponsesParams.reasoningEffort.title',
-                  ),
-                  name: ['config', 'openAICompatResponsesParams', 'reasoningEffort'],
                 },
               ]
             : []),
