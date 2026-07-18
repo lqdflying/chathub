@@ -1,0 +1,83 @@
+---
+description: How to verify CHATHUB_TOOLS_DEBUG and cache-hit debug are working in production Axiom logs
+alwaysApply: false
+---
+
+# Checking Tool & Cache Debug Logs
+
+Two different debug switches, two different Axiom shapes. Do not assume a single
+`debug_namespace` query sees everything.
+
+## The two switches
+
+| Switch | Level | What it turns on |
+|--------|-------|------------------|
+| `CHATHUB_TOOLS_DEBUG=1` | safe | `lobe-mcp:*` + `context-engine:*` (sanitized) |
+| `CHATHUB_TOOLS_DEBUG=verbose` | verbose | safe set + sanitized `lobe-mcp:client` args/results |
+| `DEBUG_OPENAICOMPATIBLE_CACHE=1` | — | redacted cache fingerprints + cached-token usage |
+
+## Critical gotcha: parsing pipeline splits the shape
+
+These two do **not** land in Axiom the same way:
+
+- **Cache debug** → `log_format=prefixed_json`, parsed into the structured
+  `debug_namespace` field (value `openai-compatible-cache-debug`).
+- **Tools debug** (`lobe-mcp:*`, `context-engine:*`) → plain text into the
+  `message` field; `debug_namespace` is **empty**.
+
+So a `debug_namespace` query alone will **miss** the tools-debug lines even
+when they are flowing. Query the `message` text for those.
+
+## Axiom queries
+
+Cache debug (structured field works):
+```apl
+['chathub'] | where ['debug_namespace'] has_cs 'cache'
+| project _time, debug_event, model, route, cachedTokens, inputTokens,
+  ['cache.promptCacheKey.present'], ['cache.sessionId.present'], ['cache.store']
+| sort by _time desc | take 20
+```
+
+Cache hit rate:
+```apl
+['chathub'] | where ['debug_namespace'] has_cs 'cache' and ['debug_event'] == 'usage'
+| summarize requests=count(), hits=countif(cachedTokens > 0), misses=countif(cachedTokens == 0),
+  cached_pct = round(100.0 * sum(cachedTokens) / sum(inputTokens), 1) by model
+```
+
+Tools debug (search the message text, not debug_namespace):
+```apl
+['chathub'] | where ['message'] has_cs 'lobe-mcp' or ['message'] has_cs 'context-engine'
+| extend ns = extract('(lobe-mcp:[a-z-]+|context-engine:[a-zA-Z:-]+)', 1, ['message'])
+| summarize cnt=count() by ns | top 30 by cnt
+```
+
+Tool-call errors / OAuth retries:
+```apl
+['chathub'] | where ['message'] has_cs 'lobe-mcp'
+  and (['message'] has_cs 'error' or ['message'] has_cs '401'
+    or ['message'] has_cs 'refresh' or ['message'] has_cs 'timeout')
+| project _time, message | sort by _time desc | take 25
+```
+
+## Verify the env var is actually live
+
+Absence of `lobe-mcp:*`/`context-engine:*` lines almost always means the var is
+not in the running container or the image predates the feature — not an app bug.
+
+```bash
+docker inspect lobe-chat --format '{{.Config.Image}}'        # needs >= 1.0.13-canary.10
+docker exec lobe-chat env | grep CHATHUB_TOOLS_DEBUG         # must print the value
+docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_TOOLS_DEBUG'
+```
+
+`/proc/1/environ` reads the live server process env — most authoritative.
+After changing the var, recreate: `docker compose up -d --force-recreate chathub`.
+
+## Healthy signals
+
+- Tools: `New client initialized and cached for plugin: X`,
+  `Injected OAuth token for plugin X`, `Calling tool ...` → `called successfully`,
+  URLs sanitized (query params stripped).
+- Cache: `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`;
+  misses expected on new/large-context turns (cache re-prime).
