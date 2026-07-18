@@ -170,6 +170,12 @@ export const messageRouter = router({
       return ctx.messageModel.deleteMessagesBySession(null, input.topicId, input.groupId);
     }),
 
+  rewindMessages: messageProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .mutation(async ({ input, ctx }) => {
+      return ctx.messageModel.rewindMessages(input.ids);
+    }),
+
   searchMessages: messageProcedure
     .input(z.object({ keywords: z.string() }))
     .query(async ({ input, ctx }) => {

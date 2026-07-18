@@ -12,7 +12,7 @@ import { ThreadItem, ThreadStatus, ThreadType } from '@/types/topic';
 
 import { useChatStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 // Mock version constants
 vi.mock('@/const/version', () => ({
@@ -908,18 +908,16 @@ describe('thread action', () => {
   });
 
   describe('delAndResendThreadMessage', () => {
-    it('should delete and resend message', async () => {
+    it('should use the transactional resend path', async () => {
       const { result } = renderHook(() => useChatStore());
 
       const resendSpy = vi.spyOn(result.current, 'resendThreadMessage').mockResolvedValue();
-      const deleteSpy = vi.spyOn(result.current, 'deleteMessage').mockResolvedValue();
 
       await act(async () => {
         await result.current.delAndResendThreadMessage('message-id');
       });
 
       expect(resendSpy).toHaveBeenCalledWith('message-id');
-      expect(deleteSpy).toHaveBeenCalledWith('message-id');
     });
   });
 

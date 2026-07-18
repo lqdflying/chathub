@@ -12,8 +12,8 @@ Two different debug switches, two different Axiom shapes. Do not assume a single
 
 | Switch | Level | What it turns on |
 |--------|-------|------------------|
-| `CHATHUB_TOOLS_DEBUG=1` | safe | `lobe-mcp:*` + `context-engine:*` (sanitized) |
-| `CHATHUB_TOOLS_DEBUG=verbose` | verbose | safe set + sanitized `lobe-mcp:client` args/results |
+| `CHATHUB_TOOLS_DEBUG=1` | safe | `chathub-tools:safe` metadata events |
+| `CHATHUB_TOOLS_DEBUG=verbose` | verbose | safe events + `chathub-tools:verbose` fingerprints |
 | `DEBUG_OPENAICOMPATIBLE_CACHE=1` | — | redacted cache fingerprints + cached-token usage |
 
 ## Critical gotcha: parsing pipeline splits the shape
@@ -22,7 +22,7 @@ These two do **not** land in Axiom the same way:
 
 - **Cache debug** → `log_format=prefixed_json`, parsed into the structured
   `debug_namespace` field (value `openai-compatible-cache-debug`).
-- **Tools debug** (`lobe-mcp:*`, `context-engine:*`) → plain text into the
+- **Tools debug** (`chathub-tools:*`) → plain text into the
   `message` field; `debug_namespace` is **empty**.
 
 So a `debug_namespace` query alone will **miss** the tools-debug lines even
@@ -47,22 +47,21 @@ Cache hit rate:
 
 Tools debug (search the message text, not debug_namespace):
 ```apl
-['chathub'] | where ['message'] has_cs 'lobe-mcp' or ['message'] has_cs 'context-engine'
-| extend ns = extract('(lobe-mcp:[a-z-]+|context-engine:[a-zA-Z:-]+)', 1, ['message'])
+['chathub'] | where ['message'] has_cs 'chathub-tools:'
+| extend ns = extract('(chathub-tools:(safe|verbose))', 1, ['message'])
 | summarize cnt=count() by ns | top 30 by cnt
 ```
 
-Tool-call errors / OAuth retries:
+Tool-call failures:
 ```apl
-['chathub'] | where ['message'] has_cs 'lobe-mcp'
-  and (['message'] has_cs 'error' or ['message'] has_cs '401'
-    or ['message'] has_cs 'refresh' or ['message'] has_cs 'timeout')
+['chathub'] | where ['message'] has_cs 'chathub-tools:safe'
+  and (['message'] has_cs 'failed' or ['message'] has_cs 'error')
 | project _time, message | sort by _time desc | take 25
 ```
 
 ## Verify the env var is actually live
 
-Absence of `lobe-mcp:*`/`context-engine:*` lines almost always means the var is
+Absence of `chathub-tools:*` lines almost always means the var is
 not in the running container or the image predates the feature — not an app bug.
 
 ```bash
@@ -76,8 +75,8 @@ After changing the var, recreate: `docker compose up -d --force-recreate chathub
 
 ## Healthy signals
 
-- Tools: `New client initialized and cached for plugin: X`,
-  `Injected OAuth token for plugin X`, `Calling tool ...` → `called successfully`,
-  URLs sanitized (query params stripped).
+- Tools: `event=client_initialized`, `event=list_tools_complete`, and
+  `event=call_tool_complete`, with counts/timing but no raw plugin names, URLs,
+  arguments, or results. Verbose string values appear only as length + hash metadata.
 - Cache: `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`;
   misses expected on new/large-context turns (cache re-prime).

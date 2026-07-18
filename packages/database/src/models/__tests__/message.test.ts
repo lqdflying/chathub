@@ -21,6 +21,7 @@ import {
   messages,
   messagesFiles,
   sessions,
+  threads,
   topics,
   users,
 } from '../../schemas';
@@ -1275,6 +1276,76 @@ describe('MessageModel', () => {
       // 断言结果
       const result = await serverDB.select().from(messages).where(eq(messages.id, '1'));
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('rewindMessages', () => {
+    it('deletes recursively dependent threads in the same transaction', async () => {
+      await serverDB.insert(topics).values({ id: 'rewind-topic', sessionId: '1', userId });
+      await serverDB.insert(messages).values([
+        { id: 'user-anchor', role: 'user', topicId: 'rewind-topic', userId },
+        { id: 'tail-message', role: 'assistant', topicId: 'rewind-topic', userId },
+      ]);
+      await serverDB.insert(threads).values({
+        id: 'root-thread',
+        sourceMessageId: 'tail-message',
+        topicId: 'rewind-topic',
+        type: 'continuation',
+        userId,
+      });
+      await serverDB.insert(messages).values({
+        id: 'root-thread-message',
+        role: 'assistant',
+        threadId: 'root-thread',
+        topicId: 'rewind-topic',
+        userId,
+      });
+      await serverDB.insert(threads).values([
+        {
+          id: 'child-thread',
+          parentThreadId: 'root-thread',
+          sourceMessageId: 'root-thread-message',
+          topicId: 'rewind-topic',
+          type: 'continuation',
+          userId,
+        },
+        {
+          id: 'retained-thread',
+          sourceMessageId: 'user-anchor',
+          topicId: 'rewind-topic',
+          type: 'continuation',
+          userId,
+        },
+      ]);
+      await serverDB.insert(messages).values([
+        {
+          id: 'child-thread-message',
+          role: 'assistant',
+          threadId: 'child-thread',
+          topicId: 'rewind-topic',
+          userId,
+        },
+        {
+          id: 'retained-thread-message',
+          role: 'assistant',
+          threadId: 'retained-thread',
+          topicId: 'rewind-topic',
+          userId,
+        },
+      ]);
+
+      const result = await messageModel.rewindMessages(['tail-message']);
+
+      expect(new Set(result.messageIds)).toEqual(
+        new Set(['tail-message', 'root-thread-message', 'child-thread-message']),
+      );
+      expect(new Set(result.threadIds)).toEqual(new Set(['root-thread', 'child-thread']));
+      expect((await serverDB.select().from(threads)).map(({ id }) => id)).toEqual([
+        'retained-thread',
+      ]);
+      expect((await serverDB.select().from(messages)).map(({ id }) => id).sort()).toEqual(
+        ['retained-thread-message', 'user-anchor'].sort(),
+      );
     });
   });
 

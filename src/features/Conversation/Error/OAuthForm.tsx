@@ -71,10 +71,7 @@ const OAuthForm = memo<{ id: string }>(({ id }) => {
         {isOAuthLoggedIn ? (
           <Button
             block
-            onClick={() => {
-              resend(id);
-              deleteMessage(id);
-            }}
+            onClick={() => resend(id)}
             style={{ marginTop: 8 }}
             type={'primary'}
           >

@@ -31,6 +31,22 @@ This pipeline is the reason the app can support features like:
 
 A notable implementation detail in the current code is proxy image URL resolution. After MCP tool calls, refreshed messages may contain `/webapi/files/...` URLs that are not directly accessible to providers, so `contextEngineering` resolves them back to public URLs before the pipeline runs.
 
+## Retry and conversation rewind
+
+Retry is a state transition, not an append-only resend. The selected message resolves to its
+owning user-message anchor (or the nearest preceding user message). ChatHub then removes every
+active-branch message after that anchor—including error diagnostics, tool chains, and later user
+turns—before requesting a replacement answer. Threads whose source lies in the discarded tail,
+plus their descendants, are removed in the same database transaction so no orphaned subtopics
+remain.
+
+The UI applies the rewind optimistically, clears generation/reasoning/RAG/search/tool state, and
+cancels active producers. Generation starts only after persistence succeeds. A persistence failure
+restores and refreshes conversation state without generating; additional retry clicks are ignored
+while a rewind is in progress. Main-chat, active-thread, portal-thread, and group-chat retry
+buttons all use this primitive. Group retry routes the retained user message through the existing
+supervisor/direct-mention flow and does not create a second user message.
+
 ## Package boundary
 
 `packages/context-engine` holds the reusable pipeline and processors. It is shared logic rather than app-only code, which is why placeholder handling and message cleanup changes often show up there first.

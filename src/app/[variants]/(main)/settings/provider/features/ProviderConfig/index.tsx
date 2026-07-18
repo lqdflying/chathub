@@ -32,7 +32,6 @@ import {
   OPENAI_COMPAT_CACHE_PRESETS,
   type OpenAICompatCacheConfig,
   type OpenAICompatCachePreset,
-  type OpenAICompatResponsesReasoningEffortMode,
   type OpenAICompatResponsesTruncationMode,
   type OpenAICompatResponsesVerbosityMode,
   normalizeOpenAICompatCacheConfig,
@@ -70,6 +69,33 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
         opacity: 1;
       }
     }
+  `,
+  fieldInfoIcon: css`
+    cursor: help;
+
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+
+    color: ${token.colorTextDescription};
+
+    &:hover {
+      color: ${token.colorText};
+    }
+  `,
+  fieldLabel: css`
+    display: inline-flex;
+    align-items: center;
+
+    max-width: 100%;
+    min-width: 0;
+  `,
+  fieldLabelText: css`
+    min-width: 0;
+
+    line-height: 1.3;
+    white-space: normal;
+    overflow-wrap: anywhere;
   `,
   form: css`
     container-type: inline-size;
@@ -151,33 +177,6 @@ const useStyles = createStyles(({ css, prefixCls, responsive, token }) => ({
       font-size: 12px;
     }
   `,
-  fieldInfoIcon: css`
-    cursor: help;
-
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-
-    color: ${token.colorTextDescription};
-
-    &:hover {
-      color: ${token.colorText};
-    }
-  `,
-  fieldLabel: css`
-    display: inline-flex;
-    align-items: center;
-
-    max-width: 100%;
-    min-width: 0;
-  `,
-  fieldLabelText: css`
-    min-width: 0;
-
-    line-height: 1.3;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  `,
   help: css`
     border-radius: 50%;
 
@@ -253,7 +252,8 @@ const openAICompatCacheResponseStateMode = (cache: OpenAICompatCacheConfig) =>
 const normalizeProviderConfigValues = (values: any) => {
   if (values?.checkModel !== null) return values;
 
-  const { checkModel, ...rest } = values;
+  const rest = { ...values };
+  delete rest.checkModel;
 
   return rest;
 };
@@ -292,26 +292,6 @@ const resolveOpenAICompatValues = (changedValues: any, values: any) => {
   const currentCache = normalizeOpenAICompatCacheConfig(values?.config);
   const currentResponsesParams = normalizeOpenAICompatResponsesParamsConfig(values?.config);
 
-  // The reasoning-effort shape is gateway-specific, not cache-specific: editing
-  // it alone must not flip the cache preset to Custom.
-  const isReasoningEffortOnlyChange =
-    !!changedResponsesParams &&
-    Object.keys(changedResponsesParams).every((key) => key === 'reasoningEffort');
-
-  if (isReasoningEffortOnlyChange && !changedCache) {
-    return {
-      ...values,
-      config: {
-        ...values?.config,
-        openAICompatCache: currentCache,
-        openAICompatResponsesParams: {
-          ...currentResponsesParams,
-          ...changedResponsesParams,
-        },
-      },
-    };
-  }
-
   const presetChanged = !!changedCache && Object.prototype.hasOwnProperty.call(changedCache, 'preset');
   const nextCache = presetChanged
     ? changedCache.preset === 'custom'
@@ -321,13 +301,7 @@ const resolveOpenAICompatValues = (changedValues: any, values: any) => {
   const nextResponsesParams = presetChanged
     ? changedCache.preset === 'custom'
       ? currentResponsesParams
-      : {
-          ...openAICompatResponsesParamsPresetConfig(changedCache.preset as OpenAICompatCachePreset),
-          // Preserve the gateway-specific reasoning shape across preset switches.
-          ...(currentResponsesParams.reasoningEffort
-            ? { reasoningEffort: currentResponsesParams.reasoningEffort }
-            : {}),
-        }
+      : openAICompatResponsesParamsPresetConfig(changedCache.preset as OpenAICompatCachePreset)
     : currentResponsesParams;
 
   return {
@@ -530,31 +504,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
         value: 'disabled',
       },
     ];
-    const openAICompatResponsesReasoningEffortOptions: Array<{
-      label: string;
-      value: OpenAICompatResponsesReasoningEffortMode;
-    }> = [
-      {
-        label: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.options.off'),
-        value: 'off',
-      },
-      {
-        label: t(
-          'providerModels.config.openAICompatResponsesParams.reasoningEffort.options.reasoning',
-        ),
-        value: 'reasoning',
-      },
-      {
-        label: t(
-          'providerModels.config.openAICompatResponsesParams.reasoningEffort.options.topLevel',
-        ),
-        value: 'top-level',
-      },
-      {
-        label: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.options.both'),
-        value: 'both',
-      },
-    ];
     const openAICompatResponsesVerbosityOptions: Array<{
       label: string;
       value: OpenAICompatResponsesVerbosityMode;
@@ -704,19 +653,6 @@ const ProviderConfig = memo<ProviderConfigProps>(
             desc: openAICompatCachePresetDesc,
             label: t('providerModels.config.openAICompatCache.preset.title'),
             name: ['config', 'openAICompatCache', 'preset'],
-          },
-          {
-            children: isLoading ? (
-              <Skeleton.Button active />
-            ) : (
-              <Select
-                disabled={configUpdating}
-                options={openAICompatResponsesReasoningEffortOptions}
-              />
-            ),
-            desc: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.desc'),
-            label: t('providerModels.config.openAICompatResponsesParams.reasoningEffort.title'),
-            name: ['config', 'openAICompatResponsesParams', 'reasoningEffort'],
           },
           ...(showOpenAICompatCacheMatrix
             ? [

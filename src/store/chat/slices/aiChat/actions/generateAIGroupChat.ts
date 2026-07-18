@@ -200,6 +200,13 @@ export interface ChatGroupChatAction {
    */
   internal_triggerSupervisorDecisionDebounced: (groupId: string) => void;
 
+  /** Route an already-persisted user message without creating a duplicate user row. */
+  internal_routeGroupUserMessage: (
+    groupId: string,
+    message: Pick<UIChatMessage, 'content' | 'targetId'>,
+    immediateSupervisor?: boolean,
+  ) => Promise<void>;
+
   /**
    * Cancels pending supervisor decision for a group
    */
@@ -274,7 +281,7 @@ export const chatAiGroupChat: StateCreator<
     sendGroupMessage: async ({ groupId, message, files, onlyAddUserMessage, targetMemberId }) => {
       const {
         internal_createMessage,
-        internal_triggerSupervisorDecisionDebounced,
+        internal_routeGroupUserMessage,
         internal_setActiveGroup,
         activeTopicId,
       } = get();
@@ -305,61 +312,10 @@ export const chatAiGroupChat: StateCreator<
         }
 
         if (messageId) {
-          // Use the specific group's config rather than relying on active session
-          const groupConfig = selectGroupConfig(groupId);
-
-          // If supervisor is disabled, check for direct mentions and trigger them directly
-          if (!groupConfig?.enableSupervisor) {
-            const agents = sessionSelectors.currentGroupAgents(useSessionStore.getState());
-            const mentionableGroupAgents: GroupMemberInfo[] = agents.map((agent) => ({
-              id: agent.id,
-              title: agent.title ?? agent.id,
-            }));
-            const mentionedAgentIds = extractMentionsFromContent(message, mentionableGroupAgents);
-
-            const candidateAgentIds = new Set(mentionedAgentIds);
-
-            if (targetMemberId && agents?.some((agent) => agent.id === targetMemberId)) {
-              candidateAgentIds.add(targetMemberId);
-            }
-
-            if (candidateAgentIds.size > 0) {
-              // Validate that mentioned agents exist in the group
-              const validMentionedAgents = [...candidateAgentIds].filter((agentId) =>
-                agents?.some((agent) => agent.id === agentId),
-              );
-
-              if (validMentionedAgents.length > 0) {
-                console.log(
-                  'Supervisor disabled, triggering direct mentions:',
-                  validMentionedAgents,
-                );
-
-                // Process mentioned agents directly without supervisor decision
-                const { internal_executeAgentResponses } = get();
-                const decisions = validMentionedAgents.map((agentId) => ({
-                  id: agentId,
-                  target: targetMemberId && agentId === targetMemberId ? 'user' : undefined,
-                }));
-
-                await internal_executeAgentResponses(groupId, decisions);
-              } else {
-                console.log('Supervisor disabled, mentioned agents not found in group');
-              }
-            } else {
-              if (targetMemberId) {
-                console.log(
-                  'Supervisor disabled and DM target not found in group, no agent responses triggered',
-                );
-              } else {
-                console.log(
-                  'Supervisor disabled and no mentions found, no agent responses triggered',
-                );
-              }
-            }
-          } else {
-            internal_triggerSupervisorDecisionDebounced(groupId);
-          }
+          await internal_routeGroupUserMessage(groupId, {
+            content: message,
+            targetId: targetMemberId,
+          });
         }
       } catch (error) {
         console.error('Failed to send group message:', error);
@@ -369,6 +325,46 @@ export const chatAiGroupChat: StateCreator<
     },
 
     // ========= ↓ Group Chat Internal Methods ↓ ========== //
+
+    internal_routeGroupUserMessage: async (groupId, message, immediateSupervisor = false) => {
+      // Use the specific group's config rather than relying on whichever session is active later.
+      const groupConfig = selectGroupConfig(groupId);
+
+      if (groupConfig?.enableSupervisor) {
+        if (immediateSupervisor) {
+          await get().internal_triggerSupervisorDecision(groupId, get().activeTopicId, true);
+        } else {
+          get().internal_triggerSupervisorDecisionDebounced(groupId);
+        }
+        return;
+      }
+
+      const agents = sessionSelectors.currentGroupAgents(useSessionStore.getState());
+      const mentionableGroupAgents: GroupMemberInfo[] = agents.map((agent) => ({
+        id: agent.id,
+        title: agent.title ?? agent.id,
+      }));
+      const candidateAgentIds = new Set(
+        extractMentionsFromContent(message.content, mentionableGroupAgents),
+      );
+
+      if (message.targetId && agents.some((agent) => agent.id === message.targetId)) {
+        candidateAgentIds.add(message.targetId);
+      }
+
+      const validAgentIds = [...candidateAgentIds].filter((agentId) =>
+        agents.some((agent) => agent.id === agentId),
+      );
+      if (validAgentIds.length === 0) return;
+
+      await get().internal_executeAgentResponses(
+        groupId,
+        validAgentIds.map((agentId) => ({
+          id: agentId,
+          target: message.targetId === agentId ? 'user' : undefined,
+        })),
+      );
+    },
 
     internal_triggerSupervisorDecision: async (
       groupId: string,

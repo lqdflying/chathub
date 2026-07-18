@@ -72,7 +72,6 @@ export interface OpenAICompatCacheRequestConfig {
 export interface OpenAICompatResponsesParamsRequestConfig {
   maxOutputTokens?: boolean;
   maxTokens?: boolean;
-  reasoningEffort?: 'both' | 'off' | 'reasoning' | 'top-level';
   truncation?: 'auto' | 'disabled' | 'off';
   verbosity?: 'both' | 'off' | 'text' | 'top-level';
 }
@@ -90,6 +89,7 @@ export interface ChatStreamPayload {
    * @default 0
    */
   frequency_penalty?: number;
+  max_output_tokens?: number;
   /**
    * @title 生成文本的最大长度
    */
@@ -106,6 +106,8 @@ export interface ChatStreamPayload {
    * @title 返回的文本数量
    */
   n?: number;
+  openAICompatCache?: OpenAICompatCacheRequestConfig;
+  openAICompatResponsesParams?: OpenAICompatResponsesParamsRequestConfig;
   /**
    * 开启的插件列表
    */
@@ -115,23 +117,20 @@ export interface ChatStreamPayload {
    * @default 0
    */
   presence_penalty?: number;
+  prompt_cache_key?: string;
   /**
    * @default openai
    */
   provider?: string;
-  openAICompatCache?: OpenAICompatCacheRequestConfig;
-  openAICompatResponsesParams?: OpenAICompatResponsesParamsRequestConfig;
-  responseStateMode?: 'provider' | 'stateless';
   responseMode?: 'stream' | 'json';
+  responseStateMode?: 'provider' | 'stateless';
   response_format?: ChatResponseFormat;
+  store?: boolean;
   /**
    * @title 是否开启流式请求
    * @default true
    */
   stream?: boolean;
-  store?: boolean;
-  max_output_tokens?: number;
-  prompt_cache_key?: string;
   /**
    * @title 生成文本的随机度量，用于控制文本的创造性和多样性
    * @default 1

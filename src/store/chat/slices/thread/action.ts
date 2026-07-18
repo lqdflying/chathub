@@ -198,8 +198,7 @@ export const chatThreadMessage: StateCreator<
     });
   },
   delAndResendThreadMessage: async (id) => {
-    get().resendThreadMessage(id);
-    get().deleteMessage(id);
+    await get().resendThreadMessage(id);
   },
   createThread: async ({ message, sourceMessageId, topicId, type }) => {
     set({ isCreatingThread: true }, false, n('creatingThread/start'));

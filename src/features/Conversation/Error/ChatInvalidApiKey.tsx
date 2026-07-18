@@ -27,7 +27,6 @@ const ChatInvalidAPIKey = memo<ChatInvalidAPIKeyProps>(({ id, provider }) => {
       }}
       onRecreate={() => {
         resend(id);
-        deleteMessage(id);
       }}
       provider={provider}
     />

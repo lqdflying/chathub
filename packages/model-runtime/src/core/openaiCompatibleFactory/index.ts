@@ -942,6 +942,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const input = await convertOpenAIResponseInputs(messages as any, this.id);
       const responseParamsPayload = applyOpenAICompatResponsesParams(res, responsesParams);
+      const effectiveReasoning =
+        reasoning || reasoning_effort
+          ? {
+              ...reasoning,
+              ...(reasoning_effort ? { effort: reasoning_effort } : {}),
+            }
+          : undefined;
+      const responseTools = tools?.map((tool) =>
+        this.convertChatCompletionToolToResponseTool(tool),
+      );
       const explicitPromptCacheKey =
         typeof responseParamsPayload.prompt_cache_key === 'string'
           ? responseParamsPayload.prompt_cache_key
@@ -949,7 +959,13 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       const derivedPromptCacheKey =
         !explicitPromptCacheKey && (statefulResponses || responseCacheNeedsKey)
           ? await deriveCompatPromptCacheKey(
-              { ...responseParamsPayload, input, model: payload.model },
+              {
+                ...responseParamsPayload,
+                ...(effectiveReasoning ? { reasoning: effectiveReasoning } : {}),
+                input,
+                model: payload.model,
+                ...(responseTools ? { tools: responseTools } : {}),
+              },
               payload.model,
               // Explicit matrix config (`promptCacheKey: 'derived'` or
               // `sessionHeader`) must derive for any model; the legacy
@@ -967,13 +983,6 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         storeOverride !== undefined ? storeOverride : matrixStore !== undefined ? matrixStore : undefined;
 
       const isStreaming = payload.stream !== false;
-      const reasoningEffortMode = responsesParams?.reasoningEffort ?? 'reasoning';
-      const sendReasoningObject =
-        !!(reasoning || reasoning_effort) &&
-        (reasoningEffortMode === 'reasoning' || reasoningEffortMode === 'both');
-      const sendTopLevelReasoningEffort =
-        !!reasoning_effort &&
-        (reasoningEffortMode === 'top-level' || reasoningEffortMode === 'both');
       log(
         'isStreaming: %s, hasTools: %s, hasReasoning: %s',
         isStreaming,
@@ -984,19 +993,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       const postPayload = {
         ...responseParamsPayload,
         ...(shouldSendPromptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
-        ...(sendReasoningObject
-          ? {
-              reasoning: {
-                ...reasoning,
-                ...(reasoning_effort && { effort: reasoning_effort }),
-              },
-            }
-          : {}),
-        ...(sendTopLevelReasoningEffort ? { reasoning_effort } : {}),
+        ...(effectiveReasoning ? { reasoning: effectiveReasoning } : {}),
         input,
         ...(store !== undefined || statefulResponses ? { store: store ?? true } : {}),
         stream: !isStreaming ? undefined : isStreaming,
-        tools: tools?.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
+        tools: responseTools,
       } as OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams;
 
       if (debugParams?.responses?.()) {

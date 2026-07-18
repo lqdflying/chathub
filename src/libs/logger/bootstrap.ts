@@ -9,14 +9,12 @@ import debug from 'debug';
  * by the var's value:
  *
  * - unset / empty / 0 / false / off  → off (no auto-enable; behaves as before)
- * - 1 / true / on / safe             → safe set (sanitized MCP + tool namespaces)
- * - verbose / 2                      → safe set + sanitized `lobe-mcp:client`
+ * - 1 / true / on / safe             → dedicated safe metadata namespace
+ * - verbose / 2                      → safe metadata + payload fingerprints
  *
- * The safe set is deliberately limited to namespaces that log only sanitized
- * params, counts, IDs, and timing. The verbose set adds `lobe-mcp:client`,
- * which is safe only because its tool args/results are passed through
- * `sanitizeToolDebugPayload` at the call site (secrets redacted, long strings
- * truncated, arrays capped).
+ * Only dedicated ChatHub namespaces are auto-enabled. Existing lobe-mcp and
+ * context-engine namespaces remain explicit DEBUG opt-ins because their log
+ * contracts are broader and can include user-controlled strings.
  *
  * Namespaces that log raw user input or secrets are never auto-enabled here:
  * `lobe-search:*` (raw search queries), `lobe-chat:*` (client store debug),
@@ -31,19 +29,10 @@ export type ToolsDebugLevel = 'off' | 'safe' | 'verbose';
  * Auditable in one place — do not add a namespace without verifying it never
  * logs raw user input, prompts, secrets, or full request/response bodies.
  */
-export const TOOLS_SAFE_NS: readonly string[] = [
-  'lobe-mcp:service',
-  'lobe-mcp:oauth-service',
-  'lobe-mcp:oauth-discovery',
-  'lobe-mcp:deps-check',
-  'lobe-mcp:router',
-  'context-engine:tools-engine',
-  'context-engine:processor:ToolCallProcessor',
-  'context-engine:processor:ToolMessageReorder',
-];
+export const TOOLS_SAFE_NS: readonly string[] = ['chathub-tools:safe'];
 
-/** Added only at the verbose level; safe only via `sanitizeToolDebugPayload`. */
-export const TOOLS_VERBOSE_NS: readonly string[] = ['lobe-mcp:client'];
+/** Added only at the verbose level; values are fingerprints, lengths, and bounded structure. */
+export const TOOLS_VERBOSE_NS: readonly string[] = ['chathub-tools:verbose'];
 
 const OFF_VALUES = new Set(['', '0', 'false', 'off']);
 const SAFE_VALUES = new Set(['1', 'true', 'on', 'safe']);
@@ -103,12 +92,11 @@ export function bootstrapDebug() {
 
 /**
  * Determine the Pino log level.
- * Explicit LOG_LEVEL always wins. When CHATHUB_DEBUG=1 or a tools-debug level
- * is active and no LOG_LEVEL is set, default to 'debug'. Otherwise 'info'.
+ * Explicit LOG_LEVEL always wins. CHATHUB_TOOLS_DEBUG uses debug() namespaces
+ * and deliberately does not lower the global Pino threshold.
  */
 export function getPinoLevel(): string {
   if (process.env.LOG_LEVEL) return process.env.LOG_LEVEL;
-  const toolsLevel = parseToolsDebugLevel(process.env.CHATHUB_TOOLS_DEBUG);
-  if (process.env.CHATHUB_DEBUG === '1' || toolsLevel !== 'off') return 'debug';
+  if (process.env.CHATHUB_DEBUG === '1') return 'debug';
   return 'info';
 }

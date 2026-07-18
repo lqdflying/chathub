@@ -46,6 +46,7 @@ export interface IMessageService {
   updateMessagePluginArguments(id: string, value: string | Record<string, any>): Promise<any>;
   removeMessage(id: string): Promise<any>;
   removeMessages(ids: string[]): Promise<any>;
+  rewindMessages(ids: string[]): Promise<{ messageIds: string[]; threadIds: string[] }>;
   removeMessagesByAssistant(assistantId: string, topicId?: string): Promise<any>;
   removeMessagesByGroup(groupId: string, topicId?: string): Promise<any>;
   removeAllMessages(): Promise<any>;

@@ -15,7 +15,7 @@ const ClerkLogin = memo<{ id: string }>(({ id }) => {
   const [openSignIn, isSignedIn] = useUserStore((s) => [s.openLogin, s.isSignedIn]);
   const greeting = useGreeting();
   const nickName = useUserStore(userProfileSelectors.nickName);
-  const [resend, deleteMessage] = useChatStore((s) => [s.regenerateMessage, s.deleteMessage]);
+  const resend = useChatStore((s) => s.regenerateMessage);
 
   return (
     <ErrorActionContainer>
@@ -29,7 +29,6 @@ const ClerkLogin = memo<{ id: string }>(({ id }) => {
             block
             onClick={() => {
               resend(id);
-              deleteMessage(id);
             }}
             size={'large'}
             type={'primary'}

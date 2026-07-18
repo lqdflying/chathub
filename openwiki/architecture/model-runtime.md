@@ -64,7 +64,7 @@ GPT-5 reasoning effort is normalized by model before the request reaches the run
 - Earlier GPT-5 models: `minimal`, `low`, `medium`, `high`
 - Unsupported saved values from a model switch fall back to `medium`
 
-The internal request uses `reasoning_effort` for both compatible API modes. Chat Completions forwards it as the top-level `reasoning_effort` field. Responses removes that top-level field and sends `reasoning: { effort }` instead. This endpoint mapping permits GPT-5.6 Sol's `max` value without introducing a new upstream field or changing the compatible-provider cache matrix.
+The internal request uses `reasoning_effort` for both compatible API modes. Chat Completions forwards it as the top-level `reasoning_effort` field. Responses removes that top-level field and merges it into `reasoning: { effort }`, preserving other documented reasoning options such as `summary`. This is fixed endpoint mapping, not a provider setting: the OpenAI-compatible provider has no separate “Responses reasoning effort” shape selector. Legacy saved selector values are discarded. This mapping permits GPT-5.6 Sol's `max` value without introducing a second upstream field.
 
 ## Model fetch normalization
 

@@ -78,8 +78,11 @@ const appendStableSeedParts = (parts: string[], parsedBody: Record<string, any>,
   const normalizedModel = String(model || parsedBody.model || '').trim();
   if (normalizedModel) parts.push(`model=${normalizedModel}`);
 
-  const effort = parsedBody.reasoning?.effort || parsedBody.reasoning_effort;
-  if (effort) parts.push(`reasoning_effort=${String(effort).trim()}`);
+  if (parsedBody.reasoning !== undefined) {
+    parts.push(`reasoning=${normalizeCompatSeedJSON(parsedBody.reasoning)}`);
+  } else if (parsedBody.reasoning_effort) {
+    parts.push(`reasoning_effort=${String(parsedBody.reasoning_effort).trim()}`);
+  }
 
   if (parsedBody.tool_choice !== undefined)
     parts.push(`tool_choice=${normalizeCompatSeedJSON(parsedBody.tool_choice)}`);

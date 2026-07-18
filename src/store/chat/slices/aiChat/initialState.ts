@@ -22,16 +22,22 @@ export interface ChatAIChatState {
    */
   mainSendMessageOperations: Record<string, MainSendMessageOperation>;
   messageInToolsCallingIds: string[];
+  messageInToolsCallingIdsAbortController?: AbortController;
   /**
    * is the message is in RAG flow
    */
   messageRAGLoadingIds: string[];
+  /** User-message anchors currently being rewound and regenerated. */
+  messageRetryingIds: string[];
   pluginApiLoadingIds: string[];
+  pluginApiLoadingIdsAbortController?: AbortController;
   /**
    * is the AI message is reasoning
    */
   reasoningLoadingIds: string[];
+  reasoningLoadingIdsAbortController?: AbortController;
   searchWorkflowLoadingIds: string[];
+  searchWorkflowLoadingIdsAbortController?: AbortController;
   threadInputEditor: ChatInputEditor | null;
   /**
    * the tool calling stream ids
@@ -47,6 +53,7 @@ export const initialAiChatState: ChatAIChatState = {
   mainSendMessageOperations: {},
   messageInToolsCallingIds: [],
   messageRAGLoadingIds: [],
+  messageRetryingIds: [],
   pluginApiLoadingIds: [],
   reasoningLoadingIds: [],
   searchWorkflowLoadingIds: [],

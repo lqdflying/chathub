@@ -62,6 +62,9 @@ export const spyOnMessageService = () => {
     .mockResolvedValue(TEST_IDS.NEW_MESSAGE_ID);
   const updateMessageSpy = vi.spyOn(messageService, 'updateMessage').mockResolvedValue(undefined);
   const removeMessageSpy = vi.spyOn(messageService, 'removeMessage').mockResolvedValue(undefined);
+  const rewindMessagesSpy = vi
+    .spyOn(messageService, 'rewindMessages')
+    .mockImplementation(async (ids) => ({ messageIds: ids, threadIds: [] }));
   const updateMessageErrorSpy = vi
     .spyOn(messageService, 'updateMessageError')
     .mockResolvedValue(undefined);
@@ -69,6 +72,7 @@ export const spyOnMessageService = () => {
   return {
     createMessageSpy,
     removeMessageSpy,
+    rewindMessagesSpy,
     updateMessageErrorSpy,
     updateMessageSpy,
   };
@@ -95,10 +99,13 @@ export const resetTestEnvironment = () => {
   useChatStore.setState(
     {
       activeId: TEST_IDS.SESSION_ID,
+      activeSessionType: undefined,
       activeTopicId: TEST_IDS.TOPIC_ID,
       chatLoadingIds: [],
       chatLoadingIdsAbortController: undefined,
+      messageRetryingIds: [],
       messagesMap: {},
+      threadMaps: {},
       toolCallingStreamIds: {},
     },
     false,

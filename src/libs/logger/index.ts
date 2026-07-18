@@ -3,7 +3,7 @@ import Pino from 'pino';
 import { bootstrapDebug, getPinoLevel } from './bootstrap';
 
 // CHATHUB_DEBUG=1 only adjusts Pino level. CHATHUB_TOOLS_DEBUG (1|verbose)
-// auto-enables a curated, PII-safe set of MCP/tool debug() namespaces; any
+// auto-enables dedicated sanitized MCP/tool debug() namespaces; any
 // other namespaces must be set explicitly via the DEBUG=... env var.
 bootstrapDebug();
 

@@ -6,6 +6,7 @@ import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { chatSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { useSessionStore } from '@/store/session';
 import { UploadFileItem } from '@/types/files/upload';
 
 import { useChatStore } from '../../../../store';
@@ -19,7 +20,7 @@ import {
 } from './helpers';
 
 // Keep zustand mock as it's needed globally
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 const realCoreProcessMessage = useChatStore.getState().internal_coreProcessMessage;
 
@@ -33,8 +34,11 @@ beforeEach(() => {
 
   // Setup common mock methods that most tests need
   act(() => {
+    useSessionStore.setState({ triggerSessionUpdate: vi.fn() });
     useChatStore.setState({
+      internal_fetchMessages: vi.fn(),
       refreshMessages: vi.fn(),
+      refreshThreads: vi.fn(),
       refreshTopic: vi.fn(),
       internal_coreProcessMessage: vi.fn(),
     });
@@ -390,7 +394,7 @@ describe('chatMessage actions', () => {
   });
 
   describe('delAndRegenerateMessage', () => {
-    it('should delete message then regenerate', async () => {
+    it('should use the same transactional resend path', async () => {
       const { result } = renderHook(() => useChatStore());
 
       act(() => {
@@ -402,14 +406,12 @@ describe('chatMessage actions', () => {
         ]);
       });
 
-      const deleteMessageSpy = vi.spyOn(result.current, 'deleteMessage');
       const resendMessageSpy = vi.spyOn(result.current, 'internal_resendMessage');
 
       await act(async () => {
         await result.current.delAndRegenerateMessage(TEST_IDS.MESSAGE_ID);
       });
 
-      expect(deleteMessageSpy).toHaveBeenCalledWith(TEST_IDS.MESSAGE_ID);
       expect(resendMessageSpy).toHaveBeenCalled();
     });
   });
@@ -898,6 +900,188 @@ describe('chatMessage actions', () => {
     });
 
     describe('context generation', () => {
+      it('rewinds every message after the anchor before regenerating', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const user = createMockMessage({ id: 'user-1', role: 'user' });
+        const error = createMockMessage({
+          error: { message: 'gateway failed', type: 504 } as any,
+          id: 'error-1',
+          parentId: user.id,
+          role: 'assistant',
+        });
+        const messages = [
+          user,
+          error,
+          createMockMessage({ id: 'diagnostic-1', parentId: user.id, role: 'assistant' }),
+          createMockMessage({ id: 'user-2', role: 'user' }),
+          createMockMessage({ id: 'assistant-2', parentId: 'user-2', role: 'assistant' }),
+        ];
+        const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+
+        act(() => {
+          useChatStore.setState({ messagesMap: { [key]: messages } });
+        });
+
+        await act(async () => {
+          await result.current.internal_resendMessage(error.id);
+        });
+
+        expect(messageService.rewindMessages).toHaveBeenCalledWith([
+          'error-1',
+          'diagnostic-1',
+          'user-2',
+          'assistant-2',
+        ]);
+        expect(useChatStore.getState().messagesMap[key].map(({ id }) => id)).toEqual(['user-1']);
+        expect(result.current.internal_coreProcessMessage).toHaveBeenCalledWith(
+          [expect.objectContaining({ id: 'user-1' })],
+          'user-1',
+          expect.any(Object),
+        );
+      });
+
+      it('clears discarded error details, tool UI, and loading diagnostics', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const user = createMockMessage({ id: 'user-1', role: 'user' });
+        const error = createMockMessage({
+          error: { message: 'gateway failed', type: 504 } as any,
+          id: 'error-1',
+          parentId: user.id,
+          role: 'assistant',
+        });
+        const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+
+        act(() => {
+          useChatStore.setState({
+            chatLoadingIds: [error.id],
+            mainSendMessageOperations: {
+              [key]: { inputSendErrorMsg: 'request failed', isLoading: false },
+            },
+            messageInToolsCallingIds: [error.id],
+            messageLoadingIds: [error.id],
+            messagesMap: { [key]: [user, error] },
+            pluginApiLoadingIds: [error.id],
+            portalMessageDetail: error.id,
+            portalToolMessage: { id: error.id, identifier: 'tool' },
+            reasoningLoadingIds: [error.id],
+            searchWorkflowLoadingIds: [error.id],
+            showPortal: true,
+            toolCallingStreamIds: { [error.id]: [true] },
+          });
+        });
+
+        await act(async () => {
+          await result.current.internal_resendMessage(error.id);
+        });
+
+        const state = useChatStore.getState();
+        expect(state.portalMessageDetail).toBeUndefined();
+        expect(state.portalToolMessage).toBeUndefined();
+        expect(state.showPortal).toBe(false);
+        expect(state.mainSendMessageOperations[key]?.inputSendErrorMsg).toBeUndefined();
+        expect(state.chatLoadingIds).toEqual([]);
+        expect(state.messageInToolsCallingIds).toEqual([]);
+        expect(state.messageLoadingIds).toEqual([]);
+        expect(state.pluginApiLoadingIds).toEqual([]);
+        expect(state.reasoningLoadingIds).toEqual([]);
+        expect(state.searchWorkflowLoadingIds).toEqual([]);
+        expect(state.toolCallingStreamIds).not.toHaveProperty(error.id);
+      });
+
+      it('restores optimistic state and does not generate when persistence fails', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const messages = [
+          createMockMessage({ id: 'user-1', role: 'user' }),
+          createMockMessage({ id: 'assistant-1', parentId: 'user-1', role: 'assistant' }),
+        ];
+        const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+        vi.mocked(messageService.rewindMessages).mockRejectedValueOnce(new Error('db unavailable'));
+
+        act(() => {
+          useChatStore.setState({ messagesMap: { [key]: messages } });
+        });
+
+        await act(async () => {
+          await result.current.internal_resendMessage('assistant-1');
+        });
+
+        expect(useChatStore.getState().messagesMap[key]).toEqual(messages);
+        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+      });
+
+      it('ignores another retry while a rewind transaction is in flight', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const messages = [
+          createMockMessage({ id: 'user-1', role: 'user' }),
+          createMockMessage({ id: 'assistant-1', parentId: 'user-1', role: 'assistant' }),
+          createMockMessage({ id: 'user-2', role: 'user' }),
+          createMockMessage({ id: 'assistant-2', parentId: 'user-2', role: 'assistant' }),
+        ];
+        const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+        let finishRewind: (() => void) | undefined;
+        vi.mocked(messageService.rewindMessages).mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishRewind = () => resolve({ messageIds: ['assistant-2'], threadIds: [] });
+            }),
+        );
+
+        act(() => {
+          useChatStore.setState({ messagesMap: { [key]: messages } });
+        });
+
+        await act(async () => {
+          const firstRetry = result.current.internal_resendMessage('assistant-2');
+          await Promise.resolve();
+          await result.current.internal_resendMessage('assistant-1');
+          finishRewind?.();
+          await firstRetry;
+        });
+
+        expect(messageService.rewindMessages).toHaveBeenCalledTimes(1);
+        expect(messageService.rewindMessages).toHaveBeenCalledWith(['assistant-2']);
+      });
+
+      it('routes a retained group user message without creating a duplicate', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const user = createMockMessage({
+          groupId: TEST_IDS.SESSION_ID,
+          id: 'group-user',
+          role: 'user',
+        });
+        const error = createMockMessage({
+          groupId: TEST_IDS.SESSION_ID,
+          id: 'group-error',
+          parentId: user.id,
+          role: 'supervisor',
+        });
+        const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+        const routeGroupMessage = vi
+          .spyOn(result.current, 'internal_routeGroupUserMessage')
+          .mockResolvedValue(undefined);
+        vi.spyOn(result.current, 'internal_cancelSupervisorDecision').mockImplementation(() => {});
+        vi.spyOn(result.current, 'internal_updateSupervisorTodos').mockImplementation(() => {});
+
+        act(() => {
+          useChatStore.setState({
+            activeSessionType: 'group',
+            messagesMap: { [key]: [user, error] },
+          });
+        });
+
+        await act(async () => {
+          await result.current.internal_resendMessage(error.id);
+        });
+
+        expect(routeGroupMessage).toHaveBeenCalledWith(
+          TEST_IDS.SESSION_ID,
+          { content: user.content, targetId: user.targetId },
+          true,
+        );
+        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+        expect(useChatStore.getState().messagesMap[key]).toEqual([user]);
+      });
+
       it('should generate correct context for user role message', async () => {
         const { result } = renderHook(() => useChatStore());
         const messages = [
@@ -1204,6 +1388,38 @@ describe('chatMessage actions', () => {
 
       // Should handle the case where parentId is not found
       expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('internal_routeGroupUserMessage', () => {
+    it('runs the supervisor immediately for a retained retry message', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const groupId = 'group-1';
+      const triggerSupervisor = vi
+        .spyOn(result.current, 'internal_triggerSupervisorDecision')
+        .mockResolvedValue(undefined);
+      const triggerDebounced = vi
+        .spyOn(result.current, 'internal_triggerSupervisorDecisionDebounced')
+        .mockImplementation(() => {});
+
+      act(() => {
+        useChatStore.setState({
+          groupMaps: {
+            [groupId]: { config: { enableSupervisor: true } } as any,
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.internal_routeGroupUserMessage(
+          groupId,
+          { content: 'retry this turn' },
+          true,
+        );
+      });
+
+      expect(triggerSupervisor).toHaveBeenCalledWith(groupId, TEST_IDS.TOPIC_ID, true);
+      expect(triggerDebounced).not.toHaveBeenCalled();
     });
   });
 });

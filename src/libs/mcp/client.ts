@@ -8,6 +8,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.d.ts'
 import type { Progress } from '@modelcontextprotocol/sdk/types.js';
 import debug from 'debug';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 import {
   MCPClientParams,
@@ -21,6 +22,7 @@ import type { MCPTokenGetter } from './types';
 import { createMCPAuthenticatedFetch } from './http';
 
 const log = debug('lobe-mcp:client');
+const verboseLog = debug('chathub-tools:verbose');
 // MCP tool call timeout (milliseconds), configurable via the environment variable MCP_TOOL_TIMEOUT, default is 60000
 // Parse MCP_TOOL_TIMEOUT, only use if it's a valid positive number, otherwise fallback to default 60000
 const MCP_TOOL_TIMEOUT = (() => {
@@ -28,25 +30,26 @@ const MCP_TOOL_TIMEOUT = (() => {
   return Number.isFinite(val) && val > 0 ? val : 60_000;
 })();
 
-const SECRET_KEY_PATTERN = /token|secret|password|api[-_]?key|authorization|cookie/i;
-const TOOL_DEBUG_MAX_STRING = 500;
+const SECRET_KEY_PATTERN = /token|secret|password|api[_-]?key|authorization|cookie/i;
 const TOOL_DEBUG_MAX_ARRAY = 3;
 const TOOL_DEBUG_MAX_DEPTH = 4;
+const TOOL_DEBUG_MAX_PROPERTIES = 20;
+
+const fingerprintDebugString = (value: string) => ({
+  hash: createHash('sha256').update(value).digest('hex').slice(0, 16),
+  length: value.length,
+  type: 'string' as const,
+});
 
 /**
- * Produce a sanitized copy of a tool payload for debug logging. Redacts secret
- * values by key, truncates long strings, caps arrays, and bounds recursion so
- * the verbose `lobe-mcp:client` namespace never dumps raw prompts, scraped
- * content, or credentials. Never mutates the input.
+ * Produce a bounded fingerprint view of a tool payload. Every non-secret
+ * string becomes length + hash metadata, so verbose diagnostics cannot emit
+ * raw prompts, arguments, results, scraped content, or credentials.
  */
 export const sanitizeToolDebugPayload = (value: unknown, depth = 0): unknown => {
   if (value === null || value === undefined) return value;
 
-  if (typeof value === 'string') {
-    return value.length > TOOL_DEBUG_MAX_STRING
-      ? `${value.slice(0, TOOL_DEBUG_MAX_STRING)}…(+${value.length - TOOL_DEBUG_MAX_STRING})`
-      : value;
-  }
+  if (typeof value === 'string') return fingerprintDebugString(value);
 
   if (typeof value !== 'object') return value;
 
@@ -62,13 +65,21 @@ export const sanitizeToolDebugPayload = (value: unknown, depth = 0): unknown => 
   }
 
   const source = value as Record<string, unknown>;
-  const sanitized: Record<string, unknown> = {};
-  for (const key of Object.keys(source)) {
-    sanitized[key] = SECRET_KEY_PATTERN.test(key)
+  const keys = Object.keys(source);
+  const entries = keys.slice(0, TOOL_DEBUG_MAX_PROPERTIES).map((key) => ({
+    key: fingerprintDebugString(key),
+    secret: SECRET_KEY_PATTERN.test(key),
+    value: SECRET_KEY_PATTERN.test(key)
       ? '[redacted]'
-      : sanitizeToolDebugPayload(source[key], depth + 1);
-  }
-  return sanitized;
+      : sanitizeToolDebugPayload(source[key], depth + 1),
+  }));
+
+  return {
+    entries,
+    omittedProperties: Math.max(0, keys.length - TOOL_DEBUG_MAX_PROPERTIES),
+    propertyCount: keys.length,
+    type: 'object',
+  };
 };
 
 /**
@@ -378,10 +389,14 @@ export class MCPClient {
     try {
       log('Listing tools...');
       const { tools } = await this.mcp.listTools();
-      log('Listed tools: %O', sanitizeToolDebugPayload(tools));
+      verboseLog('event=list_tools payload=%O', sanitizeToolDebugPayload(tools));
       return tools as McpTool[];
     } catch (e) {
       console.error('Listed tools error: %O', e);
+      verboseLog(
+        'event=list_tools_error payload=%O',
+        sanitizeToolDebugPayload({ error: e instanceof Error ? e.message : e }),
+      );
 
       if ((e as Error).message.includes('No valid session ID provided')) {
         throw new Error('NoValidSessionId');
@@ -397,10 +412,14 @@ export class MCPClient {
     try {
       log('Listing resources...');
       const { resources } = await this.mcp.listResources();
-      log('Listed resources: %O', sanitizeToolDebugPayload(resources));
+      verboseLog('event=list_resources payload=%O', sanitizeToolDebugPayload(resources));
       return resources as McpResource[];
     } catch (e) {
       console.error('Listed resources error: %O', e);
+      verboseLog(
+        'event=list_resources_error payload=%O',
+        sanitizeToolDebugPayload({ error: e instanceof Error ? e.message : e }),
+      );
 
       // Surface non-recoverable errors instead of returning [].
       throw e;
@@ -411,10 +430,14 @@ export class MCPClient {
     try {
       log('Listing prompts...');
       const { prompts } = await this.mcp.listPrompts();
-      log('Listed prompts: %O', sanitizeToolDebugPayload(prompts));
+      verboseLog('event=list_prompts payload=%O', sanitizeToolDebugPayload(prompts));
       return prompts as McpPrompt[];
     } catch (e) {
       console.error('Listed prompts error: %O', e);
+      verboseLog(
+        'event=list_prompts_error payload=%O',
+        sanitizeToolDebugPayload({ error: e instanceof Error ? e.message : e }),
+      );
 
       // Surface non-recoverable errors instead of returning [].
       throw e;
@@ -445,20 +468,21 @@ export class MCPClient {
   }
 
   async callTool(toolName: string, args: any) {
-    log(
-      'Calling tool: %s with args: %O, timeout: %O',
-      toolName,
-      sanitizeToolDebugPayload(args),
-      MCP_TOOL_TIMEOUT,
+    verboseLog(
+      'event=call_tool payload=%O',
+      sanitizeToolDebugPayload({ args, timeoutMs: MCP_TOOL_TIMEOUT, toolName }),
     );
     try {
       const result = await this.mcp.callTool({ arguments: args, name: toolName }, undefined, {
         timeout: MCP_TOOL_TIMEOUT,
       });
-      log('Tool call result: %O', sanitizeToolDebugPayload(result));
+      verboseLog('event=call_tool_result payload=%O', sanitizeToolDebugPayload(result));
       return result;
     } catch (e) {
-      log('Tool call error: %O', e);
+      verboseLog(
+        'event=call_tool_error payload=%O',
+        sanitizeToolDebugPayload({ error: e instanceof Error ? e.message : e }),
+      );
 
       throw e;
     }

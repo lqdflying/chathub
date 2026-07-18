@@ -37,7 +37,6 @@ describe('OpenAI-compatible provider config normalization', () => {
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
-      reasoningEffort: 'reasoning',
       truncation: 'off',
       verbosity: 'off',
     });
@@ -84,7 +83,6 @@ describe('OpenAI-compatible provider config normalization', () => {
       openAICompatResponsesParams: {
         maxOutputTokens: true,
         maxTokens: true,
-        reasoningEffort: 'both',
         truncation: 'auto',
         verbosity: 'both',
       },
@@ -96,7 +94,6 @@ describe('OpenAI-compatible provider config normalization', () => {
       openAICompatResponsesParams: {
         maxOutputTokens: true,
         maxTokens: true,
-        reasoningEffort: 'both',
         truncation: 'auto',
         verbosity: 'both',
       },
@@ -117,29 +114,24 @@ describe('OpenAI-compatible provider config normalization', () => {
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
-      reasoningEffort: 'both',
       truncation: 'off',
       verbosity: 'off',
     });
   });
 
-  it('honors a reasoningEffort override on built-in presets without touching the cache matrix', () => {
+  it('strips a legacy reasoningEffort override on built-in presets', () => {
     const cache = normalizeOpenAICompatCacheConfig({
       openAICompatCache: {
         preset: 'prompt-key-store',
       },
-      openAICompatResponsesParams: {
-        reasoningEffort: 'top-level',
-      },
-    });
+      openAICompatResponsesParams: { reasoningEffort: 'top-level' } as any,
+    } as any);
     const params = normalizeOpenAICompatResponsesParamsConfig({
       openAICompatCache: {
         preset: 'prompt-key-store',
       },
-      openAICompatResponsesParams: {
-        reasoningEffort: 'top-level',
-      },
-    });
+      openAICompatResponsesParams: { reasoningEffort: 'top-level' } as any,
+    } as any);
 
     expect(cache).toEqual({
       chat: {
@@ -156,7 +148,6 @@ describe('OpenAI-compatible provider config normalization', () => {
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
-      reasoningEffort: 'top-level',
       truncation: 'off',
       verbosity: 'off',
     });
@@ -186,7 +177,7 @@ describe('OpenAI-compatible provider config normalization', () => {
     });
   });
 
-  it('defaults custom reasoning effort mode to reasoning object', () => {
+  it('uses custom Responses parameter defaults', () => {
     const params = normalizeOpenAICompatResponsesParamsConfig({
       openAICompatCache: {
         preset: 'custom',
@@ -196,26 +187,22 @@ describe('OpenAI-compatible provider config normalization', () => {
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
-      reasoningEffort: 'reasoning',
       truncation: 'off',
       verbosity: 'off',
     });
   });
 
-  it('keeps custom reasoning effort overrides', () => {
+  it('strips legacy custom reasoning effort overrides', () => {
     const params = normalizeOpenAICompatResponsesParamsConfig({
       openAICompatCache: {
         preset: 'custom',
       },
-      openAICompatResponsesParams: {
-        reasoningEffort: 'top-level',
-      },
-    });
+      openAICompatResponsesParams: { reasoningEffort: 'top-level' } as any,
+    } as any);
 
     expect(params).toEqual({
       maxOutputTokens: false,
       maxTokens: false,
-      reasoningEffort: 'top-level',
       truncation: 'off',
       verbosity: 'off',
     });

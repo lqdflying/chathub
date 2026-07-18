@@ -5,6 +5,7 @@ import { DeploymentOption } from '@lobehub/market-sdk';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
+import { createHash } from 'node:crypto';
 
 import {
   MCPClient,
@@ -16,12 +17,12 @@ import {
   StdioMCPParams,
 } from '@/libs/mcp';
 import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
-import { pino } from '@/libs/logger';
 
 import { mcpSystemDepsCheckService } from './deps';
 import { McpOAuthService } from './oauth';
 
 const log = debug('lobe-mcp:service');
+const safeLog = debug('chathub-tools:safe');
 
 export interface MCPOAuthContext {
   oauthService: McpOAuthService;
@@ -34,6 +35,8 @@ export interface MCPOAuthContext {
 export class MCPService {
   // Store instances of the custom MCPClient, keyed by serialized MCPClientParams
   private clients: Map<string, MCPClient> = new Map();
+  private clientInitializations: Map<string, Promise<MCPClient>> = new Map();
+  private oauthCredentialFingerprints: Map<string, string> = new Map();
   private fetchFn?: typeof fetch;
 
   constructor(options: { fetchFn?: typeof fetch } = {}) {
@@ -70,7 +73,7 @@ export class MCPService {
 
     try {
       const result = await client.listTools();
-      pino.debug(`MCP listTools completed in ${Date.now() - start}ms, count: ${result.length}`);
+      safeLog('event=list_tools_complete duration_ms=%d count=%d', Date.now() - start, result.length);
       log(
         `Tools listed successfully for params: %O, result count: %d`,
         loggableParams,
@@ -83,6 +86,7 @@ export class MCPService {
         parameters: item.inputSchema as PluginSchema,
       }));
     } catch (error) {
+      safeLog('event=list_tools_failed duration_ms=%d', Date.now() - start);
       let nextReTryTime = retryTime || 0;
 
       if ((error as Error).message === 'NoValidSessionId' && nextReTryTime <= 3) {
@@ -198,7 +202,7 @@ export class MCPService {
     try {
       // Delegate the call to the MCPClient instance
       const result = await client.callTool(toolName, args); // Pass args directly
-      pino.debug(`MCP callTool "${toolName}" completed in ${Date.now() - start}ms`);
+      safeLog('event=call_tool_complete duration_ms=%d', Date.now() - start);
       log(`Tool "${toolName}" called successfully for params: %O`, loggableParams);
       const { content, isError } = result;
 
@@ -219,6 +223,7 @@ export class MCPService {
 
       return text;
     } catch (error) {
+      safeLog('event=call_tool_failed duration_ms=%d', Date.now() - start);
       if (error instanceof McpError) {
         const mcpError = error as McpError;
 
@@ -244,43 +249,93 @@ export class MCPService {
     skipCache = false,
     oauthContext?: MCPOAuthContext,
   ): Promise<MCPClient> {
-    const key = this.serializeParams(params); // Use custom serialization
+    const key = this.serializeParams(params, oauthContext);
+    const isOAuth = params.type === 'http' && params.auth?.type === 'oauth2';
+    const oauthCredentialFingerprint =
+      isOAuth && !oauthContext ? this.fingerprint(params.auth.accessToken || '') : undefined;
 
-    if (!skipCache && this.clients.has(key)) {
-      const cached = this.clients.get(key)!;
+    if (isOAuth && oauthContext) {
+      await this.evictUnscopedOAuthClient(params, key);
+    }
 
-      // If the cached client is an OAuth client without a tokenGetter,
-      // but the current call provides oauthContext (refresh capability),
-      // skip the cache so we create a fresh client with the tokenGetter.
-      // Otherwise later calls with oauthContext would inherit a stale,
-      // non-refreshable client created by an earlier call without context.
-      const isOAuth =
-        params.type === 'http' && params.auth?.type === 'oauth2';
-      if (isOAuth && oauthContext && !cached.hasTokenGetter) {
-        log('Evicting cached non-refreshable OAuth client; oauthContext now available');
-        this.clients.delete(key);
-      } else {
-        return cached;
+    if (skipCache) {
+      const initializing = this.clientInitializations.get(key);
+      if (initializing) return initializing;
+      return this.startClientInitialization(key, params, oauthContext, true);
+    } else {
+      const cached = this.clients.get(key);
+      if (cached) {
+        if (
+          oauthCredentialFingerprint &&
+          this.oauthCredentialFingerprints.get(key) !== oauthCredentialFingerprint
+        ) {
+          log('Replacing cached OAuth client after its direct access token rotated');
+          return this.startClientInitialization(key, params, oauthContext, true);
+        } else if (isOAuth && oauthContext && !cached.hasTokenGetter) {
+          log('Evicting cached non-refreshable OAuth client; oauthContext now available');
+          return this.startClientInitialization(key, params, oauthContext, true);
+        } else {
+          safeLog('event=client_cache_hit transport=%s', params.type);
+          return cached;
+        }
+      }
+
+      const initializing = this.clientInitializations.get(key);
+      if (initializing) {
+        const client = await initializing;
+        if (
+          oauthCredentialFingerprint &&
+          this.oauthCredentialFingerprints.get(key) !== oauthCredentialFingerprint
+        ) {
+          return this.getClient(params, true, oauthContext);
+        }
+        if (isOAuth && oauthContext && !client.hasTokenGetter) {
+          return this.getClient(params, true, oauthContext);
+        }
+        return client;
       }
     }
 
-    log(`No cached client found, Initializing new client.`);
+    log('No cached client found, initializing new client');
+    return this.startClientInitialization(key, params, oauthContext, false);
+  }
 
-    // Setup OAuth token getter if auth type is oauth2 and context is provided
+  private async startClientInitialization(
+    key: string,
+    params: MCPClientParams,
+    oauthContext: MCPOAuthContext | undefined,
+    replace: boolean,
+  ): Promise<MCPClient> {
+    const initialization = (async () => {
+      if (replace) await this.evictClient(key);
+      return this.initializeClient(key, params, oauthContext);
+    })();
+    this.clientInitializations.set(key, initialization);
+
+    try {
+      return await initialization;
+    } finally {
+      if (this.clientInitializations.get(key) === initialization) {
+        this.clientInitializations.delete(key);
+      }
+    }
+  }
+
+  private async initializeClient(
+    key: string,
+    params: MCPClientParams,
+    oauthContext?: MCPOAuthContext,
+  ): Promise<MCPClient> {
     let tokenGetter: MCPTokenGetter | undefined;
     let resolvedParams = params;
+    let client: MCPClient | undefined;
 
-    if (
-      params.type === 'http' &&
-      params.auth?.type === 'oauth2' &&
-      oauthContext
-    ) {
+    if (params.type === 'http' && params.auth?.type === 'oauth2' && oauthContext) {
       tokenGetter = async ({ forceRefresh = false } = {}) => {
         const token = await oauthContext.oauthService.getOAuthToken(
           oauthContext.userId,
           oauthContext.pluginIdentifier,
         );
-
         if (!token) return undefined;
 
         if (forceRefresh) {
@@ -288,113 +343,127 @@ export class MCPService {
             oauthContext.userId,
             oauthContext.pluginIdentifier,
           );
-
-          if (!refreshed) {
-            log('Forced OAuth token refresh failed for plugin %s', oauthContext.pluginIdentifier);
-            return undefined;
-          }
-
-          log('Forced OAuth token refresh succeeded for plugin %s', oauthContext.pluginIdentifier);
-          return refreshed.accessToken;
+          return refreshed?.accessToken;
         }
 
-        // Refresh if the token is known-expired OR if we don't know its
-        // expiry (Notion MCP doesn't return expires_in).  In the unknown
-        // case we still need a refreshToken to attempt refresh — without
-        // one the token must be used as-is.
         const needsRefresh =
           (token.expiresAt && token.expiresAt < Date.now()) ||
           (!token.expiresAt && !!token.refreshToken);
-
         if (needsRefresh) {
           const refreshed = await oauthContext.oauthService.refreshOAuthToken(
             oauthContext.userId,
             oauthContext.pluginIdentifier,
           );
-          if (refreshed) {
-            log('OAuth token refreshed for plugin %s', oauthContext.pluginIdentifier);
-            return refreshed.accessToken;
-          }
-          // If refresh is unavailable and token is known-expired, give up.
-          // If expiry is unknown, fall through and try the existing token anyway.
-          if (token.expiresAt && token.expiresAt < Date.now()) {
-            log('OAuth token refresh failed for plugin %s', oauthContext.pluginIdentifier);
-            return undefined;
-          }
-          log('OAuth token refresh unavailable for plugin %s, reusing existing token',
-            oauthContext.pluginIdentifier);
+          if (refreshed) return refreshed.accessToken;
+          if (token.expiresAt && token.expiresAt < Date.now()) return undefined;
         }
 
         return token.accessToken;
       };
 
-      // Also pre-fetch the token for the initial client
       try {
         const token = await tokenGetter();
-        if (token) {
-          resolvedParams = { ...params, auth: { ...params.auth, accessToken: token } };
-          log('Injected OAuth token for plugin %s', oauthContext.pluginIdentifier);
-        }
-      } catch (err) {
-        log('Failed to pre-fetch OAuth token: %O', err);
+        if (token) resolvedParams = { ...params, auth: { ...params.auth, accessToken: token } };
+      } catch {
+        log('OAuth token prefetch failed for plugin %s', oauthContext.pluginIdentifier);
       }
     }
 
     try {
-      const client = new MCPClient(resolvedParams, { fetchFn: this.fetchFn, tokenGetter });
+      client = new MCPClient(resolvedParams, { fetchFn: this.fetchFn, tokenGetter });
       await client.initialize({
         onProgress: (progress) => {
-          log(`New client initializing... ${progress.progress}/${progress.total}`);
+          log('New client initializing: %d/%d', progress.progress, progress.total);
         },
-      }); // Initialization logic should be within MCPClient
+      });
       this.clients.set(key, client);
+      if (params.type === 'http' && params.auth?.type === 'oauth2' && !oauthContext) {
+        this.oauthCredentialFingerprints.set(
+          key,
+          this.fingerprint(params.auth.accessToken || ''),
+        );
+      }
+      safeLog('event=client_initialized transport=%s', params.type);
       log('New client initialized and cached for plugin: %s', params.name);
       return client;
     } catch (error) {
-      console.error(`Failed to initialize MCP client:`, error);
-
-      // 保留完整的错误信息，特别是详细的 stderr 输出
+      if (client) await this.disconnectClient(client);
+      safeLog('event=client_initialization_failed transport=%s', params.type);
       const errorMessage = error instanceof Error ? error.message : String(error);
-
-      if (typeof error === 'object' && !!error && 'data' in error) {
-        throw new TRPCError({
-          cause: error,
-          code: 'SERVICE_UNAVAILABLE',
-          message: errorMessage,
-        });
-      }
-
-      // 记录详细的错误信息用于调试
-      log('Detailed initialization error: %O', {
-        error: errorMessage,
-        params: this.sanitizeForLogging(params),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
+      const isStructuredMCPError = typeof error === 'object' && !!error && 'data' in error;
 
       throw new TRPCError({
         cause: error,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: errorMessage, // 直接使用完整的错误信息
+        code: isStructuredMCPError ? 'SERVICE_UNAVAILABLE' : 'INTERNAL_SERVER_ERROR',
+        message: errorMessage,
       });
     }
   }
 
-  // Custom serialization function to ensure consistent keys
-  private serializeParams(params: MCPClientParams): string {
-    const sortedKeys = Object.keys(params).sort();
-    const sortedParams: Record<string, any> = {};
+  private async disconnectClient(client: MCPClient): Promise<void> {
+    try {
+      await client.disconnect();
+    } catch {
+      log('MCP client disconnect failed during cleanup');
+    }
+  }
 
-    for (const key of sortedKeys) {
-      const value = (params as any)[key];
-      // Sort the 'args' array if it exists
-      if (key === 'args' && Array.isArray(value)) {
-        sortedParams[key] = JSON.stringify(value);
-      } else {
-        sortedParams[key] = value;
+  private async evictClient(key: string): Promise<void> {
+    const client = this.clients.get(key);
+    this.clients.delete(key);
+    this.oauthCredentialFingerprints.delete(key);
+    if (client) await this.disconnectClient(client);
+  }
+
+  private async evictUnscopedOAuthClient(params: MCPClientParams, scopedKey: string): Promise<void> {
+    const unscopedKey = this.serializeParams(params);
+    if (unscopedKey === scopedKey) return;
+
+    const initializing = this.clientInitializations.get(unscopedKey);
+    if (initializing) {
+      try {
+        await initializing;
+      } catch {
+        // The scoped client can still initialize after an unscoped attempt failed.
       }
     }
 
-    return JSON.stringify(sortedParams);
+    if (this.clients.has(unscopedKey)) {
+      log('Replacing unscoped OAuth client with a user-scoped refreshable client');
+      await this.evictClient(unscopedKey);
+    }
+  }
+
+  // Canonical, fingerprinted keys keep credentials out of map keys. OAuth keys use stable
+  // user/plugin identity when available and deliberately exclude rotating access tokens.
+  private serializeParams(params: MCPClientParams, oauthContext?: MCPOAuthContext): string {
+    const normalized: Record<string, unknown> = { ...params };
+    if (params.type === 'http' && params.auth?.type === 'oauth2') {
+      normalized.auth = { type: 'oauth2' };
+      normalized.oauthIdentity = oauthContext
+        ? { pluginIdentifier: oauthContext.pluginIdentifier, userId: oauthContext.userId }
+        : { scope: 'direct-token' };
+    }
+
+    return `mcp:${this.fingerprint(this.canonicalStringify(normalized))}`;
+  }
+
+  private canonicalStringify(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.canonicalStringify(item)).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>;
+      return `{${Object.keys(record)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${this.canonicalStringify(record[key])}`)
+        .join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'undefined';
+  }
+
+  private fingerprint(value: string): string {
+    return createHash('sha256').update(value).digest('hex');
   }
 
   async getStreamableMcpServerManifest(

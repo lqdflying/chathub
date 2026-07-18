@@ -439,4 +439,176 @@ describe('MCPService', () => {
       });
     });
   });
+
+  describe('client cache lifecycle', () => {
+    const params = {
+      name: 'test-http',
+      type: 'http' as const,
+      url: 'https://mcp.example.com/mcp',
+    };
+
+    it('coalesces concurrent initialization for the same connection', async () => {
+      const { MCPService } = await import('./index');
+      const service = new MCPService();
+      let finishInitialization: (() => void) | undefined;
+      const initialization = new Promise<void>((resolve) => {
+        finishInitialization = resolve;
+      });
+      const client = {
+        disconnect: vi.fn(),
+        hasTokenGetter: false,
+        initialize: vi.fn().mockReturnValue(initialization),
+      };
+      MockMCPClient.mockReturnValue(client as any);
+
+      const first = (service as any).getClient(params);
+      const second = (service as any).getClient(params);
+
+      expect(MockMCPClient).toHaveBeenCalledTimes(1);
+      finishInitialization?.();
+      const [firstClient, secondClient] = await Promise.all([first, second]);
+      expect(firstClient).toBe(client);
+      expect(secondClient).toBe(client);
+    });
+
+    it('reuses a user-scoped OAuth client when its access token rotates', async () => {
+      const { MCPService } = await import('./index');
+      const service = new MCPService();
+      const client = {
+        disconnect: vi.fn(),
+        hasTokenGetter: true,
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+      MockMCPClient.mockReturnValue(client as any);
+      const oauthContext = {
+        oauthService: {
+          getOAuthToken: vi.fn().mockResolvedValue({ accessToken: 'current-token' }),
+          refreshOAuthToken: vi.fn(),
+        },
+        pluginIdentifier: 'test-http',
+        userId: 'user-1',
+      };
+
+      await (service as any).getClient(
+        { ...params, auth: { accessToken: 'old-token', type: 'oauth2' } },
+        false,
+        oauthContext,
+      );
+      const reused = await (service as any).getClient(
+        { ...params, auth: { accessToken: 'rotated-token', type: 'oauth2' } },
+        false,
+        oauthContext,
+      );
+
+      expect(reused).toBe(client);
+      expect(MockMCPClient).toHaveBeenCalledTimes(1);
+    });
+
+    it('disconnects an unscoped OAuth client when refreshable user context becomes available', async () => {
+      const { MCPService } = await import('./index');
+      const service = new MCPService();
+      const unscopedClient = {
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        hasTokenGetter: false,
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+      const scopedClient = {
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        hasTokenGetter: true,
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+      MockMCPClient.mockReturnValueOnce(unscopedClient as any).mockReturnValueOnce(
+        scopedClient as any,
+      );
+      const oauthContext = {
+        oauthService: {
+          getOAuthToken: vi.fn().mockResolvedValue({ accessToken: 'current-token' }),
+          refreshOAuthToken: vi.fn(),
+        },
+        pluginIdentifier: 'test-http',
+        userId: 'user-1',
+      };
+
+      await (service as any).getClient({
+        ...params,
+        auth: { accessToken: 'initial-token', type: 'oauth2' },
+      });
+      const result = await (service as any).getClient(
+        { ...params, auth: { accessToken: 'rotated-token', type: 'oauth2' } },
+        false,
+        oauthContext,
+      );
+
+      expect(unscopedClient.disconnect).toHaveBeenCalledTimes(1);
+      expect(result).toBe(scopedClient);
+    });
+
+    it('replaces and disconnects an unscoped OAuth client when its access token rotates', async () => {
+      const { MCPService } = await import('./index');
+      const service = new MCPService();
+      const firstClient = {
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        hasTokenGetter: false,
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+      const replacementClient = {
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        hasTokenGetter: false,
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+      MockMCPClient.mockReturnValueOnce(firstClient as any).mockReturnValueOnce(
+        replacementClient as any,
+      );
+
+      await (service as any).getClient({
+        ...params,
+        auth: { accessToken: 'old-token', type: 'oauth2' },
+      });
+      const result = await (service as any).getClient({
+        ...params,
+        auth: { accessToken: 'rotated-token', type: 'oauth2' },
+      });
+
+      expect(firstClient.disconnect).toHaveBeenCalledTimes(1);
+      expect(result).toBe(replacementClient);
+    });
+
+    it('disconnects a cached client before skipCache replacement', async () => {
+      const { MCPService } = await import('./index');
+      const service = new MCPService();
+      const firstClient = {
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        hasTokenGetter: false,
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+      const replacementClient = {
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        hasTokenGetter: false,
+        initialize: vi.fn().mockResolvedValue(undefined),
+      };
+      MockMCPClient.mockReturnValueOnce(firstClient as any).mockReturnValueOnce(
+        replacementClient as any,
+      );
+
+      await (service as any).getClient(params);
+      const result = await (service as any).getClient(params, true);
+
+      expect(firstClient.disconnect).toHaveBeenCalledTimes(1);
+      expect(result).toBe(replacementClient);
+    });
+
+    it('disconnects a partially initialized client after failure', async () => {
+      const { MCPService } = await import('./index');
+      const service = new MCPService();
+      const client = {
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        hasTokenGetter: false,
+        initialize: vi.fn().mockRejectedValue(new Error('initialization failed')),
+      };
+      MockMCPClient.mockReturnValue(client as any);
+
+      await expect((service as any).getClient(params)).rejects.toThrow('initialization failed');
+      expect(client.disconnect).toHaveBeenCalledTimes(1);
+    });
+  });
 });

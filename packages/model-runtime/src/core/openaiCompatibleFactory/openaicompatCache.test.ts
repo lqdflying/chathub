@@ -32,6 +32,22 @@ describe('openaicompatCache', () => {
     expect(secondKey).toBe(firstKey);
   });
 
+  it('changes the key when any effective Responses reasoning option changes', async () => {
+    const payload = {
+      input: [{ content: 'Explain cache hits', role: 'user' }],
+      model: 'openai/gpt-5-mini',
+      reasoning: { effort: 'medium', summary: 'auto' },
+    };
+
+    const autoSummaryKey = await deriveCompatPromptCacheKey(payload, payload.model);
+    const detailedSummaryKey = await deriveCompatPromptCacheKey(
+      { ...payload, reasoning: { ...payload.reasoning, summary: 'detailed' } },
+      payload.model,
+    );
+
+    expect(detailedSummaryKey).not.toBe(autoSummaryKey);
+  });
+
   it('does not derive prompt_cache_key for unrelated models by default', async () => {
     await expect(
       deriveCompatPromptCacheKey(

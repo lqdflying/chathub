@@ -1258,38 +1258,7 @@ describe('LobeOpenAICompatibleFactory', () => {
         expect(requestOptions.headers.Session_id).toMatch(/^compat_cc_[a-f0-9]{32}$/);
       });
 
-      it.each([
-        {
-          mode: undefined,
-          name: 'defaults to nested reasoning.effort when no mode configured',
-          wantReasoning: true,
-          wantTopLevel: false,
-        },
-        {
-          mode: 'reasoning',
-          name: 'sends only nested reasoning.effort in reasoning mode',
-          wantReasoning: true,
-          wantTopLevel: false,
-        },
-        {
-          mode: 'top-level',
-          name: 'sends only top-level reasoning_effort in top-level mode',
-          wantReasoning: false,
-          wantTopLevel: true,
-        },
-        {
-          mode: 'both',
-          name: 'sends both shapes in both mode',
-          wantReasoning: true,
-          wantTopLevel: true,
-        },
-        {
-          mode: 'off',
-          name: 'strips reasoning params entirely in off mode',
-          wantReasoning: false,
-          wantTopLevel: false,
-        },
-      ] as const)('$name', async ({ mode, wantReasoning, wantTopLevel }) => {
+      it('always maps reasoning effort to nested reasoning.effort and preserves reasoning options', async () => {
         const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',
           chatCompletion: {
@@ -1308,28 +1277,75 @@ describe('LobeOpenAICompatibleFactory', () => {
         await inst.chat({
           messages: [{ content: 'hi', role: 'user' }],
           model: 'gpt-5.6-sol',
-          openAICompatResponsesParams: {
-            ...(mode ? { reasoningEffort: mode } : {}),
-          },
+          openAICompatResponsesParams: { reasoningEffort: 'top-level' } as any,
+          reasoning: { summary: 'auto' },
           reasoning_effort: 'high',
           temperature: 0,
         });
 
         const requestPayload = mockResponsesCreate.mock.calls[0][0] as any;
 
-        if (wantReasoning) {
-          expect(requestPayload.reasoning).toEqual({ effort: 'high' });
-        } else {
-          expect(requestPayload).not.toHaveProperty('reasoning');
-        }
-
-        if (wantTopLevel) {
-          expect(requestPayload.reasoning_effort).toBe('high');
-        } else {
-          expect(requestPayload).not.toHaveProperty('reasoning_effort');
-        }
-
+        expect(requestPayload.reasoning).toEqual({ effort: 'high', summary: 'auto' });
+        expect(requestPayload).not.toHaveProperty('reasoning_effort');
         expect(requestPayload).not.toHaveProperty('openAICompatResponsesParams');
+      });
+
+      it('derives Responses cache identity from effective reasoning and tools', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockImplementation(async () => {
+            return {
+              tee: () => [new ReadableStream(), new ReadableStream()],
+            } as any;
+          });
+        const cache = {
+          responses: {
+            promptCacheKey: 'derived' as const,
+            sessionHeader: false,
+            store: 'true' as const,
+          },
+        };
+        const tool = (description: string) => ({
+          function: { description, name: 'lookup', parameters: { type: 'object' } },
+          type: 'function' as const,
+        });
+
+        await inst.chat({
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-5.6-sol',
+          openAICompatCache: cache,
+          reasoning_effort: 'low',
+          temperature: 0,
+          tools: [tool('first schema')],
+        });
+        await inst.chat({
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-5.6-sol',
+          openAICompatCache: cache,
+          reasoning_effort: 'high',
+          temperature: 0,
+          tools: [tool('first schema')],
+        });
+        await inst.chat({
+          messages: [{ content: 'hi', role: 'user' }],
+          model: 'gpt-5.6-sol',
+          openAICompatCache: cache,
+          reasoning_effort: 'high',
+          temperature: 0,
+          tools: [tool('changed schema')],
+        });
+
+        const keys = mockResponsesCreate.mock.calls.map(([request]) =>
+          String((request as any).prompt_cache_key),
+        );
+        expect(keys[0]).not.toBe(keys[1]);
+        expect(keys[1]).not.toBe(keys[2]);
       });
 
       it('should route to Responses API when model matches useResponseModels', async () => {

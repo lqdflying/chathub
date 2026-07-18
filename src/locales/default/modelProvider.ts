@@ -351,16 +351,6 @@ export default {
           desc: '将模型最大输出设置作为 max_tokens 发送到 /v1/responses',
           title: 'Responses 发送 max_tokens',
         },
-        reasoningEffort: {
-          desc: '控制推理强度参数在 /v1/responses 中的发送方式；部分代理只识别其中一种字段',
-          options: {
-            both: 'reasoning.effort + 顶层 reasoning_effort',
-            off: '不发送',
-            reasoning: 'reasoning.effort',
-            topLevel: '顶层 reasoning_effort',
-          },
-          title: 'Responses 推理强度',
-        },
         truncation: {
           desc: '控制 /v1/responses 的 truncation 字段',
           options: {

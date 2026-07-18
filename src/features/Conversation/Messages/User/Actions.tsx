@@ -112,19 +112,16 @@ export const UserActionsBar = memo<UserActionsProps>(({ id, data, index }) => {
 
         case 'regenerate': {
           if (inPortalThread) {
-            resendThreadMessage(id);
-          } else regenerateMessage(id);
-
-          // if this message is an error message, we need to delete it
-          if (data.error) deleteMessage(id);
+            await resendThreadMessage(id);
+          } else await regenerateMessage(id);
           break;
         }
 
         case 'delAndRegenerate': {
           if (inPortalThread) {
-            delAndResendThreadMessage(id);
+            await delAndResendThreadMessage(id);
           } else {
-            delAndRegenerateMessage(id);
+            await delAndRegenerateMessage(id);
           }
           break;
         }

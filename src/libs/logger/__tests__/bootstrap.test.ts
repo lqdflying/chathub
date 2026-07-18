@@ -109,6 +109,8 @@ describe('bootstrapDebug', () => {
     const called = enableSpy.mock.calls[0][0] as string;
     const parts = called.split(',');
     for (const ns of [...TOOLS_SAFE_NS, ...TOOLS_VERBOSE_NS]) expect(parts).toContain(ns);
+    expect(parts.some((ns) => ns.startsWith('lobe-mcp:'))).toBe(false);
+    expect(parts.some((ns) => ns.startsWith('context-engine:'))).toBe(false);
   });
 
   it('should merge verbose sets with existing DEBUG namespaces, deduped', () => {
@@ -195,16 +197,16 @@ describe('getPinoLevel', () => {
     expect(getPinoLevel()).toBe('debug');
   });
 
-  it('should default to debug when CHATHUB_TOOLS_DEBUG=1', () => {
+  it('should not lower Pino level when CHATHUB_TOOLS_DEBUG=1', () => {
     process.env.CHATHUB_TOOLS_DEBUG = '1';
 
-    expect(getPinoLevel()).toBe('debug');
+    expect(getPinoLevel()).toBe('info');
   });
 
-  it('should default to debug when CHATHUB_TOOLS_DEBUG=verbose', () => {
+  it('should not lower Pino level when CHATHUB_TOOLS_DEBUG=verbose', () => {
     process.env.CHATHUB_TOOLS_DEBUG = 'verbose';
 
-    expect(getPinoLevel()).toBe('debug');
+    expect(getPinoLevel()).toBe('info');
   });
 
   it('should default to info when no debug flags are set and no LOG_LEVEL', () => {

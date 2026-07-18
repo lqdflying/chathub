@@ -35,6 +35,70 @@ import { chatSelectors, topicSelectors } from '../../../selectors';
 
 const n = setNamespace('ai');
 
+const RETRY_LOADING_KEYS = [
+  'chatLoadingIds',
+  'messageLoadingIds',
+  'messageEditingIds',
+  'reasoningLoadingIds',
+  'messageInToolsCallingIds',
+  'messageRAGLoadingIds',
+  'searchWorkflowLoadingIds',
+  'pluginApiLoadingIds',
+] as const;
+
+const resolveRetryAnchor = (messages: UIChatMessage[], messageId: string) => {
+  const currentIndex = messages.findIndex(({ id }) => id === messageId);
+  if (currentIndex < 0) return;
+
+  const currentMessage = messages[currentIndex];
+  if (currentMessage.role === 'user') return { index: currentIndex, message: currentMessage };
+
+  if (currentMessage.parentId) {
+    const parentIndex = messages.findIndex(
+      ({ id, role }) => id === currentMessage.parentId && role === 'user',
+    );
+    if (parentIndex >= 0) return { index: parentIndex, message: messages[parentIndex] };
+  }
+
+  for (let index = currentIndex - 1; index >= 0; index--) {
+    if (messages[index].role === 'user') return { index, message: messages[index] };
+  }
+};
+
+const collectDependentRewindIds = (
+  initialMessageIds: string[],
+  messages: UIChatMessage[],
+  threads: Array<{ id: string; parentThreadId?: string | null; sourceMessageId: string }>,
+) => {
+  const messageIds = new Set(initialMessageIds);
+  const threadIds = new Set<string>();
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    for (const thread of threads) {
+      if (threadIds.has(thread.id)) continue;
+      if (
+        messageIds.has(thread.sourceMessageId) ||
+        (thread.parentThreadId && threadIds.has(thread.parentThreadId))
+      ) {
+        threadIds.add(thread.id);
+        changed = true;
+      }
+    }
+
+    for (const message of messages) {
+      if (message.threadId && threadIds.has(message.threadId) && !messageIds.has(message.id)) {
+        messageIds.add(message.id);
+        changed = true;
+      }
+    }
+  }
+
+  return { messageIds, threadIds };
+};
+
 interface ProcessMessageParams {
   traceId?: string;
   isWelcomeQuestion?: boolean;
@@ -145,18 +209,15 @@ export const generateAIChat: StateCreator<
 > = (set, get) => ({
   delAndRegenerateMessage: async (id) => {
     const traceId = chatSelectors.getTraceIdByMessageId(id)(get());
-    get().internal_resendMessage(id, { traceId });
-    get().deleteMessage(id);
-
     // trace the delete and regenerate message
     get().internal_traceMessage(id, { eventType: TraceEventType.DeleteAndRegenerateMessage });
+    await get().internal_resendMessage(id, { traceId });
   },
   regenerateMessage: async (id) => {
     const traceId = chatSelectors.getTraceIdByMessageId(id)(get());
-    await get().internal_resendMessage(id, { traceId });
-
     // trace the delete and regenerate message
     get().internal_traceMessage(id, { eventType: TraceEventType.RegenerateMessage });
+    await get().internal_resendMessage(id, { traceId });
   },
 
   sendMessage: async ({ message, files, onlyAddUserMessage, isWelcomeQuestion }) => {
@@ -782,48 +843,239 @@ export const generateAIChat: StateCreator<
     messageId,
     { traceId, messages: outChats, threadId: outThreadId, inPortalThread } = {},
   ) => {
-    // 1. 构造所有相关的历史记录
     const chats = outChats ?? chatSelectors.mainAIChats(get());
+    const anchor = resolveRetryAnchor(chats, messageId);
+    if (!anchor || get().messageRetryingIds.length > 0) return;
 
-    const currentIndex = chats.findIndex((c) => c.id === messageId);
-    if (currentIndex < 0) return;
+    const contextMessages = chats.slice(0, anchor.index + 1);
+    const tailMessages = chats.slice(anchor.index + 1);
+    const state = get();
+    const activeId = state.activeId;
+    const activeTopicId = state.activeTopicId;
+    const chatKey = messageMapKey(activeId, activeTopicId);
+    const currentMessages = state.messagesMap[chatKey] || [];
+    const currentThreads = activeTopicId ? state.threadMaps[activeTopicId] || [] : [];
+    const optimisticRewind = collectDependentRewindIds(
+      tailMessages.map(({ id }) => id),
+      currentMessages,
+      currentThreads,
+    );
+    const originalMessages = currentMessages;
+    const originalThreads = currentThreads;
+    const originalActiveThreadId = state.activeThreadId;
+    const originalPortalThreadId = state.portalThreadId;
+    const originalThreadStartMessageId = state.threadStartMessageId;
+    const originalShowPortal = state.showPortal;
+    const originalPortalMessageDetail = state.portalMessageDetail;
+    const originalPortalToolMessage = state.portalToolMessage;
+    const originalSendMessageOperation = state.mainSendMessageOperations[chatKey];
+    const isGroupChat = state.activeSessionType === 'group' || !!anchor.message.groupId;
+    const groupId = anchor.message.groupId || activeId;
+    const supervisorTodoKey = messageMapKey(groupId, activeTopicId);
+    const originalSupervisorTodos = state.supervisorTodos[supervisorTodoKey];
+    const requestedThreadId = outThreadId ?? state.activeThreadId;
+    let rewindPersisted = false;
 
-    const currentMessage = chats[currentIndex];
+    set(
+      { messageRetryingIds: [...state.messageRetryingIds, anchor.message.id] },
+      false,
+      n('retryMessage/start'),
+    );
 
-    let contextMessages: UIChatMessage[] = [];
-
-    switch (currentMessage.role) {
-      case 'tool':
-      case 'user': {
-        contextMessages = chats.slice(0, currentIndex + 1);
-        break;
+    try {
+      // Cancel every producer that could append diagnostics or tool output to the discarded tail.
+      state.chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      state.messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      state.pluginApiLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      state.reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      state.searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      get().internal_toggleChatLoading(false, undefined, n('retryMessage/cancelChatLoading'));
+      get().internal_toggleMessageInToolsCalling(false, undefined, n('retryMessage/cancelTools'));
+      get().internal_togglePluginApiCalling(false, undefined, n('retryMessage/cancelPlugin'));
+      get().internal_toggleChatReasoning(false, undefined, n('retryMessage/cancelReasoning'));
+      get().internal_toggleSearchWorkflow(false);
+      const operation = state.mainSendMessageOperations[chatKey];
+      if (operation?.isLoading) {
+        get().internal_toggleSendMessageOperation(chatKey, false, MESSAGE_CANCEL_FLAT);
       }
-      case 'assistant': {
-        // 消息是 AI 发出的因此需要找到它的 user 消息
-        const userId = currentMessage.parentId;
-        const userIndex = chats.findIndex((c) => c.id === userId);
-        // 如果消息没有 parentId，那么同 user/function 模式
-        contextMessages = chats.slice(0, userIndex < 0 ? currentIndex + 1 : userIndex + 1);
-        break;
+      if (isGroupChat) {
+        get().internal_cancelSupervisorDecision(groupId);
+        get().internal_updateSupervisorTodos(groupId, activeTopicId, []);
       }
+
+      const discardedIds = optimisticRewind.messageIds;
+      const discardedThreadIds = optimisticRewind.threadIds;
+      set(
+        produce((draft: ChatStore) => {
+          draft.messagesMap[chatKey] = (draft.messagesMap[chatKey] || []).filter(
+            ({ id }) => !discardedIds.has(id),
+          );
+          if (activeTopicId) {
+            draft.threadMaps[activeTopicId] = (draft.threadMaps[activeTopicId] || []).filter(
+              ({ id }) => !discardedThreadIds.has(id),
+            );
+          }
+
+          for (const key of RETRY_LOADING_KEYS) {
+            draft[key] = draft[key].filter((id) => !discardedIds.has(id)) as never;
+          }
+          for (const id of discardedIds) delete draft.toolCallingStreamIds[id];
+          draft.chatLoadingIdsAbortController = undefined;
+          draft.messageInToolsCallingIdsAbortController = undefined;
+          draft.pluginApiLoadingIdsAbortController = undefined;
+          draft.reasoningLoadingIdsAbortController = undefined;
+          draft.searchWorkflowLoadingIdsAbortController = undefined;
+          draft.threadLoadingIds = draft.threadLoadingIds.filter(
+            (id) => !discardedThreadIds.has(id),
+          );
+          if (draft.mainSendMessageOperations[chatKey]) {
+            draft.mainSendMessageOperations[chatKey].inputSendErrorMsg = undefined;
+          }
+
+          if (draft.portalMessageDetail && discardedIds.has(draft.portalMessageDetail)) {
+            draft.portalMessageDetail = undefined;
+            draft.showPortal = false;
+          }
+          if (draft.portalToolMessage && discardedIds.has(draft.portalToolMessage.id)) {
+            draft.portalToolMessage = undefined;
+            draft.showPortal = false;
+          }
+
+          if (draft.activeThreadId && discardedThreadIds.has(draft.activeThreadId)) {
+            draft.activeThreadId = undefined;
+          }
+          if (draft.portalThreadId && discardedThreadIds.has(draft.portalThreadId)) {
+            draft.portalThreadId = undefined;
+            draft.threadStartMessageId = undefined;
+            draft.showPortal = false;
+          }
+        }),
+        false,
+        n('retryMessage/optimisticRewind'),
+      );
+
+      const persistentTailIds = tailMessages
+        .map(({ id }) => id)
+        .filter((id) => !id.startsWith('tmp_'));
+      const persisted =
+        persistentTailIds.length > 0
+          ? await messageService.rewindMessages(persistentTailIds)
+          : { messageIds: [], threadIds: [] };
+      rewindPersisted = true;
+
+      // The database is authoritative and may discover dependent threads not present in this tab.
+      if (persisted.messageIds.length > 0 || persisted.threadIds.length > 0) {
+        const persistedMessageIds = new Set(persisted.messageIds);
+        const persistedThreadIds = new Set(persisted.threadIds);
+        const isOriginalChatActive =
+          get().activeId === activeId && get().activeTopicId === activeTopicId;
+        set(
+          produce((draft: ChatStore) => {
+            draft.messagesMap[chatKey] = (draft.messagesMap[chatKey] || []).filter(
+              ({ id }) => !persistedMessageIds.has(id),
+            );
+            if (activeTopicId) {
+              draft.threadMaps[activeTopicId] = (draft.threadMaps[activeTopicId] || []).filter(
+                ({ id }) => !persistedThreadIds.has(id),
+              );
+            }
+            if (isOriginalChatActive) {
+              if (draft.activeThreadId && persistedThreadIds.has(draft.activeThreadId)) {
+                draft.activeThreadId = undefined;
+              }
+              if (draft.portalThreadId && persistedThreadIds.has(draft.portalThreadId)) {
+                draft.portalThreadId = undefined;
+                draft.threadStartMessageId = undefined;
+                draft.showPortal = false;
+              }
+              if (
+                draft.portalMessageDetail &&
+                persistedMessageIds.has(draft.portalMessageDetail)
+              ) {
+                draft.portalMessageDetail = undefined;
+                draft.showPortal = false;
+              }
+              if (
+                draft.portalToolMessage &&
+                persistedMessageIds.has(draft.portalToolMessage.id)
+              ) {
+                draft.portalToolMessage = undefined;
+                draft.showPortal = false;
+              }
+            }
+          }),
+          false,
+          n('retryMessage/reconcile'),
+        );
+      }
+
+      // Do not refresh or write into whichever chat the user navigated to mid-rewind.
+      if (get().activeId !== activeId || get().activeTopicId !== activeTopicId) return;
+
+      await Promise.all([get().refreshMessages(), get().refreshThreads()]);
+
+      if (get().activeId !== activeId || get().activeTopicId !== activeTopicId) return;
+
+      if (isGroupChat) {
+        await get().internal_routeGroupUserMessage(
+          groupId,
+          { content: anchor.message.content, targetId: anchor.message.targetId },
+          true,
+        );
+        return;
+      }
+
+      const threadId =
+        anchor.message.threadId ?? (tailMessages.length === 0 ? requestedThreadId : undefined);
+      await get().internal_coreProcessMessage(contextMessages, anchor.message.id, {
+        traceId,
+        ragQuery: get().internal_shouldUseRAG() ? anchor.message.content : undefined,
+        threadId,
+        inPortalThread: inPortalThread && !!threadId,
+      });
+    } catch (error) {
+      if (!rewindPersisted) {
+        const isOriginalChatActive =
+          get().activeId === activeId && get().activeTopicId === activeTopicId;
+        set(
+          produce((draft: ChatStore) => {
+            draft.messagesMap[chatKey] = originalMessages;
+            if (activeTopicId) draft.threadMaps[activeTopicId] = originalThreads;
+            if (isOriginalChatActive) {
+              draft.activeThreadId = originalActiveThreadId;
+              draft.portalThreadId = originalPortalThreadId;
+              draft.threadStartMessageId = originalThreadStartMessageId;
+              draft.showPortal = originalShowPortal;
+              draft.portalMessageDetail = originalPortalMessageDetail;
+              draft.portalToolMessage = originalPortalToolMessage;
+            }
+            if (originalSendMessageOperation) {
+              draft.mainSendMessageOperations[chatKey] = originalSendMessageOperation;
+            }
+            if (isGroupChat) {
+              draft.supervisorTodos[supervisorTodoKey] = originalSupervisorTodos || [];
+            }
+          }),
+          false,
+          n('retryMessage/rollback'),
+        );
+      }
+      if (get().activeId === activeId && get().activeTopicId === activeTopicId) {
+        await Promise.allSettled([get().refreshMessages(), get().refreshThreads()]);
+      }
+      console.error(
+        rewindPersisted
+          ? 'Conversation was rewound, but regeneration failed:'
+          : 'Failed to rewind conversation before retrying:',
+        error,
+      );
+    } finally {
+      set(
+        { messageRetryingIds: get().messageRetryingIds.filter((id) => id !== anchor.message.id) },
+        false,
+        n('retryMessage/end'),
+      );
     }
-
-    if (contextMessages.length <= 0) return;
-
-    const { internal_coreProcessMessage, activeThreadId } = get();
-
-    const latestMsg = contextMessages.findLast((s) => s.role === 'user');
-
-    if (!latestMsg) return;
-
-    const threadId = outThreadId ?? activeThreadId;
-
-    await internal_coreProcessMessage(contextMessages, latestMsg.id, {
-      traceId,
-      ragQuery: get().internal_shouldUseRAG() ? latestMsg.content : undefined,
-      threadId,
-      inPortalThread,
-    });
   },
 
   // ----- Loading ------- //

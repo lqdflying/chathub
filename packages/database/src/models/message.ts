@@ -36,6 +36,7 @@ import {
   messageTranslates,
   messages,
   messagesFiles,
+  threads,
 } from '../schemas';
 import { LobeChatDatabase } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
@@ -738,6 +739,98 @@ export class MessageModel {
     this.db
       .delete(messages)
       .where(and(eq(messages.userId, this.userId), inArray(messages.id, ids)));
+
+  /**
+   * Delete a conversation tail and every thread that depends on a message in that tail.
+   *
+   * `threads.sourceMessageId` intentionally has no foreign key, so a plain message delete can
+   * leave orphaned threads behind. Keep discovery and deletion in one transaction and return the
+   * complete deleted set so clients can reconcile optimistic state.
+   */
+  rewindMessages = async (ids: string[]) => {
+    if (ids.length === 0) return { messageIds: [], threadIds: [] };
+
+    return this.db.transaction(async (tx) => {
+      const requestedMessages = await tx
+        .select({ id: messages.id, topicId: messages.topicId })
+        .from(messages)
+        .where(and(eq(messages.userId, this.userId), inArray(messages.id, ids)));
+
+      if (requestedMessages.length === 0) return { messageIds: [], threadIds: [] };
+
+      const requestedMessageIds = new Set(requestedMessages.map(({ id }) => id));
+      const topicIds = [
+        ...new Set(requestedMessages.map(({ topicId }) => topicId).filter(Boolean)),
+      ] as string[];
+
+      const topicThreads =
+        topicIds.length > 0
+          ? await tx
+              .select({
+                id: threads.id,
+                parentThreadId: threads.parentThreadId,
+                sourceMessageId: threads.sourceMessageId,
+              })
+              .from(threads)
+              .where(and(eq(threads.userId, this.userId), inArray(threads.topicId, topicIds)))
+          : [];
+
+      const topicMessages =
+        topicIds.length > 0
+          ? await tx
+              .select({ id: messages.id, threadId: messages.threadId })
+              .from(messages)
+              .where(and(eq(messages.userId, this.userId), inArray(messages.topicId, topicIds)))
+          : [];
+
+      const deletedMessageIds = new Set(requestedMessageIds);
+      const deletedThreadIds = new Set<string>();
+
+      // A dependent thread can point at a discarded message directly or be nested below another
+      // discarded thread. Iterate until both the thread and message closures are stable.
+      let changed = true;
+      while (changed) {
+        changed = false;
+
+        for (const thread of topicThreads) {
+          if (deletedThreadIds.has(thread.id)) continue;
+          if (
+            deletedMessageIds.has(thread.sourceMessageId) ||
+            (thread.parentThreadId && deletedThreadIds.has(thread.parentThreadId))
+          ) {
+            deletedThreadIds.add(thread.id);
+            changed = true;
+          }
+        }
+
+        for (const message of topicMessages) {
+          if (
+            message.threadId &&
+            deletedThreadIds.has(message.threadId) &&
+            !deletedMessageIds.has(message.id)
+          ) {
+            deletedMessageIds.add(message.id);
+            changed = true;
+          }
+        }
+      }
+
+      const threadIds = [...deletedThreadIds];
+      if (threadIds.length > 0) {
+        await tx
+          .delete(threads)
+          .where(and(eq(threads.userId, this.userId), inArray(threads.id, threadIds)));
+      }
+
+      await tx
+        .delete(messages)
+        .where(
+          and(eq(messages.userId, this.userId), inArray(messages.id, [...requestedMessageIds])),
+        );
+
+      return { messageIds: [...deletedMessageIds], threadIds };
+    });
+  };
 
   deleteMessageTranslate = async (id: string) =>
     this.db

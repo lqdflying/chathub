@@ -42,7 +42,6 @@ const AccessCodeForm = memo<AccessCodeFormProps>(({ id }) => {
         <Button
           onClick={() => {
             resend(id);
-            deleteMessage(id);
           }}
           type={'primary'}
         >

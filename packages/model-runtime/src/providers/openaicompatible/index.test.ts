@@ -293,12 +293,12 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('responseMode');
   });
 
-  it('forwards top-level reasoning_effort in Responses top-level mode', async () => {
+  it('ignores the removed Responses reasoning shape selector', async () => {
     await instance.chat({
       apiMode: 'responses',
       messages: [{ content: 'Hello', role: 'user' }],
       model: 'gpt-5.6-sol',
-      openAICompatResponsesParams: { reasoningEffort: 'top-level' },
+      openAICompatResponsesParams: { reasoningEffort: 'top-level' } as any,
       provider: 'openaicompatible',
       reasoning_effort: 'high',
     } as any);
@@ -306,25 +306,25 @@ describe('LobeOpenAICompatibleAI', () => {
     const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
     expect(createCall).toMatchObject({
       model: 'gpt-5.6-sol',
-      reasoning_effort: 'high',
+      reasoning: { effort: 'high' },
     });
-    expect(createCall).not.toHaveProperty('reasoning');
+    expect(createCall).not.toHaveProperty('reasoning_effort');
     expect(createCall).not.toHaveProperty('openAICompatResponsesParams');
   });
 
-  it('strips reasoning params in Responses off mode', async () => {
+  it('preserves Responses reasoning options while applying model effort', async () => {
     await instance.chat({
       apiMode: 'responses',
       messages: [{ content: 'Hello', role: 'user' }],
       model: 'gpt-5.5',
-      openAICompatResponsesParams: { reasoningEffort: 'off' },
+      openAICompatResponsesParams: { reasoningEffort: 'off' } as any,
       provider: 'openaicompatible',
-      reasoning: { effort: 'high' },
+      reasoning: { effort: 'low', summary: 'auto' },
       reasoning_effort: 'high',
     } as any);
 
     const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
-    expect(createCall).not.toHaveProperty('reasoning');
+    expect(createCall.reasoning).toEqual({ effort: 'high', summary: 'auto' });
     expect(createCall).not.toHaveProperty('reasoning_effort');
   });
 

@@ -36,6 +36,16 @@ describe('validateMCPHTTPResponse', () => {
     await expect(validatedResponse.json()).resolves.toEqual({ jsonrpc: '2.0', result: {} });
   });
 
+  it('validates structured JSON media types', async () => {
+    const response = new Response('{invalid-json', {
+      headers: { 'content-type': 'application/problem+json; charset=utf-8' },
+    });
+
+    await expect(validateMCPHTTPResponse(response)).rejects.toMatchObject({
+      data: { metadata: { step: 'http_response_validation' }, type: 'CONNECTION_FAILED' },
+    });
+  });
+
   it('does not consume event streams', async () => {
     const response = new Response('data: {"jsonrpc":"2.0"}\n\n', {
       headers: { 'content-type': 'text/event-stream' },

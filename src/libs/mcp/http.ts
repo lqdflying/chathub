@@ -1,6 +1,9 @@
 import { createMCPError } from './types';
 import type { MCPTokenGetter } from './types';
 
+type FetchInit = Parameters<typeof fetch>[1];
+type FetchInput = Parameters<typeof fetch>[0];
+
 const EMPTY_RESPONSE_STATUSES = new Set([202, 204, 205, 304]);
 
 const createResponseValidationError = (response: Response, reason: 'html' | 'invalid_json') => {
@@ -47,6 +50,9 @@ export const sanitizeMCPURLForLogging = (url: string): string => {
 
 export const validateMCPHTTPResponse = async (response: Response): Promise<Response> => {
   const contentType = response.headers.get('content-type')?.toLowerCase() || '';
+  const mediaType = contentType.split(';', 1)[0].trim();
+  const isJSONMediaType =
+    mediaType === 'application/json' || /^application\/[\w!#$&+.^-]+\+json$/i.test(mediaType);
   if (contentType.includes('text/event-stream')) {
     return response.ok ? response : stripResponseBody(response);
   }
@@ -57,7 +63,7 @@ export const validateMCPHTTPResponse = async (response: Response): Promise<Respo
   }
   if (!response.ok) return stripResponseBody(response);
   if (EMPTY_RESPONSE_STATUSES.has(response.status)) return response;
-  if (!contentType.includes('application/json')) return response;
+  if (!isJSONMediaType) return response;
 
   try {
     JSON.parse(responseBody);
@@ -69,7 +75,7 @@ export const validateMCPHTTPResponse = async (response: Response): Promise<Respo
 };
 
 export const createMCPValidatingFetch = (fetchFn: typeof fetch = fetch): typeof fetch => {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+  return (async (input: FetchInput, init?: FetchInit) => {
     const response = await fetchFn(input, init);
 
     return validateMCPHTTPResponse(response);
@@ -115,8 +121,8 @@ export const createMCPAuthenticatedFetch = ({
   };
 
   const fetchWithAccessToken = async (
-    input: RequestInfo | URL,
-    init: RequestInit | undefined,
+    input: FetchInput,
+    init: FetchInit,
     requestAccessToken: string | undefined,
   ): Promise<Response> => {
     const headers = new Headers(input instanceof Request ? input.headers : undefined);
@@ -129,7 +135,7 @@ export const createMCPAuthenticatedFetch = ({
     return fetchFn(input, { ...init, headers });
   };
 
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+  return (async (input: FetchInput, init?: FetchInit) => {
     const requestAccessToken = await getInitialAccessToken();
     let response = await fetchWithAccessToken(input, init, requestAccessToken);
 

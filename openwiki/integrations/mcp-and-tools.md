@@ -91,9 +91,10 @@ MCP code is easy to break in ways that only show up in deployment-specific paths
 
 - desktop vs. server transport selection
 - stdio vs. streamable transports
-- OAuth-backed streamable transports must validate JSON-like HTTP responses before parsing. HTML auth/proxy pages returned as `text/html` or mislabeled `application/json` should become sanitized MCP connection errors without raw body text, URL query secrets, tokens, or `Unexpected token '<'` parser text.
+- OAuth-backed streamable transports must validate JSON-like HTTP responses before parsing. Both `application/json` and structured `application/*+json` media types are JSON. HTML auth/proxy pages returned as `text/html` or mislabeled JSON should become sanitized MCP connection errors without raw body text, URL query secrets, tokens, or `Unexpected token '<'` parser text.
 - OAuth `401` recovery is bounded: the Streamable HTTP fetch may force one token refresh and retry the same request once. Concurrent `tools`, `resources`, and `prompts` calls share a single forced refresh; a failed refresh or second `401` is terminal.
 - Token endpoint handling remains separate from transport retry. Authorization-code exchange and refresh still preserve provider-specific Basic-to-`client_secret_post` fallback while using the same malformed-response validation.
+- MCP client cache keys are fingerprinted. OAuth connections use user + plugin identity and exclude rotating access tokens; simultaneous initialization is coalesced. Cache replacement, capability upgrades, eviction, and partial initialization failure disconnect the old/partial client best-effort.
 - local/private URL handling
 - manifest metadata and plugin installability
 - async reporting that should not block the main tool call
@@ -103,11 +104,11 @@ MCP code is easy to break in ways that only show up in deployment-specific paths
 `CHATHUB_TOOLS_DEBUG` is the one-switch entry point for tool and MCP diagnostics. Set it on the server (container env) and recreate the service; no rebuild is needed.
 
 ```bash
-CHATHUB_TOOLS_DEBUG=1        # safe set: sanitized MCP + built-in tool namespaces
-CHATHUB_TOOLS_DEBUG=verbose  # safe set + sanitized lobe-mcp:client (tool args/results)
+CHATHUB_TOOLS_DEBUG=1        # chathub-tools:safe metadata only
+CHATHUB_TOOLS_DEBUG=verbose  # safe metadata + chathub-tools:verbose fingerprints
 ```
 
-The safe set logs sanitized params, counts, IDs, and timing only. The verbose level adds `lobe-mcp:client`, whose tool args/results are sanitized via `sanitizeToolDebugPayload` (secrets redacted, long strings truncated, arrays capped) before logging. For raw search queries use `DEBUG=lobe-search:*` explicitly; for raw provider payloads use the provider `DEBUG_*_CHAT_COMPLETION` flags. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.
+The safe namespace logs static event names, counts, transport kind, status, and timing only. Verbose payload views bound arrays, object width, and depth; property names and every non-secret string become length + SHA-256 fingerprint metadata, while secret-key values are redacted. The switch does not auto-enable existing `lobe-mcp:*`/`context-engine:*` namespaces and does not lower the global Pino level. Those broader namespaces remain explicit `DEBUG=...` opt-ins. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.
 
 ## Change guidance
 

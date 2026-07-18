@@ -43,17 +43,17 @@ The same flags still enable raw `[requestPayload]` and stream logs, so do not le
 
 ## Tool and MCP debug environment variable
 
-`CHATHUB_TOOLS_DEBUG` is a single server-side switch that auto-enables a curated, PII-safe set of MCP and built-in tool `debug()` namespaces. It works standalone (no need to also set `CHATHUB_DEBUG=1`) and also lowers the Pino level to `debug` so structured timing logs emit.
+`CHATHUB_TOOLS_DEBUG` is a server-side switch for dedicated, PII-safe tool `debug()` namespaces. It works standalone and does not alter the global Pino level; use `CHATHUB_DEBUG=1` or `LOG_LEVEL` separately when global Pino debug output is wanted.
 
 | Value | Effect |
 | --- | --- |
 | unset / `0` / `off` | Off — no auto-enable (default) |
-| `1` / `safe` | Safe set: sanitized MCP + built-in tool namespaces |
-| `verbose` / `2` | Safe set + sanitized `lobe-mcp:client` (truncated/redacted tool args and results) |
+| `1` / `safe` | `chathub-tools:safe`: static events, counts, status, transport, timing |
+| `verbose` / `2` | Safe namespace + `chathub-tools:verbose`: bounded payload fingerprints |
 
-The safe set logs only sanitized params, counts, IDs, and timing (`lobe-mcp:service`, `lobe-mcp:oauth-service`, `lobe-mcp:oauth-discovery`, `lobe-mcp:deps-check`, `lobe-mcp:router`, `context-engine:tools-engine`, `context-engine:processor:ToolCallProcessor`, `context-engine:processor:ToolMessageReorder`). The verbose level adds `lobe-mcp:client`, which is safe only because tool args/results pass through `sanitizeToolDebugPayload` (secrets redacted by key, long strings truncated, arrays capped).
+The safe namespace contains no request/response bodies or user-controlled identifiers. At verbose level, `sanitizeToolDebugPayload` redacts secret-key values, bounds arrays/object width/depth, and converts property names and every other string to `{ type, length, hash }`; it never preserves a raw short-string exception.
 
-Any explicit `DEBUG=...` namespaces are preserved and merged (deduped) with the curated sets. Namespaces that log raw user input or secrets — `lobe-search:*` (raw search queries), `lobe-chat:*` (client store debug), and the provider raw-stream flags — are never auto-enabled; set them explicitly only for active debugging. An unrecognized `CHATHUB_TOOLS_DEBUG` value is treated as off with a one-line startup warning.
+Any explicit `DEBUG=...` namespaces are preserved and merged (deduped). Existing `lobe-mcp:*`, `context-engine:*`, `lobe-search:*`, and `lobe-chat:*` namespaces are never auto-enabled; some have broader/raw logging contracts and should be explicit, short-lived troubleshooting opt-ins. An unrecognized `CHATHUB_TOOLS_DEBUG` value is treated as off with a one-line startup warning.
 
 ## Change guidance
 

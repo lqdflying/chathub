@@ -136,6 +136,11 @@ export class ClientService implements IMessageService {
     return MessageModel.bulkDelete(ids);
   }
 
+  async rewindMessages(ids: string[]) {
+    await MessageModel.bulkDelete(ids);
+    return { messageIds: ids, threadIds: [] };
+  }
+
   async removeMessagesByAssistant(assistantId: string, topicId?: string) {
     return MessageModel.batchDelete(assistantId, topicId);
   }

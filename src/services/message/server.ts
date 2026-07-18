@@ -113,6 +113,10 @@ export class ServerService implements IMessageService {
     return lambdaClient.message.removeMessages.mutate({ ids });
   };
 
+  rewindMessages: IMessageService['rewindMessages'] = async (ids) => {
+    return lambdaClient.message.rewindMessages.mutate({ ids });
+  };
+
   removeMessagesByAssistant: IMessageService['removeMessagesByAssistant'] = async (
     sessionId,
     topicId,

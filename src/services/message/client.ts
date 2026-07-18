@@ -141,6 +141,10 @@ export class ClientService extends BaseClientService implements IMessageService 
     return this.messageModel.deleteMessages(ids);
   };
 
+  rewindMessages: IMessageService['rewindMessages'] = async (ids) => {
+    return this.messageModel.rewindMessages(ids);
+  };
+
   removeMessagesByAssistant: IMessageService['removeMessagesByAssistant'] = async (
     sessionId,
     topicId,
