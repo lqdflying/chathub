@@ -28,6 +28,49 @@ const MCP_TOOL_TIMEOUT = (() => {
   return Number.isFinite(val) && val > 0 ? val : 60_000;
 })();
 
+const SECRET_KEY_PATTERN = /token|secret|password|api[-_]?key|authorization|cookie/i;
+const TOOL_DEBUG_MAX_STRING = 500;
+const TOOL_DEBUG_MAX_ARRAY = 3;
+const TOOL_DEBUG_MAX_DEPTH = 4;
+
+/**
+ * Produce a sanitized copy of a tool payload for debug logging. Redacts secret
+ * values by key, truncates long strings, caps arrays, and bounds recursion so
+ * the verbose `lobe-mcp:client` namespace never dumps raw prompts, scraped
+ * content, or credentials. Never mutates the input.
+ */
+export const sanitizeToolDebugPayload = (value: unknown, depth = 0): unknown => {
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === 'string') {
+    return value.length > TOOL_DEBUG_MAX_STRING
+      ? `${value.slice(0, TOOL_DEBUG_MAX_STRING)}…(+${value.length - TOOL_DEBUG_MAX_STRING})`
+      : value;
+  }
+
+  if (typeof value !== 'object') return value;
+
+  if (depth >= TOOL_DEBUG_MAX_DEPTH) return '[truncated:max-depth]';
+
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, TOOL_DEBUG_MAX_ARRAY)
+      .map((item) => sanitizeToolDebugPayload(item, depth + 1));
+    return value.length > TOOL_DEBUG_MAX_ARRAY
+      ? [...items, `(+${value.length - TOOL_DEBUG_MAX_ARRAY} more)`]
+      : items;
+  }
+
+  const source = value as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = {};
+  for (const key of Object.keys(source)) {
+    sanitized[key] = SECRET_KEY_PATTERN.test(key)
+      ? '[redacted]'
+      : sanitizeToolDebugPayload(source[key], depth + 1);
+  }
+  return sanitized;
+};
+
 /**
  * 预检查 stdio 命令，捕获详细的错误信息
  */
@@ -335,7 +378,7 @@ export class MCPClient {
     try {
       log('Listing tools...');
       const { tools } = await this.mcp.listTools();
-      log('Listed tools: %O', tools);
+      log('Listed tools: %O', sanitizeToolDebugPayload(tools));
       return tools as McpTool[];
     } catch (e) {
       console.error('Listed tools error: %O', e);
@@ -354,7 +397,7 @@ export class MCPClient {
     try {
       log('Listing resources...');
       const { resources } = await this.mcp.listResources();
-      log('Listed resources: %O', resources);
+      log('Listed resources: %O', sanitizeToolDebugPayload(resources));
       return resources as McpResource[];
     } catch (e) {
       console.error('Listed resources error: %O', e);
@@ -368,7 +411,7 @@ export class MCPClient {
     try {
       log('Listing prompts...');
       const { prompts } = await this.mcp.listPrompts();
-      log('Listed prompts: %O', prompts);
+      log('Listed prompts: %O', sanitizeToolDebugPayload(prompts));
       return prompts as McpPrompt[];
     } catch (e) {
       console.error('Listed prompts error: %O', e);
@@ -402,12 +445,17 @@ export class MCPClient {
   }
 
   async callTool(toolName: string, args: any) {
-    log('Calling tool: %s with args: %O, timeout: %O', toolName, args, MCP_TOOL_TIMEOUT);
+    log(
+      'Calling tool: %s with args: %O, timeout: %O',
+      toolName,
+      sanitizeToolDebugPayload(args),
+      MCP_TOOL_TIMEOUT,
+    );
     try {
       const result = await this.mcp.callTool({ arguments: args, name: toolName }, undefined, {
         timeout: MCP_TOOL_TIMEOUT,
       });
-      log('Tool call result: %O', result);
+      log('Tool call result: %O', sanitizeToolDebugPayload(result));
       return result;
     } catch (e) {
       log('Tool call error: %O', e);

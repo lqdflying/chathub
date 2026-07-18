@@ -98,6 +98,17 @@ MCP code is easy to break in ways that only show up in deployment-specific paths
 - manifest metadata and plugin installability
 - async reporting that should not block the main tool call
 
+## Tool call debug
+
+`CHATHUB_TOOLS_DEBUG` is the one-switch entry point for tool and MCP diagnostics. Set it on the server (container env) and recreate the service; no rebuild is needed.
+
+```bash
+CHATHUB_TOOLS_DEBUG=1        # safe set: sanitized MCP + built-in tool namespaces
+CHATHUB_TOOLS_DEBUG=verbose  # safe set + sanitized lobe-mcp:client (tool args/results)
+```
+
+The safe set logs sanitized params, counts, IDs, and timing only. The verbose level adds `lobe-mcp:client`, whose tool args/results are sanitized via `sanitizeToolDebugPayload` (secrets redacted, long strings truncated, arrays capped) before logging. For raw search queries use `DEBUG=lobe-search:*` explicitly; for raw provider payloads use the provider `DEBUG_*_CHAT_COMPLETION` flags. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.
+
 ## Change guidance
 
 When editing tools or MCP behavior, check all three layers:
