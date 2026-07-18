@@ -12,8 +12,10 @@ import {
 import { LobeChatPluginManifest, PluginErrorType } from '@lobehub/chat-plugin-sdk';
 import isEqual from 'fast-deep-equal';
 import { t } from 'i18next';
+import { nanoid } from 'nanoid';
 import { StateCreator } from 'zustand/vanilla';
 
+import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { chatService } from '@/services/chat';
 import { mcpService } from '@/services/mcp';
 import { createMCPChatMessageError } from '@/services/mcpError';
@@ -30,6 +32,29 @@ import { chatSelectors } from '../message/selectors';
 import { threadSelectors } from '../thread/selectors';
 
 const n = setNamespace('plugin');
+
+const isAbortError = (error: unknown) => {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+
+  for (let depth = 0; current && depth < 6 && !seen.has(current); depth += 1) {
+    seen.add(current);
+    if (current instanceof Error) {
+      const message = current.message.toLowerCase();
+      if (
+        current.name === 'AbortError' ||
+        message === 'aborterror' ||
+        message.includes('user aborted') ||
+        message.includes('operation was aborted')
+      ) {
+        return true;
+      }
+    }
+    current = typeof current === 'object' ? (current as { cause?: unknown }).cause : undefined;
+  }
+
+  return false;
+};
 
 export interface ChatPluginAction {
   createAssistantMessageByPlugin: (content: string, parentId: string) => Promise<void>;
@@ -271,8 +296,6 @@ export const chatPlugin: StateCreator<
     const message = chatSelectors.getMessageById(assistantId)(get());
     if (!message || !message.tools) return;
 
-    let shouldCreateMessage = false;
-    let latestToolId = '';
     const messagePools = message.tools.map(async (payload) => {
       const toolMessage: CreateMessageParams = {
         content: '',
@@ -287,25 +310,27 @@ export const chatPlugin: StateCreator<
       };
 
       const id = await get().internal_createMessage(toolMessage);
-      if (!id) return;
+      if (!id) return undefined;
 
       // trigger the plugin call
       const data = await get().internal_invokeDifferentTypePlugin(id, payload);
-
-      if (data && !['markdown', 'standalone'].includes(payload.type)) {
-        shouldCreateMessage = true;
-        latestToolId = id;
-      }
+      return { data, id, payload };
     });
 
-    await Promise.all(messagePools);
-
-    await get().internal_toggleMessageInToolsCalling(false, assistantId);
+    const settledResults = await Promise.allSettled(messagePools).finally(async () => {
+      await get().internal_toggleMessageInToolsCalling(false, assistantId);
+    });
+    const completedResults = settledResults.flatMap((result) =>
+      result.status === 'fulfilled' && result.value ? [result.value] : [],
+    );
+    const latestCompletedTool = completedResults.findLast(
+      ({ data, payload }) => data && !['markdown', 'standalone'].includes(payload.type),
+    );
 
     // only default type tool calls should trigger AI message
-    if (!shouldCreateMessage) return;
+    if (!latestCompletedTool) return;
 
-    const traceId = chatSelectors.getTraceIdByMessageId(latestToolId)(get());
+    const traceId = chatSelectors.getTraceIdByMessageId(latestCompletedTool.id)(get());
 
     await get().triggerAIMessage({ traceId, threadId, inPortalThread, inSearchWorkflow });
   },
@@ -479,47 +504,97 @@ export const chatPlugin: StateCreator<
   },
   invokeMCPTypePlugin: async (id, payload) => {
     const {
+      internal_dispatchMessage,
       internal_updateMessageContent,
-      refreshMessages,
       internal_togglePluginApiCalling,
       internal_constructToolsCallingContext,
     } = get();
     let data: string = '';
+    const diagnosticId = `td_${nanoid(20)}`;
+    const abortController = internal_togglePluginApiCalling(
+      true,
+      id,
+      n('fetchPlugin/start') as string,
+    );
+
+    const reportPersistenceFailure = (error: unknown, attempt: number) => {
+      const responseError = findRPCResponseError(error);
+      if (!responseError) return false;
+
+      mcpService.reportClientRPCFailure(responseError.details, {
+        attempt,
+        diagnosticId,
+        operation: 'persist_tool_result',
+        procedure: 'message.update',
+        rpcEndpoint: 'lambda',
+      });
+      return true;
+    };
 
     try {
-      const abortController = internal_togglePluginApiCalling(
-        true,
-        id,
-        n('fetchPlugin/start') as string,
-      );
-
       const context = internal_constructToolsCallingContext(id);
       const result = await mcpService.invokeMcpToolCall(payload, {
+        diagnosticId,
         signal: abortController?.signal,
         topicId: context?.topicId,
       });
 
       if (!!result) data = result;
-    } catch (error) {
-      const err = error as Error;
 
-      // ignore the aborted request error
-      if (!err.message.includes('The user aborted a request.')) {
-        await messageService.updateMessageError(
-          id,
-          createMCPChatMessageError(error, (type) => t(`response.${type}`, { ns: 'error' })),
-        );
-        await refreshMessages();
+      if (!data) return;
+
+      let persisted = false;
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          await internal_updateMessageContent(id, data, {
+            diagnosticId,
+            showNotification: false,
+            skipRefresh: true,
+          });
+          persisted = true;
+          break;
+        } catch (error) {
+          const classified = reportPersistenceFailure(error, attempt);
+          if (!classified || attempt === 2) break;
+        }
       }
+
+      if (!persisted) {
+        const { notification } = await import('@/components/AntdStaticMethods');
+        notification.warning({
+          description: t('mcpResultPersistence.description', { ns: 'error' }),
+          message: t('mcpResultPersistence.title', { ns: 'error' }),
+        });
+      }
+
+      // The valid result remains in the optimistic store even if the proxy prevented
+      // ChatHub from confirming persistence. Continue the model turn in that case.
+      return data;
+    } catch (error) {
+      // ignore the aborted request error
+      if (!isAbortError(error)) {
+        const messageError = createMCPChatMessageError(error, (type) =>
+          t(`response.${type}`, { ns: 'error' }),
+        );
+        internal_dispatchMessage({ id, type: 'updateMessage', value: { error: messageError } });
+
+        try {
+          await messageService.updateMessage(
+            id,
+            { error: messageError },
+            {
+              diagnosticId,
+              showNotification: false,
+            },
+          );
+        } catch (persistenceError) {
+          reportPersistenceFailure(persistenceError, 1);
+        }
+      }
+      return;
+    } finally {
+      internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
     }
-
-    internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
-    // 如果报错则结束了
-    if (!data) return;
-
-    await internal_updateMessageContent(id, data);
-
-    return data;
   },
 
   internal_togglePluginApiCalling: (loading, id, action) => {

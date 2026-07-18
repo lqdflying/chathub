@@ -20,12 +20,18 @@ const Highlighter = dynamic(() => import('@lobehub/ui/es/Highlighter'), {
   ssr: false,
 });
 
-const Description = memo<{ message: string; status: number }>(({ message, status }) => {
+export const getFetchErrorResponseKey = (status?: number) =>
+  Number.isInteger(status)
+    ? (`response.${status}` as const)
+    : ('response.UnknownChatFetchError' as const);
+
+const Description = memo<{ message: string; status?: number }>(({ message, status }) => {
   const { t } = useTranslation('error');
   const [show, setShow] = useState(false);
+  const responseKey = getFetchErrorResponseKey(status);
   return (
     <Flexbox gap={8}>
-      {t(`response.${status}` as any)}
+      {t(responseKey as any)}
       <Flexbox
         gap={4}
         horizontal

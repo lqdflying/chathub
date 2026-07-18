@@ -338,3 +338,13 @@ export const createGuardedToolsFetch = (fetchFn: typeof fetch): typeof fetch =>
       },
     });
   }) as typeof fetch;
+
+// The response guard is transport-agnostic. Keep the historical Tools names above for
+// compatibility while exposing generic aliases for other tRPC clients that cross the
+// same browser-facing proxy boundary.
+export type RPCResponseBodyKind = ToolsRPCResponseBodyKind;
+export type RPCResponseErrorDetails = ToolsRPCResponseErrorDetails;
+export type RPCResponseFailureReason = ToolsRPCResponseFailureReason;
+export { ToolsRPCResponseError as RPCResponseError };
+export const createGuardedRPCFetch = createGuardedToolsFetch;
+export const findRPCResponseError = findToolsRPCResponseError;

@@ -30,6 +30,10 @@
     "desc": "You will be redirected to the login page shortly",
     "title": "Please log in to use this feature"
   },
+  "mcpResultPersistence": {
+    "description": "The tool result will still be used to finish this response, but it may be lost after a reload. Check the server diagnostic log.",
+    "title": "Tool result could not be saved"
+  },
   "notFound": {
     "backHome": "Back to Home",
     "check": "Please check if your URL is correct.",

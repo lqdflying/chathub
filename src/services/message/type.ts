@@ -15,6 +15,11 @@ import type { HeatmapsProps } from '@lobehub/charts';
 
 /* eslint-disable typescript-sort-keys/interface */
 
+export interface MessageOperationOptions {
+  diagnosticId?: string;
+  showNotification?: boolean;
+}
+
 export interface IMessageService {
   createMessage(data: CreateMessageParams): Promise<string>;
   createNewMessage(data: CreateMessageParams): Promise<CreateMessageResult>;
@@ -37,7 +42,11 @@ export interface IMessageService {
   rankModels(): Promise<ModelRankItem[]>;
   getHeatmaps(): Promise<HeatmapsProps['data']>;
   updateMessageError(id: string, error: ChatMessageError): Promise<any>;
-  updateMessage(id: string, message: Partial<UpdateMessageParams>): Promise<any>;
+  updateMessage(
+    id: string,
+    message: Partial<UpdateMessageParams>,
+    options?: MessageOperationOptions,
+  ): Promise<any>;
   updateMessageTTS(id: string, tts: Partial<ChatTTS> | false): Promise<any>;
   updateMessageTranslate(id: string, translate: Partial<ChatTranslate> | false): Promise<any>;
   updateMessagePluginState(id: string, value: Record<string, any>): Promise<any>;

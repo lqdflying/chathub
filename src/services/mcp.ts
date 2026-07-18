@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 import { desktopClient, toolsClient } from '@/libs/trpc/client';
 import { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from '@/libs/trpc/client/tools';
 import {
+  type ToolsRPCResponseErrorDetails,
   findToolsRPCResponseError,
 } from '@/libs/trpc/client/toolsResponse';
 
@@ -65,9 +66,35 @@ const getSafeTRPCErrorMetadata = (error: unknown) => {
 };
 
 class MCPService {
+  reportClientRPCFailure(
+    details: ToolsRPCResponseErrorDetails,
+    metadata: {
+      attempt?: number;
+      diagnosticId: string;
+      operation: 'call_tool' | 'persist_tool_result';
+      procedure: 'mcp.callTool' | 'message.update';
+      rpcEndpoint: 'lambda' | 'tools';
+    },
+  ) {
+    // Best-effort local diagnostic reporting. It is deliberately isolated,
+    // never retried, and its own failure is ignored to avoid recursion.
+    void toolsClient.mcp.reportClientFailure
+      .mutate(
+        { ...details, ...metadata, diagnosticId: metadata.diagnosticId },
+        {
+          context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: metadata.diagnosticId },
+        },
+      )
+      .catch(() => undefined);
+  }
+
   async invokeMcpToolCall(
     payload: ChatToolPayload,
-    { signal, topicId }: { signal?: AbortSignal; topicId?: string },
+    {
+      diagnosticId: requestedDiagnosticId,
+      signal,
+      topicId,
+    }: { diagnosticId?: string; signal?: AbortSignal; topicId?: string },
   ) {
     const { pluginSelectors } = await import('@/store/tool/selectors');
     const { getToolStoreState } = await import('@/store/tool/store');
@@ -82,7 +109,7 @@ class MCPService {
 
     if (!plugin) return;
 
-    const diagnosticId = `td_${nanoid(20)}`;
+    const diagnosticId = requestedDiagnosticId || `td_${nanoid(20)}`;
     const data = {
       args,
       env: plugin.settings || plugin.customParams?.mcp?.env,
@@ -125,13 +152,13 @@ class MCPService {
         errorCode = responseDetails.reason;
         errorMessage = `MCP tools gateway failure: ${responseDetails.reason}`;
 
-        // Best-effort local diagnostic reporting. It is deliberately isolated,
-        // never retried, and its own failure is ignored to avoid recursion.
-        void toolsClient.mcp.reportClientFailure
-          .mutate(responseDetails, {
-            context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
-          })
-          .catch(() => undefined);
+        this.reportClientRPCFailure(responseDetails, {
+          attempt: 1,
+          diagnosticId,
+          operation: 'call_tool',
+          procedure: 'mcp.callTool',
+          rpcEndpoint: 'tools',
+        });
 
         throw new MCPInvocationError({
           ...responseDetails,

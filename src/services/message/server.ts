@@ -3,6 +3,7 @@ import { ChatTranslate, UIChatMessage } from '@lobechat/types';
 
 import { INBOX_SESSION_ID } from '@/const/session';
 import { lambdaClient } from '@/libs/trpc/client';
+import { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from '@/libs/trpc/client/tools';
 
 import { IMessageService } from './type';
 
@@ -81,8 +82,18 @@ export class ServerService implements IMessageService {
     return lambdaClient.message.updateMessagePlugin.mutate({ id, value: { arguments: args } });
   };
 
-  updateMessage: IMessageService['updateMessage'] = async (id, value) => {
-    return lambdaClient.message.update.mutate({ id, value });
+  updateMessage: IMessageService['updateMessage'] = async (id, value, options) => {
+    return lambdaClient.message.update.mutate(
+      { id, value },
+      options
+        ? {
+            context: {
+              [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: options.diagnosticId,
+              showNotification: options.showNotification,
+            },
+          }
+        : undefined,
+    );
   };
 
   updateMessageTranslate: IMessageService['updateMessageTranslate'] = async (id, translate) => {

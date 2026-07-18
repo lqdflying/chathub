@@ -30,6 +30,10 @@
     "desc": "即将自动跳转到登录页面",
     "title": "请登录后使用该功能"
   },
+  "mcpResultPersistence": {
+    "description": "工具结果仍会用于完成当前回复，但刷新页面后可能无法保留。请查看服务器诊断日志。",
+    "title": "工具结果暂时无法保存"
+  },
   "notFound": {
     "backHome": "返回首页",
     "check": "请检查你的 URL 是否正确",

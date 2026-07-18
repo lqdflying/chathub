@@ -197,6 +197,7 @@ export const mcpRouter = router({
   reportClientFailure: mcpProcedure
     .input(
       z.object({
+        attempt: z.number().int().min(1).max(3).optional(),
         bodyBytes: z.number().int().nonnegative().optional(),
         bodyKind: z.enum([
           'empty',
@@ -231,16 +232,17 @@ export const mcpRouter = router({
         lastCharacterClass: z.string().max(40).optional(),
         mediaType: z.string().max(120).optional(),
         networkOnline: z.boolean().optional(),
+        operation: z.enum(['call_tool', 'persist_tool_result']),
+        procedure: z.enum(['mcp.callTool', 'message.update']),
         reason: z.enum(['network_error', 'response_parse_failed', 'response_read_failed']),
         responseFingerprint: z.string().regex(/^[\da-f]{16}$/).optional(),
+        rpcEndpoint: z.enum(['lambda', 'tools']),
         timedOut: z.boolean().optional(),
       }),
     )
     .mutation(({ input }) => {
       logToolsDebugSafe('client_rpc_response_failed', {
         ...input,
-        operation: 'call_tool',
-        procedure: 'mcp.callTool',
       });
       return { reported: true };
     }),

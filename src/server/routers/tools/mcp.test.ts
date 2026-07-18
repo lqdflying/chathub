@@ -171,6 +171,7 @@ describe('mcpRouter OAuth public boundary', () => {
 
     await expect(
       caller.reportClientFailure({
+        attempt: 1,
         bodyBytes: 615,
         bodyKind: 'html',
         diagnosticId: 'td_1234567890abcdef',
@@ -179,8 +180,11 @@ describe('mcpRouter OAuth public boundary', () => {
         htmlMarker: 'doctype',
         httpStatus: 502,
         mediaType: 'text/html',
+        operation: 'persist_tool_result',
+        procedure: 'message.update',
         reason: 'response_parse_failed',
         responseFingerprint: 'abcdef0123456789',
+        rpcEndpoint: 'lambda',
       }),
     ).resolves.toEqual({ reported: true });
 
@@ -188,6 +192,8 @@ describe('mcpRouter OAuth public boundary', () => {
       ([prefix]) => prefix === '[chathub-tools-debug:client_rpc_response_failed]',
     );
     expect(event).toBeDefined();
+    expect(event?.[1]).toContain('message.update');
+    expect(event?.[1]).toContain('lambda');
     expect(event?.[1]).toContain('response_parse_failed');
     expect(event?.[1]).not.toContain('<!DOCTYPE');
 

@@ -88,6 +88,7 @@ export interface ChatMessageAction {
     id: string,
     content: string,
     extra?: {
+      diagnosticId?: string;
       toolCalls?: MessageToolCall[];
       reasoning?: ModelReasoning;
       search?: GroundingSearch;
@@ -95,6 +96,8 @@ export interface ChatMessageAction {
       imageList?: ChatImageItem[];
       model?: string;
       provider?: string;
+      showNotification?: boolean;
+      skipRefresh?: boolean;
     },
   ) => Promise<void>;
   /**
@@ -403,7 +406,7 @@ export const chatMessage: StateCreator<
       });
     }
 
-    await messageService.updateMessage(id, {
+    const update = {
       content,
       tools: extra?.toolCalls ? internal_transformToolCalls(extra?.toolCalls) : undefined,
       reasoning: extra?.reasoning,
@@ -412,8 +415,16 @@ export const chatMessage: StateCreator<
       model: extra?.model,
       provider: extra?.provider,
       imageList: extra?.imageList,
-    });
-    await refreshMessages();
+    };
+    if (extra?.diagnosticId || extra?.showNotification !== undefined) {
+      await messageService.updateMessage(id, update, {
+        diagnosticId: extra?.diagnosticId,
+        showNotification: extra?.showNotification,
+      });
+    } else {
+      await messageService.updateMessage(id, update);
+    }
+    if (!extra?.skipRefresh) await refreshMessages();
   },
 
   internal_createMessage: async (message, context) => {
