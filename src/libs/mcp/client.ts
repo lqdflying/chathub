@@ -17,6 +17,8 @@ import {
   McpTool,
   createMCPError,
 } from './types';
+import type { MCPTokenGetter } from './types';
+import { createMCPAuthenticatedFetch } from './http';
 
 const log = debug('lobe-mcp:client');
 // MCP tool call timeout (milliseconds), configurable via the environment variable MCP_TOOL_TIMEOUT, default is 60000
@@ -156,7 +158,7 @@ export class MCPClient {
   private mcp: Client;
   private transport: Transport;
   private params: MCPClientParams;
-  private tokenGetter?: () => Promise<string | undefined>;
+  private tokenGetter?: MCPTokenGetter;
 
   /** Whether this client has a dynamic token getter for OAuth refresh. */
   get hasTokenGetter(): boolean {
@@ -165,7 +167,7 @@ export class MCPClient {
 
   constructor(
     params: MCPClientParams,
-    options?: { tokenGetter?: () => Promise<string | undefined> },
+    options?: { fetchFn?: typeof fetch; tokenGetter?: MCPTokenGetter },
   ) {
     this.params = params;
     this.tokenGetter = options?.tokenGetter;
@@ -173,7 +175,8 @@ export class MCPClient {
 
     switch (params.type) {
       case 'http': {
-        log('Using HTTP transport with url: %s', params.url);
+        const serverUrl = new URL(params.url);
+        log('Using HTTP transport with origin and path: %s%s', serverUrl.origin, serverUrl.pathname);
 
         // 构建头部信息，包括用户自定义的 headers 和认证信息
         const headers: Record<string, string> = { ...params.headers };
@@ -206,7 +209,13 @@ export class MCPClient {
         }
 
         // 创建 StreamableHTTPClientTransport 并传递 headers
-        this.transport = new StreamableHTTPClientTransport(new URL(params.url), {
+        this.transport = new StreamableHTTPClientTransport(serverUrl, {
+          fetch: createMCPAuthenticatedFetch({
+            fetchFn: options?.fetchFn,
+            initialAccessToken:
+              params.auth?.type === 'oauth2' ? params.auth.accessToken : undefined,
+            tokenGetter: this.tokenGetter,
+          }),
           requestInit: { headers },
         });
 
@@ -247,20 +256,6 @@ export class MCPClient {
     log('Initializing MCP connection...');
 
     try {
-      // 如果有动态 token getter 且 auth type 是 oauth2，
-      // 尝试在初始化前获取最新的 token
-      if (
-        this.params.type === 'http' &&
-        this.params.auth?.type === 'oauth2' &&
-        this.tokenGetter
-      ) {
-        const token = await this.tokenGetter();
-        if (token) {
-          this.params.auth.accessToken = token;
-          log('Injected dynamic OAuth token before initialization');
-        }
-      }
-
       await this.mcp.connect(this.transport, { onprogress: options.onProgress });
       log('MCP connection initialized.');
     } catch (e) {
@@ -320,23 +315,6 @@ export class MCPClient {
     }
   }
 
-  private async reconnectWithToken(accessToken: string) {
-    log('Reconnecting with refreshed OAuth token');
-    const headers: Record<string, string> = { ...(this.params as any).headers };
-
-    headers['Authorization'] = `Bearer ${accessToken}`;
-
-    this.transport = new StreamableHTTPClientTransport(
-      new URL((this.params as any).url),
-      {
-        requestInit: { headers },
-      },
-    );
-
-    await this.initialize();
-    log('Reconnected with refreshed OAuth token');
-  }
-
   async disconnect() {
     log('Disconnecting MCP connection...');
     // Assuming the mcp client has a disconnect method
@@ -366,26 +344,6 @@ export class MCPClient {
         throw new Error('NoValidSessionId');
       }
 
-      // Handle OAuth authorization errors
-      if (
-        this.params.type === 'http' &&
-        (e as Error).message.includes('401') &&
-        this.params.auth?.type === 'oauth2' &&
-        this.tokenGetter
-      ) {
-        const newToken = await this.tokenGetter();
-        if (newToken) {
-          log('Retrying listTools with refreshed OAuth token');
-          // Re-create transport with new token
-          await this.disconnect();
-          await this.reconnectWithToken(newToken);
-          return this.listTools();
-        }
-        // Refresh failed — surface the auth error instead of silently
-        // returning [] which makes tools "disappear" without any indication.
-        throw e;
-      }
-
       // Surface non-recoverable errors instead of returning [] so settings
       // and chat do not misreport broken MCP servers as having no tools.
       throw e;
@@ -401,24 +359,6 @@ export class MCPClient {
     } catch (e) {
       console.error('Listed resources error: %O', e);
 
-      // Handle OAuth authorization errors with token refresh
-      if (
-        this.params.type === 'http' &&
-        (e as Error).message.includes('401') &&
-        this.params.auth?.type === 'oauth2' &&
-        this.tokenGetter
-      ) {
-        const newToken = await this.tokenGetter();
-        if (newToken) {
-          log('Retrying listResources with refreshed OAuth token');
-          await this.disconnect();
-          await this.reconnectWithToken(newToken);
-          return this.listResources();
-        }
-        // Refresh failed — surface auth error instead of returning [].
-        throw e;
-      }
-
       // Surface non-recoverable errors instead of returning [].
       throw e;
     }
@@ -432,24 +372,6 @@ export class MCPClient {
       return prompts as McpPrompt[];
     } catch (e) {
       console.error('Listed prompts error: %O', e);
-
-      // Handle OAuth authorization errors with token refresh
-      if (
-        this.params.type === 'http' &&
-        (e as Error).message.includes('401') &&
-        this.params.auth?.type === 'oauth2' &&
-        this.tokenGetter
-      ) {
-        const newToken = await this.tokenGetter();
-        if (newToken) {
-          log('Retrying listPrompts with refreshed OAuth token');
-          await this.disconnect();
-          await this.reconnectWithToken(newToken);
-          return this.listPrompts();
-        }
-        // Refresh failed — surface auth error instead of returning [].
-        throw e;
-      }
 
       // Surface non-recoverable errors instead of returning [].
       throw e;
@@ -489,24 +411,6 @@ export class MCPClient {
       return result;
     } catch (e) {
       log('Tool call error: %O', e);
-
-      // Handle OAuth authorization errors with token refresh
-      if (
-        this.params.type === 'http' &&
-        (e as Error).message.includes('401') &&
-        this.params.auth?.type === 'oauth2' &&
-        this.tokenGetter
-      ) {
-        const newToken = await this.tokenGetter();
-        if (newToken) {
-          log('Retrying tool call with refreshed OAuth token');
-          await this.disconnect();
-          await this.reconnectWithToken(newToken);
-          return this.mcp.callTool({ arguments: args, name: toolName }, undefined, {
-            timeout: MCP_TOOL_TIMEOUT,
-          });
-        }
-      }
 
       throw e;
     }

@@ -477,8 +477,8 @@ describe('convertOpenAIResponseInputs', () => {
 
   it('should emit assistant text before function_call items (mixed content)', async () => {
     // Regression: an assistant turn with BOTH text commentary and tool_calls
-    // previously dropped the text entirely. It must be emitted as an input_text
-    // message item BEFORE the function_call items.
+    // previously dropped the text entirely. It must be emitted as a role-valid
+    // assistant string message BEFORE the function_call items.
     const messages: OpenAIChatMessage[] = [
       {
         role: 'assistant',
@@ -496,7 +496,7 @@ describe('convertOpenAIResponseInputs', () => {
     const result = await convertOpenAIResponseInputs(messages);
 
     expect(result).toEqual([
-      { content: [{ text: 'Let me search for that.', type: 'input_text' }], role: 'assistant' },
+      { content: 'Let me search for that.', role: 'assistant' },
       {
         arguments: '{"q":"test"}',
         call_id: 'call_1',
@@ -506,14 +506,16 @@ describe('convertOpenAIResponseInputs', () => {
     ]);
   });
 
-  it('should use input_text (not output_text) for assistant content parts', async () => {
-    // Regression: assistant content parts were reconstructed with type
-    // 'output_text', which is an OUTPUT-only content type. Easy-input assistant
-    // messages must use 'input_text'.
+  it('should replay assistant content parts as ordered string content', async () => {
+    // Responses accepts user input parts such as input_text/input_image, but
+    // persisted assistant history must not be replayed as assistant input_text arrays.
     const messages: OpenAIChatMessage[] = [
       {
         role: 'assistant',
-        content: [{ type: 'text', text: 'previous answer' }],
+        content: [
+          { type: 'text', text: 'first part' },
+          { type: 'text', text: ' second part' },
+        ],
       } as any,
     ];
 
@@ -521,11 +523,33 @@ describe('convertOpenAIResponseInputs', () => {
 
     expect(result).toEqual([
       {
-        content: [{ text: 'previous answer', type: 'input_text' }],
+        content: 'first part second part',
         role: 'assistant',
       },
     ]);
-    expect((result[0] as any).content[0].type).toBe('input_text');
+    expect((result[0] as any).content).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'input_text' })]),
+    );
+  });
+
+  it('should preserve a full user-assistant-user follow-up without assistant input_text parts', async () => {
+    const messages: OpenAIChatMessage[] = [
+      { role: 'user', content: 'Find news about Tavily MCP.' },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'I found the relevant details.' }],
+      } as any,
+      { role: 'user', content: 'Summarize the follow-up risk.' },
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([
+      { role: 'user', content: 'Find news about Tavily MCP.' },
+      { role: 'assistant', content: 'I found the relevant details.' },
+      { role: 'user', content: 'Summarize the follow-up risk.' },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('"type":"input_text","role":"assistant"');
   });
 
   it('should preserve image detail when converting user image parts', async () => {

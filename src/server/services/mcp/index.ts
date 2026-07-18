@@ -9,11 +9,13 @@ import debug from 'debug';
 import {
   MCPClient,
   MCPClientParams,
+  MCPTokenGetter,
   McpPrompt,
   McpResource,
   McpTool,
   StdioMCPParams,
 } from '@/libs/mcp';
+import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
 import { pino } from '@/libs/logger';
 
 import { mcpSystemDepsCheckService } from './deps';
@@ -32,12 +34,25 @@ export interface MCPOAuthContext {
 export class MCPService {
   // Store instances of the custom MCPClient, keyed by serialized MCPClientParams
   private clients: Map<string, MCPClient> = new Map();
+  private fetchFn?: typeof fetch;
 
-  private sanitizeForLogging = <T extends Record<string, any>>(obj: T): Omit<T, 'env'> => {
+  constructor(options: { fetchFn?: typeof fetch } = {}) {
+    this.fetchFn = options.fetchFn;
+  }
+
+  private sanitizeForLogging = <T extends Record<string, any>>(
+    obj: T,
+  ): Omit<T, 'auth' | 'env' | 'headers'> => {
     if (!obj) return obj;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { env: _, ...rest } = obj;
-    return rest as Omit<T, 'env'>;
+    const { auth: _auth, env: _env, headers: _headers, ...rest } = obj;
+    const sanitized = { ...rest };
+
+    if (typeof sanitized.url === 'string') {
+      sanitized.url = sanitizeMCPURLForLogging(sanitized.url);
+    }
+
+    return sanitized as Omit<T, 'auth' | 'env' | 'headers'>;
   };
 
   // --- MCP Interaction ---
@@ -178,21 +193,13 @@ export class MCPService {
     const args = safeParseJSON(argsStr);
     const loggableParams = this.sanitizeForLogging(params);
 
-    log(
-      `Calling tool "${toolName}" using client for params: %O with args: %O`,
-      loggableParams,
-      args,
-    );
+    log(`Calling tool "${toolName}" using client for params: %O`, loggableParams);
 
     try {
       // Delegate the call to the MCPClient instance
       const result = await client.callTool(toolName, args); // Pass args directly
       pino.debug(`MCP callTool "${toolName}" completed in ${Date.now() - start}ms`);
-      log(
-        `Tool "${toolName}" called successfully for params: %O, result: %O`,
-        loggableParams,
-        result,
-      );
+      log(`Tool "${toolName}" called successfully for params: %O`, loggableParams);
       const { content, isError } = result;
 
       if (isError) return result;
@@ -260,7 +267,7 @@ export class MCPService {
     log(`No cached client found, Initializing new client.`);
 
     // Setup OAuth token getter if auth type is oauth2 and context is provided
-    let tokenGetter: (() => Promise<string | undefined>) | undefined;
+    let tokenGetter: MCPTokenGetter | undefined;
     let resolvedParams = params;
 
     if (
@@ -268,13 +275,28 @@ export class MCPService {
       params.auth?.type === 'oauth2' &&
       oauthContext
     ) {
-      tokenGetter = async () => {
+      tokenGetter = async ({ forceRefresh = false } = {}) => {
         const token = await oauthContext.oauthService.getOAuthToken(
           oauthContext.userId,
           oauthContext.pluginIdentifier,
         );
 
         if (!token) return undefined;
+
+        if (forceRefresh) {
+          const refreshed = await oauthContext.oauthService.refreshOAuthToken(
+            oauthContext.userId,
+            oauthContext.pluginIdentifier,
+          );
+
+          if (!refreshed) {
+            log('Forced OAuth token refresh failed for plugin %s', oauthContext.pluginIdentifier);
+            return undefined;
+          }
+
+          log('Forced OAuth token refresh succeeded for plugin %s', oauthContext.pluginIdentifier);
+          return refreshed.accessToken;
+        }
 
         // Refresh if the token is known-expired OR if we don't know its
         // expiry (Notion MCP doesn't return expires_in).  In the unknown
@@ -319,14 +341,14 @@ export class MCPService {
     }
 
     try {
-      const client = new MCPClient(resolvedParams, { tokenGetter });
+      const client = new MCPClient(resolvedParams, { fetchFn: this.fetchFn, tokenGetter });
       await client.initialize({
         onProgress: (progress) => {
           log(`New client initializing... ${progress.progress}/${progress.total}`);
         },
       }); // Initialization logic should be within MCPClient
       this.clients.set(key, client);
-      log(`New client initialized and cached for key: ${key.slice(0, 20)}`);
+      log('New client initialized and cached for plugin: %s', params.name);
       return client;
     } catch (error) {
       console.error(`Failed to initialize MCP client:`, error);

@@ -91,6 +91,9 @@ MCP code is easy to break in ways that only show up in deployment-specific paths
 
 - desktop vs. server transport selection
 - stdio vs. streamable transports
+- OAuth-backed streamable transports must validate JSON-like HTTP responses before parsing. HTML auth/proxy pages returned as `text/html` or mislabeled `application/json` should become sanitized MCP connection errors without raw body text, URL query secrets, tokens, or `Unexpected token '<'` parser text.
+- OAuth `401` recovery is bounded: the Streamable HTTP fetch may force one token refresh and retry the same request once. Concurrent `tools`, `resources`, and `prompts` calls share a single forced refresh; a failed refresh or second `401` is terminal.
+- Token endpoint handling remains separate from transport retry. Authorization-code exchange and refresh still preserve provider-specific Basic-to-`client_secret_post` fallback while using the same malformed-response validation.
 - local/private URL handling
 - manifest metadata and plugin installability
 - async reporting that should not block the main tool call
@@ -113,7 +116,10 @@ For built-in Tools Hub features, also check:
 ## Key source references
 
 - `src/services/mcp.ts`
+- `src/libs/mcp/http.ts`
+- `src/libs/mcp/client.ts`
 - `README.md`
+- `src/server/services/mcp/`
 - `src/server/modules/`
 - `src/server/routers/`
 - `src/app/[variants]/(main)/tools/`

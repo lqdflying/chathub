@@ -8,6 +8,7 @@ import {
   NewMcpOAuthTokenItem,
 } from '@/database/schemas/mcpOAuth';
 import { oauthHandoffs } from '@/database/schemas/oidc';
+import { createMCPValidatingFetch, sanitizeMCPURLForLogging } from '@/libs/mcp/http';
 import { generateCodeChallenge, generateCodeVerifier, generateState } from '@/libs/mcp/pkce';
 import {
   OAuthCallbackParams,
@@ -258,6 +259,7 @@ export class McpOAuthService {
     }
 
     try {
+      const validatingFetch = createMCPValidatingFetch();
       let headers: Record<string, string>;
       let body: BodyInit;
 
@@ -298,7 +300,7 @@ export class McpOAuthService {
         });
       }
 
-      const response = await fetch(tokenEndpoint, {
+      const response = await validatingFetch(tokenEndpoint, {
         method: 'POST',
         headers,
         body,
@@ -322,7 +324,7 @@ export class McpOAuthService {
             refresh_token: record.refreshToken,
           });
 
-          const fallbackResponse = await fetch(tokenEndpoint, {
+          const fallbackResponse = await validatingFetch(tokenEndpoint, {
             method: 'POST',
             headers: fallbackHeaders,
             body: fallbackBody,
@@ -330,14 +332,14 @@ export class McpOAuthService {
 
           if (!fallbackResponse.ok) {
             log('Fallback token refresh also failed with status %d', fallbackResponse.status);
-            throw new Error(`Token refresh failed: ${fallbackResponse.statusText}`);
+            throw new Error(`Token refresh failed: HTTP ${fallbackResponse.status}`);
           }
 
           log('Fallback token refresh succeeded via client_secret_post');
           data = (await fallbackResponse.json()) as TokenEndpointResponse;
         } else {
           log('Token refresh failed with status %d', response.status);
-          throw new Error(`Token refresh failed: ${response.statusText}`);
+          throw new Error(`Token refresh failed: HTTP ${response.status}`);
         }
       } else {
         data = (await response.json()) as TokenEndpointResponse;
@@ -416,7 +418,8 @@ export class McpOAuthService {
     tokenEndpointAuthMethodsSupported?: string[],
   ): Promise<TokenEndpointResponse> {
     log('Exchanging code for tokens at %s (hasClientSecret=%s, supportedMethods=%O)',
-      tokenEndpoint, !!clientSecret, tokenEndpointAuthMethodsSupported);
+      sanitizeMCPURLForLogging(tokenEndpoint), !!clientSecret, tokenEndpointAuthMethodsSupported);
+    const validatingFetch = createMCPValidatingFetch();
 
     const supportsBasic = !tokenEndpointAuthMethodsSupported ||
       tokenEndpointAuthMethodsSupported.includes('client_secret_basic');
@@ -462,7 +465,7 @@ export class McpOAuthService {
       });
     }
 
-    const primaryResponse = await fetch(tokenEndpoint, {
+    const primaryResponse = await validatingFetch(tokenEndpoint, {
       method: 'POST',
       headers,
       body,
@@ -472,10 +475,9 @@ export class McpOAuthService {
     // to client_secret_post.  FastMCP servers (Tavily) advertise client_secret_basic
     // but fail to parse the Authorization header (fastmcp#214).
     if (!primaryResponse.ok) {
-      const errorText = await primaryResponse.text();
       if (useBasic && (primaryResponse.status === 400 || primaryResponse.status === 401)) {
-        log('Basic Auth failed (%d), falling back to client_secret_post: %s',
-          primaryResponse.status, errorText);
+        log('Basic Auth failed (%d), falling back to client_secret_post',
+          primaryResponse.status);
 
         const fallbackHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
         const fallbackBody = new URLSearchParams({
@@ -487,19 +489,17 @@ export class McpOAuthService {
           redirect_uri: redirectUri,
         });
 
-        const fallbackResponse = await fetch(tokenEndpoint, {
+        const fallbackResponse = await validatingFetch(tokenEndpoint, {
           method: 'POST',
           headers: fallbackHeaders,
           body: fallbackBody,
         });
 
         if (!fallbackResponse.ok) {
-          const fallbackError = await fallbackResponse.text();
-          log('Fallback token exchange also failed with status %d: %s',
-            fallbackResponse.status, fallbackError);
+          log('Fallback token exchange also failed with status %d', fallbackResponse.status);
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
-            message: `Failed to exchange authorization code: ${fallbackResponse.status} ${fallbackError}`,
+            message: `Failed to exchange authorization code: HTTP ${fallbackResponse.status}.`,
           });
         }
 
@@ -514,10 +514,10 @@ export class McpOAuthService {
         return data;
       }
 
-      log('Token exchange failed with status %d: %s', primaryResponse.status, errorText);
+      log('Token exchange failed with status %d', primaryResponse.status);
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
-        message: `Failed to exchange authorization code: ${primaryResponse.status} ${errorText}`,
+        message: `Failed to exchange authorization code: HTTP ${primaryResponse.status}.`,
       });
     }
 

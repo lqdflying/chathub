@@ -14,7 +14,7 @@ alwaysApply: false
 
 ## Request Conversion
 
-- Responses input must use input-side content types: `input_text`, `input_image`, and `function_call_output`. Never replay `output_text` as input.
+- Responses conversion is role-aware. User/system/developer input uses input-side content types such as `input_text` and `input_image`; tool results use `function_call_output`; persisted assistant replay uses string `content` or complete retained output items. Never serialize assistant history as `input_text` arrays.
 - Default a converted Chat Completions `image_url.detail` to `auto` when the source omits it.
 - Preserve assistant text alongside tool calls. Emit exactly one tool result per `tool_call_id`; do not duplicate results when they arrive before their assistant call.
 - Convert `tool_choice` structurally. Keep Chat Completions and Responses field allowlists separate.
@@ -44,3 +44,8 @@ alwaysApply: false
 - Structured logs must redact URL credentials/query values, API keys, authorization headers, cache keys, session IDs, and request identifiers. Log presence, counts, hashes, and payload shape instead.
 - Test both API modes, stream and non-stream parity, all terminal states, silent EOF, interleaved tools, cancellation propagation, cache usage, trace forwarding, and malformed chunks.
 - Follow `.cursor/rules/prompt-cache-stability.mdc` for cache matrices and prefix invariants.
+
+## MCP Transport Reliability
+
+- MCP OAuth discovery, registration, token exchange, token refresh, and Streamable HTTP transport fetches must validate JSON-like responses before parsing. HTML proxy/auth pages returned as `text/html` or mislabeled `application/json` must surface as sanitized MCP connection errors, not raw `Unexpected token '<'` parser failures.
+- OAuth Streamable HTTP requests own exactly one forced-refresh retry after a server `401`. Concurrent rejected requests must share the same forced refresh; if refresh fails or the retried request is also `401`, stop and surface an authorization error without replaying the rejected token.

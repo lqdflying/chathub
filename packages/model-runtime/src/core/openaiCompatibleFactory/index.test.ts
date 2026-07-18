@@ -1062,6 +1062,55 @@ describe('LobeOpenAICompatibleFactory', () => {
         expect(mockResponsesCreate).toHaveBeenCalled();
       });
 
+      it('should keep built-in search and role-valid assistant history in Responses follow-ups', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: {
+            useResponse: true,
+          },
+          provider: ModelProvider.OpenAI,
+        });
+
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const prod = new ReadableStream();
+        const debug = new ReadableStream();
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockResolvedValue({ tee: () => [prod, debug] } as any);
+
+        await inst.chat({
+          messages: [
+            { content: 'Search the web for Tavily MCP.', role: 'user' },
+            {
+              content: [{ text: 'I found the latest Tavily MCP docs.', type: 'text' }],
+              role: 'assistant',
+            } as any,
+            { content: 'What should we do next?', role: 'user' },
+          ],
+          model: 'gpt-5-mini',
+          stream: true,
+          temperature: 0,
+          tools: [
+            {
+              type: 'web_search' as any,
+            } as any,
+          ],
+        });
+
+        const requestPayload = mockResponsesCreate.mock.calls[0][0] as any;
+
+        expect(requestPayload.tools).toEqual([{ type: 'web_search' }]);
+        expect(requestPayload.input).toEqual([
+          { content: 'Search the web for Tavily MCP.', role: 'user' },
+          { content: 'I found the latest Tavily MCP docs.', role: 'assistant' },
+          { content: 'What should we do next?', role: 'user' },
+        ]);
+        const assistantItems = requestPayload.input.filter((item: any) => item.role === 'assistant');
+        expect(assistantItems).toHaveLength(1);
+        expect(assistantItems[0].content).toBe('I found the latest Tavily MCP docs.');
+        expect(JSON.stringify(assistantItems)).not.toContain('"input_text"');
+      });
+
       it('should keep Responses API stateless unless response state is explicitly enabled', async () => {
         const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',

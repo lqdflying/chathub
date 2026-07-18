@@ -97,48 +97,18 @@ export const convertOpenAIMessages = async (
 };
 
 /**
- * Extract assistant text content as Responses easy-input text parts.
- * Used to preserve assistant commentary that precedes tool calls.
- */
-function extractAssistantTextParts(
-  message: OpenAIChatMessage,
-): OpenAI.Responses.ResponseInputText[] {
-  if (message.content === null || message.content === undefined) return [];
-
-  if (typeof message.content === 'string') {
-    const trimmed = message.content.trim();
-    return trimmed.length > 0 ? [{ text: message.content, type: 'input_text' }] : [];
-  }
-
-  if (Array.isArray(message.content)) {
-    return message.content
-      .filter((c) => c.type === 'text' && (c as OpenAI.ChatCompletionContentPartText).text)
-      .map((c) => ({
-        text: (c as OpenAI.ChatCompletionContentPartText).text,
-        type: 'input_text' as const,
-      }));
-  }
-
-  return [];
-}
-
-/**
  * Convert Chat Completions content to Responses assistant easy-input content.
  * Non-text parts are dropped because historical assistant messages cannot
  * contain user input images in this serializer.
  */
-function toResponseInputTextContent(
-  content: OpenAIChatMessage['content'],
-): string | OpenAI.Responses.ResponseInputMessageContentList {
+function toResponseAssistantTextContent(content: OpenAIChatMessage['content']): string {
   if (typeof content === 'string') return content;
 
   if (Array.isArray(content)) {
     return content
       .filter((c) => c.type === 'text')
-      .map((c) => ({
-        text: (c as OpenAI.ChatCompletionContentPartText).text,
-        type: 'input_text' as const,
-      }));
+      .map((c) => (c as OpenAI.ChatCompletionContentPartText).text)
+      .join('');
   }
 
   return '';
@@ -211,10 +181,10 @@ export const convertOpenAIResponseInputs = async (
         // Responses API accepts interleaved message/function items in `input`, and
         // dropping the text breaks multi-turn continuity and prompt-cache prefixes
         // when the assistant turn had both commentary and tool calls.
-        const textParts = extractAssistantTextParts(message);
-        if (textParts.length > 0) {
+        const assistantText = toResponseAssistantTextContent(message.content);
+        if (assistantText.trim().length > 0) {
           items.push({
-            content: textParts,
+            content: assistantText,
             role: 'assistant',
           } as OpenAI.Responses.EasyInputMessage);
         }
@@ -249,11 +219,11 @@ export const convertOpenAIResponseInputs = async (
         return items;
       }
 
-      // assistant messages without tool_calls: easy-input content must use
-      // `input_text` (not `output_text`, which is an OUTPUT-only content type).
+      // Assistant replay uses string easy-input content. Strict Responses
+      // gateways reject `input_text` parts for the assistant role.
       if (message.role === 'assistant') {
         items.push({
-          content: toResponseInputTextContent(message.content),
+          content: toResponseAssistantTextContent(message.content),
           role: 'assistant',
         } as OpenAI.Responses.EasyInputMessage);
         return items;

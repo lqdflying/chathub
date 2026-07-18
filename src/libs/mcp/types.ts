@@ -80,6 +80,14 @@ export interface StdioMCPParams {
 
 export type MCPClientParams = HttpMCPClientParams | StdioMCPParams;
 
+export interface MCPTokenGetterOptions {
+  forceRefresh?: boolean;
+}
+
+export type MCPTokenGetter = (
+  options?: MCPTokenGetterOptions,
+) => Promise<string | undefined>;
+
 export type MCPErrorType =
   | 'CONNECTION_FAILED'
   | 'PROCESS_SPAWN_ERROR'

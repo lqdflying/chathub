@@ -2,7 +2,11 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock 依赖
-vi.mock('@/libs/mcp');
+vi.mock('@/libs/mcp', () => ({
+  MCPClient: vi.fn(),
+}));
+
+const MockMCPClient = vi.mocked((await import('@/libs/mcp')).MCPClient);
 
 describe('MCPService', () => {
   let mcpService: any;
@@ -23,6 +27,129 @@ describe('MCPService', () => {
 
     // Mock getClient 方法返回 mock 客户端
     vi.spyOn(mcpService as any, 'getClient').mockResolvedValue(mockClient);
+  });
+
+  describe('diagnostic sanitization', () => {
+    it('removes credentials and URL queries from logged HTTP parameters', () => {
+      const sanitizedParams = (mcpService as any).sanitizeForLogging({
+        auth: { accessToken: 'access-token', type: 'oauth2' },
+        env: { PRIVATE_TOKEN: 'environment-secret' },
+        headers: { Authorization: 'Bearer header-secret' },
+        name: 'tavily',
+        type: 'http',
+        url: 'https://mcp.tavily.com/mcp/?api_key=query-secret#private-fragment',
+      });
+
+      expect(sanitizedParams).toEqual({
+        name: 'tavily',
+        type: 'http',
+        url: 'https://mcp.tavily.com/mcp/',
+      });
+      expect(JSON.stringify(sanitizedParams)).not.toMatch(
+        /access-token|environment-secret|header-secret|query-secret|private-fragment/,
+      );
+    });
+  });
+
+  describe('OAuth token getter', () => {
+    const oauthParams = {
+      auth: { accessToken: 'stored-access-token', type: 'oauth2' as const },
+      name: 'tavily',
+      type: 'http' as const,
+      url: 'https://mcp.tavily.com/mcp/',
+    };
+
+    const createOAuthContext = (token: any, refreshedToken: any) => ({
+      oauthService: {
+        getOAuthToken: vi.fn().mockResolvedValue(token),
+        refreshOAuthToken: vi.fn().mockResolvedValue(refreshedToken),
+      },
+      pluginIdentifier: 'tavily',
+      userId: 'user-id',
+    });
+
+    const initializeClientWithOAuth = async (oauthContext: ReturnType<typeof createOAuthContext>) => {
+      vi.mocked((mcpService as any).getClient).mockRestore();
+      const constructedClient = {
+        initialize: vi.fn().mockResolvedValue(undefined),
+        listTools: vi.fn().mockResolvedValue([]),
+      };
+      MockMCPClient.mockReturnValue(constructedClient as any);
+
+      await mcpService.listTools(oauthParams, {}, oauthContext as any);
+
+      return {
+        constructedClient,
+        constructorOptions: MockMCPClient.mock.calls[0][1] as any,
+        constructorParams: MockMCPClient.mock.calls[0][0] as any,
+      };
+    };
+
+    it('refreshes known-expired tokens during normal retrieval', async () => {
+      const oauthContext = createOAuthContext(
+        {
+          accessToken: 'expired-token',
+          expiresAt: Date.now() - 1_000,
+          refreshToken: 'refresh-token',
+        },
+        { accessToken: 'fresh-token' },
+      );
+
+      const { constructorOptions, constructorParams } = await initializeClientWithOAuth(oauthContext);
+      const tokenGetter = constructorOptions.tokenGetter;
+
+      await expect(tokenGetter()).resolves.toBe('fresh-token');
+      expect(constructorParams.auth.accessToken).toBe('fresh-token');
+      expect(oauthContext.oauthService.refreshOAuthToken).toHaveBeenCalledWith('user-id', 'tavily');
+    });
+
+    it('forces refresh even when the stored token is unexpired', async () => {
+      const oauthContext = createOAuthContext(
+        {
+          accessToken: 'unexpired-token',
+          expiresAt: Date.now() + 60_000,
+          refreshToken: 'refresh-token',
+        },
+        { accessToken: 'forced-fresh-token' },
+      );
+
+      const { constructorOptions } = await initializeClientWithOAuth(oauthContext);
+
+      await expect(constructorOptions.tokenGetter({ forceRefresh: true })).resolves.toBe(
+        'forced-fresh-token',
+      );
+      expect(oauthContext.oauthService.refreshOAuthToken).toHaveBeenCalledWith('user-id', 'tavily');
+    });
+
+    it('does not replay a token when forced refresh fails', async () => {
+      const oauthContext = createOAuthContext(
+        {
+          accessToken: 'server-rejected-token',
+          expiresAt: Date.now() + 60_000,
+          refreshToken: 'refresh-token',
+        },
+        null,
+      );
+
+      const { constructorOptions } = await initializeClientWithOAuth(oauthContext);
+
+      await expect(constructorOptions.tokenGetter({ forceRefresh: true })).resolves.toBeUndefined();
+    });
+
+    it('preserves unknown-expiry fallback when refresh is unavailable', async () => {
+      const oauthContext = createOAuthContext(
+        {
+          accessToken: 'unknown-expiry-token',
+          refreshToken: 'refresh-token',
+        },
+        null,
+      );
+
+      const { constructorOptions } = await initializeClientWithOAuth(oauthContext);
+
+      await expect(constructorOptions.tokenGetter()).resolves.toBe('unknown-expiry-token');
+      expect(oauthContext.oauthService.refreshOAuthToken).toHaveBeenCalledWith('user-id', 'tavily');
+    });
   });
 
   describe('callTool', () => {

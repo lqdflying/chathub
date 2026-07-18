@@ -8,6 +8,8 @@ import {
 } from '@modelcontextprotocol/sdk/client/auth.js';
 import debug from 'debug';
 
+import { createMCPValidatingFetch, sanitizeMCPURLForLogging } from '@/libs/mcp/http';
+
 const log = debug('lobe-mcp:oauth-discovery');
 
 export interface DiscoveredOAuthMetadata {
@@ -41,14 +43,16 @@ export async function discoverOAuthMetadata(
   redirectUri?: string,
   fetchFn?: typeof fetch,
 ): Promise<DiscoveredOAuthMetadata> {
-  log('Discovering OAuth metadata for %s', serverUrl);
+  const sanitizedServerUrl = sanitizeMCPURLForLogging(serverUrl);
+  log('Discovering OAuth metadata for %s', sanitizedServerUrl);
+  const validatingFetch = createMCPValidatingFetch(fetchFn);
 
   // Step 1: Discover protected resource metadata
   let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
   let authorizationServerUrl: string = serverUrl;
 
   try {
-    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {}, fetchFn);
+    resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, {}, validatingFetch);
     if (
       resourceMetadata?.authorization_servers &&
       resourceMetadata.authorization_servers.length > 0
@@ -65,18 +69,20 @@ export async function discoverOAuthMetadata(
   let authMetadata: AuthorizationServerMetadata | undefined;
 
   try {
-    authMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, { fetchFn });
+    authMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
+      fetchFn: validatingFetch,
+    });
     log('Authorization server metadata discovered: %O', authMetadata);
   } catch (err) {
     log('Authorization server metadata discovery failed: %O', err);
     throw new Error(
-      `OAuth metadata discovery failed for ${serverUrl}. The server may not support OAuth 2.1 auto-discovery.`,
+      `OAuth metadata discovery failed for ${sanitizedServerUrl}. The server may not support OAuth 2.1 auto-discovery.`,
     );
   }
 
   if (!authMetadata) {
     throw new Error(
-      `No authorization server metadata found for ${serverUrl}. The server may not support OAuth 2.1.`,
+      `No authorization server metadata found for ${sanitizedServerUrl}. The server may not support OAuth 2.1.`,
     );
   }
 
@@ -102,8 +108,8 @@ export async function discoverOAuthMetadata(
             grant_types: ['authorization_code', 'refresh_token'],
             response_types: ['code'],
           },
+          fetchFn: validatingFetch,
         },
-        fetchFn,
       );
 
       clientId = registration.client_id;

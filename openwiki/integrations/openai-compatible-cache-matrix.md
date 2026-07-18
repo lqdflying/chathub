@@ -37,6 +37,7 @@ Preset selection writes the full matrix. Built-in presets keep the matrix hidden
 - Cache keys are derived from stable prompt parts such as model, system/developer messages, first user message, reasoning effort, and tools.
 - When the matrix explicitly enables a cache hint (`prompt_cache_key` or `Session_id`), the key is derived for **any** model. The gpt-5/codex model-family allowlist applies only to the legacy implicit `responseStateMode: "provider"` (no-matrix) path.
 - The factory `store ?? true` fallback also applies only to that no-matrix legacy path — it matches the `Prompt key + store` normalization. With a saved matrix, `store: default` correctly omits the field.
+- Responses input conversion is role-aware: user/system/developer replay may contain `input_text` and `input_image` parts, tool outputs become `function_call_output`, and assistant replay is serialized as plain string `content` unless complete Responses output items are retained. Assistant history must not be emitted as assistant `input_text` arrays because compatible Responses endpoints validate assistant arrays as model output content.
 - Historical assistant `reasoning` is never serialized into Responses `input` for the `openaicompatible` provider (mirroring the Chat Completions `reasoning_content` rule), keeping the cached prefix stable.
 - The Chat and Responses routes derive different `compat_cc_` keys for the same conversation (different serializations), so switching the API route mid-session starts a cold cache — expected behavior.
 
