@@ -51,10 +51,30 @@ Tools debug:
 Tool-call failures:
 ```apl
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
-  and (debug_event == 'call_tool_failed' or debug_event == 'call_tool_error')
-| project _time, debug_event, debugLevel, durationMs
+  and (debug_event == 'call_tool_failed' or debug_event == 'client_rpc_response_failed'
+       or debug_event == 'tools_rpc_failed' or debug_event == 'transport_request_failed')
+| project _time, diagnosticId, spanId, eventSequence, debug_event, operation, failurePhase,
+  errorKind, httpStatus, mediaType, bodyKind, htmlMarker, durationMs, connectionHash
 | sort by _time desc | take 25
 ```
+
+Follow one request end to end:
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
+  and diagnosticId == '<diagnostic-id-from-error-card>'
+| project _time, spanId, eventSequence, debug_event, operation, phase, outcome, durationMs,
+  httpStatus, mediaType, bodyKind, responseFingerprint
+| sort by _time asc
+```
+
+`eventSequence` is monotonic inside one `spanId`; the browser failure report is
+a second span carrying the same `diagnosticId`.
+
+Detect a downstream proxy replacement: compare
+`tools_rpc_complete.response.responseFingerprint` with
+`client_rpc_response_failed.responseFingerprint` for the same `diagnosticId`.
+Different fingerprints or server-side `bodyKind=json` followed by client-side
+`bodyKind=html` indicate that something after ChatHub replaced the response.
 
 ## Verify the env var is actually live
 
@@ -74,8 +94,9 @@ After changing the var, recreate: `docker compose up -d --force-recreate chathub
 ## Healthy signals
 
 - Tools: `debug_event=client_initialized`, `debug_event=list_tools_complete`,
-  and `debug_event=call_tool_complete`, with counts/timing but no raw plugin
-  names, URLs, arguments, or results. Verbose string values appear only as
-  length + hash metadata.
+  and `debug_event=call_tool_complete`, sharing a `diagnosticId` and ordered
+  per-span `eventSequence`. Safe technical tool/procedure labels may be readable, but
+  arguments, results, bodies, arbitrary errors, credentials, query strings,
+  environment values, and user/connection identifiers must never be raw.
 - Cache: `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`;
   misses expected on new/large-context turns (cache re-prime).

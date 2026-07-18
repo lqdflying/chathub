@@ -3,10 +3,16 @@ import { ChatToolPayload, CheckMcpInstallResult, CustomPluginMetadata } from '@l
 import { isLocalOrPrivateUrl, safeParseJSON } from '@lobechat/utils';
 import { PluginManifest } from '@lobehub/market-sdk';
 import { CallReportRequest } from '@lobehub/market-types';
+import { nanoid } from 'nanoid';
 
 import { desktopClient, toolsClient } from '@/libs/trpc/client';
+import { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from '@/libs/trpc/client/tools';
+import {
+  findToolsRPCResponseError,
+} from '@/libs/trpc/client/toolsResponse';
 
 import { discoverService } from './discover';
+import { MCPInvocationError } from './mcpError';
 
 /**
  * 计算对象的字节大小
@@ -17,11 +23,46 @@ function calculateObjectSizeBytes(obj: any): number {
   try {
     const jsonString = JSON.stringify(obj);
     return new TextEncoder().encode(jsonString).length;
-  } catch (error) {
-    console.warn('Failed to calculate object size:', error);
+  } catch {
+    console.warn('Failed to calculate MCP report object size.');
     return 0;
   }
 }
+
+const isAbortError = (error: unknown) => {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+
+  for (let depth = 0; current && depth < 6 && !seen.has(current); depth += 1) {
+    seen.add(current);
+    if (current instanceof Error) {
+      const normalizedMessage = current.message.toLowerCase();
+      if (
+        current.name === 'AbortError' ||
+        normalizedMessage === 'aborterror' ||
+        normalizedMessage.includes('user aborted') ||
+        normalizedMessage.includes('operation was aborted')
+      ) {
+        return true;
+      }
+    }
+    current = typeof current === 'object' ? (current as { cause?: unknown }).cause : undefined;
+  }
+
+  return false;
+};
+
+const getSafeTRPCErrorMetadata = (error: unknown) => {
+  if (!error || typeof error !== 'object') return {};
+  const data = (error as { data?: unknown }).data;
+  if (!data || typeof data !== 'object') return {};
+  const code = (data as { code?: unknown }).code;
+  const httpStatus = (data as { httpStatus?: unknown }).httpStatus;
+  return {
+    httpStatus: typeof httpStatus === 'number' ? httpStatus : undefined,
+    trpcCode: typeof code === 'string' ? code : undefined,
+  };
+};
 
 class MCPService {
   async invokeMcpToolCall(
@@ -41,6 +82,7 @@ class MCPService {
 
     if (!plugin) return;
 
+    const diagnosticId = `td_${nanoid(20)}`;
     const data = {
       args,
       env: plugin.settings || plugin.customParams?.mcp?.env,
@@ -60,21 +102,57 @@ class MCPService {
     try {
       // For desktop and stdio, use the desktopClient
       if (isDesktop && isStdio) {
-        result = await desktopClient.mcp.callTool.mutate(data, { signal });
+        result = await desktopClient.mcp.callTool.mutate(data, {
+          context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
+          signal,
+        });
       } else {
-        result = await toolsClient.mcp.callTool.mutate(data, { signal });
+        result = await toolsClient.mcp.callTool.mutate(data, {
+          context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
+          signal,
+        });
       }
 
       success = true;
       return result;
     } catch (error) {
       success = false;
-      const err = error as Error;
-      errorCode = 'CALL_FAILED';
-      errorMessage = err.message;
+      if (isAbortError(error)) throw error;
 
-      // 重新抛出错误，保持原有的错误处理逻辑
-      throw error;
+      const responseError = findToolsRPCResponseError(error);
+      if (responseError) {
+        const responseDetails = { ...responseError.details, diagnosticId };
+        errorCode = responseDetails.reason;
+        errorMessage = `MCP tools gateway failure: ${responseDetails.reason}`;
+
+        // Best-effort local diagnostic reporting. It is deliberately isolated,
+        // never retried, and its own failure is ignored to avoid recursion.
+        void toolsClient.mcp.reportClientFailure
+          .mutate(responseDetails, {
+            context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
+          })
+          .catch(() => undefined);
+
+        throw new MCPInvocationError({
+          ...responseDetails,
+          category: 'gateway',
+          errorKind: responseDetails.reason,
+        });
+      }
+
+      const trpcMetadata = getSafeTRPCErrorMetadata(error);
+      errorCode = trpcMetadata.trpcCode || 'CALL_FAILED';
+      errorMessage = `MCP tool server failure: ${errorCode}`;
+      throw new MCPInvocationError({
+        bodyKind: 'unexpected_text',
+        category: 'server',
+        diagnosticId,
+        durationMs: Date.now() - callStartTime,
+        errorKind: trpcMetadata.trpcCode ? 'server_error' : 'unknown_error',
+        failurePhase: 'rpc_server',
+        httpStatus: trpcMetadata.httpStatus,
+        trpcCode: trpcMetadata.trpcCode,
+      });
     } finally {
       // 异步上报调用结果，不影响主流程
       const callEndTime = Date.now();
@@ -117,8 +195,8 @@ class MCPService {
       };
 
       // 异步上报，不影响主流程
-      discoverService.reportPluginCall(reportData).catch((reportError) => {
-        console.warn('Failed to report MCP tool call:', reportError);
+      discoverService.reportPluginCall(reportData).catch(() => {
+        console.warn('Failed to report MCP tool call.');
       });
     }
   }

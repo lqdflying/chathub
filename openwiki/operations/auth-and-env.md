@@ -48,10 +48,12 @@ The same flags still enable raw `[requestPayload]` and stream logs, so do not le
 | Value | Effect |
 | --- | --- |
 | unset / `0` / `off` | Structured tool diagnostics off (default) |
-| `1` / `safe` | Structured static events, counts, status, transport, and timing |
-| `verbose` / `2` | Safe records plus structured, bounded payload fingerprints |
+| `1` / `safe` | Complete request lifecycle with safe labels, status, timing, retry/cache/OAuth state, shapes, sizes, and fingerprints |
+| `verbose` / `2` | Safe records plus deeper bounded object/array shape fingerprints; never raw content |
 
-Output uses `[chathub-tools-debug:<event>]` followed by one JSON object. The production parser maps this to `debug_namespace=chathub-tools-debug` and `debug_event=<event>`. Safe records contain no request/response bodies or user-controlled identifiers. At verbose level, `sanitizeToolDebugPayload` redacts secret-key values, bounds arrays/object width/depth, and converts property names and every other string to `{ type, length, hash }`; it never preserves a raw short-string exception.
+Output uses `[chathub-tools-debug:<event>]` followed by one versioned JSON object. The production parser maps this to `debug_namespace=chathub-tools-debug` and `debug_event=<event>`. An opaque `diagnosticId`, `spanId`, and per-span event sequence correlate tRPC, cache, OAuth, transport, MCP, normalization, serialization, and browser response failures. Safe records include sanitized technical labels and credential-free endpoint paths, while user/connection identity remains hashed.
+
+Neither level records raw request/response bodies, HTML, tool arguments/results, prompts, resources, arbitrary error messages, stdout/stderr, environment values, URL query/fragment, authorization/cookies, OAuth codes/state/verifiers, session values, tokens, keys, passwords, or secrets. Secret-keyed values are removed rather than fingerprinted. Invalid JSON is classified using safe metadata such as `bodyKind`, status, media type, bytes, HTML marker, proxy hints, and a bounded response fingerprint; the native parser excerpt is discarded. Records are capped at 16 KiB.
 
 Explicit `DEBUG=chathub-tools:safe|verbose` remains available as a legacy plain-text fallback. Structured output wins per event when both switches enable it, preventing duplicate records. Other explicit `DEBUG=...` namespaces are preserved and deduped. Existing `lobe-mcp:*`, `context-engine:*`, `lobe-search:*`, and `lobe-chat:*` namespaces are never auto-enabled; some have broader/raw logging contracts and should be explicit, short-lived troubleshooting opt-ins. An unrecognized `CHATHUB_TOOLS_DEBUG` value is treated as off with a one-line startup warning.
 

@@ -106,7 +106,8 @@ describe('MCPService', () => {
         const record = JSON.parse(debugCall![1]);
         expect(record).toMatchObject({ debugLevel: 'safe' });
         expect(record.durationMs).toEqual(expect.any(Number));
-        expect(debugCall![1]).not.toMatch(/private upstream failure|private-tool-name/);
+        expect(debugCall![1]).not.toContain('private upstream failure');
+        expect(record.toolName).toBe('private-tool-name');
       } finally {
         consoleLogSpy.mockRestore();
         consoleErrorSpy.mockRestore();
@@ -499,7 +500,7 @@ describe('MCPService', () => {
       mockClient.listTools.mockRejectedValue(error);
 
       await expect(mcpService.listTools(mockParams)).rejects.toMatchObject({
-        message: 'Error listing tools from MCP server: Custom error message',
+        message: 'Unable to list tools from the MCP server.',
         code: 'INTERNAL_SERVER_ERROR',
       });
     });
@@ -672,7 +673,9 @@ describe('MCPService', () => {
       };
       MockMCPClient.mockReturnValue(client as any);
 
-      await expect((service as any).getClient(params)).rejects.toThrow('initialization failed');
+      await expect((service as any).getClient(params)).rejects.toThrow(
+        'Unable to initialize the MCP client.',
+      );
       expect(client.disconnect).toHaveBeenCalledTimes(1);
     });
   });

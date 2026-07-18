@@ -8,8 +8,13 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.d.ts'
 import type { Progress } from '@modelcontextprotocol/sdk/types.js';
 import debug from 'debug';
 import { spawn } from 'node:child_process';
+import { basename } from 'node:path';
 
-import { logToolsDebugVerbose } from '@/libs/logger/toolsDebug';
+import {
+  describeToolsDebugError,
+  logToolsDebugSafe,
+  logToolsDebugVerbose,
+} from '@/libs/logger/toolsDebug';
 
 import {
   MCPClientParams,
@@ -42,7 +47,7 @@ async function preCheckStdioCommand(params: {
   success: boolean;
 }> {
   return new Promise((resolve) => {
-    log('Pre-checking stdio command: %s with args: %O', params.command, params.args);
+    log('Pre-checking stdio executable %s with %d arguments', basename(params.command), params.args.length);
 
     const child = spawn(params.command, params.args, {
       env: {
@@ -84,14 +89,18 @@ async function preCheckStdioCommand(params: {
     // 收集 stderr - 这是关键部分
     child.stderr?.on('data', (data) => {
       stderr += data.toString();
-      log('Captured stderr: %s', data.toString());
+      log('Captured stderr chunk (%d bytes)', data.byteLength);
     });
 
     child.on('error', (error) => {
       if (!resolved) {
         resolved = true;
         clearTimeout(timeout);
-        log('Process spawn error: %O', error);
+        log(
+          'Process spawn error class=%s code=%s',
+          error.name,
+          (error as Error & { code?: string }).code,
+        );
         resolve({
           error: createMCPError('PROCESS_SPAWN_ERROR', 'Failed to start MCP service process', {
             originalError: error.message,
@@ -112,10 +121,10 @@ async function preCheckStdioCommand(params: {
         clearTimeout(timeout);
 
         if (code === 0) {
-          log('Pre-check successful, stdout: %s', stdout);
+          log('Pre-check successful, stdout bytes=%d', Buffer.byteLength(stdout, 'utf8'));
           resolve({ success: true });
         } else {
-          log('Pre-check failed with code: %d, stderr: %s', code, stderr);
+          log('Pre-check failed with code=%d stderr bytes=%d', code, Buffer.byteLength(stderr, 'utf8'));
           resolve({
             error: createMCPError('CONNECTION_FAILED', 'MCP service startup failed', {
               errorLog: stderr,
@@ -151,7 +160,7 @@ async function preCheckStdioCommand(params: {
       child.stdin?.write(initMessage);
       child.stdin?.end();
     } catch (writeError) {
-      log('Failed to write to stdin: %O', writeError);
+      log('Failed to write to stdin class=%s', writeError instanceof Error ? writeError.name : typeof writeError);
     }
   });
 }
@@ -221,13 +230,17 @@ export class MCPClient {
           requestInit: { headers },
         });
 
-        log('HTTP transport created with headers: %O', Object.keys(headers));
+        log(
+          'HTTP transport created headerCount=%d authorizationConfigured=%s',
+          Object.keys(headers).length,
+          'Authorization' in headers,
+        );
 
         break;
       }
 
       case 'stdio': {
-        log('Using Stdio transport with command: %s , args: %O', params.command, params.args);
+        log('Using stdio transport executable=%s args=%d', basename(params.command), params.args.length);
 
         this.transport = new StdioClientTransport({
           args: params.args,
@@ -248,7 +261,7 @@ export class MCPClient {
             params: { type: (params as any).type },
           },
         );
-        log('Error creating client: %O', err);
+        log('Error creating MCP client code=%s', err.code);
         throw err;
       }
     }
@@ -256,12 +269,33 @@ export class MCPClient {
 
   async initialize(options: { onProgress?: (progress: Progress) => void } = {}) {
     log('Initializing MCP connection...');
+    const start = Date.now();
+    logToolsDebugSafe('mcp_operation_started', { operation: 'initialize' });
 
     try {
       await this.mcp.connect(this.transport, { onprogress: options.onProgress });
+      const capabilities = this.mcp.getServerCapabilities?.();
+      const serverVersion = this.mcp.getServerVersion?.();
+      logToolsDebugSafe('mcp_operation_complete', {
+        capabilities: {
+          prompts: !!capabilities?.prompts,
+          resources: !!capabilities?.resources,
+          tools: !!capabilities?.tools,
+        },
+        durationMs: Date.now() - start,
+        operation: 'initialize',
+        serverName: serverVersion?.name || serverVersion?.title,
+        serverVersion: serverVersion?.version,
+      });
       log('MCP connection initialized.');
     } catch (e) {
-      log('MCP connection failed:', e);
+      logToolsDebugSafe('mcp_operation_failed', {
+        ...describeToolsDebugError(e),
+        durationMs: Date.now() - start,
+        failurePhase: 'initialize',
+        operation: 'initialize',
+      });
+      log('MCP connection failed class=%s', e instanceof Error ? e.name : typeof e);
 
       if (this.params.type === 'http') {
         const error = e as Error;
@@ -282,7 +316,7 @@ export class MCPClient {
         });
 
         if (!preCheckResult.success && preCheckResult.error) {
-          log('Detailed error captured: %O', preCheckResult.error);
+          log('Detailed stdio pre-check error captured code=%s', preCheckResult.error.code);
           throw preCheckResult.error;
         }
       }
@@ -340,9 +374,8 @@ export class MCPClient {
       logToolsDebugVerbose('list_tools', tools);
       return tools as McpTool[];
     } catch (e) {
-      console.error('Listed tools error: %O', e);
       logToolsDebugVerbose('list_tools_error', {
-        error: e instanceof Error ? e.message : e,
+        error: describeToolsDebugError(e),
       });
 
       if ((e as Error).message.includes('No valid session ID provided')) {
@@ -362,9 +395,8 @@ export class MCPClient {
       logToolsDebugVerbose('list_resources', resources);
       return resources as McpResource[];
     } catch (e) {
-      console.error('Listed resources error: %O', e);
       logToolsDebugVerbose('list_resources_error', {
-        error: e instanceof Error ? e.message : e,
+        error: describeToolsDebugError(e),
       });
 
       // Surface non-recoverable errors instead of returning [].
@@ -379,9 +411,8 @@ export class MCPClient {
       logToolsDebugVerbose('list_prompts', prompts);
       return prompts as McpPrompt[];
     } catch (e) {
-      console.error('Listed prompts error: %O', e);
       logToolsDebugVerbose('list_prompts_error', {
-        error: e instanceof Error ? e.message : e,
+        error: describeToolsDebugError(e),
       });
 
       // Surface non-recoverable errors instead of returning [].
@@ -391,7 +422,12 @@ export class MCPClient {
 
   async listManifests() {
     const capabilities = this.mcp.getServerCapabilities();
-    log('get capabilities: %O', capabilities);
+    log(
+      'MCP capabilities tools=%s prompts=%s resources=%s',
+      !!capabilities?.tools,
+      !!capabilities?.prompts,
+      !!capabilities?.resources,
+    );
 
     const [tools, prompts, resources] = await Promise.all([
       capabilities?.tools ? this.listTools() : Promise.resolve([]),
@@ -407,7 +443,12 @@ export class MCPClient {
       version: this.mcp.getServerVersion()?.version?.replace('v', ''),
     };
 
-    log('Listed Manifest: %O', manifest);
+    log(
+      'Listed manifest tools=%d prompts=%d resources=%d',
+      tools.length,
+      prompts.length,
+      resources.length,
+    );
 
     return manifest;
   }
@@ -422,7 +463,7 @@ export class MCPClient {
       return result;
     } catch (e) {
       logToolsDebugVerbose('call_tool_error', {
-        error: e instanceof Error ? e.message : e,
+        error: describeToolsDebugError(e),
       });
 
       throw e;

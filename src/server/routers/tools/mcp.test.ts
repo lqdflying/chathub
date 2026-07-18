@@ -154,11 +154,45 @@ describe('mcpRouter OAuth public boundary', () => {
     const serializedError = JSON.stringify(error);
 
     expect(error).toBeInstanceOf(TRPCError);
-    expect((error as TRPCError).message).toContain('unexpected HTML document');
+    expect((error as TRPCError).message).toBe('The MCP tool call failed.');
     expect(serializedError).not.toContain('<!DOCTYPE');
     expect(serializedError).not.toContain('Unexpected token');
     expect(serializedError).not.toContain('stored-access-token');
     expect(serializedError).not.toContain('Authorization');
     expect(serializedError).not.toContain('query-secret');
+  });
+
+  it('accepts only structured client failure metadata and emits no HTML body', async () => {
+    const previousDebug = process.env.CHATHUB_TOOLS_DEBUG;
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const { mcpRouter } = await loadRouterWithTransportFetch(vi.fn() as unknown as typeof fetch);
+    const caller = mcpRouter.createCaller(createCallerContext());
+
+    await expect(
+      caller.reportClientFailure({
+        bodyBytes: 615,
+        bodyKind: 'html',
+        diagnosticId: 'td_1234567890abcdef',
+        durationMs: 6788,
+        failurePhase: 'response_parse',
+        htmlMarker: 'doctype',
+        httpStatus: 502,
+        mediaType: 'text/html',
+        reason: 'response_parse_failed',
+        responseFingerprint: 'abcdef0123456789',
+      }),
+    ).resolves.toEqual({ reported: true });
+
+    const event = consoleSpy.mock.calls.find(
+      ([prefix]) => prefix === '[chathub-tools-debug:client_rpc_response_failed]',
+    );
+    expect(event).toBeDefined();
+    expect(event?.[1]).toContain('response_parse_failed');
+    expect(event?.[1]).not.toContain('<!DOCTYPE');
+
+    consoleSpy.mockRestore();
+    if (previousDebug === undefined) delete process.env.CHATHUB_TOOLS_DEBUG;
+    else process.env.CHATHUB_TOOLS_DEBUG = previousDebug;
   });
 });

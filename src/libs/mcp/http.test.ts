@@ -25,6 +25,20 @@ describe('sanitizeMCPURLForLogging', () => {
   it('does not echo malformed URL input', () => {
     expect(sanitizeMCPURLForLogging('url-secret')).toBe('[invalid MCP URL]');
   });
+
+  it('keeps static discovery paths but fingerprints opaque path identifiers', () => {
+    expect(
+      sanitizeMCPURLForLogging(
+        'https://mcp.example.com/.well-known/oauth-authorization-server',
+      ),
+    ).toBe('https://mcp.example.com/.well-known/oauth-authorization-server');
+
+    const sanitized = sanitizeMCPURLForLogging(
+      'https://mcp.example.com/users/123e4567-e89b-12d3-a456-426614174000/tools',
+    );
+    expect(sanitized).toMatch(/^https:\/\/mcp\.example\.com\/users\/h-[\da-f]{16}\/tools$/);
+    expect(sanitized).not.toContain('123e4567');
+  });
 });
 
 describe('validateMCPHTTPResponse', () => {
@@ -54,6 +68,25 @@ describe('validateMCPHTTPResponse', () => {
     const validatedResponse = await validateMCPHTTPResponse(response);
 
     await expect(validatedResponse.text()).resolves.toBe('data: {"jsonrpc":"2.0"}\n\n');
+  });
+
+  it('returns a sanitized error when the response stream cannot be read', async () => {
+    const response = jsonResponse({ ok: true });
+    const responseClone = response.clone();
+    vi.spyOn(responseClone, 'text').mockRejectedValue(
+      new TypeError('terminated while reading private response bytes'),
+    );
+    vi.spyOn(response, 'clone').mockReturnValue(responseClone);
+
+    const error = await validateMCPHTTPResponse(response).catch((caughtError) => caughtError);
+
+    expect(error).toMatchObject({
+      data: {
+        metadata: { step: 'http_response_read' },
+        type: 'CONNECTION_FAILED',
+      },
+    });
+    expect(JSON.stringify(error)).not.toContain('private response bytes');
   });
 
   it.each([

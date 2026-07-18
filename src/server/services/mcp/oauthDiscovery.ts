@@ -1,6 +1,5 @@
 import {
   AuthorizationServerMetadata,
-  OAuthClientInformationFull,
   OAuthProtectedResourceMetadata,
   discoverAuthorizationServerMetadata,
   discoverOAuthProtectedResourceMetadata,
@@ -9,19 +8,23 @@ import {
 import debug from 'debug';
 
 import { createMCPValidatingFetch, sanitizeMCPURLForLogging } from '@/libs/mcp/http';
+import {
+  describeToolsDebugError,
+  logToolsDebugSafe,
+} from '@/libs/logger/toolsDebug';
 
 const log = debug('lobe-mcp:oauth-discovery');
 
 export interface DiscoveredOAuthMetadata {
   authorizationEndpoint: string;
-  tokenEndpoint: string;
+  clientId?: string;
+  clientIdIssuedAt?: number;
+  clientSecret?: string;
+  clientSecretExpiresAt?: number;
   registrationEndpoint?: string;
   scopesSupported?: string[];
+  tokenEndpoint: string;
   tokenEndpointAuthMethodsSupported?: string[];
-  clientId?: string;
-  clientSecret?: string;
-  clientIdIssuedAt?: number;
-  clientSecretExpiresAt?: number;
 }
 
 /**
@@ -43,8 +46,14 @@ export async function discoverOAuthMetadata(
   redirectUri?: string,
   fetchFn?: typeof fetch,
 ): Promise<DiscoveredOAuthMetadata> {
+  const start = Date.now();
   const sanitizedServerUrl = sanitizeMCPURLForLogging(serverUrl);
   log('Discovering OAuth metadata for %s', sanitizedServerUrl);
+  logToolsDebugSafe('oauth_operation_started', {
+    endpoint: sanitizedServerUrl,
+    operation: 'discovery',
+    registrationRequested: !!redirectUri,
+  });
   const validatingFetch = createMCPValidatingFetch(fetchFn);
 
   // Step 1: Discover protected resource metadata
@@ -58,10 +67,15 @@ export async function discoverOAuthMetadata(
       resourceMetadata.authorization_servers.length > 0
     ) {
       authorizationServerUrl = resourceMetadata.authorization_servers[0].toString();
-      log('Found authorization server URL: %s', authorizationServerUrl);
+      log('Found authorization server URL: %s', sanitizeMCPURLForLogging(authorizationServerUrl));
     }
   } catch (err) {
-    log('Protected resource metadata discovery failed: %O', err);
+    logToolsDebugSafe('oauth_operation_failed', {
+      ...describeToolsDebugError(err),
+      failurePhase: 'protected_resource_discovery',
+      operation: 'discovery',
+      willRetry: true,
+    });
     // Fall back to using the server URL as the auth server
   }
 
@@ -72,9 +86,20 @@ export async function discoverOAuthMetadata(
     authMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
       fetchFn: validatingFetch,
     });
-    log('Authorization server metadata discovered: %O', authMetadata);
+    logToolsDebugSafe('oauth_operation_complete', {
+      authMethodCount: authMetadata?.token_endpoint_auth_methods_supported?.length || 0,
+      durationMs: Date.now() - start,
+      operation: 'authorization_server_discovery',
+      registrationAvailable: !!authMetadata?.registration_endpoint,
+      scopeCount: authMetadata?.scopes_supported?.length || 0,
+    });
   } catch (err) {
-    log('Authorization server metadata discovery failed: %O', err);
+    logToolsDebugSafe('oauth_operation_failed', {
+      ...describeToolsDebugError(err),
+      durationMs: Date.now() - start,
+      failurePhase: 'authorization_server_discovery',
+      operation: 'discovery',
+    });
     throw new Error(
       `OAuth metadata discovery failed for ${sanitizedServerUrl}. The server may not support OAuth 2.1 auto-discovery.`,
     );
@@ -101,14 +126,14 @@ export async function discoverOAuthMetadata(
       const registration = await registerClient(
         authorizationServerUrl,
         {
-          metadata: authMetadata,
           clientMetadata: {
             client_name: clientName || 'LobeChat MCP Client',
-            redirect_uris: [new URL(redirectUri)],
             grant_types: ['authorization_code', 'refresh_token'],
+            redirect_uris: [new URL(redirectUri)],
             response_types: ['code'],
           },
           fetchFn: validatingFetch,
+          metadata: authMetadata,
         },
       );
 
@@ -121,24 +146,42 @@ export async function discoverOAuthMetadata(
         ? registration.client_secret_expires_at * 1000
         : undefined;
 
-      log('Dynamic client registration successful, client_id: %s', clientId);
+      logToolsDebugSafe('oauth_operation_complete', {
+        credentialConfigured: !!clientSecret,
+        durationMs: Date.now() - start,
+        operation: 'dynamic_client_registration',
+        outcome: 'registered',
+      });
     } catch (err) {
-      log('Dynamic client registration failed: %O', err);
+      logToolsDebugSafe('oauth_operation_failed', {
+        ...describeToolsDebugError(err),
+        failurePhase: 'dynamic_client_registration',
+        operation: 'dynamic_client_registration',
+      });
       // Continue without registration — user will need to provide client ID manually
     }
   }
 
-  return {
+  const result = {
     authorizationEndpoint: authMetadata.authorization_endpoint.toString(),
-    tokenEndpoint: authMetadata.token_endpoint.toString(),
+    clientId,
+    clientIdIssuedAt,
+    clientSecret,
+    clientSecretExpiresAt,
     registrationEndpoint: 'registration_endpoint' in authMetadata
       ? authMetadata.registration_endpoint?.toString()
       : undefined,
     scopesSupported: resourceMetadata?.scopes_supported || authMetadata.scopes_supported,
+    tokenEndpoint: authMetadata.token_endpoint.toString(),
     tokenEndpointAuthMethodsSupported: authMetadata.token_endpoint_auth_methods_supported,
-    clientId,
-    clientSecret,
-    clientIdIssuedAt,
-    clientSecretExpiresAt,
   };
+  logToolsDebugSafe('oauth_operation_complete', {
+    credentialConfigured: !!clientId,
+    durationMs: Date.now() - start,
+    operation: 'discovery',
+    outcome: 'complete',
+    registrationAvailable: !!result.registrationEndpoint,
+    scopeCount: result.scopesSupported?.length || 0,
+  });
+  return result;
 }

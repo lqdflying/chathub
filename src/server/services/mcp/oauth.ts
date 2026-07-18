@@ -1,7 +1,6 @@
 import { LobeChatDatabase } from '@lobechat/database';
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
-import debug from 'debug';
 
 import {
   mcpOAuthTokens,
@@ -9,6 +8,7 @@ import {
 } from '@/database/schemas/mcpOAuth';
 import { oauthHandoffs } from '@/database/schemas/oidc';
 import { createMCPValidatingFetch, sanitizeMCPURLForLogging } from '@/libs/mcp/http';
+import { describeToolsDebugError, logToolsDebugSafe } from '@/libs/logger/toolsDebug';
 import { generateCodeChallenge, generateCodeVerifier, generateState } from '@/libs/mcp/pkce';
 import {
   OAuthCallbackParams,
@@ -16,12 +16,6 @@ import {
   OAuthTokenSet,
   OAuthTokenStatus,
 } from '@/libs/mcp/types';
-
-const log = debug('lobe-mcp:oauth-service');
-
-/** Default token lifetime when the provider does not return `expires_in`
- *  (Notion MCP).  Notion access tokens expire after 1 hour. */
-const DEFAULT_TOKEN_LIFETIME_MS = 60 * 60 * 1000; // 1 hour
 
 /** Compute a safe `expiresAt` — falls back to 1-hour lifetime when
  *  the token response omits `expires_in`. */
@@ -36,6 +30,8 @@ interface TokenEndpointResponse {
   scope?: string;
   token_type?: string;
 }
+
+type FetchBody = NonNullable<Parameters<typeof fetch>[1]>['body'];
 
 export class McpOAuthService {
   private db: LobeChatDatabase;
@@ -53,11 +49,18 @@ export class McpOAuthService {
     userId: string,
     params: OAuthInitiateParams,
   ): Promise<{ authorizeUrl: string }> {
+    const start = Date.now();
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
     const state = generateState();
 
-    log('Initiating OAuth for plugin %s, client %s', params.pluginIdentifier, params.clientId);
+    logToolsDebugSafe('oauth_operation_started', {
+      authType: 'oauth2',
+      credentialConfigured: !!params.clientSecret,
+      endpoint: sanitizeMCPURLForLogging(params.authorizationEndpoint),
+      operation: 'initiate',
+      scopeCount: params.scope?.split(/\s+/).filter(Boolean).length || 0,
+    });
 
     // Build the authorization URL
     const authorizeUrl = new URL(params.authorizationEndpoint);
@@ -73,12 +76,12 @@ export class McpOAuthService {
 
     // Store the transient OAuth state in oauthHandoffs
     await this.db.insert(oauthHandoffs).values({
-      id: state,
       client: 'mcp-oauth',
+      id: state,
       payload: {
-        codeVerifier,
         clientId: params.clientId,
         clientSecret: params.clientSecret,
+        codeVerifier,
         pluginIdentifier: params.pluginIdentifier,
         redirectUri: params.redirectUri,
         tokenEndpoint: params.tokenEndpoint,
@@ -87,7 +90,12 @@ export class McpOAuthService {
       },
     });
 
-    log('OAuth state stored, state=%s', state);
+    logToolsDebugSafe('oauth_operation_complete', {
+      durationMs: Date.now() - start,
+      operation: 'initiate',
+      outcome: 'authorization_pending',
+      statePresent: true,
+    });
 
     return { authorizeUrl: authorizeUrl.toString() };
   }
@@ -98,10 +106,21 @@ export class McpOAuthService {
    * stores the tokens, and cleans up the transient state.
    */
   async handleOAuthCallback(params: OAuthCallbackParams): Promise<{ pluginIdentifier: string }> {
-    log('Handling OAuth callback, state=%s', params.state);
+    const start = Date.now();
+    logToolsDebugSafe('oauth_operation_started', {
+      callbackErrorPresent: !!params.error,
+      codePresent: !!params.code,
+      operation: 'callback',
+      statePresent: !!params.state,
+    });
 
     if (params.error) {
-      log('OAuth callback returned error: %s - %s', params.error, params.error_description);
+      logToolsDebugSafe('oauth_operation_failed', {
+        durationMs: Date.now() - start,
+        errorKind: 'authorization_callback_error',
+        failurePhase: 'callback',
+        operation: 'callback',
+      });
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: `OAuth authorization failed: ${params.error_description || params.error}`,
@@ -115,7 +134,12 @@ export class McpOAuthService {
       .where(eq(oauthHandoffs.id, params.state));
 
     if (!storedState) {
-      log('No stored state found for state=%s', params.state);
+      logToolsDebugSafe('oauth_operation_failed', {
+        durationMs: Date.now() - start,
+        errorKind: 'invalid_state',
+        failurePhase: 'state_lookup',
+        operation: 'callback',
+      });
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Invalid OAuth state. The authorization session may have expired.',
@@ -170,7 +194,12 @@ export class McpOAuthService {
     // Clean up the transient state
     await this.db.delete(oauthHandoffs).where(eq(oauthHandoffs.id, params.state));
 
-    log('OAuth callback handled successfully for plugin %s', pluginIdentifier);
+    logToolsDebugSafe('oauth_operation_complete', {
+      credentialConfigured: true,
+      durationMs: Date.now() - start,
+      operation: 'callback',
+      outcome: 'stored',
+    });
 
     return { pluginIdentifier };
   }
@@ -230,7 +259,11 @@ export class McpOAuthService {
     userId: string,
     pluginIdentifier: string,
   ): Promise<OAuthTokenSet | null> {
-    log('Refreshing OAuth token for plugin %s', pluginIdentifier);
+    const start = Date.now();
+    logToolsDebugSafe('oauth_operation_started', {
+      operation: 'refresh',
+      reason: 'refresh_requested',
+    });
 
     const [record] = await this.db
       .select()
@@ -243,7 +276,12 @@ export class McpOAuthService {
       );
 
     if (!record || !record.refreshToken) {
-      log('No refresh token available for plugin %s', pluginIdentifier);
+      logToolsDebugSafe('oauth_operation_complete', {
+        credentialPresent: false,
+        durationMs: Date.now() - start,
+        operation: 'refresh',
+        outcome: 'missing_refresh_credential',
+      });
       return null;
     }
 
@@ -254,14 +292,19 @@ export class McpOAuthService {
     const authMethodsSupported = metadata?.token_endpoint_auth_methods_supported as string[] | undefined;
 
     if (!tokenEndpoint) {
-      log('No token endpoint in server metadata for plugin %s', pluginIdentifier);
+      logToolsDebugSafe('oauth_operation_failed', {
+        durationMs: Date.now() - start,
+        errorKind: 'missing_token_endpoint',
+        failurePhase: 'metadata_lookup',
+        operation: 'refresh',
+      });
       return null;
     }
 
     try {
       const validatingFetch = createMCPValidatingFetch();
       let headers: Record<string, string>;
-      let body: BodyInit;
+      let body: FetchBody;
 
       const supportsBasic = !authMethodsSupported ||
         authMethodsSupported.includes('client_secret_basic');
@@ -301,9 +344,9 @@ export class McpOAuthService {
       }
 
       const response = await validatingFetch(tokenEndpoint, {
-        method: 'POST',
-        headers,
         body,
+        headers,
+        method: 'POST',
       });
 
       let data: TokenEndpointResponse;
@@ -313,8 +356,12 @@ export class McpOAuthService {
         // FastMCP servers (Tavily) advertise client_secret_basic but fail to
         // parse the Authorization header (fastmcp#214).
         if (useBasic && (response.status === 400 || response.status === 401)) {
-          log('Basic Auth refresh failed (%d), falling back to client_secret_post',
-            response.status);
+          logToolsDebugSafe('oauth_operation_retry', {
+            authType: 'client_secret_post',
+            httpStatus: response.status,
+            operation: 'refresh',
+            reason: 'client_secret_basic_rejected',
+          });
 
           const fallbackHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
           const fallbackBody = new URLSearchParams({
@@ -325,20 +372,23 @@ export class McpOAuthService {
           });
 
           const fallbackResponse = await validatingFetch(tokenEndpoint, {
-            method: 'POST',
-            headers: fallbackHeaders,
             body: fallbackBody,
+            headers: fallbackHeaders,
+            method: 'POST',
           });
 
           if (!fallbackResponse.ok) {
-            log('Fallback token refresh also failed with status %d', fallbackResponse.status);
+            logToolsDebugSafe('oauth_operation_failed', {
+              durationMs: Date.now() - start,
+              failurePhase: 'fallback_refresh',
+              httpStatus: fallbackResponse.status,
+              operation: 'refresh',
+            });
             throw new Error(`Token refresh failed: HTTP ${fallbackResponse.status}`);
           }
 
-          log('Fallback token refresh succeeded via client_secret_post');
           data = (await fallbackResponse.json()) as TokenEndpointResponse;
         } else {
-          log('Token refresh failed with status %d', response.status);
           throw new Error(`Token refresh failed: HTTP ${response.status}`);
         }
       } else {
@@ -365,7 +415,13 @@ export class McpOAuthService {
           ),
         );
 
-      log('Token refreshed successfully for plugin %s', pluginIdentifier);
+      logToolsDebugSafe('oauth_operation_complete', {
+        credentialPresent: true,
+        durationMs: Date.now() - start,
+        operation: 'refresh',
+        outcome: 'refreshed',
+        scopeCount: data.scope?.split(/\s+/).filter(Boolean).length || 0,
+      });
 
       return {
         accessToken: data.access_token,
@@ -375,7 +431,12 @@ export class McpOAuthService {
         tokenType: data.token_type || record.tokenType || 'Bearer',
       };
     } catch (error) {
-      log('Token refresh error: %O', error);
+      logToolsDebugSafe('oauth_operation_failed', {
+        ...describeToolsDebugError(error),
+        durationMs: Date.now() - start,
+        failurePhase: 'token_request',
+        operation: 'refresh',
+      });
       return null;
     }
   }
@@ -384,6 +445,8 @@ export class McpOAuthService {
    * Revoke/delete stored OAuth tokens for a plugin.
    */
   async revokeOAuthToken(userId: string, pluginIdentifier: string): Promise<void> {
+    const start = Date.now();
+    logToolsDebugSafe('oauth_operation_started', { operation: 'revoke' });
     await this.db
       .delete(mcpOAuthTokens)
       .where(
@@ -393,7 +456,11 @@ export class McpOAuthService {
         ),
       );
 
-    log('OAuth token revoked for plugin %s', pluginIdentifier);
+    logToolsDebugSafe('oauth_operation_complete', {
+      durationMs: Date.now() - start,
+      operation: 'revoke',
+      outcome: 'deleted',
+    });
   }
 
   /**
@@ -417,8 +484,13 @@ export class McpOAuthService {
     clientSecret?: string,
     tokenEndpointAuthMethodsSupported?: string[],
   ): Promise<TokenEndpointResponse> {
-    log('Exchanging code for tokens at %s (hasClientSecret=%s, supportedMethods=%O)',
-      sanitizeMCPURLForLogging(tokenEndpoint), !!clientSecret, tokenEndpointAuthMethodsSupported);
+    const start = Date.now();
+    logToolsDebugSafe('oauth_operation_started', {
+      authMethodCount: tokenEndpointAuthMethodsSupported?.length || 0,
+      credentialConfigured: !!clientSecret,
+      endpoint: sanitizeMCPURLForLogging(tokenEndpoint),
+      operation: 'token_exchange',
+    });
     const validatingFetch = createMCPValidatingFetch();
 
     const supportsBasic = !tokenEndpointAuthMethodsSupported ||
@@ -429,7 +501,7 @@ export class McpOAuthService {
     const usePostSecret = clientSecret !== undefined && !supportsBasic && supportsPost;
 
     let headers: Record<string, string>;
-    let body: BodyInit;
+    let body: FetchBody;
 
     if (useBasic) {
       headers = {
@@ -466,9 +538,9 @@ export class McpOAuthService {
     }
 
     const primaryResponse = await validatingFetch(tokenEndpoint, {
-      method: 'POST',
-      headers,
       body,
+      headers,
+      method: 'POST',
     });
 
     // If the primary attempt fails (400/401) and we used Basic Auth, fall back
@@ -476,8 +548,12 @@ export class McpOAuthService {
     // but fail to parse the Authorization header (fastmcp#214).
     if (!primaryResponse.ok) {
       if (useBasic && (primaryResponse.status === 400 || primaryResponse.status === 401)) {
-        log('Basic Auth failed (%d), falling back to client_secret_post',
-          primaryResponse.status);
+        logToolsDebugSafe('oauth_operation_retry', {
+          authType: 'client_secret_post',
+          httpStatus: primaryResponse.status,
+          operation: 'token_exchange',
+          reason: 'client_secret_basic_rejected',
+        });
 
         const fallbackHeaders = { 'Content-Type': 'application/x-www-form-urlencoded' };
         const fallbackBody = new URLSearchParams({
@@ -490,20 +566,24 @@ export class McpOAuthService {
         });
 
         const fallbackResponse = await validatingFetch(tokenEndpoint, {
-          method: 'POST',
-          headers: fallbackHeaders,
           body: fallbackBody,
+          headers: fallbackHeaders,
+          method: 'POST',
         });
 
         if (!fallbackResponse.ok) {
-          log('Fallback token exchange also failed with status %d', fallbackResponse.status);
+          logToolsDebugSafe('oauth_operation_failed', {
+            durationMs: Date.now() - start,
+            failurePhase: 'fallback_exchange',
+            httpStatus: fallbackResponse.status,
+            operation: 'token_exchange',
+          });
           throw new TRPCError({
             code: 'INTERNAL_SERVER_ERROR',
             message: `Failed to exchange authorization code: HTTP ${fallbackResponse.status}.`,
           });
         }
 
-        log('Fallback token exchange succeeded via client_secret_post');
         const data = (await fallbackResponse.json()) as TokenEndpointResponse;
         if (!data.access_token) {
           throw new TRPCError({
@@ -511,10 +591,21 @@ export class McpOAuthService {
             message: 'Token exchange response did not include an access_token.',
           });
         }
+        logToolsDebugSafe('oauth_operation_complete', {
+          credentialPresent: true,
+          durationMs: Date.now() - start,
+          operation: 'token_exchange',
+          outcome: 'fallback_succeeded',
+        });
         return data;
       }
 
-      log('Token exchange failed with status %d', primaryResponse.status);
+      logToolsDebugSafe('oauth_operation_failed', {
+        durationMs: Date.now() - start,
+        failurePhase: 'primary_exchange',
+        httpStatus: primaryResponse.status,
+        operation: 'token_exchange',
+      });
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
         message: `Failed to exchange authorization code: HTTP ${primaryResponse.status}.`,
@@ -530,7 +621,12 @@ export class McpOAuthService {
       });
     }
 
-    log('Token exchange successful');
+    logToolsDebugSafe('oauth_operation_complete', {
+      credentialPresent: true,
+      durationMs: Date.now() - start,
+      operation: 'token_exchange',
+      outcome: 'succeeded',
+    });
 
     return data;
   }
@@ -575,19 +671,24 @@ export class McpOAuthService {
     }
 
     const insert: NewMcpOAuthTokenItem = {
-      userId,
-      pluginIdentifier: token.pluginIdentifier,
       accessToken: token.accessToken,
-      refreshToken: token.refreshToken || null,
-      tokenType: token.tokenType || 'Bearer',
-      expiresAt: token.expiresAt ? new Date(token.expiresAt) : new Date(computeExpiresAt()),
-      scope: token.scope || null,
       clientId: token.clientId,
+      expiresAt: token.expiresAt ? new Date(token.expiresAt) : new Date(computeExpiresAt()),
+      pluginIdentifier: token.pluginIdentifier,
+      refreshToken: token.refreshToken || null,
+      scope: token.scope || null,
       serverMetadata: Object.keys(serverMetadata).length > 0 ? serverMetadata : null,
+      tokenType: token.tokenType || 'Bearer',
+      userId,
     };
 
     await this.db.insert(mcpOAuthTokens).values(insert);
 
-    log('OAuth tokens stored for plugin %s', token.pluginIdentifier);
+    logToolsDebugSafe('oauth_operation_complete', {
+      credentialPresent: true,
+      operation: 'token_store',
+      outcome: 'stored',
+      scopeCount: token.scope?.split(/\s+/).filter(Boolean).length || 0,
+    });
   }
 }

@@ -6,12 +6,18 @@ const legacyLogs = vi.hoisted(() => ({
 }));
 
 vi.mock('debug', () => ({
-  default: vi.fn((namespace: string) =>
-    namespace === 'chathub-tools:safe' ? legacyLogs.safe : legacyLogs.verbose,
-  ),
+  default: vi.fn((namespace: string) => {
+    const logger = namespace === 'chathub-tools:safe' ? legacyLogs.safe : legacyLogs.verbose;
+    return Object.assign(logger, { enabled: true });
+  }),
 }));
 
-import { logToolsDebugSafe, logToolsDebugVerbose } from '../toolsDebug';
+import {
+  fingerprintToolsDebugValue,
+  logToolsDebugSafe,
+  logToolsDebugVerbose,
+  runWithToolsDebugContext,
+} from '../toolsDebug';
 
 describe('structured tools debug logging', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -39,11 +45,13 @@ describe('structured tools debug logging', () => {
     expect(consoleLogSpy).toHaveBeenCalledTimes(1);
     const [prefix, json] = consoleLogSpy.mock.calls[0];
     expect(prefix).toBe('[chathub-tools-debug:list_tools_complete]');
-    expect(JSON.parse(json)).toEqual({
+    expect(JSON.parse(json)).toMatchObject({
       count: 2,
       debugLevel: 'safe',
       durationMs: 17,
+      schemaVersion: 2,
     });
+    expect(JSON.parse(json).timestamp).toEqual(expect.any(String));
     expect(legacyLogs.safe).not.toHaveBeenCalled();
   });
 
@@ -59,8 +67,9 @@ describe('structured tools debug logging', () => {
 
     expect(consoleLogSpy).toHaveBeenCalledTimes(2);
     expect(consoleLogSpy.mock.calls[0][0]).toBe('[chathub-tools-debug:client_initialized]');
-    expect(JSON.parse(consoleLogSpy.mock.calls[0][1])).toEqual({
+    expect(JSON.parse(consoleLogSpy.mock.calls[0][1])).toMatchObject({
       debugLevel: 'safe',
+      schemaVersion: 2,
       transport: 'http',
     });
 
@@ -86,11 +95,14 @@ describe('structured tools debug logging', () => {
     logToolsDebugSafe('call_tool_complete', { durationMs: 4 });
 
     expect(consoleLogSpy).not.toHaveBeenCalled();
-    expect(legacyLogs.safe).toHaveBeenCalledWith(
-      'event=%s payload=%O',
-      'call_tool_complete',
-      { debugLevel: 'safe', durationMs: 4 },
-    );
+    expect(legacyLogs.safe).toHaveBeenCalledTimes(1);
+    expect(legacyLogs.safe.mock.calls[0][0]).toBe('event=%s payload=%O');
+    expect(legacyLogs.safe.mock.calls[0][1]).toBe('call_tool_complete');
+    expect(legacyLogs.safe.mock.calls[0][2]).toMatchObject({
+      debugLevel: 'safe',
+      durationMs: 4,
+      schemaVersion: 2,
+    });
   });
 
   it('falls back to a minimal record when JSON serialization fails', () => {
@@ -105,7 +117,11 @@ describe('structured tools debug logging', () => {
     expect(consoleLogSpy).toHaveBeenCalledTimes(1);
     const [prefix, json] = consoleLogSpy.mock.calls[0];
     expect(prefix).toBe('[chathub-tools-debug:call_tool_complete]');
-    expect(JSON.parse(json)).toEqual({ debugLevel: 'safe', serializationError: true });
+    expect(JSON.parse(json)).toMatchObject({
+      debugLevel: 'safe',
+      schemaVersion: 2,
+    });
+    expect(json).toContain('truncated:max-depth');
   });
 
   it('does not let payload sanitization failures interrupt tool behavior', () => {
@@ -123,10 +139,103 @@ describe('structured tools debug logging', () => {
 
     const [prefix, json] = consoleLogSpy.mock.calls[0];
     expect(prefix).toBe('[chathub-tools-debug:call_tool_result]');
-    expect(JSON.parse(json)).toEqual({
+    expect(JSON.parse(json)).toMatchObject({
       debugLevel: 'verbose',
       payload: { type: 'unavailable' },
+      schemaVersion: 2,
     });
     expect(json).not.toContain('private proxy failure');
+  });
+
+  it('does not let safe-record sanitization failures interrupt tool behavior', () => {
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+    const fields = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('private safe-record failure');
+        },
+      },
+    );
+
+    expect(() => logToolsDebugSafe('call_tool_failed', fields)).not.toThrow();
+
+    const [prefix, json] = consoleLogSpy.mock.calls[0];
+    expect(prefix).toBe('[chathub-tools-debug:call_tool_failed]');
+    expect(JSON.parse(json)).toMatchObject({
+      debugLevel: 'safe',
+      recordSanitizationFailed: true,
+      schemaVersion: 2,
+    });
+    expect(json).not.toContain('private safe-record failure');
+  });
+
+  it('correlates events with a diagnostic id and monotonic sequence', () => {
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+
+    runWithToolsDebugContext(
+      {
+        connectionHash: 'abcdef0123456789',
+        diagnosticId: 'td_1234567890abcdef',
+        operation: 'call_tool',
+        toolName: 'tavily_search',
+        transport: 'http',
+      },
+      () => {
+        logToolsDebugSafe('call_tool_started', { phase: 'start' });
+        logToolsDebugSafe('call_tool_complete', { phase: 'serialization' });
+      },
+    );
+
+    const first = JSON.parse(consoleLogSpy.mock.calls[0][1]);
+    const second = JSON.parse(consoleLogSpy.mock.calls[1][1]);
+    expect(first).toMatchObject({
+      connectionHash: 'abcdef0123456789',
+      diagnosticId: 'td_1234567890abcdef',
+      eventSequence: 1,
+      operation: 'call_tool',
+      toolName: 'tavily_search',
+    });
+    expect(second.eventSequence).toBe(2);
+    expect(first.spanId).toMatch(/^ts_[\da-f]{16}$/);
+    expect(second.spanId).toBe(first.spanId);
+  });
+
+  it('drops credential fields and never emits raw arbitrary payload strings', () => {
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+
+    logToolsDebugSafe('transport_request_failed', {
+      apiKey: 'private-api-key',
+      authorization: 'Bearer private-token',
+      connectionId: 'private-connection-id',
+      cookie: 'session=private-cookie',
+      credentialConfigured: true,
+      code: 'oauth-private-code',
+      endpoint: 'https://mcp.example.com/safe-path',
+      errorCode: 'ECONNRESET',
+      errorMessage: 'Unexpected token at <!DOCTYPE private-html>',
+      nested: { refreshToken: 'private-refresh-token', value: 'private-payload' },
+      trpcCode: 'INTERNAL_SERVER_ERROR',
+      userId: 123_456_789,
+    });
+
+    const json = consoleLogSpy.mock.calls[0][1] as string;
+    expect(json).not.toMatch(
+      /private-api-key|private-token|private-connection-id|private-cookie|private-refresh-token|private-payload|oauth-private-code|123456789|<!DOCTYPE/,
+    );
+    expect(JSON.parse(json)).toMatchObject({
+      credentialConfigured: true,
+      endpoint: 'https://mcp.example.com/safe-path',
+      errorCode: 'ECONNRESET',
+      trpcCode: 'INTERNAL_SERVER_ERROR',
+    });
+    expect(JSON.parse(json).connectionId).toMatchObject({ type: 'identifier' });
+    expect(JSON.parse(json).userId).toMatchObject({ type: 'identifier' });
+  });
+
+  it('fingerprints values deterministically while excluding secret-keyed values', () => {
+    expect(
+      fingerprintToolsDebugValue({ apiKey: 'first-secret', name: 'connection' }),
+    ).toBe(fingerprintToolsDebugValue({ apiKey: 'second-secret', name: 'connection' }));
   });
 });

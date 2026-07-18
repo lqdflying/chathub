@@ -23,7 +23,7 @@ describe('sanitizeToolDebugPayload', () => {
     expect(sanitizeToolDebugPayload(() => 'private-result')).toEqual({ type: 'function' });
   });
 
-  it('redacts secret values by key, case-insensitively', () => {
+  it('omits secret-keyed fields, case-insensitively', () => {
     const input = {
       ACCESS_TOKEN: 'abc',
       ApiKey: 'ghi',
@@ -35,6 +35,7 @@ describe('sanitizeToolDebugPayload', () => {
       name: 'public',
       nested: { refreshToken: 'mno', value: 1 },
       password: 'def',
+      userId: 123_456_789,
     };
 
     const out = sanitizeToolDebugPayload(input) as any;
@@ -49,15 +50,15 @@ describe('sanitizeToolDebugPayload', () => {
       'authorizationHeader',
       'COOKIE',
     ]) {
-      expect(getProperty(out, key)).toMatchObject({ secret: true, value: '[redacted]' });
+      expect(getProperty(out, key)).toBeUndefined();
     }
     const nested = getProperty(out, 'nested').value;
-    expect(getProperty(nested, 'refreshToken')).toMatchObject({
-      secret: true,
-      value: '[redacted]',
-    });
+    expect(getProperty(nested, 'refreshToken')).toBeUndefined();
     expect(getProperty(nested, 'value').value).toBe(1);
     expect(getProperty(out, 'name').value).toMatchObject({ length: 6, type: 'string' });
+    expect(getProperty(out, 'userId').value).toMatchObject({ type: 'identifier' });
+    expect(JSON.stringify(out)).not.toMatch(/abc|def|ghi|jkl|mno|session|secret-token|Bearer/);
+    expect(JSON.stringify(out)).not.toContain('123456789');
   });
 
   it('fingerprints long strings without retaining any raw prefix', () => {
@@ -77,23 +78,35 @@ describe('sanitizeToolDebugPayload', () => {
   });
 
   it('caps arrays and reports the remainder', () => {
-    const out = sanitizeToolDebugPayload({ list: [1, 2, 3, 4, 5] }) as any;
-    expect(getProperty(out, 'list').value).toEqual([1, 2, 3, '(+2 more)']);
+    const out = sanitizeToolDebugPayload({ list: Array.from({ length: 12 }, (_, index) => index) }) as any;
+    expect(getProperty(out, 'list').value).toEqual({
+      itemCount: 12,
+      items: Array.from({ length: 10 }, (_, index) => index),
+      omittedItems: 2,
+      type: 'array',
+    });
   });
 
-  it('leaves short arrays untouched', () => {
+  it('describes short arrays without dropping items', () => {
     const out = sanitizeToolDebugPayload({ list: [1, 2] }) as any;
-    expect(getProperty(out, 'list').value).toEqual([1, 2]);
+    expect(getProperty(out, 'list').value).toEqual({
+      itemCount: 2,
+      items: [1, 2],
+      omittedItems: 0,
+      type: 'array',
+    });
   });
 
   it('bounds recursion depth', () => {
-    const deep: any = { a: { b: { c: { d: { e: { f: 'too deep' } } } } } };
+    const deep: any = { a: { b: { c: { d: { e: { f: { g: 'too deep' } } } } } } };
     const out = sanitizeToolDebugPayload(deep) as any;
-    // depth 0→4 allowed; beyond that replaced with the marker
+    // depth 0→5 allowed; beyond that is replaced with the marker.
     const a = getProperty(out, 'a').value;
     const b = getProperty(a, 'b').value;
     const c = getProperty(b, 'c').value;
-    expect(getProperty(c, 'd').value).toBe('[truncated:max-depth]');
+    const d = getProperty(c, 'd').value;
+    const e = getProperty(d, 'e').value;
+    expect(getProperty(e, 'f').value).toBe('[truncated:max-depth]');
   });
 
   it('does not mutate the input object', () => {
@@ -135,23 +148,23 @@ describe('sanitizeToolDebugPayload', () => {
     const out = sanitizeToolDebugPayload(result) as any;
 
     expect(getProperty(out, 'isError').value).toBe(false);
-    expect(getProperty(out, 'token')).toMatchObject({ secret: true, value: '[redacted]' });
+    expect(getProperty(out, 'token')).toBeUndefined();
     const content = getProperty(out, 'content').value;
-    expect(content).toHaveLength(4); // 3 items + remainder marker
-    expect(content[3]).toBe('(+1 more)');
-    expect(getProperty(content[0], 'text').value).toMatchObject({ length: 5, type: 'string' });
-    expect(getProperty(content[0], 'type').value).toMatchObject({ length: 4, type: 'string' });
+    expect(content).toMatchObject({ itemCount: 4, omittedItems: 0, type: 'array' });
+    expect(content.items).toHaveLength(4);
+    expect(getProperty(content.items[0], 'text').value).toMatchObject({ length: 5, type: 'string' });
+    expect(getProperty(content.items[0], 'type').value).toMatchObject({ length: 4, type: 'string' });
     expect(JSON.stringify(out)).not.toMatch(/hello|world|extra/);
   });
 
   it('fingerprints user-controlled property names and bounds object width', () => {
     const input = Object.fromEntries(
-      Array.from({ length: 25 }, (_, index) => [`person-${index}@example.com`, index]),
+      Array.from({ length: 55 }, (_, index) => [`person-${index}@example.com`, index]),
     );
     const out = sanitizeToolDebugPayload(input) as any;
 
-    expect(out).toMatchObject({ omittedProperties: 5, propertyCount: 25, type: 'object' });
-    expect(out.entries).toHaveLength(20);
+    expect(out).toMatchObject({ omittedProperties: 5, propertyCount: 55, type: 'object' });
+    expect(out.entries).toHaveLength(50);
     expect(JSON.stringify(out)).not.toContain('person-');
   });
 });

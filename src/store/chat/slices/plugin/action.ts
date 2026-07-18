@@ -16,6 +16,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { chatService } from '@/services/chat';
 import { mcpService } from '@/services/mcp';
+import { createMCPChatMessageError } from '@/services/mcpError';
 import { messageService } from '@/services/message';
 import { ChatStore } from '@/store/chat/store';
 import { useToolStore } from '@/store/tool';
@@ -500,12 +501,14 @@ export const chatPlugin: StateCreator<
 
       if (!!result) data = result;
     } catch (error) {
-      console.log(error);
       const err = error as Error;
 
       // ignore the aborted request error
       if (!err.message.includes('The user aborted a request.')) {
-        await messageService.updateMessageError(id, error as any);
+        await messageService.updateMessageError(
+          id,
+          createMCPChatMessageError(error, (type) => t(`response.${type}`, { ns: 'error' })),
+        );
         await refreshMessages();
       }
     }

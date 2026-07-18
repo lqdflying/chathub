@@ -4,7 +4,6 @@ import { LobeChatPluginApi, LobeChatPluginManifest, PluginSchema } from '@lobehu
 import { DeploymentOption } from '@lobehub/market-sdk';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { TRPCError } from '@trpc/server';
-import debug from 'debug';
 import { createHash } from 'node:crypto';
 
 import {
@@ -17,12 +16,17 @@ import {
   StdioMCPParams,
 } from '@/libs/mcp';
 import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
-import { logToolsDebugSafe } from '@/libs/logger/toolsDebug';
+import {
+  describeToolsDebugError,
+  fingerprintToolsDebugValue,
+  isToolsDebugEnabled,
+  logToolsDebugSafe,
+  runWithToolsDebugContext,
+  summarizeToolsDebugValue,
+} from '@/libs/logger/toolsDebug';
 
 import { mcpSystemDepsCheckService } from './deps';
 import { McpOAuthService } from './oauth';
-
-const log = debug('lobe-mcp:service');
 
 export interface MCPOAuthContext {
   oauthService: McpOAuthService;
@@ -58,6 +62,16 @@ export class MCPService {
     return sanitized as Omit<T, 'auth' | 'env' | 'headers'>;
   };
 
+  private getDebugContext = (params: MCPClientParams, operation: string, toolName?: string) => ({
+    connectionHash: isToolsDebugEnabled()
+      ? fingerprintToolsDebugValue(this.sanitizeForLogging(params))
+      : undefined,
+    operation,
+    runtime: 'server',
+    toolName,
+    transport: params.type,
+  });
+
   // --- MCP Interaction ---
 
   // listTools now accepts MCPClientParams
@@ -66,125 +80,138 @@ export class MCPService {
     { retryTime, skipCache }: { retryTime?: number; skipCache?: boolean } = {},
     oauthContext?: MCPOAuthContext,
   ): Promise<LobeChatPluginApi[]> {
-    const start = Date.now();
-    const client = await this.getClient(params, skipCache, oauthContext);
-    const loggableParams = this.sanitizeForLogging(params);
-    log(`Listing tools using client for params: %O`, loggableParams);
-
-    try {
-      const result = await client.listTools();
-      logToolsDebugSafe('list_tools_complete', {
-        count: result.length,
-        durationMs: Date.now() - start,
+    return runWithToolsDebugContext(this.getDebugContext(params, 'list_tools'), async () => {
+      const start = Date.now();
+      logToolsDebugSafe('mcp_operation_started', {
+        operation: 'list_tools',
+        retryAttempt: retryTime || 0,
+        skipCache: !!skipCache,
       });
-      log(
-        `Tools listed successfully for params: %O, result count: %d`,
-        loggableParams,
-        result.length,
-      );
-      return result.map<LobeChatPluginApi>((item) => ({
-        // Assuming identifier is the unique name/id
-        description: item.description,
-        name: item.name,
-        parameters: item.inputSchema as PluginSchema,
-      }));
-    } catch (error) {
-      logToolsDebugSafe('list_tools_failed', { durationMs: Date.now() - start });
-      let nextReTryTime = retryTime || 0;
 
-      if ((error as Error).message === 'NoValidSessionId' && nextReTryTime <= 3) {
-        if (!nextReTryTime) {
-          nextReTryTime = 1;
-        } else {
-          nextReTryTime += 1;
+      try {
+        const client = await this.getClient(params, skipCache, oauthContext);
+        const result = await client.listTools();
+        logToolsDebugSafe('list_tools_complete', {
+          count: result.length,
+          durationMs: Date.now() - start,
+          result: summarizeToolsDebugValue(result),
+          retryAttempt: retryTime || 0,
+        });
+        return result.map<LobeChatPluginApi>((item) => ({
+          description: item.description,
+          name: item.name,
+          parameters: item.inputSchema as PluginSchema,
+        }));
+      } catch (error) {
+        let nextReTryTime = retryTime || 0;
+        const willRetry = (error as Error).message === 'NoValidSessionId' && nextReTryTime <= 3;
+        logToolsDebugSafe('list_tools_failed', {
+          ...describeToolsDebugError(error),
+          durationMs: Date.now() - start,
+          failurePhase: 'mcp_operation',
+          retryAttempt: retryTime || 0,
+          willRetry,
+        });
+
+        if (willRetry) {
+          nextReTryTime = nextReTryTime ? nextReTryTime + 1 : 1;
+          return this.listTools(
+            params,
+            { retryTime: nextReTryTime, skipCache: true },
+            oauthContext,
+          );
         }
 
-        return this.listTools(params, { retryTime: nextReTryTime, skipCache: true }, oauthContext);
+        throw new TRPCError({
+          cause: error,
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Unable to list tools from the MCP server.',
+        });
       }
-
-      console.error(`Error listing tools for params %O:`, loggableParams, error);
-      // Propagate a TRPCError for better handling upstream
-      throw new TRPCError({
-        cause: error,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: `Error listing tools from MCP server: ${(error as Error).message}`,
-      });
-    }
+    });
   }
 
   // listTools now accepts MCPClientParams
   async listRawTools(params: MCPClientParams): Promise<McpTool[]> {
     const client = await this.getClient(params); // Get client using params
-    const loggableParams = this.sanitizeForLogging(params);
-    log(`Listing tools using client for params: %O`, loggableParams);
 
     try {
       const result = await client.listTools();
-      log(
-        `Tools listed successfully for params: %O, result count: %d`,
-        loggableParams,
-        result.length,
-      );
+      logToolsDebugSafe('list_tools_complete', {
+        count: result.length,
+        operation: 'list_raw_tools',
+        result: summarizeToolsDebugValue(result),
+      });
       return result;
     } catch (error) {
-      console.error(`Error listing tools for params %O:`, loggableParams, error);
-      // Propagate a TRPCError for better handling upstream
+      logToolsDebugSafe('list_tools_failed', {
+        ...describeToolsDebugError(error),
+        failurePhase: 'list_raw_tools',
+      });
       throw new TRPCError({
         cause: error,
         code: 'INTERNAL_SERVER_ERROR',
-        message: `Error listing tools from MCP server: ${(error as Error).message}`,
+        message: 'Unable to list tools from the MCP server.',
       });
     }
   }
 
   // listResources now accepts MCPClientParams
   async listResources(params: MCPClientParams, oauthContext?: MCPOAuthContext): Promise<McpResource[]> {
-    const client = await this.getClient(params, false, oauthContext); // Get client using params
-    const loggableParams = this.sanitizeForLogging(params);
-    log(`Listing resources using client for params: %O`, loggableParams);
-
-    try {
-      const result = await client.listResources();
-      log(
-        `Resources listed successfully for params: %O, result count: %d`,
-        loggableParams,
-        result.length,
-      );
-      return result;
-    } catch (error) {
-      console.error(`Error listing resources for params %O:`, loggableParams, error);
-      // Propagate a TRPCError for better handling upstream
-      throw new TRPCError({
-        cause: error,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: `Error listing resources from MCP server: ${(error as Error).message}`,
-      });
-    }
+    return runWithToolsDebugContext(this.getDebugContext(params, 'list_resources'), async () => {
+      const start = Date.now();
+      logToolsDebugSafe('mcp_operation_started', { operation: 'list_resources' });
+      try {
+        const client = await this.getClient(params, false, oauthContext);
+        const result = await client.listResources();
+        logToolsDebugSafe('list_resources_complete', {
+          count: result.length,
+          durationMs: Date.now() - start,
+          result: summarizeToolsDebugValue(result),
+        });
+        return result;
+      } catch (error) {
+        logToolsDebugSafe('list_resources_failed', {
+          ...describeToolsDebugError(error),
+          durationMs: Date.now() - start,
+          failurePhase: 'mcp_operation',
+        });
+        throw new TRPCError({
+          cause: error,
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Unable to list resources from the MCP server.',
+        });
+      }
+    });
   }
 
   // listPrompts now accepts MCPClientParams
   async listPrompts(params: MCPClientParams, oauthContext?: MCPOAuthContext): Promise<McpPrompt[]> {
-    const client = await this.getClient(params, false, oauthContext); // Get client using params
-    const loggableParams = this.sanitizeForLogging(params);
-    log(`Listing prompts using client for params: %O`, loggableParams);
-
-    try {
-      const result = await client.listPrompts();
-      log(
-        `Prompts listed successfully for params: %O, result count: %d`,
-        loggableParams,
-        result.length,
-      );
-      return result;
-    } catch (error) {
-      console.error(`Error listing prompts for params %O:`, loggableParams, error);
-      // Propagate a TRPCError for better handling upstream
-      throw new TRPCError({
-        cause: error,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: `Error listing prompts from MCP server: ${(error as Error).message}`,
-      });
-    }
+    return runWithToolsDebugContext(this.getDebugContext(params, 'list_prompts'), async () => {
+      const start = Date.now();
+      logToolsDebugSafe('mcp_operation_started', { operation: 'list_prompts' });
+      try {
+        const client = await this.getClient(params, false, oauthContext);
+        const result = await client.listPrompts();
+        logToolsDebugSafe('list_prompts_complete', {
+          count: result.length,
+          durationMs: Date.now() - start,
+          result: summarizeToolsDebugValue(result),
+        });
+        return result;
+      } catch (error) {
+        logToolsDebugSafe('list_prompts_failed', {
+          ...describeToolsDebugError(error),
+          durationMs: Date.now() - start,
+          failurePhase: 'mcp_operation',
+        });
+        throw new TRPCError({
+          cause: error,
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Unable to list prompts from the MCP server.',
+        });
+      }
+    });
   }
 
   // callTool now accepts MCPClientParams, toolName, and args
@@ -194,56 +221,84 @@ export class MCPService {
     argsStr: any,
     oauthContext?: MCPOAuthContext,
   ): Promise<any> {
-    const start = Date.now();
-    const client = await this.getClient(params, false, oauthContext);
-
-    const args = safeParseJSON(argsStr);
-    const loggableParams = this.sanitizeForLogging(params);
-
-    log(`Calling tool "${toolName}" using client for params: %O`, loggableParams);
-
-    try {
-      // Delegate the call to the MCPClient instance
-      const result = await client.callTool(toolName, args); // Pass args directly
-      logToolsDebugSafe('call_tool_complete', { durationMs: Date.now() - start });
-      log(`Tool "${toolName}" called successfully for params: %O`, loggableParams);
-      const { content, isError } = result;
-
-      if (isError) return result;
-
-      const data = content as { text: string; type: 'text' }[];
-
-      if (!data || data.length === 0) return data;
-
-      if (data.length > 1) return data;
-
-      const text = data[0]?.text;
-      if (!text) return data;
-
-      // try to get json object, which will be stringify in the client
-      const json = safeParseJSON(text);
-      if (json) return json;
-
-      return text;
-    } catch (error) {
-      logToolsDebugSafe('call_tool_failed', { durationMs: Date.now() - start });
-      if (error instanceof McpError) {
-        const mcpError = error as McpError;
-
-        return mcpError.message;
-      }
-
-      console.error(
-        'Error calling tool:', toolName, 'for params:', this.sanitizeForLogging(params),
-        error,
-      );
-      // Propagate a TRPCError
-      throw new TRPCError({
-        cause: error,
-        code: 'INTERNAL_SERVER_ERROR',
-        message: `Error calling tool "${toolName}" on MCP server: ${(error as Error).message}`,
+    return runWithToolsDebugContext(this.getDebugContext(params, 'call_tool', toolName), async () => {
+      const start = Date.now();
+      let failurePhase = 'client_lookup';
+      logToolsDebugSafe('call_tool_started', {
+        arguments: summarizeToolsDebugValue(argsStr),
+        authType: params.type === 'http' ? params.auth?.type || 'none' : 'none',
+        timeoutMs: Number(process.env.MCP_TOOL_TIMEOUT) || 60_000,
+        toolName,
       });
-    }
+
+      try {
+        const client = await this.getClient(params, false, oauthContext);
+        failurePhase = 'argument_parse';
+        const args = safeParseJSON(argsStr);
+
+        failurePhase = 'upstream_call';
+        const result = await client.callTool(toolName, args);
+        logToolsDebugSafe('call_tool_upstream_complete', {
+          contentCount: Array.isArray(result.content) ? result.content.length : 0,
+          durationMs: Date.now() - start,
+          hasStructuredContent: 'structuredContent' in result && !!result.structuredContent,
+          isError: !!result.isError,
+          result: summarizeToolsDebugValue(result),
+          toolName,
+        });
+
+        failurePhase = 'normalization';
+        const { content, isError } = result;
+        let normalized: unknown;
+        let resultKind = 'mcp_result';
+
+        if (isError) {
+          normalized = result;
+          resultKind = 'mcp_error';
+        } else {
+          const data = content as { text: string; type: 'text' }[];
+          if (!data || data.length === 0) {
+            normalized = data;
+            resultKind = 'empty';
+          } else if (data.length > 1) {
+            normalized = data;
+            resultKind = 'content_array';
+          } else {
+            const text = data[0]?.text;
+            if (!text) {
+              normalized = data;
+              resultKind = 'content_array';
+            } else {
+              const json = safeParseJSON(text);
+              normalized = json || text;
+              resultKind = json ? 'json' : 'text';
+            }
+          }
+        }
+
+        logToolsDebugSafe('call_tool_normalized', {
+          durationMs: Date.now() - start,
+          result: summarizeToolsDebugValue(normalized),
+          resultKind,
+          toolName,
+        });
+        return normalized;
+      } catch (error) {
+        logToolsDebugSafe('call_tool_failed', {
+          ...describeToolsDebugError(error),
+          durationMs: Date.now() - start,
+          failurePhase,
+          toolName,
+        });
+        if (error instanceof McpError) return error.message;
+
+        throw new TRPCError({
+          cause: error,
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'The MCP tool call failed.',
+        });
+      }
+    });
   }
 
   // Private method to get or initialize a client based on parameters
@@ -263,7 +318,21 @@ export class MCPService {
 
     if (skipCache) {
       const initializing = this.clientInitializations.get(key);
-      if (initializing) return initializing;
+      if (initializing) {
+        logToolsDebugSafe('client_cache_lookup', {
+          cacheSize: this.clients.size,
+          initializationCount: this.clientInitializations.size,
+          outcome: 'initialization_in_flight',
+          skipCache: true,
+        });
+        return initializing;
+      }
+      logToolsDebugSafe('client_cache_lookup', {
+        cacheSize: this.clients.size,
+        initializationCount: this.clientInitializations.size,
+        outcome: 'replace',
+        skipCache: true,
+      });
       return this.startClientInitialization(key, params, oauthContext, true);
     } else {
       const cached = this.clients.get(key);
@@ -272,19 +341,34 @@ export class MCPService {
           oauthCredentialFingerprint &&
           this.oauthCredentialFingerprints.get(key) !== oauthCredentialFingerprint
         ) {
-          log('Replacing cached OAuth client after its direct access token rotated');
+          logToolsDebugSafe('client_cache_evicted', {
+            cacheSize: this.clients.size,
+            reason: 'oauth_credential_rotated',
+          });
           return this.startClientInitialization(key, params, oauthContext, true);
         } else if (isOAuth && oauthContext && !cached.hasTokenGetter) {
-          log('Evicting cached non-refreshable OAuth client; oauthContext now available');
+          logToolsDebugSafe('client_cache_evicted', {
+            cacheSize: this.clients.size,
+            reason: 'oauth_scope_upgrade',
+          });
           return this.startClientInitialization(key, params, oauthContext, true);
         } else {
-          logToolsDebugSafe('client_cache_hit', { transport: params.type });
+          logToolsDebugSafe('client_cache_lookup', {
+            cacheSize: this.clients.size,
+            initializationCount: this.clientInitializations.size,
+            outcome: 'hit',
+          });
           return cached;
         }
       }
 
       const initializing = this.clientInitializations.get(key);
       if (initializing) {
+        logToolsDebugSafe('client_cache_lookup', {
+          cacheSize: this.clients.size,
+          initializationCount: this.clientInitializations.size,
+          outcome: 'initialization_in_flight',
+        });
         const client = await initializing;
         if (
           oauthCredentialFingerprint &&
@@ -299,7 +383,11 @@ export class MCPService {
       }
     }
 
-    log('No cached client found, initializing new client');
+    logToolsDebugSafe('client_cache_lookup', {
+      cacheSize: this.clients.size,
+      initializationCount: this.clientInitializations.size,
+      outcome: 'miss',
+    });
     return this.startClientInitialization(key, params, oauthContext, false);
   }
 
@@ -309,14 +397,34 @@ export class MCPService {
     oauthContext: MCPOAuthContext | undefined,
     replace: boolean,
   ): Promise<MCPClient> {
+    const start = Date.now();
+    logToolsDebugSafe('client_initialization_started', {
+      authType: params.type === 'http' ? params.auth?.type || 'none' : 'none',
+      cacheSize: this.clients.size,
+      replace,
+    });
     const initialization = (async () => {
-      if (replace) await this.evictClient(key);
+      if (replace) await this.evictClient(key, 'replacement');
       return this.initializeClient(key, params, oauthContext);
     })();
     this.clientInitializations.set(key, initialization);
 
     try {
-      return await initialization;
+      const client = await initialization;
+      logToolsDebugSafe('client_initialized', {
+        cacheSize: this.clients.size,
+        durationMs: Date.now() - start,
+        transport: params.type,
+      });
+      return client;
+    } catch (error) {
+      logToolsDebugSafe('client_initialization_failed', {
+        ...describeToolsDebugError(error),
+        durationMs: Date.now() - start,
+        failurePhase: 'initialization',
+        transport: params.type,
+      });
+      throw error;
     } finally {
       if (this.clientInitializations.get(key) === initialization) {
         this.clientInitializations.delete(key);
@@ -335,40 +443,93 @@ export class MCPService {
 
     if (params.type === 'http' && params.auth?.type === 'oauth2' && oauthContext) {
       tokenGetter = async ({ forceRefresh = false } = {}) => {
-        const token = await oauthContext.oauthService.getOAuthToken(
-          oauthContext.userId,
-          oauthContext.pluginIdentifier,
-        );
-        if (!token) return undefined;
+        const oauthStart = Date.now();
+        const oauthOperation = forceRefresh ? 'refresh' : 'lookup';
+        logToolsDebugSafe('oauth_operation_started', {
+          operation: oauthOperation,
+          reason: forceRefresh ? 'forced_after_unauthorized' : 'credential_lookup',
+        });
 
-        if (forceRefresh) {
-          const refreshed = await oauthContext.oauthService.refreshOAuthToken(
+        try {
+          const token = await oauthContext.oauthService.getOAuthToken(
             oauthContext.userId,
             oauthContext.pluginIdentifier,
           );
-          return refreshed?.accessToken;
-        }
+          if (!token) {
+            logToolsDebugSafe('oauth_operation_complete', {
+              credentialPresent: false,
+              durationMs: Date.now() - oauthStart,
+              operation: oauthOperation,
+              outcome: 'missing',
+            });
+            return undefined;
+          }
 
-        const needsRefresh =
-          (token.expiresAt && token.expiresAt < Date.now()) ||
-          (!token.expiresAt && !!token.refreshToken);
-        if (needsRefresh) {
-          const refreshed = await oauthContext.oauthService.refreshOAuthToken(
-            oauthContext.userId,
-            oauthContext.pluginIdentifier,
-          );
-          if (refreshed) return refreshed.accessToken;
-          if (token.expiresAt && token.expiresAt < Date.now()) return undefined;
-        }
+          if (forceRefresh) {
+            const refreshed = await oauthContext.oauthService.refreshOAuthToken(
+              oauthContext.userId,
+              oauthContext.pluginIdentifier,
+            );
+            logToolsDebugSafe('oauth_operation_complete', {
+              credentialPresent: !!refreshed?.accessToken,
+              durationMs: Date.now() - oauthStart,
+              operation: oauthOperation,
+              outcome: refreshed?.accessToken ? 'refreshed' : 'refresh_failed',
+            });
+            return refreshed?.accessToken;
+          }
 
-        return token.accessToken;
+          const needsRefresh =
+            (token.expiresAt && token.expiresAt < Date.now()) ||
+            (!token.expiresAt && !!token.refreshToken);
+          if (needsRefresh) {
+            logToolsDebugSafe('oauth_operation_retry', {
+              operation: 'refresh',
+              reason: token.expiresAt ? 'expired' : 'refreshable_without_expiry',
+            });
+            const refreshed = await oauthContext.oauthService.refreshOAuthToken(
+              oauthContext.userId,
+              oauthContext.pluginIdentifier,
+            );
+            if (refreshed) {
+              logToolsDebugSafe('oauth_operation_complete', {
+                credentialPresent: true,
+                durationMs: Date.now() - oauthStart,
+                operation: 'refresh',
+                outcome: 'refreshed',
+              });
+              return refreshed.accessToken;
+            }
+            if (token.expiresAt && token.expiresAt < Date.now()) return undefined;
+          }
+
+          logToolsDebugSafe('oauth_operation_complete', {
+            credentialPresent: true,
+            durationMs: Date.now() - oauthStart,
+            operation: oauthOperation,
+            outcome: 'available',
+          });
+          return token.accessToken;
+        } catch (error) {
+          logToolsDebugSafe('oauth_operation_failed', {
+            ...describeToolsDebugError(error),
+            durationMs: Date.now() - oauthStart,
+            failurePhase: oauthOperation,
+            operation: oauthOperation,
+          });
+          throw error;
+        }
       };
 
       try {
         const token = await tokenGetter();
         if (token) resolvedParams = { ...params, auth: { ...params.auth, accessToken: token } };
-      } catch {
-        log('OAuth token prefetch failed for plugin %s', oauthContext.pluginIdentifier);
+      } catch (error) {
+        logToolsDebugSafe('oauth_operation_failed', {
+          ...describeToolsDebugError(error),
+          failurePhase: 'prefetch',
+          operation: 'prefetch',
+        });
       }
     }
 
@@ -376,7 +537,10 @@ export class MCPService {
       client = new MCPClient(resolvedParams, { fetchFn: this.fetchFn, tokenGetter });
       await client.initialize({
         onProgress: (progress) => {
-          log('New client initializing: %d/%d', progress.progress, progress.total);
+          logToolsDebugSafe('client_initialization_progress', {
+            progress: progress.progress,
+            total: progress.total,
+          });
         },
       });
       this.clients.set(key, client);
@@ -386,35 +550,41 @@ export class MCPService {
           this.fingerprint(params.auth.accessToken || ''),
         );
       }
-      logToolsDebugSafe('client_initialized', { transport: params.type });
-      log('New client initialized and cached for plugin: %s', params.name);
       return client;
     } catch (error) {
       if (client) await this.disconnectClient(client);
-      logToolsDebugSafe('client_initialization_failed', { transport: params.type });
-      const errorMessage = error instanceof Error ? error.message : String(error);
       const isStructuredMCPError = typeof error === 'object' && !!error && 'data' in error;
 
       throw new TRPCError({
         cause: error,
         code: isStructuredMCPError ? 'SERVICE_UNAVAILABLE' : 'INTERNAL_SERVER_ERROR',
-        message: errorMessage,
+        message: 'Unable to initialize the MCP client.',
       });
     }
   }
 
   private async disconnectClient(client: MCPClient): Promise<void> {
+    const start = Date.now();
     try {
       await client.disconnect();
-    } catch {
-      log('MCP client disconnect failed during cleanup');
+      logToolsDebugSafe('client_disconnect_complete', { durationMs: Date.now() - start });
+    } catch (error) {
+      logToolsDebugSafe('client_disconnect_failed', {
+        ...describeToolsDebugError(error),
+        durationMs: Date.now() - start,
+      });
     }
   }
 
-  private async evictClient(key: string): Promise<void> {
+  private async evictClient(key: string, reason = 'unspecified'): Promise<void> {
     const client = this.clients.get(key);
     this.clients.delete(key);
     this.oauthCredentialFingerprints.delete(key);
+    logToolsDebugSafe('client_cache_evicted', {
+      cacheSize: this.clients.size,
+      clientPresent: !!client,
+      reason,
+    });
     if (client) await this.disconnectClient(client);
   }
 
@@ -432,8 +602,7 @@ export class MCPService {
     }
 
     if (this.clients.has(unscopedKey)) {
-      log('Replacing unscoped OAuth client with a user-scoped refreshable client');
-      await this.evictClient(unscopedKey);
+      await this.evictClient(unscopedKey, 'oauth_scope_upgrade');
     }
   }
 
@@ -552,11 +721,13 @@ export class MCPService {
   async checkMcpInstall(input: {
     deploymentOptions: DeploymentOption[];
   }): Promise<CheckMcpInstallResult> {
+    const start = Date.now();
+    logToolsDebugSafe('mcp_operation_started', {
+      deploymentOptionCount: input.deploymentOptions.length,
+      operation: 'dependency_check',
+      platform: process.platform,
+    });
     try {
-      const loggableInput = {
-        deploymentOptions: input.deploymentOptions.map((o) => this.sanitizeForLogging(o)),
-      };
-      log('Checking MCP plugin installation status: %O', loggableInput);
       const results = [];
 
       // 检查每个部署选项
@@ -573,8 +744,6 @@ export class MCPService {
       // 返回推荐的结果，或第一个可安装的结果，或第一个结果
       const bestResult = recommendedResult || firstInstallableResult || results[0];
 
-      log('Check completed, best result: %O', bestResult);
-
       // 构造返回结果，确保包含配置检查信息
       const checkResult: CheckMcpInstallResult = {
         ...bestResult,
@@ -587,12 +756,24 @@ export class MCPService {
       if (bestResult?.needsConfig) {
         checkResult.needsConfig = true;
         checkResult.configSchema = bestResult.configSchema;
-        log('Configuration required for best deployment option: %O', bestResult.configSchema);
       }
+
+      logToolsDebugSafe('mcp_operation_complete', {
+        allDependenciesMet: !!bestResult?.allDependenciesMet,
+        durationMs: Date.now() - start,
+        needsConfig: !!bestResult?.needsConfig,
+        operation: 'dependency_check',
+        resultCount: results.length,
+      });
 
       return checkResult;
     } catch (error) {
-      log('Check failed: %O', error);
+      logToolsDebugSafe('mcp_operation_failed', {
+        ...describeToolsDebugError(error),
+        durationMs: Date.now() - start,
+        failurePhase: 'dependency_check',
+        operation: 'dependency_check',
+      });
       return {
         error:
           error instanceof Error
