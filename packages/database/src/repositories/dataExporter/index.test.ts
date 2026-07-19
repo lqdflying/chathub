@@ -201,6 +201,7 @@ describe('DataExporterRepos', () => {
       expect(result).toHaveProperty('messages');
       expect(result.messages).toHaveLength(1);
       expect(result.messages[0]).toHaveProperty('id', testIds.messageId);
+      expect(result.messages[0]).not.toHaveProperty('messageOrder');
 
       expect(result).toHaveProperty('agents');
       expect(result.agents).toHaveLength(1);
@@ -232,6 +233,58 @@ describe('DataExporterRepos', () => {
       //   testIds.knowledgeBaseId,
       // );
       // expect(result.knowledgeBaseFiles[0]).toHaveProperty('fileId', testIds.fileId);
+    });
+
+    it('should preserve persisted order when exporting independent tied turns', async () => {
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
+      await db.delete(messages);
+      await db.insert(messages).values([
+        {
+          content: 'Second turn',
+          createdAt: tiedCreatedAt,
+          id: 'turn-a',
+          messageOrder: 203n,
+          role: 'user',
+          userId,
+        },
+        {
+          content: 'Second reply',
+          createdAt: tiedCreatedAt,
+          id: 'reply-a',
+          messageOrder: 204n,
+          parentId: 'turn-a',
+          role: 'assistant',
+          userId,
+        },
+        {
+          content: 'First turn',
+          createdAt: tiedCreatedAt,
+          id: 'turn-z',
+          messageOrder: 201n,
+          role: 'user',
+          userId,
+        },
+        {
+          content: 'First reply',
+          createdAt: tiedCreatedAt,
+          id: 'reply-z',
+          messageOrder: 202n,
+          parentId: 'turn-z',
+          role: 'assistant',
+          userId,
+        },
+      ]);
+
+      const dataExporter = new DataExporterRepos(db, userId);
+      const result = await dataExporter.export();
+
+      expect(result.messages.map(({ id }: { id: string }) => id)).toEqual([
+        'turn-z',
+        'reply-z',
+        'turn-a',
+        'reply-a',
+      ]);
+      expect(result.messages.every((message: object) => !('messageOrder' in message))).toBe(true);
     });
 
     it('should handle empty database gracefully', async () => {

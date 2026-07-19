@@ -41,6 +41,12 @@ import {
 import { LobeChatDatabase } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
+import {
+  removeMessageOrder,
+  sortMessagesParentFirst,
+} from '../utils/sortMessagesParentFirst';
+
+type MessageWithInternalOrder = DBMessageItem & { messageOrder?: bigint };
 
 export class MessageModel {
   private userId: string;
@@ -123,7 +129,7 @@ export class MessageModel {
       .leftJoin(messagePlugins, eq(messagePlugins.id, messages.id))
       .leftJoin(messageTranslates, eq(messageTranslates.id, messages.id))
       .leftJoin(messageTTS, eq(messageTTS.id, messages.id))
-      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .orderBy(asc(messages.createdAt), asc(messages.messageOrder))
       .limit(pageSize)
       .offset(offset);
 
@@ -267,9 +273,11 @@ export class MessageModel {
   };
 
   findById = async (id: string) => {
-    return this.db.query.messages.findFirst({
+    const message = await this.db.query.messages.findFirst({
       where: and(eq(messages.id, id), eq(messages.userId, this.userId)),
     });
+
+    return message ? removeMessageOrder(message) : undefined;
   };
 
   findMessageQueriesById = async (messageId: string) => {
@@ -294,29 +302,29 @@ export class MessageModel {
     const result = await this.db
       .select()
       .from(messages)
-      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .orderBy(asc(messages.createdAt), asc(messages.messageOrder))
       .where(eq(messages.userId, this.userId));
 
-    return result as DBMessageItem[];
+    return result.map(removeMessageOrder) as DBMessageItem[];
   };
 
   queryBySessionId = async (sessionId?: string | null) => {
     const result = await this.db.query.messages.findMany({
-      orderBy: [asc(messages.createdAt), asc(messages.id)],
+      orderBy: [asc(messages.createdAt), asc(messages.messageOrder)],
       where: and(eq(messages.userId, this.userId), this.matchSession(sessionId)),
     });
 
-    return result as DBMessageItem[];
+    return result.map(removeMessageOrder) as DBMessageItem[];
   };
 
   queryByKeyword = async (keyword: string) => {
     if (!keyword) return [];
     const result = await this.db.query.messages.findMany({
-      orderBy: [desc(messages.createdAt), desc(messages.id)],
+      orderBy: [desc(messages.createdAt), desc(messages.messageOrder)],
       where: and(eq(messages.userId, this.userId), like(messages.content, `%${keyword}%`)),
     });
 
-    return result as DBMessageItem[];
+    return result.map(removeMessageOrder) as DBMessageItem[];
   };
 
   count = async (params?: {
@@ -455,7 +463,10 @@ export class MessageModel {
   // **************** Create *************** //
 
   create = async (
-    {
+    params: CreateMessageParams,
+    id: string = this.genId(),
+  ): Promise<DBMessageItem> => {
+    const {
       fromModel,
       fromProvider,
       files,
@@ -466,9 +477,8 @@ export class MessageModel {
       updatedAt,
       createdAt,
       ...message
-    }: CreateMessageParams,
-    id: string = this.genId(),
-  ): Promise<DBMessageItem> => {
+    } = removeMessageOrder(params);
+
     return this.db.transaction(async (trx) => {
       // Ensure group message does not populate sessionId
       const normalizedMessage = message.groupId ? { ...message, sessionId: null } : message;
@@ -485,7 +495,7 @@ export class MessageModel {
           updatedAt: updatedAt ? new Date(updatedAt) : undefined,
           userId: this.userId,
         })
-        .returning()) as DBMessageItem[];
+        .returning()) as MessageWithInternalOrder[];
 
       // Insert the plugin data if the message is a tool
       if (message.role === 'tool') {
@@ -519,7 +529,7 @@ export class MessageModel {
         );
       }
 
-      return item;
+      return removeMessageOrder(item) as DBMessageItem;
     });
   };
 
@@ -572,9 +582,14 @@ export class MessageModel {
   };
 
   batchCreate = async (newMessages: DBMessageItem[]) => {
-    const messagesToInsert = newMessages.map((m) => {
+    const messagesToInsert = sortMessagesParentFirst(newMessages).map((message) => {
+      const publicMessage = removeMessageOrder(message as MessageWithInternalOrder);
       // TODO: need a better way to handle this
-      return { ...m, role: m.role as any, userId: this.userId };
+      return {
+        ...publicMessage,
+        role: publicMessage.role as any,
+        userId: this.userId,
+      };
     });
 
     return this.db.insert(messages).values(messagesToInsert);
@@ -590,7 +605,9 @@ export class MessageModel {
   };
   // **************** Update *************** //
 
-  update = async (id: string, { imageList, ...message }: Partial<UpdateMessageParams>) => {
+  update = async (id: string, params: Partial<UpdateMessageParams>) => {
+    const { imageList, ...message } = removeMessageOrder(params);
+
     return this.db.transaction(async (trx) => {
       // 1. insert message files
       if (imageList && imageList.length > 0) {

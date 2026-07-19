@@ -1,10 +1,14 @@
 import { DBMessageItem, TopicRankItem } from '@lobechat/types';
-import { and, count, desc, eq, gt, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import { TopicItem, agentsToSessions, messages, topics } from '../schemas';
 import { LobeChatDatabase } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
+import {
+  removeMessageOrder,
+  sortMessagesParentFirst,
+} from '../utils/sortMessagesParentFirst';
 
 export interface CreateTopicParams {
   favorite?: boolean;
@@ -298,23 +302,37 @@ export class TopicModel {
       const originalMessages = await tx
         .select()
         .from(messages)
-        .where(and(eq(messages.topicId, topicId), eq(messages.userId, this.userId)));
+        .where(and(eq(messages.topicId, topicId), eq(messages.userId, this.userId)))
+        .orderBy(asc(messages.createdAt), asc(messages.messageOrder));
 
-      // copy messages
-      const duplicatedMessages = await Promise.all(
-        originalMessages.map(async (message) => {
-          const result = (await tx
-            .insert(messages)
-            .values({
-              ...message,
-              clientId: null,
-              id: idGenerator('messages'),
-              topicId: duplicatedTopic.id,
-            })
-            .returning()) as DBMessageItem[];
+      const duplicatedMessageIdByOriginalId = new Map(
+        originalMessages.map(({ id }) => [id, idGenerator('messages')] as const),
+      );
+      const duplicatedMessageValues = sortMessagesParentFirst(originalMessages).map(
+        (originalMessage) => {
+          const message = removeMessageOrder(originalMessage);
 
-          return result[0];
-        }),
+          return {
+            ...message,
+            clientId: null,
+            id: duplicatedMessageIdByOriginalId.get(message.id)!,
+            parentId: message.parentId
+              ? duplicatedMessageIdByOriginalId.get(message.parentId) || null
+              : null,
+            quotaId: message.quotaId
+              ? duplicatedMessageIdByOriginalId.get(message.quotaId) || null
+              : null,
+            topicId: duplicatedTopic.id,
+          };
+        },
+      );
+      const insertedMessages = (
+        duplicatedMessageValues.length > 0
+          ? await tx.insert(messages).values(duplicatedMessageValues).returning()
+          : []
+      ) as (typeof messages.$inferSelect)[];
+      const duplicatedMessages = insertedMessages.map(
+        (message) => removeMessageOrder(message) as DBMessageItem,
       );
 
       return {

@@ -69,6 +69,12 @@ describe('LobeOpenAICompatibleAI', () => {
     process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
     const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const debugToolCache = {
+      cachePolicy: {
+        responsePromptCacheKey: 'derived',
+        responseSessionHeader: true,
+        responseStateMode: 'provider',
+        responseStore: 'true',
+      },
       inputItemCount: 2,
       toolCallCount: 1,
       toolCallSetHash: '0123456789abcdef',
@@ -97,6 +103,10 @@ describe('LobeOpenAICompatibleAI', () => {
       toolCallCount: 1,
       toolCallSetHash: '0123456789abcdef',
     });
+    expect(debugRecord.toolCache.cachePolicy).not.toHaveProperty('responsePromptCacheKey');
+    expect(debugRecord.toolCache.cachePolicy).not.toHaveProperty('responseSessionHeader');
+    expect(debugRecord.toolCache.cachePolicy).not.toHaveProperty('responseStateMode');
+    expect(debugRecord.toolCache.cachePolicy).not.toHaveProperty('responseStore');
     consoleLogSpy.mockRestore();
   });
 
@@ -155,6 +165,10 @@ describe('LobeOpenAICompatibleAI', () => {
     process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
     const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const debugToolCache = {
+      cachePolicy: {
+        chatPromptCacheKey: true,
+        chatSessionHeader: true,
+      },
       inputItemCount: 2,
       toolCallCount: 1,
       toolCallSetHash: '0123456789abcdef',
@@ -186,6 +200,8 @@ describe('LobeOpenAICompatibleAI', () => {
       toolCallCount: 1,
       toolCallSetHash: '0123456789abcdef',
     });
+    expect(debugRecord.toolCache.cachePolicy).not.toHaveProperty('chatPromptCacheKey');
+    expect(debugRecord.toolCache.cachePolicy).not.toHaveProperty('chatSessionHeader');
     consoleLogSpy.mockRestore();
   });
 

@@ -1,10 +1,13 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix  */
 import { GroundingSearch, ModelReasoning } from '@lobechat/types';
+import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
   index,
   jsonb,
   numeric,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -70,6 +73,8 @@ export const insertMessageGroupSchema = createInsertSchema(messageGroups);
 export type NewMessageGroup = typeof messageGroups.$inferInsert;
 export type MessageGroupItem = typeof messageGroups.$inferSelect;
 
+export const messagesMessageOrderSequence = pgSequence('messages_message_order_seq');
+
 // @ts-ignore
 export const messages = pgTable(
   'messages',
@@ -85,6 +90,9 @@ export const messages = pgTable(
     metadata: jsonb('metadata'),
 
     model: text('model'),
+    messageOrder: bigint('message_order', { mode: 'bigint' })
+      .default(sql`nextval('messages_message_order_seq'::regclass)`)
+      .notNull(),
     provider: text('provider'),
 
     favorite: boolean('favorite').default(false),
@@ -121,7 +129,7 @@ export const messages = pgTable(
     ...timestamps,
   },
   (table) => [
-    index('messages_created_at_idx').on(table.createdAt),
+    index('messages_created_at_order_idx').on(table.createdAt, table.messageOrder),
     uniqueIndex('message_client_id_user_unique').on(table.clientId, table.userId),
     index('messages_topic_id_idx').on(table.topicId),
     index('messages_parent_id_idx').on(table.parentId),

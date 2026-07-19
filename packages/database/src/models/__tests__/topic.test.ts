@@ -1,5 +1,5 @@
 import { eq, inArray } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { chatGroups, messages, sessions, topics, users } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
@@ -662,13 +662,29 @@ describe('TopicModel', () => {
     it('should duplicate a topic and its associated messages', async () => {
       const topicId = 'topic-duplicate';
       const newTitle = 'Duplicated Topic';
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
 
       // 创建原始的 topic 和 messages
       await serverDB.transaction(async (tx) => {
         await tx.insert(topics).values({ id: topicId, sessionId, userId, title: 'Original Topic' });
         await tx.insert(messages).values([
-          { id: 'message1', role: 'user', topicId, userId, content: 'User message' },
-          { id: 'message2', role: 'assistant', topicId, userId, content: 'Assistant message' },
+          {
+            id: 'child-a',
+            parentId: 'parent-z',
+            role: 'assistant',
+            topicId,
+            userId,
+            content: 'Assistant message',
+            createdAt: tiedCreatedAt,
+          },
+          {
+            id: 'parent-z',
+            role: 'user',
+            topicId,
+            userId,
+            content: 'User message',
+            createdAt: tiedCreatedAt,
+          },
         ]);
       });
 
@@ -686,12 +702,84 @@ describe('TopicModel', () => {
 
       // 断言复制的 messages 的属性正确
       expect(duplicatedMessages).toHaveLength(2);
-      expect(duplicatedMessages[0].id).not.toBe('message1');
+      expect(duplicatedMessages[0].id).not.toBe('parent-z');
       expect(duplicatedMessages[0].topicId).toBe(duplicatedTopic.id);
       expect(duplicatedMessages[0].content).toBe('User message');
-      expect(duplicatedMessages[1].id).not.toBe('message2');
+      expect(duplicatedMessages[0]).not.toHaveProperty('messageOrder');
+      expect(duplicatedMessages[1].id).not.toBe('child-a');
       expect(duplicatedMessages[1].topicId).toBe(duplicatedTopic.id);
       expect(duplicatedMessages[1].content).toBe('Assistant message');
+      expect(duplicatedMessages[1].parentId).toBe(duplicatedMessages[0].id);
+      expect(duplicatedMessages[1]).not.toHaveProperty('messageOrder');
+
+      const persistedDuplicates = await serverDB.query.messages.findMany({
+        orderBy: (table, { asc }) => asc(table.messageOrder),
+        where: eq(messages.topicId, duplicatedTopic.id),
+      });
+      expect(persistedDuplicates.map(({ content }) => content)).toEqual([
+        'User message',
+        'Assistant message',
+      ]);
+      expect(new Set(persistedDuplicates.map(({ messageOrder }) => messageOrder)).size).toBe(2);
+    });
+
+    it('should preserve persisted order between independent tied turns', async () => {
+      const topicId = 'topic-duplicate-tied-turns';
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
+      await serverDB.insert(topics).values({ id: topicId, sessionId, userId });
+      await serverDB.insert(messages).values([
+        {
+          content: 'Second turn',
+          createdAt: tiedCreatedAt,
+          id: 'turn-a',
+          messageOrder: 103n,
+          role: 'user',
+          topicId,
+          userId,
+        },
+        {
+          content: 'Second reply',
+          createdAt: tiedCreatedAt,
+          id: 'reply-a',
+          messageOrder: 104n,
+          parentId: 'turn-a',
+          role: 'assistant',
+          topicId,
+          userId,
+        },
+        {
+          content: 'First turn',
+          createdAt: tiedCreatedAt,
+          id: 'turn-z',
+          messageOrder: 101n,
+          role: 'user',
+          topicId,
+          userId,
+        },
+        {
+          content: 'First reply',
+          createdAt: tiedCreatedAt,
+          id: 'reply-z',
+          messageOrder: 102n,
+          parentId: 'turn-z',
+          role: 'assistant',
+          topicId,
+          userId,
+        },
+      ]);
+
+      const { topic: duplicatedTopic } = await topicModel.duplicate(topicId);
+      const persistedDuplicates = await serverDB.query.messages.findMany({
+        orderBy: (table, { asc }) => asc(table.messageOrder),
+        where: eq(messages.topicId, duplicatedTopic.id),
+      });
+
+      expect(persistedDuplicates.map(({ content }) => content)).toEqual([
+        'First turn',
+        'First reply',
+        'Second turn',
+        'Second reply',
+      ]);
     });
 
     it('should throw an error if the topic to duplicate does not exist', async () => {

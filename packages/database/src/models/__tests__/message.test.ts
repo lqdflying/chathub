@@ -127,10 +127,15 @@ describe('MessageModel', () => {
 
     it('should preserve tied timestamp order across repeated paginated reads', async () => {
       const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
-      await serverDB.insert(messages).values([
-        { id: 'tie-c', userId, role: 'user', content: 'message c', createdAt: tiedCreatedAt },
-        { id: 'tie-a', userId, role: 'user', content: 'message a', createdAt: tiedCreatedAt },
-        { id: 'tie-b', userId, role: 'user', content: 'message b', createdAt: tiedCreatedAt },
+      await messageModel.batchCreate([
+        {
+          id: 'child-a',
+          parentId: 'parent-z',
+          role: 'assistant',
+          content: 'child',
+          createdAt: tiedCreatedAt,
+        },
+        { id: 'parent-z', role: 'user', content: 'parent', createdAt: tiedCreatedAt },
       ]);
 
       const readPages = async () => {
@@ -140,8 +145,8 @@ describe('MessageModel', () => {
         return [...firstPage, ...secondPage].map((message) => message.id);
       };
 
-      await expect(readPages()).resolves.toEqual(['tie-a', 'tie-b', 'tie-c']);
-      await expect(readPages()).resolves.toEqual(['tie-a', 'tie-b', 'tie-c']);
+      await expect(readPages()).resolves.toEqual(['parent-z', 'child-a']);
+      await expect(readPages()).resolves.toEqual(['parent-z', 'child-a']);
     });
 
     it('should filter messages by sessionId', async () => {
@@ -559,19 +564,25 @@ describe('MessageModel', () => {
       expect(result[1].id).toBe('2');
     });
 
-    it('should use message ID to stabilize tied timestamps', async () => {
+    it('should use internal message order to stabilize tied timestamps', async () => {
       const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
-      await serverDB.insert(messages).values([
-        { id: 'tie-c', userId, role: 'user', content: 'message c', createdAt: tiedCreatedAt },
-        { id: 'tie-a', userId, role: 'user', content: 'message a', createdAt: tiedCreatedAt },
-        { id: 'tie-b', userId, role: 'user', content: 'message b', createdAt: tiedCreatedAt },
+      await messageModel.batchCreate([
+        {
+          id: 'child-a',
+          parentId: 'parent-z',
+          role: 'assistant',
+          content: 'child',
+          createdAt: tiedCreatedAt,
+        },
+        { id: 'parent-z', role: 'user', content: 'parent', createdAt: tiedCreatedAt },
       ]);
 
       const firstRead = await messageModel.queryAll();
       const secondRead = await messageModel.queryAll();
 
-      expect(firstRead.map((message) => message.id)).toEqual(['tie-a', 'tie-b', 'tie-c']);
-      expect(secondRead.map((message) => message.id)).toEqual(['tie-a', 'tie-b', 'tie-c']);
+      expect(firstRead.map((message) => message.id)).toEqual(['parent-z', 'child-a']);
+      expect(secondRead.map((message) => message.id)).toEqual(['parent-z', 'child-a']);
+      expect(firstRead.every((message) => !('messageOrder' in message))).toBe(true);
     });
   });
 
@@ -642,40 +653,32 @@ describe('MessageModel', () => {
       expect(result[1].id).toBe('2');
     });
 
-    it('should use message ID to stabilize tied timestamps', async () => {
+    it('should preserve causal order for tied timestamps', async () => {
       const sessionId = 'session1';
       const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
       await serverDB.insert(sessions).values({ id: sessionId, userId });
-      await serverDB.insert(messages).values([
+      await messageModel.batchCreate([
         {
-          id: 'tie-c',
-          userId,
-          role: 'user',
+          id: 'child-a',
+          parentId: 'parent-z',
+          role: 'assistant',
           sessionId,
-          content: 'message c',
+          content: 'child',
           createdAt: tiedCreatedAt,
         },
         {
-          id: 'tie-a',
-          userId,
+          id: 'parent-z',
           role: 'user',
           sessionId,
-          content: 'message a',
-          createdAt: tiedCreatedAt,
-        },
-        {
-          id: 'tie-b',
-          userId,
-          role: 'user',
-          sessionId,
-          content: 'message b',
+          content: 'parent',
           createdAt: tiedCreatedAt,
         },
       ]);
 
       const result = await messageModel.queryBySessionId(sessionId);
 
-      expect(result.map((message) => message.id)).toEqual(['tie-a', 'tie-b', 'tie-c']);
+      expect(result.map((message) => message.id)).toEqual(['parent-z', 'child-a']);
+      expect(result.every((message) => !('messageOrder' in message))).toBe(true);
     });
   });
 
@@ -698,17 +701,23 @@ describe('MessageModel', () => {
       expect(result[1].id).toBe('1');
     });
 
-    it('should use descending message ID to stabilize tied timestamps', async () => {
+    it('should use descending internal order for tied timestamps', async () => {
       const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
-      await serverDB.insert(messages).values([
-        { id: 'tie-a', userId, role: 'user', content: 'apple a', createdAt: tiedCreatedAt },
-        { id: 'tie-c', userId, role: 'user', content: 'apple c', createdAt: tiedCreatedAt },
-        { id: 'tie-b', userId, role: 'user', content: 'apple b', createdAt: tiedCreatedAt },
+      await messageModel.batchCreate([
+        {
+          id: 'child-a',
+          parentId: 'parent-z',
+          role: 'assistant',
+          content: 'apple child',
+          createdAt: tiedCreatedAt,
+        },
+        { id: 'parent-z', role: 'user', content: 'apple parent', createdAt: tiedCreatedAt },
       ]);
 
       const result = await messageModel.queryByKeyword('apple');
 
-      expect(result.map((message) => message.id)).toEqual(['tie-c', 'tie-b', 'tie-a']);
+      expect(result.map((message) => message.id)).toEqual(['child-a', 'parent-z']);
+      expect(result.every((message) => !('messageOrder' in message))).toBe(true);
     });
 
     it('should return empty array when keyword is empty', async () => {
@@ -998,21 +1007,79 @@ describe('MessageModel', () => {
   });
 
   describe('batchCreateMessages', () => {
-    it('should batch create messages', async () => {
+    it('should assign unique parent-first order without exposing it', async () => {
       // 准备测试数据
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
       const newMessages = [
-        { id: '1', role: 'user', content: 'message 1' },
-        { id: '2', role: 'assistant', content: 'message 2' },
+        {
+          id: 'child-a',
+          parentId: 'parent-z',
+          role: 'assistant',
+          content: 'child',
+          createdAt: tiedCreatedAt,
+        },
+        { id: 'parent-z', role: 'user', content: 'parent', createdAt: tiedCreatedAt },
       ] as DBMessageItem[];
 
       // 调用 batchCreateMessages 方法
       await messageModel.batchCreate(newMessages);
 
       // 断言结果
-      const result = await serverDB.select().from(messages).where(eq(messages.userId, userId));
-      expect(result).toHaveLength(2);
-      expect(result[0].content).toBe('message 1');
-      expect(result[1].content).toBe('message 2');
+      const internalRows = await serverDB
+        .select()
+        .from(messages)
+        .where(eq(messages.userId, userId))
+        .orderBy(messages.messageOrder);
+      expect(internalRows.map(({ id }) => id)).toEqual(['parent-z', 'child-a']);
+      expect(new Set(internalRows.map(({ messageOrder }) => messageOrder)).size).toBe(2);
+
+      const publicRows = await messageModel.queryAll();
+      expect(publicRows.every((message) => !('messageOrder' in message))).toBe(true);
+    });
+
+    it('should preserve source order between independent turns with tied timestamps', async () => {
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
+      await messageModel.batchCreate([
+        {
+          content: 'first turn',
+          createdAt: tiedCreatedAt,
+          id: 'turn-z',
+          role: 'user',
+        },
+        {
+          content: 'first reply',
+          createdAt: tiedCreatedAt,
+          id: 'reply-z',
+          parentId: 'turn-z',
+          role: 'assistant',
+        },
+        {
+          content: 'second turn',
+          createdAt: tiedCreatedAt,
+          id: 'turn-a',
+          role: 'user',
+        },
+        {
+          content: 'second reply',
+          createdAt: tiedCreatedAt,
+          id: 'reply-a',
+          parentId: 'turn-a',
+          role: 'assistant',
+        },
+      ] as DBMessageItem[]);
+
+      const internalRows = await serverDB
+        .select()
+        .from(messages)
+        .where(eq(messages.userId, userId))
+        .orderBy(messages.messageOrder);
+
+      expect(internalRows.map(({ id }) => id)).toEqual([
+        'turn-z',
+        'reply-z',
+        'turn-a',
+        'reply-a',
+      ]);
     });
   });
 

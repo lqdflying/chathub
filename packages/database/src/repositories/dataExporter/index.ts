@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import pMap from 'p-map';
 
 import * as EXPORT_TABLES from '../../schemas';
@@ -89,11 +89,16 @@ export class DataExporterRepos {
     this.userId = userId;
   }
 
-  private removeUserId(data: any[]) {
+  private removePrivateFields(data: any[], table: keyof typeof EXPORT_TABLES) {
     return data.map((item) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { userId: _, ...rest } = item;
-      return rest;
+      const { userId: _userId, ...publicItem } = item;
+
+      if (table === 'messages') {
+        delete publicItem.messageOrder;
+      }
+
+      return publicItem;
     });
   }
 
@@ -132,7 +137,7 @@ export class DataExporterRepos {
 
       // 只对使用 userId 查询的表移除 userId 字段
       console.log('Successfully exported table:', table, 'count:', result.length);
-      return config.relations ? result : this.removeUserId(result);
+      return config.relations ? result : this.removePrivateFields(result, table);
     } catch (error) {
       console.error('Error querying table', table, ':', error);
       return [];
@@ -150,13 +155,17 @@ export class DataExporterRepos {
       // 默认使用 userId 查询，特殊情况使用 userField
       const userField = config.userField || 'userId';
       const where = eq(tableObj[userField], this.userId);
+      const orderBy =
+        table === 'messages'
+          ? [asc(EXPORT_TABLES.messages.createdAt), asc(EXPORT_TABLES.messages.messageOrder)]
+          : undefined;
 
       // @ts-expect-error query
-      const result = await this.db.query[table].findMany({ where });
+      const result = await this.db.query[table].findMany({ orderBy, where });
 
       // 只对使用 userId 查询的表移除 userId 字段
       console.log('Successfully exported table:', table, 'count:', result.length);
-      return this.removeUserId(result);
+      return this.removePrivateFields(result, table);
     } catch (error) {
       console.error('Error querying table', table, ':', error);
       return [];

@@ -3,6 +3,7 @@ import { LOBE_PROVIDER_BUILTIN_IDENTIFIER, ToolNameResolver } from '@lobechat/co
 import {
   ChatErrorType,
   ChatMessageError,
+  ChatPluginPayload,
   ChatToolPayload,
   CreateMessageParams,
   MessageToolCall,
@@ -61,6 +62,9 @@ const isAbortError = (error: unknown) => {
   return false;
 };
 
+type MCPChatToolPayload = Omit<ChatToolPayload, 'type'> & { type: 'mcp' };
+type ExecutableChatToolPayload = ChatToolPayload | MCPChatToolPayload;
+
 export interface ChatPluginAction {
   createAssistantMessageByPlugin: (content: string, parentId: string) => Promise<void>;
   fillPluginMessageContent: (
@@ -72,12 +76,13 @@ export interface ChatPluginAction {
   invokeBuiltinTool: (id: string, payload: ChatToolPayload) => Promise<void>;
   /** Moonshot-style provider builtins: echo tool arguments as tool result, then continue chat */
   invokeProviderBuiltinTool: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
-  invokeDefaultTypePlugin: (id: string, payload: any) => Promise<string | undefined>;
+  invokeDefaultTypePlugin: (id: string, payload: ChatPluginPayload) => Promise<string | undefined>;
   invokeMarkdownTypePlugin: (id: string, payload: ChatToolPayload) => Promise<void>;
   invokeMCPTypePlugin: (
     id: string,
-    payload: ChatToolPayload,
+    payload: MCPChatToolPayload,
     toolCacheDebug?: ToolCacheDebugMetadata,
+    requestedDiagnosticId?: string,
   ) => Promise<string | undefined>;
 
   invokeStandaloneTypePlugin: (id: string, payload: ChatToolPayload) => Promise<void>;
@@ -117,7 +122,7 @@ export interface ChatPluginAction {
   internal_callPluginApi: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
   internal_invokeDifferentTypePlugin: (
     id: string,
-    payload: ChatToolPayload,
+    payload: ExecutableChatToolPayload,
     toolCacheDebug?: ToolCacheDebugMetadata,
     diagnosticId?: string,
   ) => Promise<any>;
@@ -554,7 +559,6 @@ export const chatPlugin: StateCreator<
         return await get().invokeBuiltinTool(id, payload);
       }
 
-      // @ts-ignore
       case 'mcp': {
         return await get().invokeMCPTypePlugin(id, payload, toolCacheDebug, diagnosticId);
       }

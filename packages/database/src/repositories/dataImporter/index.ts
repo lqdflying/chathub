@@ -6,6 +6,7 @@ import { uuid } from '@/utils/uuid';
 
 import * as EXPORT_TABLES from '../../schemas';
 import { LobeChatDatabase } from '../../type';
+import { sortMessagesParentFirst } from '../../utils/sortMessagesParentFirst';
 import { DeprecatedDataImporterRepos } from './deprecated';
 
 interface ImportResult {
@@ -488,7 +489,6 @@ export class DataImporterRepos {
         if (tableName === 'userSettings') {
           newRecord.id = this.userId;
         }
-
         // 处理关系字段（外键引用）
         for (const relation of relations) {
           const { field, sourceTable } = relation;
@@ -514,6 +514,10 @@ export class DataImporterRepos {
           if (newRecord[field] !== undefined) {
             newRecord[field] = null;
           }
+        }
+
+        if (tableName === 'messages') {
+          delete newRecord.messageOrder;
         }
 
         return { newRecord, originalId };
@@ -643,10 +647,25 @@ export class DataImporterRepos {
       }
 
       // 过滤掉标记为跳过的记录
-      const filteredData = preparedData.filter((record) => !record.newRecord._skip);
+      let filteredData = preparedData.filter((record) => !record.newRecord._skip);
 
       // 清除临时标记
       filteredData.forEach((record) => delete record.newRecord._skip);
+
+      if (tableName === 'messages') {
+        const originalMessageById = new Map(
+          tableData.map((message) => [message.id, message] as const),
+        );
+        filteredData = sortMessagesParentFirst(filteredData, ({ originalId }) => {
+          const originalMessage = originalMessageById.get(originalId);
+
+          return {
+            createdAt: originalMessage?.createdAt,
+            id: originalId,
+            parentId: originalMessage?.parentId,
+          };
+        });
+      }
 
       // 6. 批量插入数据
       const BATCH_SIZE = 100;

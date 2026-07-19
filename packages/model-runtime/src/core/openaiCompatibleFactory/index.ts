@@ -369,7 +369,6 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           ? {
               ...requestedToolCache,
               cachePolicy: {
-                ...requestedToolCache.cachePolicy,
                 chatPromptCacheKey: !!(chatCache?.promptCacheKey && chatCacheKey),
                 chatSessionHeader: !!(chatCache?.sessionHeader && chatCacheKey),
               },
@@ -1031,11 +1030,15 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         ? {
             ...requestedToolCache,
             cachePolicy: {
-              ...requestedToolCache.cachePolicy,
-              responsePromptCacheKey: shouldSendPromptCacheKey ? 'derived' : 'off',
+              responsePromptCacheKey: shouldSendPromptCacheKey
+                ? ('derived' as const)
+                : ('off' as const),
               responseSessionHeader: !!(responseCache?.sessionHeader && promptCacheKey),
-              responseStateMode: statefulResponses ? 'provider' : 'stateless',
-              responseStore: store === undefined ? 'default' : store ? 'true' : 'false',
+              responseStateMode: statefulResponses
+                ? ('provider' as const)
+                : ('stateless' as const),
+              responseStore:
+                store === undefined ? ('default' as const) : store ? ('true' as const) : ('false' as const),
             },
             inputItemCount: input.length,
           }

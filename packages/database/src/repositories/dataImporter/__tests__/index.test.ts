@@ -162,6 +162,45 @@ describe('DataImporter', () => {
       ).toEqual(topicsData.data.messages[0].id);
     });
 
+    it('should allocate fresh parent-first message order for tied imported rows', async () => {
+      const exportData = structuredClone(topicsData) as ImportPgDataStructure;
+      const tiedCreatedAt = '2025-03-05T09:28:23.015Z';
+      exportData.data.messagePlugins = [];
+      exportData.data.messages = [
+        {
+          content: 'Imported child',
+          createdAt: tiedCreatedAt,
+          id: 'child-a',
+          messageOrder: 900_000,
+          parentId: 'parent-z',
+          role: 'assistant',
+          updatedAt: tiedCreatedAt,
+        },
+        {
+          content: 'Imported parent',
+          createdAt: tiedCreatedAt,
+          id: 'parent-z',
+          messageOrder: 900_001,
+          role: 'user',
+          updatedAt: tiedCreatedAt,
+        },
+      ] as any;
+
+      const result = await importer.importPgData(exportData);
+
+      expect(result.success).toBe(true);
+      expect(result.results.messages).toMatchObject({ added: 2, errors: 0 });
+
+      const importedMessages = await clientDB.query.messages.findMany({
+        orderBy: (table, { asc }) => asc(table.messageOrder),
+        where: eq(Schema.messages.userId, userId),
+      });
+      expect(importedMessages.map(({ clientId }) => clientId)).toEqual(['parent-z', 'child-a']);
+      expect(new Set(importedMessages.map(({ messageOrder }) => messageOrder)).size).toBe(2);
+      expect(importedMessages.map(({ messageOrder }) => messageOrder)).not.toContain(900_000n);
+      expect(importedMessages.map(({ messageOrder }) => messageOrder)).not.toContain(900_001n);
+    });
+
     it('should only return non-zero result', async () => {
       const exportData = topicsData as ImportPgDataStructure;
       const result = await importer.importPgData(exportData);

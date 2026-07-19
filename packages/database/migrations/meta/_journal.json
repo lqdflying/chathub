@@ -315,6 +315,20 @@
       "when": 1745908800000,
       "tag": "0044_add_mcp_oauth_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1784468303298,
+      "tag": "0045_smooth_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1784473972091,
+      "tag": "0046_repair_skipped_local_schema",
+      "breakpoints": true
     }
   ],
   "version": "6"

@@ -223,7 +223,10 @@
     "hash": "9646161fa041354714f823d726af27247bcd6e60fa3be5698c0d69f337a5700b"
   },
   {
-    "sql": ["DROP TABLE \"user_budgets\";", "\nDROP TABLE \"user_subscriptions\";"],
+    "sql": [
+      "DROP TABLE \"user_budgets\";",
+      "\nDROP TABLE \"user_subscriptions\";"
+    ],
     "bps": true,
     "folderMillis": 1729699958471,
     "hash": "7dad43a2a25d1aec82124a4e53f8d82f8505c3073f23606c1dc5d2a4598eacf9"
@@ -295,7 +298,9 @@
     "hash": "845a692ceabbfc3caf252a97d3e19a213bc0c433df2689900135f9cfded2cf49"
   },
   {
-    "sql": ["ALTER TABLE \"messages\" ADD COLUMN \"reasoning\" jsonb;"],
+    "sql": [
+      "ALTER TABLE \"messages\" ADD COLUMN \"reasoning\" jsonb;"
+    ],
     "bps": true,
     "folderMillis": 1737609172353,
     "hash": "2cb36ae4fcdd7b7064767e04bfbb36ae34518ff4bb1b39006f2dd394d1893868"
@@ -510,7 +515,9 @@
     "hash": "a7ccf007fd185ff922823148d1eae6fafe652fc98d2fd2793f84a84f29e93cd1"
   },
   {
-    "sql": ["ALTER TABLE \"ai_providers\" ADD COLUMN \"config\" jsonb;"],
+    "sql": [
+      "ALTER TABLE \"ai_providers\" ADD COLUMN \"config\" jsonb;"
+    ],
     "bps": true,
     "folderMillis": 1749309388370,
     "hash": "39cea379f08ee4cb944875c0b67f7791387b508c2d47958bb4cd501ed1ef33eb"
@@ -628,7 +635,9 @@
     "hash": "1ba9b1f74ea13348da98d6fcdad7867ab4316ed565bf75d84d160c526cdac14b"
   },
   {
-    "sql": ["ALTER TABLE \"agents\" ADD COLUMN IF NOT EXISTS \"virtual\" boolean DEFAULT false;"],
+    "sql": [
+      "ALTER TABLE \"agents\" ADD COLUMN IF NOT EXISTS \"virtual\" boolean DEFAULT false;"
+    ],
     "bps": true,
     "folderMillis": 1759116400580,
     "hash": "433ddae88e785f2db734e49a4c115eee93e60afe389f7919d66e5ba9aa159a37"
@@ -678,13 +687,17 @@
     "hash": "4bdc6505797d7a33b622498c138cfd47f637239f6905e1c484cd01d9d5f21d6b"
   },
   {
-    "sql": ["ALTER TABLE \"user_settings\" ADD COLUMN IF NOT EXISTS \"image\" jsonb;"],
+    "sql": [
+      "ALTER TABLE \"user_settings\" ADD COLUMN IF NOT EXISTS \"image\" jsonb;"
+    ],
     "bps": true,
     "folderMillis": 1760108430562,
     "hash": "ce09b301abb80f6563abc2f526bdd20b4f69bae430f09ba2179b9e3bfec43067"
   },
   {
-    "sql": ["ALTER TABLE \"documents\" ADD COLUMN IF NOT EXISTS \"editor_data\" jsonb;"],
+    "sql": [
+      "ALTER TABLE \"documents\" ADD COLUMN IF NOT EXISTS \"editor_data\" jsonb;"
+    ],
     "bps": true,
     "folderMillis": 1761554153406,
     "hash": "bf2f21293e90e11cf60a784cf3ec219eafa95f7545d7d2f9d1449c0b0949599a"
@@ -729,5 +742,71 @@
     "bps": true,
     "folderMillis": 1761563458595,
     "hash": "c483b3ea859f78f687737229bd40f6fef5486aaf05fa20a8ea6961c2a8f0cc64"
+  },
+  {
+    "sql": [
+      "-- NOTE: This migration was written manually (no local PostgreSQL available for db:generate).\n-- If db:generate is needed for future migrations, first sync the snapshot by running db:push against a live DB.\nCREATE TABLE IF NOT EXISTS \"picbed_images\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"user_id\" text NOT NULL,\n\t\"url\" text NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"size\" integer NOT NULL,\n\t\"file_type\" varchar(255) NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);\n",
+      "\nDO $$ BEGIN\n ALTER TABLE \"picbed_images\" ADD CONSTRAINT \"picbed_images_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\"(\"id\") ON DELETE cascade ON UPDATE no action;\nEXCEPTION\n WHEN duplicate_object THEN null;\nEND $$;\n",
+      "\nCREATE INDEX IF NOT EXISTS \"picbed_images_user_id_idx\" ON \"picbed_images\" USING btree (\"user_id\");\n"
+    ],
+    "bps": true,
+    "folderMillis": 1741622400000,
+    "hash": "cd2cd0366c612f308a5350228cc9a633d4340a928ade9ca69065216f6eb12958"
+  },
+  {
+    "sql": [
+      "-- Ensures picbed_images table exists (idempotent re-run of 0041).\n-- Drizzle may have recorded 0041 as applied before the table was actually\n-- created, so this migration guarantees the table exists on any container start.\nCREATE TABLE IF NOT EXISTS \"picbed_images\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"user_id\" text NOT NULL,\n\t\"url\" text NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"size\" integer NOT NULL,\n\t\"file_type\" varchar(255) NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);\n",
+      "\nDO $$ BEGIN\n ALTER TABLE \"picbed_images\" ADD CONSTRAINT \"picbed_images_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\"(\"id\") ON DELETE cascade ON UPDATE no action;\nEXCEPTION\n WHEN duplicate_object THEN null;\n WHEN undefined_table THEN null;\nEND $$;\n",
+      "\nCREATE INDEX IF NOT EXISTS \"picbed_images_user_id_idx\" ON \"picbed_images\" USING btree (\"user_id\");\n"
+    ],
+    "bps": true,
+    "folderMillis": 1741708800000,
+    "hash": "da92de84d51efc826ff67ad5d2fdd6a3bc297d5db528ce77db52831702ae8c02"
+  },
+  {
+    "sql": [
+      "ALTER TABLE \"agents\" ADD COLUMN IF NOT EXISTS \"assistant_memory\" text;\n"
+    ],
+    "bps": true,
+    "folderMillis": 1741800000000,
+    "hash": "31f5d81ed2adfd2a23bdd06be09956cfa89cf700fa85615eaadef0f9930782d3"
+  },
+  {
+    "sql": [
+      "CREATE TABLE IF NOT EXISTS \"mcp_oauth_tokens\" (\n\t\"id\" integer PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY (sequence name \"mcp_oauth_tokens_id_seq\" INCREMENT BY 1 MINVALUE 1 MAXVALUE 2147483647 START WITH 1 CACHE 1),\n\t\"user_id\" text NOT NULL,\n\t\"plugin_identifier\" varchar(256) NOT NULL,\n\t\"access_token\" text NOT NULL,\n\t\"refresh_token\" text,\n\t\"token_type\" varchar(64) DEFAULT 'Bearer',\n\t\"expires_at\" timestamp with time zone,\n\t\"scope\" text,\n\t\"client_id\" varchar(256) NOT NULL,\n\t\"server_metadata\" jsonb,\n\t\"accessed_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);\n",
+      "\nALTER TABLE \"mcp_oauth_tokens\" ADD CONSTRAINT \"mcp_oauth_tokens_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\"(\"id\") ON DELETE cascade ON UPDATE no action;\n"
+    ],
+    "bps": true,
+    "folderMillis": 1745908800000,
+    "hash": "6a032e7e441efb906b2e52346f30e9a00a6913e5fca30d5273551ac144b6c4ff"
+  },
+  {
+    "sql": [
+      "CREATE SEQUENCE IF NOT EXISTS \"public\".\"messages_message_order_seq\" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1;",
+      "\nALTER TABLE \"messages\" ADD COLUMN IF NOT EXISTS \"message_order\" bigint;",
+      "\nALTER SEQUENCE \"public\".\"messages_message_order_seq\" OWNED BY \"messages\".\"message_order\";",
+      "\nWITH RECURSIVE \"source_messages\" AS MATERIALIZED (\n\tSELECT\n\t\t\"message\".\"id\",\n\t\t\"message\".\"parent_id\",\n\t\t\"message\".\"created_at\",\n\t\t\"message\".\"message_order\",\n\t\trow_number() OVER (\n\t\t\tORDER BY\n\t\t\t\t\"message\".\"created_at\",\n\t\t\t\t\"message\".\"message_order\" NULLS LAST,\n\t\t\t\t\"message\".ctid\n\t\t)::bigint AS \"source_order\"\n\tFROM \"messages\" AS \"message\"\n),\n\"message_tree\" AS (\n\tSELECT\n\t\t\"message\".\"id\",\n\t\t\"message\".\"created_at\",\n\t\tARRAY[\"message\".\"source_order\"]::bigint[] AS \"causal_path\",\n\t\tARRAY[\"message\".\"id\"]::text[] AS \"visited_ids\"\n\tFROM \"source_messages\" AS \"message\"\n\tLEFT JOIN \"source_messages\" AS \"same_timestamp_parent\"\n\t\tON \"same_timestamp_parent\".\"id\" = \"message\".\"parent_id\"\n\t\tAND \"same_timestamp_parent\".\"created_at\" = \"message\".\"created_at\"\n\tWHERE \"same_timestamp_parent\".\"id\" IS NULL\n\n\tUNION ALL\n\n\tSELECT\n\t\t\"child\".\"id\",\n\t\t\"child\".\"created_at\",\n\t\t\"message_tree\".\"causal_path\" || \"child\".\"source_order\",\n\t\t\"message_tree\".\"visited_ids\" || \"child\".\"id\"\n\tFROM \"message_tree\"\n\tINNER JOIN \"source_messages\" AS \"child\"\n\t\tON \"child\".\"parent_id\" = \"message_tree\".\"id\"\n\t\tAND \"child\".\"created_at\" = \"message_tree\".\"created_at\"\n\tWHERE NOT \"child\".\"id\" = ANY(\"message_tree\".\"visited_ids\")\n),\n\"ranked_messages\" AS (\n\tSELECT\n\t\t\"message\".\"id\",\n\t\trow_number() OVER (\n\t\t\tORDER BY\n\t\t\t\t\"message\".\"created_at\",\n\t\t\t\tCASE WHEN \"message_tree\".\"id\" IS NULL THEN 1 ELSE 0 END,\n\t\t\t\tCOALESCE(\n\t\t\t\t\t\"message_tree\".\"causal_path\",\n\t\t\t\t\tARRAY[\"message\".\"source_order\"]::bigint[]\n\t\t\t\t)\n\t\t) AS \"message_order\"\n\tFROM \"source_messages\" AS \"message\"\n\tLEFT JOIN \"message_tree\" ON \"message_tree\".\"id\" = \"message\".\"id\"\n)\nUPDATE \"messages\" AS \"message\"\nSET \"message_order\" = \"ranked_messages\".\"message_order\"\nFROM \"ranked_messages\"\nWHERE \"message\".\"id\" = \"ranked_messages\".\"id\";",
+      "\nSELECT setval(\n\t'\"public\".\"messages_message_order_seq\"',\n\tCOALESCE((SELECT max(\"message_order\") FROM \"messages\"), 0) + 1,\n\tfalse\n);",
+      "\nALTER TABLE \"messages\" ALTER COLUMN \"message_order\" SET DEFAULT nextval('messages_message_order_seq'::regclass);",
+      "\nALTER TABLE \"messages\" ALTER COLUMN \"message_order\" SET NOT NULL;",
+      "\nDROP INDEX IF EXISTS \"messages_created_at_idx\";",
+      "\nCREATE INDEX IF NOT EXISTS \"messages_created_at_order_idx\" ON \"messages\" USING btree (\"created_at\",\"message_order\");"
+    ],
+    "bps": true,
+    "folderMillis": 1784468303298,
+    "hash": "46c3d18248a7612126f04b09a06af30e0c912aed7952251e58812112d8c08da9"
+  },
+  {
+    "sql": [
+      "CREATE TABLE IF NOT EXISTS \"picbed_images\" (\n\t\"id\" text PRIMARY KEY NOT NULL,\n\t\"user_id\" text NOT NULL,\n\t\"url\" text NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"size\" integer NOT NULL,\n\t\"file_type\" varchar(255) NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);\n",
+      "\nDO $$ BEGIN\n\tALTER TABLE \"picbed_images\"\n\t\tADD CONSTRAINT \"picbed_images_user_id_users_id_fk\"\n\t\tFOREIGN KEY (\"user_id\")\n\t\tREFERENCES \"public\".\"users\"(\"id\")\n\t\tON DELETE cascade\n\t\tON UPDATE no action;\nEXCEPTION\n\tWHEN duplicate_object THEN null;\nEND $$;\n",
+      "\nCREATE INDEX IF NOT EXISTS \"picbed_images_user_id_idx\"\n\tON \"picbed_images\" USING btree (\"user_id\");\n",
+      "\nALTER TABLE \"agents\" ADD COLUMN IF NOT EXISTS \"assistant_memory\" text;\n",
+      "\nCREATE TABLE IF NOT EXISTS \"mcp_oauth_tokens\" (\n\t\"id\" integer PRIMARY KEY GENERATED BY DEFAULT AS IDENTITY,\n\t\"user_id\" text NOT NULL,\n\t\"plugin_identifier\" varchar(256) NOT NULL,\n\t\"access_token\" text NOT NULL,\n\t\"refresh_token\" text,\n\t\"token_type\" varchar(64) DEFAULT 'Bearer',\n\t\"expires_at\" timestamp with time zone,\n\t\"scope\" text,\n\t\"client_id\" varchar(256) NOT NULL,\n\t\"server_metadata\" jsonb,\n\t\"accessed_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL\n);\n",
+      "\nDO $$ BEGIN\n\tIF EXISTS (\n\t\tSELECT 1\n\t\tFROM pg_constraint\n\t\tWHERE conname = 'mcp_oauth_tokens_user_id_users_id_fk'\n\t\t\tAND conrelid = 'public.mcp_oauth_tokens'::regclass\n\t) THEN\n\t\tALTER TABLE \"mcp_oauth_tokens\"\n\t\t\tDROP CONSTRAINT IF EXISTS \"mcp_oauth_tokens_user_id_fkey\";\n\tELSIF EXISTS (\n\t\tSELECT 1\n\t\tFROM pg_constraint\n\t\tWHERE conname = 'mcp_oauth_tokens_user_id_fkey'\n\t\t\tAND conrelid = 'public.mcp_oauth_tokens'::regclass\n\t) THEN\n\t\tALTER TABLE \"mcp_oauth_tokens\"\n\t\t\tRENAME CONSTRAINT \"mcp_oauth_tokens_user_id_fkey\"\n\t\t\tTO \"mcp_oauth_tokens_user_id_users_id_fk\";\n\tELSE\n\t\tALTER TABLE \"mcp_oauth_tokens\"\n\t\t\tADD CONSTRAINT \"mcp_oauth_tokens_user_id_users_id_fk\"\n\t\t\tFOREIGN KEY (\"user_id\")\n\t\t\tREFERENCES \"public\".\"users\"(\"id\")\n\t\t\tON DELETE cascade\n\t\t\tON UPDATE no action;\n\tEND IF;\nEND $$;"
+    ],
+    "bps": true,
+    "folderMillis": 1784473972091,
+    "hash": "34eb935f2298db682531f541638b636be3dcce548bea64119ab07bb437ce1cfa"
   }
 ]

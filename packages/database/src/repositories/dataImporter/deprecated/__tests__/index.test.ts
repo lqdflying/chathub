@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { eq, inArray } from 'drizzle-orm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDBInstance } from '@/database/core/dbForTest';
 import {
@@ -566,25 +566,27 @@ describe('DataImporter', () => {
         version: CURRENT_CONFIG_VERSION,
         messages: [
           {
-            id: 'msg1',
-            content: 'Message 1',
-            role: 'user',
-            createdAt: 1715186011586,
-            updatedAt: 1715186015053,
-            sessionId: 'session1',
-            topicId: 'topic1',
-          },
-          {
-            id: 'msg2',
-            content: 'Message 2',
+            id: 'child-a',
+            content: 'Child message',
             role: 'assistant',
             createdAt: 1715186011586,
+            messageOrder: 900_000,
             updatedAt: 1715186015053,
             sessionId: 'session1',
             topicId: 'topic1',
-            parentId: 'msg1',
+            parentId: 'parent-z',
           },
-        ],
+          {
+            id: 'parent-z',
+            content: 'Parent message',
+            role: 'user',
+            createdAt: 1715186011586,
+            messageOrder: 900_001,
+            updatedAt: 1715186015053,
+            sessionId: 'session1',
+            topicId: 'topic1',
+          },
+        ] as any,
         sessions: [
           {
             id: 'session1',
@@ -622,9 +624,14 @@ describe('DataImporter', () => {
       expect(result.messages.errors).toBe(0);
 
       const importedMessages = await serverDB.query.messages.findMany({
+        orderBy: (table, { asc }) => asc(table.messageOrder),
         where: eq(messages.userId, userId),
       });
       expect(importedMessages).toHaveLength(2);
+      expect(importedMessages.map(({ clientId }) => clientId)).toEqual(['parent-z', 'child-a']);
+      expect(new Set(importedMessages.map(({ messageOrder }) => messageOrder)).size).toBe(2);
+      expect(importedMessages.map(({ messageOrder }) => messageOrder)).not.toContain(900_000n);
+      expect(importedMessages.map(({ messageOrder }) => messageOrder)).not.toContain(900_001n);
     });
 
     it('should skip existing messages and return correct result', async () => {

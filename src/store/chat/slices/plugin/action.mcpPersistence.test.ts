@@ -179,6 +179,41 @@ describe('MCP tool-result persistence recovery', () => {
     expect(updateMessageContent).not.toHaveBeenCalled();
   });
 
+  it('preserves a requested diagnostic ID across MCP invocation and persistence', async () => {
+    const requestedDiagnosticId = 'td_requesteddiagnostic';
+    const toolResult = '{"results":[{"title":"correlated"}]}';
+    const updateMessageContent = vi.fn().mockResolvedValue(undefined);
+    const invokeTool = vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
+      content: toolResult,
+      persistence: 'client_required',
+    });
+
+    useChatStore.setState({
+      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
+      internal_togglePluginApiCalling: vi.fn().mockReturnValue(new AbortController()),
+      internal_updateMessageContent: updateMessageContent,
+    });
+
+    const response = await useChatStore
+      .getState()
+      .invokeMCPTypePlugin('message-id', payload, undefined, requestedDiagnosticId);
+
+    expect(response).toBe(toolResult);
+    expect(invokeTool).toHaveBeenCalledWith(
+      payload,
+      expect.objectContaining({
+        diagnosticId: requestedDiagnosticId,
+        messageId: 'message-id',
+        topicId: 'topic-id',
+      }),
+    );
+    expect(updateMessageContent).toHaveBeenCalledWith(
+      'message-id',
+      toolResult,
+      expect.objectContaining({ diagnosticId: requestedDiagnosticId }),
+    );
+  });
+
   it('continues optimistically without reposting when server persistence fails', async () => {
     const toolResult = '{"results":[{"title":"in-memory"}]}';
     const dispatchMessage = vi.fn();

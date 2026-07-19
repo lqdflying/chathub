@@ -15,6 +15,10 @@ import {
   topics,
 } from '../../../schemas';
 import { LobeChatDatabase } from '../../../type';
+import {
+  removeMessageOrder,
+  sortMessagesParentFirst,
+} from '../../../utils/sortMessagesParentFirst';
 
 export class DeprecatedDataImporterRepos {
   private userId: string;
@@ -199,14 +203,17 @@ export class DeprecatedDataImporterRepos {
         messageResult.skips = skipQuery.length;
 
         // filter out existing messages, only insert new ones
-        const shouldInsertMessages = data.messages.filter((s) =>
-          skipQuery.every((q) => q.clientId !== s.id),
+        const shouldInsertMessages = sortMessagesParentFirst(
+          data.messages.filter((s) => skipQuery.every((q) => q.clientId !== s.id)),
         );
 
         // 2. insert messages
         if (shouldInsertMessages.length > 0) {
-          const inertValues = shouldInsertMessages.map(
-            ({ id, extra, createdAt, updatedAt, sessionId, topicId, content, ...res }) => ({
+          const inertValues = shouldInsertMessages.map((sourceMessage) => {
+            const { id, extra, createdAt, updatedAt, sessionId, topicId, content, ...res } =
+              removeMessageOrder(sourceMessage);
+
+            return {
               ...res,
               clientId: id,
               content: sanitizeUTF8(content),
@@ -218,8 +225,8 @@ export class DeprecatedDataImporterRepos {
               topicId: topicId ? topicIdMap[topicId] : null, // 暂时设为 NULL
               updatedAt: new Date(updatedAt),
               userId: this.userId,
-            }),
-          );
+            };
+          });
 
           console.time('insert messages');
           const BATCH_SIZE = 100; // 每批次插入的记录数
