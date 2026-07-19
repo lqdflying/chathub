@@ -16,59 +16,103 @@ Both dedicated switches emit prefixed JSON. Query their distinct
 | `CHATHUB_TOOLS_DEBUG=verbose` | verbose | safe events + structured payload fingerprints |
 | `DEBUG_OPENAICOMPATIBLE_CACHE=1` | — | redacted cache fingerprints + cached-token usage |
 
-## Parsing shape
+## Current production shape
 
-- **Cache debug** → `log_format=prefixed_json`, with
-  `debug_namespace=openai-compatible-cache-debug`.
-- **Tools debug** → `log_format=prefixed_json`, with
-  `debug_namespace=chathub-tools-debug` and the suffix in `debug_event`.
+The Docker line is `<container> | [<namespace>:<event>] {<json>}`. In Axiom:
+
+- The full prefixed line is in `message`; `msg` may be empty.
+- `log_format=prefixed_json`; the prefix populates `debug_namespace` and
+  `debug_event`.
+- Cache uses `debug_namespace=openai-compatible-cache-debug`.
+- Tools use `debug_namespace=chathub-tools-debug`.
+- Payload fields listed by `getschema` may still be null in current ingestion.
+  Parse the JSON suffix from `message`, then extract fields in a second `extend`:
+
+```apl
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend diagnosticId=tostring(payload.diagnosticId),
+  eventSequence=tolong(payload.eventSequence)
+```
+
+Do not use `payload.field` directly in the same `project` that creates
+`payload`; Axiom requires the separate second stage.
+
 - Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text
   fallback only when structured output is inactive for that event.
 
 ## Axiom queries
 
-Cache debug (structured field works):
+Always pass the narrow requested period in `startTime` and `endTime`. Axiom
+timestamps are UTC; convert local boundaries first.
+
+Cache requests:
 ```apl
-['chathub'] | where ['debug_namespace'] has_cs 'cache'
-| project _time, debug_event, model, route, cachedTokens, inputTokens,
-  ['cache.promptCacheKey.present'], ['cache.sessionId.present'], ['cache.store']
+['chathub'] | where ['debug_namespace'] == 'openai-compatible-cache-debug'
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend model=tostring(payload.model), route=tostring(payload.route),
+  inputTokens=tolong(payload.inputTokens), cachedTokens=tolong(payload.cachedTokens),
+  cacheMissTokens=tolong(payload.cacheMissTokens)
+| project _time, debug_event, model, route, inputTokens, cachedTokens, cacheMissTokens
 | sort by _time desc | take 20
 ```
 
 Cache hit rate:
 ```apl
-['chathub'] | where ['debug_namespace'] has_cs 'cache' and ['debug_event'] == 'usage'
-| summarize requests=count(), hits=countif(cachedTokens > 0), misses=countif(cachedTokens == 0),
-  cached_pct = round(100.0 * sum(cachedTokens) / sum(inputTokens), 1) by model
+['chathub'] | where ['debug_namespace'] == 'openai-compatible-cache-debug'
+  and ['debug_event'] == 'usage'
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend model=tostring(payload.model), inputTokens=tolong(payload.inputTokens),
+  cachedTokens=tolong(payload.cachedTokens)
+| summarize requests=count(), hits=countif(cachedTokens > 0),
+  misses=countif(cachedTokens == 0), unavailable=countif(isnull(cachedTokens)),
+  known_input_tokens=sumif(inputTokens, isnotnull(cachedTokens)),
+  cached_tokens=sum(cachedTokens) by model
+| extend known_cached_pct=round(100.0 * cached_tokens / known_input_tokens, 1)
 ```
 
 Tools debug:
 ```apl
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
-| summarize cnt=count() by debugLevel, debug_event | top 30 by cnt
+| summarize cnt=count() by debug_event | top 50 by cnt
 ```
 
 Tool-call failures:
 ```apl
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
-  and (debug_event == 'call_tool_failed' or debug_event == 'client_rpc_response_failed'
-       or debug_event == 'tools_rpc_failed' or debug_event == 'transport_request_failed')
-| project _time, diagnosticId, spanId, eventSequence, debug_event, operation, failurePhase,
-  errorKind, httpStatus, mediaType, bodyKind, htmlMarker, durationMs, connectionHash
+  and ['debug_event'] endswith '_failed'
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend diagnosticId=tostring(payload.diagnosticId), spanId=tostring(payload.spanId),
+  eventSequence=tolong(payload.eventSequence), operation=tostring(payload.operation),
+  failurePhase=tostring(payload.failurePhase), errorKind=tostring(payload.errorKind),
+  httpStatus=tolong(payload.httpStatus), durationMs=tolong(payload.durationMs)
+| project _time, diagnosticId, spanId, eventSequence, debug_event, operation,
+  failurePhase, errorKind, httpStatus, durationMs
 | sort by _time desc | take 25
 ```
 
 Follow one request end to end:
 ```apl
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
-  and diagnosticId == '<diagnostic-id-from-error-card>'
-| project _time, spanId, eventSequence, debug_event, operation, phase, outcome, durationMs,
-  httpStatus, mediaType, bodyKind, responseFingerprint
-| sort by _time asc
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend diagnosticId=tostring(payload.diagnosticId), spanId=tostring(payload.spanId),
+  eventSequence=tolong(payload.eventSequence), operation=tostring(payload.operation),
+  phase=tostring(payload.phase), outcome=tostring(payload.outcome),
+  durationMs=tolong(payload.durationMs), httpStatus=tolong(payload.httpStatus),
+  responseHttpStatus=tolong(payload.response.httpStatus),
+  responseFingerprint=tostring(payload.response.responseFingerprint)
+| where diagnosticId == '<diagnostic-id-from-error-card>'
+| project _time, spanId, eventSequence, debug_event, operation, phase, outcome,
+  durationMs, httpStatus, responseHttpStatus, responseFingerprint
+| sort by spanId asc, eventSequence asc
 ```
 
 `eventSequence` is monotonic inside one `spanId`; the browser failure report is
 a second span carrying the same `diagnosticId`.
+
+`transport_request_retry` is recovery telemetry, not a terminal failure. For
+example, `reason=oauth_unauthorized` with HTTP 401 is healthy when the same
+`diagnosticId` later has `oauth_operation_complete` with `outcome=refreshed`,
+then `transport_request_complete` HTTP 200 and `tools_rpc_complete` HTTP 200.
 
 Detect a downstream proxy replacement: compare
 `tools_rpc_complete.response.responseFingerprint` with
@@ -93,10 +137,14 @@ After changing the var, recreate: `docker compose up -d --force-recreate chathub
 
 ## Healthy signals
 
-- Tools: `debug_event=client_initialized`, `debug_event=list_tools_complete`,
-  and `debug_event=call_tool_complete`, sharing a `diagnosticId` and ordered
-  per-span `eventSequence`. Safe technical tool/procedure labels may be readable, but
-  arguments, results, bodies, arbitrary errors, credentials, query strings,
-  environment values, and user/connection identifiers must never be raw.
+- Tools: a call should end with `call_tool_complete` and `tools_rpc_complete`
+  HTTP 200 for the same `diagnosticId`, ordered by per-span `eventSequence`.
+  Cold connections may also show `client_initialized`; warm calls commonly
+  show `client_cache_lookup` with `outcome=hit` and no initialization event.
+  Safe technical tool/procedure labels may be readable, but arguments, results,
+  bodies, arbitrary errors, credentials, query strings, environment values,
+  and user/connection identifiers must never be raw.
 - Cache: `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`;
-  misses expected on new/large-context turns (cache re-prime).
+  misses are expected on new/large-context turns (cache re-prime). A null
+  `cachedTokens` means usage accounting was unavailable; it is neither a hit
+  nor an explicit miss.

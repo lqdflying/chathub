@@ -19,10 +19,24 @@ ChatHub logs.
 5. Inspect the recent schema before filtering unfamiliar fields:
    `['chathub'] | where _time > ago(30m) | getschema`.
 6. Query aggregates first, then retrieve only a small, relevant sample.
+7. For a local-time request, convert the boundary to UTC before querying. For
+   example, `2026-07-19 07:00 UTC+8` is `2026-07-18T23:00:00Z`.
 
 ## Useful production fields
 
 - Container logs use `_time`, `container_name`, `level`, `message`, and `msg`.
+- Current dedicated diagnostics use `log_format=prefixed_json` and store the
+  complete line in `message`:
+  `[<debug_namespace>:<debug_event>] {<json-payload>}`.
+- Axiom promotes `debug_namespace` and `debug_event`, but current production
+  ingestion may leave JSON payload columns such as `model`, `diagnosticId`,
+  `cachedTokens`, and `httpStatus` null even when `getschema` lists them.
+  Probe field coverage before relying on promoted payload columns.
+- Parse current diagnostic payloads in two stages:
+  `| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))`
+  followed by a separate `extend`, for example
+  `| extend diagnosticId=tostring(payload.diagnosticId)`. Do not reference a
+  newly created dynamic payload directly in the same `project`.
 - Model diagnostics may include `provider`, `model`, usage, response, and error
   fields, but these fields can be empty on ordinary container log events.
 - Warnings and failures may exist only in `message`; empty structured
@@ -39,6 +53,12 @@ ChatHub logs.
 - Structured errors: filter with `isnotempty(['error.message'])`.
 - Text errors: filter the known `message` or `msg` field for `error`,
   `exception`, or `failed`; never use full-row `search`.
+- Diagnostic format coverage:
+  `['chathub'] | summarize event_count=count() by container_name, log_format,
+  debug_namespace | top 30 by event_count`.
+- Diagnostic event coverage:
+  `['chathub'] | where isnotempty(debug_namespace) | summarize
+  event_count=count() by debug_namespace, debug_event | top 100 by event_count`.
 
 Run independent volume, level, error, and latest-sample queries in parallel.
 Use the same window for all queries and describe results as a snapshot at query
