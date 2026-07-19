@@ -15,6 +15,11 @@ import {
 import { discoverService } from './discover';
 import { MCPInvocationError } from './mcpError';
 
+export interface MCPToolCallResult {
+  content: string;
+  persistence: 'client_required' | 'failed' | 'persisted';
+}
+
 /**
  * 计算对象的字节大小
  * @param obj 要计算大小的对象
@@ -92,10 +97,11 @@ class MCPService {
     payload: ChatToolPayload,
     {
       diagnosticId: requestedDiagnosticId,
+      messageId,
       signal,
       topicId,
-    }: { diagnosticId?: string; signal?: AbortSignal; topicId?: string },
-  ) {
+    }: { diagnosticId?: string; messageId: string; signal?: AbortSignal; topicId?: string },
+  ): Promise<MCPToolCallResult | undefined> {
     const { pluginSelectors } = await import('@/store/tool/selectors');
     const { getToolStoreState } = await import('@/store/tool/store');
 
@@ -113,6 +119,7 @@ class MCPService {
     const data = {
       args,
       env: plugin.settings || plugin.customParams?.mcp?.env,
+      messageId,
       params: { ...plugin.customParams?.mcp, name: identifier } as any,
       toolName: apiName,
     };

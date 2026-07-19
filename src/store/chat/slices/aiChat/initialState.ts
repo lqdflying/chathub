@@ -29,8 +29,8 @@ export interface ChatAIChatState {
   messageRAGLoadingIds: string[];
   /** User-message anchors currently being rewound and regenerated. */
   messageRetryingIds: string[];
+  pluginApiAbortControllers: Record<string, AbortController>;
   pluginApiLoadingIds: string[];
-  pluginApiLoadingIdsAbortController?: AbortController;
   /**
    * is the AI message is reasoning
    */
@@ -54,6 +54,7 @@ export const initialAiChatState: ChatAIChatState = {
   messageInToolsCallingIds: [],
   messageRAGLoadingIds: [],
   messageRetryingIds: [],
+  pluginApiAbortControllers: {},
   pluginApiLoadingIds: [],
   reasoningLoadingIds: [],
   searchWorkflowLoadingIds: [],

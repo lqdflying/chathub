@@ -33,17 +33,14 @@ import { getModelPricing } from '../../utils/getModelPricing';
 import { handleOpenAIError } from '../../utils/handleOpenAIError';
 import { postProcessModelList } from '../../utils/postProcessModelList';
 import { debugProviderRequest } from '../../utils/providerDebug';
-import { StreamingResponse } from '../../utils/response';
+import { SSE_HEARTBEAT_INTERVAL_MS, StreamingResponse } from '../../utils/response';
 import { LobeRuntimeAI } from '../BaseAI';
 import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBuilders/openai';
 import { OpenAIResponsesStream, OpenAIStream, OpenAIStreamOptions } from '../streams';
-import { tapAsyncIterable } from '../streams/protocol';
+import { createDeferredAsyncIterable, tapAsyncIterable } from '../streams/protocol';
 import { createOpenAICompatibleImage } from './createImage';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
-import {
-  deriveCompatPromptCacheKey,
-  normalizeOpenAICompatCacheUsage,
-} from './openaicompatCache';
+import { deriveCompatPromptCacheKey, normalizeOpenAICompatCacheUsage } from './openaicompatCache';
 import { debugOpenAICompatCacheRequest, debugOpenAICompatCacheUsage } from './openaicompatDebug';
 
 export * from './nonStreamToStream';
@@ -421,11 +418,25 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             console.log(JSON.stringify(finalPayload), '\n');
           }
 
-          response = await this.client.chat.completions.create(finalPayload, {
-            // https://github.com/lobehub/lobe-chat/pull/318
-            headers: requestHeaders,
-            signal: options?.signal,
-          });
+          if (chatCompletionPayload.stream) {
+            response = createDeferredAsyncIterable<OpenAI.ChatCompletionChunk>(async (signal) => {
+              try {
+                return (await this.client.chat.completions.create(finalPayload, {
+                  // https://github.com/lobehub/lobe-chat/pull/318
+                  headers: requestHeaders,
+                  signal,
+                })) as Stream<OpenAI.ChatCompletionChunk>;
+              } catch (error) {
+                throw this.handleError(error);
+              }
+            }, options?.signal) as Stream<OpenAI.ChatCompletionChunk>;
+          } else {
+            response = await this.client.chat.completions.create(finalPayload, {
+              // https://github.com/lobehub/lobe-chat/pull/318
+              headers: requestHeaders,
+              signal: options?.signal,
+            });
+          }
         }
 
         if (chatCompletionPayload.stream) {
@@ -439,9 +450,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           // cancellation intact. Debug observation wraps that same iterable via
           // tapAsyncIterable, which forwards `return()` to the underlying
           // iterator.
-          let prodStream: Stream<OpenAI.ChatCompletionChunk> | ReadableStream = response as Stream<
-            OpenAI.ChatCompletionChunk
-          >;
+          let prodStream: Stream<OpenAI.ChatCompletionChunk> | ReadableStream =
+            response as Stream<OpenAI.ChatCompletionChunk>;
 
           if (debugParams?.chatCompletion?.()) {
             prodStream = tapAsyncIterable(prodStream, (chunk) => {
@@ -461,6 +471,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
                 }),
             {
               headers: options?.headers,
+              heartbeatIntervalMs: SSE_HEARTBEAT_INTERVAL_MS,
             },
           );
         }
@@ -977,10 +988,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       const promptCacheKey = explicitPromptCacheKey || derivedPromptCacheKey;
       const shouldSendPromptCacheKey =
         !!promptCacheKey &&
-        (statefulResponses || responseCache?.promptCacheKey === 'derived' || !!explicitPromptCacheKey);
+        (statefulResponses ||
+          responseCache?.promptCacheKey === 'derived' ||
+          !!explicitPromptCacheKey);
       const matrixStore = openAICompatStoreValue(responseCache?.store);
       const store =
-        storeOverride !== undefined ? storeOverride : matrixStore !== undefined ? matrixStore : undefined;
+        storeOverride !== undefined
+          ? storeOverride
+          : matrixStore !== undefined
+            ? matrixStore
+            : undefined;
 
       const isStreaming = payload.stream !== false;
       log(
@@ -1020,11 +1037,6 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         });
       }
 
-      const response = await this.client.responses.create(postPayload, {
-        headers: requestHeaders,
-        signal: options?.signal,
-      });
-
       const streamOptions: OpenAIStreamOptions = {
         bizErrorTypeTransformer: chatCompletion?.handleStreamBizErrorType,
         callbacks: options?.callback,
@@ -1041,7 +1053,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         // Pass the raw SDK Stream directly (NO `tee()`). See the Chat
         // Completions branch above for the cancellation rationale.
         let prodStream: Stream<OpenAI.Responses.ResponseStreamEvent> | ReadableStream =
-          response as Stream<OpenAI.Responses.ResponseStreamEvent>;
+          createDeferredAsyncIterable<OpenAI.Responses.ResponseStreamEvent>(async (signal) => {
+            try {
+              return (await this.client.responses.create(postPayload, {
+                headers: requestHeaders,
+                signal,
+              })) as Stream<OpenAI.Responses.ResponseStreamEvent>;
+            } catch (error) {
+              throw this.handleError(error);
+            }
+          }, options?.signal) as Stream<OpenAI.Responses.ResponseStreamEvent>;
 
         if (debugParams?.responses?.()) {
           prodStream = tapAsyncIterable(prodStream, (chunk) => {
@@ -1055,11 +1076,19 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             { ...streamOptions, inputStartAt },
             { requireTerminalEvent: true },
           ),
-          { headers: options?.headers },
+          {
+            headers: options?.headers,
+            heartbeatIntervalMs: SSE_HEARTBEAT_INTERVAL_MS,
+          },
         );
       }
 
       log('processing non-streaming Responses API response');
+
+      const response = await this.client.responses.create(postPayload, {
+        headers: requestHeaders,
+        signal: options?.signal,
+      });
 
       // Handle non-streaming response
       if (debugParams?.responses?.()) {
@@ -1125,10 +1154,14 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
      */
     private normalizeToolChoiceForResponses = (
       toolChoice: ChatStreamPayload['tool_choice'],
-    ): OpenAI.Responses.Responses.ToolChoiceOptions | OpenAI.Responses.Responses.ToolChoiceFunction | undefined => {
+    ):
+      | OpenAI.Responses.Responses.ToolChoiceOptions
+      | OpenAI.Responses.Responses.ToolChoiceFunction
+      | undefined => {
       if (toolChoice === undefined || toolChoice === null) return undefined;
 
-      if (typeof toolChoice === 'string') return toolChoice as OpenAI.Responses.Responses.ToolChoiceOptions;
+      if (typeof toolChoice === 'string')
+        return toolChoice as OpenAI.Responses.Responses.ToolChoiceOptions;
 
       const tc = toolChoice as any;
       // Already in Responses form ({ type: 'function', name })
@@ -1255,12 +1288,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('received %d tool calls from Chat Completions API', toolCalls?.length || 0);
 
       try {
-        const result = (
-          toolCalls as OpenAI.ChatCompletionMessageFunctionToolCall[]
-        ).map((item) => ({
-          arguments: JSON.parse(item.function.arguments),
-          name: item.function.name,
-        }));
+        const result = (toolCalls as OpenAI.ChatCompletionMessageFunctionToolCall[]).map(
+          (item) => ({
+            arguments: JSON.parse(item.function.arguments),
+            name: item.function.name,
+          }),
+        );
         log(
           'successfully parsed tool calls: %O',
           result.map((r) => r.name),

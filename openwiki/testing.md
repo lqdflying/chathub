@@ -33,6 +33,8 @@ High-signal tests are colocated with the runtime and service code. For example:
 
 Run the model-runtime tests and inspect stream fixtures. Provider changes often affect cache behavior, error normalization, and message conversion.
 
+For OpenAI-compatible streaming changes, include `packages/model-runtime/src/utils/response.test.ts`, `packages/model-runtime/src/core/streams/protocol.test.ts`, and `packages/model-runtime/src/core/openaiCompatibleFactory/index.test.ts`. Keepalive coverage should verify the immediate comment, idle heartbeat, complete-frame boundaries, pending-handshake cancellation, and typed first-chunk errors. Also run `packages/fetch-sse/src/__tests__/fetchSSE.test.ts` and `packages/utils/src/client/fetchEventSource/parse.test.ts` when changing SSE comments or parsing.
+
 ### Context-engine changes
 
 Run the context-engine tests and the chat context engineering test. Pipeline ordering issues usually show up here first.
@@ -40,6 +42,8 @@ Run the context-engine tests and the chat context engineering test. Pipeline ord
 ### MCP/tool changes
 
 Check service tests and any UI tests around provider/tool configuration. The `src/services/mcp.ts` path can also affect desktop behavior.
+
+For concurrent MCP result handling, cover the Tools tRPC client, server router persistence, optimistic chat-store behavior, and per-message abort controllers. A high-signal regression uses concurrent Tavily-shaped `search`, `extract`, and `map` calls and asserts that each serialized result is written to its matching tool-message ID without a second browser `message.update` in server mode.
 
 ### Auth/env changes
 

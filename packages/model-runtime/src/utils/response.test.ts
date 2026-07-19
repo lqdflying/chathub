@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { StreamingResponse } from './response';
+import { SSE_HEARTBEAT_COMMENT, StreamingResponse } from './response';
 
 describe('StreamingResponse', () => {
   it('should create Response with default headers', () => {
@@ -9,7 +9,7 @@ describe('StreamingResponse', () => {
 
     expect(response).toBeInstanceOf(Response);
     expect(response.body).toBe(mockStream);
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache, no-transform');
     expect(response.headers.get('Content-Type')).toBe('text/event-stream');
     expect(response.headers.get('X-Accel-Buffering')).toBe('no');
   });
@@ -27,7 +27,7 @@ describe('StreamingResponse', () => {
     expect(response.body).toBe(mockStream);
 
     // Default headers should still be present
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache, no-transform');
     expect(response.headers.get('Content-Type')).toBe('text/event-stream');
     expect(response.headers.get('X-Accel-Buffering')).toBe('no');
 
@@ -56,7 +56,7 @@ describe('StreamingResponse', () => {
 
     expect(response).toBeInstanceOf(Response);
     expect(response.body).toBe(mockStream);
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache, no-transform');
     expect(response.headers.get('Content-Type')).toBe('text/event-stream');
     expect(response.headers.get('X-Accel-Buffering')).toBe('no');
   });
@@ -67,7 +67,7 @@ describe('StreamingResponse', () => {
 
     expect(response).toBeInstanceOf(Response);
     expect(response.body).toBe(mockStream);
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache, no-transform');
     expect(response.headers.get('Content-Type')).toBe('text/event-stream');
     expect(response.headers.get('X-Accel-Buffering')).toBe('no');
   });
@@ -87,5 +87,69 @@ describe('StreamingResponse', () => {
     const responseText = await response.text();
 
     expect(responseText).toBe(testData);
+  });
+
+  it('emits an immediate comment and idle heartbeat when enabled', async () => {
+    vi.useFakeTimers();
+    let sourceController!: ReadableStreamDefaultController<Uint8Array>;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        sourceController = controller;
+      },
+    });
+
+    try {
+      const response = StreamingResponse(source, { heartbeatIntervalMs: 100 });
+      const reader = response.body!.getReader();
+
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe(SSE_HEARTBEAT_COMMENT);
+
+      const nextHeartbeat = reader.read();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(new TextDecoder().decode((await nextHeartbeat).value)).toBe(SSE_HEARTBEAT_COMMENT);
+
+      sourceController.close();
+      await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not insert a heartbeat into a partial SSE frame', async () => {
+    vi.useFakeTimers();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    let sourceController!: ReadableStreamDefaultController<Uint8Array>;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        sourceController = controller;
+      },
+    });
+
+    try {
+      const response = StreamingResponse(source, { heartbeatIntervalMs: 100 });
+      const reader = response.body!.getReader();
+      await reader.read();
+
+      sourceController.enqueue(encoder.encode('id: result\nevent: text\ndata: "hel'));
+      const frameRead = reader.read();
+      let frameSettled = false;
+      void frameRead.then(() => {
+        frameSettled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(100);
+      expect(frameSettled).toBe(false);
+
+      sourceController.enqueue(encoder.encode('lo"\n\n'));
+      expect(decoder.decode((await frameRead).value)).toBe(
+        'id: result\nevent: text\ndata: "hello"\n\n',
+      );
+
+      sourceController.close();
+      await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

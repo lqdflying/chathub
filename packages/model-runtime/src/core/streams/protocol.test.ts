@@ -2,11 +2,76 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   convertIterableToStream,
+  createDeferredAsyncIterable,
   createSSEDataExtractor,
-  createTokenSpeedCalculator,
   createSSEProtocolTransformer,
+  createTokenSpeedCalculator,
   tapAsyncIterable,
 } from './protocol';
+
+describe('createDeferredAsyncIterable', () => {
+  it('opens the upstream on pull and forwards its values', async () => {
+    const factory = vi.fn(async () =>
+      (async function* () {
+        yield 'first';
+        yield 'second';
+      })(),
+    );
+    const reader = convertIterableToStream(createDeferredAsyncIterable(factory)).getReader();
+
+    await expect(reader.read()).resolves.toEqual({ done: false, value: 'first' });
+    await expect(reader.read()).resolves.toEqual({ done: false, value: 'second' });
+    await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
+    expect(factory).toHaveBeenCalledTimes(1);
+  });
+
+  it('aborts a pending upstream and forwards cancellation once it resolves', async () => {
+    let requestSignal: AbortSignal | undefined;
+    let resolveSource!: (source: AsyncIterable<string>) => void;
+    const returnSpy = vi.fn(async () => ({ done: true, value: undefined }));
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: vi.fn(async () => ({ done: false, value: 'late' })),
+      return: returnSpy,
+    };
+    const deferred = createDeferredAsyncIterable<string>((signal) => {
+      requestSignal = signal;
+      return new Promise((resolve) => {
+        resolveSource = resolve;
+      });
+    });
+    const reader = convertIterableToStream(deferred).getReader();
+    const pendingRead = reader.read();
+
+    await Promise.resolve();
+    await reader.cancel('downstream cancelled');
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(requestSignal?.reason).toBe('downstream cancelled');
+    await expect(pendingRead).resolves.toEqual({ done: true, value: undefined });
+
+    resolveSource(source);
+    await vi.waitFor(() => expect(returnSpy).toHaveBeenCalledWith('downstream cancelled'));
+  });
+
+  it('preserves typed provider metadata when opening the upstream fails', async () => {
+    const deferred = createDeferredAsyncIterable<string>(async () => {
+      throw {
+        errorType: 'InvalidProviderAPIKey',
+        message: 'The provider rejected the request.',
+        provider: 'openaicompatible',
+      };
+    });
+    const result = await convertIterableToStream(deferred).getReader().read();
+
+    expect(result.done).toBe(false);
+    expect(result.value).toContain('%FIRST_CHUNK_ERROR%:');
+    expect(result.value).toContain('InvalidProviderAPIKey');
+    expect(result.value).toContain('openaicompatible');
+  });
+});
 
 describe('createSSEDataExtractor', () => {
   // Helper function to convert string to Uint8Array
@@ -274,11 +339,7 @@ describe('createSSEProtocolTransformer', () => {
     const results = await processChunk(transformer, input);
 
     // Should only output the text event, no injected error on flush (default not enforced)
-    expect(results).toEqual([
-      `id: 1\n`,
-      `event: text\n`,
-      `data: ${JSON.stringify('hello')}\n\n`,
-    ]);
+    expect(results).toEqual([`id: 1\n`, `event: text\n`, `data: ${JSON.stringify('hello')}\n\n`]);
   });
 
   it('should not emit flush error if a terminal event was received (enforced)', async () => {
@@ -293,11 +354,7 @@ describe('createSSEProtocolTransformer', () => {
     const results = await processChunk(transformer, input);
 
     // Only the stop event lines should be present (no extra error event from flush)
-    expect(results).toEqual([
-      `id: ok\n`,
-      `event: stop\n`,
-      `data: ${JSON.stringify('bye')}\n\n`,
-    ]);
+    expect(results).toEqual([`id: ok\n`, `event: stop\n`, `data: ${JSON.stringify('bye')}\n\n`]);
   });
 
   it('should emit an error event on flush when no terminal event received (enforced)', async () => {

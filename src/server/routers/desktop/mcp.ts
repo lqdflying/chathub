@@ -84,6 +84,7 @@ export const mcpRouter = router({
         params: stdioParamsSchema, // Use the unified schema for client params
         args: z.any(), // Arguments for the tool call
         env: z.any(), // Arguments for the tool call
+        messageId: z.string().min(1),
         toolName: z.string(),
       }),
     )
@@ -95,7 +96,7 @@ export const mcpRouter = router({
         input.args,
       );
 
-      return JSON.stringify(data);
+      return { content: JSON.stringify(data), persistence: 'client_required' as const };
     }),
 
   validMcpServerInstallable: mcpProcedure

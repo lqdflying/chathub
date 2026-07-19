@@ -10,6 +10,12 @@ vi.mock('@/libs/trpc/lambda/middleware/serverDatabase', () => ({
   serverDatabase: vi.fn(async ({ ctx, next }) => next({ ctx })),
 }));
 
+const updateMessageMock = vi.fn();
+
+vi.mock('@/database/models/message', () => ({
+  MessageModel: vi.fn().mockImplementation(() => ({ update: updateMessageMock })),
+}));
+
 vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
   StreamableHTTPClientTransport: vi.fn().mockImplementation((_url, options) => options),
 }));
@@ -74,6 +80,7 @@ describe('mcpRouter OAuth public boundary', () => {
       expiresAt: Date.now() + 60_000,
       refreshToken: 'refresh-token',
     });
+    updateMessageMock.mockResolvedValue({ rowCount: 1 });
     sdkCallToolMock.mockImplementation(async () => {
       const transportResult = await responseFromTransport('tools/call', {
         method: 'POST',
@@ -88,9 +95,8 @@ describe('mcpRouter OAuth public boundary', () => {
 
   const loadRouterWithTransportFetch = async (transportFetch: typeof fetch) => {
     vi.doMock('@/server/services/mcp', async () => {
-      const actual = await vi.importActual<typeof import('@/server/services/mcp')>(
-        '@/server/services/mcp',
-      );
+      const actual =
+        await vi.importActual<typeof import('@/server/services/mcp')>('@/server/services/mcp');
 
       return {
         ...actual,
@@ -118,11 +124,16 @@ describe('mcpRouter OAuth public boundary', () => {
     const caller = mcpRouter.createCaller(createCallerContext());
     const result = await caller.callTool({
       args: JSON.stringify({ query: 'latest MCP docs' }),
+      messageId: 'tool-message-id',
       params: oauthParams,
       toolName: 'tavily_search',
     });
 
-    expect(JSON.parse(result)).toEqual({ result: 'ok' });
+    expect(JSON.parse(result.content)).toEqual({ result: 'ok' });
+    expect(result.persistence).toBe('persisted');
+    expect(updateMessageMock).toHaveBeenCalledWith('tool-message-id', {
+      content: JSON.stringify({ result: 'ok' }),
+    });
     expect(getOAuthTokenMock).toHaveBeenCalledWith('user-id', 'tavily');
     expect(refreshOAuthTokenMock).toHaveBeenCalledTimes(1);
     expect(refreshOAuthTokenMock).toHaveBeenCalledWith('user-id', 'tavily');
@@ -147,6 +158,7 @@ describe('mcpRouter OAuth public boundary', () => {
     const error = await caller
       .callTool({
         args: JSON.stringify({ query: 'latest MCP docs' }),
+        messageId: 'tool-message-id',
         params: oauthParams,
         toolName: 'tavily_search',
       })
@@ -160,6 +172,68 @@ describe('mcpRouter OAuth public boundary', () => {
     expect(serializedError).not.toContain('stored-access-token');
     expect(serializedError).not.toContain('Authorization');
     expect(serializedError).not.toContain('query-secret');
+  });
+
+  it('persists concurrent tool results against their matching message ids', async () => {
+    const transportFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ result: 'ok' }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    sdkCallToolMock.mockImplementation(async ({ name }) => ({
+      content: [{ text: JSON.stringify({ tool: name }), type: 'text' }],
+      isError: false,
+    }));
+    const { mcpRouter } = await loadRouterWithTransportFetch(transportFetch as typeof fetch);
+    const caller = mcpRouter.createCaller(createCallerContext());
+    const calls = [
+      ['tavily_search', 'tool-message-search'],
+      ['tavily_extract', 'tool-message-extract'],
+      ['tavily_map', 'tool-message-map'],
+    ] as const;
+
+    const results = await Promise.all(
+      calls.map(([toolName, messageId]) =>
+        caller.callTool({ args: '{}', messageId, params: oauthParams, toolName }),
+      ),
+    );
+
+    expect(results.map(({ persistence }) => persistence)).toEqual([
+      'persisted',
+      'persisted',
+      'persisted',
+    ]);
+    expect(updateMessageMock.mock.calls).toEqual(
+      expect.arrayContaining(
+        calls.map(([toolName, messageId]) => [
+          messageId,
+          { content: JSON.stringify({ tool: toolName }) },
+        ]),
+      ),
+    );
+  });
+
+  it('returns the valid tool result when direct persistence fails', async () => {
+    const transportFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ result: 'ok' }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    updateMessageMock.mockRejectedValueOnce(new Error('database unavailable'));
+    const { mcpRouter } = await loadRouterWithTransportFetch(transportFetch as typeof fetch);
+    const caller = mcpRouter.createCaller(createCallerContext());
+
+    const result = await caller.callTool({
+      args: '{}',
+      messageId: 'tool-message-id',
+      params: oauthParams,
+      toolName: 'tavily_search',
+    });
+
+    expect(result.persistence).toBe('failed');
+    expect(JSON.parse(result.content)).toEqual({ result: 'ok' });
   });
 
   it('accepts only structured client failure metadata and emits no HTML body', async () => {

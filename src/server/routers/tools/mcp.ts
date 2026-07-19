@@ -5,8 +5,9 @@ import {
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { isDesktop, isServerMode } from '@/const/version';
 import { CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN } from '@/const/tools';
+import { isDesktop, isServerMode } from '@/const/version';
+import { MessageModel } from '@/database/models/message';
 import {
   describeToolsDebugError,
   logToolsDebugSafe,
@@ -15,7 +16,7 @@ import {
 import { passwordProcedure } from '@/libs/trpc/edge';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { mcpService, type MCPOAuthContext } from '@/server/services/mcp';
+import { type MCPOAuthContext, mcpService } from '@/server/services/mcp';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
 
 // Define Zod schemas for MCP Client parameters
@@ -152,6 +153,7 @@ export const mcpRouter = router({
       z.object({
         params: mcpClientParamsSchema,
         args: z.any(),
+        messageId: z.string().min(1),
         toolName: z.string(),
       }),
     )
@@ -167,22 +169,74 @@ export const mcpRouter = router({
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.params.name);
         if (token?.accessToken) {
-          resolvedParams = { ...input.params, auth: { ...input.params.auth, accessToken: token.accessToken } };
+          resolvedParams = {
+            ...input.params,
+            auth: { ...input.params.auth, accessToken: token.accessToken },
+          };
         }
         oauthContext = { oauthService, pluginIdentifier: input.params.name, userId: ctx.userId! };
       }
 
-      const data = await mcpService.callTool(resolvedParams, input.toolName, input.args, oauthContext);
+      const data = await mcpService.callTool(
+        resolvedParams,
+        input.toolName,
+        input.args,
+        oauthContext,
+      );
 
       try {
         const serialized = JSON.stringify(data);
+        let persistence: 'client_required' | 'failed' | 'persisted' = 'client_required';
+
+        if (isServerMode && ctx.userId) {
+          logToolsDebugSafe('tool_result_persistence_started', {
+            operation: 'persist_tool_result',
+            phase: 'server_database',
+          });
+
+          try {
+            const result = await new MessageModel(ctx.serverDB, ctx.userId).update(
+              input.messageId,
+              {
+                content: serialized,
+              },
+            );
+            const rowCount = result?.rowCount;
+
+            if (rowCount === 0) {
+              persistence = 'failed';
+              logToolsDebugSafe('tool_result_persistence_failed', {
+                errorKind: 'message_not_found',
+                failurePhase: 'server_database',
+                operation: 'persist_tool_result',
+                outcome: 'failed',
+              });
+            } else {
+              persistence = 'persisted';
+              logToolsDebugSafe('tool_result_persistence_complete', {
+                operation: 'persist_tool_result',
+                outcome: 'persisted',
+                phase: 'server_database',
+              });
+            }
+          } catch (error) {
+            persistence = 'failed';
+            logToolsDebugSafe('tool_result_persistence_failed', {
+              ...describeToolsDebugError(error),
+              failurePhase: 'server_database',
+              operation: 'persist_tool_result',
+              outcome: 'failed',
+            });
+          }
+        }
+
         logToolsDebugSafe('call_tool_complete', {
           durationMs: Date.now() - startedAt,
           phase: 'serialization',
           response: summarizeToolsDebugValue(serialized),
           toolName: input.toolName,
         });
-        return serialized;
+        return { content: serialized, persistence };
       } catch (error) {
         logToolsDebugSafe('call_tool_failed', {
           ...describeToolsDebugError(error),
@@ -212,8 +266,13 @@ export const mcpRouter = router({
         contentLength: z.number().int().nonnegative().optional(),
         diagnosticId: z.string().regex(CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN),
         durationMs: z.number().int().nonnegative(),
-        errorClass: z.enum(['Error', 'NetworkError', 'OtherError', 'TimeoutError', 'TypeError']).optional(),
-        errorCode: z.string().regex(/^[A-Z][\dA-Z_]{1,40}$/).optional(),
+        errorClass: z
+          .enum(['Error', 'NetworkError', 'OtherError', 'TimeoutError', 'TypeError'])
+          .optional(),
+        errorCode: z
+          .string()
+          .regex(/^[A-Z][\dA-Z_]{1,40}$/)
+          .optional(),
         failurePhase: z.enum(['network', 'response_parse', 'response_read']),
         fingerprintBytes: z.number().int().nonnegative().optional(),
         fingerprintTruncated: z.boolean().optional(),
@@ -221,7 +280,10 @@ export const mcpRouter = router({
         gateway: z
           .object({
             cacheStatus: z.string().max(160).optional(),
-            requestIdHash: z.string().regex(/^[\da-f]{16}$/).optional(),
+            requestIdHash: z
+              .string()
+              .regex(/^[\da-f]{16}$/)
+              .optional(),
             server: z.string().max(160).optional(),
             upstreamDurationMs: z.number().int().nonnegative().optional(),
             via: z.string().max(160).optional(),
@@ -235,7 +297,10 @@ export const mcpRouter = router({
         operation: z.enum(['call_tool', 'persist_tool_result']),
         procedure: z.enum(['mcp.callTool', 'message.update']),
         reason: z.enum(['network_error', 'response_parse_failed', 'response_read_failed']),
-        responseFingerprint: z.string().regex(/^[\da-f]{16}$/).optional(),
+        responseFingerprint: z
+          .string()
+          .regex(/^[\da-f]{16}$/)
+          .optional(),
         rpcEndpoint: z.enum(['lambda', 'tools']),
         timedOut: z.boolean().optional(),
       }),

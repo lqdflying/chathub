@@ -28,6 +28,7 @@ import { merge } from '@/utils/merge';
 import { safeParseJSON } from '@/utils/safeParseJSON';
 import { setNamespace } from '@/utils/storeDebug';
 
+import { preventLeavingFn, toggleBooleanList } from '../../utils';
 import { chatSelectors } from '../message/selectors';
 import { threadSelectors } from '../thread/selectors';
 
@@ -535,13 +536,29 @@ export const chatPlugin: StateCreator<
       const context = internal_constructToolsCallingContext(id);
       const result = await mcpService.invokeMcpToolCall(payload, {
         diagnosticId,
+        messageId: id,
         signal: abortController?.signal,
         topicId: context?.topicId,
       });
 
-      if (!!result) data = result;
+      if (!!result) data = result.content;
 
       if (!data) return;
+
+      if (result?.persistence === 'persisted') {
+        internal_dispatchMessage({ id, type: 'updateMessage', value: { content: data } });
+        return data;
+      }
+
+      if (result?.persistence === 'failed') {
+        internal_dispatchMessage({ id, type: 'updateMessage', value: { content: data } });
+        const { notification } = await import('@/components/AntdStaticMethods');
+        notification.warning({
+          description: t('mcpResultPersistence.description', { ns: 'error' }),
+          message: t('mcpResultPersistence.title', { ns: 'error' }),
+        });
+        return data;
+      }
 
       let persisted = false;
       for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -598,7 +615,42 @@ export const chatPlugin: StateCreator<
   },
 
   internal_togglePluginApiCalling: (loading, id, action) => {
-    return get().internal_toggleLoadingArrays('pluginApiLoadingIds', loading, id, action);
+    if (loading) {
+      if (!id) return;
+
+      window.addEventListener('beforeunload', preventLeavingFn);
+      get().pluginApiAbortControllers[id]?.abort();
+
+      const abortController = new AbortController();
+      set(
+        {
+          pluginApiAbortControllers: {
+            ...get().pluginApiAbortControllers,
+            [id]: abortController,
+          },
+          pluginApiLoadingIds: toggleBooleanList(get().pluginApiLoadingIds, id, true),
+        },
+        false,
+        action,
+      );
+
+      return abortController;
+    }
+
+    if (!id) {
+      set({ pluginApiAbortControllers: {}, pluginApiLoadingIds: [] }, false, action);
+      window.removeEventListener('beforeunload', preventLeavingFn);
+      return;
+    }
+
+    const pluginApiAbortControllers = { ...get().pluginApiAbortControllers };
+    delete pluginApiAbortControllers[id];
+    const pluginApiLoadingIds = toggleBooleanList(get().pluginApiLoadingIds, id, false);
+    set({ pluginApiAbortControllers, pluginApiLoadingIds }, false, action);
+
+    if (pluginApiLoadingIds.length === 0) {
+      window.removeEventListener('beforeunload', preventLeavingFn);
+    }
   },
 
   internal_transformToolCalls: (toolCalls) => {

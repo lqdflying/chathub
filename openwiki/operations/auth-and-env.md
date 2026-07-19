@@ -45,13 +45,13 @@ The same flags still enable raw `[requestPayload]` and stream logs, so do not le
 
 `CHATHUB_TOOLS_DEBUG` is a server-side switch for dedicated, PII-safe prefixed-JSON tool diagnostics. It works standalone and does not alter the global Pino level; use `CHATHUB_DEBUG=1` or `LOG_LEVEL` separately when global Pino debug output is wanted.
 
-| Value | Effect |
-| --- | --- |
-| unset / `0` / `off` | Structured tool diagnostics off (default) |
-| `1` / `safe` | Complete request lifecycle with safe labels, status, timing, retry/cache/OAuth state, shapes, sizes, and fingerprints |
-| `verbose` / `2` | Safe records plus deeper bounded object/array shape fingerprints; never raw content |
+| Value               | Effect                                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| unset / `0` / `off` | Structured tool diagnostics off (default)                                                                             |
+| `1` / `safe`        | Complete request lifecycle with safe labels, status, timing, retry/cache/OAuth state, shapes, sizes, and fingerprints |
+| `verbose` / `2`     | Safe records plus deeper bounded object/array shape fingerprints; never raw content                                   |
 
-Output uses `[chathub-tools-debug:<event>]` followed by one versioned JSON object. The production parser maps this to `debug_namespace=chathub-tools-debug` and `debug_event=<event>`. An opaque `diagnosticId`, `spanId`, and per-span event sequence correlate tRPC, cache, OAuth, transport, MCP, normalization, serialization, tool-result persistence through `/trpc/lambda`, and browser response failures. Safe records include sanitized technical labels and credential-free endpoint paths, while user/connection identity remains hashed.
+Output uses `[chathub-tools-debug:<event>]` followed by one versioned JSON object. The production parser maps this to `debug_namespace=chathub-tools-debug` and `debug_event=<event>`. An opaque `diagnosticId`, `spanId`, and per-span event sequence correlate tRPC, cache, OAuth, transport, MCP, normalization, serialization, direct server-database tool-result persistence, the desktop/client-required `/trpc/lambda` fallback, and browser response failures. Safe records include sanitized technical labels and credential-free endpoint paths, while user/connection identity remains hashed.
 
 Neither level records raw request/response bodies, HTML, tool arguments/results, prompts, resources, arbitrary error messages, stdout/stderr, environment values, URL query/fragment, authorization/cookies, OAuth codes/state/verifiers, session values, tokens, keys, passwords, or secrets. Secret-keyed values are removed rather than fingerprinted. Invalid JSON is classified using safe metadata such as `bodyKind`, status, media type, bytes, HTML marker, proxy hints, and a bounded response fingerprint; the native parser excerpt is discarded. Records are capped at 16 KiB.
 

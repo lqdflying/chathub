@@ -1,13 +1,12 @@
+import debug from 'debug';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 
-import debug from 'debug';
-
 import {
-  parseToolsDebugLevel,
   TOOLS_SAFE_NS,
   TOOLS_VERBOSE_NS,
   type ToolsDebugLevel,
+  parseToolsDebugLevel,
 } from './bootstrap';
 
 const safeLegacyLog = debug(TOOLS_SAFE_NS[0]);
@@ -78,6 +77,9 @@ export type ToolsDebugEvent =
   | 'tool_persistence_rpc_failed'
   | 'tool_persistence_rpc_handler_error'
   | 'tool_persistence_rpc_started'
+  | 'tool_result_persistence_complete'
+  | 'tool_result_persistence_failed'
+  | 'tool_result_persistence_started'
   | 'transport_request_complete'
   | 'transport_request_failed'
   | 'transport_request_retry'
@@ -142,7 +144,9 @@ const canonicalizeDebugValue = (value: unknown, depth = 0): unknown => {
   if (typeof value !== 'object') return typeof value;
   if (depth >= TOOL_DEBUG_MAX_DEPTH) return '[max-depth]';
   if (Array.isArray(value)) {
-    return value.slice(0, TOOL_DEBUG_MAX_ARRAY).map((item) => canonicalizeDebugValue(item, depth + 1));
+    return value
+      .slice(0, TOOL_DEBUG_MAX_ARRAY)
+      .map((item) => canonicalizeDebugValue(item, depth + 1));
   }
 
   const record = value as Record<string, unknown>;
@@ -173,10 +177,7 @@ export const createToolsDiagnosticId = () => `td_${randomUUID().replaceAll('-', 
 export const getToolsDebugContext = (): Readonly<ToolsDebugContext> | undefined =>
   toolsDebugContext.getStore();
 
-export const runWithToolsDebugContext = <T>(
-  context: ToolsDebugContext,
-  callback: () => T,
-): T => {
+export const runWithToolsDebugContext = <T>(context: ToolsDebugContext, callback: () => T): T => {
   const parent = toolsDebugContext.getStore();
   const store: ToolsDebugStore = {
     ...parent,
@@ -192,8 +193,7 @@ export const runWithToolsDebugContext = <T>(
 
 export const isToolsDebugEnabled = (minimumLevel: Exclude<ToolsDebugLevel, 'off'> = 'safe') => {
   const level = parseToolsDebugLevel(process.env.CHATHUB_TOOLS_DEBUG);
-  const structuredEnabled =
-    level === 'verbose' || (level === 'safe' && minimumLevel === 'safe');
+  const structuredEnabled = level === 'verbose' || (level === 'safe' && minimumLevel === 'safe');
   const legacyEnabled =
     minimumLevel === 'verbose' ? verboseLegacyLog.enabled : safeLegacyLog.enabled;
   return structuredEnabled || legacyEnabled;
@@ -467,7 +467,11 @@ const writeStructuredRecord = (event: ToolsDebugEvent, record: Record<string, un
       // eslint-disable-next-line no-console
       console.log(
         prefix,
-        JSON.stringify({ debugLevel: record.debugLevel, schemaVersion: 2, serializationError: true }),
+        JSON.stringify({
+          debugLevel: record.debugLevel,
+          schemaVersion: 2,
+          serializationError: true,
+        }),
       );
     } catch {
       // Diagnostics must never interrupt MCP behavior.
@@ -492,10 +496,7 @@ export const logToolsDebugRuntimeInitialized = (fields: Record<string, unknown> 
   );
 };
 
-export const logToolsDebugSafe = (
-  event: ToolsDebugEvent,
-  fields: Record<string, unknown> = {},
-) => {
+export const logToolsDebugSafe = (event: ToolsDebugEvent, fields: Record<string, unknown> = {}) => {
   const configuredLevel = parseToolsDebugLevel(process.env.CHATHUB_TOOLS_DEBUG);
   const structuredEnabled = isStructuredLevelEnabled(configuredLevel, 'safe');
   if (!structuredEnabled && !safeLegacyLog.enabled) return;

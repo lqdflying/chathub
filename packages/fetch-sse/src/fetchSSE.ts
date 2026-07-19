@@ -303,6 +303,9 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
       }
     },
     onmessage: (ev) => {
+      // SSE comment heartbeats contain neither an event nor data payload.
+      if (!ev.event && !ev.data) return;
+
       triggerOnMessageHandler = true;
       let data;
       try {
@@ -474,13 +477,14 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         grounding,
         images: images.length > 0 ? images : undefined,
         observationId,
-        reasoning: !!thinking || thinkingSignatures.length > 0 || redactedSignatures.length > 0
-          ? {
-              content: thinking || undefined,
-              signature: thinkingSignatures[0],
-              redactedSignatures: redactedSignatures.length > 0 ? redactedSignatures : undefined,
-            }
-          : undefined,
+        reasoning:
+          !!thinking || thinkingSignatures.length > 0 || redactedSignatures.length > 0
+            ? {
+                content: thinking || undefined,
+                redactedSignatures: redactedSignatures.length > 0 ? redactedSignatures : undefined,
+                signature: thinkingSignatures[0],
+              }
+            : undefined,
         speed,
         toolCalls,
         traceId,

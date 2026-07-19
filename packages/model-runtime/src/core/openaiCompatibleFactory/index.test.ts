@@ -7,6 +7,7 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LobeOpenAICompatibleRuntime } from '../../core/BaseAI';
 import { ChatStreamCallbacks, ChatStreamPayload } from '../../types/chat';
 import { AgentRuntimeErrorType } from '../../types/error';
+import { SSE_HEARTBEAT_COMMENT } from '../../utils/response';
 import * as openaiHelpers from '../contextBuilders/openai';
 import { createOpenAICompatibleRuntime } from './index';
 
@@ -121,8 +122,12 @@ describe('LobeOpenAICompatibleFactory', () => {
           },
           temperature: 0.7,
           top_p: 1,
+          user: undefined,
         },
-        { headers: { Accept: '*/*' } },
+        {
+          headers: { Accept: '*/*' },
+          signal: expect.any(AbortSignal),
+        },
       );
       expect(result).toBeInstanceOf(Response);
     });
@@ -195,9 +200,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           chunks.push(decoder.decode(value));
         }
         // Assert that all expected chunk patterns are present
-        expect(chunks).toEqual(
-          expect.arrayContaining(['id: a\n', 'event: text\n', 'data: "hello"\n\n']),
-        );
+        expect(chunks).toEqual([SSE_HEARTBEAT_COMMENT, 'id: a\nevent: text\ndata: "hello"\n\n']);
       });
 
       // https://github.com/lobehub/lobe-chat/issues/2752
@@ -301,25 +304,14 @@ describe('LobeOpenAICompatibleFactory', () => {
           stream.push(decoder.decode(value));
         }
 
-        expect(stream).toEqual(
-          [
-            'id: ',
-            'event: data',
-            'data: {"choices":[],"created":0,"id":"","model":"","object":"","prompt_filter_results":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"prompt_index":0}]}\n',
-            'id: chatcmpl-9VJIxA3qNM2C2YdAnNYA2KgDYfFnX',
-            'event: text',
-            'data: ""\n',
-            'id: chatcmpl-9VJIxA3qNM2C2YdAnNYA2KgDYfFnX',
-            'event: text',
-            'data: "1"\n',
-            'id: chatcmpl-9VJIxA3qNM2C2YdAnNYA2KgDYfFnX',
-            'event: stop',
-            'data: "stop"\n',
-            'id: ',
-            'event: data',
-            'data: {"id":"","index":0}\n',
-          ].map((item) => `${item}\n`),
-        );
+        expect(stream).toEqual([
+          SSE_HEARTBEAT_COMMENT,
+          'id: \nevent: data\ndata: {"choices":[],"created":0,"id":"","model":"","object":"","prompt_filter_results":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"},"self_harm":{"filtered":false,"severity":"safe"},"sexual":{"filtered":false,"severity":"safe"},"violence":{"filtered":false,"severity":"safe"}},"prompt_index":0}]}\n\n',
+          'id: chatcmpl-9VJIxA3qNM2C2YdAnNYA2KgDYfFnX\nevent: text\ndata: ""\n\n',
+          'id: chatcmpl-9VJIxA3qNM2C2YdAnNYA2KgDYfFnX\nevent: text\ndata: "1"\n\n',
+          'id: chatcmpl-9VJIxA3qNM2C2YdAnNYA2KgDYfFnX\nevent: stop\ndata: "stop"\n\n',
+          'id: \nevent: data\ndata: {"id":"","index":0}\n\n',
+        ]);
       });
 
       it('should transform non-streaming response to stream correctly', async () => {
@@ -587,18 +579,21 @@ describe('LobeOpenAICompatibleFactory', () => {
     describe('cancel request', () => {
       it('should cancel ongoing request correctly', async () => {
         const controller = new AbortController();
+        let upstreamSignal: AbortSignal | undefined;
         const mockCreateMethod = vi
           .spyOn(instance['client'].chat.completions, 'create')
-          .mockImplementation(
-            () =>
-              new Promise((_, reject) => {
-                setTimeout(() => {
-                  reject(new DOMException('The user aborted a request.', 'AbortError'));
-                }, 100);
-              }) as any,
-          );
+          .mockImplementation((_payload, options) => {
+            upstreamSignal = options?.signal;
+            return new Promise((_, reject) => {
+              upstreamSignal?.addEventListener(
+                'abort',
+                () => reject(new DOMException('The user aborted a request.', 'AbortError')),
+                { once: true },
+              );
+            }) as any;
+          });
 
-        const chatPromise = instance.chat(
+        const response = await instance.chat(
           {
             messages: [{ content: 'Hello', role: 'user' }],
             model: 'mistralai/mistral-7b-instruct:free',
@@ -607,26 +602,26 @@ describe('LobeOpenAICompatibleFactory', () => {
           { signal: controller.signal },
         );
 
-        // Give some time for the request to start
-        await sleep(50);
+        const reader = response.body!.getReader();
+        expect(new TextDecoder().decode((await reader.read()).value)).toBe(SSE_HEARTBEAT_COMMENT);
 
         controller.abort();
 
-        // Wait and assert that Promise is rejected
-        // Use try-catch to capture and verify errors
-        try {
-          await chatPromise;
-          // If Promise is not rejected, test should fail
-          expect.fail('Expected promise to be rejected');
-        } catch (error) {
-          expect((error as any).errorType).toBe('AgentRuntimeError');
-          expect((error as any).error.name).toBe('AbortError');
-          expect((error as any).error.message).toBe('The user aborted a request.');
+        let streamedError = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          streamedError += new TextDecoder().decode(value);
         }
+
+        expect(upstreamSignal?.aborted).toBe(true);
+        expect(streamedError).toContain('event: error');
+        expect(streamedError).toContain('AgentRuntimeError');
+        expect(streamedError).toContain('The user aborted a request.');
         expect(mockCreateMethod).toHaveBeenCalledWith(
           expect.anything(),
           expect.objectContaining({
-            signal: controller.signal,
+            signal: expect.any(AbortSignal),
           }),
         );
       });
@@ -1035,6 +1030,36 @@ describe('LobeOpenAICompatibleFactory', () => {
     });
 
     describe('responses routing', () => {
+      it('returns an SSE heartbeat before a pending Responses handshake completes', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        let upstreamSignal: AbortSignal | undefined;
+        const mockResponsesCreate = vi
+          .spyOn(inst['client'].responses, 'create')
+          .mockImplementation((_payload, options) => {
+            upstreamSignal = options?.signal;
+            return new Promise(() => undefined) as any;
+          });
+
+        const response = await inst.chat({
+          messages: [{ content: 'continue after tools', role: 'user' }],
+          model: 'gpt-5.6-sol',
+          stream: true,
+          temperature: 0,
+        });
+        const reader = response.body!.getReader();
+
+        expect(new TextDecoder().decode((await reader.read()).value)).toBe(SSE_HEARTBEAT_COMMENT);
+        expect(mockResponsesCreate).toHaveBeenCalledTimes(1);
+
+        await reader.cancel('test complete');
+        await vi.waitFor(() => expect(upstreamSignal?.aborted).toBe(true));
+      });
+
       it('should route to Responses API when chatCompletion.useResponse is true', async () => {
         const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',
@@ -1105,7 +1130,9 @@ describe('LobeOpenAICompatibleFactory', () => {
           { content: 'I found the latest Tavily MCP docs.', role: 'assistant' },
           { content: 'What should we do next?', role: 'user' },
         ]);
-        const assistantItems = requestPayload.input.filter((item: any) => item.role === 'assistant');
+        const assistantItems = requestPayload.input.filter(
+          (item: any) => item.role === 'assistant',
+        );
         expect(assistantItems).toHaveLength(1);
         expect(assistantItems[0].content).toBe('I found the latest Tavily MCP docs.');
         expect(JSON.stringify(assistantItems)).not.toContain('"input_text"');

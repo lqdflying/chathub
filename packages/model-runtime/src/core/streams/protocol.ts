@@ -83,8 +83,9 @@ export interface StreamContext {
 export interface StreamProtocolChunk {
   data: any;
   id?: string;
-  type: // pure text
-  | 'text'
+  type:
+    // pure text
+    | 'text'
     // base64 format image
     | 'base64_image'
     // Tools use
@@ -171,26 +172,151 @@ const sanitizeReasoningProtocolData = (
 export const generateToolCallId = (index: number, functionName?: string) =>
   `${functionName || 'unknown_tool_call'}_${index}_${nanoid()}`;
 
-const chatStreamable = async function* <T>(stream: AsyncIterable<T>) {
-  for await (const response of stream) {
-    yield response;
-  }
-};
-
 const ERROR_CHUNK_PREFIX = '%FIRST_CHUNK_ERROR%: ';
 
 const enqueueIteratorError = <T>(
   controller: ReadableStreamDefaultController<T>,
   iteratorError: unknown,
 ) => {
-  const error =
-    iteratorError instanceof Error ? iteratorError : new Error(String(iteratorError));
+  const error = (() => {
+    if (iteratorError instanceof Error) {
+      return {
+        message: iteratorError.message,
+        name: iteratorError.name,
+        stack: iteratorError.stack,
+      };
+    }
 
-  controller.enqueue(
-    (ERROR_CHUNK_PREFIX +
-      JSON.stringify({ message: error.message, name: error.name, stack: error.stack })) as T,
-  );
+    if (iteratorError && typeof iteratorError === 'object') {
+      const errorRecord = iteratorError as Record<string, unknown>;
+      return {
+        ...errorRecord,
+        message:
+          typeof errorRecord.message === 'string'
+            ? errorRecord.message
+            : 'The upstream stream could not be opened.',
+        name: typeof errorRecord.name === 'string' ? errorRecord.name : 'ProviderStreamError',
+      };
+    }
+
+    const fallbackError = new Error(String(iteratorError));
+    return {
+      message: fallbackError.message,
+      name: fallbackError.name,
+      stack: fallbackError.stack,
+    };
+  })();
+
+  controller.enqueue((ERROR_CHUNK_PREFIX + JSON.stringify(error)) as T);
   controller.close();
+};
+
+/**
+ * Starts an async-iterable upstream only when the response body is pulled.
+ * This lets the HTTP handler return its SSE response before an OpenAI-compatible
+ * gateway has produced response headers, while keeping cancellation linked to
+ * the upstream request.
+ */
+export const createDeferredAsyncIterable = <T>(
+  factory: (signal: AbortSignal) => AsyncIterable<T> | Promise<AsyncIterable<T>>,
+  signal?: AbortSignal,
+): AsyncIterableIterator<T> => {
+  const abortController = new AbortController();
+  let completed = false;
+  let sourceIterator: AsyncIterator<T> | undefined;
+  let sourceIteratorPromise: Promise<AsyncIterator<T>> | undefined;
+
+  const handleExternalAbort = () => abortController.abort(signal?.reason);
+
+  if (signal?.aborted) handleExternalAbort();
+  else signal?.addEventListener('abort', handleExternalAbort, { once: true });
+
+  const cleanup = () => signal?.removeEventListener('abort', handleExternalAbort);
+  const doneResult = (value?: unknown): IteratorResult<T> => ({
+    done: true,
+    value: value as T,
+  });
+  const getSourceIterator = () => {
+    sourceIteratorPromise ??= Promise.resolve(factory(abortController.signal)).then((source) => {
+      if (!source || typeof source[Symbol.asyncIterator] !== 'function') {
+        throw new TypeError('Deferred stream factory must return an async iterable');
+      }
+
+      sourceIterator = source[Symbol.asyncIterator]();
+      return sourceIterator;
+    });
+
+    return sourceIteratorPromise;
+  };
+
+  const deferredIterator: AsyncIterableIterator<T> & {
+    toReadableStream: () => ReadableStream<T>;
+  } = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    async next() {
+      if (completed) return doneResult();
+
+      try {
+        const iterator = await getSourceIterator();
+        if (completed) return doneResult();
+
+        const result = await iterator.next();
+        if (result.done) {
+          completed = true;
+          cleanup();
+        }
+
+        return result;
+      } catch (error) {
+        completed = true;
+        cleanup();
+        throw error;
+      }
+    },
+    async return(value?: unknown) {
+      if (completed) return doneResult(value);
+
+      completed = true;
+      abortController.abort(value);
+      cleanup();
+
+      if (sourceIterator?.return) return sourceIterator.return(value);
+
+      void sourceIteratorPromise
+        ?.then((iterator) => iterator.return?.(value))
+        .catch(() => undefined);
+
+      return doneResult(value);
+    },
+    async throw(error?: unknown) {
+      completed = true;
+      abortController.abort(error);
+      cleanup();
+
+      if (sourceIterator?.throw) return sourceIterator.throw(error);
+      throw error;
+    },
+    toReadableStream() {
+      return new ReadableStream<T>({
+        async cancel(reason) {
+          await deferredIterator.return(reason);
+        },
+        async pull(controller) {
+          try {
+            const { done, value } = await deferredIterator.next();
+            if (done) controller.close();
+            else controller.enqueue(value);
+          } catch (error) {
+            controller.error(error);
+          }
+        },
+      });
+    },
+  };
+
+  return deferredIterator;
 };
 
 export function readableFromAsyncIterable<T>(iterable: AsyncIterable<T>) {
@@ -209,11 +335,9 @@ export function readableFromAsyncIterable<T>(iterable: AsyncIterable<T>) {
 }
 
 export function convertIterableToStream<T>(stream: AsyncIterable<T>) {
-  const iterable = chatStreamable(stream);
-
   // copy from https://github.com/vercel/ai/blob/d3aa5486529e3d1a38b30e3972b4f4c63ea4ae9a/packages/ai/streams/ai-stream.ts#L284
   // and add an error handle
-  const iterator = iterable[Symbol.asyncIterator]();
+  const iterator = stream[Symbol.asyncIterator]();
 
   const readNext = async (controller: ReadableStreamDefaultController<T>) => {
     try {
@@ -230,7 +354,6 @@ export function convertIterableToStream<T>(stream: AsyncIterable<T>) {
       await iterator.return?.(reason);
     },
     pull: readNext,
-    start: readNext,
   });
 }
 
@@ -259,7 +382,9 @@ export const tapAsyncIterable = <T>(
     return source;
   }
 
-  const asyncSource = source as unknown as AsyncIterable<T extends AsyncIterable<infer U> ? U : never>;
+  const asyncSource = source as unknown as AsyncIterable<
+    T extends AsyncIterable<infer U> ? U : never
+  >;
   const iterator = asyncSource[Symbol.asyncIterator]();
   type Item = T extends AsyncIterable<infer U> ? U : never;
 
@@ -488,7 +613,10 @@ export const createFirstErrorHandleTransformer = (
         controller.enqueue({
           ...errorData,
           [FIRST_CHUNK_ERROR_KEY]: true,
-          errorType: errorHandler?.(errorData) || AgentRuntimeErrorType.ProviderBizError,
+          errorType:
+            errorHandler?.(errorData) ||
+            errorData.errorType ||
+            AgentRuntimeErrorType.ProviderBizError,
           provider,
         });
       } else {

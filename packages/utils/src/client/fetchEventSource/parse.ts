@@ -134,7 +134,8 @@ export function getMessages(
   return function onLine(line: Uint8Array, fieldLength: number) {
     if (line.length === 0) {
       // empty line denotes end of message. Trigger the callback and start a new message:
-      onMessage?.(message);
+      // Comment-only heartbeat frames intentionally have no event or data.
+      if (message.event || message.data) onMessage?.(message);
       message = newMessage();
     } else if (fieldLength > 0) {
       // exclude comments and lines with no values

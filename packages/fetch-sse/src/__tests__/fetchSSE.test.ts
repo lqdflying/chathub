@@ -49,6 +49,29 @@ describe('fetchSSE', () => {
     });
   });
 
+  it('ignores comment-only heartbeat callbacks', async () => {
+    const mockOnErrorHandle = vi.fn();
+    const mockOnMessageHandle = vi.fn();
+
+    (fetchEventSource as any).mockImplementationOnce(
+      (_url: string, options: FetchEventSourceInit) => {
+        options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+        options.onmessage!({ data: '', event: '' } as any);
+        options.onmessage!({ data: JSON.stringify('Hello'), event: 'text' } as any);
+      },
+    );
+
+    await fetchSSE('/', {
+      onErrorHandle: mockOnErrorHandle,
+      onMessageHandle: mockOnMessageHandle,
+      responseAnimation: 'none',
+    });
+
+    expect(mockOnErrorHandle).not.toHaveBeenCalled();
+    expect(mockOnMessageHandle).toHaveBeenCalledOnce();
+    expect(mockOnMessageHandle).toHaveBeenCalledWith({ text: 'Hello', type: 'text' });
+  });
+
   it('should handle tool_calls event correctly', async () => {
     const mockOnMessageHandle = vi.fn();
     const mockOnFinish = vi.fn();

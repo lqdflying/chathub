@@ -570,9 +570,8 @@ export const generateAIChat: StateCreator<
       if (isDesktop) {
         try {
           // 动态导入桌面通知服务，避免在非桌面端环境中导入
-          const { desktopNotificationService } = await import(
-            '@/services/electron/desktopNotification'
-          );
+          const { desktopNotificationService } =
+            await import('@/services/electron/desktopNotification');
 
           await desktopNotificationService.showNotification({
             body: content,
@@ -886,7 +885,9 @@ export const generateAIChat: StateCreator<
       // Cancel every producer that could append diagnostics or tool output to the discarded tail.
       state.chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
       state.messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
-      state.pluginApiLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      for (const controller of Object.values(state.pluginApiAbortControllers)) {
+        controller.abort(MESSAGE_CANCEL_FLAT);
+      }
       state.reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
       state.searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
       get().internal_toggleChatLoading(false, undefined, n('retryMessage/cancelChatLoading'));
@@ -922,7 +923,7 @@ export const generateAIChat: StateCreator<
           for (const id of discardedIds) delete draft.toolCallingStreamIds[id];
           draft.chatLoadingIdsAbortController = undefined;
           draft.messageInToolsCallingIdsAbortController = undefined;
-          draft.pluginApiLoadingIdsAbortController = undefined;
+          draft.pluginApiAbortControllers = {};
           draft.reasoningLoadingIdsAbortController = undefined;
           draft.searchWorkflowLoadingIdsAbortController = undefined;
           draft.threadLoadingIds = draft.threadLoadingIds.filter(
@@ -988,17 +989,11 @@ export const generateAIChat: StateCreator<
                 draft.threadStartMessageId = undefined;
                 draft.showPortal = false;
               }
-              if (
-                draft.portalMessageDetail &&
-                persistedMessageIds.has(draft.portalMessageDetail)
-              ) {
+              if (draft.portalMessageDetail && persistedMessageIds.has(draft.portalMessageDetail)) {
                 draft.portalMessageDetail = undefined;
                 draft.showPortal = false;
               }
-              if (
-                draft.portalToolMessage &&
-                persistedMessageIds.has(draft.portalToolMessage.id)
-              ) {
+              if (draft.portalToolMessage && persistedMessageIds.has(draft.portalToolMessage.id)) {
                 draft.portalToolMessage = undefined;
                 draft.showPortal = false;
               }

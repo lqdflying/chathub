@@ -43,6 +43,31 @@ describe('MCP tool-result persistence recovery', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps concurrent MCP abort controllers independent', () => {
+    const store = useChatStore.getState();
+    const first = store.internal_togglePluginApiCalling(true, 'tool-message-1', 'start');
+    const second = store.internal_togglePluginApiCalling(true, 'tool-message-2', 'start');
+
+    expect(useChatStore.getState().pluginApiLoadingIds).toEqual([
+      'tool-message-1',
+      'tool-message-2',
+    ]);
+    expect(useChatStore.getState().pluginApiAbortControllers).toMatchObject({
+      'tool-message-1': first,
+      'tool-message-2': second,
+    });
+
+    store.internal_togglePluginApiCalling(false, 'tool-message-1', 'finish');
+
+    expect(useChatStore.getState().pluginApiLoadingIds).toEqual(['tool-message-2']);
+    expect(useChatStore.getState().pluginApiAbortControllers).toEqual({
+      'tool-message-2': second,
+    });
+    expect(second?.signal.aborted).toBe(false);
+
+    store.internal_togglePluginApiCalling(false, 'tool-message-2', 'finish');
+  });
+
   it('retries a classified persistence failure and returns the valid tool result', async () => {
     const toolResult = '{"results":[{"title":"ok"}]}';
     const updateMessageContent = vi
@@ -50,7 +75,10 @@ describe('MCP tool-result persistence recovery', () => {
       .mockRejectedValueOnce(createHTMLRPCError())
       .mockResolvedValueOnce(undefined);
     const togglePluginCalling = vi.fn().mockReturnValue(new AbortController());
-    vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue(toolResult);
+    vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
+      content: toolResult,
+      persistence: 'client_required',
+    });
     const reportFailure = vi
       .spyOn(mcpService, 'reportClientRPCFailure')
       .mockImplementation(() => undefined);
@@ -92,7 +120,10 @@ describe('MCP tool-result persistence recovery', () => {
   it('continues in memory and warns once when both persistence attempts fail', async () => {
     const toolResult = '{"results":[{"title":"ok"}]}';
     const updateMessageContent = vi.fn().mockRejectedValue(createHTMLRPCError());
-    vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue(toolResult);
+    vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
+      content: toolResult,
+      persistence: 'client_required',
+    });
     const reportFailure = vi
       .spyOn(mcpService, 'reportClientRPCFailure')
       .mockImplementation(() => undefined);
@@ -112,6 +143,63 @@ describe('MCP tool-result persistence recovery', () => {
       expect.anything(),
       expect.objectContaining({ attempt: 2, operation: 'persist_tool_result' }),
     );
+    const { notification } = await import('@/components/AntdStaticMethods');
+    expect(notification.warning).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses a server-persisted result without reposting it through the lambda route', async () => {
+    const toolResult = '{"results":[{"title":"persisted"}]}';
+    const dispatchMessage = vi.fn();
+    const updateMessageContent = vi.fn();
+    const invokeTool = vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
+      content: toolResult,
+      persistence: 'persisted',
+    });
+
+    useChatStore.setState({
+      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
+      internal_dispatchMessage: dispatchMessage,
+      internal_togglePluginApiCalling: vi.fn().mockReturnValue(new AbortController()),
+      internal_updateMessageContent: updateMessageContent,
+    });
+
+    const response = await useChatStore.getState().invokeMCPTypePlugin('message-id', payload);
+
+    expect(response).toBe(toolResult);
+    expect(invokeTool).toHaveBeenCalledWith(
+      payload,
+      expect.objectContaining({ messageId: 'message-id', topicId: 'topic-id' }),
+    );
+    expect(dispatchMessage).toHaveBeenCalledWith({
+      id: 'message-id',
+      type: 'updateMessage',
+      value: { content: toolResult },
+    });
+    expect(updateMessageContent).not.toHaveBeenCalled();
+  });
+
+  it('continues optimistically without reposting when server persistence fails', async () => {
+    const toolResult = '{"results":[{"title":"in-memory"}]}';
+    const dispatchMessage = vi.fn();
+    const updateMessageContent = vi.fn();
+    vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
+      content: toolResult,
+      persistence: 'failed',
+    });
+
+    useChatStore.setState({
+      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
+      internal_dispatchMessage: dispatchMessage,
+      internal_togglePluginApiCalling: vi.fn().mockReturnValue(new AbortController()),
+      internal_updateMessageContent: updateMessageContent,
+    });
+
+    await expect(useChatStore.getState().invokeMCPTypePlugin('message-id', payload)).resolves.toBe(
+      toolResult,
+    );
+
+    expect(dispatchMessage).toHaveBeenCalledTimes(1);
+    expect(updateMessageContent).not.toHaveBeenCalled();
     const { notification } = await import('@/components/AntdStaticMethods');
     expect(notification.warning).toHaveBeenCalledTimes(1);
   });

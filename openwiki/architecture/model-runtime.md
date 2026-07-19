@@ -36,6 +36,12 @@ The recent OpenAI SDK upgrade kept this path working by normalizing the new `Hea
 
 Provider-specific cache hint combinations are documented in [OpenAI-compatible cache matrix](../integrations/openai-compatible-cache-matrix.md).
 
+### Streaming handshake and keepalives
+
+Streaming OpenAI-compatible Chat Completions and Responses requests do not wait for the SDK's upstream `create(...)` promise before returning ChatHub's `Response`. The runtime wraps that pending request as a deferred async iterable, opens the downstream SSE response with an immediate `: chathub-ping` comment, and sends the same comment after 10 seconds of idle time. This keeps the browser, reverse proxy, and load balancer connection active while a provider is preparing a slow post-tool continuation.
+
+Keepalives are emitted only between complete SSE frames, never between an `id`, `event`, and `data` sequence. The response uses `Cache-Control: no-cache, no-transform` and `X-Accel-Buffering: no`; ChatHub's EventSource parser and `fetchSSE` consumer both ignore comment-only frames. Canceling the downstream body or the original request aborts the linked upstream request. If opening the deferred provider stream fails, its normalized provider metadata is converted into the normal terminal SSE error event instead of surfacing as an untyped browser `TypeError: Load failed`.
+
 ### Responses stream errors
 
 Responses mode expects `/v1/responses` to return Server-Sent Events whose `data`

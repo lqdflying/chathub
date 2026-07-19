@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CHATHUB_TOOLS_DIAGNOSTIC_HEADER } from '@/const/tools';
 
-import { createToolsClient, TOOLS_DIAGNOSTIC_CONTEXT_KEY } from './tools';
+import { TOOLS_DIAGNOSTIC_CONTEXT_KEY, createToolsClient } from './tools';
 import { findToolsRPCResponseError } from './toolsResponse';
 
 const trpcResult = (value: unknown) => ({ result: { data: { json: value } } });
@@ -13,10 +13,8 @@ describe('tools tRPC client links', () => {
     const urls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       urls.push(input.toString());
-      diagnosticIds.push(
-        new Headers(init?.headers).get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER) || '',
-      );
-      return new Response(JSON.stringify(trpcResult('ok')), {
+      diagnosticIds.push(new Headers(init?.headers).get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER) || '');
+      return new Response(JSON.stringify(trpcResult({ content: 'ok', persistence: 'persisted' })), {
         headers: { 'content-type': 'application/json' },
         status: 200,
       });
@@ -32,6 +30,7 @@ describe('tools tRPC client links', () => {
         client.mcp.callTool.mutate(
           {
             args: '{}',
+            messageId: `message-${index}`,
             params: {
               auth: { type: 'none' },
               name: 'test-connection',
@@ -87,11 +86,13 @@ describe('tools tRPC client links', () => {
   it('preserves classified HTML response details through the tRPC client error', async () => {
     const client = createToolsClient({
       desktop: false,
-      fetch: vi.fn(async () =>
-        new Response('<!DOCTYPE html><html><body>private gateway page</body></html>', {
-          headers: { 'content-type': 'text/html' },
-          status: 502,
-        })) as typeof fetch,
+      fetch: vi.fn(
+        async () =>
+          new Response('<!DOCTYPE html><html><body>private gateway page</body></html>', {
+            headers: { 'content-type': 'text/html' },
+            status: 502,
+          }),
+      ) as typeof fetch,
       getAuthHeaders: async () => ({}),
     });
 
@@ -99,6 +100,7 @@ describe('tools tRPC client links', () => {
       .mutate(
         {
           args: '{}',
+          messageId: 'message-id',
           params: {
             auth: { type: 'none' },
             name: 'test-connection',
