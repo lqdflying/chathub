@@ -284,7 +284,7 @@ exports[`OpenAIResponsesStream > should handle response.completed with usage 1`]
 ",
   "event: usage
 ",
-  "data: {"inputCacheMissTokens":100,"inputTextTokens":100,"outputTextTokens":50,"totalInputTokens":100,"totalOutputTokens":50,"totalTokens":150}
+  "data: {"inputTextTokens":100,"outputTextTokens":50,"totalInputTokens":100,"totalOutputTokens":50,"totalTokens":150}
 
 ",
 ]

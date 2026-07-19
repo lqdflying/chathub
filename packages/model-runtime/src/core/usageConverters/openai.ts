@@ -88,7 +88,7 @@ export const convertOpenAIResponseUsage = (
 ): ModelUsage => {
   // 1. Extract and default primary values
   const totalInputTokens = usage.input_tokens || 0;
-  const inputCachedTokens = usage.input_tokens_details?.cached_tokens || 0;
+  const inputCachedTokens = usage.input_tokens_details?.cached_tokens ?? undefined;
 
   const totalOutputTokens = usage.output_tokens || 0;
   const outputReasoningTokens = usage.output_tokens_details?.reasoning_tokens || 0;
@@ -96,7 +96,8 @@ export const convertOpenAIResponseUsage = (
   const overallTotalTokens = usage.total_tokens || 0;
 
   // 2. Calculate derived values
-  const inputCacheMissTokens = totalInputTokens - inputCachedTokens;
+  const inputCacheMissTokens =
+    inputCachedTokens === undefined ? undefined : totalInputTokens - inputCachedTokens;
 
   // For ResponseUsage, inputTextTokens is effectively totalInputTokens as no further breakdown is given.
   const inputTextTokens = totalInputTokens;
@@ -127,18 +128,15 @@ export const convertOpenAIResponseUsage = (
   // 4. Filter out zero/falsy values, as done in the reference implementation
   const finalData: Partial<ModelUsage> = {}; // Use Partial for type safety during construction
   Object.entries(data).forEach(([key, value]) => {
-    if (
-      value !== undefined &&
-      value !== null &&
-      (typeof value !== 'number' || value !== 0) && // A more explicit check than `!!value` if we want to be very specific about
-      // keeping non-numeric truthy values, but the reference uses `!!value`.
-      // `!!value` will filter out 0, which is often desired for token counts.
-      // Let's stick to the reference's behavior:
-      !!value
-    ) {
+    // A zero cache miss is meaningful when Responses usage reports a full cache hit.
+    if (key === 'inputCacheMissTokens' && data.inputCachedTokens !== undefined) {
       // @ts-ignore - We are building an object that will conform to ModelTokensUsage
-      // by selectively adding properties.
-      finalData[key as keyof ModelUsage] = value as number;
+      finalData[key] = value;
+      return;
+    }
+    if (!!value) {
+      // @ts-ignore - We are building an object that will conform to ModelTokensUsage
+      finalData[key] = value;
     }
   });
 

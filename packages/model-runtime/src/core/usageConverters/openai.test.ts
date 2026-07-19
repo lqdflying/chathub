@@ -391,6 +391,67 @@ describe('convertUsage', () => {
     });
   });
 
+  it('should keep missing Responses cache telemetry unknown', () => {
+    const pricing: Pricing = {
+      units: [
+        { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 4, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    };
+    const responseUsage = {
+      input_tokens: 1_000_000,
+      output_tokens: 500_000,
+      total_tokens: 1_500_000,
+    } as OpenAI.Responses.ResponseUsage;
+
+    const result = convertOpenAIResponseUsage(responseUsage, { pricing });
+
+    expect(result).not.toHaveProperty('inputCachedTokens');
+    expect(result).not.toHaveProperty('inputCacheMissTokens');
+    expect(result.cost).toBeCloseTo(4, 10);
+  });
+
+  it('should calculate partial Responses cache hits', () => {
+    const responseUsage = {
+      input_tokens: 100,
+      input_tokens_details: { cached_tokens: 40 },
+      output_tokens: 50,
+      total_tokens: 150,
+    } as OpenAI.Responses.ResponseUsage;
+
+    const result = convertOpenAIResponseUsage(responseUsage);
+
+    expect(result).toMatchObject({
+      inputCacheMissTokens: 60,
+      inputCachedTokens: 40,
+    });
+  });
+
+  it('should preserve and price full Responses cache hits', () => {
+    const pricing: Pricing = {
+      units: [
+        { name: 'textInput', rate: 2, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput_cacheRead', rate: 0.5, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 4, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    };
+    const responseUsage = {
+      input_tokens: 1_000_000,
+      input_tokens_details: { cached_tokens: 1_000_000 },
+      output_tokens: 500_000,
+      total_tokens: 1_500_000,
+    } as OpenAI.Responses.ResponseUsage;
+
+    const result = convertOpenAIResponseUsage(responseUsage, { pricing });
+
+    expect(result).toMatchObject({
+      inputCacheMissTokens: 0,
+      inputCachedTokens: 1_000_000,
+    });
+    expect(result.cost).toBeCloseTo(2.5, 10);
+  });
+
   it('should enrich completion usage with pricing cost when pricing is provided', () => {
     const pricing: Pricing = {
       units: [

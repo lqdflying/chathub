@@ -1056,6 +1056,36 @@ describe('OpenAIResponsesStream', () => {
     expect(usageDataChunk).toContain('"inputCacheMissTokens":36');
   });
 
+  it('should preserve zero cache misses for full Responses cache hits', async () => {
+    const mockOpenAIStream = createReadableStream([
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_full_cache_hit',
+          status: 'completed',
+          usage: {
+            cached_tokens: 100,
+            input_tokens: 100,
+            output_tokens: 25,
+            total_tokens: 125,
+          },
+        },
+      },
+    ]);
+
+    const protocolStream = OpenAIResponsesStream(mockOpenAIStream, {
+      payload: { model: 'gpt-5', provider: 'openaicompatible' },
+    });
+    const chunks = await readStreamChunk(protocolStream);
+
+    const usageIndex = chunks.findIndex((c) => c.includes('event: usage'));
+    const usageDataChunk = chunks[usageIndex + 1];
+
+    expect(usageIndex).toBeGreaterThanOrEqual(0);
+    expect(usageDataChunk).toContain('"inputCachedTokens":100');
+    expect(usageDataChunk).toContain('"inputCacheMissTokens":0');
+  });
+
   it('should handle response.completed without usage', async () => {
     const onCompletion = vi.fn();
     const onFinal = vi.fn();
