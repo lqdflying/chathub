@@ -125,6 +125,25 @@ describe('MessageModel', () => {
       expect(result2[0].id).toBe('2');
     });
 
+    it('should preserve tied timestamp order across repeated paginated reads', async () => {
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
+      await serverDB.insert(messages).values([
+        { id: 'tie-c', userId, role: 'user', content: 'message c', createdAt: tiedCreatedAt },
+        { id: 'tie-a', userId, role: 'user', content: 'message a', createdAt: tiedCreatedAt },
+        { id: 'tie-b', userId, role: 'user', content: 'message b', createdAt: tiedCreatedAt },
+      ]);
+
+      const readPages = async () => {
+        const firstPage = await messageModel.query({ current: 0, pageSize: 2 });
+        const secondPage = await messageModel.query({ current: 1, pageSize: 2 });
+
+        return [...firstPage, ...secondPage].map((message) => message.id);
+      };
+
+      await expect(readPages()).resolves.toEqual(['tie-a', 'tie-b', 'tie-c']);
+      await expect(readPages()).resolves.toEqual(['tie-a', 'tie-b', 'tie-c']);
+    });
+
     it('should filter messages by sessionId', async () => {
       // 创建测试数据
       await serverDB.insert(sessions).values([
@@ -539,6 +558,21 @@ describe('MessageModel', () => {
       expect(result[0].id).toBe('1');
       expect(result[1].id).toBe('2');
     });
+
+    it('should use message ID to stabilize tied timestamps', async () => {
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
+      await serverDB.insert(messages).values([
+        { id: 'tie-c', userId, role: 'user', content: 'message c', createdAt: tiedCreatedAt },
+        { id: 'tie-a', userId, role: 'user', content: 'message a', createdAt: tiedCreatedAt },
+        { id: 'tie-b', userId, role: 'user', content: 'message b', createdAt: tiedCreatedAt },
+      ]);
+
+      const firstRead = await messageModel.queryAll();
+      const secondRead = await messageModel.queryAll();
+
+      expect(firstRead.map((message) => message.id)).toEqual(['tie-a', 'tie-b', 'tie-c']);
+      expect(secondRead.map((message) => message.id)).toEqual(['tie-a', 'tie-b', 'tie-c']);
+    });
   });
 
   describe('findById', () => {
@@ -607,6 +641,42 @@ describe('MessageModel', () => {
       expect(result[0].id).toBe('1');
       expect(result[1].id).toBe('2');
     });
+
+    it('should use message ID to stabilize tied timestamps', async () => {
+      const sessionId = 'session1';
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
+      await serverDB.insert(sessions).values({ id: sessionId, userId });
+      await serverDB.insert(messages).values([
+        {
+          id: 'tie-c',
+          userId,
+          role: 'user',
+          sessionId,
+          content: 'message c',
+          createdAt: tiedCreatedAt,
+        },
+        {
+          id: 'tie-a',
+          userId,
+          role: 'user',
+          sessionId,
+          content: 'message a',
+          createdAt: tiedCreatedAt,
+        },
+        {
+          id: 'tie-b',
+          userId,
+          role: 'user',
+          sessionId,
+          content: 'message b',
+          createdAt: tiedCreatedAt,
+        },
+      ]);
+
+      const result = await messageModel.queryBySessionId(sessionId);
+
+      expect(result.map((message) => message.id)).toEqual(['tie-a', 'tie-b', 'tie-c']);
+    });
   });
 
   describe('queryByKeyWord', () => {
@@ -626,6 +696,19 @@ describe('MessageModel', () => {
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('4');
       expect(result[1].id).toBe('1');
+    });
+
+    it('should use descending message ID to stabilize tied timestamps', async () => {
+      const tiedCreatedAt = new Date('2024-01-01T00:00:00.000Z');
+      await serverDB.insert(messages).values([
+        { id: 'tie-a', userId, role: 'user', content: 'apple a', createdAt: tiedCreatedAt },
+        { id: 'tie-c', userId, role: 'user', content: 'apple c', createdAt: tiedCreatedAt },
+        { id: 'tie-b', userId, role: 'user', content: 'apple b', createdAt: tiedCreatedAt },
+      ]);
+
+      const result = await messageModel.queryByKeyword('apple');
+
+      expect(result.map((message) => message.id)).toEqual(['tie-c', 'tie-b', 'tie-a']);
     });
 
     it('should return empty array when keyword is empty', async () => {

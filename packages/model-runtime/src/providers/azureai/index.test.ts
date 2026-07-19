@@ -66,6 +66,12 @@ describe('LobeAzureAI', () => {
       } as any);
 
       const result = await instance.chat({
+        debugToolCache: {
+          inputItemCount: 1,
+          toolCallCount: 1,
+          toolCallSetHash: '0123456789abcdef',
+          toolResults: [],
+        },
         messages: [{ content: 'Hello', role: 'user' }],
         model: 'gpt-4',
         stream: false,
@@ -74,6 +80,9 @@ describe('LobeAzureAI', () => {
       expect(result).toBeDefined();
       expect(instance.client.path).toHaveBeenCalledWith('/chat/completions');
       expect(mockPost).toHaveBeenCalled();
+      expect(mockPost).toHaveBeenCalledWith({
+        body: expect.not.objectContaining({ debugToolCache: expect.anything() }),
+      });
     });
 
     it('should handle generic errors', async () => {

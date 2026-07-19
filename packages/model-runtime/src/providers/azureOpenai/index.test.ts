@@ -63,6 +63,12 @@ describe('LobeAzureOpenAI', () => {
 
       // Act
       const result = await instance.chat({
+        debugToolCache: {
+          inputItemCount: 1,
+          toolCallCount: 1,
+          toolCallSetHash: '0123456789abcdef',
+          toolResults: [],
+        },
         messages: [{ content: 'Hello', role: 'user' }],
         model: 'text-davinci-003',
         temperature: 0,
@@ -70,6 +76,9 @@ describe('LobeAzureOpenAI', () => {
 
       // Assert
       expect(result).toBeInstanceOf(Response);
+      expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
+        expect.not.objectContaining({ debugToolCache: expect.anything() }),
+      );
     });
 
     describe('streaming response', () => {

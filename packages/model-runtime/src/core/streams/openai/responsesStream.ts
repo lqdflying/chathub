@@ -329,7 +329,9 @@ const transformOpenAIStream = (
 
             debugOpenAICompatCacheUsage({
               model: payload.model,
+              requestHash: payload.openAICompatRequestHash,
               route: '/responses',
+              toolCache: payload.debugToolCache,
               usage: {
                 cacheMissTokens:
                   cachedTokens === null || usage.input_tokens === undefined

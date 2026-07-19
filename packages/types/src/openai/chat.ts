@@ -1,5 +1,6 @@
 import { LLMRoleType } from '../llm';
 import { MessageToolCall } from '../message';
+import { ToolCacheDebugMetadata } from '../tool';
 import { OpenAIFunctionCall } from './functionCall';
 
 export type ChatResponseFormat =
@@ -80,6 +81,7 @@ export interface OpenAICompatResponsesParamsRequestConfig {
  * @title Chat Stream Payload
  */
 export interface ChatStreamPayload {
+  debugToolCache?: ToolCacheDebugMetadata;
   /**
    * 是否开启搜索
    */

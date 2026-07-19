@@ -122,6 +122,30 @@ Parallel MCP calls use one abort controller per tool-message ID. Finishing one c
 
 Useful phase events include `tools_rpc_started|complete|failed`, `tool_result_persistence_started|complete|failed`, `tool_persistence_rpc_started|complete|failed`, `client_cache_lookup`, `client_initialization_*`, `oauth_operation_*`, `transport_request_*`, `mcp_operation_*`, `call_tool_upstream_complete`, `call_tool_normalized`, `call_tool_complete`, and `client_rpc_response_failed`. `call_tool_upstream_complete` only means the MCP SDK returned; `call_tool_complete` is emitted after successful normalization, serialization, and the direct persistence attempt.
 
+### Tool and cache correlation
+
+After a parallel tool batch settles, ChatHub sorts and deduplicates the
+`tool_call_id` values and derives a bounded 64-bit FNV-1a set hash. The browser
+forwards only the count and 16-hex hash in the internal continuation envelope;
+raw tool-call IDs, arguments, URLs, and result content remain outside
+diagnostics.
+
+Built-in and MCP completions are reported through
+`telemetry.reportToolCompletion`. Each report contains its own `diagnosticId`,
+the shared tool-call count and set hash, a bounded result-shape summary, and a
+hash of the tool name. Completion reports use isolated RPC requests so
+parallel reports cannot inherit the first operation's diagnostic header. They
+are dispatched fire-and-forget after tool settlement, so telemetry latency
+cannot delay the next model turn.
+
+For OpenAI-compatible continuations, the same correlation is carried inside
+the server-side chat stream envelope as `debugToolCache`. The runtime enriches
+it with the effective cache policy and converted input count, uses it in
+`openai-compatible-cache-debug` request and usage records, and strips the
+internal field before every upstream request. Azure and other non-compatible
+providers do not receive the field; their adapters also remove it defensively
+if an internal caller supplies it.
+
 The privacy boundary is invariant at both levels: no raw arguments, results, prompts, resources, HTTP/HTML bodies, arbitrary error messages, stdout/stderr, environment values, authorization/cookie values, OAuth codes/state/verifiers, or credentials. Secret-keyed fields are omitted rather than hashed. Safe mode may show sanitized tool/procedure labels and URL origin/path; URL userinfo/query/fragment are removed and secret-shaped path segments are hashed. Records are capped at 16 KiB, and payload-shape work is skipped while diagnostics are disabled.
 
 The switch does not auto-enable existing `chathub-tools:*`, `lobe-mcp:*`, or `context-engine:*` debug namespaces and does not lower the global Pino level. Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text fallback when the corresponding event is not already emitted as structured JSON. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.

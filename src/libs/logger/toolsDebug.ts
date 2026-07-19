@@ -18,7 +18,7 @@ const PRIVATE_IDENTIFIER_KEY_PATTERN =
   /^(?:id|(?:user|account|session|connection|request|client|tenant|topic)[_-]?id)$/i;
 const SAFE_SECRET_METADATA_KEY_PATTERN = /(?:configured|count|hash|length|present|state)$/i;
 const SAFE_LABEL_KEY_PATTERN =
-  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|code|contentEncoding|debugLevel|deploymentMode|endpoint|errorClass|errorCode|errorKind|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|reason|resultKind|rpcEndpoint|runtime|server|serverName|serverVersion|timestamp|toolName|transport|trpcCode|type|via)$/;
+  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|code|contentEncoding|debugLevel|deploymentMode|endpoint|errorClass|errorCode|errorKind|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|timestamp|toolName|transport|trpcCode|type|via)$/;
 const SAFE_IDENTIFIER_KEY_PATTERN = /(?:diagnosticId|spanId|Fingerprint|Hash|keyHashes)$/;
 const SAFE_ERROR_CODE_KEY_PATTERN = /^(?:code|errorCode|trpcCode)$/;
 const SAFE_ERROR_CODE_VALUE_PATTERN = /^(?:[A-Z][\dA-Z_]{1,63}|\d{3})$/;
@@ -77,6 +77,7 @@ export type ToolsDebugEvent =
   | 'tool_persistence_rpc_failed'
   | 'tool_persistence_rpc_handler_error'
   | 'tool_persistence_rpc_started'
+  | 'tool_completion_reported'
   | 'tool_result_persistence_complete'
   | 'tool_result_persistence_failed'
   | 'tool_result_persistence_started'

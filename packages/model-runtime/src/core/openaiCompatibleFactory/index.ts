@@ -41,7 +41,11 @@ import { createDeferredAsyncIterable, tapAsyncIterable } from '../streams/protoc
 import { createOpenAICompatibleImage } from './createImage';
 import { transformResponseAPIToStream, transformResponseToStream } from './nonStreamToStream';
 import { deriveCompatPromptCacheKey, normalizeOpenAICompatCacheUsage } from './openaicompatCache';
-import { debugOpenAICompatCacheRequest, debugOpenAICompatCacheUsage } from './openaicompatDebug';
+import {
+  debugOpenAICompatCacheRequest,
+  debugOpenAICompatCacheUsage,
+  sanitizeToolCacheDebugMetadata,
+} from './openaicompatDebug';
 
 export * from './nonStreamToStream';
 
@@ -330,10 +334,15 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
         const chatCompletionPayload = { ...postPayload } as typeof postPayload & {
           apiMode?: string;
+          debugToolCache?: ChatStreamPayload['debugToolCache'];
           openAICompatCache?: ChatStreamPayload['openAICompatCache'];
           openAICompatResponsesParams?: ChatStreamPayload['openAICompatResponsesParams'];
         };
         delete chatCompletionPayload.apiMode;
+        const requestedToolCache = sanitizeToolCacheDebugMetadata(
+          chatCompletionPayload.debugToolCache,
+        );
+        delete chatCompletionPayload.debugToolCache;
         delete chatCompletionPayload.openAICompatCache;
         delete chatCompletionPayload.openAICompatResponsesParams;
 
@@ -356,15 +365,29 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
               )
             : '';
         const chatCacheKey = explicitChatCacheKey || derivedChatCacheKey;
+        const debugToolCache = requestedToolCache
+          ? {
+              ...requestedToolCache,
+              cachePolicy: {
+                ...requestedToolCache.cachePolicy,
+                chatPromptCacheKey: !!(chatCache?.promptCacheKey && chatCacheKey),
+                chatSessionHeader: !!(chatCache?.sessionHeader && chatCacheKey),
+              },
+              inputItemCount: messages.length,
+            }
+          : undefined;
 
         let response: Stream<OpenAI.Chat.Completions.ChatCompletionChunk>;
+        let requestHash: string | undefined;
 
         const streamOptions: OpenAIStreamOptions = {
           bizErrorTypeTransformer: chatCompletion?.handleStreamBizErrorType,
           callbacks: options?.callback,
           payload: {
             debugOpenAICompatCache,
+            debugToolCache,
             model: payload.model,
+            openAICompatRequestHash: requestHash,
             pricing: await getModelPricing(payload.model, this.id),
             provider: this.id,
           },
@@ -399,12 +422,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           log('sending chat completion request with %d messages', messages.length);
 
           if (debugOpenAICompatCache) {
-            debugOpenAICompatCacheRequest({
+            requestHash = debugOpenAICompatCacheRequest({
               baseURL: this.baseURL,
+              debugToolCache,
               headers: requestHeaders,
               payload: finalPayload,
               route: '/chat/completions',
             });
+            if (streamOptions.payload) {
+              streamOptions.payload.openAICompatRequestHash = requestHash;
+            }
           }
 
           if (debugParams?.chatCompletion?.()) {
@@ -925,6 +952,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       const responseStateMode = res.responseStateMode;
       const storeOverride = res.store;
+      const requestedToolCache = sanitizeToolCacheDebugMetadata(res.debugToolCache);
       const responseCache = res.openAICompatCache?.responses;
       const responsesParams = res.openAICompatResponsesParams;
       const statefulResponses = !res.openAICompatCache && responseStateMode === 'provider';
@@ -933,6 +961,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       // remove penalty params
       delete res.apiMode;
+      delete res.debugToolCache;
       delete res.frequency_penalty;
       delete res.openAICompatCache;
       delete res.openAICompatResponsesParams;
@@ -998,6 +1027,19 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           : matrixStore !== undefined
             ? matrixStore
             : undefined;
+      const debugToolCache = requestedToolCache
+        ? {
+            ...requestedToolCache,
+            cachePolicy: {
+              ...requestedToolCache.cachePolicy,
+              responsePromptCacheKey: shouldSendPromptCacheKey ? 'derived' : 'off',
+              responseSessionHeader: !!(responseCache?.sessionHeader && promptCacheKey),
+              responseStateMode: statefulResponses ? 'provider' : 'stateless',
+              responseStore: store === undefined ? 'default' : store ? 'true' : 'false',
+            },
+            inputItemCount: input.length,
+          }
+        : undefined;
 
       const isStreaming = payload.stream !== false;
       log(
@@ -1027,10 +1069,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         ...options?.requestHeaders,
         ...(responseCache?.sessionHeader && promptCacheKey ? { Session_id: promptCacheKey } : {}),
       };
+      let requestHash: string | undefined;
 
       if (debugOpenAICompatCache) {
-        debugOpenAICompatCacheRequest({
+        requestHash = debugOpenAICompatCacheRequest({
           baseURL: this.baseURL,
+          debugToolCache,
           headers: requestHeaders,
           payload: postPayload,
           route: '/responses',
@@ -1042,7 +1086,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         callbacks: options?.callback,
         payload: {
           debugOpenAICompatCache,
+          debugToolCache,
           model: payload.model,
+          openAICompatRequestHash: requestHash,
           pricing: await getModelPricing(payload.model, this.id),
           provider: this.id,
         },
@@ -1103,7 +1149,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         if (usage) {
           debugOpenAICompatCacheUsage({
             model: payload.model,
+            requestHash,
             route: '/responses',
+            toolCache: debugToolCache,
             usage: {
               cacheMissTokens:
                 cachedTokens === null || usage.input_tokens === undefined

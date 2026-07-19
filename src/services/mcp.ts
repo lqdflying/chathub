@@ -1,5 +1,10 @@
 import { CURRENT_VERSION, isDesktop } from '@lobechat/const';
-import { ChatToolPayload, CheckMcpInstallResult, CustomPluginMetadata } from '@lobechat/types';
+import {
+  ChatToolPayload,
+  CheckMcpInstallResult,
+  CustomPluginMetadata,
+  ToolCacheDebugMetadata,
+} from '@lobechat/types';
 import { isLocalOrPrivateUrl, safeParseJSON } from '@lobechat/utils';
 import { PluginManifest } from '@lobehub/market-sdk';
 import { CallReportRequest } from '@lobehub/market-types';
@@ -99,8 +104,15 @@ class MCPService {
       diagnosticId: requestedDiagnosticId,
       messageId,
       signal,
+      toolCacheDebug,
       topicId,
-    }: { diagnosticId?: string; messageId: string; signal?: AbortSignal; topicId?: string },
+    }: {
+      diagnosticId?: string;
+      messageId: string;
+      signal?: AbortSignal;
+      toolCacheDebug?: ToolCacheDebugMetadata;
+      topicId?: string;
+    },
   ): Promise<MCPToolCallResult | undefined> {
     const { pluginSelectors } = await import('@/store/tool/selectors');
     const { getToolStoreState } = await import('@/store/tool/store');
@@ -121,6 +133,7 @@ class MCPService {
       env: plugin.settings || plugin.customParams?.mcp?.env,
       messageId,
       params: { ...plugin.customParams?.mcp, name: identifier } as any,
+      toolCacheDebug,
       toolName: apiName,
     };
 

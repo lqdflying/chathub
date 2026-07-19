@@ -123,7 +123,7 @@ export class MessageModel {
       .leftJoin(messagePlugins, eq(messagePlugins.id, messages.id))
       .leftJoin(messageTranslates, eq(messageTranslates.id, messages.id))
       .leftJoin(messageTTS, eq(messageTTS.id, messages.id))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .limit(pageSize)
       .offset(offset);
 
@@ -294,7 +294,7 @@ export class MessageModel {
     const result = await this.db
       .select()
       .from(messages)
-      .orderBy(messages.createdAt)
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .where(eq(messages.userId, this.userId));
 
     return result as DBMessageItem[];
@@ -302,7 +302,7 @@ export class MessageModel {
 
   queryBySessionId = async (sessionId?: string | null) => {
     const result = await this.db.query.messages.findMany({
-      orderBy: [asc(messages.createdAt)],
+      orderBy: [asc(messages.createdAt), asc(messages.id)],
       where: and(eq(messages.userId, this.userId), this.matchSession(sessionId)),
     });
 
@@ -312,7 +312,7 @@ export class MessageModel {
   queryByKeyword = async (keyword: string) => {
     if (!keyword) return [];
     const result = await this.db.query.messages.findMany({
-      orderBy: [desc(messages.createdAt)],
+      orderBy: [desc(messages.createdAt), desc(messages.id)],
       where: and(eq(messages.userId, this.userId), like(messages.content, `%${keyword}%`)),
     });
 

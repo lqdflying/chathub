@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import {
+  debugOpenAICompatCacheRequest,
+  debugOpenAICompatCacheUsage,
+  sanitizeToolCacheDebugMetadata,
+} from './openaicompatDebug';
 import {
   deriveCompatPromptCacheKey,
   normalizeOpenAICompatCacheUsage,
@@ -97,5 +102,124 @@ describe('openaicompatCache', () => {
     expect(openAICompatCachedTokens({ usage: { prompt_cache_hit_tokens: '42' } })).toBe(42);
     expect(openAICompatCachedTokens({ choices: [{ usage: { cached_tokens: 17 } }] })).toBe(17);
     expect(openAICompatCachedTokens({ timings: { cache_n: 9 } })).toBe(9);
+  });
+
+  it('correlates request and usage diagnostics without exposing tool call IDs', () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const toolCache = {
+      inputItemCount: 4,
+      toolCallCount: 2,
+      toolCallSetHash: '0123456789abcdef',
+      toolResults: [
+        {
+          serializedLength: 18,
+          truncated: false,
+          type: 'object' as const,
+          valueHash: 'fedcba9876543210',
+        },
+      ],
+    };
+
+    const requestHash = debugOpenAICompatCacheRequest({
+      debugToolCache: toolCache,
+      payload: {
+        messages: [{ content: 'search result', role: 'tool', tool_call_id: 'private-tool-id' }],
+        model: 'gpt-5-mini',
+      },
+      route: '/chat/completions',
+    });
+    debugOpenAICompatCacheUsage({
+      model: 'gpt-5-mini',
+      requestHash,
+      route: '/chat/completions',
+      toolCache,
+      usage: {
+        cachedTokens: 64,
+        inputTokens: 100,
+        responseId: 'response-id',
+      },
+    });
+
+    const requestRecord = JSON.parse(consoleLogSpy.mock.calls[0][1]);
+    const usageRecord = JSON.parse(consoleLogSpy.mock.calls[1][1]);
+    expect(requestHash).toMatch(/^[\da-f]{16}$/);
+    expect(requestRecord.requestHash).toBe(requestHash);
+    expect(requestRecord.toolCache).toEqual(toolCache);
+    expect(usageRecord.requestHash).toBe(requestHash);
+    expect(usageRecord.responseHash).toMatch(/^[\da-f]{16}$/);
+    expect(usageRecord.toolCache).toEqual(toolCache);
+    expect(JSON.stringify(consoleLogSpy.mock.calls)).not.toContain('private-tool-id');
+    consoleLogSpy.mockRestore();
+  });
+
+  it('reconstructs cache metadata from an allowlist before logging', () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const untrustedMetadata = {
+      attackerControlled: 'RAW_LOG_MARKER',
+      cachePolicy: {
+        chatPromptCacheKey: true,
+        nestedAttackerControlled: 'NESTED_RAW_LOG_MARKER',
+      },
+      inputItemCount: 4,
+      toolCallCount: 1,
+      toolCallSetHash: '0123456789abcdef',
+      toolResults: [
+        {
+          serializedLength: 18,
+          truncated: false,
+          type: 'object',
+          valueHash: 'fedcba9876543210',
+          resultAttackerControlled: 'RESULT_RAW_LOG_MARKER',
+        },
+      ],
+    };
+
+    expect(sanitizeToolCacheDebugMetadata(untrustedMetadata)).toEqual({
+      cachePolicy: { chatPromptCacheKey: true },
+      inputItemCount: 4,
+      toolCallCount: 1,
+      toolCallSetHash: '0123456789abcdef',
+      toolResults: [
+        {
+          serializedLength: 18,
+          truncated: false,
+          type: 'object',
+          valueHash: 'fedcba9876543210',
+        },
+      ],
+    });
+
+    const requestHash = debugOpenAICompatCacheRequest({
+      debugToolCache: untrustedMetadata,
+      payload: { model: 'gpt-5-mini', messages: [] },
+      route: '/chat/completions',
+    });
+    debugOpenAICompatCacheUsage({
+      model: 'gpt-5-mini',
+      requestHash,
+      route: '/chat/completions',
+      toolCache: untrustedMetadata,
+      usage: {},
+    });
+
+    const logs = JSON.stringify(consoleLogSpy.mock.calls);
+    expect(logs).not.toContain('RAW_LOG_MARKER');
+    expect(logs).not.toContain('NESTED_RAW_LOG_MARKER');
+    expect(logs).not.toContain('RESULT_RAW_LOG_MARKER');
+    expect(logs).toContain('0123456789abcdef');
+    consoleLogSpy.mockRestore();
+  });
+
+  it('rejects malformed cache metadata without throwing', () => {
+    expect(sanitizeToolCacheDebugMetadata({ attackerControlled: 'RAW_LOG_MARKER' })).toBeUndefined();
+    expect(() =>
+      debugOpenAICompatCacheRequest({
+        debugToolCache: {
+          attackerControlled: 'RAW_LOG_MARKER',
+        },
+        payload: { model: 'gpt-5-mini', messages: [] },
+        route: '/chat/completions',
+      }),
+    ).not.toThrow();
   });
 });

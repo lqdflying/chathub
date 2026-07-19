@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { mcpService } from '@/services/mcp';
+import { toolTelemetryService } from '@/services/toolTelemetry';
 import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
 import { useChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -283,6 +284,13 @@ describe('MCP tool-result persistence recovery', () => {
       .mockResolvedValueOnce('{"ok":true}');
     const triggerAIMessage = vi.fn();
     const toggleToolsCalling = vi.fn().mockResolvedValue(undefined);
+    let resolveTelemetry!: (value: { reported: boolean }) => void;
+    const pendingTelemetry = new Promise<{ reported: boolean }>((resolve) => {
+      resolveTelemetry = resolve;
+    });
+    const reportToolCompletion = vi
+      .spyOn(toolTelemetryService, 'reportToolCompletion')
+      .mockReturnValue(pendingTelemetry);
     vi.spyOn(chatSelectors, 'getTraceIdByMessageId').mockReturnValue(
       vi.fn().mockReturnValue('trace-id'),
     );
@@ -310,6 +318,33 @@ describe('MCP tool-result persistence recovery', () => {
       inSearchWorkflow: undefined,
       threadId: undefined,
       traceId: 'trace-id',
+      toolCacheDebug: {
+        toolCallCount: 2,
+        toolCallSetHash: expect.stringMatching(/^[\da-f]{16}$/),
+        toolResults: [
+          {
+            serializedLength: 11,
+            truncated: false,
+            type: 'string',
+            valueHash: expect.stringMatching(/^[\da-f]{16}$/),
+          },
+        ],
+      },
     });
+    expect(reportToolCompletion).toHaveBeenCalledTimes(1);
+    expect(reportToolCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        correlation: {
+          toolCallCount: 2,
+          toolCallSetHash: expect.stringMatching(/^[\da-f]{16}$/),
+        },
+        diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
+        runtimeType: 'mcp',
+        toolNameHash: expect.stringMatching(/^[\da-f]{16}$/),
+      }),
+    );
+
+    resolveTelemetry({ reported: true });
+    await pendingTelemetry;
   });
 });

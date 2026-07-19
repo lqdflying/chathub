@@ -44,6 +44,7 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
 
   async chat(payload: ChatStreamPayload, options?: ChatMethodOptions) {
     const { messages, model, ...params } = payload;
+    delete (params as ChatStreamPayload & { debugToolCache?: unknown }).debugToolCache;
     // o1 series models on Azure OpenAI does not support streaming currently
     const enableStreaming = model.includes('o1') ? false : (params.stream ?? true);
 

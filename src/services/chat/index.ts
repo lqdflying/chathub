@@ -14,6 +14,7 @@ import {
   ChatErrorType,
   TracePayload,
   TraceTagMap,
+  ToolCacheDebugMetadata,
   UIChatMessage,
   resolveGPT5ReasoningEffort,
 } from '@lobechat/types';
@@ -92,6 +93,7 @@ interface CreateAssistantMessageStream extends FetchSSEOptions {
   historySummary?: string;
   isWelcomeQuestion?: boolean;
   params: GetChatCompletionPayload;
+  toolCacheDebug?: ToolCacheDebugMetadata;
   trace?: TracePayload;
 }
 
@@ -300,17 +302,27 @@ class ChatService {
     trace,
     isWelcomeQuestion,
     historySummary,
+    toolCacheDebug,
   }: CreateAssistantMessageStream) => {
-    await this.createAssistantMessage(params, {
-      historySummary,
-      isWelcomeQuestion,
-      onAbort,
-      onErrorHandle,
-      onFinish,
-      onMessageHandle,
-      signal: abortController?.signal,
-      trace: this.mapTrace(trace, TraceTagMap.Chat),
-    });
+    const debugToolCache =
+      params.provider === ModelProvider.OpenAICompatible ? toolCacheDebug : undefined;
+
+    await this.createAssistantMessage(
+      {
+        ...params,
+        ...(debugToolCache ? { debugToolCache } : {}),
+      },
+      {
+        historySummary,
+        isWelcomeQuestion,
+        onAbort,
+        onErrorHandle,
+        onFinish,
+        onMessageHandle,
+        signal: abortController?.signal,
+        trace: this.mapTrace(trace, TraceTagMap.Chat),
+      },
+    );
   };
 
   getChatCompletion = async (params: Partial<ChatStreamPayload>, options?: FetchOptions) => {

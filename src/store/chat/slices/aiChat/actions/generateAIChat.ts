@@ -9,6 +9,7 @@ import {
   SendMessageParams,
   TraceEventType,
   TraceNameMap,
+  ToolCacheDebugMetadata,
   UIChatMessage,
 } from '@lobechat/types';
 import { t } from 'i18next';
@@ -105,6 +106,7 @@ interface ProcessMessageParams {
   inSearchWorkflow?: boolean;
   /** Automatic continuation after one or more tool results */
   isToolContinuation?: boolean;
+  toolCacheDebug?: ToolCacheDebugMetadata;
   /**
    * the RAG query content, should be embedding and used in the semantic search
    */
@@ -665,6 +667,7 @@ export const generateAIChat: StateCreator<
         plugins: agentConfig.plugins,
       },
       historySummary: historySummaryForRequest,
+      toolCacheDebug: params?.toolCacheDebug,
       trace: {
         traceId: params?.traceId,
         sessionId: get().activeId,

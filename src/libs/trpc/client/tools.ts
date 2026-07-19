@@ -81,7 +81,9 @@ export const createToolsClient = ({
     links: [
       splitLink({
         condition: (op) =>
-          op.path === 'mcp.callTool' || op.path === 'mcp.reportClientFailure',
+          op.path === 'mcp.callTool' ||
+          op.path === 'mcp.reportClientFailure' ||
+          op.path === 'telemetry.reportToolCompletion',
         false: batchedLink,
         true: isolatedLink,
       }),

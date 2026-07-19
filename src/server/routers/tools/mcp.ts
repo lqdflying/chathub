@@ -48,6 +48,48 @@ const checkStdioEnvironment = (params: z.infer<typeof mcpClientParamsSchema>) =>
 };
 
 const mcpProcedure = isServerMode ? authedProcedure : passwordProcedure;
+const hashSchema = z.string().regex(/^[\da-f]{16}$/);
+const toolCacheDebugSchema = z
+  .object({
+    cachePolicy: z
+      .object({
+        chatPromptCacheKey: z.boolean().nullable().optional(),
+        chatSessionHeader: z.boolean().nullable().optional(),
+        responsePromptCacheKey: z.enum(['derived', 'off']).nullable().optional(),
+        responseSessionHeader: z.boolean().nullable().optional(),
+        responseStateMode: z.enum(['provider', 'stateless']).nullable().optional(),
+        responseStore: z.enum(['default', 'false', 'true']).nullable().optional(),
+      })
+      .optional(),
+    inputItemCount: z.number().int().nonnegative().max(100_000).optional(),
+    toolCallCount: z.number().int().positive().max(100),
+    toolCallSetHash: hashSchema,
+    toolResults: z
+      .array(
+        z.object({
+          itemCount: z.number().int().nonnegative().optional(),
+          propertyCount: z.number().int().nonnegative().optional(),
+          serializedLength: z.number().int().nonnegative().max(100_000_000),
+          truncated: z.boolean().optional(),
+          type: z.enum([
+            'array',
+            'bigint',
+            'boolean',
+            'function',
+            'null',
+            'number',
+            'object',
+            'string',
+            'symbol',
+            'undefined',
+          ]),
+          valueHash: hashSchema,
+        }),
+      )
+      .max(100)
+      .optional(),
+  })
+  .optional();
 
 export const mcpRouter = router({
   getStreamableMcpServerManifest: mcpProcedure
@@ -154,6 +196,7 @@ export const mcpRouter = router({
         params: mcpClientParamsSchema,
         args: z.any(),
         messageId: z.string().min(1),
+        toolCacheDebug: toolCacheDebugSchema,
         toolName: z.string(),
       }),
     )
@@ -234,6 +277,7 @@ export const mcpRouter = router({
           durationMs: Date.now() - startedAt,
           phase: 'serialization',
           response: summarizeToolsDebugValue(serialized),
+          toolCache: input.toolCacheDebug ?? null,
           toolName: input.toolName,
         });
         return { content: serialized, persistence };

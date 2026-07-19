@@ -15,6 +15,8 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       // provider, openAICompatCache, openAICompatResponsesParams, responseMode, responseStateMode,
       // thinkingBudget, urlContext, reasoning_split) are intentionally stripped
       // so they never leak into the provider request body.
+      // `debugToolCache` is retained only for the factory's internal diagnostics;
+      // the factory removes it before constructing either upstream request body.
       //
       // `reasoning`, `text`, `verbosity`, and `truncation` are Responses API
       // fields. They are only forwarded into Responses mode, where the runtime
@@ -22,6 +24,7 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       // Completions only understands `reasoning_effort`.
       const {
         apiMode,
+        debugToolCache,
         frequency_penalty,
         max_output_tokens,
         max_tokens,
@@ -32,9 +35,7 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
         reasoning,
         reasoning_effort,
         response_format,
-        responseStateMode: _responseStateMode,
         stop,
-        store: _store,
         stream,
         temperature,
         text,
@@ -55,6 +56,7 @@ export const LobeOpenAICompatibleAI = createOpenAICompatibleRuntime({
       // Preserve apiMode for factory-level Responses/Chat routing; the factory
       // strips it before the request reaches the provider.
       if (apiMode !== undefined) result.apiMode = apiMode;
+      if (debugToolCache !== undefined) result.debugToolCache = debugToolCache;
 
       if (messages !== undefined) result.messages = messages;
       if (temperature !== undefined) result.temperature = temperature;

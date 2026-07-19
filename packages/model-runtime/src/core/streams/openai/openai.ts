@@ -55,7 +55,9 @@ const debugOpenAICompatChatUsage = (
 
   debugOpenAICompatCacheUsage({
     model: payload.model,
+    requestHash: payload.openAICompatRequestHash,
     route: '/chat/completions',
+    toolCache: payload.debugToolCache,
     usage: {
       cacheMissTokens:
         (usage as any).prompt_cache_miss_tokens ??

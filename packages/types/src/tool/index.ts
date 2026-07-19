@@ -25,6 +25,7 @@ export type LobeToolRenderType = LobePluginType | 'builtin';
 
 export * from './builtin';
 export * from './crawler';
+export * from './diagnostics';
 export * from './interpreter';
 export * from './intervention';
 export * from './plugin';

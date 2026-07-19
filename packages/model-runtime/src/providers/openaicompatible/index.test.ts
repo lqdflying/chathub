@@ -65,6 +65,41 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
   });
 
+  it('keeps tool cache diagnostics available to the factory without sending them upstream', async () => {
+    process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const debugToolCache = {
+      inputItemCount: 2,
+      toolCallCount: 1,
+      toolCallSetHash: '0123456789abcdef',
+      toolResults: [],
+    };
+
+    await instance.chat({
+      debugToolCache,
+      messages: [{ content: 'Continue after the tool result.', role: 'user' }],
+      model: 'gpt-5.5',
+    } as any);
+
+    const createCall = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+    const debugEvent = consoleLogSpy.mock.calls.find(
+      ([prefix]) => prefix === '[openai-compatible-cache-debug:request]',
+    );
+    const debugRecord = JSON.parse(debugEvent?.[1]);
+
+    expect(createCall).not.toHaveProperty('debugToolCache');
+    expect(debugRecord.toolCache).toMatchObject({
+      cachePolicy: {
+        chatPromptCacheKey: false,
+        chatSessionHeader: false,
+      },
+      inputItemCount: 1,
+      toolCallCount: 1,
+      toolCallSetHash: '0123456789abcdef',
+    });
+    consoleLogSpy.mockRestore();
+  });
+
   it('sends prompt-key-store Chat Completions cache hints upstream', async () => {
     await instance.chat({
       messages: [
@@ -114,6 +149,44 @@ describe('LobeOpenAICompatibleAI', () => {
     expect(createCall).not.toHaveProperty('apiMode');
     expect(createCall).not.toHaveProperty('store');
     expect(createCall.input).toEqual([{ content: 'Hello', role: 'user' }]);
+  });
+
+  it('keeps Responses tool cache diagnostics available to the factory without sending them upstream', async () => {
+    process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const debugToolCache = {
+      inputItemCount: 2,
+      toolCallCount: 1,
+      toolCallSetHash: '0123456789abcdef',
+      toolResults: [],
+    };
+
+    await instance.chat({
+      apiMode: 'responses',
+      debugToolCache,
+      messages: [{ content: 'Continue after the tool result.', role: 'user' }],
+      model: 'gpt-5.5',
+    } as any);
+
+    const createCall = (instance['client'].responses.create as Mock).mock.calls[0][0];
+    const debugEvent = consoleLogSpy.mock.calls.find(
+      ([prefix]) => prefix === '[openai-compatible-cache-debug:request]',
+    );
+    const debugRecord = JSON.parse(debugEvent?.[1]);
+
+    expect(createCall).not.toHaveProperty('debugToolCache');
+    expect(debugRecord.toolCache).toMatchObject({
+      cachePolicy: {
+        responsePromptCacheKey: 'off',
+        responseSessionHeader: false,
+        responseStateMode: 'stateless',
+        responseStore: 'default',
+      },
+      inputItemCount: 1,
+      toolCallCount: 1,
+      toolCallSetHash: '0123456789abcdef',
+    });
+    consoleLogSpy.mockRestore();
   });
 
   it('sends prompt-key-store Responses cache hints and omits extra parameter fields', async () => {

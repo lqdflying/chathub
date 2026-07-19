@@ -1,4 +1,9 @@
-import { ModelPerformance, ModelTokensUsage, ModelUsage } from '@lobechat/types';
+import {
+  ModelPerformance,
+  ModelTokensUsage,
+  ModelUsage,
+  ToolCacheDebugMetadata,
+} from '@lobechat/types';
 
 import { MessageToolCall, MessageToolCallChunk } from './toolsCalling';
 
@@ -85,6 +90,7 @@ export interface OpenAICompatResponsesParamsRequestConfig {
  */
 export interface ChatStreamPayload {
   apiMode?: 'chatCompletion' | 'responses';
+  debugToolCache?: ToolCacheDebugMetadata;
   /**
    * 开启上下文缓存
    */

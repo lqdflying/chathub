@@ -83,6 +83,58 @@ describe('tools tRPC client links', () => {
     expect(urls[0]).toContain('batch=1');
   });
 
+  it('isolates completion telemetry so each report keeps its diagnostic ID', async () => {
+    const diagnosticIds: string[] = [];
+    const urls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(input.toString());
+      diagnosticIds.push(new Headers(init?.headers).get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER) || '');
+      return new Response(JSON.stringify(trpcResult({ reported: true })), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+    }) as typeof fetch;
+    const client = createToolsClient({
+      desktop: false,
+      fetch: fetchMock,
+      getAuthHeaders: async () => ({}),
+    });
+
+    const result = {
+      serializedLength: 2,
+      type: 'string' as const,
+      valueHash: '0123456789abcdef',
+    };
+    const correlation = {
+      toolCallCount: 2,
+      toolCallSetHash: 'fedcba9876543210',
+    };
+
+    await Promise.all(
+      ['td_1234567890abcdef', 'td_abcdef1234567890'].map((diagnosticId) =>
+        client.telemetry.reportToolCompletion.mutate(
+          {
+            correlation,
+            diagnosticId,
+            result,
+            runtimeType: 'mcp',
+            toolNameHash: '0011223344556677',
+          },
+          { context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId } },
+        ),
+      ),
+    );
+
+    expect(urls).toHaveLength(2);
+    expect(urls.every((url) => url.includes('/trpc/tools/telemetry.reportToolCompletion'))).toBe(
+      true,
+    );
+    expect(urls.every((url) => !url.includes('batch=1'))).toBe(true);
+    expect(diagnosticIds.sort()).toEqual(
+      ['td_1234567890abcdef', 'td_abcdef1234567890'].sort(),
+    );
+  });
+
   it('preserves classified HTML response details through the tRPC client error', async () => {
     const client = createToolsClient({
       desktop: false,

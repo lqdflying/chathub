@@ -40,7 +40,11 @@ describe('structured tools debug logging', () => {
   it('emits safe events as prefixed JSON without a legacy duplicate', () => {
     process.env.CHATHUB_TOOLS_DEBUG = '1';
 
-    logToolsDebugSafe('list_tools_complete', { count: 2, durationMs: 17 });
+    logToolsDebugSafe('list_tools_complete', {
+      count: 2,
+      durationMs: 17,
+      runtimeType: 'mcp',
+    });
 
     expect(consoleLogSpy).toHaveBeenCalledTimes(1);
     const [prefix, json] = consoleLogSpy.mock.calls[0];
@@ -49,6 +53,7 @@ describe('structured tools debug logging', () => {
       count: 2,
       debugLevel: 'safe',
       durationMs: 17,
+      runtimeType: 'mcp',
       schemaVersion: 2,
     });
     expect(JSON.parse(json).timestamp).toEqual(expect.any(String));

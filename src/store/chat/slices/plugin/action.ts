@@ -6,6 +6,9 @@ import {
   ChatToolPayload,
   CreateMessageParams,
   MessageToolCall,
+  ToolCacheDebugMetadata,
+  createToolCallSetCorrelation,
+  createToolResultDebugSummary,
   ToolsCallingContext,
   UIChatMessage,
 } from '@lobechat/types';
@@ -20,6 +23,7 @@ import { chatService } from '@/services/chat';
 import { mcpService } from '@/services/mcp';
 import { createMCPChatMessageError } from '@/services/mcpError';
 import { messageService } from '@/services/message';
+import { toolTelemetryService } from '@/services/toolTelemetry';
 import { ChatStore } from '@/store/chat/store';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
@@ -70,7 +74,11 @@ export interface ChatPluginAction {
   invokeProviderBuiltinTool: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
   invokeDefaultTypePlugin: (id: string, payload: any) => Promise<string | undefined>;
   invokeMarkdownTypePlugin: (id: string, payload: ChatToolPayload) => Promise<void>;
-  invokeMCPTypePlugin: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
+  invokeMCPTypePlugin: (
+    id: string,
+    payload: ChatToolPayload,
+    toolCacheDebug?: ToolCacheDebugMetadata,
+  ) => Promise<string | undefined>;
 
   invokeStandaloneTypePlugin: (id: string, payload: ChatToolPayload) => Promise<void>;
 
@@ -81,6 +89,7 @@ export interface ChatPluginAction {
     threadId?: string;
     inPortalThread?: boolean;
     inSearchWorkflow?: boolean;
+    toolCacheDebug?: ToolCacheDebugMetadata;
   }) => Promise<void>;
   summaryPluginContent: (id: string) => Promise<void>;
 
@@ -89,7 +98,11 @@ export interface ChatPluginAction {
    */
   triggerToolCalls: (
     id: string,
-    params?: { threadId?: string; inPortalThread?: boolean; inSearchWorkflow?: boolean },
+    params?: {
+      threadId?: string;
+      inPortalThread?: boolean;
+      inSearchWorkflow?: boolean;
+    },
   ) => Promise<void>;
   updatePluginState: (id: string, value: any) => Promise<void>;
   updatePluginArguments: <T = any>(id: string, value: T, replace?: boolean) => Promise<void>;
@@ -102,7 +115,12 @@ export interface ChatPluginAction {
   internal_refreshToUpdateMessageTools: (id: string) => Promise<void>;
 
   internal_callPluginApi: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
-  internal_invokeDifferentTypePlugin: (id: string, payload: ChatToolPayload) => Promise<any>;
+  internal_invokeDifferentTypePlugin: (
+    id: string,
+    payload: ChatToolPayload,
+    toolCacheDebug?: ToolCacheDebugMetadata,
+    diagnosticId?: string,
+  ) => Promise<any>;
   internal_togglePluginApiCalling: (
     loading: boolean,
     id?: string,
@@ -256,7 +274,14 @@ export const chatPlugin: StateCreator<
     await get().internal_invokeDifferentTypePlugin(id, payload);
   },
 
-  triggerAIMessage: async ({ parentId, traceId, threadId, inPortalThread, inSearchWorkflow }) => {
+  triggerAIMessage: async ({
+    parentId,
+    traceId,
+    threadId,
+    inPortalThread,
+    inSearchWorkflow,
+    toolCacheDebug,
+  }) => {
     const { internal_coreProcessMessage } = get();
 
     // Pass the complete conversation to the shared context-engine truncation.
@@ -273,6 +298,7 @@ export const chatPlugin: StateCreator<
       inPortalThread,
       inSearchWorkflow,
       isToolContinuation: true,
+      toolCacheDebug,
     });
   },
 
@@ -302,7 +328,9 @@ export const chatPlugin: StateCreator<
     const message = chatSelectors.getMessageById(assistantId)(get());
     if (!message || !message.tools) return;
 
+    const toolCacheDebug = createToolCallSetCorrelation(message.tools.map((tool) => tool.id));
     const messagePools = message.tools.map(async (payload) => {
+      const diagnosticId = `td_${nanoid(20)}`;
       const toolMessage: CreateMessageParams = {
         content: '',
         parentId: assistantId,
@@ -319,8 +347,13 @@ export const chatPlugin: StateCreator<
       if (!id) return undefined;
 
       // trigger the plugin call
-      const data = await get().internal_invokeDifferentTypePlugin(id, payload);
-      return { data, id, payload };
+      const data = await get().internal_invokeDifferentTypePlugin(
+        id,
+        payload,
+        toolCacheDebug,
+        diagnosticId,
+      );
+      return { data, diagnosticId, id, payload };
     });
 
     const settledResults = await Promise.allSettled(messagePools).finally(async () => {
@@ -329,6 +362,20 @@ export const chatPlugin: StateCreator<
     const completedResults = settledResults.flatMap((result) =>
       result.status === 'fulfilled' && result.value ? [result.value] : [],
     );
+    completedResults
+      .filter(({ payload }) => ['builtin', 'mcp'].includes(payload.type))
+      .forEach(({ data, diagnosticId, payload }) => {
+        const runtimeType = payload.type === 'mcp' ? 'mcp' : 'builtin';
+        void toolTelemetryService
+          .reportToolCompletion({
+            correlation: toolCacheDebug,
+            diagnosticId,
+            result: createToolResultDebugSummary(data),
+            runtimeType,
+            toolNameHash: createToolResultDebugSummary(payload.apiName).valueHash,
+          })
+          .catch(() => undefined);
+      });
     const latestCompletedTool = completedResults.findLast(
       ({ data, payload }) => data && !['markdown', 'standalone'].includes(payload.type),
     );
@@ -338,7 +385,16 @@ export const chatPlugin: StateCreator<
 
     const traceId = chatSelectors.getTraceIdByMessageId(latestCompletedTool.id)(get());
 
-    await get().triggerAIMessage({ traceId, threadId, inPortalThread, inSearchWorkflow });
+    await get().triggerAIMessage({
+      traceId,
+      threadId,
+      inPortalThread,
+      inSearchWorkflow,
+      toolCacheDebug: {
+        ...toolCacheDebug,
+        toolResults: completedResults.map(({ data }) => createToolResultDebugSummary(data)),
+      },
+    });
   },
   updatePluginState: async (id, value) => {
     const { refreshMessages } = get();
@@ -480,7 +536,7 @@ export const chatPlugin: StateCreator<
     return data;
   },
 
-  internal_invokeDifferentTypePlugin: async (id, payload) => {
+  internal_invokeDifferentTypePlugin: async (id, payload, toolCacheDebug, diagnosticId) => {
     if (payload.identifier === LOBE_PROVIDER_BUILTIN_IDENTIFIER) {
       return await get().invokeProviderBuiltinTool(id, payload);
     }
@@ -500,7 +556,7 @@ export const chatPlugin: StateCreator<
 
       // @ts-ignore
       case 'mcp': {
-        return await get().invokeMCPTypePlugin(id, payload);
+        return await get().invokeMCPTypePlugin(id, payload, toolCacheDebug, diagnosticId);
       }
 
       default: {
@@ -508,7 +564,7 @@ export const chatPlugin: StateCreator<
       }
     }
   },
-  invokeMCPTypePlugin: async (id, payload) => {
+  invokeMCPTypePlugin: async (id, payload, toolCacheDebug, requestedDiagnosticId) => {
     const {
       internal_dispatchMessage,
       internal_updateMessageContent,
@@ -516,7 +572,7 @@ export const chatPlugin: StateCreator<
       internal_constructToolsCallingContext,
     } = get();
     let data: string = '';
-    const diagnosticId = `td_${nanoid(20)}`;
+    const diagnosticId = requestedDiagnosticId || `td_${nanoid(20)}`;
     const abortController = internal_togglePluginApiCalling(
       true,
       id,
@@ -543,6 +599,7 @@ export const chatPlugin: StateCreator<
         diagnosticId,
         messageId: id,
         signal: abortController?.signal,
+        toolCacheDebug,
         topicId: context?.topicId,
       });
 

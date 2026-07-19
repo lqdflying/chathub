@@ -1,4 +1,9 @@
-import { ChatCitationItem, ModelPerformance, ModelUsage } from '@lobechat/types';
+import {
+  ChatCitationItem,
+  ModelPerformance,
+  ModelUsage,
+  ToolCacheDebugMetadata,
+} from '@lobechat/types';
 import type { Pricing } from 'model-bank';
 
 import { parseToolCalls } from '../../helpers';
@@ -10,7 +15,9 @@ import type { ComputeChatCostOptions } from '../usageConverters/utils/computeCha
 
 export type ChatPayloadForTransformStream = {
   debugOpenAICompatCache?: boolean;
+  debugToolCache?: ToolCacheDebugMetadata;
   model?: string;
+  openAICompatRequestHash?: string;
   pricing?: Pricing;
   pricingOptions?: ComputeChatCostOptions;
   provider?: string;
