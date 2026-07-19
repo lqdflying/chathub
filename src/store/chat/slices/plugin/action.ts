@@ -259,15 +259,20 @@ export const chatPlugin: StateCreator<
   triggerAIMessage: async ({ parentId, traceId, threadId, inPortalThread, inSearchWorkflow }) => {
     const { internal_coreProcessMessage } = get();
 
+    // Pass the complete conversation to the shared context-engine truncation.
+    // Pre-slicing here makes automatic tool continuations use a different
+    // history boundary than the user request that produced the tool calls,
+    // which breaks byte-identical prompt-cache prefixes.
     const chats = inPortalThread
-      ? threadSelectors.portalAIChatsWithHistoryConfig(get())
-      : chatSelectors.mainAIChatsWithHistoryConfig(get());
+      ? threadSelectors.portalAIChats(get())
+      : chatSelectors.mainAIChats(get());
 
     await internal_coreProcessMessage(chats, parentId ?? chats.at(-1)!.id, {
       traceId,
       threadId,
       inPortalThread,
       inSearchWorkflow,
+      isToolContinuation: true,
     });
   },
 

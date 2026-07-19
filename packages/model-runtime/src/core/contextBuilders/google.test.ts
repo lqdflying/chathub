@@ -283,6 +283,39 @@ describe('google contextBuilders', () => {
       expect(contents).toEqual([{ parts: [{ text: 'Hello' }], role: 'user' }]);
     });
 
+    it('should preserve the cached prefix when parallel tool results extend a turn', async () => {
+      const baseMessages: OpenAIChatMessage[] = [
+        { content: 'Cached question', role: 'user' },
+        { content: 'Cached answer', role: 'assistant' },
+        { content: 'Search three sources', role: 'user' },
+      ];
+      const toolCalls = ['first', 'second', 'third'].map((name, index) => ({
+        function: { arguments: '{}', name },
+        id: `call-${index + 1}`,
+        type: 'function' as const,
+      }));
+      const continuationMessages: OpenAIChatMessage[] = [
+        ...baseMessages,
+        { content: '', role: 'assistant', tool_calls: toolCalls },
+        ...toolCalls.map((toolCall, index) => ({
+          content: `Result ${index + 1}`,
+          role: 'tool' as const,
+          tool_call_id: toolCall.id,
+        })),
+      ];
+
+      const prefix = await buildGoogleMessages(baseMessages);
+      const continuation = await buildGoogleMessages(continuationMessages);
+
+      expect(continuation.slice(0, prefix.length)).toEqual(prefix);
+      expect(continuation.slice(prefix.length).map(({ role }) => role)).toEqual([
+        'model',
+        'user',
+        'user',
+        'user',
+      ]);
+    });
+
     it('should not modify the length if model is gemini-1.5-pro', async () => {
       const messages: OpenAIChatMessage[] = [
         { content: 'Hello', role: 'user' },

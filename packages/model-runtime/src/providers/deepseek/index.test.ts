@@ -74,6 +74,46 @@ describe('buildDeepSeekPayload', () => {
     expect(payload.tools).toEqual(tools);
   });
 
+  it('should preserve the sanitized cached prefix when tool results extend a turn', () => {
+    const baseMessages = [
+      { content: 'Cached question', role: 'user' },
+      {
+        content: [
+          { signature: 'signature', thinking: 'Stable reasoning', type: 'thinking' },
+          { text: 'Cached answer', type: 'text' },
+        ],
+        role: 'assistant',
+      },
+      { content: 'Search now', role: 'user' },
+    ];
+    const toolCall = {
+      function: { arguments: '{}', name: 'search' },
+      id: 'call-1',
+      type: 'function',
+    };
+    const continuationMessages = [
+      ...baseMessages,
+      { content: '', role: 'assistant', tool_calls: [toolCall] },
+      { content: 'Search result', role: 'tool', tool_call_id: toolCall.id },
+    ];
+
+    const prefix = buildDeepSeekPayload({
+      ...basePayload,
+      messages: baseMessages,
+      thinking: { type: 'enabled' as const },
+    });
+    const continuation = buildDeepSeekPayload({
+      ...basePayload,
+      messages: continuationMessages,
+      thinking: { type: 'enabled' as const },
+    });
+
+    expect((continuation.messages as any[]).slice(0, prefix.messages.length)).toEqual(
+      prefix.messages,
+    );
+    expect((prefix.messages as any[])[1].content).toBe('Cached answer');
+  });
+
   it('should NOT forward reasoning_effort when thinking is disabled', () => {
     const payload = buildDeepSeekPayload({
       ...basePayload,

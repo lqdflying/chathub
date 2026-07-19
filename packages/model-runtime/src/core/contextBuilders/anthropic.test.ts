@@ -663,6 +663,54 @@ describe('anthropicHelpers', () => {
         },
       ]);
     });
+
+    it('should preserve semantic history while moving the cache breakpoint to tool results', async () => {
+      const normalizeCacheControl = (messages: any[]) =>
+        messages.map((message) => {
+          if (!Array.isArray(message.content)) return message;
+
+          const content = message.content.map(({ cache_control: _, ...block }: any) => block);
+          if (content.length === 1 && content[0].type === 'text') {
+            return { ...message, content: content[0].text };
+          }
+
+          return { ...message, content };
+        });
+      const baseMessages: OpenAIChatMessage[] = [
+        { content: 'Cached question', role: 'user' },
+        { content: 'Cached answer', role: 'assistant' },
+        { content: 'Search three sources', role: 'user' },
+      ];
+      const toolCalls = ['first', 'second', 'third'].map((name, index) => ({
+        function: { arguments: '{}', name },
+        id: `call-${index + 1}`,
+        type: 'function' as const,
+      }));
+      const continuationMessages: OpenAIChatMessage[] = [
+        ...baseMessages,
+        { content: '', role: 'assistant', tool_calls: toolCalls },
+        ...toolCalls.map((toolCall, index) => ({
+          content: `Result ${index + 1}`,
+          role: 'tool' as const,
+          tool_call_id: toolCall.id,
+        })),
+      ];
+
+      const prefix = await buildAnthropicMessages(baseMessages, { enabledContextCaching: true });
+      const continuation = await buildAnthropicMessages(continuationMessages, {
+        enabledContextCaching: true,
+      });
+
+      expect(normalizeCacheControl(continuation.slice(0, prefix.length))).toEqual(
+        normalizeCacheControl(prefix),
+      );
+      expect((prefix.at(-1)?.content as any[]).at(-1)?.cache_control).toEqual({
+        type: 'ephemeral',
+      });
+      expect((continuation.at(-1)?.content as any[]).at(-1)?.cache_control).toEqual({
+        type: 'ephemeral',
+      });
+    });
   });
 
   describe('buildAnthropicTools', () => {

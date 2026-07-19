@@ -616,6 +616,109 @@ describe('contextEngineering', () => {
       ]);
     });
 
+    it('should keep the initial request as an exact prefix of parallel tool continuations', async () => {
+      vi.spyOn(isCanUseFCModule, 'isCanUseFC').mockReturnValue(true);
+
+      const now = Date.now();
+      const baseMessages = [
+        {
+          content: 'Discarded question',
+          createdAt: now,
+          id: 'discarded-user',
+          meta: {},
+          role: 'user',
+          updatedAt: now,
+        },
+        {
+          content: 'Discarded answer',
+          createdAt: now,
+          id: 'discarded-assistant',
+          meta: {},
+          role: 'assistant',
+          updatedAt: now,
+        },
+        {
+          content: 'Cached question',
+          createdAt: now,
+          id: 'cached-user',
+          meta: {},
+          role: 'user',
+          updatedAt: now,
+        },
+        {
+          content: 'Cached answer',
+          createdAt: now,
+          id: 'cached-assistant',
+          meta: {},
+          role: 'assistant',
+          updatedAt: now,
+        },
+        {
+          content: 'Search three sources',
+          createdAt: now,
+          id: 'latest-user',
+          meta: {},
+          role: 'user',
+          updatedAt: now,
+        },
+      ] as UIChatMessage[];
+      const tools = ['first', 'second', 'third'].map((apiName, index) => ({
+        apiName,
+        arguments: '{}',
+        id: `call-${index + 1}`,
+        identifier: 'builtin-search',
+        type: 'builtin' as const,
+      }));
+      const continuationMessages = [
+        ...baseMessages,
+        {
+          content: '',
+          createdAt: now,
+          id: 'tool-assistant',
+          meta: {},
+          role: 'assistant',
+          tools,
+          updatedAt: now,
+        },
+        ...tools.map((tool, index) => ({
+          content: `Result ${index + 1}`,
+          createdAt: now,
+          id: `tool-result-${index + 1}`,
+          meta: {},
+          plugin: tool,
+          role: 'tool',
+          tool_call_id: tool.id,
+          updatedAt: now,
+        })),
+      ] as UIChatMessage[];
+      const config = {
+        enableHistoryCount: true,
+        historyCount: 3,
+        model: 'gpt-4',
+        provider: 'openai',
+      };
+
+      const initialRequest = await contextEngineering({ ...config, messages: baseMessages });
+      const continuationRequest = await contextEngineering({
+        ...config,
+        messages: continuationMessages,
+      });
+
+      expect(initialRequest).toEqual([
+        { content: 'Cached question', role: 'user' },
+        { content: 'Cached answer', role: 'assistant' },
+        { content: 'Search three sources', role: 'user' },
+      ]);
+      expect(continuationRequest.slice(0, initialRequest.length)).toEqual(initialRequest);
+      expect(continuationRequest.slice(initialRequest.length).map(({ role }) => role)).toEqual([
+        'assistant',
+        'tool',
+        'tool',
+        'tool',
+      ]);
+      expect(continuationRequest.at(initialRequest.length)?.tool_calls).toHaveLength(3);
+    });
+
     it('should apply input template to user messages', async () => {
       const messages: UIChatMessage[] = [
         {

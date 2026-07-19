@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { mcpService } from '@/services/mcp';
-import { chatSelectors } from '@/store/chat/selectors';
+import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
 import { useChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
@@ -202,6 +202,56 @@ describe('MCP tool-result persistence recovery', () => {
     expect(updateMessageContent).not.toHaveBeenCalled();
     const { notification } = await import('@/components/AntdStaticMethods');
     expect(notification.warning).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the complete main conversation to context engineering for a tool continuation', async () => {
+    const chats = [
+      { content: 'Old question', id: 'old-user', role: 'user' },
+      { content: 'Old answer', id: 'old-assistant', role: 'assistant' },
+      { content: 'Search', id: 'latest-user', role: 'user' },
+      { content: 'Result', id: 'tool-result', role: 'tool' },
+    ] as UIChatMessage[];
+    const coreProcessMessage = vi.fn();
+    vi.spyOn(chatSelectors, 'mainAIChats').mockReturnValue(chats);
+    const preSlicedSelector = vi.spyOn(chatSelectors, 'mainAIChatsWithHistoryConfig');
+    useChatStore.setState({ internal_coreProcessMessage: coreProcessMessage });
+
+    await useChatStore.getState().triggerAIMessage({ traceId: 'trace-id' });
+
+    expect(preSlicedSelector).not.toHaveBeenCalled();
+    expect(coreProcessMessage).toHaveBeenCalledWith(chats, 'tool-result', {
+      inPortalThread: undefined,
+      inSearchWorkflow: undefined,
+      isToolContinuation: true,
+      threadId: undefined,
+      traceId: 'trace-id',
+    });
+  });
+
+  it('passes the complete portal conversation to context engineering for a tool continuation', async () => {
+    const chats = [
+      { content: 'Thread question', id: 'thread-user', role: 'user' },
+      { content: 'Thread result', id: 'thread-tool', role: 'tool' },
+    ] as UIChatMessage[];
+    const coreProcessMessage = vi.fn();
+    vi.spyOn(threadSelectors, 'portalAIChats').mockReturnValue(chats);
+    const preSlicedSelector = vi.spyOn(threadSelectors, 'portalAIChatsWithHistoryConfig');
+    useChatStore.setState({ internal_coreProcessMessage: coreProcessMessage });
+
+    await useChatStore.getState().triggerAIMessage({
+      inPortalThread: true,
+      threadId: 'thread-id',
+      traceId: 'trace-id',
+    });
+
+    expect(preSlicedSelector).not.toHaveBeenCalled();
+    expect(coreProcessMessage).toHaveBeenCalledWith(chats, 'thread-tool', {
+      inPortalThread: true,
+      inSearchWorkflow: undefined,
+      isToolContinuation: true,
+      threadId: 'thread-id',
+      traceId: 'trace-id',
+    });
   });
 
   it('settles parallel tools and continues once when one tool rejects', async () => {

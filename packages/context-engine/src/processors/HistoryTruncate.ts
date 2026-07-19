@@ -31,8 +31,17 @@ export const getSlicedMessages = (
   // if historyCount is negative or set to 0, return empty array
   if (options.historyCount <= 0) return [];
 
-  // if historyCount is positive, return last N messages
-  return messages.slice(-options.historyCount);
+  // Keep the configured history window anchored to the latest user message.
+  // Automatic assistant/tool continuations belong to that active turn, so they
+  // must extend the existing prefix instead of pushing its oldest messages out.
+  const latestUserIndex = messages.findLastIndex((message) => message?.role === 'user');
+
+  // Inputs without a user message are not chat turns; preserve the legacy cap.
+  if (latestUserIndex < 0) return messages.slice(-options.historyCount);
+
+  const startIndex = Math.max(0, latestUserIndex + 1 - options.historyCount);
+
+  return messages.slice(startIndex);
 };
 
 /**

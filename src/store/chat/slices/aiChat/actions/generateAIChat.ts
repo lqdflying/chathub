@@ -103,6 +103,8 @@ interface ProcessMessageParams {
   traceId?: string;
   isWelcomeQuestion?: boolean;
   inSearchWorkflow?: boolean;
+  /** Automatic continuation after one or more tool results */
+  isToolContinuation?: boolean;
   /**
    * the RAG query content, should be embedding and used in the semantic search
    */
@@ -588,6 +590,7 @@ export const generateAIChat: StateCreator<
     const historyCount = agentChatConfigSelectors.historyCount(agentStoreState);
 
     if (
+      !params?.isToolContinuation &&
       agentChatConfigSelectors.enableHistoryCount(agentStoreState) &&
       chatConfig.enableCompressHistory &&
       originalMessages.length > historyCount

@@ -36,7 +36,7 @@ describe('HistoryTruncateProcessor', () => {
       ]);
     });
 
-    it('should include new user message in count when includeNewUserMessage is true', () => {
+    it('should count the latest user message within historyCount', () => {
       const result = getSlicedMessages(messages, {
         enableHistoryCount: true,
         historyCount: 3,
@@ -47,6 +47,70 @@ describe('HistoryTruncateProcessor', () => {
         { id: '4', content: 'Fourth', role: 'assistant' },
         { id: '5', content: 'Fifth', role: 'user' },
       ]);
+    });
+
+    it('should preserve the complete active tool turn without sliding the cached prefix', () => {
+      const initialMessages = [
+        { id: 'old-user', content: 'Old question', role: 'user' },
+        { id: 'old-assistant', content: 'Old answer', role: 'assistant' },
+        { id: 'latest-user', content: 'Search for this', role: 'user' },
+      ];
+      const toolContinuation = [
+        ...initialMessages,
+        { id: 'tool-assistant', content: '', role: 'assistant' },
+        { id: 'tool-1', content: 'First result', role: 'tool' },
+        { id: 'tool-2', content: 'Second result', role: 'tool' },
+        { id: 'tool-3', content: 'Third result', role: 'tool' },
+      ];
+      const options = { enableHistoryCount: true, historyCount: 2 };
+
+      const initialWindow = getSlicedMessages(initialMessages, options);
+      const continuationWindow = getSlicedMessages(toolContinuation, options);
+
+      expect(initialWindow.map(({ id }) => id)).toEqual(['old-assistant', 'latest-user']);
+      expect(continuationWindow.slice(0, initialWindow.length)).toEqual(initialWindow);
+      expect(continuationWindow.map(({ id }) => id)).toEqual([
+        'old-assistant',
+        'latest-user',
+        'tool-assistant',
+        'tool-1',
+        'tool-2',
+        'tool-3',
+      ]);
+    });
+
+    it('should re-anchor the history window when a new user turn starts', () => {
+      const messagesWithNewTurn = [
+        { id: 'old-user', content: 'Old question', role: 'user' },
+        { id: 'old-assistant', content: 'Old answer', role: 'assistant' },
+        { id: 'tool-user', content: 'Search for this', role: 'user' },
+        { id: 'tool-assistant', content: '', role: 'assistant' },
+        { id: 'tool-result', content: 'Search result', role: 'tool' },
+        { id: 'final-assistant', content: 'Final answer', role: 'assistant' },
+        { id: 'new-user', content: 'Next question', role: 'user' },
+      ];
+
+      const result = getSlicedMessages(messagesWithNewTurn, {
+        enableHistoryCount: true,
+        historyCount: 2,
+      });
+
+      expect(result.map(({ id }) => id)).toEqual(['final-assistant', 'new-user']);
+    });
+
+    it('should keep the legacy last-N behavior when there is no user message', () => {
+      const assistantOnlyMessages = [
+        { id: '1', content: 'First', role: 'assistant' },
+        { id: '2', content: 'Second', role: 'assistant' },
+        { id: '3', content: 'Third', role: 'assistant' },
+      ];
+
+      const result = getSlicedMessages(assistantOnlyMessages, {
+        enableHistoryCount: true,
+        historyCount: 2,
+      });
+
+      expect(result.map(({ id }) => id)).toEqual(['2', '3']);
     });
 
     it('should return empty array when historyCount is 0', () => {

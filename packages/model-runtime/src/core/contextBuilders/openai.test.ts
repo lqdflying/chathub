@@ -87,6 +87,50 @@ describe('convertOpenAIMessages', () => {
     expect(result).toEqual(messages);
   });
 
+  it('should preserve the cached prefix when parallel tool results extend a turn', async () => {
+    const baseMessages: OpenAIChatMessage[] = [
+      { content: 'Cached question', role: 'user' },
+      { content: 'Cached answer', role: 'assistant' },
+      { content: 'Search three sources', role: 'user' },
+    ];
+    const toolCalls = ['first', 'second', 'third'].map((name, index) => ({
+      function: { arguments: '{}', name },
+      id: `call-${index + 1}`,
+      type: 'function' as const,
+    }));
+    const continuationMessages: OpenAIChatMessage[] = [
+      ...baseMessages,
+      { content: '', role: 'assistant', tool_calls: toolCalls },
+      ...toolCalls.map((toolCall, index) => ({
+        content: `Result ${index + 1}`,
+        role: 'tool' as const,
+        tool_call_id: toolCall.id,
+      })),
+    ];
+
+    const chatPrefix = await convertOpenAIMessages(
+      baseMessages as OpenAI.ChatCompletionMessageParam[],
+      'openai',
+    );
+    const chatContinuation = await convertOpenAIMessages(
+      continuationMessages as OpenAI.ChatCompletionMessageParam[],
+      'openai',
+    );
+    const responsesPrefix = await convertOpenAIResponseInputs(baseMessages, 'openai');
+    const responsesContinuation = await convertOpenAIResponseInputs(continuationMessages, 'openai');
+
+    expect(chatContinuation.slice(0, chatPrefix.length)).toEqual(chatPrefix);
+    expect(responsesContinuation.slice(0, responsesPrefix.length)).toEqual(responsesPrefix);
+    expect(responsesContinuation.slice(responsesPrefix.length).map(({ type }) => type)).toEqual([
+      'function_call',
+      'function_call',
+      'function_call',
+      'function_call_output',
+      'function_call_output',
+      'function_call_output',
+    ]);
+  });
+
   it('should convert array content messages', async () => {
     const messages = [
       {

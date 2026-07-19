@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOADING_FLAT } from '@/const/message';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { chatSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
@@ -549,6 +550,36 @@ describe('chatMessage actions', () => {
       });
 
       expect(fetchAIChatSpy).not.toHaveBeenCalled();
+    });
+
+    it('should not summarize history again for an automatic tool continuation', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      const messages = [
+        createMockMessage({ id: 'old-user', role: 'user' }),
+        createMockMessage({ id: 'old-assistant', role: 'assistant' }),
+        createMockMessage({ id: 'tool-result', role: 'tool' }),
+      ];
+      const summaryHistory = vi.fn();
+      vi.spyOn(agentChatConfigSelectors, 'enableHistoryCount').mockReturnValue(true);
+      vi.spyOn(agentChatConfigSelectors, 'historyCount').mockReturnValue(2);
+      vi.spyOn(result.current, 'internal_fetchAIChatMessage').mockResolvedValue({
+        content: 'AI response',
+        isFunctionCall: false,
+      });
+      vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      useChatStore.setState({ internal_summaryHistory: summaryHistory });
+
+      await act(async () => {
+        await useChatStore.getState().internal_coreProcessMessage(messages, 'tool-result', {
+          isToolContinuation: true,
+        });
+      });
+
+      expect(summaryHistory).not.toHaveBeenCalled();
     });
   });
 
