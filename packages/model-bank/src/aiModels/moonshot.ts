@@ -1,7 +1,34 @@
 import type { AIChatModelCard } from '../types/aiModel';
 
+// https://platform.kimi.ai/docs/pricing/chat-k3
 // https://platform.moonshot.cn/docs/pricing/chat
 const moonshotChatModels: AIChatModelCard[] = [
+  {
+    abilities: {
+      functionCall: true,
+      reasoning: true,
+      structuredOutput: true,
+      video: true,
+      vision: true,
+    },
+    contextWindowTokens: 1_048_576,
+    description:
+      'Kimi K3 is a flagship multimodal reasoning model for long-horizon coding, knowledge work, and agent workflows with a 1M-token context window.',
+    displayName: 'Kimi K3',
+    enabled: true,
+    id: 'kimi-k3',
+    maxOutput: 1_048_576,
+    pricing: {
+      currency: 'USD',
+      units: [
+        { name: 'textInput_cacheRead', rate: 0.3, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textInput', rate: 3, strategy: 'fixed', unit: 'millionTokens' },
+        { name: 'textOutput', rate: 15, strategy: 'fixed', unit: 'millionTokens' },
+      ],
+    },
+    releasedAt: '2026-07-16',
+    type: 'chat',
+  },
   {
     abilities: {
       functionCall: true,

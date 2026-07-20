@@ -11,10 +11,11 @@ const MOONSHOT_SEARCH_TOOL = { function: { name: '$web_search' }, type: 'builtin
 const isKimiK25StyleThinkingModel = (model: string) =>
   model === 'kimi-k2.5' || model === 'kimi-k2.6';
 const isKimiK27CodeModel = (model: string) => model === 'kimi-k2.7-code';
+const isKimiK3Model = (model: string) => model === 'kimi-k3';
 const isKimiNativeThinkingModel = (model: string) =>
-  model.startsWith('kimi-k2-thinking') || isKimiK27CodeModel(model);
+  model.startsWith('kimi-k2-thinking') || isKimiK27CodeModel(model) || isKimiK3Model(model);
 const shouldPreserveAssistantReasoning = (model: string) =>
-  isKimiK25StyleThinkingModel(model) || isKimiK27CodeModel(model);
+  isKimiK25StyleThinkingModel(model) || isKimiK27CodeModel(model) || isKimiK3Model(model);
 const hasValidReasoning = (reasoning: any) => reasoning?.content && !reasoning?.signature;
 
 const appendSearchTool = <T>(tools: T[] | undefined, enabledSearch?: boolean): T[] | undefined => {
@@ -59,7 +60,11 @@ export const normalizeMessagesForMoonshot = (
     if (!hasAssistantContent(message)) return acc;
 
     const { reasoning, ...rest } = message;
-    const reasoningContent = hasValidReasoning(reasoning) ? reasoning.content : undefined;
+    const reasoningContent = hasValidReasoning(reasoning)
+      ? reasoning.content
+      : typeof rest.reasoning_content === 'string'
+        ? rest.reasoning_content
+        : undefined;
 
     if (forceReasoning) {
       acc.push({ ...rest, reasoning_content: reasoningContent ?? '' });
@@ -106,11 +111,13 @@ export const buildMoonshotPayload = (
   } = payload;
 
   const isK25Style = isKimiK25StyleThinkingModel(model);
+  const isK3 = isKimiK3Model(model);
   const isNativeThinking = isKimiNativeThinkingModel(model);
 
   // Moonshot API forbids thinking + $web_search simultaneously, so when
   // built-in search is active we treat thinking as disabled for payload shaping.
-  const searchForcesThinkingOff = !!enabledSearch && (isK25Style || isNativeThinking);
+  const searchForcesThinkingOff =
+    !!enabledSearch && (isK25Style || (isNativeThinking && !isK3));
   const isThinkingEnabled =
     !searchForcesThinkingOff &&
     (isNativeThinking || (isK25Style && thinking?.type !== 'disabled'));
@@ -126,7 +133,7 @@ export const buildMoonshotPayload = (
   }
 
   // Handle search tools
-  const moonshotTools = appendSearchTool(tools, enabledSearch);
+  const moonshotTools = isK3 ? tools : appendSearchTool(tools, enabledSearch);
 
   // kimi-k2.5 / kimi-k2.6: `thinking.type` (+ optional `keep` on k2.6 for Preserved Thinking).
   if (isK25Style) {
@@ -153,6 +160,19 @@ export const buildMoonshotPayload = (
       model,
       stream: payload.stream ?? true,
       thinking: withKeep,
+      tools: moonshotTools?.length ? moonshotTools : undefined,
+    } as OpenAI.ChatCompletionCreateParamsStreaming;
+  }
+
+  if (isK3) {
+    const { n: _candidateCount, reasoning: _reasoning, ...k3Payload } = rest;
+
+    return {
+      ...k3Payload,
+      messages: normalizedMessages,
+      model,
+      reasoning_effort: 'max',
+      stream: payload.stream ?? true,
       tools: moonshotTools?.length ? moonshotTools : undefined,
     } as OpenAI.ChatCompletionCreateParamsStreaming;
   }

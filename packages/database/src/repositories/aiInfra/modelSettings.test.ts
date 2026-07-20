@@ -36,13 +36,16 @@ describe('injectModelSettings', () => {
     });
   });
 
-  it('does not expose a Moonshot K2.7 forced-thinking toggle', () => {
-    const model = injectModelSettings('moonshot', {
-      abilities: { functionCall: true, reasoning: true, video: true, vision: true },
-      id: 'kimi-k2.7-code',
-      type: 'chat',
-    });
+  it.each(['kimi-k2.7-code', 'kimi-k3'])(
+    'does not expose a Moonshot forced-thinking toggle for %s',
+    (modelId) => {
+      const model = injectModelSettings('moonshot', {
+        abilities: { functionCall: true, reasoning: true, video: true, vision: true },
+        id: modelId,
+        type: 'chat',
+      });
 
-    expect(model.settings?.extendParams).toBeUndefined();
-  });
+      expect(model.settings?.extendParams).toBeUndefined();
+    },
+  );
 });

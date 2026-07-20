@@ -242,6 +242,72 @@ describe('buildMoonshotPayload — tool-call safety', () => {
     expect(assistant?.reasoning_content).toBe('');
   });
 
+  it('kimi-k3 uses max reasoning without K2 thinking or mutable sampling fields', () => {
+    const result = buildMoonshotPayload({
+      frequency_penalty: 0.5,
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k3',
+      n: 2,
+      presence_penalty: 0.5,
+      reasoning: { effort: 'low' },
+      stream: true,
+      temperature: 0.2,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+      top_p: 0.5,
+      tools: sampleTools,
+    } as any);
+
+    expect(result.reasoning_effort).toBe('max');
+    expect(result.tools).toEqual(sampleTools);
+    expect(result).not.toHaveProperty('frequency_penalty');
+    expect(result).not.toHaveProperty('n');
+    expect(result).not.toHaveProperty('presence_penalty');
+    expect(result).not.toHaveProperty('reasoning');
+    expect(result).not.toHaveProperty('temperature');
+    expect(result).not.toHaveProperty('thinking');
+    expect(result).not.toHaveProperty('top_p');
+  });
+
+  it('kimi-k3 preserves existing reasoning_content on assistant tool calls', () => {
+    const result = buildMoonshotPayload({
+      messages: [
+        { content: 'hi', role: 'user' },
+        {
+          content: 'working',
+          reasoning_content: 'previous reasoning',
+          role: 'assistant',
+          tool_calls: [
+            {
+              function: { arguments: '{"x":1}', name: 'get_time' },
+              id: 'call_time',
+              type: 'function',
+            },
+          ],
+        },
+        { content: '{"time":"now"}', role: 'tool', tool_call_id: 'call_time' },
+      ],
+      model: 'kimi-k3',
+      stream: true,
+      tools: sampleTools,
+    } as any);
+
+    const assistant = (result.messages as any[]).find((message) => message.role === 'assistant');
+    expect(assistant?.reasoning_content).toBe('previous reasoning');
+  });
+
+  it('kimi-k3 does not append the deprecated Moonshot web-search tool', () => {
+    const result = buildMoonshotPayload({
+      enabledSearch: true,
+      messages: [{ content: 'hi', role: 'user' }],
+      model: 'kimi-k3',
+      stream: true,
+      tools: sampleTools,
+    } as any);
+
+    expect(result.tools).toEqual(sampleTools);
+    expect(result.reasoning_effort).toBe('max');
+  });
+
   it('kimi-k2-0905-preview + tools strips legacy sampling and omits thinking', () => {
     const result = buildMoonshotPayload({
       messages: [{ content: 'hi', role: 'user' }],
@@ -348,6 +414,61 @@ describe('LobeMoonshotAI debug', () => {
       logSpy.mockRestore();
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('LobeMoonshotAI Kimi K3 request boundary', () => {
+  it('sends the documented K3 payload through the runtime client', async () => {
+    const instance = new LobeMoonshotAI({ apiKey: 'test-key' });
+    const mockStream = (async function* () {
+      yield {
+        choices: [{ delta: { content: 'done' }, finish_reason: 'stop', index: 0 }],
+        id: 'chatcmpl-kimi-k3',
+      };
+    })();
+    const createSpy = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue(mockStream);
+
+    const response = await instance.chat({
+      messages: [
+        { content: 'hi', role: 'user' },
+        {
+          content: null,
+          reasoning: { content: 'use the clock tool' },
+          role: 'assistant',
+          tool_calls: [
+            {
+              function: { arguments: '{}', name: 'get_time' },
+              id: 'call_time',
+              type: 'function',
+            },
+          ],
+        },
+        { content: '{"time":"now"}', role: 'tool', tool_call_id: 'call_time' },
+      ],
+      model: 'kimi-k3',
+      n: 2,
+      temperature: 0.2,
+      thinking: { budget_tokens: 1024, type: 'enabled' },
+      tools: sampleTools,
+    } as any);
+    await response.text();
+
+    const requestPayload = createSpy.mock.calls[0][0] as any;
+    const assistantMessage = requestPayload.messages.find(
+      (message: any) => message.role === 'assistant',
+    );
+
+    expect(requestPayload).toMatchObject({
+      model: 'kimi-k3',
+      reasoning_effort: 'max',
+      tools: sampleTools,
+    });
+    expect(assistantMessage.reasoning_content).toBe('use the clock tool');
+    expect(requestPayload).not.toHaveProperty('n');
+    expect(requestPayload).not.toHaveProperty('temperature');
+    expect(requestPayload).not.toHaveProperty('thinking');
   });
 });
 

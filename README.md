@@ -15,7 +15,7 @@ ChatHub diverged from LobeChat at v3.0.0 and is maintained independently as Chat
 | Deployment target | Vercel / Docker / Desktop | Docker + PostgreSQL only |
 | Versioning | v1.x | v1.x (ChatHub) |
 | Browser login (no OAuth) | Not supported | Username/password or token login page built-in |
-| Model bank | Upstream releases | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x, MiniMax, DeepSeek |
+| Model bank | Upstream releases | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x/K3, MiniMax, DeepSeek |
 | Tools Hub | Not present | Built-in (Picbed, API Tester + extensible sidebar) |
 | Memory / context | Basic rolling summary | Assistance presets, token auto-compact, manual compact, daily opt-in, assistant-level memory with cross-session rollup |
 | MCP authentication | API keys only | OAuth 2.1 auto-discovery (RFC 9728 + RFC 8414) with server-side token storage |
@@ -111,6 +111,14 @@ Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [w
 | Ollama | auto-discovered (set `ENABLED_OLLAMA=0` to disable) |
 
 For the complete provider/env map (Azure, Bedrock, OpenRouter, and 40+ others), see [`src/envs/llm.ts`](src/envs/llm.ts).
+
+### Moonshot Kimi K3
+
+`kimi-k3` is enabled in ChatHub's Moonshot model catalogue; it does not replace the global initial model, which remains `gpt-5-mini` from OpenAI. K3 provides a 1M-token context window, native vision and video input, function calling, structured output, and forced reasoning.
+
+K3 always sends `reasoning_effort: "max"`. ChatHub omits the K2.x `thinking` object and unsupported mutable sampling parameters, and preserves the complete assistant message—including `reasoning_content` and `tool_calls`—when continuing tool calls. The provider-specific Moonshot `$web_search` tool is not added for K3 because the current K3 documentation does not recommend that capability for near-term production use.
+
+ChatHub's built-in Moonshot route is `https://api.moonshot.cn/v1`. The global Kimi API documents `https://api.moonshot.ai/v1`; use `MOONSHOT_PROXY_URL` or a provider/request base URL when targeting that deployment instead of changing ChatHub's default endpoint.
 
 ---
 

@@ -327,6 +327,21 @@ describe('modelParse', () => {
           vision: true,
         });
       });
+
+      it('moonshot: unknown Kimi K3 variants infer forced reasoning and multimodal capabilities', async () => {
+        const out = await processModelList(
+          [{ id: 'kimi-k3-highspeed' }],
+          MODEL_LIST_CONFIGS.moonshot,
+          'moonshot',
+        );
+
+        expect(out[0]).toMatchObject({
+          functionCall: true,
+          reasoning: true,
+          video: true,
+          vision: true,
+        });
+      });
     });
 
     describe('Detailed capability and property processing in processModelList', () => {

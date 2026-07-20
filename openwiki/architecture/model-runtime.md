@@ -72,11 +72,21 @@ GPT-5 reasoning effort is normalized by model before the request reaches the run
 
 The internal request uses `reasoning_effort` for both compatible API modes. Chat Completions forwards it as the top-level `reasoning_effort` field. Responses removes that top-level field and merges it into `reasoning: { effort }`, preserving other documented reasoning options such as `summary`. This is fixed endpoint mapping, not a provider setting: the OpenAI-compatible provider has no separate “Responses reasoning effort” shape selector. Legacy saved selector values are discarded. This mapping permits GPT-5.6 Sol's `max` value without introducing a second upstream field.
 
+### Moonshot Kimi K3
+
+`kimi-k3` is an enabled Moonshot catalogue entry, not ChatHub's globally selected initial model. The global default remains the existing OpenAI model and provider. K3's built-in card advertises function calling, structured output, reasoning, vision, and video with a `1_048_576`-token context window and the documented maximum completion limit.
+
+K3 always uses reasoning. The Moonshot adapter therefore sends the top-level `reasoning_effort: "max"` field, omits the K2.x `thinking` object, and strips mutable sampling fields (`temperature`, `top_p`, `n`, `presence_penalty`, and `frequency_penalty`) before the request reaches the provider. K3 has no model gear toggle because there is no supported user-selectable reasoning mode.
+
+For multi-turn conversations and tool calls, the adapter replays the complete assistant message, including `tool_calls` and `reasoning_content`. Application tools and `tool_choice` remain available. ChatHub-managed browsing remains separate from Moonshot's `$web_search`: K3 does not receive the built-in Moonshot search tool because the current K3 documentation warns that web search is still being updated and is not recommended for near-term production workflows.
+
+The default ChatHub Moonshot route is the China endpoint `https://api.moonshot.cn/v1`, with `MOONSHOT_PROXY_URL` and request/user-provider `baseURL` taking precedence. The global Kimi documentation uses `https://api.moonshot.ai/v1`; deployments targeting that endpoint must configure the base URL explicitly and should confirm that the account and endpoint expose K3.
+
 ## Model fetch normalization
 
 Providers that expose `/models` can return new model ids before ChatHub's built-in model list is refreshed. The runtime still needs to normalize fetched ids through provider-specific capability rules so the UI can detect function calling, reasoning, vision, video, search, and image-output support.
 
-DeepSeek, MiniMax, and Moonshot use provider-specific model fetchers rather than a raw generic list. The fetchers call the shared model parser with provider configs, and the database repository adds read-time-only `settings.extendParams` for fetched models where the remote model table cannot store option-panel settings. This keeps fetched DeepSeek V4 and MiniMax M-series models usable in the model option panel, while Moonshot Kimi K2.7 Code remains reasoning-capable without a toggle because the provider forces thinking/preserved reasoning.
+DeepSeek, MiniMax, and Moonshot use provider-specific model fetchers rather than a raw generic list. The fetchers call the shared model parser with provider configs, and the database repository adds read-time-only `settings.extendParams` for fetched models where the remote model table cannot store option-panel settings. This keeps fetched DeepSeek V4 and MiniMax M-series models usable in the model option panel, while Moonshot Kimi K2.7 Code and Kimi K3 remain reasoning-capable without a toggle because the provider forces thinking/preserved reasoning. Fetched K3 variants receive reasoning, vision, and video capabilities from the Moonshot keyword normalizer when an exact built-in card is unavailable.
 
 ## Provider request debug
 
