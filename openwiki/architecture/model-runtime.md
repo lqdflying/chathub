@@ -65,10 +65,12 @@ The `openaicompatible` provider intentionally uses a fixed, non-editable model l
 
 GPT-5 reasoning effort is normalized by model before the request reaches the runtime:
 
-- `gpt-5.6-sol`: `none`, `low`, `medium`, `high`, `xhigh`, `max`
-- GPT-5.5 family: `low`, `medium`, `high`, `xhigh`; saved `none` or `minimal` values map to `low`
+- `gpt-5.6-sol`: ChatHub exposes `high`, `xhigh`, `max`
+- GPT-5.5 family: ChatHub exposes `high`, `xhigh`
 - Earlier GPT-5 models: `minimal`, `low`, `medium`, `high`
-- Unsupported saved values from a model switch fall back to `medium`
+- Lower, unset, or otherwise unsupported saved values for GPT-5.5 and GPT-5.6 Sol resolve to `high`; earlier GPT-5 models continue to fall back to `medium`
+
+OpenAI's API accepts lower reasoning efforts for GPT-5.5 and GPT-5.6, but ChatHub deliberately applies a `high` quality floor to these model families. Persisted lower values remain valid for backward compatibility and are normalized at display and request time. ChatHub sends the resolved `high` value explicitly when no effort was previously saved so the provider's `medium` default cannot bypass the floor.
 
 The internal request uses `reasoning_effort` for both compatible API modes. Chat Completions forwards it as the top-level `reasoning_effort` field. Responses removes that top-level field and merges it into `reasoning: { effort }`, preserving other documented reasoning options such as `summary`. This is fixed endpoint mapping, not a provider setting: the OpenAI-compatible provider has no separate “Responses reasoning effort” shape selector. Legacy saved selector values are discarded. This mapping permits GPT-5.6 Sol's `max` value without introducing a second upstream field.
 

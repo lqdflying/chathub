@@ -248,12 +248,17 @@ class ChatService {
         }
       }
 
-      if (modelExtendParams!.includes('gpt5ReasoningEffort') && chatConfig.gpt5ReasoningEffort) {
-        const { effort } = resolveGPT5ReasoningEffort(
+      if (modelExtendParams!.includes('gpt5ReasoningEffort')) {
+        const { effort, effortValues } = resolveGPT5ReasoningEffort(
           payload.model,
           chatConfig.gpt5ReasoningEffort,
         );
-        extendParams.reasoning_effort = effort;
+        const hasConfiguredEffort = !!chatConfig.gpt5ReasoningEffort;
+        const requiresExplicitHighFloor = effortValues[0] === 'high';
+
+        if (hasConfiguredEffort || requiresExplicitHighFloor) {
+          extendParams.reasoning_effort = effort;
+        }
       }
 
       if (modelExtendParams!.includes('textVerbosity') && chatConfig.textVerbosity) {

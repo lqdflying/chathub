@@ -254,13 +254,22 @@ describe('ChatService', () => {
       });
 
       it.each([
-        ['gpt-5.6-sol', 'none', 'none'],
+        ['gpt-5.6-sol', 'none', 'high'],
+        ['gpt-5.6-sol', 'low', 'high'],
+        ['gpt-5.6-sol', 'medium', 'high'],
+        ['gpt-5.6-sol', 'xhigh', 'xhigh'],
         ['gpt-5.6-sol', 'max', 'max'],
-        ['gpt-5.5', 'none', 'low'],
-        ['gpt-5.5', 'minimal', 'low'],
-        ['gpt-5.5', 'max', 'medium'],
+        ['gpt-5.6-sol', undefined, 'high'],
+        ['gpt-5.5', 'none', 'high'],
+        ['gpt-5.5', 'minimal', 'high'],
+        ['gpt-5.5', 'low', 'high'],
+        ['gpt-5.5', 'medium', 'high'],
+        ['gpt-5.5', 'xhigh', 'xhigh'],
+        ['gpt-5.5', 'max', 'high'],
+        ['gpt-5.5', undefined, 'high'],
         ['gpt-5.4', 'none', 'medium'],
         ['gpt-5.4', 'max', 'medium'],
+        ['gpt-5.4', undefined, undefined],
       ] as const)(
         'should normalize GPT-5 effort for %s from %s to %s',
         async (model, savedEffort, expectedEffort) => {
@@ -283,13 +292,14 @@ describe('ChatService', () => {
             provider: 'openaicompatible',
           });
 
-          expect(getChatCompletionSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-              model,
-              reasoning_effort: expectedEffort,
-            }),
-            undefined,
-          );
+          const requestPayload = getChatCompletionSpy.mock.calls[0][0];
+          expect(requestPayload.model).toBe(model);
+
+          if (expectedEffort) {
+            expect(requestPayload.reasoning_effort).toBe(expectedEffort);
+          } else {
+            expect(requestPayload).not.toHaveProperty('reasoning_effort');
+          }
         },
       );
 
