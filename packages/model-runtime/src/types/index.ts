@@ -1,3 +1,4 @@
+export * from './cacheDiagnostics';
 export * from './chat';
 export * from './embeddings';
 export * from './error';

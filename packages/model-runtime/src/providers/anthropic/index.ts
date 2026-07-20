@@ -2,9 +2,15 @@ import Anthropic, { ClientOptions } from '@anthropic-ai/sdk';
 import { ModelProvider } from 'model-bank';
 
 import { LobeRuntimeAI } from '../../core/BaseAI';
+import {
+  createModelCacheDiagnosticCallbacks,
+  emitModelCacheRequest,
+  emitModelCacheTerminalError,
+} from '../../core/cacheDiagnostics';
 import { buildAnthropicMessages, buildAnthropicTools } from '../../core/contextBuilders/anthropic';
 import { MODEL_PARAMETER_CONFLICTS, resolveParameters } from '../../core/parameterResolver';
-import { AnthropicStream } from '../../core/streams';
+import { AnthropicStream, tapAsyncIterable } from '../../core/streams';
+import { mergeMultipleChatMethodOptions } from '../../helpers';
 import {
   type ChatCompletionErrorPayload,
   ChatMethodOptions,
@@ -14,7 +20,6 @@ import {
 } from '../../types';
 import { AgentRuntimeErrorType } from '../../types/error';
 import { AgentRuntimeError } from '../../utils/createError';
-import { debugStream } from '../../utils/debugStream';
 import { desensitizeUrl } from '../../utils/desensitizeUrl';
 import { getModelPricing } from '../../utils/getModelPricing';
 import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
@@ -50,39 +55,47 @@ export const normalizeAnthropicBaseURL = (baseURL: string): string => {
 
 type CacheTTL = Anthropic.Messages.CacheControlEphemeral['ttl'];
 
+interface AnthropicCachePolicy {
+  breakpointCount: number;
+  ttl?: '1h' | '5m' | 'mixed';
+}
+
 /**
- * Resolves cache TTL from Anthropic payload or request settings
- * Returns the first valid TTL found in system messages or content blocks
+ * Summarizes explicit cache breakpoints from the final Anthropic request.
+ * An omitted TTL is Anthropic's documented 5-minute default.
  */
-const resolveCacheTTL = (
-  requestPayload: ChatStreamPayload,
+const resolveAnthropicCachePolicy = (
   anthropicPayload: Anthropic.MessageCreateParams,
-): CacheTTL | undefined => {
-  // Check system messages for cache TTL
+): AnthropicCachePolicy => {
+  const cacheTTLs: Array<NonNullable<CacheTTL>> = [];
+  const recordCacheControl = (
+    cacheControl: Anthropic.Messages.CacheControlEphemeral | null | undefined,
+  ) => {
+    if (!cacheControl) return;
+    cacheTTLs.push(cacheControl.ttl ?? DEFAULT_CACHE_TTL);
+  };
+
   if (Array.isArray(anthropicPayload.system)) {
-    for (const block of anthropicPayload.system) {
-      const ttl = block.cache_control?.ttl;
-      if (ttl) return ttl;
-    }
+    for (const block of anthropicPayload.system) recordCacheControl(block.cache_control);
   }
 
-  // Check message content blocks for cache TTL
   for (const message of anthropicPayload.messages ?? []) {
     if (!Array.isArray(message.content)) continue;
 
     for (const block of message.content) {
-      // Message content blocks might have cache_control property
-      const ttl = ('cache_control' in block && block.cache_control?.ttl) as CacheTTL | undefined;
-      if (ttl) return ttl;
+      if ('cache_control' in block) recordCacheControl(block.cache_control);
     }
   }
 
-  // Use default TTL if context caching is enabled
-  if (requestPayload.enabledContextCaching) {
-    return DEFAULT_CACHE_TTL;
+  for (const tool of anthropicPayload.tools ?? []) {
+    if ('cache_control' in tool) recordCacheControl(tool.cache_control);
   }
 
-  return undefined;
+  const distinctTTLs = new Set(cacheTTLs);
+  return {
+    breakpointCount: cacheTTLs.length,
+    ttl: distinctTTLs.size > 1 ? 'mixed' : cacheTTLs.length > 0 ? cacheTTLs[0] : undefined,
+  };
 };
 
 /**
@@ -112,7 +125,9 @@ export const buildAnthropicSystemPrompts = (
 
   return texts.map((text, index) => ({
     cache_control:
-      enabledContextCaching && index === texts.length - 1 ? { type: 'ephemeral' as const } : undefined,
+      enabledContextCaching && index === texts.length - 1
+        ? { type: 'ephemeral' as const }
+        : undefined,
     text,
     type: 'text' as const,
   }));
@@ -166,14 +181,52 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
   }
 
   async chat(payload: ChatStreamPayload, options?: ChatMethodOptions) {
+    let cacheRequestHash: string | undefined;
+
     try {
       const anthropicPayload = await this.buildAnthropicPayload(payload);
       const inputStartAt = Date.now();
+      const cachePolicy = resolveAnthropicCachePolicy(anthropicPayload);
+      const hasCacheControl = cachePolicy.breakpointCount > 0;
       const requestPayload = {
         ...anthropicPayload,
         metadata: options?.user ? { user_id: options?.user } : undefined,
         stream: true,
       };
+      cacheRequestHash = emitModelCacheRequest(options?.cacheDiagnostics, {
+        apiType: 'anthropic-messages',
+        cacheMechanism: hasCacheControl ? 'explicit-breakpoint' : 'passive',
+        cachePolicy: {
+          cacheControl: hasCacheControl,
+          cacheControlBreakpointCount: cachePolicy.breakpointCount,
+          cacheTTL: cachePolicy.ttl,
+        },
+        cacheSupport: 'supported',
+        inputItemCount: anthropicPayload.messages.length,
+        model: payload.model,
+        requestFingerprintSource: {
+          messages: anthropicPayload.messages,
+          model: payload.model,
+          system: anthropicPayload.system,
+          tools: anthropicPayload.tools,
+        },
+        stream: true,
+        toolCount: anthropicPayload.tools?.length ?? 0,
+      });
+      const cacheDiagnosticCallbacks = createModelCacheDiagnosticCallbacks(
+        options?.cacheDiagnostics,
+        {
+          apiType: 'anthropic-messages',
+          cacheSupport: 'supported',
+          requestHash: cacheRequestHash,
+        },
+      );
+      const callbacks = cacheDiagnosticCallbacks
+        ? mergeMultipleChatMethodOptions([
+            { callback: options?.callback },
+            { callback: cacheDiagnosticCallbacks },
+          ]).callback
+        : options?.callback;
 
       if (this.isDebug()) {
         debugProviderRequest({
@@ -186,34 +239,51 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
         console.log(JSON.stringify(anthropicPayload), '\n');
       }
 
-      const response = await this.client.messages.create(
-        requestPayload,
-        {
-          signal: options?.signal,
-        },
-      );
-
-      const [prod, debug] = response.tee();
+      let response = await this.client.messages.create(requestPayload, {
+        signal: options?.signal,
+      });
 
       if (this.isDebug()) {
-        debugStream(debug.toReadableStream()).catch(console.error);
+        response = tapAsyncIterable(response, (chunk) => {
+          console.log(JSON.stringify(chunk));
+        });
       }
 
       const pricing = await getModelPricing(payload.model, this.id);
-      const cacheTTL = resolveCacheTTL(payload, anthropicPayload);
-      const pricingOptions = cacheTTL ? { lookupParams: { ttl: cacheTTL } } : undefined;
+      const pricingOptions =
+        cachePolicy.ttl && cachePolicy.ttl !== 'mixed'
+          ? { lookupParams: { ttl: cachePolicy.ttl } }
+          : undefined;
 
       return StreamingResponse(
-        AnthropicStream(prod, {
-          callbacks: options?.callback,
+        AnthropicStream(response, {
+          callbacks,
           inputStartAt,
-          payload: { model: payload.model, pricing, pricingOptions, provider: this.id },
+          payload: {
+            cacheDiagnostics: options?.cacheDiagnostics,
+            cacheRequestHash,
+            model: payload.model,
+            pricing,
+            pricingOptions,
+            provider: this.id,
+          },
         }),
         {
           headers: options?.headers,
+          onCancel: async (reason) => {
+            await Promise.allSettled([
+              callbacks?.onCancel?.(reason),
+              cacheDiagnosticCallbacks?.onError?.(reason),
+            ]);
+          },
         },
       );
     } catch (error) {
+      emitModelCacheTerminalError(options?.cacheDiagnostics, {
+        apiType: 'anthropic-messages',
+        error,
+        requestHash: cacheRequestHash,
+      });
       throw this.handleError(error);
     }
   }
@@ -288,11 +358,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
 
     const maxThinkingTokens = () => getMaxTokens() || 32_000; // Claude Opus 4 has minimum maxOutput
 
-    if (
-      !!thinking &&
-      thinking.type === 'adaptive' &&
-      anthropicAdaptiveCapableModels.has(model)
-    ) {
+    if (!!thinking && thinking.type === 'adaptive' && anthropicAdaptiveCapableModels.has(model)) {
       const maxTokens = maxThinkingTokens();
       const effort = thinking.effort ?? 'high';
 

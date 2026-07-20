@@ -1,3 +1,5 @@
+import { createToolCallSetCorrelation, createToolResultDebugSummary } from '@lobechat/types';
+
 import type {
   Agent,
   AgentEvent,
@@ -11,6 +13,7 @@ import type {
   ToolsCalling,
   Usage,
 } from '../types';
+import { environmentToolDiagnostics } from './toolDiagnostics';
 
 /**
  * Simplified Agent Runtime - The "Engine" that executes instructions from an "Agent" (Brain).
@@ -18,11 +21,15 @@ import type {
  */
 export class AgentRuntime {
   private executors: Record<AgentInstruction['type'], InstructionExecutor>;
+  private toolDiagnosticSequence = 0;
+  private toolDiagnostics: RuntimeConfig['toolDiagnostics'];
 
   constructor(
     private agent: Agent,
-    private config: RuntimeConfig = {},
+    config: RuntimeConfig = {},
   ) {
+    this.toolDiagnostics = config.toolDiagnostics || environmentToolDiagnostics;
+
     // Build executors with priority: agent.executors > config.executors > built-in
     this.executors = {
       call_llm: this.createCallLLMExecutor(),
@@ -100,6 +107,8 @@ export class AgentRuntime {
         // Special handling for batch tool execution
         if (instruction.type === 'call_tools_batch') {
           result = await this.executeToolsBatch(instruction as any, currentState);
+        } else if (instruction.type === 'call_tool') {
+          result = await this.executeToolWithDiagnostics(instruction, currentState);
         } else {
           const executor = this.executors[instruction.type as keyof typeof this.executors];
           if (!executor) {
@@ -582,6 +591,61 @@ export class AgentRuntime {
 
   // ============ Helper Methods ============
 
+  private async executeToolWithDiagnostics(
+    instruction: Extract<AgentInstruction, { type: 'call_tool' }>,
+    baseState: AgentState,
+  ): Promise<{
+    events: AgentEvent[];
+    newState: AgentState;
+    nextContext?: AgentRuntimeContext;
+  }> {
+    if (!this.isToolDiagnosticsEnabled()) {
+      return this.executors.call_tool(instruction, baseState);
+    }
+
+    const toolCall = instruction.payload;
+    const callIdentifier = String(toolCall?.id || toolCall?.tool_call_id || 'server-tool-call');
+    const startedCorrelation = this.createToolDiagnosticCorrelation(
+      [callIdentifier],
+      baseState.sessionId,
+    );
+
+    this.reportToolDiagnostic(() =>
+      this.toolDiagnostics?.reportBatch(startedCorrelation, 'started'),
+    );
+
+    try {
+      const result = await this.executors.call_tool(instruction, baseState);
+      const settledCorrelation = {
+        ...startedCorrelation,
+        failureCount: 0,
+        resultCount: 1,
+      };
+      this.reportServerToolCompletion(toolCall, callIdentifier, result, settledCorrelation);
+      this.reportToolDiagnostic(() =>
+        this.toolDiagnostics?.reportBatch(settledCorrelation, 'settled'),
+      );
+      return result;
+    } catch (error) {
+      const settledCorrelation = {
+        ...startedCorrelation,
+        failureCount: 1,
+        resultCount: 0,
+      };
+      this.reportServerToolCompletion(
+        toolCall,
+        callIdentifier,
+        undefined,
+        settledCorrelation,
+        'failed',
+      );
+      this.reportToolDiagnostic(() =>
+        this.toolDiagnostics?.reportBatch(settledCorrelation, 'settled'),
+      );
+      throw error;
+    }
+  }
+
   /**
    * Execute multiple tool calls concurrently
    */
@@ -594,19 +658,133 @@ export class AgentRuntime {
     nextContext?: AgentRuntimeContext;
   }> {
     const { payload: toolsCalling } = instruction;
-
-    // Execute all tools concurrently based on the same state
-    const results = await Promise.all(
-      toolsCalling.map((toolCall) =>
-        this.executors.call_tool(
-          { payload: toolCall, type: 'call_tool' } as any,
-          structuredClone(baseState), // Each tool starts from the same base state
-        ),
+    const toolExecutionPromises = toolsCalling.map((toolCall) =>
+      this.executors.call_tool(
+        { payload: toolCall, type: 'call_tool' } as any,
+        structuredClone(baseState),
       ),
     );
 
+    if (!this.isToolDiagnosticsEnabled()) {
+      const results = await Promise.all(toolExecutionPromises);
+      return this.mergeToolResults(results, baseState);
+    }
+
+    const callIdentifiers = toolsCalling.map((toolCall, index) =>
+      String(toolCall?.id || toolCall?.tool_call_id || `server-tool-call-${index}`),
+    );
+    const startedCorrelation = this.createToolDiagnosticCorrelation(
+      callIdentifiers,
+      baseState.sessionId,
+    );
+
+    this.reportToolDiagnostic(() =>
+      this.toolDiagnostics?.reportBatch(startedCorrelation, 'started'),
+    );
+
+    void Promise.allSettled(toolExecutionPromises).then((settledResults) => {
+      const resultCount = settledResults.filter((result) => result.status === 'fulfilled').length;
+      const settledCorrelation = {
+        ...startedCorrelation,
+        failureCount: settledResults.length - resultCount,
+        resultCount,
+      };
+
+      settledResults.forEach((settledResult, index) => {
+        this.reportServerToolCompletion(
+          toolsCalling[index],
+          callIdentifiers[index],
+          settledResult.status === 'fulfilled' ? settledResult.value : undefined,
+          settledCorrelation,
+          settledResult.status === 'fulfilled' ? 'completed' : 'failed',
+        );
+      });
+
+      this.reportToolDiagnostic(() =>
+        this.toolDiagnostics?.reportBatch(settledCorrelation, 'settled'),
+      );
+    });
+
     // Merge results
+    const results = await Promise.all(toolExecutionPromises);
     return this.mergeToolResults(results, baseState);
+  }
+
+  private isToolDiagnosticsEnabled(): boolean {
+    if (!this.toolDiagnostics) return false;
+
+    try {
+      return this.toolDiagnostics.isEnabled?.() ?? true;
+    } catch {
+      return false;
+    }
+  }
+
+  private createToolDiagnosticCorrelation(callIdentifiers: string[], sessionId: string) {
+    const baseCorrelation = createToolCallSetCorrelation(callIdentifiers);
+    this.toolDiagnosticSequence += 1;
+    const batchFingerprint = createToolResultDebugSummary({
+      callIdentifiers,
+      sequence: this.toolDiagnosticSequence,
+      sessionId,
+    }).valueHash.padEnd(20, '0');
+
+    return {
+      ...baseCorrelation,
+      batchId: `tb_${batchFingerprint}`,
+      continuationId: `tc_${batchFingerprint}`,
+    };
+  }
+
+  private reportServerToolCompletion(
+    toolCall: any,
+    callIdentifier: string,
+    result:
+      | {
+          events: AgentEvent[];
+          newState: AgentState;
+          nextContext?: AgentRuntimeContext;
+        }
+      | undefined,
+    correlation: ReturnType<AgentRuntime['createToolDiagnosticCorrelation']> & {
+      failureCount: number;
+      resultCount: number;
+    },
+    outcome: 'completed' | 'failed' = 'completed',
+  ): void {
+    if (!this.isToolDiagnosticsEnabled()) return;
+
+    const callIdHash = createToolResultDebugSummary(callIdentifier).valueHash;
+    const diagnosticIdHash = createToolResultDebugSummary({
+      batchId: correlation.batchId,
+      callIdentifier,
+    }).valueHash;
+    const toolNameHash = createToolResultDebugSummary(
+      toolCall?.function?.name || toolCall?.name || 'server-tool',
+    ).valueHash;
+
+    this.reportToolDiagnostic(() =>
+      this.toolDiagnostics?.reportCompletion({
+        callIdHash,
+        correlation,
+        diagnosticId: `td_${diagnosticIdHash.padEnd(20, '0')}`,
+        outcome,
+        result: createToolResultDebugSummary({
+          callIdHash,
+          data: result?.nextContext?.payload,
+        }),
+        runtimeType: 'server',
+        toolNameHash,
+      }),
+    );
+  }
+
+  private reportToolDiagnostic(reporter: () => Promise<void> | void | undefined): void {
+    try {
+      void Promise.resolve(reporter()).catch(() => undefined);
+    } catch {
+      // Diagnostics are best-effort and must never affect agent execution.
+    }
   }
 
   /**

@@ -17,7 +17,7 @@ export const convertGoogleAIUsage = (
   pricing?: Pricing,
 ): ModelUsage => {
   const inputCacheMissTokens =
-    usage.promptTokenCount && usage.cachedContentTokenCount
+    usage.promptTokenCount !== undefined && usage.cachedContentTokenCount !== undefined
       ? usage.promptTokenCount - usage.cachedContentTokenCount
       : undefined;
 

@@ -5,6 +5,10 @@ import type { Stream } from 'openai/streaming';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LobeOpenAICompatibleRuntime } from '../../core/BaseAI';
+import type {
+  ModelCacheDiagnosticContext,
+  ModelCacheDiagnosticEvent,
+} from '../../types/cacheDiagnostics';
 import { ChatStreamCallbacks, ChatStreamPayload } from '../../types/chat';
 import { AgentRuntimeErrorType } from '../../types/error';
 import { SSE_HEARTBEAT_COMMENT } from '../../utils/response';
@@ -20,6 +24,20 @@ const provider = 'groq';
 const defaultBaseURL = 'https://api.groq.com/openai/v1';
 const bizErrorType = 'ProviderBizError';
 const invalidErrorType = 'InvalidProviderAPIKey';
+
+const createCacheDiagnosticContext = (
+  providerId: string,
+): { context: ModelCacheDiagnosticContext; events: ModelCacheDiagnosticEvent[] } => {
+  const events: ModelCacheDiagnosticEvent[] = [];
+  const context: ModelCacheDiagnosticContext = {
+    emit: (event) => events.push(event),
+    fingerprint: (scope) => `${scope}-fingerprint`,
+    provider: providerId,
+    runtimeFamily: 'openai-compatible',
+  };
+
+  return { context, events };
+};
 
 // Mock the console.error to avoid polluting test output
 vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -159,6 +177,340 @@ describe('LobeOpenAICompatibleFactory', () => {
       expect(requestPayload.prompt_cache_key).toMatch(/^compat_cc_[a-f0-9]{32}$/);
       expect(requestPayload).not.toHaveProperty('openAICompatCache');
       expect(requestOptions.headers.Session_id).toBe(requestPayload.prompt_cache_key);
+    });
+
+    it('should preserve unobservable cache support without leaking internal metadata upstream', async () => {
+      const LobeUnobservableProvider = createOpenAICompatibleRuntime({
+        baseURL: 'https://api.test.com/v1',
+        cacheSupport: 'unobservable',
+        provider: 'unobservable-provider',
+      });
+      const unobservableInstance = new LobeUnobservableProvider({ apiKey: 'test' });
+      const mockResponse = {
+        choices: [
+          {
+            finish_reason: 'stop',
+            index: 0,
+            logprobs: null,
+            message: { content: 'Hello', role: 'assistant' },
+          },
+        ],
+        created: 123,
+        id: 'response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 5,
+          prompt_tokens: 10,
+          total_tokens: 15,
+        },
+      } as OpenAI.ChatCompletion;
+      const createSpy = vi
+        .spyOn(unobservableInstance['client'].chat.completions, 'create')
+        .mockResolvedValue(mockResponse);
+      const events: ModelCacheDiagnosticEvent[] = [];
+      const cacheDiagnostics: ModelCacheDiagnosticContext = {
+        emit: (event) => events.push(event),
+        fingerprint: (scope) => `${scope}-fingerprint`,
+        provider: 'unobservable-provider',
+        runtimeFamily: 'openai-compatible',
+        toolCache: {
+          inputItemCount: 1,
+          toolCallCount: 1,
+          toolCallSetHash: '0123456789abcdef',
+          toolResults: [],
+        },
+      };
+
+      const response = await unobservableInstance.chat(
+        {
+          debugToolCache: cacheDiagnostics.toolCache,
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'private-model-id',
+          stream: false,
+        },
+        { cacheDiagnostics },
+      );
+      await response.text();
+
+      expect(createSpy.mock.calls[0][0]).not.toHaveProperty('debugToolCache');
+      expect(events).toEqual([
+        expect.objectContaining({
+          cacheSupport: 'unobservable',
+          type: 'request',
+        }),
+        expect.objectContaining({
+          cacheStatus: 'not_reported',
+          cacheSupport: 'unobservable',
+          type: 'usage',
+        }),
+      ]);
+    });
+
+    it('should not fall back to legacy cache logging when diagnostics are disabled', async () => {
+      const DisabledDiagnosticsProvider = createOpenAICompatibleRuntime({
+        baseURL: defaultBaseURL,
+        provider: 'openaicompatible',
+      });
+      const disabledDiagnosticsInstance = new DisabledDiagnosticsProvider({ apiKey: 'test' });
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      const originalDebugValue = process.env.DEBUG_OPENAICOMPATIBLE_CACHE;
+      process.env.DEBUG_OPENAICOMPATIBLE_CACHE = '1';
+
+      vi.spyOn(disabledDiagnosticsInstance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 1,
+          prompt_tokens: 1,
+          total_tokens: 2,
+        },
+      } as any);
+
+      try {
+        await disabledDiagnosticsInstance.chat(
+          {
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'private-model-id',
+            stream: false,
+          },
+          { cacheDiagnosticsDisabled: true },
+        );
+
+        expect(consoleLogSpy).not.toHaveBeenCalledWith(
+          '[openai-compatible-cache-debug:request]',
+          expect.anything(),
+        );
+        expect(consoleLogSpy).not.toHaveBeenCalledWith(
+          '[openai-compatible-cache-debug:usage]',
+          expect.anything(),
+        );
+      } finally {
+        consoleLogSpy.mockRestore();
+        if (originalDebugValue === undefined) delete process.env.DEBUG_OPENAICOMPATIBLE_CACHE;
+        else process.env.DEBUG_OPENAICOMPATIBLE_CACHE = originalDebugValue;
+      }
+    });
+
+    it('should emit terminal diagnostics for non-streaming request rejection', async () => {
+      const { context, events } = createCacheDiagnosticContext(provider);
+      vi.spyOn(instance['client'].chat.completions, 'create').mockRejectedValue(
+        new Error('PRIVATE_UPSTREAM_FAILURE'),
+      );
+
+      await expect(
+        instance.chat(
+          {
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'private-model-id',
+            stream: false,
+          },
+          { cacheDiagnostics: context },
+        ),
+      ).rejects.toBeDefined();
+
+      expect(events.map((event) => event.type)).toEqual(['request', 'terminal_error']);
+      expect(JSON.stringify(events)).not.toContain('PRIVATE_UPSTREAM_FAILURE');
+    });
+
+    it('should finalize Chat Completions JSON diagnostics from normalized usage', async () => {
+      const { context, events } = createCacheDiagnosticContext(provider);
+      vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 5,
+          prompt_cache_hit_tokens: 80,
+          prompt_cache_miss_tokens: 20,
+          prompt_tokens: 100,
+          total_tokens: 105,
+        },
+      } as any);
+
+      const response = await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'private-model-id',
+          responseMode: 'json',
+          stream: false,
+        },
+        { cacheDiagnostics: context },
+      );
+      await response.json();
+
+      expect(events).toEqual([
+        expect.objectContaining({ type: 'request' }),
+        expect.objectContaining({
+          cacheStatus: 'mixed',
+          type: 'usage',
+          usage: expect.objectContaining({
+            inputCacheMissTokens: 20,
+            inputCachedTokens: 80,
+          }),
+        }),
+      ]);
+    });
+
+    it('should finalize non-streaming Chat Completions diagnostics before body consumption', async () => {
+      const { context, events } = createCacheDiagnosticContext(provider);
+      vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 5,
+          prompt_cache_hit_tokens: 80,
+          prompt_cache_miss_tokens: 20,
+          prompt_tokens: 100,
+          total_tokens: 105,
+        },
+      } as any);
+
+      await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'private-model-id',
+          stream: false,
+        },
+        { cacheDiagnostics: context },
+      );
+
+      expect(events.map((event) => event.type)).toEqual(['request', 'usage']);
+    });
+
+    it('should preserve parent-owned repeated tool results stored out of order', async () => {
+      const createSpy = vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 1,
+          prompt_tokens: 1,
+          total_tokens: 2,
+        },
+      } as any);
+      const repeatedToolCall = {
+        function: { arguments: '{}', name: 'tavily_search' },
+        id: 'tavily____tavily_search____mcp:7',
+        type: 'function' as const,
+      };
+
+      await instance.chat({
+        messages: [
+          {
+            content: 'second result',
+            id: 'tool-2',
+            parentId: 'assistant-2',
+            role: 'tool',
+            tool_call_id: repeatedToolCall.id,
+          },
+          {
+            content: null,
+            id: 'assistant-1',
+            role: 'assistant',
+            tool_calls: [repeatedToolCall],
+          },
+          {
+            content: 'first result',
+            id: 'tool-1',
+            parentId: 'assistant-1',
+            role: 'tool',
+            tool_call_id: repeatedToolCall.id,
+          },
+          {
+            content: null,
+            id: 'assistant-2',
+            role: 'assistant',
+            tool_calls: [repeatedToolCall],
+          },
+        ] as any,
+        model: 'private-model-id',
+        responseMode: 'json',
+        stream: false,
+      });
+
+      const requestMessages = createSpy.mock.calls[0][0].messages as any[];
+      expect(requestMessages.map((message) => message.content)).toEqual([
+        null,
+        'first result',
+        null,
+        'second result',
+      ]);
+      expect(requestMessages.every((message) => !('id' in message))).toBe(true);
+      expect(requestMessages.every((message) => !('parentId' in message))).toBe(true);
+    });
+
+    it('should pass repaired messages and initialized diagnostics to custom clients', async () => {
+      const createChatCompletionStream = vi.fn(() => new ReadableStream());
+      const CustomClientRuntime = createOpenAICompatibleRuntime({
+        baseURL: 'https://api.test.com/v1',
+        customClient: { createChatCompletionStream },
+        provider,
+      });
+      const customClientInstance = new CustomClientRuntime({ apiKey: 'test' });
+      const { context, events } = createCacheDiagnosticContext(provider);
+      const repeatedToolCall = {
+        function: { arguments: '{}', name: 'tavily_search' },
+        id: 'tavily____tavily_search____mcp:7',
+        type: 'function' as const,
+      };
+
+      await customClientInstance.chat(
+        {
+          messages: [
+            {
+              content: 'second result',
+              id: 'tool-2',
+              parentId: 'assistant-2',
+              role: 'tool',
+              tool_call_id: repeatedToolCall.id,
+            },
+            {
+              content: null,
+              id: 'assistant-1',
+              role: 'assistant',
+              tool_calls: [repeatedToolCall],
+            },
+            {
+              content: 'first result',
+              id: 'tool-1',
+              parentId: 'assistant-1',
+              role: 'tool',
+              tool_call_id: repeatedToolCall.id,
+            },
+            {
+              content: null,
+              id: 'assistant-2',
+              role: 'assistant',
+              tool_calls: [repeatedToolCall],
+            },
+          ] as any,
+          model: 'private-model-id',
+          stream: true,
+        },
+        { cacheDiagnostics: context },
+      );
+
+      const customPayload = createChatCompletionStream.mock.calls[0][1] as ChatStreamPayload;
+      expect(customPayload.messages.map((message) => message.content)).toEqual([
+        null,
+        'first result',
+        null,
+        'second result',
+      ]);
+      expect(customPayload.messages.every((message) => !('id' in message))).toBe(true);
+      expect(customPayload.messages.every((message) => !('parentId' in message))).toBe(true);
+      expect(events.map((event) => event.type)).toEqual(['request']);
     });
 
     describe('streaming response', () => {
@@ -1030,6 +1382,263 @@ describe('LobeOpenAICompatibleFactory', () => {
     });
 
     describe('responses routing', () => {
+      it('should emit one terminal diagnostic and abort upstream on consumer cancellation', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const { context, events } = createCacheDiagnosticContext(ModelProvider.OpenAI);
+        const onCancel = vi.fn();
+        let upstreamSignal: AbortSignal | undefined;
+        vi.spyOn(inst['client'].responses, 'create').mockImplementation((_payload, options) => {
+          upstreamSignal = options?.signal;
+          return new Promise(() => undefined) as any;
+        });
+
+        const response = await inst.chat(
+          {
+            messages: [{ content: 'continue after tools', role: 'user' }],
+            model: 'gpt-5.6-sol',
+            stream: true,
+          },
+          { cacheDiagnostics: context, callback: { onCancel } },
+        );
+        const reader = response.body!.getReader();
+        await reader.read();
+        await reader.cancel('consumer_cancelled');
+
+        await vi.waitFor(() => expect(upstreamSignal?.aborted).toBe(true));
+        expect(onCancel).toHaveBeenCalledWith('consumer_cancelled');
+        expect(events.map((event) => event.type)).toEqual(['request', 'terminal_error']);
+      });
+
+      it('should emit terminal diagnostics for non-streaming Responses request rejection', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const { context, events } = createCacheDiagnosticContext(ModelProvider.OpenAI);
+        vi.spyOn(inst['client'].responses, 'create').mockRejectedValue(
+          new Error('PRIVATE_RESPONSES_FAILURE'),
+        );
+
+        await expect(
+          inst.chat(
+            {
+              messages: [{ content: 'Hello', role: 'user' }],
+              model: 'gpt-5.6-sol',
+              stream: false,
+            },
+            { cacheDiagnostics: context },
+          ),
+        ).rejects.toBeDefined();
+
+        expect(events.map((event) => event.type)).toEqual(['request', 'terminal_error']);
+        expect(JSON.stringify(events)).not.toContain('PRIVATE_RESPONSES_FAILURE');
+      });
+
+      it('should finalize Responses JSON diagnostics from normalized usage', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const { context, events } = createCacheDiagnosticContext(ModelProvider.OpenAI);
+        vi.spyOn(inst['client'].responses, 'create').mockResolvedValue({
+          created_at: 123,
+          error: null,
+          id: 'private-response-id',
+          incomplete_details: null,
+          instructions: null,
+          max_output_tokens: null,
+          metadata: {},
+          model: 'private-model-id',
+          object: 'response',
+          output: [],
+          parallel_tool_calls: true,
+          previous_response_id: null,
+          reasoning: null,
+          status: 'completed',
+          temperature: null,
+          text: { format: { type: 'text' } },
+          tool_choice: 'auto',
+          tools: [],
+          top_p: null,
+          truncation: 'disabled',
+          usage: {
+            input_tokens: 100,
+            input_tokens_details: { cached_tokens: 80 },
+            output_tokens: 5,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 105,
+          },
+          user: null,
+        } as any);
+
+        const response = await inst.chat(
+          {
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'gpt-5.6-sol',
+            responseMode: 'json',
+            stream: false,
+          },
+          { cacheDiagnostics: context },
+        );
+        await response.json();
+
+        expect(events).toEqual([
+          expect.objectContaining({ type: 'request' }),
+          expect.objectContaining({
+            cacheStatus: 'mixed',
+            type: 'usage',
+            usage: expect.objectContaining({
+              inputCacheMissTokens: 20,
+              inputCachedTokens: 80,
+            }),
+          }),
+        ]);
+      });
+
+      it('should finalize non-streaming Responses diagnostics before body consumption', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const { context, events } = createCacheDiagnosticContext(ModelProvider.OpenAI);
+        vi.spyOn(inst['client'].responses, 'create').mockResolvedValue({
+          created_at: 123,
+          error: null,
+          id: 'private-response-id',
+          incomplete_details: null,
+          instructions: null,
+          max_output_tokens: null,
+          metadata: {},
+          model: 'private-model-id',
+          object: 'response',
+          output: [],
+          parallel_tool_calls: true,
+          previous_response_id: null,
+          reasoning: null,
+          status: 'completed',
+          temperature: null,
+          text: { format: { type: 'text' } },
+          tool_choice: 'auto',
+          tools: [],
+          top_p: null,
+          truncation: 'disabled',
+          usage: {
+            input_tokens: 100,
+            input_tokens_details: { cached_tokens: 80 },
+            output_tokens: 5,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 105,
+          },
+          user: null,
+        } as any);
+
+        await inst.chat(
+          {
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'gpt-5.6-sol',
+            stream: false,
+          },
+          { cacheDiagnostics: context },
+        );
+
+        expect(events.map((event) => event.type)).toEqual(['request', 'usage']);
+      });
+
+      it('should repair repeated tool rounds before converting Responses input', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const createSpy = vi.spyOn(inst['client'].responses, 'create').mockResolvedValue({
+          created_at: 123,
+          error: null,
+          id: 'private-response-id',
+          incomplete_details: null,
+          instructions: null,
+          max_output_tokens: null,
+          metadata: {},
+          model: 'gpt-5.6-sol',
+          object: 'response',
+          output: [],
+          parallel_tool_calls: true,
+          previous_response_id: null,
+          reasoning: null,
+          status: 'completed',
+          temperature: null,
+          text: { format: { type: 'text' } },
+          tool_choice: 'auto',
+          tools: [],
+          top_p: null,
+          truncation: 'disabled',
+          usage: null,
+          user: null,
+        } as any);
+        const repeatedToolCall = {
+          function: { arguments: '{}', name: 'tavily_search' },
+          id: 'tavily____tavily_search____mcp:7',
+          type: 'function' as const,
+        };
+
+        await inst.chat({
+          messages: [
+            {
+              content: 'second result',
+              id: 'tool-2',
+              parentId: 'assistant-2',
+              role: 'tool',
+              tool_call_id: repeatedToolCall.id,
+            },
+            {
+              content: null,
+              id: 'assistant-1',
+              role: 'assistant',
+              tool_calls: [repeatedToolCall],
+            },
+            {
+              content: 'first result',
+              id: 'tool-1',
+              parentId: 'assistant-1',
+              role: 'tool',
+              tool_call_id: repeatedToolCall.id,
+            },
+            {
+              content: null,
+              id: 'assistant-2',
+              role: 'assistant',
+              tool_calls: [repeatedToolCall],
+            },
+          ] as any,
+          model: 'gpt-5.6-sol',
+          responseMode: 'json',
+          stream: false,
+        });
+
+        const responseInput = createSpy.mock.calls[0][0].input as any[];
+        expect(responseInput.map((item) => item.type)).toEqual([
+          'function_call',
+          'function_call_output',
+          'function_call',
+          'function_call_output',
+        ]);
+        expect(responseInput.filter((item) => item.type === 'function_call_output')).toEqual([
+          expect.objectContaining({ output: 'first result' }),
+          expect.objectContaining({ output: 'second result' }),
+        ]);
+      });
+
       it('returns an SSE heartbeat before a pending Responses handshake completes', async () => {
         const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',
@@ -1172,7 +1781,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           chatCompletion: {
             useResponse: true,
           },
-          provider: ModelProvider.OpenAI,
+          provider: ModelProvider.OpenAICompatible,
         });
 
         const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
@@ -1208,7 +1817,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           chatCompletion: {
             useResponse: true,
           },
-          provider: ModelProvider.OpenAI,
+          provider: ModelProvider.OpenAICompatible,
         });
 
         const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
@@ -1251,7 +1860,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           chatCompletion: {
             useResponse: true,
           },
-          provider: ModelProvider.OpenAI,
+          provider: ModelProvider.OpenAICompatible,
         });
 
         const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
@@ -1321,7 +1930,7 @@ describe('LobeOpenAICompatibleFactory', () => {
         const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
           baseURL: 'https://api.test.com/v1',
           chatCompletion: { useResponse: true },
-          provider: ModelProvider.OpenAI,
+          provider: ModelProvider.OpenAICompatible,
         });
         const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
         const mockResponsesCreate = vi

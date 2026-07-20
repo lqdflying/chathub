@@ -120,6 +120,32 @@ describe('mergeMultipleChatMethodOptions', () => {
     expect(callback2).toHaveBeenCalledWith(completionUsageData);
   });
 
+  it('should call all onCancel callbacks with the cancellation reason', async () => {
+    const callback1 = vi.fn();
+    const callback2 = vi.fn();
+    const cancellationReason = new Error('consumer disconnected');
+    const options = [{ callback: { onCancel: callback1 } }, { callback: { onCancel: callback2 } }];
+
+    const result = mergeMultipleChatMethodOptions(options);
+    await result.callback?.onCancel?.(cancellationReason);
+
+    expect(callback1).toHaveBeenCalledWith(cancellationReason);
+    expect(callback2).toHaveBeenCalledWith(cancellationReason);
+  });
+
+  it('should call all onError callbacks with normalized stream errors', async () => {
+    const callback1 = vi.fn();
+    const callback2 = vi.fn();
+    const streamError = { code: 'UPSTREAM_FAILED', name: 'ProviderStreamError' };
+    const options = [{ callback: { onError: callback1 } }, { callback: { onError: callback2 } }];
+
+    const result = mergeMultipleChatMethodOptions(options);
+    await result.callback?.onError?.(streamError);
+
+    expect(callback1).toHaveBeenCalledWith(streamError);
+    expect(callback2).toHaveBeenCalledWith(streamError);
+  });
+
   it('should call all onFinal callbacks with data', async () => {
     const callback1 = vi.fn();
     const callback2 = vi.fn();

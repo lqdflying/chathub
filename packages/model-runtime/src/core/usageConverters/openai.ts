@@ -13,9 +13,11 @@ export const convertOpenAIUsage = (
   payload?: ChatPayloadForTransformStream,
 ): ModelUsage => {
   // 目前只有 pplx 才有 citation_tokens
-  const inputTextTokens = usage.prompt_tokens || 0;
-  const inputCitationTokens = (usage as any).citation_tokens || 0;
-  const totalInputTokens = inputCitationTokens + inputTextTokens;
+  const inputTextTokens = usage.prompt_tokens;
+  const inputCitationTokens = (usage as any).citation_tokens;
+  const inputCitationTokensForTotal = inputCitationTokens ?? 0;
+  const inputTextTokensForTotal = inputTextTokens ?? 0;
+  const totalInputTokens = inputCitationTokensForTotal + inputTextTokensForTotal;
 
   const cachedTokens =
     (usage as any).prompt_cache_hit_tokens ??
@@ -25,21 +27,30 @@ export const convertOpenAIUsage = (
   const inputCacheMissTokens =
     (usage as any).prompt_cache_miss_tokens ??
     (cachedTokens === undefined ? undefined : totalInputTokens - cachedTokens);
+  const inputWriteCacheTokens =
+    (usage.prompt_tokens_details as { cache_write_tokens?: number } | undefined)
+      ?.cache_write_tokens ?? (usage as any).cache_write_tokens;
 
   const totalOutputTokens = usage.completion_tokens;
-  const outputReasoning = usage.completion_tokens_details?.reasoning_tokens || 0;
-  const outputAudioTokens = usage.completion_tokens_details?.audio_tokens || 0;
-  const outputImageTokens = (usage.completion_tokens_details as any)?.image_tokens || 0;
+  const outputReasoning = usage.completion_tokens_details?.reasoning_tokens;
+  const outputAudioTokens = usage.completion_tokens_details?.audio_tokens;
+  const outputImageTokens = (usage.completion_tokens_details as any)?.image_tokens;
+  const outputReasoningForTotal = outputReasoning ?? 0;
+  const outputAudioTokensForTotal = outputAudioTokens ?? 0;
+  const outputImageTokensForTotal = outputImageTokens ?? 0;
 
   // XAI 的 completion_tokens 不包含 reasoning_tokens，需要特殊处理
   const outputTextTokens =
     payload?.provider === 'xai'
-      ? totalOutputTokens - outputAudioTokens
-      : totalOutputTokens - outputReasoning - outputAudioTokens - outputImageTokens;
+      ? totalOutputTokens - outputAudioTokensForTotal
+      : totalOutputTokens -
+        outputReasoningForTotal -
+        outputAudioTokensForTotal -
+        outputImageTokensForTotal;
   const totalOutputTokensNormalized =
-    payload?.provider === 'xai' ? totalOutputTokens + outputReasoning : totalOutputTokens;
+    payload?.provider === 'xai' ? totalOutputTokens + outputReasoningForTotal : totalOutputTokens;
 
-  const totalTokens = inputCitationTokens + usage.total_tokens;
+  const totalTokens = inputCitationTokensForTotal + usage.total_tokens;
 
   const data = {
     acceptedPredictionTokens: usage.completion_tokens_details?.accepted_prediction_tokens,
@@ -48,6 +59,7 @@ export const convertOpenAIUsage = (
     inputCachedTokens: cachedTokens,
     inputCitationTokens: inputCitationTokens,
     inputTextTokens: inputTextTokens,
+    inputWriteCacheTokens,
     outputAudioTokens: outputAudioTokens,
     outputImageTokens: outputImageTokens,
     outputReasoningTokens: outputReasoning,
@@ -58,22 +70,11 @@ export const convertOpenAIUsage = (
     totalTokens,
   } satisfies ModelTokensUsage;
 
-  const finalData = {};
+  const finalData: Partial<ModelTokensUsage> = {};
 
   Object.entries(data).forEach(([key, value]) => {
-    // A zero cache miss is meaningful when a compatible provider reports a full cache hit.
-    if (
-      key === 'inputCacheMissTokens' &&
-      (payload?.provider === 'moonshot' || payload?.provider === 'openaicompatible') &&
-      data.inputCachedTokens !== undefined
-    ) {
-      // @ts-ignore
-      finalData[key] = value;
-      return;
-    }
-    if (!!value) {
-      // @ts-ignore
-      finalData[key] = value;
+    if (value !== undefined && value !== null) {
+      finalData[key as keyof ModelTokensUsage] = value;
     }
   });
 
@@ -82,18 +83,42 @@ export const convertOpenAIUsage = (
   return withUsageCost(finalData as ModelUsage, payload?.pricing);
 };
 
+export const normalizeOpenAIStreamUsage = (usage: ModelUsage): ModelUsage => {
+  const normalizedUsage = { ...usage } as Partial<ModelUsage>;
+  const optionalTokenKeys: Array<keyof ModelTokensUsage> = [
+    'acceptedPredictionTokens',
+    'inputAudioTokens',
+    'inputCachedTokens',
+    'inputWriteCacheTokens',
+    'outputAudioTokens',
+    'outputImageTokens',
+    'outputReasoningTokens',
+    'rejectedPredictionTokens',
+  ];
+
+  optionalTokenKeys.forEach((key) => {
+    if (normalizedUsage[key] === 0) delete normalizedUsage[key];
+  });
+
+  return normalizedUsage as ModelUsage;
+};
+
 export const convertOpenAIResponseUsage = (
   usage: OpenAI.Responses.ResponseUsage,
   payload?: ChatPayloadForTransformStream,
 ): ModelUsage => {
   // 1. Extract and default primary values
-  const totalInputTokens = usage.input_tokens || 0;
-  const inputCachedTokens = usage.input_tokens_details?.cached_tokens ?? undefined;
+  const totalInputTokens = usage.input_tokens;
+  const inputCachedTokens =
+    usage.input_tokens_details?.cached_tokens ?? (usage as any).cached_tokens;
+  const inputWriteCacheTokens =
+    (usage.input_tokens_details as { cache_write_tokens?: number } | undefined)
+      ?.cache_write_tokens ?? (usage as any).cache_write_tokens;
 
-  const totalOutputTokens = usage.output_tokens || 0;
-  const outputReasoningTokens = usage.output_tokens_details?.reasoning_tokens || 0;
+  const totalOutputTokens = usage.output_tokens;
+  const outputReasoningTokens = usage.output_tokens_details?.reasoning_tokens;
 
-  const overallTotalTokens = usage.total_tokens || 0;
+  const overallTotalTokens = usage.total_tokens;
 
   // 2. Calculate derived values
   const inputCacheMissTokens =
@@ -102,8 +127,9 @@ export const convertOpenAIResponseUsage = (
   // For ResponseUsage, inputTextTokens is effectively totalInputTokens as no further breakdown is given.
   const inputTextTokens = totalInputTokens;
 
-  const outputImageTokens = (usage.output_tokens_details as any)?.image_tokens || 0;
-  const outputTextTokens = totalOutputTokens - outputReasoningTokens - outputImageTokens;
+  const outputImageTokens = (usage.output_tokens_details as any)?.image_tokens;
+  const outputTextTokens =
+    totalOutputTokens - (outputReasoningTokens ?? 0) - (outputImageTokens ?? 0);
 
   // 3. Construct the comprehensive data object (matching ModelTokensUsage structure)
   const data = {
@@ -115,6 +141,7 @@ export const convertOpenAIResponseUsage = (
     inputCachedTokens: inputCachedTokens,
     inputCitationTokens: undefined, // Not in ResponseUsage
     inputTextTokens: inputTextTokens,
+    inputWriteCacheTokens,
     outputAudioTokens: undefined, // Not in ResponseUsage
     outputImageTokens: outputImageTokens,
     outputReasoningTokens: outputReasoningTokens,
@@ -125,18 +152,11 @@ export const convertOpenAIResponseUsage = (
     totalTokens: overallTotalTokens,
   } satisfies ModelTokensUsage; // This helps ensure all keys of ModelTokensUsage are considered
 
-  // 4. Filter out zero/falsy values, as done in the reference implementation
+  // 4. Preserve measured zeroes while excluding unavailable counters.
   const finalData: Partial<ModelUsage> = {}; // Use Partial for type safety during construction
   Object.entries(data).forEach(([key, value]) => {
-    // A zero cache miss is meaningful when Responses usage reports a full cache hit.
-    if (key === 'inputCacheMissTokens' && data.inputCachedTokens !== undefined) {
-      // @ts-ignore - We are building an object that will conform to ModelTokensUsage
-      finalData[key] = value;
-      return;
-    }
-    if (!!value) {
-      // @ts-ignore - We are building an object that will conform to ModelTokensUsage
-      finalData[key] = value;
+    if (value !== undefined && value !== null) {
+      finalData[key as keyof ModelTokensUsage] = value;
     }
   });
 

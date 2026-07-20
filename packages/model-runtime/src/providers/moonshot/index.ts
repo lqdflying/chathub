@@ -97,18 +97,17 @@ const patchAssistantToolCallReasoning = (
 export const buildMoonshotPayload = (
   payload: ChatStreamPayload,
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
-  const {
-    enabledSearch,
-    frequency_penalty: _frequencyPenalty,
-    messages,
-    model,
-    presence_penalty: _presencePenalty,
-    temperature: _temperature,
-    thinking,
-    tools,
-    top_p: _topP,
-    ...rest
-  } = payload;
+  const requestPayload = { ...payload };
+  const { enabledSearch, messages, model, thinking, tools } = requestPayload;
+  delete requestPayload.enabledSearch;
+  delete requestPayload.frequency_penalty;
+  delete requestPayload.messages;
+  delete requestPayload.model;
+  delete requestPayload.presence_penalty;
+  delete requestPayload.temperature;
+  delete requestPayload.thinking;
+  delete requestPayload.tools;
+  delete requestPayload.top_p;
 
   const isK25Style = isKimiK25StyleThinkingModel(model);
   const isK3 = isKimiK3Model(model);
@@ -116,11 +115,9 @@ export const buildMoonshotPayload = (
 
   // Moonshot API forbids thinking + $web_search simultaneously, so when
   // built-in search is active we treat thinking as disabled for payload shaping.
-  const searchForcesThinkingOff =
-    !!enabledSearch && (isK25Style || (isNativeThinking && !isK3));
+  const searchForcesThinkingOff = !!enabledSearch && (isK25Style || (isNativeThinking && !isK3));
   const isThinkingEnabled =
-    !searchForcesThinkingOff &&
-    (isNativeThinking || (isK25Style && thinking?.type !== 'disabled'));
+    !searchForcesThinkingOff && (isNativeThinking || (isK25Style && thinking?.type !== 'disabled'));
 
   // Normalize messages for reasoning_content
   let normalizedMessages = normalizeMessagesForMoonshot(
@@ -148,14 +145,12 @@ export const buildMoonshotPayload = (
         : { type: 'disabled' as const };
 
     const withKeep =
-      model === 'kimi-k2.6' &&
-      thinkingParam.type === 'enabled' &&
-      thinking?.keep === 'all'
+      model === 'kimi-k2.6' && thinkingParam.type === 'enabled' && thinking?.keep === 'all'
         ? { ...thinkingParam, keep: 'all' as const }
         : thinkingParam;
 
     return {
-      ...rest,
+      ...requestPayload,
       messages: normalizedMessages,
       model,
       stream: payload.stream ?? true,
@@ -165,10 +160,11 @@ export const buildMoonshotPayload = (
   }
 
   if (isK3) {
-    const { n: _candidateCount, reasoning: _reasoning, ...k3Payload } = rest;
+    delete requestPayload.n;
+    delete requestPayload.reasoning;
 
     return {
-      ...k3Payload,
+      ...requestPayload,
       messages: normalizedMessages,
       model,
       reasoning_effort: 'max',
@@ -180,7 +176,7 @@ export const buildMoonshotPayload = (
   // kimi-k2-thinking / kimi-k2-thinking-turbo: native thinking; do not send `thinking`.
   if (isNativeThinking) {
     return {
-      ...rest,
+      ...requestPayload,
       messages: normalizedMessages,
       model,
       stream: payload.stream ?? true,
@@ -189,7 +185,7 @@ export const buildMoonshotPayload = (
   }
 
   return {
-    ...rest,
+    ...requestPayload,
     messages: normalizedMessages,
     model,
     stream: payload.stream ?? true,
@@ -226,6 +222,7 @@ if (process.env.LLM_VISION_IMAGE_USE_BASE64 !== '1') {
 
 export const LobeMoonshotAI = createOpenAICompatibleRuntime({
   baseURL: 'https://api.moonshot.cn/v1',
+  cacheSupport: 'unobservable',
   chatCompletion: {
     handlePayload: buildMoonshotPayload,
   },

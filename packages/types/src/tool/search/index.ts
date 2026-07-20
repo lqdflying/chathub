@@ -48,6 +48,12 @@ export interface UniformSearchResponse {
 }
 
 export interface SearchServiceImpl {
-  crawlPages(params: CrawlMultiPagesQuery): Promise<{ results: CrawlUniformResult[] }>;
-  webSearch(params: SearchQuery): Promise<UniformSearchResponse>;
+  crawlPages(
+    params: CrawlMultiPagesQuery,
+    options?: { diagnosticId?: string },
+  ): Promise<{ results: CrawlUniformResult[] }>;
+  webSearch(
+    params: SearchQuery,
+    options?: { diagnosticId?: string },
+  ): Promise<UniformSearchResponse>;
 }

@@ -13,14 +13,21 @@ export interface SearchAction {
     id: string,
     params: { urls: string[] },
     aiSummary?: boolean,
+    diagnosticId?: string,
   ) => Promise<boolean | undefined>;
   crawlSinglePage: (
     id: string,
     params: { url: string },
     aiSummary?: boolean,
+    diagnosticId?: string,
   ) => Promise<boolean | undefined>;
   saveSearchResult: (id: string) => Promise<void>;
-  search: (id: string, data: SearchQuery, aiSummary?: boolean) => Promise<void | boolean>;
+  search: (
+    id: string,
+    data: SearchQuery,
+    aiSummary?: boolean,
+    diagnosticId?: string,
+  ) => Promise<void | boolean>;
   togglePageContent: (url: string) => void;
   toggleSearchLoading: (id: string, loading: boolean) => void;
   /**
@@ -42,11 +49,14 @@ export const searchSlice: StateCreator<
   [],
   SearchAction
 > = (set, get) => ({
-  crawlMultiPages: async (id, params, aiSummary = true) => {
+  crawlMultiPages: async (id, params, aiSummary = true, diagnosticId) => {
     const { internal_updateMessageContent } = get();
     get().toggleSearchLoading(id, true);
     try {
-      const { content, success, error, state } = await runtime.crawlMultiPages(params);
+      const { content, success, error, state } = await runtime.crawlMultiPages(
+        params,
+        diagnosticId ? { diagnosticId } : undefined,
+      );
 
       await internal_updateMessageContent(id, content);
 
@@ -71,10 +81,10 @@ export const searchSlice: StateCreator<
     }
   },
 
-  crawlSinglePage: async (id, params, aiSummary) => {
+  crawlSinglePage: async (id, params, aiSummary, diagnosticId) => {
     const { crawlMultiPages } = get();
 
-    return await crawlMultiPages(id, { urls: [params.url] }, aiSummary);
+    return await crawlMultiPages(id, { urls: [params.url] }, aiSummary, diagnosticId);
   },
 
   saveSearchResult: async (id) => {
@@ -118,10 +128,13 @@ export const searchSlice: StateCreator<
     openToolUI(newMessageId, message.plugin.identifier);
   },
 
-  search: async (id, params, aiSummary = true) => {
+  search: async (id, params, aiSummary = true, diagnosticId) => {
     get().toggleSearchLoading(id, true);
 
-    const { content, success, error, state } = await runtime.search(params);
+    const { content, success, error, state } = await runtime.search(
+      params,
+      diagnosticId ? { diagnosticId } : undefined,
+    );
 
     if (success) {
       await get().updatePluginState(id, state);

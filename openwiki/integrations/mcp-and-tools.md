@@ -101,14 +101,14 @@ MCP code is easy to break in ways that only show up in deployment-specific paths
 
 ## Tool call debug
 
-`CHATHUB_TOOLS_DEBUG` is the one-switch entry point for tool and MCP diagnostics. Set it on the server (container env) and recreate the service; no rebuild is needed.
+`CHATHUB_TOOLS_DEBUG` is the provider-independent entry point for tool and MCP diagnostics. Set it on the server (container env) and recreate the service; no rebuild is needed.
 
 ```bash
 CHATHUB_TOOLS_DEBUG=1       # structured safe metadata only
 CHATHUB_TOOLS_DEBUG=verbose # safe metadata + structured payload fingerprints
 ```
 
-Records use the same prefixed-JSON shape as the OpenAI-compatible cache logger: `[chathub-tools-debug:<event>] {json}`. In Axiom this populates `debug_namespace=chathub-tools-debug` and the event suffix as `debug_event`. Safe records contain structured technical metadata such as correlation IDs, sanitized labels and endpoints, counts, transport kind, status, timing, result shape, and bounded fingerprints. Verbose payload views additionally bound arrays, object width, and depth; property names and every non-secret string become length + SHA-256 fingerprint metadata, while secret-key values are omitted.
+Records use prefixed JSON: `[chathub-tools-debug:<event>] {json}`. In Axiom this populates `debug_namespace=chathub-tools-debug` and the event suffix as `debug_event`. Safe records contain structured technical metadata such as correlation IDs, sanitized labels and endpoints, counts, runtime/transport kind, terminal outcome, timing, result shape, and bounded fingerprints. Verbose payload views additionally bound arrays, object width, and depth; property names and every non-secret string become length + SHA-256 fingerprint metadata, while secret-key values are omitted.
 
 Safe mode now follows an MCP request end to end with an opaque `diagnosticId`: browser RPC, tRPC route, client cache/initialization, OAuth lookup and refresh, HTTP or stdio transport, MCP protocol operation, result normalization, serialization, and the outgoing tRPC response. Events include a versioned envelope, a `spanId` plus per-span event sequence, connection hash, safe tool/procedure labels, duration, retry/timeout state, response status/media type/size, result shape, and bounded fingerprints. The browser failure report is a second span with the same `diagnosticId`, so its sequence restarts without becoming ambiguous. `mcp.callTool` is deliberately unbatched so one invalid gateway response cannot fail sibling tool calls; unrelated Tools procedures remain batchable.
 
@@ -120,33 +120,82 @@ Desktop stdio calls return `client_required` because their MCP router has no ser
 
 Parallel MCP calls use one abort controller per tool-message ID. Finishing one call removes only its own controller and loading ID; retry/rewind cancellation aborts the entire controller registry. This prevents one Tavily call completing from replacing or disabling cancellation for sibling `search`, `extract`, or `map` calls.
 
+The common lifecycle also covers application built-ins, default plugins,
+markdown plugins, standalone plugins, desktop MCP, and `AgentRuntime`
+server-side tool execution. `tool_batch_started` records the expected call set;
+`tool_completion_reported` records one terminal outcome per call; and
+`tool_batch_settled` records `resultCount` and `failureCount`. Supported terminal
+outcomes are `completed`, `failed`, `cancelled`, `skipped`,
+`persistence_failed`, and `handed_off`. Diagnostic reporting is best-effort and
+fire-and-forget, so logging or telemetry failures cannot change tool behavior or
+delay the following model turn.
+
+Tool diagnostics expose two independent server capabilities:
+`toolLifecycleEnabled` follows `CHATHUB_TOOLS_DEBUG` and controls batch and
+per-call lifecycle reports, while `cacheContinuationEnabled` follows the
+provider-specific `DEBUG_*_CACHE=1` switches only when
+`KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET` is also configured. This mirrors the
+server-side fail-closed fingerprint requirement. Cache-only troubleshooting
+therefore keeps the batch correlation, result/failure counts, and bounded result
+summaries without enabling per-call lifecycle telemetry, but clients do not
+collect continuation metadata when cache diagnostics cannot produce keyed
+fingerprints. Capability discovery is best-effort: the client waits at most
+250 ms, caches successful responses for 30 seconds, and does not permanently
+cache rejected or timed-out requests.
+
+Provider-native tools are not local completions. OpenAI web search, Moonshot
+`$web_search`, Anthropic server tools, and Google grounding are classified as
+`delegated`/`handed_off`; ChatHub's own web-browsing tool remains `builtin`.
+This distinction prevents provider-side search from being counted as a
+successful local result.
+
 Useful phase events include `tools_rpc_started|complete|failed`, `tool_result_persistence_started|complete|failed`, `tool_persistence_rpc_started|complete|failed`, `client_cache_lookup`, `client_initialization_*`, `oauth_operation_*`, `transport_request_*`, `mcp_operation_*`, `call_tool_upstream_complete`, `call_tool_normalized`, `call_tool_complete`, and `client_rpc_response_failed`. `call_tool_upstream_complete` only means the MCP SDK returned; `call_tool_complete` is emitted after successful normalization, serialization, and the direct persistence attempt.
 
 ### Tool and cache correlation
 
-After a parallel tool batch settles, ChatHub sorts and deduplicates the
-`tool_call_id` values and derives a bounded 64-bit FNV-1a set hash. The browser
-forwards only the count and 16-hex hash in the internal continuation envelope;
-raw tool-call IDs, arguments, URLs, and result content remain outside
-diagnostics.
+For each tool batch, ChatHub derives stable synthetic `batchId` and
+`continuationId` values plus a bounded 16-hex hash over the sorted, deduplicated
+`tool_call_id` set. The internal continuation envelope contains only these
+correlations, expected/result/failure counts, and bounded result summaries; raw
+tool-call IDs, arguments, URLs, and result content remain outside diagnostics.
 
-Built-in and MCP completions are reported through
-`telemetry.reportToolCompletion`. Each report contains its own `diagnosticId`,
-the shared tool-call count and set hash, a bounded result-shape summary, and a
-hash of the tool name. Completion reports use isolated RPC requests so
-parallel reports cannot inherit the first operation's diagnostic header. They
-are dispatched fire-and-forget after tool settlement, so telemetry latency
-cannot delay the next model turn.
+Client-dispatched completions are reported through
+`telemetry.reportToolCompletion`. Each report contains its own call-ID hash and
+`diagnosticId`, the shared batch correlation, a bounded result-shape summary,
+runtime type, terminal outcome, and tool-name hash. Explicitly correlated nested
+Tools RPC calls use isolated requests so parallel web-search, MiniMax-vision,
+MCP, persistence, and telemetry operations cannot inherit a sibling's
+diagnostic header. Uncorrelated Tools procedures remain batchable.
 
-For OpenAI-compatible continuations, the same correlation is carried inside
-the server-side chat stream envelope as `debugToolCache`. The runtime enriches
-it with the effective cache policy and converted input count, uses it in
-`openai-compatible-cache-debug` request and usage records, and strips the
-internal field before every upstream request. Azure and other non-compatible
-providers do not receive the field; their adapters also remove it defensively
-if an internal caller supplies it.
+MCP `call_tool_complete` and `call_tool_failed` records inherit the same
+per-call `diagnosticId` from the isolated Tools RPC request. The validated MCP
+input also retains the bounded `batchId`, `continuationId`, tool-call set hash,
+and settled result/failure counts, so MCP server completion can be joined to
+the browser completion report and the following model request without logging
+raw tool IDs, arguments, or results.
+
+For every model provider, the same continuation correlation is removed from the
+request body at the authenticated chat boundary and carried through typed
+runtime options. Provider cache diagnostics attach it to `request`, `usage`,
+`usage_missing`, or `terminal_error` records. No continuation or cache policy
+metadata reaches upstream provider JSON; adapters also strip internal fields as
+defense in depth. Effective cache policy is reconstructed server-side and never
+merged from client-provided policy values.
+
+OpenAI-compatible request history repairs tool-result blocks by assistant
+occurrence, not by globally unique `tool_call_id`. A result with `parentId`
+belongs to that assistant turn; legacy results without `parentId` are consumed
+from a per-ID queue. This preserves repeated Kimi/Moonshot IDs across later
+turns while ensuring each assistant tool call has one distinct, immediately
+following tool result before the final provider request is fingerprinted.
 
 The privacy boundary is invariant at both levels: no raw arguments, results, prompts, resources, HTTP/HTML bodies, arbitrary error messages, stdout/stderr, environment values, authorization/cookie values, OAuth codes/state/verifiers, or credentials. Secret-keyed fields are omitted rather than hashed. Safe mode may show sanitized tool/procedure labels and URL origin/path; URL userinfo/query/fragment are removed and secret-shaped path segments are hashed. Records are capped at 16 KiB, and payload-shape work is skipped while diagnostics are disabled.
+
+Client-supplied `x-chathub-tools-diagnostic-id` values are never trusted as log
+labels. Tools and Lambda ingress routes replace valid external IDs with
+deployment-keyed HMAC fingerprints before installing the logging context; when
+no fingerprint secret is configured, they use a fresh server-owned ID instead.
+The response header carries the protected or server-owned value.
 
 The switch does not auto-enable existing `chathub-tools:*`, `lobe-mcp:*`, or `context-engine:*` debug namespaces and does not lower the global Pino level. Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text fallback when the corresponding event is not already emitted as structured JSON. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.
 

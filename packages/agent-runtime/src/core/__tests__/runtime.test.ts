@@ -1045,6 +1045,252 @@ describe('AgentRuntime', () => {
   });
 
   describe('Batch Tool Execution', () => {
+    it('emits server lifecycle events when CHATHUB_TOOLS_DEBUG is enabled', async () => {
+      class EnvironmentDiagnosticAgent implements Agent {
+        tools = {
+          private_tool_name: vi.fn().mockResolvedValue({ result: 'private-result-content' }),
+        };
+
+        async runner() {
+          return {
+            payload: {
+              function: { arguments: '{}', name: 'private_tool_name' },
+              id: 'private-call-identifier',
+              type: 'function' as const,
+            },
+            type: 'call_tool' as const,
+          };
+        }
+      }
+
+      vi.stubEnv('CHATHUB_TOOLS_DEBUG', '1');
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      const runtime = new AgentRuntime(new EnvironmentDiagnosticAgent());
+      const state = AgentRuntime.createInitialState({ sessionId: 'private-session-identifier' });
+
+      await runtime.step(state);
+
+      const diagnosticOutput = JSON.stringify(consoleLogSpy.mock.calls);
+      expect(diagnosticOutput).toContain('[chathub-tools-debug:tool_batch_started]');
+      expect(diagnosticOutput).toContain('[chathub-tools-debug:tool_batch_settled]');
+      expect(diagnosticOutput).toContain('[chathub-tools-debug:tool_completion_reported]');
+      expect(diagnosticOutput).toContain('\\"runtimeType\\":\\"server\\"');
+      expect(diagnosticOutput).toContain('\\"schemaVersion\\":2');
+      expect(diagnosticOutput).not.toContain('private-call-identifier');
+      expect(diagnosticOutput).not.toContain('private_tool_name');
+      expect(diagnosticOutput).not.toContain('private-result-content');
+      expect(diagnosticOutput).not.toContain('private-session-identifier');
+
+      consoleLogSpy.mockRestore();
+      vi.unstubAllEnvs();
+    });
+
+    it('reports bounded lifecycle diagnostics for every server tool call', async () => {
+      class DiagnosticBatchAgent implements Agent {
+        tools = {
+          first_tool: vi.fn().mockResolvedValue({ result: 'first' }),
+          second_tool: vi.fn().mockResolvedValue({ result: 'second' }),
+        };
+
+        async runner() {
+          return {
+            payload: [
+              {
+                function: { arguments: '{}', name: 'first_tool' },
+                id: 'raw-call-id-one',
+                type: 'function' as const,
+              },
+              {
+                function: { arguments: '{}', name: 'second_tool' },
+                id: 'raw-call-id-two',
+                type: 'function' as const,
+              },
+            ],
+            type: 'call_tools_batch' as const,
+          };
+        }
+      }
+
+      const reportBatch = vi.fn();
+      const reportCompletion = vi.fn();
+      const runtime = new AgentRuntime(new DiagnosticBatchAgent(), {
+        toolDiagnostics: { reportBatch, reportCompletion },
+      });
+      const state = AgentRuntime.createInitialState({ sessionId: 'diagnostic-session' });
+
+      const result = await runtime.step(state);
+      await vi.waitFor(() => expect(reportCompletion).toHaveBeenCalledTimes(2));
+
+      expect(result.events.filter((event) => event.type === 'tool_result')).toHaveLength(2);
+      expect(reportBatch).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          batchId: expect.stringMatching(/^tb_[\da-f]{20}$/),
+          continuationId: expect.stringMatching(/^tc_[\da-f]{20}$/),
+          toolCallCount: 2,
+          toolCallSetHash: expect.stringMatching(/^[\da-f]{16}$/),
+        }),
+        'started',
+      );
+      expect(reportBatch).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          failureCount: 0,
+          resultCount: 2,
+          toolCallCount: 2,
+        }),
+        'settled',
+      );
+      expect(reportCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          callIdHash: expect.stringMatching(/^[\da-f]{16}$/),
+          diagnosticId: expect.stringMatching(/^td_[\da-f]{20}$/),
+          outcome: 'completed',
+          result: expect.objectContaining({
+            truncated: false,
+            valueHash: expect.stringMatching(/^[\da-f]{16}$/),
+          }),
+          runtimeType: 'server',
+          toolNameHash: expect.stringMatching(/^[\da-f]{16}$/),
+        }),
+      );
+
+      const serializedReports = JSON.stringify(reportCompletion.mock.calls);
+      expect(serializedReports).not.toContain('raw-call-id-one');
+      expect(serializedReports).not.toContain('first_tool');
+    });
+
+    it('skips diagnostic correlation and reporting when the reporter is disabled', async () => {
+      const privateCallIdentifier = {
+        toString: () => {
+          throw new Error('diagnostic identifier should not be serialized');
+        },
+      };
+      class DisabledDiagnosticAgent implements Agent {
+        tools = {
+          reliable_tool: vi.fn().mockResolvedValue({ result: 'success' }),
+        };
+
+        async runner() {
+          return {
+            payload: {
+              function: { arguments: '{}', name: 'reliable_tool' },
+              id: privateCallIdentifier,
+              type: 'function' as const,
+            },
+            type: 'call_tool' as const,
+          };
+        }
+      }
+
+      const reportBatch = vi.fn();
+      const reportCompletion = vi.fn();
+      const runtime = new AgentRuntime(new DisabledDiagnosticAgent(), {
+        toolDiagnostics: {
+          isEnabled: () => false,
+          reportBatch,
+          reportCompletion,
+        },
+      });
+      const state = AgentRuntime.createInitialState({ sessionId: 'diagnostic-session' });
+
+      const result = await runtime.step(state);
+
+      expect(result.events).toContainEqual(
+        expect.objectContaining({
+          result: { result: 'success' },
+          type: 'tool_result',
+        }),
+      );
+      expect(reportBatch).not.toHaveBeenCalled();
+      expect(reportCompletion).not.toHaveBeenCalled();
+    });
+
+    it('fails fast when one batch tool rejects while another never settles', async () => {
+      class FailFastBatchAgent implements Agent {
+        tools = {
+          hanging_tool: vi.fn(() => new Promise(() => undefined)),
+          rejecting_tool: vi.fn().mockRejectedValue(new Error('tool rejected')),
+        };
+
+        async runner() {
+          return {
+            payload: [
+              {
+                function: { arguments: '{}', name: 'rejecting_tool' },
+                id: 'rejecting-call',
+                type: 'function' as const,
+              },
+              {
+                function: { arguments: '{}', name: 'hanging_tool' },
+                id: 'hanging-call',
+                type: 'function' as const,
+              },
+            ],
+            type: 'call_tools_batch' as const,
+          };
+        }
+      }
+
+      const runtime = new AgentRuntime(new FailFastBatchAgent());
+      const state = AgentRuntime.createInitialState({ sessionId: 'fail-fast-session' });
+
+      const result = await Promise.race([
+        runtime.step(state),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('batch did not fail fast')), 100);
+        }),
+      ]);
+
+      expect(result.events).toContainEqual(
+        expect.objectContaining({
+          error: expect.objectContaining({ message: 'tool rejected' }),
+          type: 'error',
+        }),
+      );
+      expect(result.newState.status).toBe('error');
+    });
+
+    it('isolates synchronous and asynchronous diagnostic reporter failures', async () => {
+      class ReporterFailureAgent implements Agent {
+        tools = {
+          reliable_tool: vi.fn().mockResolvedValue({ result: 'success' }),
+        };
+
+        async runner() {
+          return {
+            payload: {
+              function: { arguments: '{}', name: 'reliable_tool' },
+              id: 'call-reliable',
+              type: 'function' as const,
+            },
+            type: 'call_tool' as const,
+          };
+        }
+      }
+
+      const runtime = new AgentRuntime(new ReporterFailureAgent(), {
+        toolDiagnostics: {
+          reportBatch: () => {
+            throw new Error('synchronous diagnostic failure');
+          },
+          reportCompletion: () => Promise.reject(new Error('asynchronous diagnostic failure')),
+        },
+      });
+      const state = AgentRuntime.createInitialState({ sessionId: 'reporter-failure-session' });
+
+      const result = await runtime.step(state);
+
+      expect(result.events).toContainEqual(
+        expect.objectContaining({
+          id: 'call-reliable',
+          result: { result: 'success' },
+          type: 'tool_result',
+        }),
+      );
+      expect(result.newState.status).toBe('running');
+    });
+
     it('should execute multiple tools concurrently with call_tools_batch instruction', async () => {
       // Agent that returns multiple tool calls
       class BatchToolAgent implements Agent {

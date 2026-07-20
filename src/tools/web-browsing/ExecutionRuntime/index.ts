@@ -17,9 +17,14 @@ export class WebBrowsingExecutionRuntime {
     this.searchService = options.searchService;
   }
 
-  async search(args: SearchQuery): Promise<BuiltinServerRuntimeOutput> {
+  async search(
+    args: SearchQuery,
+    options?: { diagnosticId?: string },
+  ): Promise<BuiltinServerRuntimeOutput> {
     try {
-      const data = await this.searchService.webSearch(args as SearchQuery);
+      const data = options
+        ? await this.searchService.webSearch(args as SearchQuery, options)
+        : await this.searchService.webSearch(args as SearchQuery);
 
       // add LIMITED_COUNT search results to message content
       const searchContent: SearchContent[] = data.results
@@ -42,14 +47,21 @@ export class WebBrowsingExecutionRuntime {
     }
   }
 
-  async crawlSinglePage(args: CrawlSinglePageQuery): Promise<BuiltinServerRuntimeOutput> {
-    return this.crawlMultiPages({ urls: [args.url] });
+  async crawlSinglePage(
+    args: CrawlSinglePageQuery,
+    options?: { diagnosticId?: string },
+  ): Promise<BuiltinServerRuntimeOutput> {
+    return this.crawlMultiPages({ urls: [args.url] }, options);
   }
 
-  async crawlMultiPages(args: CrawlMultiPagesQuery): Promise<BuiltinServerRuntimeOutput> {
-    const response = await this.searchService.crawlPages({
-      urls: args.urls,
-    });
+  async crawlMultiPages(
+    args: CrawlMultiPagesQuery,
+    options?: { diagnosticId?: string },
+  ): Promise<BuiltinServerRuntimeOutput> {
+    const params = { urls: args.urls };
+    const response = options
+      ? await this.searchService.crawlPages(params, options)
+      : await this.searchService.crawlPages(params);
 
     const { results } = response;
 

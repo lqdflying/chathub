@@ -2,6 +2,8 @@
 import type { ChatStreamPayload } from '@lobechat/model-runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createTraceOptions } from './trace';
+
 const generationUpdate = vi.fn();
 const traceGeneration = vi.fn(() => ({
   id: 'generation-id',
@@ -13,15 +15,17 @@ const createTrace = vi.fn(() => ({
   id: 'trace-id',
   update: traceUpdate,
 }));
+const shutdownAsync = vi.fn();
 
 vi.mock('@/libs/traces', () => ({
   TraceClient: vi.fn(() => ({
     createTrace,
-    shutdownAsync: vi.fn(),
+    shutdownAsync,
   })),
 }));
-
-import { createTraceOptions } from './trace';
+vi.mock('next/server', () => ({
+  after: vi.fn((callback: () => Promise<void> | void) => callback()),
+}));
 
 describe('createTraceOptions', () => {
   beforeEach(() => {
@@ -68,5 +72,21 @@ describe('createTraceOptions', () => {
       }),
     );
     expect(traceUpdate).toHaveBeenCalledWith({ output: 'Hello back' });
+  });
+
+  it('shuts down tracing once when a stream is cancelled', async () => {
+    const payload = {
+      messages: [{ content: 'Hello', role: 'user' }],
+      model: 'compatible-model',
+    } as ChatStreamPayload;
+    const { callback } = createTraceOptions(payload, {
+      provider: 'openaicompatible',
+      trace: { traceId: 'trace-id' },
+    });
+
+    await callback.onCancel?.(new Error('consumer disconnected'));
+    await callback.onFinal?.({ text: '' });
+
+    expect(shutdownAsync).toHaveBeenCalledOnce();
   });
 });

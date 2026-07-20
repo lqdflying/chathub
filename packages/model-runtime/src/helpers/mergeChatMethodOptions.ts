@@ -7,6 +7,18 @@ const log = debug('model-runtime:helpers:mergeChatMethodOptions');
 export const mergeMultipleChatMethodOptions = (options: ChatMethodOptions[]): ChatMethodOptions => {
   let completionOptions: ChatMethodOptions = {};
   completionOptions.callback = {
+    onCancel: async (reason) => {
+      for (const option of options) {
+        if (option.callback?.onCancel) {
+          try {
+            await option.callback.onCancel(reason);
+          } catch (error) {
+            log('onCancel callback error:');
+            log(JSON.stringify(error));
+          }
+        }
+      }
+    },
     onCompletion: async (data) => {
       for (const option of options) {
         if (option.callback?.onCompletion) {
@@ -14,6 +26,18 @@ export const mergeMultipleChatMethodOptions = (options: ChatMethodOptions[]): Ch
             await option.callback.onCompletion(data);
           } catch (error) {
             log('onCompletion callback error:');
+            log(JSON.stringify(error));
+          }
+        }
+      }
+    },
+    onError: async (errorData) => {
+      for (const option of options) {
+        if (option.callback?.onError) {
+          try {
+            await option.callback.onError(errorData);
+          } catch (error) {
+            log('onError callback error:');
             log(JSON.stringify(error));
           }
         }

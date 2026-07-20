@@ -1,3 +1,4 @@
+import { repairOpenAIChatToolMessageSequence } from '@lobechat/utils';
 import debug from 'debug';
 import { ModelProvider } from 'model-bank';
 import OpenAI, { AzureOpenAI } from 'openai';
@@ -5,9 +6,17 @@ import type { Stream } from 'openai/streaming';
 
 import { systemToUserModels } from '../../const/models';
 import { LobeRuntimeAI } from '../../core/BaseAI';
+import {
+  createModelCacheDiagnosticCallbacks,
+  emitModelCacheRequest,
+  emitModelCacheTerminalError,
+  supportsTrustedPromptCacheKey,
+} from '../../core/cacheDiagnostics';
 import { convertImageUrlToFile, convertOpenAIMessages } from '../../core/contextBuilders/openai';
 import { transformResponseToStream } from '../../core/openaiCompatibleFactory';
-import { OpenAIStream } from '../../core/streams';
+import { OpenAIStream, tapAsyncIterable } from '../../core/streams';
+import { convertOpenAIUsage } from '../../core/usageConverters';
+import { mergeMultipleChatMethodOptions } from '../../helpers';
 import {
   ChatMethodOptions,
   ChatStreamPayload,
@@ -18,13 +27,21 @@ import {
 import { AgentRuntimeErrorType } from '../../types/error';
 import { CreateImagePayload, CreateImageResponse } from '../../types/image';
 import { AgentRuntimeError } from '../../utils/createError';
-import { debugStream } from '../../utils/debugStream';
 import { StreamingResponse } from '../../utils/response';
 import { sanitizeError } from '../../utils/sanitizeError';
 
 const azureImageLogger = debug('lobe-image:azure');
+
+const supportsStreamingUsage = (apiVersion: string | undefined): boolean => {
+  if (apiVersion === 'v1') return true;
+
+  const versionDate = apiVersion?.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return versionDate !== undefined && versionDate >= '2024-08-01';
+};
+
 export class LobeAzureOpenAI implements LobeRuntimeAI {
   client: AzureOpenAI;
+  private apiVersion?: string;
 
   constructor(params: { apiKey?: string; apiVersion?: string; baseURL?: string } = {}) {
     if (!params.apiKey || !params.baseURL)
@@ -37,18 +54,26 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
       endpoint: params.baseURL,
     });
 
+    this.apiVersion = params.apiVersion;
     this.baseURL = params.baseURL;
   }
 
   baseURL: string;
 
   async chat(payload: ChatStreamPayload, options?: ChatMethodOptions) {
+    let cacheRequestHash: string | undefined;
     const { messages, model, ...params } = payload;
+    delete params.catalogModel;
     delete (params as ChatStreamPayload & { debugToolCache?: unknown }).debugToolCache;
+    delete params.openAICompatCache;
+    delete params.openAICompatResponsesParams;
+    delete params.prompt_cache_key;
+    delete params.provider;
+    delete params.responseStateMode;
     // o1 series models on Azure OpenAI does not support streaming currently
     const enableStreaming = model.includes('o1') ? false : (params.stream ?? true);
 
-    const updatedMessages = messages.map((message) => ({
+    const updatedMessages = repairOpenAIChatToolMessageSequence(messages).map((message) => ({
       ...message,
       role:
         // Convert 'system' role to 'user' or 'developer' based on the model
@@ -65,6 +90,12 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
 
       // Convert 'minimal' to 'low' for OpenAI SDK compatibility
       const compatibleReasoningEffort = reasoning_effort === 'minimal' ? 'low' : reasoning_effort;
+      const trustedPromptCacheKey =
+        options?.trustedCatalogModel &&
+        supportsTrustedPromptCacheKey(options.trustedCatalogModel) &&
+        options.trustedPromptCacheKey
+          ? options.trustedPromptCacheKey
+          : undefined;
 
       const baseParams = {
         messages: await convertOpenAIMessages(
@@ -73,8 +104,38 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
         model,
         ...otherParams,
         max_completion_tokens: undefined,
+        ...(trustedPromptCacheKey ? { prompt_cache_key: trustedPromptCacheKey } : {}),
         tool_choice: params.tools ? ('auto' as const) : undefined,
       };
+      cacheRequestHash = emitModelCacheRequest(options?.cacheDiagnostics, {
+        apiType: 'chat-completions',
+        cacheMechanism: trustedPromptCacheKey ? 'request-key' : 'automatic',
+        cachePolicy: { promptCacheKey: !!trustedPromptCacheKey },
+        cacheSupport: 'supported',
+        inputItemCount: updatedMessages.length,
+        model,
+        requestFingerprintSource: {
+          messages: baseParams.messages,
+          model,
+          tools: baseParams.tools,
+        },
+        stream: enableStreaming,
+        toolCount: baseParams.tools?.length ?? 0,
+      });
+      const cacheDiagnosticCallbacks = createModelCacheDiagnosticCallbacks(
+        options?.cacheDiagnostics,
+        {
+          apiType: 'chat-completions',
+          cacheSupport: 'supported',
+          requestHash: cacheRequestHash,
+        },
+      );
+      const callbacks = cacheDiagnosticCallbacks
+        ? mergeMultipleChatMethodOptions([
+            { callback: options?.callback },
+            { callback: cacheDiagnosticCallbacks },
+          ]).callback
+        : options?.callback;
 
       // Add reasoning_effort only if it exists and cast to proper type
       const openaiParams = compatibleReasoningEffort
@@ -85,27 +146,72 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
         : baseParams;
 
       const response = enableStreaming
-        ? await this.client.chat.completions.create({ ...openaiParams, stream: true })
+        ? await this.client.chat.completions.create({
+            ...openaiParams,
+            stream: true,
+            ...(supportsStreamingUsage(this.apiVersion)
+              ? { stream_options: { include_usage: true } }
+              : {}),
+          })
         : await this.client.chat.completions.create({ ...openaiParams, stream: false });
       if (enableStreaming) {
-        const stream = response as Stream<OpenAI.ChatCompletionChunk>;
-        const [prod, debug] = stream.tee();
+        let stream = response as Stream<OpenAI.ChatCompletionChunk>;
         if (process.env.DEBUG_AZURE_CHAT_COMPLETION === '1') {
-          debugStream(debug.toReadableStream()).catch(console.error);
+          stream = tapAsyncIterable(stream, (chunk) => {
+            console.log(JSON.stringify(chunk));
+          });
         }
-        return StreamingResponse(OpenAIStream(prod, { callbacks: options?.callback }), {
-          headers: options?.headers,
-        });
-      } else {
-        const stream = transformResponseToStream(response as OpenAI.ChatCompletion);
         return StreamingResponse(
-          OpenAIStream(stream, { callbacks: options?.callback, enableStreaming: false }),
+          OpenAIStream(stream, {
+            callbacks,
+            payload: {
+              cacheDiagnostics: options?.cacheDiagnostics,
+              cacheRequestHash,
+              model,
+              provider: ModelProvider.Azure,
+            },
+          }),
           {
             headers: options?.headers,
+            onCancel: async (reason) => {
+              await Promise.allSettled([
+                callbacks?.onCancel?.(reason),
+                cacheDiagnosticCallbacks?.onError?.(reason),
+              ]);
+            },
+          },
+        );
+      } else {
+        await cacheDiagnosticCallbacks?.onFinal?.({
+          text: '',
+          usage: (response as OpenAI.ChatCompletion).usage
+            ? convertOpenAIUsage((response as OpenAI.ChatCompletion).usage!)
+            : undefined,
+        });
+        const stream = transformResponseToStream(response as OpenAI.ChatCompletion);
+        return StreamingResponse(
+          OpenAIStream(stream, {
+            callbacks,
+            enableStreaming: false,
+            payload: {
+              cacheDiagnostics: options?.cacheDiagnostics,
+              cacheRequestHash,
+              model,
+              provider: ModelProvider.Azure,
+            },
+          }),
+          {
+            headers: options?.headers,
+            onCancel: callbacks?.onCancel,
           },
         );
       }
     } catch (e) {
+      emitModelCacheTerminalError(options?.cacheDiagnostics, {
+        apiType: 'chat-completions',
+        error: e,
+        requestHash: cacheRequestHash,
+      });
       return this.handleError(e, model);
     }
   }

@@ -46,6 +46,7 @@ describe('compatible provider fixed model lists', () => {
         abilities: {
           search: false,
         },
+        contextWindowTokens: 258_000,
         enabled: true,
         settings: {
           extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],
@@ -75,7 +76,9 @@ describe('compatible provider fixed model lists', () => {
     expect(anthropiccompatible.every((model) => model.enabled)).toBe(true);
     expect(anthropiccompatible.every((model) => model.abilities?.search === false)).toBe(true);
     expect(anthropiccompatible.every((model) => model.settings?.extendParams?.length)).toBe(true);
-    expect(anthropiccompatible.every((model) => model.settings?.searchImpl === 'params')).toBe(true);
+    expect(anthropiccompatible.every((model) => model.settings?.searchImpl === 'params')).toBe(
+      true,
+    );
     expect(anthropiccompatible.every((model) => !model.settings?.searchProvider)).toBe(true);
   });
 });

@@ -34,9 +34,7 @@ const stripThinkingContentBlocks = (messages: OpenAIChatMessage[]): OpenAIChatMe
     if (msg.role !== 'assistant') return msg;
     if (!Array.isArray(msg.content)) return msg;
 
-    const filtered = msg.content.filter(
-      (part: any) => part.type !== 'thinking',
-    );
+    const filtered = msg.content.filter((part: any) => part.type !== 'thinking');
 
     // If nothing remains after stripping thinking blocks, fall back to empty string
     if (filtered.length === 0) return { ...msg, content: '' };
@@ -52,8 +50,10 @@ const stripThinkingContentBlocks = (messages: OpenAIChatMessage[]): OpenAIChatMe
 export const buildDeepSeekPayload = (
   payload: ChatStreamPayload,
 ): OpenAI.ChatCompletionCreateParamsStreaming => {
+  const requestPayload = { ...payload };
+  delete requestPayload.enabledSearch;
+
   const {
-    enabledSearch,
     frequency_penalty,
     messages,
     model,
@@ -64,7 +64,7 @@ export const buildDeepSeekPayload = (
     tools,
     top_p,
     ...rest
-  } = payload;
+  } = requestPayload;
 
   const thinkingEnabled = isThinkingEnabled(payload);
 
@@ -120,6 +120,7 @@ const fetchDeepSeekModels = async ({ client }: { client: OpenAI }): Promise<any[
 
 export const LobeDeepSeekAI = createOpenAICompatibleRuntime({
   baseURL: 'https://api.deepseek.com',
+  cacheSupport: 'supported',
   chatCompletion: {
     handlePayload: buildDeepSeekPayload,
   },

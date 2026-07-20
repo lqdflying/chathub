@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   convertIterableToStream,
+  createCallbacksTransformer,
   createDeferredAsyncIterable,
   createSSEDataExtractor,
   createSSEProtocolTransformer,
@@ -444,6 +445,29 @@ describe('createSSEProtocolTransformer', () => {
       `event: reasoning\n`,
       `data: ${JSON.stringify('<')}\n\n`,
     ]);
+  });
+});
+
+describe('createCallbacksTransformer', () => {
+  it('should forward normalized SSE error data to onError before onFinal', async () => {
+    const onError = vi.fn();
+    const onFinal = vi.fn();
+    const streamError = { code: 'UPSTREAM_FAILED', name: 'ProviderStreamError' };
+    const readable = new ReadableStream<string>({
+      start(controller) {
+        controller.enqueue('event: error\n');
+        controller.enqueue(`data: ${JSON.stringify(streamError)}\n\n`);
+        controller.close();
+      },
+    });
+
+    await readable
+      .pipeThrough(createCallbacksTransformer({ onError, onFinal }))
+      .pipeTo(new WritableStream());
+
+    expect(onError).toHaveBeenCalledWith(streamError);
+    expect(onFinal).toHaveBeenCalledOnce();
+    expect(onError.mock.invocationCallOrder[0]).toBeLessThan(onFinal.mock.invocationCallOrder[0]);
   });
 });
 

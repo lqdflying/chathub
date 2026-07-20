@@ -160,9 +160,7 @@ describe('buildDeepSeekPayload', () => {
           { role: 'user', content: 'Hello' },
           {
             role: 'assistant',
-            content: [
-              { type: 'thinking', thinking: 'Let me think...', signature: 'sig1' },
-            ],
+            content: [{ type: 'thinking', thinking: 'Let me think...', signature: 'sig1' }],
           },
         ],
       });
@@ -173,9 +171,7 @@ describe('buildDeepSeekPayload', () => {
     it('should preserve user messages unchanged', () => {
       const payload = buildDeepSeekPayload({
         ...basePayload,
-        messages: [
-          { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
-        ],
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
       });
 
       expect((payload.messages as any)[0].content).toEqual([{ type: 'text', text: 'Hello' }]);
@@ -184,9 +180,7 @@ describe('buildDeepSeekPayload', () => {
     it('should preserve string content on assistant messages', () => {
       const payload = buildDeepSeekPayload({
         ...basePayload,
-        messages: [
-          { role: 'assistant', content: 'Plain text response' },
-        ],
+        messages: [{ role: 'assistant', content: 'Plain text response' }],
       });
 
       expect((payload.messages as any)[0].content).toBe('Plain text response');
@@ -195,9 +189,7 @@ describe('buildDeepSeekPayload', () => {
     it('should preserve system messages unchanged', () => {
       const payload = buildDeepSeekPayload({
         ...basePayload,
-        messages: [
-          { role: 'system', content: 'You are helpful' },
-        ],
+        messages: [{ role: 'system', content: 'You are helpful' }],
       });
 
       expect((payload.messages as any)[0].content).toBe('You are helpful');
@@ -227,9 +219,7 @@ describe('buildDeepSeekPayload', () => {
     it('should handle tool messages unchanged', () => {
       const payload = buildDeepSeekPayload({
         ...basePayload,
-        messages: [
-          { role: 'tool', content: 'tool result', tool_call_id: 'call_1' },
-        ],
+        messages: [{ role: 'tool', content: 'tool result', tool_call_id: 'call_1' }],
       });
 
       expect((payload.messages as any)[0].content).toBe('tool result');
@@ -238,6 +228,62 @@ describe('buildDeepSeekPayload', () => {
 });
 
 describe('LobeDeepSeekAI debug', () => {
+  it('reports DeepSeek cache hit and miss counters as supported telemetry', async () => {
+    const instance = new LobeDeepSeekAI({ apiKey: 'test-key' });
+    const events: any[] = [];
+    vi.spyOn((instance as any).client.chat.completions, 'create').mockResolvedValue({
+      choices: [],
+      created: 123,
+      id: 'private-response-id',
+      model: 'deepseek-v4-pro',
+      object: 'chat.completion',
+      usage: {
+        completion_tokens: 10,
+        prompt_cache_hit_tokens: 80,
+        prompt_cache_miss_tokens: 20,
+        prompt_tokens: 100,
+        total_tokens: 110,
+      },
+    });
+
+    const response = await instance.chat(
+      {
+        messages: [{ content: 'PRIVATE_DEEPSEEK_PROMPT', role: 'user' }],
+        model: 'deepseek-v4-pro',
+        responseMode: 'json',
+        stream: false,
+      } as any,
+      {
+        cacheDiagnostics: {
+          emit: (event) => events.push(event),
+          fingerprint: (scope) => `${scope}-fingerprint`,
+          provider: 'deepseek',
+          runtimeFamily: 'openai-compatible',
+        },
+      },
+    );
+    await response.json();
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        cacheMechanism: 'automatic',
+        cacheSupport: 'supported',
+        type: 'request',
+      }),
+      expect.objectContaining({
+        cacheStatus: 'mixed',
+        cacheSupport: 'supported',
+        type: 'usage',
+        usage: expect.objectContaining({
+          inputCacheMissTokens: 20,
+          inputCachedTokens: 80,
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain('PRIVATE_DEEPSEEK_PROMPT');
+    expect(JSON.stringify(events)).not.toContain('private-response-id');
+  });
+
   it('logs structured request summary with DEBUG_DEEPSEEK_CHAT_COMPLETION', async () => {
     const instance = new LobeDeepSeekAI({ apiKey: 'test-key' });
     const chatChunk = {

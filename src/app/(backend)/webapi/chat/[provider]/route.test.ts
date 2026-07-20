@@ -9,6 +9,7 @@ import { checkAuthMethod } from '@/app/(backend)/middleware/auth/utils';
 import { LOBE_CHAT_AUTH_HEADER, OAUTH_AUTHORIZED } from '@/const/auth';
 
 import { POST } from './route';
+import { resolveTrustedCatalogModel } from './trustedCatalogModel';
 
 vi.mock('@clerk/nextjs/server', () => ({
   getAuth: vi.fn(),
@@ -20,6 +21,10 @@ vi.mock('@/app/(backend)/middleware/auth/utils', () => ({
 
 vi.mock('@lobechat/utils/server', () => ({
   getXorPayload: vi.fn(),
+}));
+
+vi.mock('./trustedCatalogModel', () => ({
+  resolveTrustedCatalogModel: vi.fn(),
 }));
 
 // 定义一个变量来存储 enableAuth 的值
@@ -40,18 +45,19 @@ vi.mock('@/const/auth', async (importOriginal) => {
 let request: Request;
 beforeEach(() => {
   request = new Request(new URL('https://test.com'), {
+    body: JSON.stringify({ model: 'test-model' }),
     headers: {
       [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token',
       [OAUTH_AUTHORIZED]: 'true',
     },
     method: 'POST',
-    body: JSON.stringify({ model: 'test-model' }),
   });
 });
 
 afterEach(() => {
   // 清除模拟调用历史
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
   enableClerk = false;
 });
 
@@ -85,8 +91,8 @@ describe('POST handler', () => {
     it('should return Unauthorized error when LOBE_CHAT_AUTH_HEADER is missing', async () => {
       const mockParams = Promise.resolve({ provider: 'test-provider' });
       const requestWithoutAuthHeader = new Request(new URL('https://test.com'), {
-        method: 'POST',
         body: JSON.stringify({ model: 'test-model' }),
+        method: 'POST',
       });
 
       const response = await POST(requestWithoutAuthHeader, { params: mockParams });
@@ -122,12 +128,12 @@ describe('POST handler', () => {
       );
 
       const request = new Request(new URL('https://test.com'), {
-        method: 'POST',
         body: JSON.stringify({ model: 'test-model' }),
         headers: {
           [LOBE_CHAT_AUTH_HEADER]: 'some-valid-token',
           [OAUTH_AUTHORIZED]: '1',
         },
+        method: 'POST',
       });
 
       await POST(request, { params: mockParams });
@@ -170,14 +176,18 @@ describe('POST handler', () => {
       });
 
       const mockParams = Promise.resolve({ provider: 'test-provider' });
-      const mockChatPayload = { message: 'Hello, world!' };
+      const mockChatPayload = {
+        catalogModel: 'gpt-5.6-sol',
+        message: 'Hello, world!',
+        provider: 'client-controlled-provider',
+      };
       request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify(mockChatPayload),
         headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
         method: 'POST',
-        body: JSON.stringify(mockChatPayload),
       });
 
-      const mockChatResponse: any = { success: true, message: 'Reply from agent' };
+      const mockChatResponse: any = { message: 'Reply from agent', success: true };
 
       vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue(mockChatResponse);
 
@@ -185,10 +195,11 @@ describe('POST handler', () => {
 
       expect(response).toEqual(mockChatResponse);
       expect(ModelRuntime.prototype.chat).toHaveBeenCalledWith(
-        { ...mockChatPayload, provider: 'test-provider' },
+        { message: 'Hello, world!' },
         {
-          user: 'abc',
+          runtimeProvider: 'test-provider',
           signal: expect.anything(),
+          user: 'abc',
         },
       );
     });
@@ -203,8 +214,6 @@ describe('POST handler', () => {
 
       const mockParams = Promise.resolve({ provider: 'test-provider' });
       request = new Request(new URL('https://test.com'), {
-        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
-        method: 'POST',
         body: JSON.stringify({
           frequency_penalty: 0.5,
           message: 'Hello, world!',
@@ -212,21 +221,195 @@ describe('POST handler', () => {
           temperature: 0.7,
           top_p: 0.9,
         }),
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
       });
 
-      const mockChatResponse: any = { success: true, message: 'Reply from agent' };
+      const mockChatResponse: any = { message: 'Reply from agent', success: true };
 
       vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue(mockChatResponse);
 
       await POST(request as unknown as Request, { params: mockParams });
 
       expect(ModelRuntime.prototype.chat).toHaveBeenCalledWith(
-        { message: 'Hello, world!', provider: 'test-provider' },
+        { message: 'Hello, world!' },
         {
-          user: 'abc',
+          runtimeProvider: 'test-provider',
           signal: expect.anything(),
+          user: 'abc',
         },
       );
+    });
+
+    it('passes only a server-validated Azure catalog model to the runtime', async () => {
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        apiKey: 'test-api-key',
+        runtimeProvider: 'azure',
+        userId: 'test-user',
+      });
+      vi.mocked(resolveTrustedCatalogModel).mockResolvedValueOnce('gpt-5.6-sol');
+      const chatSpy = vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue({
+        success: true,
+      } as any);
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({
+          catalogModel: 'gpt-5.6-sol',
+          messages: [{ content: 'private prompt', role: 'user' }],
+          model: 'custom-production-deployment',
+        }),
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
+      });
+
+      await POST(request, { params: Promise.resolve({ provider: 'azure' }) });
+
+      expect(resolveTrustedCatalogModel).toHaveBeenCalledWith({
+        catalogModel: 'gpt-5.6-sol',
+        deploymentName: 'custom-production-deployment',
+        runtimeProvider: 'azure',
+        userId: 'test-user',
+      });
+      const [runtimePayload, runtimeOptions] = chatSpy.mock.calls[0];
+      expect(runtimePayload).not.toHaveProperty('catalogModel');
+      expect(runtimeOptions).toMatchObject({
+        runtimeProvider: 'azure',
+        trustedCatalogModel: 'gpt-5.6-sol',
+      });
+    });
+
+    it('does not forward an unvalidated Azure catalog model', async () => {
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        apiKey: 'test-api-key',
+        runtimeProvider: 'azure',
+        userId: 'test-user',
+      });
+      vi.mocked(resolveTrustedCatalogModel).mockResolvedValueOnce(undefined);
+      const chatSpy = vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue({
+        success: true,
+      } as any);
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({
+          catalogModel: 'gpt-5.6-sol',
+          messages: [{ content: 'private prompt', role: 'user' }],
+          model: 'attacker-selected-deployment',
+        }),
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
+      });
+
+      await POST(request, { params: Promise.resolve({ provider: 'azure' }) });
+
+      const [runtimePayload, runtimeOptions] = chatSpy.mock.calls[0];
+      expect(runtimePayload).not.toHaveProperty('catalogModel');
+      expect(runtimeOptions).not.toHaveProperty('trustedCatalogModel');
+    });
+
+    it('continues Azure chat when trusted catalog resolution rejects', async () => {
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        apiKey: 'test-api-key',
+        runtimeProvider: 'azure',
+        userId: 'test-user',
+      });
+      vi.mocked(resolveTrustedCatalogModel).mockRejectedValueOnce(
+        new Error('optional catalog lookup failed'),
+      );
+      const chatSpy = vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue({
+        success: true,
+      } as any);
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({
+          catalogModel: 'gpt-5.6-sol',
+          messages: [{ content: 'private prompt', role: 'user' }],
+          model: 'custom-production-deployment',
+        }),
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
+      });
+
+      const response = await POST(request, { params: Promise.resolve({ provider: 'azure' }) });
+
+      expect(response).toEqual({ success: true });
+      expect(chatSpy).toHaveBeenCalledOnce();
+      const [runtimePayload, runtimeOptions] = chatSpy.mock.calls[0];
+      expect(runtimePayload).not.toHaveProperty('catalogModel');
+      expect(runtimeOptions).not.toHaveProperty('trustedCatalogModel');
+    });
+
+    it('moves sanitized continuation metadata into runtime options for every provider', async () => {
+      vi.stubEnv('DEBUG_ANTHROPIC_CACHE', '1');
+      vi.stubEnv('NEXT_AUTH_SECRET', 'test-deployment-fingerprint-secret');
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        accessCode: 'test-access-code',
+        apiKey: 'test-api-key',
+        runtimeProvider: 'anthropic',
+        userId: 'test-user',
+      });
+      const chatSpy = vi.spyOn(ModelRuntime.prototype, 'chat').mockResolvedValue({
+        success: true,
+      } as any);
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({
+          debugToolCache: {
+            attackerControlled: 'PRIVATE_ATTACKER_VALUE',
+            batchId: 'tb_1234567890abcdefghij',
+            cachePolicy: {
+              cacheControl: true,
+              nestedAttackerControlled: 'PRIVATE_POLICY_VALUE',
+            },
+            continuationId: 'tc_1234567890abcdefghij',
+            failureCount: 0,
+            resultCount: 1,
+            toolCallCount: 1,
+            toolCallSetHash: '0123456789abcdef',
+          },
+          messages: [{ content: 'private prompt', role: 'user' }],
+          model: 'claude-test-model',
+        }),
+        headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
+        method: 'POST',
+      });
+
+      await POST(request, { params: Promise.resolve({ provider: 'anthropic' }) });
+
+      const [runtimePayload, runtimeOptions] = chatSpy.mock.calls[0];
+      expect(runtimePayload).toEqual({
+        messages: [{ content: 'private prompt', role: 'user' }],
+        model: 'claude-test-model',
+      });
+      expect(runtimePayload).not.toHaveProperty('debugToolCache');
+      const protectedBatchId = runtimeOptions?.cacheDiagnostics?.toolCache?.batchId;
+      const protectedContinuationId = runtimeOptions?.cacheDiagnostics?.toolCache?.continuationId;
+      expect(runtimeOptions).toMatchObject({
+        cacheDiagnostics: {
+          continuation: {
+            batchId: expect.stringMatching(/^tb_[\da-f]{32}$/),
+            continuationId: expect.stringMatching(/^tc_[\da-f]{32}$/),
+            expectedToolCallCount: 1,
+            resultCount: 1,
+          },
+          provider: 'anthropic',
+          runtimeFamily: 'anthropic',
+          toolCache: {
+            batchId: expect.stringMatching(/^tb_[\da-f]{32}$/),
+            continuationId: expect.stringMatching(/^tc_[\da-f]{32}$/),
+            failureCount: 0,
+            resultCount: 1,
+            toolCallCount: 1,
+            toolCallSetHash: '0123456789abcdef',
+          },
+        },
+        runtimeProvider: 'anthropic',
+        trustedPromptCacheKey: expect.stringMatching(/^ch_[\da-f]{32}$/),
+        user: 'test-user',
+      });
+      expect(runtimeOptions?.cacheDiagnostics?.toolCache).not.toHaveProperty('attackerControlled');
+      expect(runtimeOptions?.cacheDiagnostics?.toolCache?.cachePolicy).toEqual({});
+      expect(runtimeOptions?.cacheDiagnostics?.continuation?.batchId).toBe(protectedBatchId);
+      expect(runtimeOptions?.cacheDiagnostics?.continuation?.continuationId).toBe(
+        protectedContinuationId,
+      );
+      expect(protectedBatchId).not.toBe('tb_1234567890abcdefghij');
+      expect(protectedContinuationId).not.toBe('tc_1234567890abcdefghij');
     });
 
     it('should return an error response when chat completion fails', async () => {
@@ -240,14 +423,14 @@ describe('POST handler', () => {
       const mockParams = Promise.resolve({ provider: 'test-provider' });
       const mockChatPayload = { message: 'Hello, world!' };
       request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify(mockChatPayload),
         headers: { [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token' },
         method: 'POST',
-        body: JSON.stringify(mockChatPayload),
       });
 
       const mockErrorResponse = {
-        errorType: ChatErrorType.InternalServerError,
         errorMessage: 'Something went wrong',
+        errorType: ChatErrorType.InternalServerError,
       };
 
       vi.spyOn(ModelRuntime.prototype, 'chat').mockRejectedValue(mockErrorResponse);
@@ -257,11 +440,11 @@ describe('POST handler', () => {
       expect(response.status).toBe(500);
       expect(await response.json()).toEqual({
         body: {
-          errorMessage: 'Something went wrong',
           error: {
             errorMessage: 'Something went wrong',
             errorType: 500,
           },
+          errorMessage: 'Something went wrong',
           provider: 'test-provider',
         },
         errorType: 500,

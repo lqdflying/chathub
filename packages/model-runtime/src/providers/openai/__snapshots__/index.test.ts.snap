@@ -413,9 +413,9 @@ exports[`LobeOpenAI > models > should get models 1`] = `
     "vision": false,
   },
   {
-    "contextWindowTokens": 128000,
-    "description": "GPT-4 视觉预览版，专为图像分析和处理任务设计。",
-    "displayName": "GPT 4 Turbo with Vision Preview",
+    "contextWindowTokens": undefined,
+    "description": "",
+    "displayName": "gpt-4-vision-preview",
     "enabled": false,
     "functionCall": false,
     "id": "gpt-4-vision-preview",
@@ -427,7 +427,7 @@ exports[`LobeOpenAI > models > should get models 1`] = `
     "search": false,
     "type": "chat",
     "video": false,
-    "vision": true,
+    "vision": false,
   },
   {
     "contextWindowTokens": 8192,

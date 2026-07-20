@@ -1086,6 +1086,47 @@ describe('OpenAIResponsesStream', () => {
     expect(usageDataChunk).toContain('"inputCacheMissTokens":0');
   });
 
+  it('should preserve explicit zero usage for callbacks without exposing optional zeros', async () => {
+    const onUsage = vi.fn();
+    const mockOpenAIStream = createReadableStream([
+      {
+        response: {
+          id: 'resp_zero_usage',
+          status: 'completed',
+          usage: {
+            input_tokens: 100,
+            input_tokens_details: { cache_write_tokens: 0, cached_tokens: 100 },
+            output_tokens: 25,
+            output_tokens_details: { reasoning_tokens: 0 },
+            total_tokens: 125,
+          },
+        },
+        type: 'response.completed',
+      },
+    ]);
+
+    const chunks = await readStreamChunk(
+      OpenAIResponsesStream(mockOpenAIStream, {
+        callbacks: { onUsage },
+        payload: { model: 'gpt-5', provider: 'openaicompatible' },
+      }),
+    );
+    const serializedUsage = chunks.join('');
+
+    expect(serializedUsage).toContain('"inputCacheMissTokens":0');
+    expect(serializedUsage).toContain('"inputCachedTokens":100');
+    expect(serializedUsage).not.toContain('"inputWriteCacheTokens":0');
+    expect(serializedUsage).not.toContain('"outputReasoningTokens":0');
+    expect(onUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputCacheMissTokens: 0,
+        inputCachedTokens: 100,
+        inputWriteCacheTokens: 0,
+        outputReasoningTokens: 0,
+      }),
+    );
+  });
+
   it('should handle response.completed without usage', async () => {
     const onCompletion = vi.fn();
     const onFinal = vi.fn();

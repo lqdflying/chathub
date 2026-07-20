@@ -236,6 +236,60 @@ describe('mcpRouter OAuth public boundary', () => {
     expect(JSON.parse(result.content)).toEqual({ result: 'ok' });
   });
 
+  it('preserves bounded batch correlation in MCP completion diagnostics', async () => {
+    const previousDebug = process.env.CHATHUB_TOOLS_DEBUG;
+    const previousFingerprintSecret = process.env.NEXT_AUTH_SECRET;
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+    process.env.NEXT_AUTH_SECRET = 'test-tool-correlation-secret';
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const transportFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ result: 'PRIVATE_MCP_RESULT' }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const { mcpRouter } = await loadRouterWithTransportFetch(transportFetch as typeof fetch);
+    const caller = mcpRouter.createCaller(createCallerContext());
+
+    await caller.callTool({
+      args: JSON.stringify({ query: 'PRIVATE_MCP_ARGUMENT' }),
+      messageId: 'tool-message-id',
+      params: oauthParams,
+      toolCacheDebug: {
+        batchId: 'tb_1234567890abcdefghij',
+        continuationId: 'tc_1234567890abcdefghij',
+        failureCount: 0,
+        resultCount: 2,
+        toolCallCount: 2,
+        toolCallSetHash: '0123456789abcdef',
+      },
+      toolName: 'tavily_search',
+    });
+
+    const event = consoleSpy.mock.calls.find(
+      ([prefix]) => prefix === '[chathub-tools-debug:call_tool_complete]',
+    );
+    expect(event).toBeDefined();
+    const record = JSON.parse(event?.[1] as string);
+    expect(record.toolCache).toMatchObject({
+      batchId: expect.stringMatching(/^tb_[\da-f]{32}$/),
+      continuationId: expect.stringMatching(/^tc_[\da-f]{32}$/),
+      failureCount: 0,
+      resultCount: 2,
+      toolCallCount: 2,
+      toolCallSetHash: '0123456789abcdef',
+    });
+    expect(event?.[1]).not.toMatch(
+      /PRIVATE_MCP_ARGUMENT|PRIVATE_MCP_RESULT|tb_1234567890abcdefghij|tc_1234567890abcdefghij/,
+    );
+
+    consoleSpy.mockRestore();
+    if (previousDebug === undefined) delete process.env.CHATHUB_TOOLS_DEBUG;
+    else process.env.CHATHUB_TOOLS_DEBUG = previousDebug;
+    if (previousFingerprintSecret === undefined) delete process.env.NEXT_AUTH_SECRET;
+    else process.env.NEXT_AUTH_SECRET = previousFingerprintSecret;
+  });
+
   it('accepts only structured client failure metadata and emits no HTML body', async () => {
     const previousDebug = process.env.CHATHUB_TOOLS_DEBUG;
     process.env.CHATHUB_TOOLS_DEBUG = '1';

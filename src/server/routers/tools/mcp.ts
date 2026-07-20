@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN } from '@/const/tools';
 import { isDesktop, isServerMode } from '@/const/version';
 import { MessageModel } from '@/database/models/message';
+import { protectExternalToolCacheDebugMetadata } from '@/libs/logger/modelCacheDebug';
 import {
   describeToolsDebugError,
   logToolsDebugSafe,
@@ -51,6 +52,10 @@ const mcpProcedure = isServerMode ? authedProcedure : passwordProcedure;
 const hashSchema = z.string().regex(/^[\da-f]{16}$/);
 const toolCacheDebugSchema = z
   .object({
+    batchId: z
+      .string()
+      .regex(/^tb_[\w-]{12,80}$/)
+      .optional(),
     cachePolicy: z
       .object({
         chatPromptCacheKey: z.boolean().nullable().optional(),
@@ -61,7 +66,13 @@ const toolCacheDebugSchema = z
         responseStore: z.enum(['default', 'false', 'true']).nullable().optional(),
       })
       .optional(),
+    continuationId: z
+      .string()
+      .regex(/^tc_[\w-]{12,80}$/)
+      .optional(),
+    failureCount: z.number().int().nonnegative().max(100).optional(),
     inputItemCount: z.number().int().nonnegative().max(100_000).optional(),
+    resultCount: z.number().int().nonnegative().max(100).optional(),
     toolCallCount: z.number().int().positive().max(100),
     toolCallSetHash: hashSchema,
     toolResults: z
@@ -277,7 +288,7 @@ export const mcpRouter = router({
           durationMs: Date.now() - startedAt,
           phase: 'serialization',
           response: summarizeToolsDebugValue(serialized),
-          toolCache: input.toolCacheDebug ?? null,
+          toolCache: protectExternalToolCacheDebugMetadata(input.toolCacheDebug) ?? null,
           toolName: input.toolName,
         });
         return { content: serialized, persistence };

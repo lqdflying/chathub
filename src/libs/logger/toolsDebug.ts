@@ -19,7 +19,8 @@ const PRIVATE_IDENTIFIER_KEY_PATTERN =
 const SAFE_SECRET_METADATA_KEY_PATTERN = /(?:configured|count|hash|length|present|state)$/i;
 const SAFE_LABEL_KEY_PATTERN =
   /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|code|contentEncoding|debugLevel|deploymentMode|endpoint|errorClass|errorCode|errorKind|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|timestamp|toolName|transport|trpcCode|type|via)$/;
-const SAFE_IDENTIFIER_KEY_PATTERN = /(?:diagnosticId|spanId|Fingerprint|Hash|keyHashes)$/;
+const SAFE_IDENTIFIER_KEY_PATTERN =
+  /(?:batchId|continuationId|diagnosticId|spanId|Fingerprint|Hash|keyHashes)$/;
 const SAFE_ERROR_CODE_KEY_PATTERN = /^(?:code|errorCode|trpcCode)$/;
 const SAFE_ERROR_CODE_VALUE_PATTERN = /^(?:[A-Z][\dA-Z_]{1,63}|\d{3})$/;
 const CREDENTIAL_SHAPED_VALUE_PATTERN =
@@ -69,6 +70,8 @@ export type ToolsDebugEvent =
   | 'oauth_operation_retry'
   | 'oauth_operation_started'
   | 'runtime_initialized'
+  | 'tool_batch_settled'
+  | 'tool_batch_started'
   | 'tools_rpc_complete'
   | 'tools_rpc_failed'
   | 'tools_rpc_handler_error'
@@ -192,12 +195,14 @@ export const runWithToolsDebugContext = <T>(context: ToolsDebugContext, callback
   return toolsDebugContext.run(store, callback);
 };
 
-export const isToolsDebugEnabled = (minimumLevel: Exclude<ToolsDebugLevel, 'off'> = 'safe') => {
+export const isToolsDebugEnabled = (
+  minimumLevel: Exclude<ToolsDebugLevel, 'off'> = 'safe',
+): boolean => {
   const level = parseToolsDebugLevel(process.env.CHATHUB_TOOLS_DEBUG);
   const structuredEnabled = level === 'verbose' || (level === 'safe' && minimumLevel === 'safe');
   const legacyEnabled =
     minimumLevel === 'verbose' ? verboseLegacyLog.enabled : safeLegacyLog.enabled;
-  return structuredEnabled || legacyEnabled;
+  return !!(structuredEnabled || legacyEnabled);
 };
 
 const sanitizeDebugLabel = (value: string): string | { hash: string; length: number } => {

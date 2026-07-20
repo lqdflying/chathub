@@ -8,10 +8,12 @@ import {
   CreateMessageParams,
   MessageToolCall,
   ToolCacheDebugMetadata,
-  createToolCallSetCorrelation,
-  createToolResultDebugSummary,
+  ToolDiagnosticRuntimeType,
+  ToolDiagnosticTerminalOutcome,
   ToolsCallingContext,
   UIChatMessage,
+  createToolCallSetCorrelation,
+  createToolResultDebugSummary,
 } from '@lobechat/types';
 import { LobeChatPluginManifest, PluginErrorType } from '@lobehub/chat-plugin-sdk';
 import isEqual from 'fast-deep-equal';
@@ -38,6 +40,33 @@ import { chatSelectors } from '../message/selectors';
 import { threadSelectors } from '../thread/selectors';
 
 const n = setNamespace('plugin');
+
+interface ToolBatchExecutionResult {
+  data: unknown;
+  diagnosticId?: string;
+  id?: string;
+  outcome: ToolDiagnosticTerminalOutcome;
+  payload: ExecutableChatToolPayload;
+  runtimeType?: ToolDiagnosticRuntimeType;
+  shouldContinue?: boolean;
+}
+
+interface ToolInvocationResult {
+  data: unknown;
+  outcome?: ToolDiagnosticTerminalOutcome;
+  shouldContinue?: boolean;
+}
+
+const resolveToolDiagnosticRuntimeType = (
+  payload: ExecutableChatToolPayload,
+): ToolDiagnosticRuntimeType => {
+  if (payload.identifier === LOBE_PROVIDER_BUILTIN_IDENTIFIER) return 'delegated';
+  if (payload.type === 'mcp') return 'mcp';
+  if (payload.type === 'builtin') return 'builtin';
+  if (payload.type === 'markdown') return 'markdown';
+  if (payload.type === 'standalone') return 'standalone';
+  return 'default';
+};
 
 const isAbortError = (error: unknown) => {
   const seen = new Set<unknown>();
@@ -73,7 +102,11 @@ export interface ChatPluginAction {
     triggerAiMessage?: boolean,
   ) => Promise<void>;
 
-  invokeBuiltinTool: (id: string, payload: ChatToolPayload) => Promise<void>;
+  invokeBuiltinTool: (
+    id: string,
+    payload: ChatToolPayload,
+    diagnosticId?: string,
+  ) => Promise<ToolInvocationResult>;
   /** Moonshot-style provider builtins: echo tool arguments as tool result, then continue chat */
   invokeProviderBuiltinTool: (id: string, payload: ChatToolPayload) => Promise<string | undefined>;
   invokeDefaultTypePlugin: (id: string, payload: ChatPluginPayload) => Promise<string | undefined>;
@@ -83,7 +116,7 @@ export interface ChatPluginAction {
     payload: MCPChatToolPayload,
     toolCacheDebug?: ToolCacheDebugMetadata,
     requestedDiagnosticId?: string,
-  ) => Promise<string | undefined>;
+  ) => Promise<ToolInvocationResult>;
 
   invokeStandaloneTypePlugin: (id: string, payload: ChatToolPayload) => Promise<void>;
 
@@ -125,7 +158,7 @@ export interface ChatPluginAction {
     payload: ExecutableChatToolPayload,
     toolCacheDebug?: ToolCacheDebugMetadata,
     diagnosticId?: string,
-  ) => Promise<any>;
+  ) => Promise<ToolInvocationResult>;
   internal_togglePluginApiCalling: (
     loading: boolean,
     id?: string,
@@ -162,7 +195,7 @@ export const chatPlugin: StateCreator<
 
     if (triggerAiMessage) await triggerAIMessage({ parentId: id });
   },
-  invokeBuiltinTool: async (id, payload) => {
+  invokeBuiltinTool: async (id, payload, diagnosticId) => {
     const {
       internal_togglePluginApiCalling,
       internal_updateMessageContent,
@@ -194,7 +227,13 @@ export const chatPlugin: StateCreator<
     }
     internal_togglePluginApiCalling(false, id, n('invokeBuiltinTool/end') as string);
 
-    if (!data) return;
+    if (!data) {
+      return {
+        data: undefined,
+        outcome: 'skipped',
+        shouldContinue: false,
+      };
+    }
 
     await internal_updateMessageContent(id, data);
 
@@ -202,7 +241,13 @@ export const chatPlugin: StateCreator<
     // postToolCalling
     // @ts-ignore
     const { [payload.apiName]: action } = get();
-    if (!action) return;
+    if (!action) {
+      return {
+        data: undefined,
+        outcome: 'skipped',
+        shouldContinue: false,
+      };
+    }
 
     let content;
 
@@ -212,9 +257,32 @@ export const chatPlugin: StateCreator<
       /* empty block */
     }
 
-    if (!content) return;
+    if (!content) {
+      return {
+        data: undefined,
+        outcome: 'skipped',
+        shouldContinue: false,
+      };
+    }
 
-    return await action(id, content);
+    const actionResult = await action(id, content, undefined, diagnosticId);
+    if (
+      actionResult &&
+      typeof actionResult === 'object' &&
+      'data' in actionResult &&
+      'outcome' in actionResult
+    ) {
+      return actionResult as ToolInvocationResult;
+    }
+
+    const updatedMessage = chatSelectors.getMessageById(id)(get());
+    const diagnosticError = updatedMessage?.error ?? updatedMessage?.pluginError;
+
+    return {
+      data: diagnosticError ?? updatedMessage?.content,
+      outcome: diagnosticError ? 'failed' : actionResult === undefined ? 'skipped' : 'completed',
+      shouldContinue: actionResult === true,
+    };
   },
 
   invokeProviderBuiltinTool: async (id, payload) => {
@@ -333,9 +401,25 @@ export const chatPlugin: StateCreator<
     const message = chatSelectors.getMessageById(assistantId)(get());
     if (!message || !message.tools) return;
 
-    const toolCacheDebug = createToolCallSetCorrelation(message.tools.map((tool) => tool.id));
-    const messagePools = message.tools.map(async (payload) => {
-      const diagnosticId = `td_${nanoid(20)}`;
+    const { cacheContinuationEnabled, toolLifecycleEnabled } =
+      await toolTelemetryService.getCapabilities();
+    const collectToolCorrelation = cacheContinuationEnabled || toolLifecycleEnabled;
+    const toolCorrelation: ToolCacheDebugMetadata | undefined = collectToolCorrelation
+      ? {
+          ...createToolCallSetCorrelation(message.tools.map((tool) => tool.id)),
+          batchId: `tb_${nanoid(20)}`,
+          continuationId: `tc_${nanoid(20)}`,
+        }
+      : undefined;
+    if (toolLifecycleEnabled && toolCorrelation) {
+      void toolTelemetryService.reportToolBatch(toolCorrelation, 'started').catch(() => undefined);
+    }
+
+    const messagePools = message.tools.map(async (payload): Promise<ToolBatchExecutionResult> => {
+      const diagnosticId = toolLifecycleEnabled ? `td_${nanoid(20)}` : undefined;
+      const runtimeType = toolLifecycleEnabled
+        ? resolveToolDiagnosticRuntimeType(payload)
+        : undefined;
       const toolMessage: CreateMessageParams = {
         content: '',
         parentId: assistantId,
@@ -349,40 +433,126 @@ export const chatPlugin: StateCreator<
       };
 
       const id = await get().internal_createMessage(toolMessage);
-      if (!id) return undefined;
+      if (!id) {
+        return {
+          data: undefined,
+          diagnosticId,
+          outcome: 'skipped',
+          payload,
+          runtimeType,
+        };
+      }
 
-      // trigger the plugin call
-      const data = await get().internal_invokeDifferentTypePlugin(
-        id,
-        payload,
-        toolCacheDebug,
-        diagnosticId,
-      );
-      return { data, diagnosticId, id, payload };
+      try {
+        const rawInvocationResult = await get().internal_invokeDifferentTypePlugin(
+          id,
+          payload,
+          toolCorrelation,
+          diagnosticId,
+        );
+        const invocationResult =
+          rawInvocationResult &&
+          typeof rawInvocationResult === 'object' &&
+          'data' in rawInvocationResult
+            ? rawInvocationResult
+            : { data: rawInvocationResult };
+        const updatedMessage = chatSelectors.getMessageById(id)(get());
+        const outcome =
+          invocationResult.outcome ??
+          (updatedMessage?.error || updatedMessage?.pluginError ? 'failed' : 'completed');
+
+        return {
+          data: invocationResult.data,
+          diagnosticId,
+          id,
+          outcome,
+          payload,
+          runtimeType,
+          shouldContinue: invocationResult.shouldContinue,
+        };
+      } catch (error) {
+        return {
+          data: undefined,
+          diagnosticId,
+          id,
+          outcome: isAbortError(error) ? 'cancelled' : 'failed',
+          payload,
+          runtimeType,
+        };
+      }
     });
 
     const settledResults = await Promise.allSettled(messagePools).finally(async () => {
       await get().internal_toggleMessageInToolsCalling(false, assistantId);
     });
-    const completedResults = settledResults.flatMap((result) =>
-      result.status === 'fulfilled' && result.value ? [result.value] : [],
-    );
-    completedResults
-      .filter(({ payload }) => ['builtin', 'mcp'].includes(payload.type))
-      .forEach(({ data, diagnosticId, payload }) => {
-        const runtimeType = payload.type === 'mcp' ? 'mcp' : 'builtin';
+    const completedResults = settledResults.flatMap((result, index): ToolBatchExecutionResult[] => {
+      if (result.status === 'fulfilled') return [result.value];
+
+      const payload = message.tools![index] as ExecutableChatToolPayload;
+      return [
+        {
+          data: undefined,
+          diagnosticId: toolLifecycleEnabled ? `td_${nanoid(20)}` : undefined,
+          outcome: isAbortError(result.reason) ? 'cancelled' : 'failed',
+          payload,
+          runtimeType: toolLifecycleEnabled ? resolveToolDiagnosticRuntimeType(payload) : undefined,
+        },
+      ];
+    });
+    let settledToolCacheDebug: ToolCacheDebugMetadata | undefined;
+    if (toolCorrelation) {
+      const successfulOutcomes = new Set<ToolDiagnosticTerminalOutcome>([
+        'completed',
+        'handed_off',
+      ]);
+      const resultCount = completedResults.filter(({ outcome }) =>
+        successfulOutcomes.has(outcome),
+      ).length;
+      const failureCount = completedResults.length - resultCount;
+      settledToolCacheDebug = {
+        ...toolCorrelation,
+        failureCount,
+        resultCount,
+        toolResults: completedResults.map(({ data, payload }) =>
+          createToolResultDebugSummary({
+            callIdHash: createToolResultDebugSummary(payload.id).valueHash,
+            data,
+          }),
+        ),
+      };
+
+      if (toolLifecycleEnabled) {
+        completedResults.forEach(({ data, diagnosticId, outcome, payload, runtimeType }) => {
+          if (!diagnosticId || !runtimeType || !settledToolCacheDebug) return;
+
+          const callIdHash = createToolResultDebugSummary(payload.id).valueHash;
+          void toolTelemetryService
+            .reportToolCompletion({
+              callIdHash,
+              correlation: settledToolCacheDebug,
+              diagnosticId,
+              outcome,
+              result: createToolResultDebugSummary({ callIdHash, data }),
+              runtimeType,
+              toolNameHash: createToolResultDebugSummary(payload.apiName).valueHash,
+            })
+            .catch(() => undefined);
+        });
         void toolTelemetryService
-          .reportToolCompletion({
-            correlation: toolCacheDebug,
-            diagnosticId,
-            result: createToolResultDebugSummary(data),
-            runtimeType,
-            toolNameHash: createToolResultDebugSummary(payload.apiName).valueHash,
-          })
+          .reportToolBatch(settledToolCacheDebug, 'settled')
           .catch(() => undefined);
-      });
+      }
+    }
     const latestCompletedTool = completedResults.findLast(
-      ({ data, payload }) => data && !['markdown', 'standalone'].includes(payload.type),
+      ({ data, outcome, payload, shouldContinue }) => {
+        const hasResumableOutcome = ['completed', 'handed_off', 'persistence_failed'].includes(
+          outcome,
+        );
+        const shouldResumeModel =
+          shouldContinue === true || (shouldContinue !== false && hasResumableOutcome);
+
+        return shouldResumeModel && data && !['markdown', 'standalone'].includes(payload.type);
+      },
     );
 
     // only default type tool calls should trigger AI message
@@ -395,10 +565,7 @@ export const chatPlugin: StateCreator<
       threadId,
       inPortalThread,
       inSearchWorkflow,
-      toolCacheDebug: {
-        ...toolCacheDebug,
-        toolResults: completedResults.map(({ data }) => createToolResultDebugSummary(data)),
-      },
+      toolCacheDebug: cacheContinuationEnabled ? settledToolCacheDebug : undefined,
     });
   },
   updatePluginState: async (id, value) => {
@@ -543,20 +710,44 @@ export const chatPlugin: StateCreator<
 
   internal_invokeDifferentTypePlugin: async (id, payload, toolCacheDebug, diagnosticId) => {
     if (payload.identifier === LOBE_PROVIDER_BUILTIN_IDENTIFIER) {
-      return await get().invokeProviderBuiltinTool(id, payload);
+      const data = await get().invokeProviderBuiltinTool(id, payload);
+      return { data, outcome: 'handed_off' };
     }
 
     switch (payload.type) {
       case 'standalone': {
-        return await get().invokeStandaloneTypePlugin(id, payload);
+        const data = await get().invokeStandaloneTypePlugin(id, payload);
+        return { data };
       }
 
       case 'markdown': {
-        return await get().invokeMarkdownTypePlugin(id, payload);
+        const data = await get().invokeMarkdownTypePlugin(id, payload);
+        return { data };
       }
 
       case 'builtin': {
-        return await get().invokeBuiltinTool(id, payload);
+        const invocationResult = await get().invokeBuiltinTool(id, payload, diagnosticId);
+        if (
+          invocationResult &&
+          typeof invocationResult === 'object' &&
+          'data' in invocationResult &&
+          'outcome' in invocationResult
+        ) {
+          return invocationResult;
+        }
+
+        const updatedMessage = chatSelectors.getMessageById(id)(get());
+        const diagnosticError = updatedMessage?.error ?? updatedMessage?.pluginError;
+
+        return {
+          data: diagnosticError ?? updatedMessage?.content,
+          outcome: diagnosticError
+            ? 'failed'
+            : invocationResult === undefined
+              ? 'skipped'
+              : 'completed',
+          shouldContinue: invocationResult === true,
+        };
       }
 
       case 'mcp': {
@@ -564,7 +755,8 @@ export const chatPlugin: StateCreator<
       }
 
       default: {
-        return await get().invokeDefaultTypePlugin(id, payload);
+        const data = await get().invokeDefaultTypePlugin(id, payload);
+        return { data };
       }
     }
   },
@@ -609,11 +801,11 @@ export const chatPlugin: StateCreator<
 
       if (!!result) data = result.content;
 
-      if (!data) return;
+      if (!data) return { data: undefined, outcome: 'skipped' };
 
       if (result?.persistence === 'persisted') {
         internal_dispatchMessage({ id, type: 'updateMessage', value: { content: data } });
-        return data;
+        return { data };
       }
 
       if (result?.persistence === 'failed') {
@@ -623,7 +815,7 @@ export const chatPlugin: StateCreator<
           description: t('mcpResultPersistence.description', { ns: 'error' }),
           message: t('mcpResultPersistence.title', { ns: 'error' }),
         });
-        return data;
+        return { data, outcome: 'persistence_failed' };
       }
 
       let persisted = false;
@@ -652,7 +844,7 @@ export const chatPlugin: StateCreator<
 
       // The valid result remains in the optimistic store even if the proxy prevented
       // ChatHub from confirming persistence. Continue the model turn in that case.
-      return data;
+      return { data, outcome: persisted ? 'completed' : 'persistence_failed' };
     } catch (error) {
       // ignore the aborted request error
       if (!isAbortError(error)) {
@@ -674,7 +866,10 @@ export const chatPlugin: StateCreator<
           reportPersistenceFailure(persistenceError, 1);
         }
       }
-      return;
+      return {
+        data: undefined,
+        outcome: isAbortError(error) ? 'cancelled' : 'failed',
+      };
     } finally {
       internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
     }

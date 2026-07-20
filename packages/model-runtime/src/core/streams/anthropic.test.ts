@@ -4,6 +4,51 @@ import { describe, expect, it, vi } from 'vitest';
 import { AnthropicStream } from './anthropic';
 
 describe('AnthropicStream', () => {
+  it('should report iterator failures as protocol errors', async () => {
+    let readCount = 0;
+    const iteratorError = new Error('anthropic stream disconnected');
+    const mockAnthropicStream = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => {
+            readCount += 1;
+
+            if (readCount === 1) {
+              return {
+                done: false,
+                value: {
+                  type: 'content_block_delta',
+                  delta: { type: 'text_delta', text: 'partial response' },
+                },
+              };
+            }
+
+            throw iteratorError;
+          },
+        };
+      },
+    } as unknown as Stream;
+    const onError = vi.fn();
+    const onFinal = vi.fn();
+    const protocolStream = AnthropicStream(mockAnthropicStream, {
+      callbacks: { onError, onFinal },
+    });
+
+    const chunks: string[] = [];
+    const decoder = new TextDecoder();
+    // @ts-ignore
+    for await (const chunk of protocolStream) {
+      chunks.push(decoder.decode(chunk, { stream: true }));
+    }
+
+    expect(chunks.join('')).toContain('event: error');
+    expect(chunks.join('')).toContain('anthropic stream disconnected');
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'anthropic stream disconnected' }),
+    );
+    expect(onFinal).toHaveBeenCalledOnce();
+  });
+
   it('should transform Anthropic stream to protocol stream', async () => {
     // @ts-ignore
     const mockAnthropicStream: Stream = {

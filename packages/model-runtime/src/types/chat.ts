@@ -5,6 +5,7 @@ import {
   ToolCacheDebugMetadata,
 } from '@lobechat/types';
 
+import type { ModelCacheDiagnosticContext } from './cacheDiagnostics';
 import { MessageToolCall, MessageToolCallChunk } from './toolsCalling';
 
 export type LLMRoleType = 'user' | 'system' | 'assistant' | 'function' | 'tool';
@@ -90,6 +91,11 @@ export interface OpenAICompatResponsesParamsRequestConfig {
  */
 export interface ChatStreamPayload {
   apiMode?: 'chatCompletion' | 'responses';
+  /**
+   * Original model-bank identifier before an Azure deployment alias replaces `model`.
+   * This field is transport-only and must be stripped at the server boundary.
+   */
+  catalogModel?: string;
   debugToolCache?: ToolCacheDebugMetadata;
   /**
    * 开启上下文缓存
@@ -200,6 +206,8 @@ export interface ChatStreamPayload {
 }
 
 export interface ChatMethodOptions {
+  cacheDiagnostics?: ModelCacheDiagnosticContext;
+  cacheDiagnosticsDisabled?: boolean;
   callback?: ChatStreamCallbacks;
   /**
    * response headers
@@ -209,7 +217,19 @@ export interface ChatMethodOptions {
    * send the request to the ai api endpoint
    */
   requestHeaders?: Record<string, any>;
+  /**
+   * Trusted runtime provider selected by the server route.
+   */
+  runtimeProvider?: string;
   signal?: AbortSignal;
+  /**
+   * Server-validated model-bank identifier for a provider deployment alias.
+   */
+  trustedCatalogModel?: string;
+  /**
+   * Server-derived prompt cache affinity key for native provider adapters.
+   */
+  trustedPromptCacheKey?: string;
   /**
    * userId for the chat completion
    */
@@ -258,7 +278,11 @@ export interface OnFinishData {
 }
 
 export interface ChatStreamCallbacks {
+  /** `onCancel`: Called when the downstream consumer cancels the response stream. */
+  onCancel?: (reason: unknown) => Promise<void> | void;
   onCompletion?: (data: OnFinishData) => Promise<void> | void;
+  /** `onError`: Called when the normalized stream emits an error event. */
+  onError?: (error: unknown) => Promise<void> | void;
   /**
    * `onFinal`: Called once when the stream is closed with the final completion message.
    **/

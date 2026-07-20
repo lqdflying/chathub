@@ -139,6 +139,70 @@ describe('convertUsage', () => {
     });
   });
 
+  it('should preserve reported zero cache counters without inventing omitted counters', () => {
+    const usageWithReportedZeroes = {
+      cache_write_tokens: 0,
+      completion_tokens: 0,
+      prompt_cache_hit_tokens: 0,
+      prompt_cache_miss_tokens: 0,
+      prompt_tokens: 0,
+      total_tokens: 0,
+    } as OpenAI.Completions.CompletionUsage;
+
+    expect(convertOpenAIUsage(usageWithReportedZeroes)).toMatchObject({
+      inputCacheMissTokens: 0,
+      inputCachedTokens: 0,
+      inputWriteCacheTokens: 0,
+      outputTextTokens: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 0,
+    });
+
+    const usageWithoutCacheTelemetry = {
+      completion_tokens: 5,
+      prompt_tokens: 10,
+      total_tokens: 15,
+    } as OpenAI.Completions.CompletionUsage;
+
+    expect(convertOpenAIUsage(usageWithoutCacheTelemetry)).not.toHaveProperty(
+      'inputCacheMissTokens',
+    );
+    expect(convertOpenAIUsage(usageWithoutCacheTelemetry)).not.toHaveProperty('inputCachedTokens');
+    expect(convertOpenAIUsage(usageWithoutCacheTelemetry)).not.toHaveProperty(
+      'inputWriteCacheTokens',
+    );
+  });
+
+  it('should preserve cache write tokens from compatible providers', () => {
+    const usageWithCacheWrite = {
+      cache_write_tokens: 80,
+      completion_tokens: 5,
+      prompt_tokens: 80,
+      total_tokens: 85,
+    } as OpenAI.Completions.CompletionUsage;
+
+    expect(convertOpenAIUsage(usageWithCacheWrite)).toMatchObject({
+      inputWriteCacheTokens: 80,
+    });
+  });
+
+  it('should preserve nested Chat Completions cache write tokens', () => {
+    const usageWithCacheWrite = {
+      completion_tokens: 5,
+      prompt_tokens: 80,
+      prompt_tokens_details: {
+        cache_write_tokens: 80,
+        cached_tokens: 0,
+      },
+      total_tokens: 85,
+    } as OpenAI.Completions.CompletionUsage;
+
+    expect(convertOpenAIUsage(usageWithCacheWrite)).toMatchObject({
+      inputWriteCacheTokens: 80,
+    });
+  });
+
   it('should handle audio tokens in input correctly', () => {
     // Arrange
     const usageWithAudioInput = {
@@ -258,7 +322,7 @@ describe('convertUsage', () => {
     });
   });
 
-  it('should omit zero or undefined values in the final output', () => {
+  it('should preserve reported zero values and omit undefined values', () => {
     // Arrange
     const usageWithZeros = {
       prompt_tokens: 100,
@@ -276,14 +340,13 @@ describe('convertUsage', () => {
     // Assert
     expect(result).toEqual({
       inputTextTokens: 100,
+      outputReasoningTokens: 0,
       totalInputTokens: 100,
       totalOutputTokens: 50,
       outputTextTokens: 50,
       totalTokens: 150,
     });
 
-    // These should not be present in the result
-    expect(result).not.toHaveProperty('outputReasoningTokens');
     expect(result).not.toHaveProperty('outputAudioTokens');
   });
 
@@ -382,6 +445,7 @@ describe('convertUsage', () => {
     expect(result).toEqual({
       inputTextTokens: 100,
       inputCacheMissTokens: 100, // 100 - 0
+      inputCachedTokens: 0,
       totalInputTokens: 100,
       totalOutputTokens: 200,
       outputImageTokens: 60,
@@ -425,6 +489,55 @@ describe('convertUsage', () => {
     expect(result).toMatchObject({
       inputCacheMissTokens: 60,
       inputCachedTokens: 40,
+    });
+  });
+
+  it('should preserve Responses cache write and reported zero counters', () => {
+    const responseUsage = {
+      cache_write_tokens: 0,
+      input_tokens: 0,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens: 0,
+      total_tokens: 0,
+    } as OpenAI.Responses.ResponseUsage;
+
+    expect(convertOpenAIResponseUsage(responseUsage)).toMatchObject({
+      inputCacheMissTokens: 0,
+      inputCachedTokens: 0,
+      inputWriteCacheTokens: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 0,
+    });
+  });
+
+  it('should preserve nested Responses cache write tokens', () => {
+    const responseUsage = {
+      input_tokens: 80,
+      input_tokens_details: {
+        cache_write_tokens: 80,
+        cached_tokens: 0,
+      },
+      output_tokens: 5,
+      total_tokens: 85,
+    } as OpenAI.Responses.ResponseUsage;
+
+    expect(convertOpenAIResponseUsage(responseUsage)).toMatchObject({
+      inputWriteCacheTokens: 80,
+    });
+  });
+
+  it('should accept top-level cached tokens from compatible Responses providers', () => {
+    const responseUsage = {
+      cached_tokens: 75,
+      input_tokens: 100,
+      output_tokens: 10,
+      total_tokens: 110,
+    } as OpenAI.Responses.ResponseUsage;
+
+    expect(convertOpenAIResponseUsage(responseUsage)).toMatchObject({
+      inputCacheMissTokens: 25,
+      inputCachedTokens: 75,
     });
   });
 

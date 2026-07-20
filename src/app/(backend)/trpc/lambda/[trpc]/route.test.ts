@@ -23,6 +23,7 @@ const previousDebug = process.env.CHATHUB_TOOLS_DEBUG;
 describe('Lambda tRPC tool-persistence diagnostics', () => {
   beforeEach(() => {
     process.env.CHATHUB_TOOLS_DEBUG = '1';
+    process.env.KEY_VAULTS_SECRET = 'test-deployment-fingerprint-secret';
     fetchRequestHandlerMock.mockResolvedValue(
       new Response('{"result":{"data":{"json":null}}}', {
         headers: { 'content-type': 'application/json' },
@@ -33,6 +34,7 @@ describe('Lambda tRPC tool-persistence diagnostics', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    delete process.env.KEY_VAULTS_SECRET;
     if (previousDebug === undefined) delete process.env.CHATHUB_TOOLS_DEBUG;
     else process.env.CHATHUB_TOOLS_DEBUG = previousDebug;
   });
@@ -50,7 +52,7 @@ describe('Lambda tRPC tool-persistence diagnostics', () => {
 
     const response = await POST(request);
 
-    expect(response.headers.get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER)).toBe('td_1234567890abcdef');
+    expect(response.headers.get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER)).toMatch(/^td_[\da-f]{32}$/);
     expect(fetchRequestHandlerMock).toHaveBeenCalledTimes(1);
     const startedEvent = consoleSpy.mock.calls.find(
       ([prefix]) => prefix === '[chathub-tools-debug:tool_persistence_rpc_started]',
@@ -61,6 +63,7 @@ describe('Lambda tRPC tool-persistence diagnostics', () => {
     expect(startedEvent?.[1]).toContain('message.update');
     expect(completedEvent?.[1]).toContain('responseFingerprint');
     expect(completedEvent?.[1]).not.toContain('{"result"');
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('td_1234567890abcdef');
     consoleSpy.mockRestore();
   });
 

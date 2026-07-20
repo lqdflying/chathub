@@ -519,6 +519,48 @@ describe('OpenAIStream', () => {
     ]);
   });
 
+  it('should preserve explicit zero usage for callbacks without exposing optional zeros', async () => {
+    const onUsage = vi.fn();
+    const mockOpenAIStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({
+          choices: [],
+          id: 'usage-with-zero-counters',
+          usage: {
+            completion_tokens: 2,
+            completion_tokens_details: { reasoning_tokens: 0 },
+            prompt_tokens: 10,
+            prompt_tokens_details: { cache_write_tokens: 0, cached_tokens: 0 },
+            total_tokens: 12,
+          },
+        });
+        controller.close();
+      },
+    });
+
+    const protocolStream = OpenAIStream(mockOpenAIStream, { callbacks: { onUsage } });
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    // @ts-ignore
+    for await (const chunk of protocolStream) {
+      chunks.push(decoder.decode(chunk, { stream: true }));
+    }
+
+    const serializedUsage = chunks.join('');
+    expect(serializedUsage).toContain('"inputCacheMissTokens":10');
+    expect(serializedUsage).not.toContain('"inputCachedTokens":0');
+    expect(serializedUsage).not.toContain('"inputWriteCacheTokens":0');
+    expect(serializedUsage).not.toContain('"outputReasoningTokens":0');
+    expect(onUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputCachedTokens: 0,
+        inputWriteCacheTokens: 0,
+        outputReasoningTokens: 0,
+      }),
+    );
+  });
+
   it('should handle error when there is not correct error', async () => {
     const mockOpenAIStream = new ReadableStream({
       start(controller) {

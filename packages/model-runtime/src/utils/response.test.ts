@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SSE_HEARTBEAT_COMMENT, StreamingResponse } from './response';
+import { SSE_HEARTBEAT_COMMENT, StreamingResponse, createErrorAwareStream } from './response';
 
 describe('StreamingResponse', () => {
   it('should create Response with default headers', () => {
@@ -151,5 +151,66 @@ describe('StreamingResponse', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it.each([false, 100] as const)(
+    'reports downstream cancellation and forwards it upstream with heartbeat %s',
+    async (heartbeatIntervalMs) => {
+      const onCancel = vi.fn();
+      const upstreamCancel = vi.fn();
+      const source = new ReadableStream<Uint8Array>({
+        cancel: upstreamCancel,
+      });
+      const response = StreamingResponse(source, {
+        heartbeatIntervalMs,
+        onCancel,
+      });
+      const reader = response.body!.getReader();
+
+      if (heartbeatIntervalMs) {
+        await reader.read();
+      }
+      await reader.cancel('consumer_cancelled');
+
+      expect(onCancel).toHaveBeenCalledOnce();
+      expect(onCancel).toHaveBeenCalledWith('consumer_cancelled');
+      expect(upstreamCancel).toHaveBeenCalledOnce();
+      expect(upstreamCancel).toHaveBeenCalledWith('consumer_cancelled');
+    },
+  );
+});
+
+describe('createErrorAwareStream', () => {
+  it('reports an upstream read failure and propagates the original error', async () => {
+    const streamError = new Error('upstream failed');
+    const onError = vi.fn();
+    let pullCount = 0;
+    const source = new ReadableStream<string>({
+      pull(controller) {
+        pullCount += 1;
+        if (pullCount === 1) {
+          controller.enqueue('first chunk');
+          return;
+        }
+
+        controller.error(streamError);
+      },
+    });
+    const reader = createErrorAwareStream(source, onError).getReader();
+
+    await expect(reader.read()).resolves.toEqual({ done: false, value: 'first chunk' });
+    await expect(reader.read()).rejects.toBe(streamError);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(streamError);
+  });
+
+  it('forwards downstream cancellation to the upstream stream', async () => {
+    const upstreamCancel = vi.fn();
+    const source = new ReadableStream<string>({ cancel: upstreamCancel });
+    const reader = createErrorAwareStream(source, vi.fn()).getReader();
+
+    await reader.cancel('consumer cancelled');
+
+    expect(upstreamCancel).toHaveBeenCalledWith('consumer cancelled');
   });
 });

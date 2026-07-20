@@ -6,7 +6,9 @@ import {
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
 } from '@/const/tools';
 import { pino } from '@/libs/logger';
+import { protectExternalToolsDiagnosticId } from '@/libs/logger/modelCacheDebug';
 import {
+  createToolsDiagnosticId,
   describeToolsDebugError,
   logToolsDebugRuntimeInitialized,
   logToolsDebugSafe,
@@ -58,7 +60,7 @@ const handler = async (req: NextRequest) => {
   const requestedDiagnosticId = req.headers.get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER);
   const diagnosticId =
     requestedDiagnosticId && CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN.test(requestedDiagnosticId)
-      ? requestedDiagnosticId
+      ? protectExternalToolsDiagnosticId(requestedDiagnosticId) || createToolsDiagnosticId()
       : undefined;
 
   if (!diagnosticId) {

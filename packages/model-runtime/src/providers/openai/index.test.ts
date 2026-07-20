@@ -2,7 +2,6 @@
 import OpenAI from 'openai';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import * as debugStreamModule from '../../utils/debugStream';
 import officalOpenAIModels from './fixtures/openai-models.json';
 import { LobeOpenAI, params } from './index';
 
@@ -78,6 +77,72 @@ describe('LobeOpenAI', () => {
         reasoning_effort: 'high',
       });
       expect(requestPayload).not.toHaveProperty('provider');
+    });
+
+    it('should send only the trusted prompt cache key for eligible Chat Completions models', async () => {
+      await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'gpt-5.6-sol',
+          prompt_cache_key: 'CLIENT_CONTROLLED_KEY',
+        },
+        { trustedPromptCacheKey: 'ch_trustedpromptcachekey0123456789' },
+      );
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload.prompt_cache_key).toBe('ch_trustedpromptcachekey0123456789');
+      expect(JSON.stringify(requestPayload)).not.toContain('CLIENT_CONTROLLED_KEY');
+    });
+
+    it('should omit prompt cache keys for ineligible native OpenAI models', async () => {
+      await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'gpt-4o',
+          prompt_cache_key: 'CLIENT_CONTROLLED_KEY',
+        },
+        { trustedPromptCacheKey: 'ch_trustedpromptcachekey0123456789' },
+      );
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload).not.toHaveProperty('prompt_cache_key');
+    });
+
+    it('should ignore compatible cache controls for native OpenAI models', async () => {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-4o',
+        openAICompatCache: {
+          chat: {
+            promptCacheKey: true,
+            sessionHeader: true,
+          },
+        },
+      });
+
+      const createMock = instance['client'].chat.completions.create as Mock;
+      const requestPayload = createMock.mock.calls[0][0];
+      const requestOptions = createMock.mock.calls[0][1];
+
+      expect(requestPayload).not.toHaveProperty('prompt_cache_key');
+      expect(requestPayload).not.toHaveProperty('openAICompatCache');
+      expect(requestOptions.headers).not.toHaveProperty('Session_id');
+    });
+
+    it('should send only the trusted prompt cache key in Responses mode', async () => {
+      await instance.chat(
+        {
+          enabledSearch: true,
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'gpt-5.6-sol',
+          prompt_cache_key: 'CLIENT_CONTROLLED_KEY',
+        },
+        { trustedPromptCacheKey: 'ch_trustedpromptcachekey0123456789' },
+      );
+
+      const requestPayload = (instance['client'].responses.create as Mock).mock.calls[0][0];
+      expect(requestPayload.prompt_cache_key).toBe('ch_trustedpromptcachekey0123456789');
+      expect(JSON.stringify(requestPayload)).not.toContain('CLIENT_CONTROLLED_KEY');
     });
 
     describe('Error', () => {
@@ -218,43 +283,39 @@ describe('LobeOpenAI', () => {
     });
 
     describe('DEBUG', () => {
-      it('should call debugStream and return StreamingTextResponse when DEBUG_OPENAI_CHAT_COMPLETION is 1', async () => {
-        // Arrange
-        const mockProdStream = new ReadableStream() as any; // 模拟的 prod 流
-        const mockDebugStream = new ReadableStream({
-          start(controller) {
-            controller.enqueue('Debug stream content');
-            controller.close();
-          },
-        }) as any;
-        mockDebugStream.toReadableStream = () => mockDebugStream; // 添加 toReadableStream 方法
-
-        // 模拟 chat.completions.create 返回值，包括模拟的 tee 方法
-        (instance['client'].chat.completions.create as Mock).mockResolvedValue({
-          tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
-        });
-
-        // 保存原始环境变量值
-        const originalDebugValue = process.env.DEBUG_OPENAI_CHAT_COMPLETION;
-
-        // 模拟环境变量
-        process.env.DEBUG_OPENAI_CHAT_COMPLETION = '1';
-        vi.spyOn(debugStreamModule, 'debugStream').mockImplementation(() => Promise.resolve());
-
-        // 执行测试
-        // 运行你的测试函数，确保它会在条件满足时调用 debugStream
-        // 假设的测试函数调用，你可能需要根据实际情况调整
-        await instance.chat({
-          messages: [{ content: 'Hello', role: 'user' }],
+      it('should log stream chunks when DEBUG_OPENAI_CHAT_COMPLETION is 1', async () => {
+        const completionChunk = {
+          choices: [
+            {
+              delta: { content: 'Debug stream content' },
+              finish_reason: null,
+              index: 0,
+            },
+          ],
+          id: 'debug-completion',
           model: 'text-davinci-003',
-          temperature: 0,
-        });
+        };
+        (instance['client'].chat.completions.create as Mock).mockResolvedValue(
+          (async function* () {
+            yield completionChunk;
+          })(),
+        );
+        const originalDebugValue = process.env.DEBUG_OPENAI_CHAT_COMPLETION;
+        process.env.DEBUG_OPENAI_CHAT_COMPLETION = '1';
+        const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-        // 验证 debugStream 被调用
-        expect(debugStreamModule.debugStream).toHaveBeenCalled();
+        try {
+          const response = await instance.chat({
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'text-davinci-003',
+            temperature: 0,
+          });
+          await response.text();
 
-        // 恢复原始环境变量值
-        process.env.DEBUG_OPENAI_CHAT_COMPLETION = originalDebugValue;
+          expect(consoleLogSpy).toHaveBeenCalledWith(JSON.stringify(completionChunk));
+        } finally {
+          process.env.DEBUG_OPENAI_CHAT_COMPLETION = originalDebugValue;
+        }
       });
     });
   });

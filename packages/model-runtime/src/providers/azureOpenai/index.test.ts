@@ -3,7 +3,10 @@ import { AzureOpenAI } from 'openai';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as openaiCompatibleFactoryModule from '../../core/openaiCompatibleFactory';
-import * as debugStreamModule from '../../utils/debugStream';
+import type {
+  ModelCacheDiagnosticContext,
+  ModelCacheDiagnosticEvent,
+} from '../../types/cacheDiagnostics';
 import { LobeAzureOpenAI } from './index';
 
 const bizErrorType = 'ProviderBizError';
@@ -79,6 +82,196 @@ describe('LobeAzureOpenAI', () => {
       expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
         expect.not.objectContaining({ debugToolCache: expect.anything() }),
       );
+    });
+
+    it('should not forward internal compatible cache controls to Azure OpenAI', async () => {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-4o',
+        openAICompatCache: {
+          chat: {
+            promptCacheKey: true,
+            sessionHeader: true,
+          },
+        },
+        openAICompatResponsesParams: {
+          responseStateMode: 'prompt-key-store',
+        },
+        responseStateMode: 'prompt-key-store',
+      } as any);
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload).not.toHaveProperty('openAICompatCache');
+      expect(requestPayload).not.toHaveProperty('openAICompatResponsesParams');
+      expect(requestPayload).not.toHaveProperty('responseStateMode');
+    });
+
+    it('should send only the trusted prompt cache key for a validated deployment alias', async () => {
+      const currentApiInstance = new LobeAzureOpenAI({
+        apiKey: 'test_key',
+        apiVersion: '2024-08-01-preview',
+        baseURL: 'https://test.openai.azure.com/',
+      });
+      vi.spyOn(currentApiInstance['client'].chat.completions, 'create').mockResolvedValue(
+        new ReadableStream() as any,
+      );
+
+      await currentApiInstance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'custom-production-deployment',
+          prompt_cache_key: 'CLIENT_CONTROLLED_KEY',
+        },
+        {
+          trustedCatalogModel: 'gpt-5.6-sol',
+          trustedPromptCacheKey: 'ch_trustedpromptcachekey0123456789',
+        },
+      );
+
+      const requestPayload = (currentApiInstance['client'].chat.completions.create as Mock).mock
+        .calls[0][0];
+      expect(requestPayload).toMatchObject({
+        model: 'custom-production-deployment',
+        prompt_cache_key: 'ch_trustedpromptcachekey0123456789',
+        stream_options: { include_usage: true },
+      });
+      expect(JSON.stringify(requestPayload)).not.toContain('CLIENT_CONTROLLED_KEY');
+    });
+
+    it('should omit streaming usage for Azure API versions before 2024-08-01-preview', async () => {
+      await instance.chat({
+        messages: [{ content: 'Hello', role: 'user' }],
+        model: 'gpt-4o',
+      });
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload).not.toHaveProperty('stream_options');
+    });
+
+    it('should not let a catalog model claim enable cache keys for a custom deployment', async () => {
+      await instance.chat(
+        {
+          catalogModel: 'gpt-5.6-sol',
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'custom-production-deployment',
+          provider: 'client-controlled-provider',
+        },
+        {
+          trustedPromptCacheKey: 'ch_trustedpromptcachekey0123456789',
+        },
+      );
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload).toMatchObject({
+        model: 'custom-production-deployment',
+      });
+      expect(requestPayload).not.toHaveProperty('catalogModel');
+      expect(requestPayload).not.toHaveProperty('prompt_cache_key');
+      expect(requestPayload).not.toHaveProperty('provider');
+    });
+
+    it('should omit prompt cache keys for ineligible models', async () => {
+      await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'gpt-5.5',
+          prompt_cache_key: 'CLIENT_CONTROLLED_KEY',
+        },
+        {
+          trustedCatalogModel: 'gpt-5.5',
+          trustedPromptCacheKey: 'ch_trustedpromptcachekey0123456789',
+        },
+      );
+
+      const requestPayload = (instance['client'].chat.completions.create as Mock).mock.calls[0][0];
+      expect(requestPayload).not.toHaveProperty('prompt_cache_key');
+    });
+
+    it('should repair parent-owned repeated tool results before the Azure request', async () => {
+      const repeatedToolCall = {
+        function: { arguments: '{}', name: 'tavily_search' },
+        id: 'tavily____tavily_search____mcp:7',
+        type: 'function' as const,
+      };
+
+      await instance.chat({
+        messages: [
+          {
+            content: 'second result',
+            id: 'tool-2',
+            parentId: 'assistant-2',
+            role: 'tool',
+            tool_call_id: repeatedToolCall.id,
+          },
+          {
+            content: null,
+            id: 'assistant-1',
+            role: 'assistant',
+            tool_calls: [repeatedToolCall],
+          },
+          {
+            content: 'first result',
+            id: 'tool-1',
+            parentId: 'assistant-1',
+            role: 'tool',
+            tool_call_id: repeatedToolCall.id,
+          },
+          {
+            content: null,
+            id: 'assistant-2',
+            role: 'assistant',
+            tool_calls: [repeatedToolCall],
+          },
+        ] as any,
+        model: 'gpt-4o',
+      });
+
+      const requestMessages = (instance['client'].chat.completions.create as Mock).mock.calls[0][0]
+        .messages as any[];
+      expect(requestMessages.map((message) => message.content)).toEqual([
+        null,
+        'first result',
+        null,
+        'second result',
+      ]);
+      expect(requestMessages.every((message) => !('id' in message))).toBe(true);
+      expect(requestMessages.every((message) => !('parentId' in message))).toBe(true);
+    });
+
+    it('should finalize non-streaming cache diagnostics before body consumption', async () => {
+      const events: ModelCacheDiagnosticEvent[] = [];
+      const cacheDiagnostics: ModelCacheDiagnosticContext = {
+        emit: (event) => events.push(event),
+        fingerprint: (scope) => `${scope}-fingerprint`,
+        provider: 'azure',
+        runtimeFamily: 'azure-openai',
+      };
+      vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'gpt-4o',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 5,
+          prompt_tokens: 100,
+          prompt_tokens_details: { cached_tokens: 80 },
+          total_tokens: 105,
+        },
+      } as any);
+
+      const response = await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'gpt-4o',
+          stream: false,
+        },
+        { cacheDiagnostics },
+      );
+
+      expect(events.map((event) => event.type)).toEqual(['request', 'usage']);
+      await response.text();
+      expect(events.map((event) => event.type)).toEqual(['request', 'usage']);
     });
 
     describe('streaming response', () => {
@@ -315,36 +508,41 @@ describe('LobeAzureOpenAI', () => {
     });
 
     describe('DEBUG', () => {
-      it('should call debugStream when DEBUG_CHAT_COMPLETION is 1', async () => {
-        // Arrange
-        const mockProdStream = new ReadableStream() as any;
-        const mockDebugStream = new ReadableStream({
-          start(controller) {
-            controller.enqueue('Debug stream content');
-            controller.close();
-          },
-        }) as any;
-        mockDebugStream.toReadableStream = () => mockDebugStream;
+      it('should observe the production stream when DEBUG_CHAT_COMPLETION is 1', async () => {
+        const completionChunk = {
+          choices: [{ delta: { content: 'Debug stream content' }, finish_reason: null, index: 0 }],
+          id: 'chatcmpl-debug',
+          model: 'text-davinci-003',
+          object: 'chat.completion.chunk',
+        };
+        const mockStream = (async function* () {
+          yield completionChunk;
+          yield {
+            choices: [{ delta: {}, finish_reason: 'stop', index: 0 }],
+            id: 'chatcmpl-debug',
+            model: 'text-davinci-003',
+            object: 'chat.completion.chunk',
+          };
+        })();
 
-        (instance['client'].chat.completions.create as Mock).mockResolvedValue({
-          tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
-        });
+        (instance['client'].chat.completions.create as Mock).mockResolvedValue(mockStream);
 
         process.env.DEBUG_AZURE_CHAT_COMPLETION = '1';
-        vi.spyOn(debugStreamModule, 'debugStream').mockImplementation(() => Promise.resolve());
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-        // Act
-        await instance.chat({
-          messages: [{ content: 'Hello', role: 'user' }],
-          model: 'text-davinci-003',
-          temperature: 0,
-        });
+        try {
+          const response = await instance.chat({
+            messages: [{ content: 'Hello', role: 'user' }],
+            model: 'text-davinci-003',
+            temperature: 0,
+          });
+          await response.text();
 
-        // Assert
-        expect(debugStreamModule.debugStream).toHaveBeenCalled();
-
-        // Restore
-        delete process.env.DEBUG_AZURE_CHAT_COMPLETION;
+          expect(logSpy).toHaveBeenCalledWith(JSON.stringify(completionChunk));
+        } finally {
+          logSpy.mockRestore();
+          delete process.env.DEBUG_AZURE_CHAT_COMPLETION;
+        }
       });
     });
   });

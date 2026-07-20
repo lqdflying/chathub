@@ -97,6 +97,7 @@ const fetchMinimaxModels = async ({ client }: { client: OpenAI }): Promise<any[]
 
 export const LobeMinimaxAI = createOpenAICompatibleRuntime({
   baseURL: 'https://api.minimax.io/v1',
+  cacheSupport: 'unobservable',
   chatCompletion: {
     handlePayload: buildMinimaxOpenAIChatPayload,
   },

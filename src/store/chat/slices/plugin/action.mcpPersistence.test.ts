@@ -1,4 +1,4 @@
-import { ChatToolPayload, UIChatMessage } from '@lobechat/types';
+import { ChatToolPayload, UIChatMessage, createToolResultDebugSummary } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
@@ -38,6 +38,10 @@ describe('MCP tool-result persistence recovery', () => {
 
   beforeEach(() => {
     useChatStore.setState(initialState, true);
+    vi.spyOn(toolTelemetryService, 'getCapabilities').mockResolvedValue({
+      cacheContinuationEnabled: true,
+      toolLifecycleEnabled: true,
+    });
   });
 
   afterEach(() => {
@@ -92,7 +96,7 @@ describe('MCP tool-result persistence recovery', () => {
 
     const response = await useChatStore.getState().invokeMCPTypePlugin('message-id', payload);
 
-    expect(response).toBe(toolResult);
+    expect(response).toEqual({ data: toolResult, outcome: 'completed' });
     expect(updateMessageContent).toHaveBeenCalledTimes(2);
     expect(updateMessageContent).toHaveBeenLastCalledWith(
       'message-id',
@@ -137,7 +141,7 @@ describe('MCP tool-result persistence recovery', () => {
 
     const response = await useChatStore.getState().invokeMCPTypePlugin('message-id', payload);
 
-    expect(response).toBe(toolResult);
+    expect(response).toEqual({ data: toolResult, outcome: 'persistence_failed' });
     expect(updateMessageContent).toHaveBeenCalledTimes(2);
     expect(reportFailure).toHaveBeenCalledTimes(2);
     expect(reportFailure).toHaveBeenLastCalledWith(
@@ -166,7 +170,7 @@ describe('MCP tool-result persistence recovery', () => {
 
     const response = await useChatStore.getState().invokeMCPTypePlugin('message-id', payload);
 
-    expect(response).toBe(toolResult);
+    expect(response).toEqual({ data: toolResult });
     expect(invokeTool).toHaveBeenCalledWith(
       payload,
       expect.objectContaining({ messageId: 'message-id', topicId: 'topic-id' }),
@@ -198,7 +202,7 @@ describe('MCP tool-result persistence recovery', () => {
       .getState()
       .invokeMCPTypePlugin('message-id', payload, undefined, requestedDiagnosticId);
 
-    expect(response).toBe(toolResult);
+    expect(response).toEqual({ data: toolResult, outcome: 'completed' });
     expect(invokeTool).toHaveBeenCalledWith(
       payload,
       expect.objectContaining({
@@ -230,9 +234,12 @@ describe('MCP tool-result persistence recovery', () => {
       internal_updateMessageContent: updateMessageContent,
     });
 
-    await expect(useChatStore.getState().invokeMCPTypePlugin('message-id', payload)).resolves.toBe(
-      toolResult,
-    );
+    await expect(
+      useChatStore.getState().invokeMCPTypePlugin('message-id', payload),
+    ).resolves.toEqual({
+      data: toolResult,
+      outcome: 'persistence_failed',
+    });
 
     expect(dispatchMessage).toHaveBeenCalledTimes(1);
     expect(updateMessageContent).not.toHaveBeenCalled();
@@ -353,33 +360,444 @@ describe('MCP tool-result persistence recovery', () => {
       inSearchWorkflow: undefined,
       threadId: undefined,
       traceId: 'trace-id',
-      toolCacheDebug: {
+      toolCacheDebug: expect.objectContaining({
+        batchId: expect.stringMatching(/^tb_[\w-]{20}$/),
+        continuationId: expect.stringMatching(/^tc_[\w-]{20}$/),
+        failureCount: 1,
+        resultCount: 1,
         toolCallCount: 2,
         toolCallSetHash: expect.stringMatching(/^[\da-f]{16}$/),
-        toolResults: [
-          {
-            serializedLength: 11,
+        toolResults: expect.arrayContaining([
+          expect.objectContaining({
             truncated: false,
-            type: 'string',
             valueHash: expect.stringMatching(/^[\da-f]{16}$/),
-          },
-        ],
-      },
+          }),
+        ]),
+      }),
     });
-    expect(reportToolCompletion).toHaveBeenCalledTimes(1);
+    expect(reportToolCompletion).toHaveBeenCalledTimes(2);
     expect(reportToolCompletion).toHaveBeenCalledWith(
       expect.objectContaining({
-        correlation: {
+        correlation: expect.objectContaining({
+          failureCount: 1,
+          resultCount: 1,
           toolCallCount: 2,
           toolCallSetHash: expect.stringMatching(/^[\da-f]{16}$/),
-        },
+        }),
         diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
+        outcome: 'failed',
         runtimeType: 'mcp',
         toolNameHash: expect.stringMatching(/^[\da-f]{16}$/),
+      }),
+    );
+    expect(reportToolCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'completed',
+        runtimeType: 'mcp',
       }),
     );
 
     resolveTelemetry({ reported: true });
     await pendingTelemetry;
+  });
+
+  it('continues after a handled tool failure explicitly requests continuation', async () => {
+    const assistantId = 'assistant-handled-failure';
+    const toolMessageId = 'tool-message-handled-failure';
+    const toolPayload = {
+      apiName: 'search',
+      arguments: '{"query":"test"}',
+      id: 'tool-handled-failure',
+      identifier: 'builtin',
+      type: 'builtin',
+    } as const;
+    const assistantMessage = {
+      content: '',
+      id: assistantId,
+      role: 'assistant',
+      tools: [toolPayload],
+    } as UIChatMessage;
+    const toolMessage = {
+      content: '{"error":"search temporarily unavailable"}',
+      id: toolMessageId,
+      parentId: assistantId,
+      plugin: toolPayload,
+      role: 'tool',
+      tool_call_id: toolPayload.id,
+    } as UIChatMessage;
+    const triggerAIMessage = vi.fn();
+
+    vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
+      cacheContinuationEnabled: false,
+      toolLifecycleEnabled: false,
+    });
+    vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+      (messageId) => () => (messageId === assistantId ? assistantMessage : toolMessage),
+    );
+    vi.spyOn(chatSelectors, 'getTraceIdByMessageId').mockReturnValue(
+      vi.fn().mockReturnValue('trace-id'),
+    );
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      internal_invokeDifferentTypePlugin: vi.fn().mockResolvedValue({
+        data: toolMessage.content,
+        outcome: 'failed',
+        shouldContinue: true,
+      }),
+      internal_toggleMessageInToolsCalling: vi.fn().mockResolvedValue(undefined),
+      messagesMap: {
+        [messageMapKey('session-id', undefined)]: [assistantMessage, toolMessage],
+      },
+      triggerAIMessage,
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(triggerAIMessage).toHaveBeenCalledWith({
+      inPortalThread: undefined,
+      inSearchWorkflow: undefined,
+      threadId: undefined,
+      toolCacheDebug: undefined,
+      traceId: 'trace-id',
+    });
+
+    triggerAIMessage.mockClear();
+    useChatStore.setState({
+      internal_invokeDifferentTypePlugin: vi.fn().mockResolvedValue({
+        data: toolMessage.content,
+        outcome: 'failed',
+      }),
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(triggerAIMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips diagnostic metadata and telemetry when server diagnostics are disabled', async () => {
+    const assistantId = 'assistant-disabled-diagnostics';
+    const toolMessageId = 'tool-message-disabled-diagnostics';
+    const toolPayload = {
+      apiName: 'tavily_search',
+      arguments: '{"query":"test"}',
+      id: 'tool-disabled-diagnostics',
+      identifier: 'tavily',
+      type: 'mcp',
+    } as const;
+    const assistantMessage = {
+      content: '',
+      id: assistantId,
+      role: 'assistant',
+      tools: [toolPayload],
+    } as UIChatMessage;
+    const toolMessage = {
+      content: toolPayload.arguments,
+      id: toolMessageId,
+      parentId: assistantId,
+      plugin: toolPayload,
+      role: 'tool',
+      tool_call_id: toolPayload.id,
+    } as UIChatMessage;
+    const invokeTool = vi.fn().mockResolvedValue({
+      data: '{"ok":true}',
+      outcome: 'completed',
+      shouldContinue: true,
+    });
+    const reportToolBatch = vi
+      .spyOn(toolTelemetryService, 'reportToolBatch')
+      .mockResolvedValue({ reported: true });
+    const reportToolCompletion = vi
+      .spyOn(toolTelemetryService, 'reportToolCompletion')
+      .mockResolvedValue({ reported: true });
+    vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
+      cacheContinuationEnabled: false,
+      toolLifecycleEnabled: false,
+    });
+    vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+      (messageId) => () =>
+        messageId === assistantId
+          ? assistantMessage
+          : messageId === toolMessageId
+            ? toolMessage
+            : undefined,
+    );
+    vi.spyOn(chatSelectors, 'getTraceIdByMessageId').mockReturnValue(
+      vi.fn().mockReturnValue('trace-id'),
+    );
+    const triggerAIMessage = vi.fn();
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      internal_invokeDifferentTypePlugin: invokeTool,
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage, toolMessage],
+      },
+      triggerAIMessage,
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(invokeTool).toHaveBeenCalledWith(toolMessageId, toolPayload, undefined, undefined);
+    expect(reportToolBatch).not.toHaveBeenCalled();
+    expect(reportToolCompletion).not.toHaveBeenCalled();
+    expect(triggerAIMessage).toHaveBeenCalledWith({
+      inPortalThread: undefined,
+      inSearchWorkflow: undefined,
+      threadId: undefined,
+      toolCacheDebug: undefined,
+      traceId: 'trace-id',
+    });
+  });
+
+  it('preserves cache continuation metadata without lifecycle telemetry', async () => {
+    const assistantId = 'assistant-cache-only-diagnostics';
+    const toolMessageId = 'tool-message-cache-only-diagnostics';
+    const toolPayload = {
+      apiName: 'tavily_search',
+      arguments: '{"query":"test"}',
+      id: 'tool-cache-only-diagnostics',
+      identifier: 'tavily',
+      type: 'mcp',
+    } as const;
+    const assistantMessage = {
+      content: '',
+      id: assistantId,
+      role: 'assistant',
+      tools: [toolPayload],
+    } as UIChatMessage;
+    const toolMessage = {
+      content: toolPayload.arguments,
+      id: toolMessageId,
+      parentId: assistantId,
+      plugin: toolPayload,
+      role: 'tool',
+      tool_call_id: toolPayload.id,
+    } as UIChatMessage;
+    const invokeTool = vi.fn().mockResolvedValue({
+      data: '{"ok":true}',
+      outcome: 'completed',
+      shouldContinue: true,
+    });
+    const reportToolBatch = vi
+      .spyOn(toolTelemetryService, 'reportToolBatch')
+      .mockResolvedValue({ reported: true });
+    const reportToolCompletion = vi
+      .spyOn(toolTelemetryService, 'reportToolCompletion')
+      .mockResolvedValue({ reported: true });
+    vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
+      cacheContinuationEnabled: true,
+      toolLifecycleEnabled: false,
+    });
+    vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+      (messageId) => () =>
+        messageId === assistantId
+          ? assistantMessage
+          : messageId === toolMessageId
+            ? toolMessage
+            : undefined,
+    );
+    vi.spyOn(chatSelectors, 'getTraceIdByMessageId').mockReturnValue(
+      vi.fn().mockReturnValue('trace-id'),
+    );
+    const triggerAIMessage = vi.fn();
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      internal_invokeDifferentTypePlugin: invokeTool,
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage, toolMessage],
+      },
+      triggerAIMessage,
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(invokeTool).toHaveBeenCalledWith(
+      toolMessageId,
+      toolPayload,
+      expect.objectContaining({
+        batchId: expect.stringMatching(/^tb_[\w-]{20}$/),
+        continuationId: expect.stringMatching(/^tc_[\w-]{20}$/),
+        toolCallCount: 1,
+      }),
+      undefined,
+    );
+    expect(reportToolBatch).not.toHaveBeenCalled();
+    expect(reportToolCompletion).not.toHaveBeenCalled();
+    expect(triggerAIMessage).toHaveBeenCalledWith({
+      inPortalThread: undefined,
+      inSearchWorkflow: undefined,
+      threadId: undefined,
+      toolCacheDebug: expect.objectContaining({
+        batchId: expect.stringMatching(/^tb_[\w-]{20}$/),
+        continuationId: expect.stringMatching(/^tc_[\w-]{20}$/),
+        failureCount: 0,
+        resultCount: 1,
+        toolCallCount: 1,
+        toolResults: [expect.any(Object)],
+      }),
+      traceId: 'trace-id',
+    });
+  });
+
+  it('reports a persisted built-in search error instead of its boolean control result', async () => {
+    const assistantId = 'assistant-search';
+    const toolMessageId = 'tool-message-search';
+    const toolPayload = {
+      apiName: 'search',
+      arguments: '{"query":"private query"}',
+      id: 'search-call',
+      identifier: 'web-browsing',
+      type: 'builtin',
+    } as const;
+    const assistantMessage = {
+      content: '',
+      id: assistantId,
+      role: 'assistant',
+      tools: [toolPayload],
+    } as UIChatMessage;
+    const pluginError = {
+      message: 'private search failure',
+      type: 'PluginServerError',
+    };
+    const failedToolMessage = {
+      content: '<search>private result content</search>',
+      id: toolMessageId,
+      parentId: assistantId,
+      plugin: toolPayload,
+      pluginError,
+      role: 'tool',
+      tool_call_id: toolPayload.id,
+    } as UIChatMessage;
+    const reportToolBatch = vi
+      .spyOn(toolTelemetryService, 'reportToolBatch')
+      .mockResolvedValue({ reported: true });
+    const reportToolCompletion = vi
+      .spyOn(toolTelemetryService, 'reportToolCompletion')
+      .mockResolvedValue({ reported: true });
+    vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+      (messageId) => () =>
+        messageId === assistantId
+          ? assistantMessage
+          : messageId === toolMessageId
+            ? failedToolMessage
+            : undefined,
+    );
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      invokeBuiltinTool: vi.fn().mockResolvedValue(true),
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage, failedToolMessage],
+      },
+      triggerAIMessage: vi.fn(),
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    const callIdHash = createToolResultDebugSummary(toolPayload.id).valueHash;
+    const expectedResult = createToolResultDebugSummary({
+      callIdHash,
+      data: pluginError,
+    });
+    const booleanResult = createToolResultDebugSummary({
+      callIdHash,
+      data: true,
+    });
+
+    expect(reportToolCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'failed',
+        result: expectedResult,
+        runtimeType: 'builtin',
+      }),
+    );
+    expect(expectedResult.valueHash).not.toBe(booleanResult.valueHash);
+    expect(reportToolBatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ failureCount: 1, resultCount: 0 }),
+      'settled',
+    );
+    expect(JSON.stringify(reportToolCompletion.mock.calls)).not.toContain('private search failure');
+    expect(JSON.stringify(reportToolCompletion.mock.calls)).not.toContain('private result content');
+  });
+
+  it('reports a Python failure and does not resume the model', async () => {
+    const assistantId = 'assistant-builtin-failure';
+    const toolMessageId = 'tool-message-builtin-failure';
+    const pythonError = new Error('private Python execution failure');
+    const toolPayload = {
+      apiName: 'python',
+      arguments: '{"code":"raise RuntimeError()"}',
+      id: 'python-call',
+      identifier: 'code-interpreter',
+      type: 'builtin',
+    } as const;
+    const assistantMessage = {
+      content: '',
+      id: assistantId,
+      role: 'assistant',
+      tools: [toolPayload],
+    } as UIChatMessage;
+    const toolMessage = {
+      content: toolPayload.arguments,
+      id: toolMessageId,
+      parentId: assistantId,
+      plugin: toolPayload,
+      role: 'tool',
+      tool_call_id: toolPayload.id,
+    } as UIChatMessage;
+    const triggerAIMessage = vi.fn();
+    vi.spyOn(toolTelemetryService, 'reportToolBatch').mockResolvedValue({ reported: true });
+    const reportToolCompletion = vi
+      .spyOn(toolTelemetryService, 'reportToolCompletion')
+      .mockResolvedValue({ reported: true });
+    vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+      (messageId) => () =>
+        messageId === assistantId
+          ? assistantMessage
+          : messageId === toolMessageId
+            ? toolMessage
+            : undefined,
+    );
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      invokeBuiltinTool: vi.fn().mockResolvedValue({
+        data: pythonError,
+        outcome: 'failed',
+        shouldContinue: false,
+      }),
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage, toolMessage],
+      },
+      triggerAIMessage,
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(triggerAIMessage).not.toHaveBeenCalled();
+    expect(reportToolCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'failed',
+        result: createToolResultDebugSummary({
+          callIdHash: createToolResultDebugSummary(toolPayload.id).valueHash,
+          data: pythonError,
+        }),
+        runtimeType: 'builtin',
+      }),
+    );
+    expect(JSON.stringify(reportToolCompletion.mock.calls)).not.toContain(
+      'private Python execution failure',
+    );
   });
 });

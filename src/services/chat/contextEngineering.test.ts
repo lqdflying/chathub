@@ -719,6 +719,119 @@ describe('contextEngineering', () => {
       expect(continuationRequest.at(initialRequest.length)?.tool_calls).toHaveLength(3);
     });
 
+    it('should preserve repeated tool call IDs across parent-scoped UI message rounds', async () => {
+      vi.spyOn(isCanUseFCModule, 'isCanUseFC').mockReturnValue(true);
+
+      const now = Date.now();
+      const repeatedToolIds = [
+        'tavily____tavily_search____mcp:7',
+        'tavily____tavily_search____mcp:8',
+      ];
+      const createTools = () =>
+        repeatedToolIds.map((id) => ({
+          apiName: 'tavily_search',
+          arguments: '{}',
+          id,
+          identifier: 'tavily',
+          type: 'mcp' as const,
+        }));
+      const firstRoundTools = createTools();
+      const secondRoundTools = createTools();
+      const messages = [
+        {
+          content: 'Search first',
+          createdAt: now,
+          id: 'user-1',
+          meta: {},
+          role: 'user',
+          updatedAt: now,
+        },
+        {
+          content: '',
+          createdAt: now,
+          id: 'assistant-1',
+          meta: {},
+          role: 'assistant',
+          tools: firstRoundTools,
+          updatedAt: now,
+        },
+        ...firstRoundTools.map((tool, index) => ({
+          content: `First result ${index + 1}`,
+          createdAt: now,
+          id: `first-tool-result-${index + 1}`,
+          meta: {},
+          parentId: 'assistant-1',
+          plugin: tool,
+          role: 'tool',
+          tool_call_id: tool.id,
+          updatedAt: now,
+        })),
+        {
+          content: 'Search again',
+          createdAt: now,
+          id: 'user-2',
+          meta: {},
+          role: 'user',
+          updatedAt: now,
+        },
+        {
+          content: '',
+          createdAt: now,
+          id: 'assistant-2',
+          meta: {},
+          role: 'assistant',
+          tools: secondRoundTools,
+          updatedAt: now,
+        },
+        ...secondRoundTools.map((tool, index) => ({
+          content: `Second result ${index + 1}`,
+          createdAt: now,
+          id: `second-tool-result-${index + 1}`,
+          meta: {},
+          parentId: 'assistant-2',
+          plugin: tool,
+          role: 'tool',
+          tool_call_id: tool.id,
+          updatedAt: now,
+        })),
+      ] as UIChatMessage[];
+
+      const result = await contextEngineering({
+        messages,
+        model: 'kimi-k2.5',
+        provider: 'moonshot',
+      });
+
+      expect(result.map(({ role }) => role)).toEqual([
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+        'user',
+        'assistant',
+        'tool',
+        'tool',
+      ]);
+      expect(result[1].tool_calls?.map(({ id }) => id)).toEqual(repeatedToolIds);
+      expect(result[2]).toMatchObject({
+        content: 'First result 1',
+        tool_call_id: repeatedToolIds[0],
+      });
+      expect(result[3]).toMatchObject({
+        content: 'First result 2',
+        tool_call_id: repeatedToolIds[1],
+      });
+      expect(result[5].tool_calls?.map(({ id }) => id)).toEqual(repeatedToolIds);
+      expect(result[6]).toMatchObject({
+        content: 'Second result 1',
+        tool_call_id: repeatedToolIds[0],
+      });
+      expect(result[7]).toMatchObject({
+        content: 'Second result 2',
+        tool_call_id: repeatedToolIds[1],
+      });
+    });
+
     it('should apply input template to user messages', async () => {
       const messages: UIChatMessage[] = [
         {

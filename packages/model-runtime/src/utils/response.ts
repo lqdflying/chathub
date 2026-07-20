@@ -1,6 +1,74 @@
 export const SSE_HEARTBEAT_INTERVAL_MS = 10_000;
 export const SSE_HEARTBEAT_COMMENT = ': chathub-ping\n\n';
 
+export const createErrorAwareStream = <Chunk>(
+  source: ReadableStream<Chunk>,
+  onError: (error: unknown) => Promise<void> | void,
+): ReadableStream<Chunk> => {
+  let reader: ReadableStreamDefaultReader<Chunk>;
+
+  return new ReadableStream<Chunk>({
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+
+        controller.enqueue(value);
+      } catch (error) {
+        await Promise.resolve()
+          .then(() => onError(error))
+          .catch(() => undefined);
+        controller.error(error);
+      }
+    },
+    start() {
+      reader = source.getReader();
+    },
+  });
+};
+
+const createCancellationAwareStream = (
+  source: ReadableStream,
+  onCancel: (reason: unknown) => Promise<void> | void,
+) => {
+  let reader: ReadableStreamDefaultReader;
+
+  return new ReadableStream({
+    async cancel(reason) {
+      const [upstreamCancellation] = await Promise.allSettled([
+        reader.cancel(reason),
+        Promise.resolve().then(() => onCancel(reason)),
+      ]);
+
+      if (upstreamCancellation.status === 'rejected') {
+        throw upstreamCancellation.reason;
+      }
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+
+        controller.enqueue(value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    start() {
+      reader = source.getReader();
+    },
+  });
+};
+
 const createSSEKeepAliveStream = (source: ReadableStream, heartbeatIntervalMs: number) => {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
@@ -66,10 +134,7 @@ const createSSEKeepAliveStream = (source: ReadableStream, heartbeatIntervalMs: n
               return;
             }
 
-            buffer +=
-              typeof value === 'string'
-                ? value
-                : decoder.decode(value, { stream: true });
+            buffer += typeof value === 'string' ? value : decoder.decode(value, { stream: true });
             emitCompleteFrames();
           }
         } catch (error) {
@@ -85,12 +150,19 @@ const createSSEKeepAliveStream = (source: ReadableStream, heartbeatIntervalMs: n
 
 export const StreamingResponse = (
   stream: ReadableStream,
-  options?: { headers?: Record<string, string>; heartbeatIntervalMs?: false | number },
+  options?: {
+    headers?: Record<string, string>;
+    heartbeatIntervalMs?: false | number;
+    onCancel?: (reason: unknown) => Promise<void> | void;
+  },
 ) => {
+  const cancellationAwareStream = options?.onCancel
+    ? createCancellationAwareStream(stream, options.onCancel)
+    : stream;
   const responseStream =
     options?.heartbeatIntervalMs && options.heartbeatIntervalMs > 0
-      ? createSSEKeepAliveStream(stream, options.heartbeatIntervalMs)
-      : stream;
+      ? createSSEKeepAliveStream(cancellationAwareStream, options.heartbeatIntervalMs)
+      : cancellationAwareStream;
 
   return new Response(responseStream, {
     headers: {

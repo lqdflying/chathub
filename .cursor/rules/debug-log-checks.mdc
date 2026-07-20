@@ -5,28 +5,37 @@ alwaysApply: false
 
 # Checking Tool & Cache Debug Logs
 
-Both dedicated switches emit prefixed JSON. Query their distinct
-`debug_namespace` values to select the desired diagnostic stream.
+Both dedicated switches emit prefixed JSON. Query their distinct `debug_namespace` values to select the desired diagnostic stream.
 
-## The two switches
+## Safe switches
 
-| Switch | Level | What it turns on |
-|--------|-------|------------------|
-| `CHATHUB_TOOLS_DEBUG=1` | safe | structured tool metadata events |
-| `CHATHUB_TOOLS_DEBUG=verbose` | verbose | safe events + structured payload fingerprints |
-| `DEBUG_OPENAICOMPATIBLE_CACHE=1` | — | redacted cache fingerprints + cached-token usage |
+| Switch                              | Level   | What it turns on                              |
+| ----------------------------------- | ------- | --------------------------------------------- |
+| `CHATHUB_TOOLS_DEBUG=1`             | safe    | structured tool metadata events               |
+| `CHATHUB_TOOLS_DEBUG=verbose`       | verbose | safe events + structured payload fingerprints |
+| `DEBUG_OPENAI_CACHE=1`              | safe    | native OpenAI cache events                    |
+| `DEBUG_AZURE_CACHE=1`               | safe    | Azure OpenAI cache events                     |
+| `DEBUG_AZUREAI_CACHE=1`             | safe    | Azure AI cache support/usage events           |
+| `DEBUG_MOONSHOT_CACHE=1`            | safe    | Moonshot/Kimi cache events                    |
+| `DEBUG_DEEPSEEK_CACHE=1`            | safe    | DeepSeek cache events                         |
+| `DEBUG_MINIMAX_CACHE=1`             | safe    | MiniMax cache events                          |
+| `DEBUG_ANTHROPIC_CACHE=1`           | safe    | Anthropic cache events                        |
+| `DEBUG_ANTHROPICCOMPATIBLE_CACHE=1` | safe    | Anthropic-compatible cache events             |
+| `DEBUG_GOOGLE_CACHE=1`              | safe    | Gemini and Vertex cache events                |
+| `DEBUG_OPENAICOMPATIBLE_CACHE=1`    | safe    | OpenAI-compatible cache events                |
+
+Cache switches require `KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET`. Raw `DEBUG_*_CHAT_COMPLETION` and `DEBUG_OPENAICOMPATIBLE_RESPONSES` switches are separate transport debugging and can expose prompts/responses.
 
 ## Current production shape
 
 The Docker line is `<container> | [<namespace>:<event>] {<json>}`. In Axiom:
 
 - The full prefixed line is in `message`; `msg` may be empty.
-- `log_format=prefixed_json`; the prefix populates `debug_namespace` and
-  `debug_event`.
-- Cache uses `debug_namespace=openai-compatible-cache-debug`.
+- `log_format=prefixed_json`; the prefix populates `debug_namespace` and `debug_event`.
+- OpenAI-compatible cache uses `debug_namespace=openai-compatible-cache-debug` for backward compatibility.
+- All other cache providers use `debug_namespace=model-cache-debug`; use the `provider` and `runtimeFamily` payload fields to split providers.
 - Tools use `debug_namespace=chathub-tools-debug`.
-- Payload fields listed by `getschema` may still be null in current ingestion.
-  Parse the JSON suffix from `message`, then extract fields in a second `extend`:
+- Payload fields listed by `getschema` may still be null in current ingestion. Parse the JSON suffix from `message`, then extract fields in a second `extend`:
 
 ```apl
 | extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
@@ -34,49 +43,61 @@ The Docker line is `<container> | [<namespace>:<event>] {<json>}`. In Axiom:
   eventSequence=tolong(payload.eventSequence)
 ```
 
-Do not use `payload.field` directly in the same `project` that creates
-`payload`; Axiom requires the separate second stage.
+Do not use `payload.field` directly in the same `project` that creates `payload`; Axiom requires the separate second stage.
 
-- Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text
-  fallback only when structured output is inactive for that event.
+- Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text fallback only when structured output is inactive for that event.
 
 ## Axiom queries
 
-Always pass the narrow requested period in `startTime` and `endTime`. Axiom
-timestamps are UTC; convert local boundaries first.
+Always pass the narrow requested period in `startTime` and `endTime`. Axiom timestamps are UTC; convert local boundaries first.
 
-Cache requests:
+Cross-provider cache events:
+
 ```apl
-['chathub'] | where ['debug_namespace'] == 'openai-compatible-cache-debug'
+['chathub'] | where ['debug_namespace'] in ('model-cache-debug', 'openai-compatible-cache-debug')
 | extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
-| extend model=tostring(payload.model), route=tostring(payload.route),
-  inputTokens=tolong(payload.inputTokens), cachedTokens=tolong(payload.cachedTokens),
-  cacheMissTokens=tolong(payload.cacheMissTokens)
-| project _time, debug_event, model, route, inputTokens, cachedTokens, cacheMissTokens
+| extend provider=tostring(payload.provider), runtimeFamily=tostring(payload.runtimeFamily),
+  apiType=tostring(payload.apiType), cacheStatus=tostring(payload.cacheStatus),
+  cacheSupport=tostring(payload.cacheSupport), requestHash=tostring(payload.requestHash),
+  responseHash=tostring(payload.responseHash),
+  inputTokens=tolong(payload.usage.totalInputTokens),
+  cachedTokens=tolong(payload.usage.inputCachedTokens),
+  cacheMissTokens=tolong(payload.usage.inputCacheMissTokens),
+  cacheWriteTokens=tolong(payload.usage.inputWriteCacheTokens),
+  continuationId=tostring(payload.continuation.continuationId)
+| project _time, debug_event, provider, runtimeFamily, apiType, cacheStatus,
+  cacheSupport, requestHash, responseHash, continuationId, inputTokens,
+  cachedTokens, cacheMissTokens, cacheWriteTokens
 | sort by _time desc | take 20
 ```
 
 Cache hit rate:
+
 ```apl
-['chathub'] | where ['debug_namespace'] == 'openai-compatible-cache-debug'
+['chathub'] | where ['debug_namespace'] in ('model-cache-debug', 'openai-compatible-cache-debug')
   and ['debug_event'] == 'usage'
 | extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
-| extend model=tostring(payload.model), inputTokens=tolong(payload.inputTokens),
-  cachedTokens=tolong(payload.cachedTokens)
-| summarize requests=count(), hits=countif(cachedTokens > 0),
-  misses=countif(cachedTokens == 0), unavailable=countif(isnull(cachedTokens)),
+| extend provider=tostring(payload.provider), cacheStatus=tostring(payload.cacheStatus),
+  inputTokens=tolong(payload.usage.totalInputTokens),
+  cachedTokens=tolong(payload.usage.inputCachedTokens)
+| summarize requests=count(), hits=countif(cacheStatus in ('hit', 'mixed')),
+  explicit_misses=countif(cacheStatus == 'miss'),
+  writes=countif(cacheStatus == 'write'),
+  unavailable=countif(cacheStatus in ('not_reported', 'unsupported')),
   known_input_tokens=sumif(inputTokens, isnotnull(cachedTokens)),
-  cached_tokens=sum(cachedTokens) by model
+  cached_tokens=sum(cachedTokens) by provider
 | extend known_cached_pct=round(100.0 * cached_tokens / known_input_tokens, 1)
 ```
 
 Tools debug:
+
 ```apl
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
 | summarize cnt=count() by debug_event | top 50 by cnt
 ```
 
 Tool-call failures:
+
 ```apl
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
   and ['debug_event'] endswith '_failed'
@@ -90,7 +111,44 @@ Tool-call failures:
 | sort by _time desc | take 25
 ```
 
+Tool batch outcomes:
+
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
+  and ['debug_event'] in ('tool_batch_started', 'tool_batch_settled',
+                          'tool_completion_reported')
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend batchId=tostring(payload.batchId),
+  continuationId=tostring(payload.continuationId),
+  diagnosticId=tostring(payload.diagnosticId),
+  runtimeType=tostring(payload.runtimeType), outcome=tostring(payload.outcome),
+  toolCallCount=tolong(payload.toolCallCount), resultCount=tolong(payload.resultCount),
+  failureCount=tolong(payload.failureCount)
+| project _time, debug_event, batchId, continuationId, diagnosticId, runtimeType,
+  outcome, toolCallCount, resultCount, failureCount
+| sort by _time desc | take 50
+```
+
+Join one tool continuation to the provider request and final cache event:
+
+```apl
+['chathub']
+| where ['debug_namespace'] in ('chathub-tools-debug', 'model-cache-debug',
+                                'openai-compatible-cache-debug')
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend continuationId=coalesce(tostring(payload.continuationId),
+                                 tostring(payload.continuation.continuationId)),
+  provider=tostring(payload.provider), cacheStatus=tostring(payload.cacheStatus),
+  runtimeType=tostring(payload.runtimeType), outcome=tostring(payload.outcome),
+  requestHash=tostring(payload.requestHash), responseHash=tostring(payload.responseHash)
+| where continuationId == '<continuation-id>'
+| project _time, debug_namespace, debug_event, continuationId, provider,
+  runtimeType, outcome, cacheStatus, requestHash, responseHash
+| sort by _time asc
+```
+
 Follow one request end to end:
+
 ```apl
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
 | extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
@@ -106,45 +164,27 @@ Follow one request end to end:
 | sort by spanId asc, eventSequence asc
 ```
 
-`eventSequence` is monotonic inside one `spanId`; the browser failure report is
-a second span carrying the same `diagnosticId`.
+`eventSequence` is monotonic inside one `spanId`; the browser failure report is a second span carrying the same `diagnosticId`.
 
-`transport_request_retry` is recovery telemetry, not a terminal failure. For
-example, `reason=oauth_unauthorized` with HTTP 401 is healthy when the same
-`diagnosticId` later has `oauth_operation_complete` with `outcome=refreshed`,
-then `transport_request_complete` HTTP 200 and `tools_rpc_complete` HTTP 200.
+`transport_request_retry` is recovery telemetry, not a terminal failure. For example, `reason=oauth_unauthorized` with HTTP 401 is healthy when the same `diagnosticId` later has `oauth_operation_complete` with `outcome=refreshed`, then `transport_request_complete` HTTP 200 and `tools_rpc_complete` HTTP 200.
 
-Detect a downstream proxy replacement: compare
-`tools_rpc_complete.response.responseFingerprint` with
-`client_rpc_response_failed.responseFingerprint` for the same `diagnosticId`.
-Different fingerprints or server-side `bodyKind=json` followed by client-side
-`bodyKind=html` indicate that something after ChatHub replaced the response.
+Detect a downstream proxy replacement: compare `tools_rpc_complete.response.responseFingerprint` with `client_rpc_response_failed.responseFingerprint` for the same `diagnosticId`. Different fingerprints or server-side `bodyKind=json` followed by client-side `bodyKind=html` indicate that something after ChatHub replaced the response.
 
 ## Verify the env var is actually live
 
-Absence of `debug_namespace=chathub-tools-debug` records almost always means
-the var is not in the running container or the image predates structured tool
-diagnostics — not an app bug.
+Absence of `debug_namespace=chathub-tools-debug` records almost always means the var is not in the running container or the image predates structured tool diagnostics — not an app bug.
 
 ```bash
 docker inspect lobe-chat --format '{{.Config.Image}}'
-docker exec lobe-chat env | grep CHATHUB_TOOLS_DEBUG         # must print the value
+docker exec lobe-chat env | grep CHATHUB_TOOLS_DEBUG # must print the value
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_TOOLS_DEBUG'
+docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG_.*_CACHE|KEY_VAULTS_SECRET|NEXT_AUTH_SECRET"'
 ```
 
-`/proc/1/environ` reads the live server process env — most authoritative.
-After changing the var, recreate: `docker compose up -d --force-recreate chathub`.
+`/proc/1/environ` reads the live server process env — most authoritative. After changing the var, recreate: `docker compose up -d --force-recreate chathub`.
 
 ## Healthy signals
 
-- Tools: a call should end with `call_tool_complete` and `tools_rpc_complete`
-  HTTP 200 for the same `diagnosticId`, ordered by per-span `eventSequence`.
-  Cold connections may also show `client_initialized`; warm calls commonly
-  show `client_cache_lookup` with `outcome=hit` and no initialization event.
-  Safe technical tool/procedure labels may be readable, but arguments, results,
-  bodies, arbitrary errors, credentials, query strings, environment values,
-  and user/connection identifiers must never be raw.
-- Cache: `promptCacheKey.present:true`, `sessionId.present:false`, `store:true`;
-  misses are expected on new/large-context turns (cache re-prime). A null
-  `cachedTokens` means usage accounting was unavailable; it is neither a hit
-  nor an explicit miss.
+- Tools: an MCP call should end with `call_tool_complete` and `tools_rpc_complete` HTTP 200 for the same `diagnosticId`, ordered by per-span `eventSequence`. Cold connections may also show `client_initialized`; warm calls commonly show `client_cache_lookup` with `outcome=hit` and no initialization event. Safe technical tool/procedure labels may be readable, but arguments, results, bodies, arbitrary errors, credentials, query strings, environment values, and user/connection identifiers must never be raw.
+- Tool lifecycle: every local batch should have `tool_batch_started`, one `tool_completion_reported` per expected call, and `tool_batch_settled`. `resultCount + failureCount` should equal `toolCallCount`. Provider-native tools are `delegated`/`handed_off`; ChatHub built-ins are `builtin`.
+- Cache: every enabled request should have one `request` followed by one `usage`, `usage_missing`, or `terminal_error` for the same `requestHash`. `cachedTokens=0` is an explicit zero only when the provider reported it. Missing cache counters or `cacheStatus=not_reported` are unavailable telemetry, not misses.

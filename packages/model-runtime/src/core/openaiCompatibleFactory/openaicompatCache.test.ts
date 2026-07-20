@@ -1,15 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  debugOpenAICompatCacheRequest,
-  debugOpenAICompatCacheUsage,
-  sanitizeToolCacheDebugMetadata,
-} from './openaicompatDebug';
+import { sanitizeToolCacheDebugMetadata } from '../cacheDiagnostics';
 import {
   deriveCompatPromptCacheKey,
   normalizeOpenAICompatCacheUsage,
   openAICompatCachedTokens,
 } from './openaicompatCache';
+import { debugOpenAICompatCacheRequest, debugOpenAICompatCacheUsage } from './openaicompatDebug';
 
 describe('openaicompatCache', () => {
   it('derives stable prompt_cache_key for GPT and Codex compatible models', async () => {
@@ -211,7 +208,9 @@ describe('openaicompatCache', () => {
   });
 
   it('rejects malformed cache metadata without throwing', () => {
-    expect(sanitizeToolCacheDebugMetadata({ attackerControlled: 'RAW_LOG_MARKER' })).toBeUndefined();
+    expect(
+      sanitizeToolCacheDebugMetadata({ attackerControlled: 'RAW_LOG_MARKER' }),
+    ).toBeUndefined();
     expect(() =>
       debugOpenAICompatCacheRequest({
         debugToolCache: {

@@ -29,6 +29,29 @@ describe('convertAnthropicUsage', () => {
     });
   });
 
+  it('should preserve reported zero cache counters', () => {
+    const event = {
+      type: 'message_start',
+      message: {
+        id: 'msg_zero_cache',
+        usage: {
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+          input_tokens: 100,
+          output_tokens: 5,
+        },
+      },
+    } as unknown as Anthropic.MessageStreamEvent;
+
+    expect(convertAnthropicUsage(event)).toEqual({
+      inputCacheMissTokens: 100,
+      inputCachedTokens: 0,
+      inputWriteCacheTokens: 0,
+      totalInputTokens: 100,
+      totalOutputTokens: 5,
+    });
+  });
+
   it('should accumulate output tokens on message_delta', () => {
     const previousUsage = {
       inputCacheMissTokens: 100,

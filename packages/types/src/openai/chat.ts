@@ -81,6 +81,11 @@ export interface OpenAICompatResponsesParamsRequestConfig {
  * @title Chat Stream Payload
  */
 export interface ChatStreamPayload {
+  /**
+   * Original model-bank identifier before an Azure deployment alias replaces `model`.
+   * The server removes this field and forwards it only as trusted runtime context.
+   */
+  catalogModel?: string;
   debugToolCache?: ToolCacheDebugMetadata;
   /**
    * 是否开启搜索

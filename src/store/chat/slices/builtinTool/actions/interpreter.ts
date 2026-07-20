@@ -22,7 +22,14 @@ const n = setNamespace('codeInterpreter');
 const SWR_FETCH_INTERPRETER_FILE_KEY = 'FetchCodeInterpreterFileItem';
 
 export interface ChatCodeInterpreterAction {
-  python: (id: string, params: CodeInterpreterParams) => Promise<boolean | undefined>;
+  python: (
+    id: string,
+    params: CodeInterpreterParams,
+  ) => Promise<{
+    data: unknown;
+    outcome: 'completed' | 'failed';
+    shouldContinue: boolean;
+  }>;
   toggleInterpreterExecuting: (id: string, loading: boolean) => void;
   updateInterpreterFileItem: (
     id: string,
@@ -82,15 +89,23 @@ export const codeInterpreterSlice: StateCreator<
       } else {
         await internal_updateMessageContent(id, JSON.stringify(result));
       }
+
+      return {
+        data: result,
+        outcome: 'completed',
+        shouldContinue: true,
+      };
     } catch (error) {
-      updatePluginState(id, { error });
-      // 如果调用过程中出现了错误，不要触发 AI 消息
-      return;
+      await updatePluginState(id, { error });
+
+      return {
+        data: error,
+        outcome: 'failed',
+        shouldContinue: false,
+      };
     } finally {
       toggleInterpreterExecuting(id, false);
     }
-
-    return true;
   },
 
   toggleInterpreterExecuting: (id: string, executing: boolean) => {

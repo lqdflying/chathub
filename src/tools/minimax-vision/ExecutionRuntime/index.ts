@@ -1,6 +1,6 @@
 import { BuiltinServerRuntimeOutput } from '@lobechat/types';
 
-import { toolsClient } from '@/libs/trpc/client/tools';
+import { TOOLS_DIAGNOSTIC_CONTEXT_KEY, toolsClient } from '@/libs/trpc/client/tools';
 
 export interface AnalyzeImageParams {
   imageUrl: string;
@@ -13,12 +13,22 @@ export class MinimaxVisionExecutionRuntime {
     // via the tools.minimaxVision tRPC endpoint
   }
 
-  async analyzeImage(args: AnalyzeImageParams): Promise<BuiltinServerRuntimeOutput> {
+  async analyzeImage(
+    args: AnalyzeImageParams,
+    options?: { diagnosticId?: string },
+  ): Promise<BuiltinServerRuntimeOutput> {
     try {
-      const result = await toolsClient.minimaxVision.analyze.mutate({
-        imageUrl: args.imageUrl,
-        prompt: args.prompt,
-      });
+      const result = await toolsClient.minimaxVision.analyze.mutate(
+        {
+          imageUrl: args.imageUrl,
+          prompt: args.prompt,
+        },
+        options?.diagnosticId
+          ? {
+              context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: options.diagnosticId },
+            }
+          : undefined,
+      );
 
       if (result.success && result.content) {
         return { content: result.content, success: true };

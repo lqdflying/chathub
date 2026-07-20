@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOBE_ERROR_KEY } from '../../core/streams';
 import { AgentRuntimeErrorType } from '../../types/error';
-import * as debugStreamModule from '../../utils/debugStream';
 import { LobeGoogleAI, resolveModelThinkingBudget } from './index';
 
 const provider = 'google';
@@ -211,34 +210,37 @@ describe('LobeGoogleAI', () => {
       );
     });
 
-    it('should call debugStream in DEBUG mode', async () => {
-      // Set environment variable to enable DEBUG mode
+    it('should observe the production stream in DEBUG mode', async () => {
       process.env.DEBUG_GOOGLE_CHAT_COMPLETION = '1';
 
-      // Mock Google AI SDK's generateContentStream method to return a successful response stream
+      const chunk = {
+        candidates: [{ content: { parts: [{ text: 'Debug mode test' }], role: 'model' } }],
+        modelVersion: 'gemini-test',
+      };
       const mockStream = new ReadableStream({
         start(controller) {
-          controller.enqueue('Debug mode test');
+          controller.enqueue(chunk);
           controller.close();
         },
       });
       vi.spyOn(instance['client'].models, 'generateContentStream').mockResolvedValue(
         mockStream as any,
       );
-      const debugStreamSpy = vi
-        .spyOn(debugStreamModule, 'debugStream')
-        .mockImplementation(() => Promise.resolve());
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-      await instance.chat({
-        messages: [{ content: 'Hello', role: 'user' }],
-        model: 'text-davinci-003',
-        temperature: 0,
-      });
+      try {
+        const response = await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'text-davinci-003',
+          temperature: 0,
+        });
+        await response.text();
 
-      expect(debugStreamSpy).toHaveBeenCalled();
-
-      // Clean up environment variable
-      delete process.env.DEBUG_GOOGLE_CHAT_COMPLETION;
+        expect(logSpy).toHaveBeenCalledWith(JSON.stringify(chunk));
+      } finally {
+        logSpy.mockRestore();
+        delete process.env.DEBUG_GOOGLE_CHAT_COMPLETION;
+      }
     });
 
     describe('Error', () => {

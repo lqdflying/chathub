@@ -1,17 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Stream } from '@anthropic-ai/sdk/streaming';
-import { ChatCitationItem } from '@lobechat/types';
+import { ChatCitationItem, ChatMessageError } from '@lobechat/types';
 
 import { ChatStreamCallbacks } from '../../types';
-import { convertAnthropicUsage } from '../usageConverters';
+import { AgentRuntimeErrorType } from '../../types/error';
+import { convertAnthropicUsage, normalizeAnthropicStreamUsage } from '../usageConverters';
 import {
   ChatPayloadForTransformStream,
+  FIRST_CHUNK_ERROR_KEY,
   StreamContext,
   StreamProtocolChunk,
   StreamProtocolToolCallChunk,
   StreamToolCallChunkData,
   convertIterableToStream,
   createCallbacksTransformer,
+  createFirstErrorHandleTransformer,
   createSSEProtocolTransformer,
   createTokenSpeedCalculator,
 } from './protocol';
@@ -21,6 +24,26 @@ export const transformAnthropicStream = (
   context: StreamContext,
   payload?: ChatPayloadForTransformStream,
 ): StreamProtocolChunk | StreamProtocolChunk[] => {
+  if (FIRST_CHUNK_ERROR_KEY in chunk) {
+    const errorBody = { ...chunk } as Record<string, unknown>;
+    delete errorBody[FIRST_CHUNK_ERROR_KEY];
+    delete errorBody.stack;
+
+    const errorData = {
+      body: errorBody,
+      message:
+        typeof errorBody.message === 'string'
+          ? errorBody.message
+          : 'The Anthropic response stream failed.',
+      type:
+        typeof errorBody.errorType === 'string'
+          ? errorBody.errorType
+          : AgentRuntimeErrorType.ProviderBizError,
+    } satisfies ChatMessageError;
+
+    return { data: errorData, id: 'first_chunk_error', type: 'error' };
+  }
+
   // maybe need another structure to add support for multiple choices
   switch (chunk.type) {
     case 'message_start': {
@@ -193,7 +216,7 @@ export const transformAnthropicStream = (
       if (aggregatedUsage && (aggregatedUsage.totalTokens ?? 0) > 0) {
         return [
           { data: chunk.delta.stop_reason, id: context.id, type: 'stop' },
-          { data: aggregatedUsage, id: context.id, type: 'usage' },
+          { data: normalizeAnthropicStreamUsage(aggregatedUsage), id: context.id, type: 'usage' },
         ];
       }
 
@@ -241,6 +264,7 @@ export const AnthropicStream = (
     transformAnthropicStream(chunk, ctx, payload);
 
   return readableStream
+    .pipeThrough(createFirstErrorHandleTransformer(undefined, payload?.provider))
     .pipeThrough(
       createTokenSpeedCalculator(transformWithPayload, {
         enableStreaming: enableStreaming,
@@ -249,5 +273,9 @@ export const AnthropicStream = (
       }),
     )
     .pipeThrough(createSSEProtocolTransformer((c) => c, streamStack))
-    .pipeThrough(createCallbacksTransformer(callbacks));
+    .pipeThrough(
+      createCallbacksTransformer(callbacks, {
+        resolveUsage: (serializedUsage) => streamStack.usage ?? serializedUsage,
+      }),
+    );
 };

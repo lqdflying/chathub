@@ -1,4 +1,14 @@
+export type ToolDiagnosticRuntimeType =
+  'builtin' | 'default' | 'delegated' | 'markdown' | 'mcp' | 'server' | 'standalone';
+
+export type ToolDiagnosticTerminalOutcome =
+  'cancelled' | 'completed' | 'failed' | 'handed_off' | 'persistence_failed' | 'skipped';
+
 export interface ToolCallSetCorrelation {
+  batchId?: string;
+  continuationId?: string;
+  failureCount?: number;
+  resultCount?: number;
   toolCallCount: number;
   toolCallSetHash: string;
 }
@@ -39,11 +49,11 @@ export interface ToolCacheDebugMetadata extends ToolCallSetCorrelation {
 
 const hashString = (value: string): string => {
   const bytes = new TextEncoder().encode(value);
-  let hash = 0xCB_F2_9C_E4_84_22_23_25n;
+  let hash = 14_695_981_039_346_656_037n;
 
   for (const byte of bytes) {
     hash ^= BigInt(byte);
-    hash = BigInt.asUintN(64, hash * 0x1_00_00_00_01_B3n);
+    hash = BigInt.asUintN(64, hash * 1_099_511_628_211n);
   }
 
   return hash.toString(16).padStart(16, '0');

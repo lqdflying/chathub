@@ -8,12 +8,15 @@ import type { Pricing } from 'model-bank';
 
 import { parseToolCalls } from '../../helpers';
 import { ChatStreamCallbacks } from '../../types';
+import type { ModelCacheDiagnosticContext } from '../../types/cacheDiagnostics';
 import { AgentRuntimeErrorType } from '../../types/error';
 import { safeParseJSON } from '../../utils/safeParseJSON';
 import { nanoid } from '../../utils/uuid';
 import type { ComputeChatCostOptions } from '../usageConverters/utils/computeChatCost';
 
 export type ChatPayloadForTransformStream = {
+  cacheDiagnostics?: ModelCacheDiagnosticContext;
+  cacheRequestHash?: string;
   debugOpenAICompatCache?: boolean;
   debugToolCache?: ToolCacheDebugMetadata;
   model?: string;
@@ -508,7 +511,10 @@ export const createSSEProtocolTransformer = (
 
 export function createCallbacksTransformer(
   cb: ChatStreamCallbacks | undefined,
-  options?: { shouldCallCompletion?: () => boolean },
+  options?: {
+    resolveUsage?: (serializedUsage: ModelUsage) => ModelUsage;
+    shouldCallCompletion?: () => boolean;
+  },
 ) {
   const textEncoder = new TextEncoder();
   let aggregatedText = '';
@@ -578,8 +584,8 @@ export function createCallbacksTransformer(
           }
 
           case 'usage': {
-            usage = data;
-            await callbacks.onUsage?.(data);
+            usage = options?.resolveUsage?.(data) ?? data;
+            await callbacks.onUsage?.(usage);
             break;
           }
 
@@ -591,6 +597,11 @@ export function createCallbacksTransformer(
           case 'grounding': {
             grounding = data;
             await callbacks.onGrounding?.(data);
+            break;
+          }
+
+          case 'error': {
+            await callbacks.onError?.(data);
             break;
           }
 

@@ -15,6 +15,7 @@ const openaicompatibleModels: Array<AIChatModelCard | AIImageModelCard> = [
         ...sourceModel.abilities,
         search: false,
       },
+      contextWindowTokens: 258_000,
       enabled: true,
       settings,
     };

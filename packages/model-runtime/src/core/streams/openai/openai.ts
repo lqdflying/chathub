@@ -5,7 +5,7 @@ import type { Stream } from 'openai/streaming';
 import { ChatStreamCallbacks } from '../../../types';
 import { AgentRuntimeErrorType, ILobeAgentRuntimeErrorType } from '../../../types/error';
 import { debugOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatDebug';
-import { convertOpenAIUsage } from '../../usageConverters';
+import { convertOpenAIUsage, normalizeOpenAIStreamUsage } from '../../usageConverters';
 import {
   ChatPayloadForTransformStream,
   FIRST_CHUNK_ERROR_KEY,
@@ -108,7 +108,13 @@ const transformOpenAIStream = (
       if (chunk.usage) {
         const usage = chunk.usage;
         debugOpenAICompatChatUsage(usage, payload, chunk.id);
-        return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
+        const convertedUsage = convertOpenAIUsage(usage, payload);
+        streamContext.usage = convertedUsage;
+        return {
+          data: normalizeOpenAIStreamUsage(convertedUsage),
+          id: chunk.id,
+          type: 'usage',
+        };
       }
 
       return { data: chunk, id: chunk.id, type: 'data' };
@@ -276,7 +282,13 @@ const transformOpenAIStream = (
       if (chunk.usage) {
         const usage = chunk.usage;
         debugOpenAICompatChatUsage(usage, payload, chunk.id);
-        return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
+        const convertedUsage = convertOpenAIUsage(usage, payload);
+        streamContext.usage = convertedUsage;
+        return {
+          data: normalizeOpenAIStreamUsage(convertedUsage),
+          id: chunk.id,
+          type: 'usage',
+        };
       }
 
       // xAI Live Search 功能返回引用源
@@ -347,7 +359,13 @@ const transformOpenAIStream = (
         if (content === '' && chunk.usage) {
           const usage = chunk.usage;
           debugOpenAICompatChatUsage(usage, payload, chunk.id);
-          return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
+          const convertedUsage = convertOpenAIUsage(usage, payload);
+          streamContext.usage = convertedUsage;
+          return {
+            data: normalizeOpenAIStreamUsage(convertedUsage),
+            id: chunk.id,
+            type: 'usage',
+          };
         }
 
         // 处理包含 </think> 标签的特殊情况：需要分割内容
@@ -463,7 +481,13 @@ const transformOpenAIStream = (
     if (chunk.usage) {
       const usage = chunk.usage;
       debugOpenAICompatChatUsage(usage, payload, chunk.id);
-      return { data: convertOpenAIUsage(usage, payload), id: chunk.id, type: 'usage' };
+      const convertedUsage = convertOpenAIUsage(usage, payload);
+      streamContext.usage = convertedUsage;
+      return {
+        data: normalizeOpenAIStreamUsage(convertedUsage),
+        id: chunk.id,
+        type: 'usage',
+      };
     }
 
     // 其余情况下，返回 delta 和 index
@@ -539,6 +563,10 @@ export const OpenAIStream = (
         }),
       )
       .pipeThrough(createSSEProtocolTransformer((c) => c, streamStack))
-      .pipeThrough(createCallbacksTransformer(callbacks))
+      .pipeThrough(
+        createCallbacksTransformer(callbacks, {
+          resolveUsage: (serializedUsage) => streamStack.usage ?? serializedUsage,
+        }),
+      )
   );
 };

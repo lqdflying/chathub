@@ -1,7 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-import * as debugStreamModule from '../../utils/debugStream';
 import { LobeAnthropicCompatibleAI } from './index';
 
 describe('LobeAnthropicCompatibleAI', () => {
@@ -78,27 +77,36 @@ describe('LobeAnthropicCompatibleAI', () => {
         apiKey: 'secret-compatible-key',
         baseURL: 'https://api.anthropicproxy.example/v1',
       });
-      const mockProdStream = new ReadableStream() as any;
-      const mockDebugStream = new ReadableStream() as any;
-      mockDebugStream.toReadableStream = () => mockDebugStream;
+      const messageStart = {
+        message: {
+          id: 'message_debug',
+          usage: { input_tokens: 1, output_tokens: 0 },
+        },
+        type: 'message_start',
+      };
+      const mockStream = (async function* () {
+        yield messageStart;
+        yield {
+          delta: { stop_reason: 'end_turn' },
+          type: 'message_delta',
+          usage: { output_tokens: 1 },
+        };
+        yield { type: 'message_stop' };
+      })();
 
-      vi.spyOn((instance as any).client.messages, 'create').mockResolvedValue({
-        tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
-      });
+      vi.spyOn((instance as any).client.messages, 'create').mockResolvedValue(mockStream);
       vi.stubEnv('DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION', '1');
-      const debugStreamSpy = vi
-        .spyOn(debugStreamModule, 'debugStream')
-        .mockImplementation(() => Promise.resolve());
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       try {
-        await instance.chat({
+        const response = await instance.chat({
           messages: [{ content: 'Hello', role: 'user' }],
           model: 'claude-sonnet-4-6',
           temperature: 0,
         });
+        await response.text();
 
-        expect(debugStreamModule.debugStream).toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalledWith(JSON.stringify(messageStart));
         const providerDebugCall = logSpy.mock.calls.find(
           ([label]) => label === '[provider-debug:request]',
         );
@@ -122,7 +130,6 @@ describe('LobeAnthropicCompatibleAI', () => {
         expect(JSON.stringify(summary)).not.toContain('anthropicproxy');
         expect(JSON.stringify(summary)).not.toContain('secret-compatible-key');
       } finally {
-        debugStreamSpy.mockRestore();
         logSpy.mockRestore();
         vi.unstubAllEnvs();
       }

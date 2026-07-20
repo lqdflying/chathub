@@ -9,7 +9,7 @@ describe('OpenAICompatible provider card', () => {
       'gpt-5.5',
     ]);
     expect(OpenAICompatible.chatModels[0]).toMatchObject({
-      contextWindowTokens: 1_050_000,
+      contextWindowTokens: 258_000,
       displayName: 'GPT-5.6 Sol',
       maxOutput: 128_000,
       reasoning: true,

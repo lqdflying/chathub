@@ -10,6 +10,7 @@ export interface MinimaxVisionAction {
     id: string,
     params: { imageUrl: string; prompt?: string },
     aiSummary?: boolean,
+    diagnosticId?: string,
   ) => Promise<boolean | undefined>;
 }
 
@@ -25,7 +26,7 @@ export const minimaxVisionSlice: StateCreator<
   [],
   MinimaxVisionAction
 > = (set, get) => ({
-  analyzeImage: async (id, params, aiSummary = true) => {
+  analyzeImage: async (id, params, aiSummary = true, diagnosticId) => {
     const { internal_updateMessageContent, internal_updatePluginError } = get();
 
     getToolStoreState().toggleBuiltinToolLoading('minimaxVision', true);
@@ -33,7 +34,9 @@ export const minimaxVisionSlice: StateCreator<
     const runtime = getMinimaxVisionRuntime();
 
     try {
-      const result: BuiltinServerRuntimeOutput = await runtime.analyzeImage(params);
+      const result: BuiltinServerRuntimeOutput = await runtime.analyzeImage(params, {
+        diagnosticId,
+      });
 
       if (result.success) {
         await internal_updateMessageContent(id, result.content);

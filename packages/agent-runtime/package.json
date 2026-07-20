@@ -8,7 +8,9 @@
     "test": "vitest",
     "test:coverage": "vitest --coverage --silent='passed-only'"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@lobechat/types": "workspace:*"
+  },
   "devDependencies": {
     "openai": "^6.45.0"
   }

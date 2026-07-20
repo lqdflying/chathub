@@ -5,7 +5,7 @@ import { ModelProviderCard } from '@/types/llm';
 const OpenAICompatible: ModelProviderCard = {
   chatModels: [
     {
-      contextWindowTokens: 1_050_000,
+      contextWindowTokens: 258_000,
       description:
         'GPT-5.6 Sol through an OpenAI-compatible Chat Completions or Responses gateway.',
       displayName: 'GPT-5.6 Sol',
@@ -19,9 +19,8 @@ const OpenAICompatible: ModelProviderCard = {
       vision: true,
     },
     {
-      contextWindowTokens: 1_050_000,
-      description:
-        'GPT-5.5 through an OpenAI-compatible Chat Completions gateway.',
+      contextWindowTokens: 258_000,
+      description: 'GPT-5.5 through an OpenAI-compatible Chat Completions gateway.',
       displayName: 'GPT-5.5',
       enabled: true,
       functionCall: true,

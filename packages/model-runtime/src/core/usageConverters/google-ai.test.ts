@@ -67,6 +67,21 @@ describe('convertGoogleAIUsage', () => {
     });
   });
 
+  it('should preserve a reported zero cache hit and measured miss count', () => {
+    const usage: GenerateContentResponseUsageMetadata = {
+      cachedContentTokenCount: 0,
+      candidatesTokenCount: 5,
+      promptTokenCount: 100,
+      totalTokenCount: 105,
+    };
+
+    expect(convertGoogleAIUsage(usage)).toMatchObject({
+      inputCacheMissTokens: 100,
+      inputCachedTokens: 0,
+      totalInputTokens: 100,
+    });
+  });
+
   it('should attach cost when pricing provided', () => {
     const usage: GenerateContentResponseUsageMetadata = {
       candidatesTokenCount: 100_000,

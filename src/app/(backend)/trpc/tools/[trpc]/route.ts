@@ -6,6 +6,7 @@ import {
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
 } from '@/const/tools';
 import { pino } from '@/libs/logger';
+import { protectExternalToolsDiagnosticId } from '@/libs/logger/modelCacheDebug';
 import {
   createToolsDiagnosticId,
   describeToolsDebugError,
@@ -24,7 +25,7 @@ const handler = async (req: NextRequest) => {
   const requestedDiagnosticId = req.headers.get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER);
   const diagnosticId =
     requestedDiagnosticId && CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN.test(requestedDiagnosticId)
-      ? requestedDiagnosticId
+      ? protectExternalToolsDiagnosticId(requestedDiagnosticId) || createToolsDiagnosticId()
       : createToolsDiagnosticId();
   const path = new URL(req.url).pathname.split('/trpc/tools/')[1] || 'unknown';
   const procedures = path.split(',').filter(Boolean).slice(0, 20);

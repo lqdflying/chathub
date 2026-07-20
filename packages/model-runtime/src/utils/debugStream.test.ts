@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { debugStream } from './debugStream';
+import { createDebugStreamTransformer, debugStream } from './debugStream';
 
 describe('debugStream', () => {
   let consoleLogSpy: ReturnType<typeof vi.spyOn>;
@@ -30,9 +30,16 @@ describe('debugStream', () => {
   });
 
   it('should handle and log stream errors', async () => {
+    let pullCount = 0;
     const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue('test chunk');
+      pull(controller) {
+        pullCount += 1;
+        if (pullCount === 1) {
+          controller.enqueue('test chunk');
+          return;
+        }
+
+        controller.error(new Error('stream failed'));
       },
     });
 
@@ -66,5 +73,43 @@ describe('debugStream', () => {
     await debugStream(stream);
 
     expect(consoleLogSpy).toHaveBeenCalledWith('{"test":"chunk"}');
+  });
+
+  it('should forward circular and BigInt chunks when formatting fails', async () => {
+    const circularChunk: Record<string, unknown> = { value: 1n };
+    circularChunk.self = circularChunk;
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(circularChunk);
+        controller.close();
+      },
+    }).pipeThrough(createDebugStreamTransformer());
+    const reader = stream.getReader();
+
+    const firstRead = await reader.read();
+    const secondRead = await reader.read();
+
+    expect(firstRead).toEqual({ done: false, value: circularChunk });
+    expect(secondRead).toEqual({ done: true, value: undefined });
+    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('[unformattable chunk:'));
+  });
+
+  it('should forward chunks when console logging throws', async () => {
+    consoleLogSpy.mockImplementation(() => {
+      throw new Error('console unavailable');
+    });
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ content: 'provider chunk' });
+        controller.close();
+      },
+    }).pipeThrough(createDebugStreamTransformer());
+    const reader = stream.getReader();
+
+    await expect(reader.read()).resolves.toEqual({
+      done: false,
+      value: { content: 'provider chunk' },
+    });
+    await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
   });
 });

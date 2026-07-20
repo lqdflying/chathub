@@ -49,7 +49,9 @@ describe('normalizeMessagesForMoonshot', () => {
       {
         content: '',
         role: 'assistant',
-        tool_calls: [{ function: { arguments: '{}', name: 'get_time' }, id: 't1', type: 'function' }],
+        tool_calls: [
+          { function: { arguments: '{}', name: 'get_time' }, id: 't1', type: 'function' },
+        ],
       },
     ] as any;
 
@@ -101,9 +103,7 @@ describe('normalizeMessagesForMoonshot', () => {
       { content: '', role: 'assistant' },
     ] as any;
 
-    expect(normalizeMessagesForMoonshot(messages, true)).toEqual([
-      { content: 'hi', role: 'user' },
-    ]);
+    expect(normalizeMessagesForMoonshot(messages, true)).toEqual([{ content: 'hi', role: 'user' }]);
   });
 
   it('drops empty assistant messages that only carry internal `tools` without outbound tool_calls', () => {
@@ -329,7 +329,9 @@ describe('buildMoonshotPayload — tool-call safety', () => {
         {
           content: '',
           role: 'assistant',
-          tools: [{ apiName: 'search', arguments: '{}', id: 't1', identifier: 'x', type: 'default' }],
+          tools: [
+            { apiName: 'search', arguments: '{}', id: 't1', identifier: 'x', type: 'default' },
+          ],
         },
       ],
       model: 'kimi-k2.6',
@@ -469,6 +471,106 @@ describe('LobeMoonshotAI Kimi K3 request boundary', () => {
     expect(requestPayload).not.toHaveProperty('n');
     expect(requestPayload).not.toHaveProperty('temperature');
     expect(requestPayload).not.toHaveProperty('thinking');
+  });
+
+  it('preserves repeated tool-result rounds in the final Moonshot request', async () => {
+    const instance = new LobeMoonshotAI({ apiKey: 'test-key' });
+    const mockStream = (async function* () {
+      yield {
+        choices: [{ delta: { content: 'done' }, finish_reason: 'stop', index: 0 }],
+        id: 'chatcmpl-repeated-tools',
+      };
+    })();
+    const createSpy = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue(mockStream);
+    const repeatedToolCalls = [
+      {
+        function: { arguments: '{}', name: 'tavily_search' },
+        id: 'tavily____tavily_search____mcp:7',
+        type: 'function',
+      },
+      {
+        function: { arguments: '{}', name: 'tavily_search' },
+        id: 'tavily____tavily_search____mcp:8',
+        type: 'function',
+      },
+    ];
+
+    const response = await instance.chat({
+      messages: [
+        { content: 'search first', role: 'user' },
+        { content: null, role: 'assistant', tool_calls: repeatedToolCalls },
+        {
+          content: 'first-result-7',
+          role: 'tool',
+          tool_call_id: repeatedToolCalls[0].id,
+        },
+        {
+          content: 'first-result-8',
+          role: 'tool',
+          tool_call_id: repeatedToolCalls[1].id,
+        },
+        { content: 'search again', role: 'user' },
+        { content: null, role: 'assistant', tool_calls: repeatedToolCalls },
+        {
+          content: 'second-result-7',
+          role: 'tool',
+          tool_call_id: repeatedToolCalls[0].id,
+        },
+        {
+          content: 'second-result-8',
+          role: 'tool',
+          tool_call_id: repeatedToolCalls[1].id,
+        },
+      ],
+      model: 'kimi-k2.5',
+      tools: sampleTools,
+    } as any);
+    await response.text();
+
+    const requestPayload = createSpy.mock.calls[0][0] as any;
+
+    expect(
+      requestPayload.messages.map((message: any) => ({
+        role: message.role,
+        toolCallIds: message.tool_calls?.map(({ id }: any) => id),
+        toolResultId: message.tool_call_id,
+      })),
+    ).toEqual([
+      { role: 'user', toolCallIds: undefined, toolResultId: undefined },
+      {
+        role: 'assistant',
+        toolCallIds: repeatedToolCalls.map(({ id }) => id),
+        toolResultId: undefined,
+      },
+      {
+        role: 'tool',
+        toolCallIds: undefined,
+        toolResultId: repeatedToolCalls[0].id,
+      },
+      {
+        role: 'tool',
+        toolCallIds: undefined,
+        toolResultId: repeatedToolCalls[1].id,
+      },
+      { role: 'user', toolCallIds: undefined, toolResultId: undefined },
+      {
+        role: 'assistant',
+        toolCallIds: repeatedToolCalls.map(({ id }) => id),
+        toolResultId: undefined,
+      },
+      {
+        role: 'tool',
+        toolCallIds: undefined,
+        toolResultId: repeatedToolCalls[0].id,
+      },
+      {
+        role: 'tool',
+        toolCallIds: undefined,
+        toolResultId: repeatedToolCalls[1].id,
+      },
+    ]);
   });
 });
 

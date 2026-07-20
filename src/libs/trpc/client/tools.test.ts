@@ -83,6 +83,48 @@ describe('tools tRPC client links', () => {
     expect(urls[0]).toContain('batch=1');
   });
 
+  it('isolates explicitly correlated built-in tool requests', async () => {
+    const diagnosticIds: string[] = [];
+    const urls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(input.toString());
+      diagnosticIds.push(new Headers(init?.headers).get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER) || '');
+      return new Response(
+        JSON.stringify(
+          trpcResult({
+            costTime: 1,
+            query: 'test',
+            resultNumbers: 0,
+            results: [],
+          }),
+        ),
+        {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        },
+      );
+    }) as typeof fetch;
+    const client = createToolsClient({
+      desktop: false,
+      fetch: fetchMock,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await Promise.all(
+      ['td_1234567890abcdef', 'td_abcdef1234567890'].map((diagnosticId) =>
+        client.search.webSearch.query(
+          { query: 'test' },
+          { context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId } },
+        ),
+      ),
+    );
+
+    expect(urls).toHaveLength(2);
+    expect(urls.every((url) => url.includes('/trpc/tools/search.webSearch'))).toBe(true);
+    expect(urls.every((url) => !url.includes('batch=1'))).toBe(true);
+    expect(diagnosticIds.sort()).toEqual(['td_1234567890abcdef', 'td_abcdef1234567890'].sort());
+  });
+
   it('isolates completion telemetry so each report keeps its diagnostic ID', async () => {
     const diagnosticIds: string[] = [];
     const urls: string[] = [];
@@ -130,9 +172,46 @@ describe('tools tRPC client links', () => {
       true,
     );
     expect(urls.every((url) => !url.includes('batch=1'))).toBe(true);
-    expect(diagnosticIds.sort()).toEqual(
-      ['td_1234567890abcdef', 'td_abcdef1234567890'].sort(),
+    expect(diagnosticIds.sort()).toEqual(['td_1234567890abcdef', 'td_abcdef1234567890'].sort());
+  });
+
+  it('isolates batch telemetry so its transport diagnostic ID remains correlated', async () => {
+    const diagnosticIds: string[] = [];
+    const urls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      urls.push(input.toString());
+      diagnosticIds.push(new Headers(init?.headers).get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER) || '');
+      return new Response(JSON.stringify(trpcResult({ reported: true })), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+    }) as typeof fetch;
+    const client = createToolsClient({
+      desktop: false,
+      fetch: fetchMock,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await Promise.all(
+      ['td_1234567890abcdef', 'td_abcdef1234567890'].map((diagnosticId, index) =>
+        client.telemetry.reportToolBatch.mutate(
+          {
+            correlation: {
+              batchId: `tb_1234567890abcde${index}`,
+              toolCallCount: 2,
+              toolCallSetHash: 'fedcba9876543210',
+            },
+            phase: 'started',
+          },
+          { context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId } },
+        ),
+      ),
     );
+
+    expect(urls).toHaveLength(2);
+    expect(urls.every((url) => url.includes('/trpc/tools/telemetry.reportToolBatch'))).toBe(true);
+    expect(urls.every((url) => !url.includes('batch=1'))).toBe(true);
+    expect(diagnosticIds.sort()).toEqual(['td_1234567890abcdef', 'td_abcdef1234567890'].sort());
   });
 
   it('preserves classified HTML response details through the tRPC client error', async () => {

@@ -93,6 +93,31 @@ describe('search actions', () => {
       );
     });
 
+    it('should preserve the originating diagnostic ID', async () => {
+      (searchService.webSearch as Mock).mockResolvedValue({
+        costTime: 1,
+        query: 'test',
+        resultNumbers: 0,
+        results: [],
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.search(
+          'test-message-id',
+          { query: 'test query' },
+          true,
+          'td_1234567890abcdef',
+        );
+      });
+
+      expect(searchService.webSearch).toHaveBeenCalledWith(
+        { query: 'test query' },
+        { diagnosticId: 'td_1234567890abcdef' },
+      );
+    });
+
     it('should handle empty search results', async () => {
       const emptyResponse: UniformSearchResponse = {
         results: [],

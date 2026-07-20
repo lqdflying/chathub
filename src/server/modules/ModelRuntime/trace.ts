@@ -41,9 +41,23 @@ export const createTraceOptions = (
     name: `Chat Completion (${provider})`,
     startTime: new Date(),
   });
+  let shutdownScheduled = false;
+  const scheduleTraceShutdown = () => {
+    if (shutdownScheduled) return;
+
+    shutdownScheduled = true;
+    after(async () => {
+      try {
+        await traceClient.shutdownAsync();
+      } catch (e) {
+        console.error('TraceClient shutdown error:', e);
+      }
+    });
+  };
 
   return {
     callback: {
+      onCancel: scheduleTraceShutdown,
       onCompletion: async ({ text, thinking, usage, grounding, toolsCalling }) => {
         const output =
           // if the toolsCalling is not empty, we need to return the toolsCalling
@@ -77,15 +91,7 @@ export const createTraceOptions = (
         trace?.update({ output });
       },
 
-      onFinal: () => {
-        after(async () => {
-          try {
-            await traceClient.shutdownAsync();
-          } catch (e) {
-            console.error('TraceClient shutdown error:', e);
-          }
-        });
-      },
+      onFinal: scheduleTraceShutdown,
 
       onStart: () => {
         generation?.update({ completionStartTime: new Date() });

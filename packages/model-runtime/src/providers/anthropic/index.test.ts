@@ -3,7 +3,6 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as anthropicHelpers from '../../core/contextBuilders/anthropic';
 import { ChatCompletionTool, ChatStreamPayload } from '../../types/chat';
-import * as debugStreamModule from '../../utils/debugStream';
 import { LobeAnthropicAI, normalizeAnthropicBaseURL } from './index';
 
 const provider = 'anthropic';
@@ -38,7 +37,9 @@ describe('normalizeAnthropicBaseURL', () => {
   });
 
   it('leaves hosts without /v1 unchanged', () => {
-    expect(normalizeAnthropicBaseURL('https://api.anthropic.com')).toBe('https://api.anthropic.com');
+    expect(normalizeAnthropicBaseURL('https://api.anthropic.com')).toBe(
+      'https://api.anthropic.com',
+    );
     expect(normalizeAnthropicBaseURL('https://proxy.example/anthropic')).toBe(
       'https://proxy.example/anthropic',
     );
@@ -81,6 +82,134 @@ describe('LobeAnthropicAI', () => {
   });
 
   describe('chat', () => {
+    it('reports a terminal error when the stream iterator fails after partial output', async () => {
+      const events: any[] = [];
+      let readCount = 0;
+      const mockStream = {
+        [Symbol.asyncIterator]() {
+          return {
+            next: async () => {
+              readCount += 1;
+
+              if (readCount === 1) {
+                return {
+                  done: false,
+                  value: {
+                    delta: { type: 'text_delta', text: 'partial response' },
+                    index: 0,
+                    type: 'content_block_delta',
+                  },
+                };
+              }
+
+              throw new Error('anthropic stream disconnected');
+            },
+          };
+        },
+      } as any;
+      (instance['client'].messages.create as Mock).mockResolvedValue(mockStream);
+
+      const response = await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-3-haiku-20240307',
+        },
+        {
+          cacheDiagnostics: {
+            emit: (event) => events.push(event),
+            fingerprint: (scope) => `${scope}-fingerprint`,
+            provider: 'anthropic',
+            runtimeFamily: 'anthropic',
+          },
+        },
+      );
+
+      await response.text();
+
+      expect(events.map((event) => event.type)).toEqual(['request', 'terminal_error']);
+      expect(events).not.toContainEqual(expect.objectContaining({ type: 'usage_missing' }));
+    });
+
+    it('reports the final Anthropic cache breakpoint count and default TTL', async () => {
+      const events: any[] = [];
+      const mockStream = (async function* () {
+        yield {
+          message: {
+            id: 'private-message-id',
+            usage: {
+              cache_creation_input_tokens: 40,
+              cache_read_input_tokens: 0,
+              input_tokens: 60,
+              output_tokens: 0,
+            },
+          },
+          type: 'message_start',
+        };
+        yield {
+          delta: { stop_reason: 'end_turn' },
+          type: 'message_delta',
+          usage: { output_tokens: 5 },
+        };
+        yield { type: 'message_stop' };
+      })();
+      (instance['client'].messages.create as Mock).mockResolvedValue(mockStream);
+
+      const response = await instance.chat(
+        {
+          messages: [
+            { content: 'PRIVATE_SYSTEM_PROMPT', role: 'system' },
+            { content: 'PRIVATE_USER_PROMPT', role: 'user' },
+          ],
+          model: 'claude-3-haiku-20240307',
+          tools: [
+            {
+              function: {
+                description: 'PRIVATE_TOOL_DESCRIPTION',
+                name: 'private_tool_name',
+                parameters: { type: 'object' },
+              },
+              type: 'function',
+            },
+          ],
+        },
+        {
+          cacheDiagnostics: {
+            emit: (event) => events.push(event),
+            fingerprint: (scope) => `${scope}-fingerprint`,
+            provider: 'anthropic',
+            runtimeFamily: 'anthropic',
+          },
+        },
+      );
+      await response.text();
+
+      expect(events).toEqual([
+        expect.objectContaining({
+          cacheMechanism: 'explicit-breakpoint',
+          cachePolicy: {
+            cacheControl: true,
+            cacheControlBreakpointCount: 3,
+            cacheTTL: '5m',
+          },
+          cacheSupport: 'supported',
+          type: 'request',
+        }),
+        expect.objectContaining({
+          cacheStatus: 'write',
+          cacheSupport: 'supported',
+          type: 'usage',
+          usage: expect.objectContaining({
+            inputCacheMissTokens: 60,
+            inputCachedTokens: 0,
+            inputWriteCacheTokens: 40,
+          }),
+        }),
+      ]);
+      expect(JSON.stringify(events)).not.toContain('PRIVATE_');
+      expect(JSON.stringify(events)).not.toContain('private_tool_name');
+      expect(JSON.stringify(events)).not.toContain('private-message-id');
+    });
+
     it('should return a StreamingTextResponse on successful API call', async () => {
       const result = await instance.chat({
         messages: [{ content: 'Hello', role: 'user' }],
@@ -265,42 +394,40 @@ describe('LobeAnthropicAI', () => {
       expect(result).toBeInstanceOf(Response);
     });
 
-    it('should call debugStream in DEBUG mode', async () => {
-      // Arrange
-      const mockProdStream = new ReadableStream({
-        start(controller) {
-          controller.enqueue('Hello, world!');
-          controller.close();
+    it('should observe the production stream in DEBUG mode', async () => {
+      const messageStart = {
+        message: {
+          id: 'message_debug',
+          usage: { input_tokens: 1, output_tokens: 0 },
         },
-      }) as any;
-      const mockDebugStream = new ReadableStream({
-        start(controller) {
-          controller.enqueue('Debug stream content');
-          controller.close();
-        },
-      }) as any;
-      mockDebugStream.toReadableStream = () => mockDebugStream;
+        type: 'message_start',
+      };
+      const mockStream = (async function* () {
+        yield messageStart;
+        yield {
+          delta: { stop_reason: 'end_turn' },
+          type: 'message_delta',
+          usage: { output_tokens: 1 },
+        };
+        yield { type: 'message_stop' };
+      })();
 
-      (instance['client'].messages.create as Mock).mockResolvedValue({
-        tee: () => [mockProdStream, { toReadableStream: () => mockDebugStream }],
-      });
+      (instance['client'].messages.create as Mock).mockResolvedValue(mockStream);
 
       const originalDebugValue = process.env.DEBUG_ANTHROPIC_CHAT_COMPLETION;
 
       process.env.DEBUG_ANTHROPIC_CHAT_COMPLETION = '1';
-      vi.spyOn(debugStreamModule, 'debugStream').mockImplementation(() => Promise.resolve());
       const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       try {
-        // Act
-        await instance.chat({
+        const response = await instance.chat({
           messages: [{ content: 'Hello', role: 'user' }],
           model: 'claude-3-haiku-20240307',
           temperature: 0,
         });
+        await response.text();
 
-        // Assert
-        expect(debugStreamModule.debugStream).toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalledWith(JSON.stringify(messageStart));
         const providerDebugCall = logSpy.mock.calls.find(
           ([label]) => label === '[provider-debug:request]',
         );
@@ -709,7 +836,9 @@ describe('LobeAnthropicAI', () => {
         const payload: ChatStreamPayload = {
           messages: [
             {
-              content: [{ image_url: { url: 'data:image/png;base64,abc' }, type: 'image_url' }] as any,
+              content: [
+                { image_url: { url: 'data:image/png;base64,abc' }, type: 'image_url' },
+              ] as any,
               role: 'system',
             },
             { content: 'Hello', role: 'user' },

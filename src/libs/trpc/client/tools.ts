@@ -2,11 +2,11 @@ import { createTRPCClient, httpBatchLink, httpLink, splitLink } from '@trpc/clie
 import { nanoid } from 'nanoid';
 import superjson from 'superjson';
 
-import { isDesktop } from '@/const/version';
 import {
   CHATHUB_TOOLS_DIAGNOSTIC_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
 } from '@/const/tools';
+import { isDesktop } from '@/const/version';
 import type { ToolsRouter } from '@/server/routers/tools';
 import { fetchWithDesktopRemoteRPC } from '@/utils/electron/desktopRemoteRPCFetch';
 
@@ -46,8 +46,8 @@ export const createToolsClient = ({
   const fetchImpl: typeof fetch = customFetch
     ? customFetch
     : desktop
-      ? ((input, init) =>
-          fetchWithDesktopRemoteRPC(input as string, init as FetchInit)) as typeof fetch
+      ? (((input, init) =>
+          fetchWithDesktopRemoteRPC(input as string, init as FetchInit)) as typeof fetch)
       : globalThis.fetch.bind(globalThis);
   const guardedFetch = createGuardedToolsFetch(fetchImpl);
 
@@ -81,8 +81,10 @@ export const createToolsClient = ({
     links: [
       splitLink({
         condition: (op) =>
+          !!diagnosticIdFromContext(op.context) ||
           op.path === 'mcp.callTool' ||
           op.path === 'mcp.reportClientFailure' ||
+          op.path === 'telemetry.reportToolBatch' ||
           op.path === 'telemetry.reportToolCompletion',
         false: batchedLink,
         true: isolatedLink,

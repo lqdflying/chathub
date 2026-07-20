@@ -5,7 +5,7 @@ import type { Stream } from 'openai/streaming';
 import { AgentRuntimeErrorType } from '../../../types/error';
 import { normalizeOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatCache';
 import { debugOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatDebug';
-import { convertOpenAIResponseUsage } from '../../usageConverters';
+import { convertOpenAIResponseUsage, normalizeOpenAIStreamUsage } from '../../usageConverters';
 import {
   ChatPayloadForTransformStream,
   FIRST_CHUNK_ERROR_KEY,
@@ -288,20 +288,13 @@ const transformOpenAIStream = (
       case 'response.failed': {
         const errObj = chunk.response?.error;
         const message =
-          errObj?.message ||
-          (errObj?.code ? `Response failed: ${errObj.code}` : 'Response failed');
-        return createResponsesErrorChunk(
-          streamContext,
-          message,
-          errObj?.code || 'response_failed',
-        );
+          errObj?.message || (errObj?.code ? `Response failed: ${errObj.code}` : 'Response failed');
+        return createResponsesErrorChunk(streamContext, message, errObj?.code || 'response_failed');
       }
 
       case 'response.incomplete': {
         const reason = chunk.response?.incomplete_details?.reason;
-        const message = reason
-          ? `Response incomplete: ${reason}`
-          : 'Response incomplete';
+        const message = reason ? `Response incomplete: ${reason}` : 'Response incomplete';
         return createResponsesErrorChunk(streamContext, message, reason || 'response_incomplete');
       }
 
@@ -346,8 +339,10 @@ const transformOpenAIStream = (
             });
           }
 
+          const convertedUsage = convertOpenAIResponseUsage(response.usage!, payload);
+          streamContext.usage = convertedUsage;
           return {
-            data: convertOpenAIResponseUsage(response.usage!, payload),
+            data: normalizeOpenAIStreamUsage(convertedUsage),
             id: response.id,
             type: 'usage',
           };
@@ -431,6 +426,7 @@ export const OpenAIResponsesStream = (
       )
       .pipeThrough(
         createCallbacksTransformer(callbacks, {
+          resolveUsage: (serializedUsage) => streamStack.usage ?? serializedUsage,
           shouldCallCompletion: () => responsesStreamState.succeeded,
         }),
       )

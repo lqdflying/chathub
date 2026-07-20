@@ -8,9 +8,15 @@ import {
 import debug from 'debug';
 
 import { LobeRuntimeAI } from '../../core/BaseAI';
+import {
+  createModelCacheDiagnosticCallbacks,
+  emitModelCacheRequest,
+  emitModelCacheTerminalError,
+} from '../../core/cacheDiagnostics';
 import { buildGoogleMessages, buildGoogleTools } from '../../core/contextBuilders/google';
 import { GoogleGenerativeAIStream, VertexAIStream } from '../../core/streams';
 import { LOBE_ERROR_KEY } from '../../core/streams/google';
+import { mergeMultipleChatMethodOptions } from '../../helpers';
 import {
   ChatCompletionTool,
   ChatMethodOptions,
@@ -21,7 +27,7 @@ import {
 import { AgentRuntimeErrorType } from '../../types/error';
 import { CreateImagePayload, CreateImageResponse } from '../../types/image';
 import { AgentRuntimeError } from '../../utils/createError';
-import { debugStream } from '../../utils/debugStream';
+import { createDebugStreamTransformer } from '../../utils/debugStream';
 import { getModelPricing } from '../../utils/getModelPricing';
 import { parseGoogleErrorMessage } from '../../utils/googleErrorParser';
 import { StreamingResponse } from '../../utils/response';
@@ -192,6 +198,8 @@ export class LobeGoogleAI implements LobeRuntimeAI {
   }
 
   async chat(rawPayload: ChatStreamPayload, options?: ChatMethodOptions) {
+    let cacheRequestHash: string | undefined;
+
     try {
       const payload = this.buildPayload(rawPayload);
       const { model, thinkingBudget } = payload;
@@ -225,7 +233,7 @@ export class LobeGoogleAI implements LobeRuntimeAI {
       }
 
       const config: GenerateContentConfig = {
-        abortSignal: originalSignal,
+        abortSignal: controller.signal,
         maxOutputTokens: payload.max_tokens,
         responseModalities: modelsWithModalities.has(model) ? ['Text', 'Image'] : undefined,
         // avoid wide sensitive words
@@ -261,6 +269,38 @@ export class LobeGoogleAI implements LobeRuntimeAI {
       };
 
       const inputStartAt = Date.now();
+      cacheRequestHash = emitModelCacheRequest(options?.cacheDiagnostics, {
+        apiType: 'google-generate-content',
+        cacheMechanism: 'automatic',
+        cachePolicy: {},
+        cacheSupport: 'supported',
+        inputItemCount: contents.length,
+        model,
+        requestFingerprintSource: {
+          config: {
+            systemInstruction: config.systemInstruction,
+            tools: config.tools,
+          },
+          contents,
+          model,
+        },
+        stream: true,
+        toolCount: config.tools?.length ?? 0,
+      });
+      const cacheDiagnosticCallbacks = createModelCacheDiagnosticCallbacks(
+        options?.cacheDiagnostics,
+        {
+          apiType: 'google-generate-content',
+          cacheSupport: 'supported',
+          requestHash: cacheRequestHash,
+        },
+      );
+      const callbacks = cacheDiagnosticCallbacks
+        ? mergeMultipleChatMethodOptions([
+            { callback: options?.callback },
+            { callback: cacheDiagnosticCallbacks },
+          ]).callback
+        : options?.callback;
 
       const geminiStreamResponse = await this.client.models.generateContentStream({
         config,
@@ -269,30 +309,50 @@ export class LobeGoogleAI implements LobeRuntimeAI {
       });
 
       const googleStream = this.createEnhancedStream(geminiStreamResponse, controller.signal);
-      const [prod, useForDebug] = googleStream.tee();
 
       const key = this.isVertexAi
         ? 'DEBUG_VERTEX_AI_CHAT_COMPLETION'
         : 'DEBUG_GOOGLE_CHAT_COMPLETION';
 
-      if (process.env[key] === '1') {
-        debugStream(useForDebug).catch();
-      }
+      const responseStream =
+        process.env[key] === '1'
+          ? googleStream.pipeThrough(createDebugStreamTransformer())
+          : googleStream;
 
       // Convert the response into a friendly text-stream
       const pricing = await getModelPricing(model, this.provider);
 
       const Stream = this.isVertexAi ? VertexAIStream : GoogleGenerativeAIStream;
-      const stream = Stream(prod, {
-        callbacks: options?.callback,
+      const stream = Stream(responseStream, {
+        callbacks,
         inputStartAt,
-        payload: { model, pricing, provider: this.provider },
+        payload: {
+          cacheDiagnostics: options?.cacheDiagnostics,
+          cacheRequestHash,
+          model,
+          pricing,
+          provider: this.provider,
+        },
       });
 
       // Respond with the stream
-      return StreamingResponse(stream, { headers: options?.headers });
+      return StreamingResponse(stream, {
+        headers: options?.headers,
+        onCancel: async (reason) => {
+          controller.abort(reason);
+          await Promise.allSettled([
+            callbacks?.onCancel?.(reason),
+            cacheDiagnosticCallbacks?.onError?.(reason),
+          ]);
+        },
+      });
     } catch (e) {
       const err = e as Error;
+      emitModelCacheTerminalError(options?.cacheDiagnostics, {
+        apiType: 'google-generate-content',
+        error: err,
+        requestHash: cacheRequestHash,
+      });
 
       // 移除之前的静默处理，统一抛出错误
       if (isAbortError(err)) {

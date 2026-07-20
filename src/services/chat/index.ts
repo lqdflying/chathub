@@ -12,9 +12,9 @@ import {
 } from '@lobechat/model-runtime';
 import {
   ChatErrorType,
+  ToolCacheDebugMetadata,
   TracePayload,
   TraceTagMap,
-  ToolCacheDebugMetadata,
   UIChatMessage,
   resolveGPT5ReasoningEffort,
 } from '@lobechat/types';
@@ -309,13 +309,10 @@ class ChatService {
     historySummary,
     toolCacheDebug,
   }: CreateAssistantMessageStream) => {
-    const debugToolCache =
-      params.provider === ModelProvider.OpenAICompatible ? toolCacheDebug : undefined;
-
     await this.createAssistantMessage(
       {
         ...params,
-        ...(debugToolCache ? { debugToolCache } : {}),
+        ...(toolCacheDebug ? { debugToolCache: toolCacheDebug } : {}),
       },
       {
         historySummary,
@@ -337,7 +334,8 @@ class ChatService {
 
     // =================== process model =================== //
     // ===================================================== //
-    let model = res.model || DEFAULT_AGENT_CONFIG.model;
+    const catalogModel = res.model || DEFAULT_AGENT_CONFIG.model;
+    let model = catalogModel;
 
     // if the provider is Azure, get the deployment name as the request model
     const providersWithDeploymentName = [ModelProvider.Azure, ModelProvider.AzureAI] as string[];
@@ -351,8 +349,8 @@ class ChatService {
     const configuredApiMode =
       supportsOpenAICompatResponses &&
       aiProviderSelectors.isProviderEnableResponseApi(provider)(aiInfraStoreState)
-      ? 'responses'
-      : undefined;
+        ? 'responses'
+        : undefined;
     const apiMode = supportsOpenAICompatResponses ? res.apiMode || configuredApiMode : undefined;
     const openAICompatCache =
       provider === ModelProvider.OpenAICompatible
@@ -365,12 +363,11 @@ class ChatService {
     const responseCache = openAICompatCache?.responses;
     const responseCacheEnabled = responseCache?.promptCacheKey === 'derived';
     const responseStateMode =
-      apiMode === 'responses' &&
-      provider === ModelProvider.OpenAICompatible &&
-      responseCacheEnabled
+      apiMode === 'responses' && provider === ModelProvider.OpenAICompatible && responseCacheEnabled
         ? 'provider'
         : undefined;
-    const store = apiMode === 'responses' ? openAICompatStoreValue(responseCache?.store) : undefined;
+    const store =
+      apiMode === 'responses' ? openAICompatStoreValue(responseCache?.store) : undefined;
 
     // Get the chat config to check streaming preference
     const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
@@ -384,6 +381,7 @@ class ChatService {
         {
           ...res,
           apiMode,
+          catalogModel: providersWithDeploymentName.includes(provider) ? catalogModel : undefined,
           model,
           openAICompatCache,
           openAICompatResponsesParams,

@@ -11,17 +11,20 @@ const buildInitialUsage = (
 
   let totalInputTokens = usage.input_tokens;
 
-  if (usage.cache_creation_input_tokens || usage.cache_read_input_tokens) {
+  if (
+    usage.cache_creation_input_tokens !== undefined ||
+    usage.cache_read_input_tokens !== undefined
+  ) {
     totalInputTokens =
-      (usage.input_tokens || 0) +
-      (usage.cache_creation_input_tokens || 0) +
-      (usage.cache_read_input_tokens || 0);
+      (usage.input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0) +
+      (usage.cache_read_input_tokens ?? 0);
   }
 
   return {
     inputCacheMissTokens: usage.input_tokens,
-    inputCachedTokens: usage.cache_read_input_tokens || undefined,
-    inputWriteCacheTokens: usage.cache_creation_input_tokens || undefined,
+    inputCachedTokens: usage.cache_read_input_tokens,
+    inputWriteCacheTokens: usage.cache_creation_input_tokens,
     totalInputTokens,
     totalOutputTokens: usage.output_tokens,
   } satisfies ModelUsage;
@@ -69,4 +72,13 @@ export const convertAnthropicUsage = (
       return streamContextUsage;
     }
   }
+};
+
+export const normalizeAnthropicStreamUsage = (usage: ModelUsage): ModelUsage => {
+  const normalizedUsage = { ...usage };
+
+  if (normalizedUsage.inputCachedTokens === 0) delete normalizedUsage.inputCachedTokens;
+  if (normalizedUsage.inputWriteCacheTokens === 0) delete normalizedUsage.inputWriteCacheTokens;
+
+  return normalizedUsage;
 };
