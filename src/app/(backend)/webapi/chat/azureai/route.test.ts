@@ -1,4 +1,4 @@
-// @vitest-environment edge-runtime
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
 import { POST as UniverseRoute } from '../[provider]/route';
@@ -9,12 +9,12 @@ vi.mock('../[provider]/route', () => ({
 }));
 
 describe('Configuration tests', () => {
-  it('should have runtime set to "edge"', () => {
-    expect(runtime).toBe('edge');
+  it('uses the Node.js runtime for server-only database dependencies', () => {
+    expect(runtime).toBe('nodejs');
   });
 });
 
-describe('Groq POST function tests', () => {
+describe('Azure AI POST function tests', () => {
   it('should call UniverseRoute with correct parameters', async () => {
     const mockRequest = new Request('https://example.com', { method: 'POST' });
     await POST(mockRequest);
