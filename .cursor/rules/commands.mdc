@@ -7,36 +7,37 @@ alwaysApply: true
 
 ```bash
 # Development
-bun run dev                  # Next.js dev server on :3010
-bun run dev:desktop          # Desktop (Electron) renderer on :3015
+bun run dev         # Next.js dev server on :3010
+bun run dev:desktop # Desktop (Electron) renderer on :3015
 
-# Build
-bun run build                # Production build
-bun run build:docker         # Docker build
+# Build — agents must not run these locally for verification
+bun run build        # Production build (user-operated only)
+bun run build:docker # Docker build (user-operated only)
 
 # Testing — NEVER run `bun run test` (runs all tests, ~10 min)
 bunx vitest run --silent='passed-only' '[file-path]'
 cd packages/database && bunx vitest run --silent='passed-only' '[file]'
 
 # Type checking
-bun run type-check           # Uses tsgo (fast)
-bun run type-check:tsc       # Uses tsc (strict)
-bash scripts/type-check-tsc.sh   # Strict TSC script (fork CI / agent workflow; filters known Drizzle noise)
+bun run type-check             # Uses tsgo (fast)
+bun run type-check:tsc         # Uses tsc (strict)
+bash scripts/type-check-tsc.sh # Strict TSC script (fork CI / agent workflow; filters known Drizzle noise)
 
 # Linting
-bun run lint                 # ts + style + type-check + circular deps
-bun run lint:ts              # ESLint only
-bun run lint:style           # Stylelint only
+bun run lint       # ts + style + type-check + circular deps
+bun run lint:ts    # ESLint only
+bun run lint:style # Stylelint only
 
 # Database
-bun run db:generate          # Generate Drizzle migrations
-bun run db:migrate           # Run migrations
-bun run db:studio            # Open Drizzle Studio
+bun run db:generate # Generate Drizzle migrations
+bun run db:migrate  # Run migrations
+bun run db:studio   # Open Drizzle Studio
 ```
 
 ## DB migration safety net (MANDATORY)
 
 Every migration that adds a **table** or **column** must also add an idempotent `ensure*` helper:
+
 - Create `scripts/migrateServerDB/ensure<Name>.cjs` with `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ADD COLUMN IF NOT EXISTS`
 - Wire into `scripts/migrateServerDB/docker.cjs` (require + call after `migrator.migrate()`)
 - Copy into `/app/` in `Dockerfile`
@@ -45,6 +46,7 @@ See `ensureAgentAssistantMemory.cjs` and `ensureMcpOAuthTokens.cjs` for template
 
 ## Hard "never do" list
 
+- **Never run local production or Docker builds to verify changes**, including `bun run build`, `bun run build:docker`, direct `next build`, or `docker build`. Local disk is constrained. Use targeted tests and `bun run type-check` locally; when image verification is required, use the remote GitHub Actions canary-tag workflow after explicit in-turn permission to commit, tag, and push.
 - **Never** `bun run test` — runs the full suite, ~10 min.
 - **Never** `bun run db:push` against production — bypasses migration tracking.
 - **Never** `pnpm i18n` — CI translates all locales automatically.
