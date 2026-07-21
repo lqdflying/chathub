@@ -10,10 +10,15 @@ vi.mock('@/libs/trpc/lambda/middleware/serverDatabase', () => ({
   serverDatabase: vi.fn(async ({ ctx, next }) => next({ ctx })),
 }));
 
-const updateMessageMock = vi.fn();
-
+const beginMCPResultInvocationMock = vi.fn();
+const persistMCPResultMock = vi.fn();
+const recoverMCPResultMock = vi.fn();
 vi.mock('@/database/models/message', () => ({
-  MessageModel: vi.fn().mockImplementation(() => ({ update: updateMessageMock })),
+  MessageModel: vi.fn().mockImplementation(() => ({
+    beginMCPResultInvocation: beginMCPResultInvocationMock,
+    persistMCPResult: persistMCPResultMock,
+    recoverMCPResult: recoverMCPResultMock,
+  })),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
@@ -80,7 +85,9 @@ describe('mcpRouter OAuth public boundary', () => {
       expiresAt: Date.now() + 60_000,
       refreshToken: 'refresh-token',
     });
-    updateMessageMock.mockResolvedValue({ rowCount: 1 });
+    beginMCPResultInvocationMock.mockResolvedValue(true);
+    persistMCPResultMock.mockResolvedValue(true);
+    recoverMCPResultMock.mockResolvedValue(undefined);
     sdkCallToolMock.mockImplementation(async () => {
       const transportResult = await responseFromTransport('tools/call', {
         method: 'POST',
@@ -124,6 +131,7 @@ describe('mcpRouter OAuth public boundary', () => {
     const caller = mcpRouter.createCaller(createCallerContext());
     const result = await caller.callTool({
       args: JSON.stringify({ query: 'latest MCP docs' }),
+      invocationId: 'mi_12345678901234567890',
       messageId: 'tool-message-id',
       params: oauthParams,
       toolName: 'tavily_search',
@@ -131,9 +139,15 @@ describe('mcpRouter OAuth public boundary', () => {
 
     expect(JSON.parse(result.content)).toEqual({ result: 'ok' });
     expect(result.persistence).toBe('persisted');
-    expect(updateMessageMock).toHaveBeenCalledWith('tool-message-id', {
-      content: JSON.stringify({ result: 'ok' }),
-    });
+    expect(beginMCPResultInvocationMock).toHaveBeenCalledWith(
+      'tool-message-id',
+      'mi_12345678901234567890',
+    );
+    expect(persistMCPResultMock).toHaveBeenCalledWith(
+      'tool-message-id',
+      'mi_12345678901234567890',
+      JSON.stringify({ result: 'ok' }),
+    );
     expect(getOAuthTokenMock).toHaveBeenCalledWith('user-id', 'tavily');
     expect(refreshOAuthTokenMock).toHaveBeenCalledTimes(1);
     expect(refreshOAuthTokenMock).toHaveBeenCalledWith('user-id', 'tavily');
@@ -158,6 +172,7 @@ describe('mcpRouter OAuth public boundary', () => {
     const error = await caller
       .callTool({
         args: JSON.stringify({ query: 'latest MCP docs' }),
+        invocationId: 'mi_12345678901234567890',
         messageId: 'tool-message-id',
         params: oauthParams,
         toolName: 'tavily_search',
@@ -194,8 +209,14 @@ describe('mcpRouter OAuth public boundary', () => {
     ] as const;
 
     const results = await Promise.all(
-      calls.map(([toolName, messageId]) =>
-        caller.callTool({ args: '{}', messageId, params: oauthParams, toolName }),
+      calls.map(([toolName, messageId], index) =>
+        caller.callTool({
+          args: '{}',
+          invocationId: `mi_1234567890123456${index.toString().padStart(4, '0')}`,
+          messageId,
+          params: oauthParams,
+          toolName,
+        }),
       ),
     );
 
@@ -204,11 +225,12 @@ describe('mcpRouter OAuth public boundary', () => {
       'persisted',
       'persisted',
     ]);
-    expect(updateMessageMock.mock.calls).toEqual(
+    expect(persistMCPResultMock.mock.calls).toEqual(
       expect.arrayContaining(
-        calls.map(([toolName, messageId]) => [
+        calls.map(([toolName, messageId], index) => [
           messageId,
-          { content: JSON.stringify({ tool: toolName }) },
+          `mi_1234567890123456${index.toString().padStart(4, '0')}`,
+          JSON.stringify({ tool: toolName }),
         ]),
       ),
     );
@@ -221,12 +243,13 @@ describe('mcpRouter OAuth public boundary', () => {
           headers: { 'content-type': 'application/json' },
         }),
     );
-    updateMessageMock.mockRejectedValueOnce(new Error('database unavailable'));
+    persistMCPResultMock.mockRejectedValueOnce(new Error('database unavailable'));
     const { mcpRouter } = await loadRouterWithTransportFetch(transportFetch as typeof fetch);
     const caller = mcpRouter.createCaller(createCallerContext());
 
     const result = await caller.callTool({
       args: '{}',
+      invocationId: 'mi_12345678901234567890',
       messageId: 'tool-message-id',
       params: oauthParams,
       toolName: 'tavily_search',
@@ -234,6 +257,33 @@ describe('mcpRouter OAuth public boundary', () => {
 
     expect(result.persistence).toBe('failed');
     expect(JSON.parse(result.content)).toEqual({ result: 'ok' });
+  });
+
+  it('recovers a persisted result only for the matching invocation ID', async () => {
+    const { mcpRouter } = await loadRouterWithTransportFetch(vi.fn() as unknown as typeof fetch);
+    const caller = mcpRouter.createCaller(createCallerContext());
+    recoverMCPResultMock.mockImplementation(async (_messageId, invocationId) =>
+      invocationId === 'mi_12345678901234567890'
+        ? { content: '{"result":"persisted"}' }
+        : undefined,
+    );
+
+    await expect(
+      caller.recoverToolResult({
+        invocationId: 'mi_12345678901234567890',
+        messageId: 'tool-message-id',
+      }),
+    ).resolves.toEqual({
+      content: '{"result":"persisted"}',
+      persistence: 'persisted',
+      recovered: true,
+    });
+    await expect(
+      caller.recoverToolResult({
+        invocationId: 'mi_00000000000000000000',
+        messageId: 'tool-message-id',
+      }),
+    ).resolves.toBeNull();
   });
 
   it('preserves bounded batch correlation in MCP completion diagnostics', async () => {
@@ -253,6 +303,7 @@ describe('mcpRouter OAuth public boundary', () => {
 
     await caller.callTool({
       args: JSON.stringify({ query: 'PRIVATE_MCP_ARGUMENT' }),
+      invocationId: 'mi_12345678901234567890',
       messageId: 'tool-message-id',
       params: oauthParams,
       toolCacheDebug: {
@@ -292,7 +343,9 @@ describe('mcpRouter OAuth public boundary', () => {
 
   it('accepts only structured client failure metadata and emits no HTML body', async () => {
     const previousDebug = process.env.CHATHUB_TOOLS_DEBUG;
+    const previousFingerprintSecret = process.env.KEY_VAULTS_SECRET;
     process.env.CHATHUB_TOOLS_DEBUG = '1';
+    process.env.KEY_VAULTS_SECRET = 'test-deployment-fingerprint-secret';
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const { mcpRouter } = await loadRouterWithTransportFetch(vi.fn() as unknown as typeof fetch);
     const caller = mcpRouter.createCaller(createCallerContext());
@@ -324,9 +377,64 @@ describe('mcpRouter OAuth public boundary', () => {
     expect(event?.[1]).toContain('lambda');
     expect(event?.[1]).toContain('response_parse_failed');
     expect(event?.[1]).not.toContain('<!DOCTYPE');
+    expect(event?.[1]).not.toContain('td_1234567890abcdef');
+    expect(JSON.parse(event?.[1] as string).diagnosticId).toMatch(/^td_[\da-f]{32}$/);
 
     consoleSpy.mockRestore();
     if (previousDebug === undefined) delete process.env.CHATHUB_TOOLS_DEBUG;
     else process.env.CHATHUB_TOOLS_DEBUG = previousDebug;
+    if (previousFingerprintSecret === undefined) delete process.env.KEY_VAULTS_SECRET;
+    else process.env.KEY_VAULTS_SECRET = previousFingerprintSecret;
+  });
+
+  it('retains the server-owned failure-report correlation without fingerprint secrets', async () => {
+    const previousDebug = process.env.CHATHUB_TOOLS_DEBUG;
+    const previousKeyVaultsSecret = process.env.KEY_VAULTS_SECRET;
+    const previousNextAuthSecret = process.env.NEXT_AUTH_SECRET;
+    process.env.CHATHUB_TOOLS_DEBUG = '1';
+    delete process.env.KEY_VAULTS_SECRET;
+    delete process.env.NEXT_AUTH_SECRET;
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const { mcpRouter } = await loadRouterWithTransportFetch(vi.fn() as unknown as typeof fetch);
+    const { runWithToolsDebugContext } = await import('@/libs/logger/toolsDebug');
+    const caller = mcpRouter.createCaller(createCallerContext());
+    const clientDiagnosticId = 'td_1234567890abcdef';
+    const serverDiagnosticId = 'td_serverowned12345678';
+
+    await runWithToolsDebugContext(
+      {
+        diagnosticId: serverDiagnosticId,
+        operation: 'mcp.reportClientFailure',
+        runtime: 'server',
+        transport: 'http',
+      },
+      () =>
+        caller.reportClientFailure({
+          attempt: 1,
+          bodyKind: 'network_error',
+          diagnosticId: clientDiagnosticId,
+          durationMs: 500,
+          failurePhase: 'network',
+          operation: 'call_tool',
+          procedure: 'mcp.callTool',
+          reason: 'network_error',
+          rpcEndpoint: 'tools',
+        }),
+    );
+
+    const event = consoleSpy.mock.calls.find(
+      ([prefix]) => prefix === '[chathub-tools-debug:client_rpc_response_failed]',
+    );
+    expect(event).toBeDefined();
+    expect(event?.[1]).not.toContain(clientDiagnosticId);
+    expect(JSON.parse(event?.[1] as string).diagnosticId).toBe(serverDiagnosticId);
+
+    consoleSpy.mockRestore();
+    if (previousDebug === undefined) delete process.env.CHATHUB_TOOLS_DEBUG;
+    else process.env.CHATHUB_TOOLS_DEBUG = previousDebug;
+    if (previousKeyVaultsSecret === undefined) delete process.env.KEY_VAULTS_SECRET;
+    else process.env.KEY_VAULTS_SECRET = previousKeyVaultsSecret;
+    if (previousNextAuthSecret === undefined) delete process.env.NEXT_AUTH_SECRET;
+    else process.env.NEXT_AUTH_SECRET = previousNextAuthSecret;
   });
 });

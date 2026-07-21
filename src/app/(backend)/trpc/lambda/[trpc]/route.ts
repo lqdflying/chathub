@@ -2,8 +2,11 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import type { NextRequest } from 'next/server';
 
 import {
+  CHATHUB_RPC_DIAGNOSTIC_OPERATIONS,
+  CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
+  type ChatHubRPCDiagnosticOperation,
 } from '@/const/tools';
 import { pino } from '@/libs/logger';
 import { protectExternalToolsDiagnosticId } from '@/libs/logger/modelCacheDebug';
@@ -24,6 +27,14 @@ import { lambdaRouter } from '@/server/routers/lambda';
 const getProcedures = (req: NextRequest) => {
   const path = new URL(req.url).pathname.split('/trpc/lambda/')[1] || 'unknown';
   return path.split(',').filter(Boolean).slice(0, 20);
+};
+
+const getDiagnosticOperation = (req: NextRequest): ChatHubRPCDiagnosticOperation | undefined => {
+  const requestedOperation = req.headers.get(CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER);
+  return requestedOperation &&
+    CHATHUB_RPC_DIAGNOSTIC_OPERATIONS.includes(requestedOperation as ChatHubRPCDiagnosticOperation)
+    ? (requestedOperation as ChatHubRPCDiagnosticOperation)
+    : undefined;
 };
 
 const handleRPCRequest = (
@@ -58,8 +69,14 @@ const handler = async (req: NextRequest) => {
   pino.debug(`tRPC lambda request: ${req.method} ${req.nextUrl.pathname}`);
 
   const requestedDiagnosticId = req.headers.get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER);
+  const diagnosticOperation = getDiagnosticOperation(req);
+  const procedures = getProcedures(req);
+  const procedure = procedures.length === 1 ? procedures[0] : 'batch';
   const diagnosticId =
-    requestedDiagnosticId && CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN.test(requestedDiagnosticId)
+    procedure === 'message.update' &&
+    diagnosticOperation &&
+    requestedDiagnosticId &&
+    CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN.test(requestedDiagnosticId)
       ? protectExternalToolsDiagnosticId(requestedDiagnosticId) || createToolsDiagnosticId()
       : undefined;
 
@@ -69,19 +86,21 @@ const handler = async (req: NextRequest) => {
     });
   }
 
-  const procedures = getProcedures(req);
-  const procedure = procedures.length === 1 ? procedures[0] : 'batch';
+  const eventPrefix =
+    diagnosticOperation === 'finalize_assistant_message'
+      ? 'assistant_finalization_rpc'
+      : 'tool_persistence_rpc';
 
   return runWithToolsDebugContext(
     {
       diagnosticId,
-      operation: 'persist_tool_result',
+      operation: diagnosticOperation,
       runtime: 'server',
       transport: 'http',
     },
     async () => {
       logToolsDebugRuntimeInitialized({ deploymentMode: process.env.NODE_ENV });
-      logToolsDebugSafe('tool_persistence_rpc_started', {
+      logToolsDebugSafe(`${eventPrefix}_started`, {
         batchSize: Math.max(1, procedures.length),
         endpoint: '/trpc/lambda',
         method: req.method,
@@ -92,7 +111,7 @@ const handler = async (req: NextRequest) => {
 
       try {
         const response = await handleRPCRequest(req, ({ error, path, type }) => {
-          logToolsDebugSafe('tool_persistence_rpc_handler_error', {
+          logToolsDebugSafe(`${eventPrefix}_handler_error`, {
             ...describeToolsDebugError(error),
             failurePhase: 'trpc_handler',
             operation: type,
@@ -106,7 +125,7 @@ const handler = async (req: NextRequest) => {
           // A missing response header must never affect the RPC response.
         }
 
-        logToolsDebugSafe('tool_persistence_rpc_complete', {
+        logToolsDebugSafe(`${eventPrefix}_complete`, {
           batchSize: Math.max(1, procedures.length),
           durationMs: Date.now() - start,
           endpoint: '/trpc/lambda',
@@ -115,7 +134,7 @@ const handler = async (req: NextRequest) => {
         });
         return response;
       } catch (error) {
-        logToolsDebugSafe('tool_persistence_rpc_failed', {
+        logToolsDebugSafe(`${eventPrefix}_failed`, {
           ...describeToolsDebugError(error),
           batchSize: Math.max(1, procedures.length),
           durationMs: Date.now() - start,

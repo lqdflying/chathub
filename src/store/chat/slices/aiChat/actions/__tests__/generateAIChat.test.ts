@@ -22,6 +22,9 @@ import {
 
 // Keep zustand mock as it's needed globally
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+vi.mock('@/components/AntdStaticMethods', () => ({
+  notification: { warning: vi.fn() },
+}));
 
 const realCoreProcessMessage = useChatStore.getState().internal_coreProcessMessage;
 
@@ -581,6 +584,83 @@ describe('chatMessage actions', () => {
 
       expect(summaryHistory).not.toHaveBeenCalled();
     });
+
+    it('does not execute tool calls when assistant persistence remains ambiguous', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+      const fetchAIChatMessage = vi.fn().mockResolvedValue({
+        content: '',
+        isFunctionCall: true,
+        persistenceAmbiguous: true,
+      });
+      const state = useChatStore.getState();
+      const fetchAIChatMessageSpy = vi
+        .spyOn(state, 'internal_fetchAIChatMessage')
+        .mockImplementation(fetchAIChatMessage);
+      const refreshMessages = vi.spyOn(state, 'refreshMessages').mockResolvedValue(undefined);
+      const triggerToolCalls = vi.spyOn(state, 'triggerToolCalls').mockResolvedValue(undefined);
+      const toggleMessageInToolsCalling = vi.spyOn(state, 'internal_toggleMessageInToolsCalling');
+      vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+
+      await act(async () => {
+        await useChatStore
+          .getState()
+          .internal_coreProcessMessage([userMessage], TEST_IDS.USER_MESSAGE_ID);
+      });
+
+      expect(fetchAIChatMessageSpy).toHaveBeenCalledTimes(1);
+      expect(refreshMessages).toHaveBeenCalledTimes(1);
+      expect(toggleMessageInToolsCalling).not.toHaveBeenCalledWith(
+        true,
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+      );
+      expect(triggerToolCalls).not.toHaveBeenCalled();
+      const { notification } = await import('@/components/AntdStaticMethods');
+      expect(notification.warning).toHaveBeenCalledTimes(1);
+      const warningPayload = vi.mocked(notification.warning).mock.calls[0][0];
+      expect(warningPayload).toHaveProperty('description');
+      expect(warningPayload).toHaveProperty('message');
+    });
+
+    it('continues completed tool calls when post-finalization revalidation fails', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+      const state = useChatStore.getState();
+      vi.spyOn(state, 'internal_fetchAIChatMessage').mockResolvedValue({
+        content: '',
+        isFunctionCall: true,
+        persistenceAmbiguous: false,
+      });
+      const refreshMessages = vi
+        .spyOn(state, 'refreshMessages')
+        .mockRejectedValue(new Error('revalidation failed'));
+      const triggerToolCalls = vi.spyOn(state, 'triggerToolCalls').mockResolvedValue(undefined);
+      vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+
+      await act(async () => {
+        await useChatStore
+          .getState()
+          .internal_coreProcessMessage([userMessage], TEST_IDS.USER_MESSAGE_ID);
+      });
+
+      expect(refreshMessages).toHaveBeenCalledTimes(2);
+      expect(triggerToolCalls).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.any(Object),
+      );
+    });
   });
 
   describe('internal_fetchAIChatMessage', () => {
@@ -609,6 +689,122 @@ describe('chatMessage actions', () => {
       });
 
       streamSpy.mockRestore();
+    });
+
+    it('persists the complete assistant finalization in one message update', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+      const grounding = {
+        citations: [{ title: 'Example', url: 'https://example.com' }],
+        searchQueries: ['test query'],
+      };
+      const reasoning = { content: 'Reasoning' };
+      const toolCalls = [
+        { id: 'tool-1', type: 'function', function: { name: 'test', arguments: '{}' } },
+      ];
+
+      useChatStore.setState({
+        internal_transformToolCalls: vi.fn().mockReturnValue(toolCalls),
+      });
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish, onMessageHandle }) => {
+          await onMessageHandle?.({
+            isAnimationActives: [true],
+            tool_calls: toolCalls,
+            type: 'tool_calls',
+          } as any);
+          await onFinish?.(TEST_CONTENT.AI_RESPONSE, {
+            grounding,
+            observationId: 'observation-id',
+            reasoning,
+            toolCalls,
+            traceId: 'trace-id',
+            usage: { inputTextTokens: 10, outputTextTokens: 5, totalTokens: 15 },
+          } as any);
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messages,
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.updateMessage).toHaveBeenCalledTimes(1);
+      expect(messageService.updateMessage).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        {
+          content: TEST_CONTENT.AI_RESPONSE,
+          metadata: { inputTextTokens: 10, outputTextTokens: 5, totalTokens: 15 },
+          model: 'gpt-4o-mini',
+          observationId: 'observation-id',
+          provider: 'openai',
+          reasoning: { ...reasoning, duration: undefined },
+          search: grounding,
+          tools: toolCalls,
+          traceId: 'trace-id',
+        },
+        {
+          diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
+          diagnosticOperation: 'finalize_assistant_message',
+          showNotification: false,
+        },
+      );
+    });
+
+    it('clears all stream loading indicators when finalization throws', async () => {
+      const messages = [createMockMessage({ role: 'user' })];
+      const toggleChatLoading = vi.fn().mockReturnValue(new AbortController());
+      const toggleChatReasoning = vi.fn();
+      const toggleToolCallingStreaming = vi.fn();
+      const state = useChatStore.getState();
+      vi.spyOn(state, 'internal_toggleChatLoading').mockImplementation(toggleChatLoading);
+      vi.spyOn(state, 'internal_toggleChatReasoning').mockImplementation(toggleChatReasoning);
+      vi.spyOn(state, 'internal_toggleToolCallingStreaming').mockImplementation(
+        toggleToolCallingStreaming,
+      );
+      vi.spyOn(state, 'internal_updateMessageContent').mockRejectedValue(
+        new Error('database rejected'),
+      );
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish, onMessageHandle }) => {
+          await onMessageHandle?.({
+            isAnimationActives: [true],
+            tool_calls: [
+              { id: 'tool-1', type: 'function', function: { name: 'test', arguments: '{}' } },
+            ],
+            type: 'tool_calls',
+          } as any);
+          await onFinish?.(TEST_CONTENT.AI_RESPONSE, {} as any);
+        },
+      );
+
+      await expect(
+        useChatStore.getState().internal_fetchAIChatMessage({
+          messages,
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        }),
+      ).rejects.toThrow('database rejected');
+
+      expect(toggleChatLoading).toHaveBeenLastCalledWith(
+        false,
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.any(String),
+      );
+      expect(toggleChatReasoning).toHaveBeenLastCalledWith(
+        false,
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.any(String),
+      );
+      expect(toggleToolCallingStreaming).toHaveBeenLastCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        undefined,
+      );
     });
 
     it('should handle streaming errors gracefully', async () => {
@@ -906,6 +1102,10 @@ describe('chatMessage actions', () => {
       expect(updateMessageSpy).toHaveBeenCalledWith(
         TEST_IDS.ASSISTANT_MESSAGE_ID,
         expect.objectContaining({ traceId }),
+        expect.objectContaining({
+          diagnosticOperation: 'finalize_assistant_message',
+          showNotification: false,
+        }),
       );
 
       streamSpy.mockRestore();

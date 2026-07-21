@@ -13,8 +13,10 @@ import {
   TraceEventPayloads,
   TraceEventType,
   UIChatMessage,
+  type UpdateMessageParams,
   UpdateMessageRAGParams,
 } from '@lobechat/types';
+import type { ChatHubRPCDiagnosticOperation } from '@lobechat/const';
 import { nanoid } from '@lobechat/utils';
 import { copyToClipboard } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
@@ -22,7 +24,9 @@ import { SWRResponse, mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { useClientDataSWR } from '@/libs/swr';
+import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { messageService } from '@/services/message';
+import { rpcDiagnosticsService } from '@/services/rpcDiagnostics';
 import { topicService } from '@/services/topic';
 import { traceService } from '@/services/trace';
 import { ChatStore } from '@/store/chat/store';
@@ -89,17 +93,21 @@ export interface ChatMessageAction {
     content: string,
     extra?: {
       diagnosticId?: string;
+      diagnosticOperation?: ChatHubRPCDiagnosticOperation;
       toolCalls?: MessageToolCall[];
       reasoning?: ModelReasoning;
       search?: GroundingSearch;
       metadata?: MessageMetadata;
       imageList?: ChatImageItem[];
       model?: string;
+      observationId?: string;
+      persistenceRecovery?: 'assistant_finalization';
       provider?: string;
       showNotification?: boolean;
       skipRefresh?: boolean;
+      traceId?: string;
     },
-  ) => Promise<void>;
+  ) => Promise<{ persistenceAmbiguous: boolean }>;
   /**
    * update the message error with optimistic update
    */
@@ -389,42 +397,82 @@ export const chatMessage: StateCreator<
   internal_updateMessageContent: async (id, content, extra) => {
     const { internal_dispatchMessage, refreshMessages, internal_transformToolCalls } = get();
 
+    const tools = extra?.toolCalls ? internal_transformToolCalls(extra.toolCalls) : undefined;
+    const update: UpdateMessageParams = {
+      content,
+      ...(extra?.imageList && { imageList: extra.imageList }),
+      ...(extra?.metadata && { metadata: extra.metadata }),
+      ...(extra?.model && { model: extra.model }),
+      ...(extra?.observationId && { observationId: extra.observationId }),
+      ...(extra?.provider && { provider: extra.provider }),
+      ...(extra?.reasoning && { reasoning: extra.reasoning }),
+      ...(extra?.search && { search: extra.search }),
+      ...(tools && { tools }),
+      ...(extra?.traceId && { traceId: extra.traceId }),
+    };
+
     // Due to the async update method and refresh need about 100ms
     // we need to update the message content at the frontend to avoid the update flick
     // refs: https://medium.com/@kyledeguzmanx/what-are-optimistic-updates-483662c3e171
-    if (extra?.toolCalls) {
-      internal_dispatchMessage({
-        id,
-        type: 'updateMessage',
-        value: { tools: internal_transformToolCalls(extra?.toolCalls) },
-      });
-    } else {
-      internal_dispatchMessage({
-        id,
-        type: 'updateMessage',
-        value: { content },
-      });
+    internal_dispatchMessage({ id, type: 'updateMessage', value: update });
+
+    if (extra?.persistenceRecovery === 'assistant_finalization') {
+      const diagnosticId = extra.diagnosticId || `td_${nanoid(20)}`;
+
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        try {
+          await messageService.updateMessage(id, update, {
+            diagnosticId,
+            diagnosticOperation: 'finalize_assistant_message',
+            showNotification: false,
+          });
+          break;
+        } catch (error) {
+          const responseError = findRPCResponseError(error);
+          if (!responseError) throw error;
+
+          rpcDiagnosticsService.reportClientRPCFailure(responseError.details, {
+            attempt,
+            diagnosticId,
+            operation: 'finalize_assistant_message',
+            procedure: 'message.update',
+            rpcEndpoint: 'lambda',
+          });
+
+          if (attempt < 2) continue;
+          if (!extra.skipRefresh) {
+            try {
+              await refreshMessages();
+            } catch {
+              // The streamed content remains authoritative until a later refresh succeeds.
+            }
+          }
+          internal_dispatchMessage({ id, type: 'updateMessage', value: update });
+          return { persistenceAmbiguous: true };
+        }
+      }
+
+      if (!extra.skipRefresh) {
+        try {
+          await refreshMessages();
+        } catch {
+          // The confirmed write and optimistic payload remain authoritative until revalidation recovers.
+        }
+      }
+      return { persistenceAmbiguous: false };
     }
 
-    const update = {
-      content,
-      tools: extra?.toolCalls ? internal_transformToolCalls(extra?.toolCalls) : undefined,
-      reasoning: extra?.reasoning,
-      search: extra?.search,
-      metadata: extra?.metadata,
-      model: extra?.model,
-      provider: extra?.provider,
-      imageList: extra?.imageList,
-    };
     if (extra?.diagnosticId || extra?.showNotification !== undefined) {
       await messageService.updateMessage(id, update, {
         diagnosticId: extra?.diagnosticId,
+        diagnosticOperation: extra?.diagnosticOperation,
         showNotification: extra?.showNotification,
       });
     } else {
       await messageService.updateMessage(id, update);
     }
     if (!extra?.skipRefresh) await refreshMessages();
+    return { persistenceAmbiguous: false };
   },
 
   internal_createMessage: async (message, context) => {
@@ -442,25 +490,37 @@ export const chatMessage: StateCreator<
       internal_toggleMessageLoading(true, tempId);
     }
 
+    let id: string;
     try {
-      const id = await messageService.createMessage(message);
-      if (!context?.skipRefresh) {
-        internal_toggleMessageLoading(true, tempId);
-        await refreshMessages();
-      }
-
-      internal_toggleMessageLoading(false, tempId);
-      return id;
-    } catch (e) {
+      id = await messageService.createMessage(message);
+    } catch (error) {
       internal_toggleMessageLoading(false, tempId);
       internal_dispatchMessage({
         id: tempId,
         type: 'updateMessage',
         value: {
-          error: { type: ChatErrorType.CreateMessageError, message: (e as Error).message, body: e },
+          error: {
+            body: error,
+            message: (error as Error).message,
+            type: ChatErrorType.CreateMessageError,
+          },
         },
       });
+      return;
     }
+
+    internal_dispatchMessage({ id: tempId, type: 'updateMessage', value: { id } });
+
+    if (!context?.skipRefresh) {
+      try {
+        await refreshMessages();
+      } catch {
+        // Creation succeeded; retain the reconciled optimistic row until revalidation recovers.
+      }
+    }
+
+    internal_toggleMessageLoading(false, tempId);
+    return id;
   },
 
   internal_fetchMessages: async () => {

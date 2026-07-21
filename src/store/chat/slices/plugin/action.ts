@@ -163,6 +163,7 @@ export interface ChatPluginAction {
     loading: boolean,
     id?: string,
     action?: string,
+    expectedAbortController?: AbortController,
   ) => AbortController | undefined;
   internal_transformToolCalls: (toolCalls: MessageToolCall[]) => ChatToolPayload[];
   internal_updatePluginError: (id: string, error: ChatMessageError) => Promise<void>;
@@ -799,6 +800,10 @@ export const chatPlugin: StateCreator<
         topicId: context?.topicId,
       });
 
+      if (abortController?.signal.aborted) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      }
+
       if (!!result) data = result.content;
 
       if (!data) return { data: undefined, outcome: 'skipped' };
@@ -806,6 +811,10 @@ export const chatPlugin: StateCreator<
       if (result?.persistence === 'persisted') {
         internal_dispatchMessage({ id, type: 'updateMessage', value: { content: data } });
         return { data };
+      }
+
+      if (result?.persistence === 'superseded') {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
       if (result?.persistence === 'failed') {
@@ -823,6 +832,7 @@ export const chatPlugin: StateCreator<
         try {
           await internal_updateMessageContent(id, data, {
             diagnosticId,
+            diagnosticOperation: 'persist_tool_result',
             showNotification: false,
             skipRefresh: true,
           });
@@ -846,8 +856,8 @@ export const chatPlugin: StateCreator<
       // ChatHub from confirming persistence. Continue the model turn in that case.
       return { data, outcome: persisted ? 'completed' : 'persistence_failed' };
     } catch (error) {
-      // ignore the aborted request error
-      if (!isAbortError(error)) {
+      const wasCancelled = abortController?.signal.aborted || isAbortError(error);
+      if (!wasCancelled) {
         const messageError = createMCPChatMessageError(error, (type) =>
           t(`response.${type}`, { ns: 'error' }),
         );
@@ -859,6 +869,7 @@ export const chatPlugin: StateCreator<
             { error: messageError },
             {
               diagnosticId,
+              diagnosticOperation: 'persist_tool_result',
               showNotification: false,
             },
           );
@@ -868,14 +879,14 @@ export const chatPlugin: StateCreator<
       }
       return {
         data: undefined,
-        outcome: isAbortError(error) ? 'cancelled' : 'failed',
+        outcome: wasCancelled ? 'cancelled' : 'failed',
       };
     } finally {
-      internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
+      internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string, abortController);
     }
   },
 
-  internal_togglePluginApiCalling: (loading, id, action) => {
+  internal_togglePluginApiCalling: (loading, id, action, expectedAbortController) => {
     if (loading) {
       if (!id) return;
 
@@ -902,6 +913,11 @@ export const chatPlugin: StateCreator<
       set({ pluginApiAbortControllers: {}, pluginApiLoadingIds: [] }, false, action);
       window.removeEventListener('beforeunload', preventLeavingFn);
       return;
+    }
+
+    const activeAbortController = get().pluginApiAbortControllers[id];
+    if (expectedAbortController && activeAbortController !== expectedAbortController) {
+      return activeAbortController;
     }
 
     const pluginApiAbortControllers = { ...get().pluginApiAbortControllers };

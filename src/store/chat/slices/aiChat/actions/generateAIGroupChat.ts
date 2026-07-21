@@ -11,6 +11,8 @@ import {
   SendGroupMessageParams,
   UIChatMessage,
 } from '@lobechat/types';
+import debug from 'debug';
+import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -24,7 +26,6 @@ import { userProfileSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
-import debug from 'debug';
 
 import type { ChatStoreState } from '../../../initialState';
 import { toggleBooleanList } from '../../../utils';
@@ -703,7 +704,7 @@ export const chatAiGroupChat: StateCreator<
         const messagesForAPI = [systemMessage, ...messagesWithAuthors];
 
         if (assistantId) {
-          const { isFunctionCall } = await internal_fetchAIChatMessage({
+          const { isFunctionCall, persistenceAmbiguous } = await internal_fetchAIChatMessage({
             messages: messagesForAPI,
             messageId: assistantId,
             model: agentModel,
@@ -716,6 +717,15 @@ export const chatAiGroupChat: StateCreator<
 
           // Handle tool calling in group chat like single chat
           if (isFunctionCall) {
+            if (persistenceAmbiguous) {
+              const { notification } = await import('@/components/AntdStaticMethods');
+              notification.warning({
+                description: t('assistantToolCallPersistence.description', { ns: 'error' }),
+                message: t('assistantToolCallPersistence.title', { ns: 'error' }),
+              });
+              return;
+            }
+
             get().internal_toggleMessageInToolsCalling(true, assistantId);
             await refreshMessages();
             await triggerToolCalls(assistantId, {

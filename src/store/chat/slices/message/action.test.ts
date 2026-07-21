@@ -5,18 +5,23 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { useChatStore } from '../../store';
 
+const { reportClientRPCFailure } = vi.hoisted(() => ({
+  reportClientRPCFailure: vi.fn(),
+}));
+
 vi.stubGlobal(
   'fetch',
   vi.fn(() => Promise.resolve(new Response('mock'))),
 );
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 // Mock service
 vi.mock('@/services/message', () => ({
   messageService: {
@@ -36,11 +41,15 @@ vi.mock('@/services/topic', () => ({
     removeTopic: vi.fn(() => Promise.resolve()),
   },
 }));
+vi.mock('@/services/rpcDiagnostics', () => ({
+  rpcDiagnosticsService: { reportClientRPCFailure },
+}));
 
 const realRefreshMessages = useChatStore.getState().refreshMessages;
 // Mock state
 const mockState = {
   activeId: 'session-id',
+  activeThreadId: undefined,
   activeTopicId: 'topic-id',
   messages: [],
   refreshMessages: vi.fn(),
@@ -460,6 +469,40 @@ describe('chatMessage actions', () => {
     });
   });
 
+  describe('internal_createMessage', () => {
+    it('preserves a confirmed create when message revalidation fails', async () => {
+      const chatKey = messageMapKey(mockState.activeId, mockState.activeTopicId);
+      const refreshMessages = vi.fn().mockRejectedValue(new Error('revalidation failed'));
+      useChatStore.setState({
+        messageLoadingIds: [],
+        messagesMap: { [chatKey]: [] },
+        refreshMessages,
+      });
+      const { result } = renderHook(() => useChatStore());
+
+      const messageId = await act(async () =>
+        result.current.internal_createMessage({
+          content: 'assistant placeholder',
+          role: 'assistant',
+          sessionId: mockState.activeId,
+          topicId: mockState.activeTopicId,
+        }),
+      );
+
+      expect(messageId).toBe('new-message-id');
+      expect(refreshMessages).toHaveBeenCalledTimes(1);
+      expect(useChatStore.getState().messagesMap[chatKey]).toEqual([
+        expect.objectContaining({
+          content: 'assistant placeholder',
+          id: 'new-message-id',
+          role: 'assistant',
+        }),
+      ]);
+      expect(useChatStore.getState().messagesMap[chatKey][0].error).toBeUndefined();
+      expect(useChatStore.getState().messageLoadingIds).toEqual([]);
+    });
+  });
+
   describe('internal_updateMessageContent', () => {
     it('should call messageService.internal_updateMessageContent with correct parameters', async () => {
       const { result } = renderHook(() => useChatStore());
@@ -501,6 +544,118 @@ describe('chatMessage actions', () => {
       });
 
       expect(result.current.refreshMessages).toHaveBeenCalled();
+    });
+
+    it('retries a classified assistant finalization with the same payload and diagnostic ID', async () => {
+      const gatewayError = new ToolsRPCResponseError({
+        bodyKind: 'html',
+        diagnosticId: 'td_gatewayresponse1234',
+        durationMs: 123,
+        failurePhase: 'response_parse',
+        httpStatus: 502,
+        mediaType: 'text/html',
+        operation: 'finalize_assistant_message',
+        reason: 'response_parse_failed',
+      });
+      const updateMessage = vi
+        .spyOn(messageService, 'updateMessage')
+        .mockRejectedValueOnce(gatewayError)
+        .mockResolvedValueOnce(undefined);
+      const { result } = renderHook(() => useChatStore());
+
+      const response = await act(async () =>
+        result.current.internal_updateMessageContent('message-id', 'final content', {
+          persistenceRecovery: 'assistant_finalization',
+        }),
+      );
+
+      expect(response).toEqual({ persistenceAmbiguous: false });
+      expect(updateMessage).toHaveBeenCalledTimes(2);
+      expect(updateMessage.mock.calls[0]).toEqual(updateMessage.mock.calls[1]);
+      expect(updateMessage).toHaveBeenCalledWith(
+        'message-id',
+        { content: 'final content' },
+        {
+          diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
+          diagnosticOperation: 'finalize_assistant_message',
+          showNotification: false,
+        },
+      );
+      expect(reportClientRPCFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ bodyKind: 'html', httpStatus: 502 }),
+        expect.objectContaining({
+          attempt: 1,
+          operation: 'finalize_assistant_message',
+          procedure: 'message.update',
+          rpcEndpoint: 'lambda',
+        }),
+      );
+    });
+
+    it('keeps a confirmed assistant finalization when revalidation fails', async () => {
+      const refreshMessages = vi.fn().mockRejectedValue(new Error('revalidation failed'));
+      useChatStore.setState({ refreshMessages });
+      const updateMessage = vi.spyOn(messageService, 'updateMessage').mockResolvedValue(undefined);
+      const { result } = renderHook(() => useChatStore());
+
+      const response = await act(async () =>
+        result.current.internal_updateMessageContent('message-id', 'final content', {
+          persistenceRecovery: 'assistant_finalization',
+        }),
+      );
+
+      expect(response).toEqual({ persistenceAmbiguous: false });
+      expect(updateMessage).toHaveBeenCalledTimes(1);
+      expect(refreshMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('reconciles double ambiguity and restores the streamed final payload', async () => {
+      const gatewayError = new ToolsRPCResponseError({
+        bodyKind: 'html',
+        diagnosticId: 'td_gatewayresponse1234',
+        durationMs: 123,
+        failurePhase: 'response_parse',
+        httpStatus: 502,
+        mediaType: 'text/html',
+        operation: 'finalize_assistant_message',
+        reason: 'response_parse_failed',
+      });
+      const updateMessage = vi
+        .spyOn(messageService, 'updateMessage')
+        .mockRejectedValue(gatewayError);
+      const dispatchMessage = vi.fn();
+      const refreshMessages = vi.fn();
+      useChatStore.setState({ internal_dispatchMessage: dispatchMessage, refreshMessages });
+      const { result } = renderHook(() => useChatStore());
+
+      const response = await act(async () =>
+        result.current.internal_updateMessageContent('message-id', 'final content', {
+          persistenceRecovery: 'assistant_finalization',
+        }),
+      );
+
+      expect(response).toEqual({ persistenceAmbiguous: true });
+      expect(updateMessage).toHaveBeenCalledTimes(2);
+      expect(reportClientRPCFailure).toHaveBeenCalledTimes(2);
+      expect(refreshMessages).toHaveBeenCalledTimes(1);
+      expect(dispatchMessage).toHaveBeenLastCalledWith({
+        id: 'message-id',
+        type: 'updateMessage',
+        value: { content: 'final content' },
+      });
+    });
+
+    it('does not absorb non-gateway assistant finalization failures', async () => {
+      vi.spyOn(messageService, 'updateMessage').mockRejectedValue(new Error('database rejected'));
+      const { result } = renderHook(() => useChatStore());
+
+      await expect(
+        act(async () =>
+          result.current.internal_updateMessageContent('message-id', 'final content', {
+            persistenceRecovery: 'assistant_finalization',
+          }),
+        ),
+      ).rejects.toThrow('database rejected');
     });
   });
 

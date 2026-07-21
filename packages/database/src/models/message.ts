@@ -48,6 +48,13 @@ import {
 
 type MessageWithInternalOrder = DBMessageItem & { messageOrder?: bigint };
 
+const MCP_RESULT_RECOVERY_STATE_KEY = 'chathubMcpResultRecovery';
+
+interface MCPResultRecoveryState {
+  invocationId: string;
+  status: 'pending' | 'persisted';
+}
+
 export class MessageModel {
   private userId: string;
   private db: LobeChatDatabase;
@@ -615,7 +622,8 @@ export class MessageModel {
           .insert(messagesFiles)
           .values(
             imageList.map((file) => ({ fileId: file.id, messageId: id, userId: this.userId })),
-          );
+          )
+          .onConflictDoNothing();
       }
 
       return trx
@@ -628,6 +636,93 @@ export class MessageModel {
         })
         .where(and(eq(messages.id, id), eq(messages.userId, this.userId)));
     });
+  };
+
+  beginMCPResultInvocation = async (id: string, invocationId: string): Promise<boolean> => {
+    const recoveryState: MCPResultRecoveryState = {
+      invocationId,
+      status: 'pending',
+    };
+    const result = await this.db
+      .update(messagePlugins)
+      .set({
+        state: sql`coalesce(${messagePlugins.state}, '{}'::jsonb) || jsonb_build_object(${MCP_RESULT_RECOVERY_STATE_KEY}::text, ${JSON.stringify(recoveryState)}::jsonb)`,
+      })
+      .where(and(eq(messagePlugins.id, id), eq(messagePlugins.userId, this.userId)))
+      .returning({ id: messagePlugins.id });
+
+    return result.length === 1;
+  };
+
+  persistMCPResult = async (
+    id: string,
+    invocationId: string,
+    content: string,
+  ): Promise<boolean> => {
+    return this.db.transaction(async (trx) => {
+      const persistedRecoveryState: MCPResultRecoveryState = {
+        invocationId,
+        status: 'persisted',
+      };
+      const pluginResult = await trx
+        .update(messagePlugins)
+        .set({
+          state: sql`coalesce(${messagePlugins.state}, '{}'::jsonb) || jsonb_build_object(${MCP_RESULT_RECOVERY_STATE_KEY}::text, ${JSON.stringify(persistedRecoveryState)}::jsonb)`,
+        })
+        .where(
+          and(
+            eq(messagePlugins.id, id),
+            eq(messagePlugins.userId, this.userId),
+            sql`${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'invocationId' = ${invocationId}`,
+            sql`${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'status' = 'pending'`,
+          ),
+        )
+        .returning({ id: messagePlugins.id });
+      if (pluginResult.length !== 1) return false;
+
+      const messageResult = await trx
+        .update(messages)
+        .set({ content })
+        .where(and(eq(messages.id, id), eq(messages.userId, this.userId)))
+        .returning({ id: messages.id });
+      if (messageResult.length !== 1) {
+        throw new Error('MCP tool message disappeared during result persistence.');
+      }
+
+      return true;
+    });
+  };
+
+  recoverMCPResult = async (
+    id: string,
+    invocationId: string,
+  ): Promise<{ content: string } | undefined> => {
+    const result = await this.db
+      .select({
+        content: messages.content,
+        state: messagePlugins.state,
+      })
+      .from(messages)
+      .innerJoin(
+        messagePlugins,
+        and(eq(messagePlugins.id, messages.id), eq(messagePlugins.userId, this.userId)),
+      )
+      .where(and(eq(messages.id, id), eq(messages.userId, this.userId)))
+      .limit(1);
+    const item = result[0];
+    const recoveryState = (item?.state as Record<string, unknown> | null)?.[
+      MCP_RESULT_RECOVERY_STATE_KEY
+    ] as MCPResultRecoveryState | undefined;
+
+    if (
+      recoveryState?.invocationId !== invocationId ||
+      recoveryState.status !== 'persisted' ||
+      typeof item?.content !== 'string'
+    ) {
+      return undefined;
+    }
+
+    return { content: item.content };
   };
 
   updateMetadata = async (id: string, metadata: Record<string, any>) => {

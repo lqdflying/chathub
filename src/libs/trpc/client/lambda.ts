@@ -6,8 +6,11 @@ import { ModelProvider } from 'model-bank';
 import superjson from 'superjson';
 
 import {
+  CHATHUB_RPC_DIAGNOSTIC_OPERATIONS,
+  CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
+  type ChatHubRPCDiagnosticOperation,
 } from '@/const/tools';
 import { isDesktop } from '@/const/version';
 import type { LambdaRouter } from '@/server/routers/lambda';
@@ -34,6 +37,16 @@ const diagnosticIdFromContext = (context: Record<string, unknown> | undefined) =
   const value = context?.[TOOLS_DIAGNOSTIC_CONTEXT_KEY];
   return typeof value === 'string' && CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN.test(value)
     ? value
+    : undefined;
+};
+
+const diagnosticOperationFromContext = (
+  context: Record<string, unknown> | undefined,
+): ChatHubRPCDiagnosticOperation | undefined => {
+  const value = context?.diagnosticOperation;
+  return typeof value === 'string' &&
+    CHATHUB_RPC_DIAGNOSTIC_OPERATIONS.includes(value as ChatHubRPCDiagnosticOperation)
+    ? (value as ChatHubRPCDiagnosticOperation)
     : undefined;
 };
 
@@ -142,15 +155,25 @@ const createLambdaLinks = ({
       };
   const guardedFetch = createGuardedRPCFetch(fetchImpl);
 
-  const headersForDiagnosticId = async (diagnosticId?: string) => {
+  const headersForDiagnostics = async (
+    diagnosticId?: string,
+    diagnosticOperation?: ChatHubRPCDiagnosticOperation,
+  ) => {
     const headers = new Headers(await getAuthHeaders());
     if (diagnosticId) headers.set(CHATHUB_TOOLS_DIAGNOSTIC_HEADER, diagnosticId);
+    if (diagnosticOperation) {
+      headers.set(CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER, diagnosticOperation);
+    }
     return Object.fromEntries(headers.entries());
   };
 
   const isolatedLink = httpLink<LambdaRouter>({
     fetch: guardedFetch,
-    headers: ({ op }) => headersForDiagnosticId(diagnosticIdFromContext(op.context)),
+    headers: ({ op }) =>
+      headersForDiagnostics(
+        diagnosticIdFromContext(op.context),
+        diagnosticOperationFromContext(op.context),
+      ),
     transformer: superjson,
     url: '/trpc/lambda',
   });
@@ -158,7 +181,10 @@ const createLambdaLinks = ({
   const batchedLink = httpBatchLink<LambdaRouter>({
     fetch: guardedFetch,
     headers: ({ opList }) =>
-      headersForDiagnosticId(opList.map((op) => diagnosticIdFromContext(op.context)).find(Boolean)),
+      headersForDiagnostics(
+        opList.map((op) => diagnosticIdFromContext(op.context)).find(Boolean),
+        opList.map((op) => diagnosticOperationFromContext(op.context)).find(Boolean),
+      ),
     maxURLLength: 2083,
     transformer: superjson,
     url: '/trpc/lambda',

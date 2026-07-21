@@ -33,6 +33,10 @@ const TOOL_DEBUG_MAX_RECORD_BYTES = 16 * 1024;
 export const TOOL_DEBUG_FINGERPRINT_BYTES = 256 * 1024;
 
 export type ToolsDebugEvent =
+  | 'assistant_finalization_rpc_complete'
+  | 'assistant_finalization_rpc_failed'
+  | 'assistant_finalization_rpc_handler_error'
+  | 'assistant_finalization_rpc_started'
   | 'call_tool'
   | 'call_tool_complete'
   | 'call_tool_error'

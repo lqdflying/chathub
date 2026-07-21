@@ -7,9 +7,9 @@ import {
   CreateMessageParams,
   MessageSemanticSearchChunk,
   SendMessageParams,
+  ToolCacheDebugMetadata,
   TraceEventType,
   TraceNameMap,
-  ToolCacheDebugMetadata,
   UIChatMessage,
 } from '@lobechat/types';
 import { t } from 'i18next';
@@ -162,6 +162,7 @@ export interface AIGenerateAction {
   }) => Promise<{
     isFunctionCall: boolean;
     content: string;
+    persistenceAmbiguous?: boolean;
     traceId?: string;
   }>;
   /**
@@ -553,7 +554,7 @@ export const generateAIChat: StateCreator<
     }
 
     // 4. fetch the AI response
-    const { isFunctionCall, content } = await internal_fetchAIChatMessage({
+    const { isFunctionCall, content, persistenceAmbiguous } = await internal_fetchAIChatMessage({
       messages,
       messageId: assistantId,
       params,
@@ -563,8 +564,21 @@ export const generateAIChat: StateCreator<
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
+      if (persistenceAmbiguous) {
+        const { notification } = await import('@/components/AntdStaticMethods');
+        notification.warning({
+          description: t('assistantToolCallPersistence.description', { ns: 'error' }),
+          message: t('assistantToolCallPersistence.title', { ns: 'error' }),
+        });
+        return;
+      }
+
       get().internal_toggleMessageInToolsCalling(true, assistantId);
-      await refreshMessages();
+      try {
+        await refreshMessages();
+      } catch {
+        // Persistence is confirmed; revalidation must not block execution.
+      }
       await triggerToolCalls(assistantId, {
         threadId: params?.threadId,
         inPortalThread: params?.inPortalThread,
@@ -640,6 +654,7 @@ export const generateAIChat: StateCreator<
       : undefined;
 
     let isFunctionCall = false;
+    let persistenceAmbiguous = false;
     let msgTraceId: string | undefined;
     let output = '';
     let thinking = '';
@@ -657,191 +672,194 @@ export const generateAIChat: StateCreator<
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: summaryBlock?.content,
     });
-    await chatService.createAssistantMessageStream({
-      abortController,
-      params: {
-        messages,
-        model,
-        provider,
-        ...agentConfig.params,
-        plugins: agentConfig.plugins,
-      },
-      historySummary: historySummaryForRequest,
-      toolCacheDebug: params?.toolCacheDebug,
-      trace: {
-        traceId: params?.traceId,
-        sessionId: get().activeId,
-        topicId: get().activeTopicId,
-        traceName: TraceNameMap.Conversation,
-      },
-      isWelcomeQuestion: params?.isWelcomeQuestion,
-      onErrorHandle: async (error) => {
-        await messageService.updateMessageError(messageId, error);
-        await refreshMessages();
-      },
-      onFinish: async (
-        content,
-        { traceId, observationId, toolCalls, reasoning, grounding, usage, speed },
-      ) => {
-        // if there is traceId, update it
-        if (traceId) {
+    try {
+      await chatService.createAssistantMessageStream({
+        abortController,
+        params: {
+          messages,
+          model,
+          provider,
+          ...agentConfig.params,
+          plugins: agentConfig.plugins,
+        },
+        historySummary: historySummaryForRequest,
+        toolCacheDebug: params?.toolCacheDebug,
+        trace: {
+          traceId: params?.traceId,
+          sessionId: get().activeId,
+          topicId: get().activeTopicId,
+          traceName: TraceNameMap.Conversation,
+        },
+        isWelcomeQuestion: params?.isWelcomeQuestion,
+        onErrorHandle: async (error) => {
+          await messageService.updateMessageError(messageId, error);
+          await refreshMessages();
+        },
+        onFinish: async (
+          content,
+          { traceId, observationId, toolCalls, reasoning, grounding, usage, speed },
+        ) => {
           msgTraceId = traceId;
-          await messageService.updateMessage(messageId, {
-            traceId,
-            observationId: observationId ?? undefined,
-          });
-        }
 
-        // 等待所有图片上传完成
-        let finalImages: ChatImageItem[] = [];
+          // 等待所有图片上传完成
+          let finalImages: ChatImageItem[] = [];
 
-        if (uploadTasks.size > 0) {
-          try {
-            // 等待所有上传任务完成
-            const uploadResults = await Promise.all(uploadTasks.values());
+          if (uploadTasks.size > 0) {
+            try {
+              // 等待所有上传任务完成
+              const uploadResults = await Promise.all(uploadTasks.values());
 
-            // 使用上传后的 S3 URL 替换原始图像数据
-            finalImages = uploadResults.filter((i) => !!i.url) as ChatImageItem[];
-          } catch (error) {
-            console.error('Error waiting for image uploads:', error);
-          }
-        }
-
-        let parsedToolCalls = toolCalls;
-        if (parsedToolCalls && parsedToolCalls.length > 0) {
-          internal_toggleToolCallingStreaming(messageId, undefined);
-          parsedToolCalls = parsedToolCalls.map((item) => ({
-            ...item,
-            function: {
-              ...item.function,
-              arguments: !!item.function.arguments ? item.function.arguments : '{}',
-            },
-          }));
-          isFunctionCall = true;
-        }
-
-        // update the content after fetch result
-        await internal_updateMessageContent(messageId, content, {
-          toolCalls: parsedToolCalls,
-          reasoning: !!reasoning ? { ...reasoning, duration } : undefined,
-          search: !!grounding?.citations ? grounding : undefined,
-          imageList: finalImages.length > 0 ? finalImages : undefined,
-          metadata: speed ? { ...usage, ...speed } : usage,
-        });
-      },
-      onMessageHandle: async (chunk) => {
-        switch (chunk.type) {
-          case 'grounding': {
-            // if there is no citations, then stop
-            if (
-              !chunk.grounding ||
-              !chunk.grounding.citations ||
-              chunk.grounding.citations.length <= 0
-            )
-              return;
-
-            internal_dispatchMessage({
-              id: messageId,
-              type: 'updateMessage',
-              value: {
-                search: {
-                  citations: chunk.grounding.citations,
-                  searchQueries: chunk.grounding.searchQueries,
-                },
-              },
-            });
-            break;
-          }
-
-          case 'base64_image': {
-            internal_dispatchMessage({
-              id: messageId,
-              type: 'updateMessage',
-              value: {
-                imageList: chunk.images.map((i) => ({ id: i.id, url: i.data, alt: i.id })),
-              },
-            });
-            const image = chunk.image;
-
-            const task = getFileStoreState()
-              .uploadBase64FileWithProgress(image.data)
-              .then((value) => ({
-                id: value?.id,
-                url: value?.url,
-                alt: value?.filename || value?.id,
-              }));
-
-            uploadTasks.set(image.id, task);
-
-            break;
-          }
-
-          case 'text': {
-            output += chunk.text;
-
-            // if there is no duration, it means the end of reasoning
-            if (!duration) {
-              duration = Date.now() - thinkingStartAt;
-
-              const isInChatReasoning = chatSelectors.isMessageInChatReasoning(messageId)(get());
-              if (isInChatReasoning) {
-                internal_toggleChatReasoning(
-                  false,
-                  messageId,
-                  n('toggleChatReasoning/false') as string,
-                );
-              }
+              // 使用上传后的 S3 URL 替换原始图像数据
+              finalImages = uploadResults.filter((i) => !!i.url) as ChatImageItem[];
+            } catch (error) {
+              console.error('Error waiting for image uploads:', error);
             }
+          }
 
-            internal_dispatchMessage({
-              id: messageId,
-              type: 'updateMessage',
-              value: {
-                content: output,
-                reasoning: !!thinking ? { content: thinking, duration } : undefined,
+          let parsedToolCalls = toolCalls;
+          if (parsedToolCalls && parsedToolCalls.length > 0) {
+            internal_toggleToolCallingStreaming(messageId, undefined);
+            parsedToolCalls = parsedToolCalls.map((item) => ({
+              ...item,
+              function: {
+                ...item.function,
+                arguments: !!item.function.arguments ? item.function.arguments : '{}',
               },
-            });
-            break;
-          }
-
-          case 'reasoning': {
-            // if there is no thinkingStartAt, it means the start of reasoning
-            if (!thinkingStartAt) {
-              thinkingStartAt = Date.now();
-              internal_toggleChatReasoning(
-                true,
-                messageId,
-                n('toggleChatReasoning/true') as string,
-              );
-            }
-
-            thinking += chunk.text;
-
-            internal_dispatchMessage({
-              id: messageId,
-              type: 'updateMessage',
-              value: { reasoning: { content: thinking } },
-            });
-            break;
-          }
-
-          // is this message is just a tool call
-          case 'tool_calls': {
-            internal_toggleToolCallingStreaming(messageId, chunk.isAnimationActives);
-            internal_dispatchMessage({
-              id: messageId,
-              type: 'updateMessage',
-              value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
-            });
+            }));
             isFunctionCall = true;
           }
-        }
-      },
-    });
 
-    internal_toggleChatLoading(false, messageId, n('generateMessage(end)') as string);
+          // update the content after fetch result
+          const finalization = await internal_updateMessageContent(messageId, content, {
+            toolCalls: parsedToolCalls,
+            reasoning: !!reasoning ? { ...reasoning, duration } : undefined,
+            search: !!grounding?.citations ? grounding : undefined,
+            imageList: finalImages.length > 0 ? finalImages : undefined,
+            metadata: speed ? { ...usage, ...speed } : usage,
+            model,
+            observationId: observationId ?? undefined,
+            provider,
+            persistenceRecovery: 'assistant_finalization',
+            traceId,
+          });
+          persistenceAmbiguous = finalization.persistenceAmbiguous;
+        },
+        onMessageHandle: async (chunk) => {
+          switch (chunk.type) {
+            case 'grounding': {
+              // if there is no citations, then stop
+              if (
+                !chunk.grounding ||
+                !chunk.grounding.citations ||
+                chunk.grounding.citations.length <= 0
+              )
+                return;
 
-    return { isFunctionCall, traceId: msgTraceId, content: output };
+              internal_dispatchMessage({
+                id: messageId,
+                type: 'updateMessage',
+                value: {
+                  search: {
+                    citations: chunk.grounding.citations,
+                    searchQueries: chunk.grounding.searchQueries,
+                  },
+                },
+              });
+              break;
+            }
+
+            case 'base64_image': {
+              internal_dispatchMessage({
+                id: messageId,
+                type: 'updateMessage',
+                value: {
+                  imageList: chunk.images.map((i) => ({ id: i.id, url: i.data, alt: i.id })),
+                },
+              });
+              const image = chunk.image;
+
+              const task = getFileStoreState()
+                .uploadBase64FileWithProgress(image.data)
+                .then((value) => ({
+                  id: value?.id,
+                  url: value?.url,
+                  alt: value?.filename || value?.id,
+                }));
+
+              uploadTasks.set(image.id, task);
+
+              break;
+            }
+
+            case 'text': {
+              output += chunk.text;
+
+              // if there is no duration, it means the end of reasoning
+              if (!duration) {
+                duration = Date.now() - thinkingStartAt;
+
+                const isInChatReasoning = chatSelectors.isMessageInChatReasoning(messageId)(get());
+                if (isInChatReasoning) {
+                  internal_toggleChatReasoning(
+                    false,
+                    messageId,
+                    n('toggleChatReasoning/false') as string,
+                  );
+                }
+              }
+
+              internal_dispatchMessage({
+                id: messageId,
+                type: 'updateMessage',
+                value: {
+                  content: output,
+                  reasoning: !!thinking ? { content: thinking, duration } : undefined,
+                },
+              });
+              break;
+            }
+
+            case 'reasoning': {
+              // if there is no thinkingStartAt, it means the start of reasoning
+              if (!thinkingStartAt) {
+                thinkingStartAt = Date.now();
+                internal_toggleChatReasoning(
+                  true,
+                  messageId,
+                  n('toggleChatReasoning/true') as string,
+                );
+              }
+
+              thinking += chunk.text;
+
+              internal_dispatchMessage({
+                id: messageId,
+                type: 'updateMessage',
+                value: { reasoning: { content: thinking } },
+              });
+              break;
+            }
+
+            // is this message is just a tool call
+            case 'tool_calls': {
+              internal_toggleToolCallingStreaming(messageId, chunk.isAnimationActives);
+              internal_dispatchMessage({
+                id: messageId,
+                type: 'updateMessage',
+                value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
+              });
+              isFunctionCall = true;
+            }
+          }
+        },
+      });
+    } finally {
+      internal_toggleToolCallingStreaming(messageId, undefined);
+      internal_toggleChatReasoning(false, messageId, n('generateMessage(reasoningEnd)') as string);
+      internal_toggleChatLoading(false, messageId, n('generateMessage(end)') as string);
+    }
+
+    return { isFunctionCall, persistenceAmbiguous, traceId: msgTraceId, content: output };
   },
 
   internal_resendMessage: async (

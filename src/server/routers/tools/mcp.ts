@@ -5,12 +5,19 @@ import {
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
-import { CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN } from '@/const/tools';
+import {
+  CHATHUB_MCP_INVOCATION_ID_PATTERN,
+  CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
+} from '@/const/tools';
 import { isDesktop, isServerMode } from '@/const/version';
 import { MessageModel } from '@/database/models/message';
-import { protectExternalToolCacheDebugMetadata } from '@/libs/logger/modelCacheDebug';
+import {
+  protectExternalToolCacheDebugMetadata,
+  protectExternalToolsDiagnosticId,
+} from '@/libs/logger/modelCacheDebug';
 import {
   describeToolsDebugError,
+  getToolsDebugContext,
   logToolsDebugSafe,
   summarizeToolsDebugValue,
 } from '@/libs/logger/toolsDebug';
@@ -204,9 +211,10 @@ export const mcpRouter = router({
   callTool: mcpProcedure
     .input(
       z.object({
-        params: mcpClientParamsSchema,
         args: z.any(),
+        invocationId: z.string().regex(CHATHUB_MCP_INVOCATION_ID_PATTERN),
         messageId: z.string().min(1),
+        params: mcpClientParamsSchema,
         toolCacheDebug: toolCacheDebugSchema,
         toolName: z.string(),
       }),
@@ -215,6 +223,28 @@ export const mcpRouter = router({
     .mutation(async ({ input, ctx }) => {
       const startedAt = Date.now();
       checkStdioEnvironment(input.params);
+
+      const messageModel =
+        isServerMode && ctx.userId ? new MessageModel(ctx.serverDB, ctx.userId) : undefined;
+      if (messageModel) {
+        const invocationRegistered = await messageModel.beginMCPResultInvocation(
+          input.messageId,
+          input.invocationId,
+        );
+        if (!invocationRegistered) {
+          logToolsDebugSafe('tool_result_persistence_failed', {
+            errorKind: 'message_not_found',
+            failurePhase: 'server_database',
+            operation: 'persist_tool_result',
+            outcome: 'failed',
+            phase: 'invocation_registration',
+          });
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'The MCP tool message is unavailable.',
+          });
+        }
+      }
 
       let resolvedParams = input.params;
       let oauthContext: MCPOAuthContext | undefined;
@@ -240,7 +270,8 @@ export const mcpRouter = router({
 
       try {
         const serialized = JSON.stringify(data);
-        let persistence: 'client_required' | 'failed' | 'persisted' = 'client_required';
+        let persistence: 'client_required' | 'failed' | 'persisted' | 'superseded' =
+          'client_required';
 
         if (isServerMode && ctx.userId) {
           logToolsDebugSafe('tool_result_persistence_started', {
@@ -249,18 +280,16 @@ export const mcpRouter = router({
           });
 
           try {
-            const result = await new MessageModel(ctx.serverDB, ctx.userId).update(
+            const persisted = await messageModel!.persistMCPResult(
               input.messageId,
-              {
-                content: serialized,
-              },
+              input.invocationId,
+              serialized,
             );
-            const rowCount = result?.rowCount;
 
-            if (rowCount === 0) {
-              persistence = 'failed';
+            if (!persisted) {
+              persistence = 'superseded';
               logToolsDebugSafe('tool_result_persistence_failed', {
-                errorKind: 'message_not_found',
+                errorKind: 'invocation_superseded',
                 failurePhase: 'server_database',
                 operation: 'persist_tool_result',
                 outcome: 'failed',
@@ -301,6 +330,31 @@ export const mcpRouter = router({
         });
         throw error;
       }
+    }),
+
+  recoverToolResult: mcpProcedure
+    .input(
+      z.object({
+        invocationId: z.string().regex(CHATHUB_MCP_INVOCATION_ID_PATTERN),
+        messageId: z.string().min(1),
+      }),
+    )
+    .use(serverDatabase)
+    .mutation(async ({ input, ctx }) => {
+      if (!isServerMode || !ctx.userId) return null;
+
+      const recovered = await new MessageModel(ctx.serverDB, ctx.userId).recoverMCPResult(
+        input.messageId,
+        input.invocationId,
+      );
+
+      return recovered
+        ? {
+            content: recovered.content,
+            persistence: 'persisted' as const,
+            recovered: true as const,
+          }
+        : null;
     }),
 
   reportClientFailure: mcpProcedure
@@ -349,7 +403,7 @@ export const mcpRouter = router({
         lastCharacterClass: z.string().max(40).optional(),
         mediaType: z.string().max(120).optional(),
         networkOnline: z.boolean().optional(),
-        operation: z.enum(['call_tool', 'persist_tool_result']),
+        operation: z.enum(['call_tool', 'finalize_assistant_message', 'persist_tool_result']),
         procedure: z.enum(['mcp.callTool', 'message.update']),
         reason: z.enum(['network_error', 'response_parse_failed', 'response_read_failed']),
         responseFingerprint: z
@@ -361,8 +415,12 @@ export const mcpRouter = router({
       }),
     )
     .mutation(({ input }) => {
+      const diagnosticId =
+        protectExternalToolsDiagnosticId(input.diagnosticId) ??
+        getToolsDebugContext()?.diagnosticId;
       logToolsDebugSafe('client_rpc_response_failed', {
         ...input,
+        diagnosticId,
       });
       return { reported: true };
     }),

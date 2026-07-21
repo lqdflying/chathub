@@ -189,5 +189,19 @@ describe('createGuardedToolsFetch', () => {
       }) as typeof fetch,
     );
     await expect(abortFetch('/trpc/tools/mcp.callTool')).rejects.toBe(abort);
+
+    const abortController = new AbortController();
+    const webKitAbortFetch = createGuardedToolsFetch(
+      vi.fn(async () => {
+        abortController.abort();
+        throw new TypeError('Load failed');
+      }) as typeof fetch,
+    );
+    const webKitAbortError = await webKitAbortFetch('/trpc/tools/mcp.callTool', {
+      signal: abortController.signal,
+    }).catch((cause) => cause);
+
+    expect(webKitAbortError).toBeInstanceOf(TypeError);
+    expect(findToolsRPCResponseError(webKitAbortError)).toBeUndefined();
   });
 });

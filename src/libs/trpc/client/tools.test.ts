@@ -30,6 +30,7 @@ describe('tools tRPC client links', () => {
         client.mcp.callTool.mutate(
           {
             args: '{}',
+            invocationId: `mi_1234567890123456${index.toString().padStart(4, '0')}`,
             messageId: `message-${index}`,
             params: {
               auth: { type: 'none' },
@@ -231,6 +232,7 @@ describe('tools tRPC client links', () => {
       .mutate(
         {
           args: '{}',
+          invocationId: 'mi_12345678901234567890',
           messageId: 'message-id',
           params: {
             auth: { type: 'none' },

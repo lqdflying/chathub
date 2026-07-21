@@ -19,10 +19,11 @@ import {
 
 import { discoverService } from './discover';
 import { MCPInvocationError } from './mcpError';
+import { rpcDiagnosticsService } from './rpcDiagnostics';
 
 export interface MCPToolCallResult {
   content: string;
-  persistence: 'client_required' | 'failed' | 'persisted';
+  persistence: 'client_required' | 'failed' | 'persisted' | 'superseded';
 }
 
 /**
@@ -63,6 +64,32 @@ const isAbortError = (error: unknown) => {
   return false;
 };
 
+const MCP_RESULT_RECOVERY_RETRY_DELAY_MS = 500;
+
+const waitForMCPResultRecoveryRetry = (signal?: AbortSignal): Promise<boolean> => {
+  if (signal?.aborted) return Promise.resolve(false);
+
+  return new Promise((resolve) => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const handleAbort = () => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      resolve(false);
+    };
+    const handleTimeout = () => {
+      signal?.removeEventListener('abort', handleAbort);
+      resolve(true);
+    };
+
+    signal?.addEventListener('abort', handleAbort, { once: true });
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+
+    timeoutId = setTimeout(handleTimeout, MCP_RESULT_RECOVERY_RETRY_DELAY_MS);
+  });
+};
+
 const getSafeTRPCErrorMetadata = (error: unknown) => {
   if (!error || typeof error !== 'object') return {};
   const data = (error as { data?: unknown }).data;
@@ -81,21 +108,12 @@ class MCPService {
     metadata: {
       attempt?: number;
       diagnosticId: string;
-      operation: 'call_tool' | 'persist_tool_result';
+      operation: 'call_tool' | 'finalize_assistant_message' | 'persist_tool_result';
       procedure: 'mcp.callTool' | 'message.update';
       rpcEndpoint: 'lambda' | 'tools';
     },
   ) {
-    // Best-effort local diagnostic reporting. It is deliberately isolated,
-    // never retried, and its own failure is ignored to avoid recursion.
-    void toolsClient.mcp.reportClientFailure
-      .mutate(
-        { ...details, ...metadata, diagnosticId: metadata.diagnosticId },
-        {
-          context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: metadata.diagnosticId },
-        },
-      )
-      .catch(() => undefined);
+    rpcDiagnosticsService.reportClientRPCFailure(details, metadata);
   }
 
   async invokeMcpToolCall(
@@ -128,9 +146,11 @@ class MCPService {
     if (!plugin) return;
 
     const diagnosticId = requestedDiagnosticId || `td_${nanoid(20)}`;
+    const invocationId = `mi_${nanoid(20)}`;
     const data = {
       args,
       env: plugin.settings || plugin.customParams?.mcp?.env,
+      invocationId,
       messageId,
       params: { ...plugin.customParams?.mcp, name: identifier } as any,
       toolCacheDebug,
@@ -164,7 +184,7 @@ class MCPService {
       return result;
     } catch (error) {
       success = false;
-      if (isAbortError(error)) throw error;
+      if (signal?.aborted || isAbortError(error)) throw error;
 
       const responseError = findToolsRPCResponseError(error);
       if (responseError) {
@@ -179,6 +199,34 @@ class MCPService {
           procedure: 'mcp.callTool',
           rpcEndpoint: 'tools',
         });
+
+        if (!(isDesktop && isStdio)) {
+          for (let recoveryAttempt = 1; recoveryAttempt <= 2; recoveryAttempt += 1) {
+            if (signal?.aborted) throw signal.reason ?? error;
+
+            try {
+              const recoveredResult = await toolsClient.mcp.recoverToolResult.mutate(
+                { invocationId, messageId },
+                {
+                  context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
+                  signal,
+                },
+              );
+              if (recoveredResult) {
+                result = recoveredResult;
+                success = true;
+                return recoveredResult;
+              }
+            } catch (recoveryError) {
+              if (signal?.aborted || isAbortError(recoveryError)) throw recoveryError;
+            }
+
+            if (recoveryAttempt === 1) {
+              const retryAllowed = await waitForMCPResultRecoveryRetry(signal);
+              if (!retryAllowed) throw signal?.reason ?? error;
+            }
+          }
+        }
 
         throw new MCPInvocationError({
           ...responseDetails,

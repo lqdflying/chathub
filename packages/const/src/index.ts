@@ -10,6 +10,7 @@ export * from './meta';
 export * from './plugin';
 export * from './session';
 export * from './settings';
+export * from './tools';
 export * from './trace';
 export * from './url';
 export * from './user';

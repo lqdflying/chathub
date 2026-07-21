@@ -1,14 +1,16 @@
 import {
+  CHATHUB_RPC_DIAGNOSTIC_OPERATIONS,
+  CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
+  type ChatHubRPCDiagnosticOperation,
 } from '@/const/tools';
 
 const FINGERPRINT_BYTES = 256 * 1024;
 const SAFE_LABEL_MAX_LENGTH = 160;
 const SENSITIVE_TECHNICAL_LABEL_PATTERN =
   /bearer\s|basic\s|token|secret|password|api[ _-]?key|cookie|credential|session=/i;
-const CREDENTIAL_SHAPED_TECHNICAL_LABEL_PATTERN =
-  /eyj|sk[_-]|pk[_-]|[\w+/=-]{32,}/i;
+const CREDENTIAL_SHAPED_TECHNICAL_LABEL_PATTERN = /eyj|sk[_-]|pk[_-]|[\w+/=-]{32,}/i;
 const SAFE_TECHNICAL_LABEL_PATTERN = /^[\w ()+,./:;-]+$/;
 
 type FetchInit = Parameters<typeof fetch>[1];
@@ -25,9 +27,7 @@ export type ToolsRPCResponseBodyKind =
   | 'unexpected_text';
 
 export type ToolsRPCResponseFailureReason =
-  | 'network_error'
-  | 'response_parse_failed'
-  | 'response_read_failed';
+  'network_error' | 'response_parse_failed' | 'response_read_failed';
 
 export interface ToolsRPCGatewayMetadata {
   cacheStatus?: string;
@@ -56,14 +56,21 @@ export interface ToolsRPCResponseErrorDetails {
   lastCharacterClass?: string;
   mediaType?: string;
   networkOnline?: boolean;
+  operation?: ChatHubRPCDiagnosticOperation;
   reason: ToolsRPCResponseFailureReason;
   responseFingerprint?: string;
   timedOut?: boolean;
 }
 
-const isAbortError = (error: unknown) =>
-  error instanceof Error &&
-  (error.name === 'AbortError' || error.message === 'AbortError' || error.message.includes('user aborted'));
+const isAbortError = (error: unknown, signal?: AbortSignal) => {
+  if (signal?.aborted) return true;
+  return (
+    error instanceof Error &&
+    (error.name === 'AbortError' ||
+      error.message === 'AbortError' ||
+      error.message.includes('user aborted'))
+  );
+};
 
 const describeNetworkError = (error: unknown) => {
   const name = error instanceof Error ? error.name : '';
@@ -93,6 +100,20 @@ const normalizeDiagnosticId = (value: string | null | undefined) =>
 const readDiagnosticId = (headers: HeadersInput | undefined) => {
   try {
     return normalizeDiagnosticId(new Headers(headers).get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER));
+  } catch {
+    return undefined;
+  }
+};
+
+const readDiagnosticOperation = (
+  headers: HeadersInput | undefined,
+): ChatHubRPCDiagnosticOperation | undefined => {
+  try {
+    const value = new Headers(headers).get(CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER);
+    return value &&
+      CHATHUB_RPC_DIAGNOSTIC_OPERATIONS.includes(value as ChatHubRPCDiagnosticOperation)
+      ? (value as ChatHubRPCDiagnosticOperation)
+      : undefined;
   } catch {
     return undefined;
   }
@@ -208,7 +229,9 @@ const classifyInvalidBody = (
   return { bodyKind: 'unexpected_text', firstCharacterClass, lastCharacterClass };
 };
 
-const collectGatewayMetadata = async (headers: Headers): Promise<ToolsRPCGatewayMetadata | undefined> => {
+const collectGatewayMetadata = async (
+  headers: Headers,
+): Promise<ToolsRPCGatewayMetadata | undefined> => {
   const upstreamDurationMs = parsePositiveInteger(headers.get('x-envoy-upstream-service-time'));
   const gateway: ToolsRPCGatewayMetadata = {
     cacheStatus: safeHeaderLabel(headers.get('x-cache')),
@@ -262,18 +285,20 @@ export const createGuardedToolsFetch = (fetchFn: typeof fetch): typeof fetch =>
   (async (input: FetchInput, init?: FetchInit) => {
     const startedAt = Date.now();
     const diagnosticId = readDiagnosticId(init?.headers);
+    const diagnosticOperation = readDiagnosticOperation(init?.headers);
     let response: Response;
 
     try {
       response = await fetchFn(input, init);
     } catch (error) {
-      if (isAbortError(error)) throw error;
+      if (isAbortError(error, init?.signal)) throw error;
       throw new ToolsRPCResponseError({
         bodyKind: 'network_error',
         diagnosticId,
         durationMs: Date.now() - startedAt,
         ...describeNetworkError(error),
         failurePhase: 'network',
+        operation: diagnosticOperation,
         reason: 'network_error',
       });
     }
@@ -286,7 +311,7 @@ export const createGuardedToolsFetch = (fetchFn: typeof fetch): typeof fetch =>
             try {
               bytes = new Uint8Array(await target.arrayBuffer());
             } catch (error) {
-              if (isAbortError(error)) throw error;
+              if (isAbortError(error, init?.signal)) throw error;
               throw new ToolsRPCResponseError({
                 bodyKind: 'unreadable',
                 contentEncoding: safeHeaderLabel(target.headers.get('content-encoding'), 80),
@@ -300,6 +325,7 @@ export const createGuardedToolsFetch = (fetchFn: typeof fetch): typeof fetch =>
                 gateway: await collectGatewayMetadata(target.headers),
                 httpStatus: target.status,
                 mediaType: normalizeMediaType(target.headers.get('content-type')),
+                operation: diagnosticOperation,
                 reason: 'response_read_failed',
               });
             }
@@ -326,6 +352,7 @@ export const createGuardedToolsFetch = (fetchFn: typeof fetch): typeof fetch =>
                 gateway: await collectGatewayMetadata(target.headers),
                 httpStatus: target.status,
                 mediaType,
+                operation: diagnosticOperation,
                 reason: 'response_parse_failed',
                 responseFingerprint: await fingerprintBytes(bytes),
               });

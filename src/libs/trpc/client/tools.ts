@@ -5,6 +5,7 @@ import superjson from 'superjson';
 import {
   CHATHUB_TOOLS_DIAGNOSTIC_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
+  TOOLS_DIAGNOSTIC_CONTEXT_KEY,
 } from '@/const/tools';
 import { isDesktop } from '@/const/version';
 import type { ToolsRouter } from '@/server/routers/tools';
@@ -12,7 +13,7 @@ import { fetchWithDesktopRemoteRPC } from '@/utils/electron/desktopRemoteRPCFetc
 
 import { createGuardedToolsFetch } from './toolsResponse';
 
-export const TOOLS_DIAGNOSTIC_CONTEXT_KEY = 'toolsDiagnosticId';
+export { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from '@/const/tools';
 
 type FetchInit = Parameters<typeof fetch>[1];
 type HeadersInput = ConstructorParameters<typeof Headers>[0];

@@ -1275,6 +1275,49 @@ describe('MessageModel', () => {
         expect(messageFiles[1].fileId).toBe('img2');
       });
 
+      it('should allow an identical image update to be retried', async () => {
+        await serverDB.insert(messages).values({
+          id: 'msg-image-retry',
+          userId,
+          role: 'assistant',
+          content: 'original content',
+        });
+        await serverDB.insert(files).values({
+          id: 'retry-image',
+          name: 'retry-image.png',
+          fileType: 'image/png',
+          size: 200,
+          url: 'retry-url',
+          userId,
+        });
+        const update = {
+          content: 'final content',
+          imageList: [{ id: 'retry-image', alt: 'retry image', url: 'retry-url' }],
+          observationId: 'observation-id',
+          traceId: 'trace-id',
+        };
+
+        await messageModel.update('msg-image-retry', update);
+        await messageModel.update('msg-image-retry', update);
+
+        const [updatedMessage] = await serverDB
+          .select()
+          .from(messages)
+          .where(eq(messages.id, 'msg-image-retry'));
+        const messageFiles = await serverDB
+          .select()
+          .from(messagesFiles)
+          .where(eq(messagesFiles.messageId, 'msg-image-retry'));
+
+        expect(updatedMessage).toMatchObject({
+          content: 'final content',
+          observationId: 'observation-id',
+          traceId: 'trace-id',
+        });
+        expect(messageFiles).toHaveLength(1);
+        expect(messageFiles[0].fileId).toBe('retry-image');
+      });
+
       it('should handle empty imageList', async () => {
         // 创建测试数据
         await serverDB.insert(messages).values({
@@ -1552,6 +1595,81 @@ describe('MessageModel', () => {
       );
     });
   });
+
+  describe('MCP result recovery', () => {
+    beforeEach(async () => {
+      await serverDB.insert(messages).values({
+        content: '',
+        id: 'mcp-tool-message',
+        role: 'tool',
+        userId,
+      });
+      await serverDB.insert(messagePlugins).values({
+        id: 'mcp-tool-message',
+        identifier: 'tavily',
+        state: { existing: 'value' },
+        toolCallId: 'tool-call-id',
+        userId,
+      });
+    });
+
+    it('persists and recovers only the matching invocation result', async () => {
+      await expect(
+        messageModel.beginMCPResultInvocation(
+          'mcp-tool-message',
+          'mi_12345678901234567890',
+        ),
+      ).resolves.toBe(true);
+      await expect(
+        messageModel.persistMCPResult(
+          'mcp-tool-message',
+          'mi_12345678901234567890',
+          '{"result":"persisted"}',
+        ),
+      ).resolves.toBe(true);
+
+      await expect(
+        messageModel.recoverMCPResult('mcp-tool-message', 'mi_12345678901234567890'),
+      ).resolves.toEqual({ content: '{"result":"persisted"}' });
+      await expect(
+        messageModel.recoverMCPResult('mcp-tool-message', 'mi_00000000000000000000'),
+      ).resolves.toBeUndefined();
+      const plugin = await serverDB.query.messagePlugins.findFirst({
+        where: eq(messagePlugins.id, 'mcp-tool-message'),
+      });
+      expect(plugin?.state).toMatchObject({ existing: 'value' });
+    });
+
+    it('prevents a stale invocation from overwriting a newer attempt', async () => {
+      await messageModel.beginMCPResultInvocation(
+        'mcp-tool-message',
+        'mi_11111111111111111111',
+      );
+      await messageModel.beginMCPResultInvocation(
+        'mcp-tool-message',
+        'mi_22222222222222222222',
+      );
+
+      await expect(
+        messageModel.persistMCPResult(
+          'mcp-tool-message',
+          'mi_11111111111111111111',
+          '{"result":"stale"}',
+        ),
+      ).resolves.toBe(false);
+      await expect(
+        messageModel.persistMCPResult(
+          'mcp-tool-message',
+          'mi_22222222222222222222',
+          '{"result":"current"}',
+        ),
+      ).resolves.toBe(true);
+      await expect(
+        messageModel.recoverMCPResult('mcp-tool-message', 'mi_22222222222222222222'),
+      ).resolves.toEqual({ content: '{"result":"current"}' });
+    });
+  });
+
   describe('updateMessagePlugin', () => {
     it('should update the state field in messagePlugins table', async () => {
       // 创建测试数据

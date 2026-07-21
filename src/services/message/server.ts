@@ -89,6 +89,7 @@ export class ServerService implements IMessageService {
         ? {
             context: {
               [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: options.diagnosticId,
+              diagnosticOperation: options.diagnosticOperation,
               showNotification: options.showNotification,
             },
           }

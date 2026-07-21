@@ -1,4 +1,8 @@
 export default {
+  assistantToolCallPersistence: {
+    description: '助手的工具调用尚未确认保存，因此未执行外部工具。请重试当前请求。',
+    title: '工具调用尚未保存',
+  },
   clerkAuth: {
     loginSuccess: {
       action: '继续会话',

@@ -116,6 +116,10 @@ When the browser cannot read or parse the Tools RPC response, it converts the ra
 
 In server mode, `mcp.callTool` receives the destination tool-message ID and persists the normalized result directly through the user-scoped `MessageModel` before returning. Its response contains the serialized `content` plus a persistence status: `persisted`, `failed`, or `client_required`. The browser applies a `persisted` result to its optimistic store without reposting the raw payload through `message.update`. A server-side `failed` result also remains available for the immediate model continuation, but the UI warns that a reload may lose it; ChatHub deliberately does not send the same large result through a second proxy boundary.
 
+Every server-routed MCP invocation also carries a unique `invocationId`, including manual re-invocations. If the browser loses the `mcp.callTool` response after the server commits the tool message, it reads the matching recovery record immediately and, if the result is still pending or that read fails transiently, retries once after an abortable 500 ms delay. Both reads contain the tool-message ID and invocation ID. The server returns the result only when the stored pending invocation matches and has reached `persisted`; an older invocation can never recover or overwrite a newer attempt. The captured invocation signal is checked before recovery and error persistence, so browser aborts (including browsers that surface cancellation as `TypeError: Load failed`) do not become MCP gateway errors. This follows the [AbortSignal contract](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal), where `aborted` records the operation's cancellation state.
+
+Assistant tool calls are executed only after their final message write is confirmed. If both bounded finalization attempts receive an unusable gateway response, the UI keeps the streamed assistant state, reports the diagnostic failure, and stops before invoking external tools. This prevents side effects from running when the database may not contain the assistant's tool-call state; the user can retry the request explicitly.
+
 Desktop stdio calls return `client_required` because their MCP router has no server database. That compatibility path still saves through `message.update`, isolates the update from the normal Lambda batch, reuses the MCP `diagnosticId`, and retries one classified response failure. `tool_persistence_rpc_started|complete|failed` and `client_rpc_response_failed` therefore remain useful for desktop/client-required persistence, while `tool_result_persistence_started|complete|failed` describe direct server-database persistence.
 
 Parallel MCP calls use one abort controller per tool-message ID. Finishing one call removes only its own controller and loading ID; retry/rewind cancellation aborts the entire controller registry. This prevents one Tavily call completing from replacing or disabling cancellation for sibling `search`, `extract`, or `map` calls.
@@ -195,7 +199,11 @@ Client-supplied `x-chathub-tools-diagnostic-id` values are never trusted as log
 labels. Tools and Lambda ingress routes replace valid external IDs with
 deployment-keyed HMAC fingerprints before installing the logging context; when
 no fingerprint secret is configured, they use a fresh server-owned ID instead.
-The response header carries the protected or server-owned value.
+The response header carries the protected or server-owned value. Authenticated
+client failure reports follow the same rule: without a fingerprint secret, the
+event retains the report request's server-owned route ID and never reuses the
+raw client ID. Cross-request correlation back to the original failed RPC
+requires `KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET`.
 
 The switch does not auto-enable existing `chathub-tools:*`, `lobe-mcp:*`, or `context-engine:*` debug namespaces and does not lower the global Pino level. Explicit `DEBUG=chathub-tools:safe|verbose` remains a legacy plain-text fallback when the corresponding event is not already emitted as structured JSON. See `openwiki/operations/auth-and-env.md` for the full value table and privacy notes.
 

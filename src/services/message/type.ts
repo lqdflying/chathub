@@ -1,3 +1,4 @@
+import type { ChatHubRPCDiagnosticOperation } from '@lobechat/const';
 import {
   ChatMessageError,
   ChatMessagePluginError,
@@ -17,6 +18,7 @@ import type { HeatmapsProps } from '@lobehub/charts';
 
 export interface MessageOperationOptions {
   diagnosticId?: string;
+  diagnosticOperation?: ChatHubRPCDiagnosticOperation;
   showNotification?: boolean;
 }
 

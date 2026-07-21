@@ -495,7 +495,7 @@ export const generateAIChatV2: StateCreator<
     }
 
     // 4. fetch the AI response
-    const { isFunctionCall, content } = await internal_fetchAIChatMessage({
+    const { isFunctionCall, content, persistenceAmbiguous } = await internal_fetchAIChatMessage({
       messages,
       messageId: assistantId,
       params,
@@ -505,6 +505,15 @@ export const generateAIChatV2: StateCreator<
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
+      if (persistenceAmbiguous) {
+        const { notification } = await import('@/components/AntdStaticMethods');
+        notification.warning({
+          description: t('assistantToolCallPersistence.description', { ns: 'error' }),
+          message: t('assistantToolCallPersistence.title', { ns: 'error' }),
+        });
+        return;
+      }
+
       get().internal_toggleMessageInToolsCalling(true, assistantId);
       await refreshMessages();
       await triggerToolCalls(assistantId, {

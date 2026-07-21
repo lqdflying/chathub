@@ -1,4 +1,8 @@
 {
+  "assistantToolCallPersistence": {
+    "description": "The assistant tool call could not be confirmed as saved, so no external tool was executed. Retry the request.",
+    "title": "Tool call was not saved"
+  },
   "clerkAuth": {
     "loginSuccess": {
       "action": "Continue Session",

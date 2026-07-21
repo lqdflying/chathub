@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { mcpService } from '@/services/mcp';
+import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
 import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
 import { useChatStore } from '@/store/chat/store';
@@ -73,6 +74,56 @@ describe('MCP tool-result persistence recovery', () => {
     store.internal_togglePluginApiCalling(false, 'tool-message-2', 'finish');
   });
 
+  it('keeps a newer invocation active when an older invocation finishes', () => {
+    const store = useChatStore.getState();
+    const first = store.internal_togglePluginApiCalling(true, 'tool-message', 'first-start');
+    const second = store.internal_togglePluginApiCalling(true, 'tool-message', 'second-start');
+
+    expect(first?.signal.aborted).toBe(true);
+    expect(second?.signal.aborted).toBe(false);
+
+    store.internal_togglePluginApiCalling(false, 'tool-message', 'first-finish', first);
+
+    expect(useChatStore.getState().pluginApiLoadingIds).toEqual(['tool-message']);
+    expect(useChatStore.getState().pluginApiAbortControllers).toEqual({
+      'tool-message': second,
+    });
+
+    store.internal_togglePluginApiCalling(false, 'tool-message', 'second-finish', second);
+
+    expect(useChatStore.getState().pluginApiLoadingIds).toEqual([]);
+    expect(useChatStore.getState().pluginApiAbortControllers).toEqual({});
+  });
+
+  it('does not persist an aborted WebKit Load failed error', async () => {
+    const abortController = new AbortController();
+    const dispatchMessage = vi.fn();
+    const updateMessageContent = vi.fn();
+    const updateMessage = vi.spyOn(messageService, 'updateMessage');
+    vi.spyOn(mcpService, 'invokeMcpToolCall').mockImplementation(async () => {
+      abortController.abort();
+      throw new TypeError('Load failed');
+    });
+
+    useChatStore.setState({
+      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
+      internal_dispatchMessage: dispatchMessage,
+      internal_togglePluginApiCalling: vi.fn().mockReturnValue(abortController),
+      internal_updateMessageContent: updateMessageContent,
+    });
+
+    await expect(
+      useChatStore.getState().invokeMCPTypePlugin('message-id', payload),
+    ).resolves.toEqual({
+      data: undefined,
+      outcome: 'cancelled',
+    });
+
+    expect(dispatchMessage).not.toHaveBeenCalled();
+    expect(updateMessageContent).not.toHaveBeenCalled();
+    expect(updateMessage).not.toHaveBeenCalled();
+  });
+
   it('retries a classified persistence failure and returns the valid tool result', async () => {
     const toolResult = '{"results":[{"title":"ok"}]}';
     const updateMessageContent = vi
@@ -103,6 +154,7 @@ describe('MCP tool-result persistence recovery', () => {
       toolResult,
       expect.objectContaining({
         diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
+        diagnosticOperation: 'persist_tool_result',
         showNotification: false,
         skipRefresh: true,
       }),
@@ -119,7 +171,12 @@ describe('MCP tool-result persistence recovery', () => {
     );
     const { notification } = await import('@/components/AntdStaticMethods');
     expect(notification.warning).not.toHaveBeenCalled();
-    expect(togglePluginCalling).toHaveBeenLastCalledWith(false, 'message-id', expect.any(String));
+    expect(togglePluginCalling).toHaveBeenLastCalledWith(
+      false,
+      'message-id',
+      expect.any(String),
+      expect.any(AbortController),
+    );
   });
 
   it('continues in memory and warns once when both persistence attempts fail', async () => {
@@ -214,7 +271,10 @@ describe('MCP tool-result persistence recovery', () => {
     expect(updateMessageContent).toHaveBeenCalledWith(
       'message-id',
       toolResult,
-      expect.objectContaining({ diagnosticId: requestedDiagnosticId }),
+      expect.objectContaining({
+        diagnosticId: requestedDiagnosticId,
+        diagnosticOperation: 'persist_tool_result',
+      }),
     );
   });
 
