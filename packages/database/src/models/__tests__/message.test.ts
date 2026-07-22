@@ -8,7 +8,9 @@ import { uuid } from '@/utils/uuid';
 import { getTestDB } from '../../models/__tests__/_util';
 import {
   agents,
+  agentsToSessions,
   chatGroups,
+  chatGroupsAgents,
   chunks,
   embeddings,
   fileChunks,
@@ -22,6 +24,7 @@ import {
   messages,
   messagesFiles,
   sessions,
+  sessionGroups,
   threads,
   topics,
   users,
@@ -1593,8 +1596,33 @@ describe('MessageModel', () => {
   describe('deleteAllTopicsHistory', () => {
     it('should clear current-user conversation history while preserving configuration and other users', async () => {
       await serverDB.transaction(async (transaction) => {
-        await transaction.insert(chatGroups).values({ id: 'history-group', userId });
-        await transaction.insert(agents).values({ id: 'history-agent', title: 'Preserved assistant', userId });
+        await transaction.insert(sessionGroups).values({
+          id: 'history-session-group',
+          name: 'Preserved session group',
+          userId,
+        });
+        await transaction.insert(chatGroups).values({
+          groupId: 'history-session-group',
+          id: 'history-group',
+          userId,
+        });
+        await transaction.insert(agents).values({
+          id: 'history-agent',
+          systemRole: 'Preserved assistant role',
+          title: 'Preserved assistant',
+          userId,
+        });
+        await transaction.insert(agentsToSessions).values({
+          agentId: 'history-agent',
+          sessionId: '1',
+          userId,
+        });
+        await transaction.insert(chatGroupsAgents).values({
+          agentId: 'history-agent',
+          chatGroupId: 'history-group',
+          role: 'moderator',
+          userId,
+        });
         await transaction.insert(userSettings).values({
           general: { generalInstruction: 'Preserved instruction' },
           id: userId,
@@ -1630,9 +1658,38 @@ describe('MessageModel', () => {
       ).toHaveLength(0);
       expect(await serverDB.select().from(messages).where(eq(messages.userId, '456'))).toHaveLength(1);
       expect(await serverDB.select().from(sessions).where(eq(sessions.userId, userId))).toHaveLength(1);
+      expect(
+        await serverDB.select().from(sessionGroups).where(eq(sessionGroups.userId, userId)),
+      ).toHaveLength(1);
       expect(await serverDB.select().from(files).where(eq(files.userId, userId))).toHaveLength(1);
       expect(await serverDB.select().from(embeddings).where(eq(embeddings.userId, userId))).toHaveLength(1);
-      expect(await serverDB.select().from(agents).where(eq(agents.userId, userId))).toHaveLength(1);
+      const preservedAgents = await serverDB
+        .select()
+        .from(agents)
+        .where(eq(agents.userId, userId));
+      expect(preservedAgents).toHaveLength(1);
+      expect(preservedAgents[0]).toMatchObject({
+        id: 'history-agent',
+        systemRole: 'Preserved assistant role',
+      });
+      expect(
+        await serverDB
+          .select()
+          .from(agentsToSessions)
+          .where(eq(agentsToSessions.userId, userId)),
+      ).toHaveLength(1);
+      expect(
+        await serverDB
+          .select()
+          .from(chatGroups)
+          .where(eq(chatGroups.userId, userId)),
+      ).toHaveLength(1);
+      expect(
+        await serverDB
+          .select()
+          .from(chatGroupsAgents)
+          .where(eq(chatGroupsAgents.userId, userId)),
+      ).toHaveLength(1);
       expect(await serverDB.select().from(userSettings).where(eq(userSettings.id, userId))).toHaveLength(1);
       expect(
         await serverDB

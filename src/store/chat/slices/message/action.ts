@@ -69,9 +69,9 @@ export interface ChatMessageAction {
    * clear message on the active session
    */
   clearMessage: () => Promise<void>;
+  clearAllTopicsHistory: () => Promise<void>;
   deleteMessage: (id: string) => Promise<void>;
   deleteToolMessage: (id: string) => Promise<void>;
-  clearAllMessages: () => Promise<void>;
   // update
   updateInputMessage: (message: string) => void;
   modifyMessageContent: (id: string, content: string) => Promise<void>;
@@ -266,7 +266,7 @@ export const chatMessage: StateCreator<
     // after remove topic , go back to default topic
     switchTopic();
   },
-  clearAllMessages: async () => {
+  clearAllTopicsHistory: async () => {
     const {
       chatLoadingIdsAbortController,
       internal_cancelAllSupervisorDecisions,
@@ -280,7 +280,7 @@ export const chatMessage: StateCreator<
     set(
       (state) => ({ conversationClearGeneration: state.conversationClearGeneration + 1 }),
       false,
-      n('clearAllMessages/start'),
+      n('clearAllTopicsHistory/start'),
     );
 
     chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
@@ -300,14 +300,22 @@ export const chatMessage: StateCreator<
     }
 
     internal_cancelAllSupervisorDecisions();
-    get().internal_toggleChatLoading(false, undefined, n('clearAllMessages/cancelChatLoading'));
+    get().internal_toggleChatLoading(false, undefined, n('clearAllTopicsHistory/cancelChatLoading'));
     get().internal_toggleMessageInToolsCalling(
       false,
       undefined,
-      n('clearAllMessages/cancelTools'),
+      n('clearAllTopicsHistory/cancelTools'),
     );
-    get().internal_togglePluginApiCalling(false, undefined, n('clearAllMessages/cancelPlugin'));
-    get().internal_toggleChatReasoning(false, undefined, n('clearAllMessages/cancelReasoning'));
+    get().internal_togglePluginApiCalling(
+      false,
+      undefined,
+      n('clearAllTopicsHistory/cancelPlugin'),
+    );
+    get().internal_toggleChatReasoning(
+      false,
+      undefined,
+      n('clearAllTopicsHistory/cancelReasoning'),
+    );
     get().internal_toggleSearchWorkflow(false);
     useToolStore.setState({ builtinToolLoading: {} });
 
@@ -368,7 +376,7 @@ export const chatMessage: StateCreator<
         topicsInit: false,
       },
       false,
-      n('clearAllMessages'),
+      n('clearAllTopicsHistory'),
     );
 
     await messageService.removeAllTopicsHistory();

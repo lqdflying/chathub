@@ -22,7 +22,10 @@ export interface UserSettingsAction {
   importUrlShareSettings: (settingsParams: string | null) => Promise<void>;
   internal_createSignal: () => AbortController;
   resetSettings: () => Promise<void>;
-  setSettings: (settings: PartialDeep<UserSettings>) => Promise<void>;
+  setSettings: (
+    settings: PartialDeep<UserSettings>,
+    options?: { skipRefresh?: boolean },
+  ) => Promise<void>;
   updateDefaultAgent: (agent: PartialDeep<LobeAgentSettings>) => Promise<void>;
   updateGeneralConfig: (settings: Partial<UserGeneralConfig>) => Promise<void>;
   updateKeyVaults: (settings: Partial<UserKeyVaults>) => Promise<void>;
@@ -76,7 +79,7 @@ export const createSettingsSlice: StateCreator<
     await userService.resetUserSettings();
     await get().refreshUserState();
   },
-  setSettings: async (settings) => {
+  setSettings: async (settings, options) => {
     const { settings: prevSetting, defaultSettings } = get();
 
     const nextSettings = merge(prevSetting, settings);
@@ -88,7 +91,7 @@ export const createSettingsSlice: StateCreator<
 
     const abortController = get().internal_createSignal();
     await userService.updateUserSettings(diffs, abortController.signal);
-    await get().refreshUserState();
+    if (!options?.skipRefresh) await get().refreshUserState();
   },
   updateDefaultAgent: async (defaultAgent) => {
     await get().setSettings({ defaultAgent });

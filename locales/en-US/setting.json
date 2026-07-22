@@ -21,10 +21,11 @@
   },
   "danger": {
     "clear": {
-      "action": "Clear Now",
-      "confirm": "Clear all conversation topics and messages?",
-      "desc": "This removes all conversation topics, including the Default Topic and group chat history. Assistants, Session Settings, files, plugins, and groups are preserved.",
-      "success": "All conversation history has been cleared",
+      "action": "Clear Topics",
+      "confirm": "Clear all topics and messages?",
+      "confirmDesc": "This permanently deletes only the Default Topic and all topics and messages in regular assistant and group chats. Assistants and their Role Settings, Session Settings, files, plugins, and group definitions are preserved.",
+      "desc": "Delete the Default Topic and all topics and messages in regular assistant and group chats. Assistants, their Role Settings, and other configuration are preserved.",
+      "success": "All topics and messages have been cleared",
       "title": "Clear All Topics"
     },
     "reset": {

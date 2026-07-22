@@ -325,7 +325,7 @@ describe('chatMessage actions', () => {
     });
   });
 
-  describe('clearAllMessages', () => {
+  describe('clearAllTopicsHistory', () => {
     it('clears history state and returns to the default topic', async () => {
       useToolStore.setState({ builtinToolLoading: { python: true } });
       useChatStore.setState({
@@ -367,7 +367,7 @@ describe('chatMessage actions', () => {
       const { result } = renderHook(() => useChatStore());
 
       await act(async () => {
-        await result.current.clearAllMessages();
+        await result.current.clearAllTopicsHistory();
       });
 
       expect(messageService.removeAllTopicsHistory).toHaveBeenCalledOnce();

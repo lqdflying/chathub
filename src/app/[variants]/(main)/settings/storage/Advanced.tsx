@@ -19,16 +19,19 @@ const AdvancedActions = () => {
   const { t } = useTranslation('setting');
   const [form] = Form.useForm();
   const { message, modal } = App.useApp();
-  const clearAllTopicsHistory = useChatStore((s) => s.clearAllMessages);
+  const clearAllTopicsHistory = useChatStore((s) => s.clearAllTopicsHistory);
   const settings = useUserStore(settingsSelectors.currentSettings, isEqual);
   const [resetSettings] = useUserStore((s) => [s.resetSettings]);
 
-  const handleClear = useCallback(() => {
+  const handleClearTopics = useCallback(() => {
     modal.confirm({
+      cancelText: t('cancel', { ns: 'common' }),
       centered: true,
+      content: t('danger.clear.confirmDesc'),
       okButtonProps: {
         danger: true,
       },
+      okText: t('danger.clear.action'),
       onOk: async () => {
         await clearAllTopicsHistory();
 
@@ -36,7 +39,7 @@ const AdvancedActions = () => {
       },
       title: t('danger.clear.confirm'),
     });
-  }, []);
+  }, [clearAllTopicsHistory, message, modal, t]);
 
   const handleReset = useCallback(() => {
     modal.confirm({
@@ -82,7 +85,7 @@ const AdvancedActions = () => {
       },
       {
         children: (
-          <Button danger onClick={handleClear} type={'primary'}>
+          <Button danger onClick={handleClearTopics} type={'primary'}>
             {t('danger.clear.action')}
           </Button>
         ),
