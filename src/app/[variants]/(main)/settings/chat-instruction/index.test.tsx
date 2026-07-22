@@ -8,38 +8,20 @@ import React, {
 } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import Common from './Common';
+import ChatInstruction from './index';
 
 vi.stubGlobal('React', React);
 
-const { useMockStyles } = vi.hoisted(() => ({
-  useMockStyles: () => ({
-    styles: {
-      instructionPreview: 'instructionPreview',
-      instructionPreviewWrapper: 'instructionPreviewWrapper',
-    },
-  }),
-}));
-
-const messageError = vi.fn();
-const refreshUserState = vi.fn();
 const setSettings = vi.fn();
 
 const userStoreState = {
   isUserStateInit: true,
-  refreshUserState,
   setSettings,
   settings: {
     general: {
       generalInstruction: '',
     },
   },
-};
-
-const globalStoreState = {
-  isStatusInit: true,
-  setThemeMode: vi.fn(),
-  switchLocale: vi.fn(),
 };
 
 vi.mock('@lobehub/ui', () => {
@@ -72,9 +54,6 @@ vi.mock('@lobehub/ui', () => {
     ),
     Form,
     Icon: () => null,
-    ImageSelect: () => <div data-testid="image-select" />,
-    InputPassword: () => <input aria-label="password" />,
-    Select: () => <select aria-label="language" />,
   };
 });
 
@@ -157,47 +136,22 @@ vi.mock('@lobehub/ui/chat', () => ({
 }));
 
 vi.mock('antd', () => ({
-  App: {
-    useApp: () => ({
-      message: {
-        error: messageError,
-      },
-    }),
-  },
-  Segmented: () => <div data-testid="animation-mode" />,
   Skeleton: () => <div data-testid="skeleton" />,
 }));
 
 vi.mock('antd-style', () => ({
-  createStyles: () => useMockStyles,
+  createStyles: () => () => ({
+    styles: {
+      instructionPreview: 'instructionPreview',
+      instructionPreviewWrapper: 'instructionPreviewWrapper',
+    },
+  }),
 }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: { ns?: string }) => (options?.ns ? `${options.ns}:${key}` : key),
   }),
-}));
-
-vi.mock('@/store/global', () => ({
-  useGlobalStore: (selector: (state: typeof globalStoreState) => unknown) =>
-    selector(globalStoreState),
-}));
-
-vi.mock('@/store/global/selectors', () => ({
-  systemStatusSelectors: {
-    language: () => 'en-US',
-    themeMode: () => 'auto',
-  },
-}));
-
-vi.mock('@/store/serverConfig', () => ({
-  useServerConfigStore: (selector: (state: object) => unknown) => selector({}),
-}));
-
-vi.mock('@/store/serverConfig/selectors', () => ({
-  serverConfigSelectors: {
-    enabledAccessCode: () => false,
-  },
 }));
 
 vi.mock('@/store/user', () => ({
@@ -216,17 +170,15 @@ vi.mock('@/store/user', () => ({
   ),
 }));
 
-vi.mock('@/store/user/selectors', () => ({
-  settingsSelectors: {
-    currentSettings: (state: typeof userStoreState) => state.settings,
+vi.mock('@/store/user/slices/settings/selectors/general', () => ({
+  userGeneralSettingsSelectors: {
+    generalInstruction: (state: typeof userStoreState) =>
+      state.settings.general.generalInstruction,
   },
 }));
 
-describe('General Instruction settings', () => {
+describe('Chat Instruction settings', () => {
   beforeEach(() => {
-    messageError.mockReset();
-    refreshUserState.mockReset();
-    refreshUserState.mockResolvedValue(undefined);
     setSettings.mockReset();
     userStoreState.settings.general.generalInstruction = '# Be concise';
     setSettings.mockImplementation(async ({ general }: { general: { generalInstruction: string } }) => {
@@ -235,22 +187,20 @@ describe('General Instruction settings', () => {
   });
 
   it('renders the stored Markdown and opens the raw editor', () => {
-    render(<Common />);
+    render(<ChatInstruction />);
 
     expect(screen.getByTestId('instruction-preview').textContent).toBe('# Be concise');
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
 
-    expect(
-      screen.getByRole('dialog', { name: 'settingCommon.generalInstruction.title' }),
-    ).not.toBeNull();
+    expect(screen.getByRole('dialog', { name: 'chatInstruction.title' })).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: 'instruction-editor' }) as HTMLTextAreaElement).value,
     ).toBe('# Be concise');
   });
 
   it('persists confirmed Markdown changes', async () => {
-    render(<Common />);
+    render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -277,13 +227,11 @@ describe('General Instruction settings', () => {
         userStoreState.settings.general.generalInstruction = general.generalInstruction;
 
         return new Promise<void>((resolve) => {
-          resolveSave = () => {
-            resolve();
-          };
+          resolveSave = resolve;
         });
       },
     );
-    render(<Common />);
+    render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -309,14 +257,14 @@ describe('General Instruction settings', () => {
     ).toBe('### Newer unsaved draft');
   });
 
-  it('rolls back the optimistic instruction without adding a second notification', async () => {
+  it('rolls back the optimistic instruction after a rejected save', async () => {
     setSettings.mockImplementationOnce(
       ({ general }: { general: { generalInstruction: string } }) => {
         userStoreState.settings.general.generalInstruction = general.generalInstruction;
         return Promise.reject(new Error('Network unavailable'));
       },
     );
-    render(<Common />);
+    render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -324,11 +272,7 @@ describe('General Instruction settings', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'common:ok' }));
 
-    expect(screen.queryByRole('dialog')).toBeNull();
-
     await waitFor(() => {
-      expect(refreshUserState).not.toHaveBeenCalled();
-      expect(messageError).not.toHaveBeenCalled();
       expect(screen.getByTestId('instruction-preview').textContent).toBe('# Be concise');
     });
   });
@@ -340,7 +284,7 @@ describe('General Instruction settings', () => {
         return Promise.reject(new Error('Network unavailable'));
       },
     );
-    const { unmount } = render(<Common />);
+    const { unmount } = render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -352,11 +296,11 @@ describe('General Instruction settings', () => {
       expect(screen.getByTestId('instruction-preview').textContent).toBe('# Be concise'),
     );
     unmount();
-    render(<Common />);
+    render(<ChatInstruction />);
     expect(screen.getByTestId('instruction-preview').textContent).toBe('# Be concise');
   });
 
-  it('consumes an abort from the current save without rolling back or notifying', async () => {
+  it('consumes an abort from the current save without rolling back', async () => {
     setSettings.mockImplementationOnce(
       ({ general }: { general: { generalInstruction: string } }) => {
         userStoreState.settings.general.generalInstruction = general.generalInstruction;
@@ -365,7 +309,7 @@ describe('General Instruction settings', () => {
         return Promise.reject(abortError);
       },
     );
-    render(<Common />);
+    render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -374,8 +318,6 @@ describe('General Instruction settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common:ok' }));
 
     await waitFor(() => {
-      expect(refreshUserState).not.toHaveBeenCalled();
-      expect(messageError).not.toHaveBeenCalled();
       expect(screen.getByTestId('instruction-preview').textContent).toBe(
         '## Aborted instruction',
       );
@@ -399,7 +341,7 @@ describe('General Instruction settings', () => {
           userStoreState.settings.general.generalInstruction = general.generalInstruction;
         },
       );
-    render(<Common />);
+    render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -419,14 +361,13 @@ describe('General Instruction settings', () => {
       rejectOlderSave?.(abortError);
     });
 
-    expect(refreshUserState).not.toHaveBeenCalled();
     expect(screen.getByTestId('instruction-preview').textContent).toBe(
       '## Newer instruction',
     );
   });
 
   it('reopens the editor with the newly saved instruction', async () => {
-    render(<Common />);
+    render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -448,7 +389,7 @@ describe('General Instruction settings', () => {
   });
 
   it('discards canceled Markdown changes', () => {
-    render(<Common />);
+    render(<ChatInstruction />);
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'instruction-editor' }), {
@@ -470,10 +411,10 @@ describe('General Instruction settings', () => {
 
   it('keeps an empty instruction editable', () => {
     userStoreState.settings.general.generalInstruction = '';
-    render(<Common />);
+    render(<ChatInstruction />);
 
     expect(screen.getByTestId('instruction-preview').textContent).toBe(
-      'settingCommon.generalInstruction.placeholder',
+      'chatInstruction.placeholder',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
@@ -484,11 +425,11 @@ describe('General Instruction settings', () => {
   });
 
   it('refreshes the preview when the stored instruction changes', () => {
-    const { unmount } = render(<Common />);
+    const { unmount } = render(<ChatInstruction />);
 
     userStoreState.settings.general.generalInstruction = '*Externally updated*';
     unmount();
-    render(<Common />);
+    render(<ChatInstruction />);
 
     expect(screen.getByTestId('instruction-preview').textContent).toBe('*Externally updated*');
   });

@@ -14,7 +14,7 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selector
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
-import { modelProviderSelectors } from '@/store/user/selectors';
+import { modelProviderSelectors, userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { DalleManifest } from '@/tools/dalle';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
@@ -120,6 +120,44 @@ describe('ChatService', () => {
             },
           ]),
           messages: expect.anything(),
+        }),
+        undefined,
+      );
+    });
+
+    it('prepends Chat Instruction when history begins with a system message', async () => {
+      const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+      vi.spyOn(userGeneralSettingsSelectors, 'generalInstruction').mockReturnValue(
+        'Follow the user-wide instruction.',
+      );
+      vi.spyOn(agentSelectors, 'currentAgentConfig').mockReturnValue({
+        ...DEFAULT_AGENT_CONFIG,
+        model: 'gpt-4',
+        provider: 'openai',
+        systemRole: 'Act as the selected assistant.',
+      });
+      const messages = [
+        { content: 'Imported system context.', role: 'system' },
+        { content: 'Hello', role: 'user' },
+      ] as UIChatMessage[];
+
+      await chatService.createAssistantMessage({
+        messages,
+        model: 'gpt-4',
+        plugins: [],
+        provider: 'openai',
+      });
+
+      expect(getChatCompletionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            {
+              content:
+                'Follow the user-wide instruction.\n\nAct as the selected assistant.\n\nImported system context.',
+              role: 'system',
+            },
+            { content: 'Hello', role: 'user' },
+          ],
         }),
         undefined,
       );

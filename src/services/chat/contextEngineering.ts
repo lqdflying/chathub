@@ -58,6 +58,7 @@ const resolveProxyImageUrls = async (messages: UIChatMessage[]): Promise<UIChatM
 
 interface ContextEngineeringContext {
   enableHistoryCount?: boolean;
+  existingSystemRolePolicy?: 'prepend' | 'skip';
   historyCount?: number;
   historySummary?: string;
   inputTemplate?: string;
@@ -78,6 +79,7 @@ export const contextEngineering = async ({
   systemRole,
   inputTemplate,
   enableHistoryCount,
+  existingSystemRolePolicy,
   historyCount,
   historySummary,
   sessionId,
@@ -93,7 +95,7 @@ export const contextEngineering = async ({
       // --------- Create system role injection providers
 
       // 2. System role injection (agent's system role)
-      new SystemRoleInjector({ systemRole }),
+      new SystemRoleInjector({ existingSystemRolePolicy, systemRole }),
 
       // 3. Inbox guide system role injection
       new InboxGuideProvider({

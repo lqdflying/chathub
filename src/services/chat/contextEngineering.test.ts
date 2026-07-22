@@ -899,6 +899,43 @@ describe('contextEngineering', () => {
       ]);
     });
 
+    it('should prepend the system role to an existing system message when opted in', async () => {
+      const messages: UIChatMessage[] = [
+        {
+          role: 'system',
+          content: 'Imported system context',
+          createdAt: Date.now(),
+          id: 'test-system',
+          meta: {},
+          updatedAt: Date.now(),
+        },
+        {
+          role: 'user',
+          content: 'User message',
+          createdAt: Date.now(),
+          id: 'test-user',
+          meta: {},
+          updatedAt: Date.now(),
+        },
+      ];
+
+      const result = await contextEngineering({
+        existingSystemRolePolicy: 'prepend',
+        messages,
+        model: 'gpt-4',
+        provider: 'openai',
+        systemRole: 'Chat Instruction\n\nAssistant role',
+      });
+
+      expect(result).toEqual([
+        {
+          content: 'Chat Instruction\n\nAssistant role\n\nImported system context',
+          role: 'system',
+        },
+        { content: 'User message', role: 'user' },
+      ]);
+    });
+
     it('should combine all preprocessing steps correctly', async () => {
       const messages: UIChatMessage[] = [
         {

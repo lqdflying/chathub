@@ -1,4 +1,4 @@
-import { Bot, Brain, Info, Mic2, Settings2, Sparkles } from 'lucide-react';
+import { Bot, Brain, Info, MessageSquareText, Mic2, Settings2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
 import { CellProps } from '@/components/Cell';
@@ -16,6 +16,11 @@ export const useCategory = () => {
       icon: Settings2,
       key: SettingsTabs.Common,
       label: t('tab.common'),
+    },
+    {
+      icon: MessageSquareText,
+      key: SettingsTabs.ChatInstruction,
+      label: t('tab.chat-instruction'),
     },
     {
       icon: Sparkles,

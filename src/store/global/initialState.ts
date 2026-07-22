@@ -36,6 +36,7 @@ export enum GroupSettingsTabs {
 export enum SettingsTabs {
   About = 'about',
   Agent = 'agent',
+  ChatInstruction = 'chat-instruction',
   Common = 'common',
   Hotkey = 'hotkey',
   Image = 'image',

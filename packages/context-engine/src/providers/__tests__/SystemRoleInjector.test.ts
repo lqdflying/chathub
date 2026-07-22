@@ -129,6 +129,56 @@ describe('SystemRoleInjector', () => {
     expect(result.metadata.systemRoleInjected).toBeUndefined();
   });
 
+  it('should prepend the configured role to an existing system message when opted in', async () => {
+    const provider = new SystemRoleInjector({
+      existingSystemRolePolicy: 'prepend',
+      systemRole: 'Chat Instruction\n\nAssistant role',
+    });
+
+    const context = {
+      initialState: {
+        messages: [],
+        model: 'gpt-4',
+        provider: 'openai',
+        systemRole: '',
+        tools: [],
+      },
+      messages: [
+        {
+          id: 'system-1',
+          role: 'system',
+          content: 'Existing system role',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+        {
+          id: '1',
+          role: 'user',
+          content: 'Hello',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ],
+      metadata: {
+        model: 'gpt-4',
+        maxTokens: 4096,
+      },
+      isAborted: false,
+    };
+
+    const result = await provider.process(context);
+
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[0]).toEqual(
+      expect.objectContaining({
+        content: 'Chat Instruction\n\nAssistant role\n\nExisting system role',
+        id: 'system-1',
+        role: 'system',
+      }),
+    );
+    expect(result.metadata.systemRoleInjected).toBe(true);
+  });
+
   it('should handle whitespace-only system role', async () => {
     const provider = new SystemRoleInjector({
       systemRole: '   \n  \t  ',

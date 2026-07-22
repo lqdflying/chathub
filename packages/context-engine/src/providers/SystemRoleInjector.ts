@@ -6,6 +6,8 @@ import type { PipelineContext, ProcessorOptions } from '../types';
 const log = debug('context-engine:provider:SystemRoleInjector');
 
 export interface SystemRoleInjectorConfig {
+  /** How to handle a system message that already begins the conversation */
+  existingSystemRolePolicy?: 'prepend' | 'skip';
   /** System role content to inject */
   systemRole?: string;
 }
@@ -38,6 +40,25 @@ export class SystemRoleInjector extends BaseProvider {
       clonedContext.messages.length > 0 && clonedContext.messages[0].role === 'system';
 
     if (hasExistingSystemRole) {
+      if (this.config.existingSystemRolePolicy === 'prepend') {
+        const existingSystemMessage = clonedContext.messages[0];
+        const configuredSystemRole = this.config.systemRole.trim();
+
+        existingSystemMessage.content =
+          typeof existingSystemMessage.content === 'string'
+            ? [configuredSystemRole, existingSystemMessage.content.trim()]
+                .filter(Boolean)
+                .join('\n\n')
+            : [
+                { text: configuredSystemRole, type: 'text' },
+                ...existingSystemMessage.content,
+              ];
+        clonedContext.metadata.systemRoleInjected = true;
+        log('Prepended configured system role to the existing system message');
+
+        return this.markAsExecuted(clonedContext);
+      }
+
       log('System role already exists, skipping injection');
       return this.markAsExecuted(clonedContext);
     }

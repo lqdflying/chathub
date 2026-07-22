@@ -12,6 +12,9 @@ const componentMap = {
   [SettingsTabs.Common]: dynamic(() => import('../common'), {
     loading: () => <Loading />,
   }),
+  [SettingsTabs.ChatInstruction]: dynamic(() => import('../chat-instruction'), {
+    loading: () => <Loading />,
+  }),
   [SettingsTabs.Agent]: dynamic(() => import('../agent'), {
     loading: () => <Loading />,
   }),

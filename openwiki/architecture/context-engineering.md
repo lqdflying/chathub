@@ -18,14 +18,19 @@ The main entrypoint is `src/services/chat/contextEngineering.ts`. It constructs 
 - tool message reordering
 - message cleanup
 
-## General Instruction composition
+## Chat Instruction composition
 
-The top-level `General Instruction` is persisted inside the existing user general settings JSON and
-is composed at request time rather than copied into assistant definitions. `src/services/chat/index.ts`
-trims and joins the general instruction before the active assistant role with one blank line, then
-passes the effective role into `contextEngineering` for normal assistant requests. Group-member
-generation uses the same composer before adding group-member guidelines, and token estimation mirrors
-that composition so the displayed context budget includes the shared instruction.
+The top-level `Chat Instruction` is persisted inside the existing user general settings JSON and is
+composed at request time rather than copied into assistant definitions or topics.
+`src/services/chat/index.ts` trims and joins the Chat Instruction before the active assistant role
+with one blank line, then passes the effective role into `contextEngineering` for normal assistant
+requests. If an imported or custom history already begins with a system message, normal assistant
+requests prepend the composed role to that content so the provider still receives one consolidated
+initial system message. Other context-engineering callers retain the default behavior of preserving
+an existing system message unchanged.
+
+Group-member generation uses the same composer before adding group-member guidelines, and token
+estimation mirrors that composition so the displayed context budget includes the shared instruction.
 
 The instruction applies only to normal assistants and group members. It is deliberately excluded from
 group supervisor prompts, title and summary generation, translation, search-intent detection, preset

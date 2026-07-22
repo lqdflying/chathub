@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   Info,
   KeyboardIcon,
+  MessageSquareText,
   Mic2,
   Settings2,
   Sparkles,
@@ -32,6 +33,11 @@ export const useCategory = () => {
           icon: <Icon icon={Settings2} />,
           key: SettingsTabs.Common,
           label: t('tab.common'),
+        },
+        {
+          icon: <Icon icon={MessageSquareText} />,
+          key: SettingsTabs.ChatInstruction,
+          label: t('tab.chat-instruction'),
         },
         {
           icon: <Icon icon={Bot} />,
