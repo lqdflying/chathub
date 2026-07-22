@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { clientDB, initializeDB } from '@/database/client/db';
 import { sessions, topics, users } from '@/database/schemas';
@@ -37,8 +37,8 @@ describe('TopicService', () => {
     it('should create a topic and return its id', async () => {
       // Setup
       const createParams = {
-        title: 'New Topic',
         sessionId: sessionId,
+        title: 'New Topic',
       };
 
       // Execute
@@ -51,8 +51,8 @@ describe('TopicService', () => {
     it('should throw an error if topic creation fails', async () => {
       // Setup
       const createParams = {
-        title: 'New Topic',
-        sessionId: 123 as any, // sessionId should be string
+        sessionId: 123 as any,
+        title: 'New Topic', // sessionId should be string
       };
 
       // Execute & Assert

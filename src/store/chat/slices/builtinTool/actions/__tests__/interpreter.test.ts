@@ -4,6 +4,15 @@ import { Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 import { pythonService } from '@/services/python';
 import { useChatStore } from '@/store/chat';
 
+const createDeferred = <Result>() => {
+  let resolve!: (value: Result) => void;
+  const promise = new Promise<Result>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
+};
+
 vi.mock('@/services/python', () => ({
   pythonService: {
     runPython: vi.fn(),
@@ -21,6 +30,7 @@ describe('code interpreter actions', () => {
     vi.clearAllMocks();
     useChatStore.setState({
       codeInterpreterExecuting: {},
+      conversationClearGeneration: 0,
       internal_updateMessageContent: vi.fn(),
       updatePluginState: vi.fn(),
       uploadInterpreterFiles: vi.fn(),
@@ -72,5 +82,45 @@ describe('code interpreter actions', () => {
       JSON.stringify(response),
     );
     expect(result.current.codeInterpreterExecuting['tool-message']).toBe(false);
+  });
+
+  it('drops a Python result that completes after conversation history is cleared', async () => {
+    const deferredExecution = createDeferred<{ stderr: string; stdout: string }>();
+    (pythonService.runPython as Mock).mockReturnValue(deferredExecution.promise);
+    const { result } = renderHook(() => useChatStore());
+    let executionPromise!: ReturnType<typeof result.current.python>;
+
+    act(() => {
+      executionPromise = result.current.python('tool-message', {
+        code: 'print("stale")',
+      });
+    });
+
+    await vi.waitFor(() => {
+      expect(pythonService.runPython).toHaveBeenCalledOnce();
+    });
+
+    act(() => {
+      useChatStore.setState((state) => ({
+        codeInterpreterExecuting: {},
+        conversationClearGeneration: state.conversationClearGeneration + 1,
+      }));
+    });
+    deferredExecution.resolve({ stderr: '', stdout: 'stale' });
+
+    let executionResult;
+    await act(async () => {
+      executionResult = await executionPromise;
+    });
+
+    expect(executionResult).toEqual({
+      data: undefined,
+      outcome: 'cancelled',
+      shouldContinue: false,
+    });
+    expect(result.current.internal_updateMessageContent).not.toHaveBeenCalled();
+    expect(result.current.updatePluginState).not.toHaveBeenCalled();
+    expect(result.current.uploadInterpreterFiles).not.toHaveBeenCalled();
+    expect(result.current.codeInterpreterExecuting).toEqual({});
   });
 });

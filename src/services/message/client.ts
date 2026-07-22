@@ -4,6 +4,11 @@ import { INBOX_SESSION_ID } from '@/const/session';
 import { clientDB } from '@/database/client/db';
 import { MessageModel } from '@/database/models/message';
 import { BaseClientService } from '@/services/baseClientService';
+import {
+  getClientConversationVersion,
+  withClientConversationClearLock,
+  withClientConversationWriteQueue,
+} from '@/services/conversationWriteQueue';
 import { clientS3Storage } from '@/services/file/ClientS3';
 
 import { IMessageService } from './type';
@@ -13,29 +18,53 @@ export class ClientService extends BaseClientService implements IMessageService 
     return new MessageModel(clientDB as any, this.userId);
   }
 
-  createMessage: IMessageService['createMessage'] = async ({ sessionId, ...params }) => {
-    const { id } = await this.messageModel.create({
-      ...params,
-      sessionId: sessionId ? (this.toDbSessionId(sessionId) as string) : '',
-    });
+  createMessage: IMessageService['createMessage'] = async (
+    { sessionId, ...params },
+    options,
+  ) => {
+    const { id } = await withClientConversationWriteQueue(
+      this.userId,
+      (transaction) =>
+        new MessageModel(transaction, this.userId).create({
+          ...params,
+          sessionId: sessionId ? (this.toDbSessionId(sessionId) as string) : '',
+        }),
+      options?.expectedConversationVersion,
+    );
 
     return id;
   };
 
-  createNewMessage: IMessageService['createNewMessage'] = async ({ sessionId, ...params }) => {
-    return await this.messageModel.createNewMessage(
-      {
-        ...params,
-        sessionId: sessionId ? (this.toDbSessionId(sessionId) as string) : '',
-      },
-      {
-        postProcessUrl: this.postProcessUrl,
-      },
+  createNewMessage: IMessageService['createNewMessage'] = async (
+    { sessionId, ...params },
+    options,
+  ) => {
+    return withClientConversationWriteQueue(
+      this.userId,
+      (transaction) =>
+        new MessageModel(transaction, this.userId).createNewMessage(
+          {
+            ...params,
+            sessionId: sessionId ? (this.toDbSessionId(sessionId) as string) : '',
+          },
+          {
+            postProcessUrl: this.postProcessUrl,
+          },
+        ),
+      options?.expectedConversationVersion,
     );
   };
 
-  batchCreateMessages: IMessageService['batchCreateMessages'] = async (messages) => {
-    return this.messageModel.batchCreate(messages);
+  batchCreateMessages: IMessageService['batchCreateMessages'] = async (messages, options) => {
+    return withClientConversationWriteQueue(
+      this.userId,
+      (transaction) => new MessageModel(transaction, this.userId).batchCreate(messages),
+      options?.expectedConversationVersion,
+    );
+  };
+
+  getConversationVersion: IMessageService['getConversationVersion'] = async () => {
+    return getClientConversationVersion(this.userId);
   };
 
   getMessages: IMessageService['getMessages'] = async (sessionId, topicId) => {
@@ -158,6 +187,12 @@ export class ClientService extends BaseClientService implements IMessageService 
 
   removeAllMessages: IMessageService['removeAllMessages'] = async () => {
     return this.messageModel.deleteAllMessages();
+  };
+
+  removeAllTopicsHistory: IMessageService['removeAllTopicsHistory'] = async () => {
+    return withClientConversationClearLock(this.userId, (transaction) =>
+      new MessageModel(transaction, this.userId).deleteAllTopicsHistoryInTransaction(transaction),
+    );
   };
 
   hasMessages: IMessageService['hasMessages'] = async () => {

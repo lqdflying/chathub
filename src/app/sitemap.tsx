@@ -17,14 +17,12 @@ export async function generateSitemaps() {
   const staticSitemaps = sitemapModule.sitemapIndexs;
 
   // 获取需要分页的类型的页数
-  const [pluginPages] = await Promise.all([
-    sitemapModule.getPluginPageCount(),
-  ]);
+  const pluginPages = await sitemapModule.getPluginPageCount();
 
   // 生成分页sitemap ID列表
-  const paginatedSitemaps = [
-    ...Array.from({ length: pluginPages }, (_, i) => ({ id: `plugins-${i + 1}` as SitemapType })),
-  ];
+  const paginatedSitemaps = Array.from({ length: pluginPages }, (_, i) => ({
+    id: `plugins-${i + 1}` as SitemapType,
+  }));
 
   return [...staticSitemaps, ...paginatedSitemaps];
 }

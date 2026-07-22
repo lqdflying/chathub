@@ -63,6 +63,10 @@ export class ClientService implements IMessageService {
     return this.getMessages(groupId, topicId);
   }
 
+  async getConversationVersion(): Promise<undefined> {
+    return undefined;
+  }
+
   async getAllMessages() {
     return MessageModel.queryAll();
   }

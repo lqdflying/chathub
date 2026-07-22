@@ -1,16 +1,12 @@
-import { clientDB } from '@/database/client/db';
 import { DataImporterRepos } from '@/database/repositories/dataImporter';
 import { BaseClientService } from '@/services/baseClientService';
+import { withClientConversationWriteQueue } from '@/services/conversationWriteQueue';
 import { useUserStore } from '@/store/user';
 import { ImportStage } from '@/types/importer';
 
 import { IImportService } from './type';
 
 export class ClientService extends BaseClientService implements IImportService {
-  private get dataImporter(): DataImporterRepos {
-    return new DataImporterRepos(clientDB as any, this.userId);
-  }
-
   importSettings: IImportService['importSettings'] = async (settings) => {
     await useUserStore.getState().importAppSettings(settings);
   };
@@ -19,7 +15,9 @@ export class ClientService extends BaseClientService implements IImportService {
     callbacks?.onStageChange?.(ImportStage.Importing);
     const time = Date.now();
     try {
-      const result = await this.dataImporter.importData(data);
+      const result = await withClientConversationWriteQueue(this.userId, (transaction) =>
+        new DataImporterRepos(transaction, this.userId).importData(data),
+      );
       const duration = Date.now() - time;
 
       callbacks?.onStageChange?.(ImportStage.Success);
@@ -40,9 +38,11 @@ export class ClientService extends BaseClientService implements IImportService {
     callbacks?.onStageChange?.(ImportStage.Importing);
     const time = Date.now();
     try {
-      const result = await this.dataImporter.importPgData(
-        data,
-        overwriteExisting ? 'override' : 'skip',
+      const result = await withClientConversationWriteQueue(this.userId, (transaction) =>
+        new DataImporterRepos(transaction, this.userId).importPgData(
+          data,
+          overwriteExisting ? 'override' : 'skip',
+        ),
       );
 
       const duration = Date.now() - time;

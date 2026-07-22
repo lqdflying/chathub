@@ -3,10 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
+import { getServerDB } from '@/database/core/db-adaptor';
 import { AiChatService } from '@/server/services/aiChat';
 
 import { aiChatRouter } from '../aiChat';
 
+vi.mock('@/database/core/db-adaptor', () => ({
+  getServerDB: vi.fn(),
+}));
 vi.mock('@/database/models/message');
 vi.mock('@/database/models/topic');
 vi.mock('@/server/services/aiChat');
@@ -21,7 +25,34 @@ vi.mock('@/server/modules/ModelRuntime', () => ({
 }));
 
 describe('aiChatRouter', () => {
-  const mockCtx = { userId: 'u1' };
+  const mockUser = [{ version: 'version-1' }];
+  const mockTransaction = {
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          for: () => ({
+            limit: async () => mockUser,
+          }),
+        }),
+      }),
+    }),
+  };
+  const mockCtx = {
+    serverDB: {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => mockUser,
+          }),
+        }),
+      }),
+      transaction: async (callback: (transaction: typeof mockTransaction) => Promise<unknown>) =>
+        callback(mockTransaction),
+    },
+    userId: 'u1',
+  };
+
+  vi.mocked(getServerDB).mockResolvedValue(mockCtx.serverDB as any);
 
   it('should create topic optionally, create user/assistant messages, and return payload', async () => {
     const mockCreateTopic = vi.fn().mockResolvedValue({ id: 't1' });
@@ -88,7 +119,8 @@ describe('aiChatRouter', () => {
       .fn()
       .mockResolvedValueOnce({ id: 'm-user' })
       .mockResolvedValueOnce({ id: 'm-assistant' });
-    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics: undefined });
+    const topics = [{ id: 't-exist', lastActivityAt: new Date('2026-07-21T16:00:00.000Z') }];
+    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics });
 
     vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
     vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
@@ -104,12 +136,13 @@ describe('aiChatRouter', () => {
 
     expect(mockCreateMessage).toHaveBeenCalled();
     expect(mockGet).toHaveBeenCalledWith({
-      includeTopic: false,
+      includeTopic: true,
       sessionId: 's1',
       topicId: 't-exist',
     });
     expect(res.isCreateNewTopic).toBe(false);
     expect(res.topicId).toBe('t-exist');
+    expect(res.topics).toEqual(topics);
   });
 
   it('should pass threadId to both user and assistant messages when provided', async () => {
@@ -158,7 +191,7 @@ describe('aiChatRouter', () => {
       const { initModelRuntimeWithUserPayload } = await import('@/server/modules/ModelRuntime');
 
       const mockPayload = { apiKey: 'test-key' };
-      const mockResult = { object: { name: 'John', age: 30 } };
+      const mockResult = { object: { age: 30, name: 'John' } };
       const mockGenerateObject = vi.fn().mockResolvedValue(mockResult);
 
       vi.mocked(getXorPayload).mockReturnValue(mockPayload);
@@ -176,8 +209,8 @@ describe('aiChatRouter', () => {
         schema: {
           name: 'Person',
           schema: {
+            properties: { age: { type: 'number' }, name: { type: 'string' } },
             type: 'object' as const,
-            properties: { name: { type: 'string' }, age: { type: 'number' } },
           },
         },
       };
@@ -219,14 +252,14 @@ describe('aiChatRouter', () => {
       const mockPayload = { apiKey: 'test-key' };
       const mockTools = [
         {
-          type: 'function' as const,
           function: {
             name: 'test',
             parameters: {
-              type: 'object' as const,
               properties: { input: { type: 'string' } },
+              type: 'object' as const,
             },
           },
+          type: 'function' as const,
         },
       ];
       const mockGenerateObject = vi.fn().mockResolvedValue({ object: {} });

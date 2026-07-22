@@ -34,11 +34,23 @@ describe('TopicModel', () => {
         await tx.insert(users).values([{ id: '456' }]);
 
         await tx.insert(topics).values([
-          { id: '1', userId, sessionId, updatedAt: new Date('2023-01-01') },
-          { id: '4', userId, sessionId, updatedAt: new Date('2023-03-01') },
-          { id: '2', userId, sessionId, updatedAt: new Date('2023-02-01'), favorite: true },
-          { id: '5', userId, sessionId, updatedAt: new Date('2023-05-01'), favorite: true },
-          { id: '3', userId: '456', sessionId, updatedAt: new Date('2023-03-01') },
+          { id: '1', userId, sessionId, lastActivityAt: new Date('2023-01-01') },
+          { id: '4', userId, sessionId, lastActivityAt: new Date('2023-03-01') },
+          {
+            id: '2',
+            userId,
+            sessionId,
+            lastActivityAt: new Date('2023-02-01'),
+            favorite: true,
+          },
+          {
+            id: '5',
+            userId,
+            sessionId,
+            lastActivityAt: new Date('2023-05-01'),
+            favorite: true,
+          },
+          { id: '3', userId: '456', sessionId, lastActivityAt: new Date('2023-03-01') },
         ]);
       });
 
@@ -47,17 +59,17 @@ describe('TopicModel', () => {
 
       // 断言结果
       expect(result).toHaveLength(4);
-      expect(result[0].id).toBe('5'); // favorite 的 topic 应该在前面，按照 updatedAt 降序排序
+      expect(result[0].id).toBe('5');
       expect(result[1].id).toBe('2');
-      expect(result[2].id).toBe('4'); // 按照 updatedAt 降序排序
+      expect(result[2].id).toBe('4');
     });
 
     it('should query topics with pagination', async () => {
       // 创建测试数据
       await serverDB.insert(topics).values([
-        { id: '1', userId, updatedAt: new Date('2023-01-01') },
-        { id: '2', userId, updatedAt: new Date('2023-02-01') },
-        { id: '3', userId, updatedAt: new Date('2023-03-01') },
+        { id: '1', userId, lastActivityAt: new Date('2023-01-01') },
+        { id: '2', userId, lastActivityAt: new Date('2023-02-01') },
+        { id: '3', userId, lastActivityAt: new Date('2023-03-01') },
       ]);
 
       // 应该返回 2 个 topics
@@ -104,21 +116,21 @@ describe('TopicModel', () => {
             userId,
             groupId: 'chat-group-1',
             favorite: true,
-            updatedAt: new Date('2023-05-01'),
+            lastActivityAt: new Date('2023-05-01'),
           },
           {
             id: 'group-topic-2',
             userId,
             groupId: 'chat-group-1',
             favorite: false,
-            updatedAt: new Date('2023-04-01'),
+            lastActivityAt: new Date('2023-04-01'),
           },
           {
             id: 'group-topic-3',
             userId,
             groupId: 'chat-group-2',
             favorite: true,
-            updatedAt: new Date('2023-06-01'),
+            lastActivityAt: new Date('2023-06-01'),
           },
         ]);
       });
@@ -133,9 +145,9 @@ describe('TopicModel', () => {
     it('should return topics based on pagination parameters', async () => {
       // 创建测试数据
       await serverDB.insert(topics).values([
-        { id: 'topic1', sessionId, userId, updatedAt: new Date('2023-01-01') },
-        { id: 'topic2', sessionId, userId, updatedAt: new Date('2023-01-02') },
-        { id: 'topic3', sessionId, userId, updatedAt: new Date('2023-01-03') },
+        { id: 'topic1', sessionId, userId, lastActivityAt: new Date('2023-01-01') },
+        { id: 'topic2', sessionId, userId, lastActivityAt: new Date('2023-01-02') },
+        { id: 'topic3', sessionId, userId, lastActivityAt: new Date('2023-01-03') },
       ]);
 
       // 调用 query 方法
@@ -457,6 +469,43 @@ describe('TopicModel', () => {
       expect(item[0].favorite).toBeFalsy();
     });
 
+    it('should touch activity when the title changes', async () => {
+      const previousActivityAt = new Date('2024-01-01T00:00:00.000Z');
+      const topicId = 'title-activity-topic';
+      await serverDB.insert(topics).values({
+        id: topicId,
+        lastActivityAt: previousActivityAt,
+        title: 'Original title',
+        userId,
+      });
+
+      const [updatedTopic] = await topicModel.update(topicId, { title: 'Edited title' });
+
+      expect(updatedTopic.title).toBe('Edited title');
+      expect(updatedTopic.lastActivityAt.getTime()).toBeGreaterThan(previousActivityAt.getTime());
+    });
+
+    it('should not touch activity for metadata-only updates', async () => {
+      const previousActivityAt = new Date('2024-01-01T00:00:00.000Z');
+      const topicId = 'metadata-activity-topic';
+      await serverDB.insert(topics).values({
+        favorite: false,
+        id: topicId,
+        lastActivityAt: previousActivityAt,
+        metadata: { memoryArchives: [] },
+        userId,
+      });
+
+      const [updatedTopic] = await topicModel.update(topicId, {
+        favorite: true,
+        metadata: { memoryArchives: ['archive-1'] },
+      });
+
+      expect(updatedTopic.favorite).toBe(true);
+      expect(updatedTopic.metadata).toEqual({ memoryArchives: ['archive-1'] });
+      expect(updatedTopic.lastActivityAt).toEqual(previousActivityAt);
+    });
+
     it('should not update a topic if user ID does not match', async () => {
       // 创建一个测试 topic, 但使用不同的 user ID
       await serverDB.insert(users).values([{ id: '456' }]);
@@ -509,6 +558,7 @@ describe('TopicModel', () => {
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
         accessedAt: expect.any(Date),
+        lastActivityAt: expect.any(Date),
       });
 
       // 断言 topic 已在数据库中创建
@@ -559,6 +609,7 @@ describe('TopicModel', () => {
         createdAt: expect.any(Date),
         updatedAt: expect.any(Date),
         accessedAt: expect.any(Date),
+        lastActivityAt: expect.any(Date),
       });
 
       // 断言 topic 已在数据库中创建

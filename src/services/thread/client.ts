@@ -3,6 +3,7 @@ import { clientDB } from '@/database/client/db';
 import { MessageModel } from '@/database/models/message';
 import { ThreadModel } from '@/database/models/thread';
 import { BaseClientService } from '@/services/baseClientService';
+import { withClientConversationWriteQueue } from '@/services/conversationWriteQueue';
 
 import { IThreadService } from './type';
 
@@ -19,22 +20,30 @@ export class ClientService extends BaseClientService implements IThreadService {
     return this.threadModel.queryByTopicId(topicId);
   };
 
-  createThreadWithMessage: IThreadService['createThreadWithMessage'] = async (input) => {
-    const thread = await this.threadModel.create({
-      parentThreadId: input.parentThreadId,
-      sourceMessageId: input.sourceMessageId,
-      title: input.message.content.slice(0, 20),
-      topicId: input.topicId,
-      type: input.type,
-    });
+  createThreadWithMessage: IThreadService['createThreadWithMessage'] = async (input, options) => {
+    return withClientConversationWriteQueue(
+      this.userId,
+      async (transaction) => {
+        const threadModel = new ThreadModel(transaction, this.userId);
+        const messageModel = new MessageModel(transaction, this.userId);
+        const thread = await threadModel.create({
+          parentThreadId: input.parentThreadId,
+          sourceMessageId: input.sourceMessageId,
+          title: input.message.content.slice(0, 20),
+          topicId: input.topicId,
+          type: input.type,
+        });
 
-    const message = await this.messageModel.create({
-      ...input.message,
-      sessionId: this.toDbSessionId(input.message.sessionId) as string,
-      threadId: thread?.id,
-    });
+        const message = await messageModel.create({
+          ...input.message,
+          sessionId: this.toDbSessionId(input.message.sessionId) as string,
+          threadId: thread?.id,
+        });
 
-    return { messageId: message?.id, threadId: thread?.id };
+        return { messageId: message?.id, threadId: thread?.id };
+      },
+      options?.expectedConversationVersion,
+    );
   };
 
   updateThread: IThreadService['updateThread'] = async (id, data) => {

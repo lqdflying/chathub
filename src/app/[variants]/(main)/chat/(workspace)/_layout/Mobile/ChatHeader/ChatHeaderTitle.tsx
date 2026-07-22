@@ -43,7 +43,12 @@ const ChatHeaderTitle = memo(() => {
           </span>
           <ActionIcon
             active
+            aria-label={t('title', { ns: 'topic' })}
             icon={ChevronDown}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleConfig();
+            }}
             size={{ blockSize: 14, borderRadius: '50%', size: 12 }}
             style={{
               background: theme.colorFillSecondary,

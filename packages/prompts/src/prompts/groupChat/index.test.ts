@@ -93,6 +93,17 @@ describe('buildGroupChatSystemPrompt', () => {
 
     expect(result).toContain('SUPERVISOR INSTRUCTION: Please be concise');
   });
+
+  it('should preserve a composed general instruction in the member role', () => {
+    const result = buildGroupChatSystemPrompt({
+      agentId: 'agent-1',
+      baseSystemRole: 'Follow the shared style.\n\nYou are an expert collaborator.',
+      groupMembers: [{ id: 'agent-1', title: 'Agent One' }],
+      messages,
+    });
+
+    expect(result).toContain('Follow the shared style.\n\nYou are an expert collaborator.');
+  });
 });
 
 describe('filterMessagesForAgent', () => {

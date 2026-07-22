@@ -1,6 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix  */
 import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
-import { boolean, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
 
 import { DEFAULT_PREFERENCE } from '@/const/user';
 import { CustomPluginParams } from '@/types/tool/plugin';
@@ -26,6 +26,7 @@ export const users = pgTable('users', {
   emailVerifiedAt: timestamptz('email_verified_at'),
 
   preference: jsonb('preference').$defaultFn(() => DEFAULT_PREFERENCE),
+  conversationVersion: integer('conversation_version').default(0).notNull(),
 
   ...timestamps,
 });

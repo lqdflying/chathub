@@ -1,24 +1,35 @@
 import { t } from 'i18next';
 
 import { ChatTopic, ChatTopicSummary, GroupedTopic } from '@/types/topic';
-import { groupTopicsByTime } from '@/utils/client/topic';
+import { getTopicActivityTimestamp, groupTopicsByTime } from '@/utils/client/topic';
 
 import { ChatStoreState } from '../../initialState';
+
+const sortTopicsByActivity = (topics: ChatTopic[]): ChatTopic[] =>
+  topics.slice().sort((firstTopic, secondTopic) => {
+    const favoriteDifference = Number(secondTopic.favorite) - Number(firstTopic.favorite);
+    if (favoriteDifference !== 0) return favoriteDifference;
+
+    return getTopicActivityTimestamp(secondTopic) - getTopicActivityTimestamp(firstTopic);
+  });
 
 const currentTopics = (s: ChatStoreState): ChatTopic[] | undefined => s.topicMaps[s.activeId];
 
 const currentActiveTopic = (s: ChatStoreState): ChatTopic | undefined => {
   return currentTopics(s)?.find((topic) => topic.id === s.activeTopicId);
 };
-const searchTopics = (s: ChatStoreState): ChatTopic[] => s.searchTopics;
+const searchTopics = (s: ChatStoreState): ChatTopic[] => sortTopicsByActivity(s.searchTopics);
 
-const displayTopics = (s: ChatStoreState): ChatTopic[] | undefined => currentTopics(s);
+const displayTopics = (s: ChatStoreState): ChatTopic[] | undefined => {
+  const topics = currentTopics(s);
+  return topics ? sortTopicsByActivity(topics) : undefined;
+};
 
 const currentFavTopics = (s: ChatStoreState): ChatTopic[] =>
-  currentTopics(s)?.filter((s) => s.favorite) || [];
+  sortTopicsByActivity(currentTopics(s)?.filter((topic) => topic.favorite) || []);
 
 const currentUnFavTopics = (s: ChatStoreState): ChatTopic[] =>
-  currentTopics(s)?.filter((s) => !s.favorite) || [];
+  sortTopicsByActivity(currentTopics(s)?.filter((topic) => !topic.favorite) || []);
 
 const currentTopicLength = (s: ChatStoreState): number => currentTopics(s)?.length || 0;
 

@@ -7,6 +7,7 @@ export type AnimationMode = 'disabled' | 'agile' | 'elegant';
 export interface UserGeneralConfig {
   animationMode?: AnimationMode;
   fontSize: number;
+  generalInstruction?: string;
   highlighterTheme?: HighlighterProps['theme'];
   mermaidTheme?: MermaidProps['theme'];
   neutralColor?: NeutralColors;

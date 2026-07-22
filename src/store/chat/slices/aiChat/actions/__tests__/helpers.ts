@@ -60,6 +60,9 @@ export const spyOnMessageService = () => {
   const createMessageSpy = vi
     .spyOn(messageService, 'createMessage')
     .mockResolvedValue(TEST_IDS.NEW_MESSAGE_ID);
+  const getConversationVersionSpy = vi
+    .spyOn(messageService, 'getConversationVersion')
+    .mockResolvedValue(7);
   const updateMessageSpy = vi.spyOn(messageService, 'updateMessage').mockResolvedValue(undefined);
   const removeMessageSpy = vi.spyOn(messageService, 'removeMessage').mockResolvedValue(undefined);
   const rewindMessagesSpy = vi
@@ -71,6 +74,7 @@ export const spyOnMessageService = () => {
 
   return {
     createMessageSpy,
+    getConversationVersionSpy,
     removeMessageSpy,
     rewindMessagesSpy,
     updateMessageErrorSpy,
@@ -105,8 +109,11 @@ export const resetTestEnvironment = () => {
       chatLoadingIdsAbortController: undefined,
       messageRetryingIds: [],
       messagesMap: {},
+      reasoningLoadingIds: [],
+      searchWorkflowLoadingIds: [],
       threadMaps: {},
       toolCallingStreamIds: {},
+      toolsCallingIds: [],
     },
     false,
   );

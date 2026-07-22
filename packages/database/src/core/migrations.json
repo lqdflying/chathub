@@ -808,5 +808,23 @@
     "bps": true,
     "folderMillis": 1784473972091,
     "hash": "34eb935f2298db682531f541638b636be3dcce548bea64119ab07bb437ce1cfa"
+  },
+  {
+    "sql": [
+      "ALTER TABLE \"topics\" ADD COLUMN \"last_activity_at\" timestamp with time zone;\n",
+      "\nUPDATE \"topics\" AS \"topic\"\nSET \"last_activity_at\" = GREATEST(\n  COALESCE(\"topic\".\"updated_at\", \"topic\".\"created_at\"),\n  COALESCE(\n    (\n      SELECT MAX(\"message\".\"created_at\")\n      FROM \"messages\" AS \"message\"\n      WHERE \"message\".\"topic_id\" = \"topic\".\"id\"\n    ),\n    \"topic\".\"created_at\"\n  )\n);\n",
+      "\nALTER TABLE \"topics\"\n  ALTER COLUMN \"last_activity_at\" SET DEFAULT now(),\n  ALTER COLUMN \"last_activity_at\" SET NOT NULL;"
+    ],
+    "bps": true,
+    "folderMillis": 1784645649331,
+    "hash": "e9048f8fcfef8be72ab4d7620af72c84577d6f3dea540dd386692735ebc3d4c2"
+  },
+  {
+    "sql": [
+      "ALTER TABLE \"users\" ADD COLUMN \"conversation_version\" integer DEFAULT 0 NOT NULL;"
+    ],
+    "bps": true,
+    "folderMillis": 1784687753515,
+    "hash": "55e50be9d71709b813571b0c145d5b944822ff3f2b33d14043e9783fe5ca3c0b"
   }
 ]

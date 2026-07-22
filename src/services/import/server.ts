@@ -1,6 +1,7 @@
 import { DefaultErrorShape } from '@trpc/server/unstable-core-do-not-import';
 
 import { lambdaClient } from '@/libs/trpc/client';
+import { messageService } from '@/services/message';
 import { uploadService } from '@/services/upload';
 import { useUserStore } from '@/store/user';
 import { ImportPgDataStructure } from '@/types/export';
@@ -9,47 +10,57 @@ import { uuid } from '@/utils/uuid';
 
 import { IImportService } from './type';
 
+const createImportErrorHandler =
+  (callbacks?: OnImportCallbacks) =>
+  (error: unknown): void => {
+    callbacks?.onStageChange?.(ImportStage.Error);
+
+    const errorShape = error as Partial<DefaultErrorShape>;
+    const errorData = errorShape.data;
+
+    callbacks?.onError?.({
+      code: errorData?.code ?? 'ImportError',
+      httpStatus: errorData?.httpStatus ?? 0,
+      message: errorShape.message ?? String(error),
+      ...(errorData?.path ? { path: errorData.path } : {}),
+    });
+  };
+
 export class ServerService implements IImportService {
   importSettings: IImportService['importSettings'] = async (settings) => {
     await useUserStore.getState().importAppSettings(settings);
   };
 
   importData: IImportService['importData'] = async (data, callbacks) => {
-    const handleError = (e: unknown) => {
-      callbacks?.onStageChange?.(ImportStage.Error);
-      const error = e as DefaultErrorShape;
+    const handleError = createImportErrorHandler(callbacks);
 
-      callbacks?.onError?.({
-        code: error.data.code,
-        httpStatus: error.data.httpStatus,
-        message: error.message,
-        path: error.data.path,
-      });
-    };
+    try {
+      const expectedConversationVersion = await messageService.getConversationVersion();
+      const totalLength =
+        (data.messages?.length || 0) +
+        (data.sessionGroups?.length || 0) +
+        (data.sessions?.length || 0) +
+        (data.topics?.length || 0);
 
-    const totalLength =
-      (data.messages?.length || 0) +
-      (data.sessionGroups?.length || 0) +
-      (data.sessions?.length || 0) +
-      (data.topics?.length || 0);
-
-    if (totalLength < 500) {
-      callbacks?.onStageChange?.(ImportStage.Importing);
-      const time = Date.now();
-      try {
-        const result = await lambdaClient.importer.importByPost.mutate({ data });
+      if (totalLength < 500) {
+        callbacks?.onStageChange?.(ImportStage.Importing);
+        const time = Date.now();
+        const result = await lambdaClient.importer.importByPost.mutate({
+          data,
+          expectedConversationVersion,
+        });
         const duration = Date.now() - time;
 
         callbacks?.onStageChange?.(ImportStage.Success);
         callbacks?.onSuccess?.(result.results, duration);
-      } catch (e) {
-        handleError(e);
+
+        return;
       }
 
-      return;
+      await this.uploadData(data, { callbacks, expectedConversationVersion });
+    } catch (error) {
+      handleError(error);
     }
-
-    await this.uploadData(data, { callbacks, handleError });
   };
 
   importPgData: IImportService['importPgData'] = async (
@@ -61,44 +72,44 @@ export class ServerService implements IImportService {
       overwriteExisting?: boolean;
     } = {},
   ): Promise<void> => {
-    const handleError = (e: unknown) => {
-      callbacks?.onStageChange?.(ImportStage.Error);
-      const error = e as DefaultErrorShape;
+    const handleError = createImportErrorHandler(callbacks);
 
-      callbacks?.onError?.({
-        code: error.data.code,
-        httpStatus: error.data.httpStatus,
-        message: error.message,
-        path: error.data.path,
-      });
-    };
+    try {
+      const expectedConversationVersion = await messageService.getConversationVersion();
+      const totalLength = Object.values(data.data)
+        .map((dataItems) => dataItems.length)
+        .reduce((total, itemCount) => total + itemCount, 0);
 
-    const totalLength = Object.values(data.data)
-      .map((d) => d.length)
-      .reduce((a, b) => a + b, 0);
-
-    if (totalLength < 500) {
-      callbacks?.onStageChange?.(ImportStage.Importing);
-      const time = Date.now();
-      try {
-        const result = await lambdaClient.importer.importPgByPost.mutate(data);
+      if (totalLength < 500) {
+        callbacks?.onStageChange?.(ImportStage.Importing);
+        const time = Date.now();
+        const result = await lambdaClient.importer.importPgByPost.mutate({
+          ...data,
+          expectedConversationVersion,
+        });
         const duration = Date.now() - time;
 
         callbacks?.onStageChange?.(ImportStage.Success);
         callbacks?.onSuccess?.(result.results, duration);
-      } catch (e) {
-        handleError(e);
+
+        return;
       }
 
-      return;
+      await this.uploadData(data, { callbacks, expectedConversationVersion });
+    } catch (error) {
+      handleError(error);
     }
-
-    await this.uploadData(data, { callbacks, handleError });
   };
 
   private uploadData = async (
     data: object,
-    { callbacks, handleError }: { callbacks?: OnImportCallbacks; handleError: (e: unknown) => any },
+    {
+      callbacks,
+      expectedConversationVersion,
+    }: {
+      callbacks?: OnImportCallbacks;
+      expectedConversationVersion: number;
+    },
   ) => {
     // if the data is too large, upload it to S3 and upload by file
     const filename = `${uuid()}.json`;
@@ -121,13 +132,12 @@ export class ServerService implements IImportService {
 
     callbacks?.onStageChange?.(ImportStage.Importing);
     const time = Date.now();
-    try {
-      const result = await lambdaClient.importer.importByFile.mutate({ pathname });
-      const duration = Date.now() - time;
-      callbacks?.onStageChange?.(ImportStage.Success);
-      callbacks?.onSuccess?.(result.results, duration);
-    } catch (e) {
-      handleError(e);
-    }
+    const result = await lambdaClient.importer.importByFile.mutate({
+      expectedConversationVersion,
+      pathname,
+    });
+    const duration = Date.now() - time;
+    callbacks?.onStageChange?.(ImportStage.Success);
+    callbacks?.onSuccess?.(result.results, duration);
   };
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "conversation_version" integer DEFAULT 0 NOT NULL;

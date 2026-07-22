@@ -122,6 +122,7 @@ export interface ChatPluginAction {
 
   reInvokeToolMessage: (id: string) => Promise<void>;
   triggerAIMessage: (params: {
+    expectedConversationVersion?: number;
     parentId?: string;
     traceId?: string;
     threadId?: string;
@@ -137,6 +138,7 @@ export interface ChatPluginAction {
   triggerToolCalls: (
     id: string,
     params?: {
+      expectedConversationVersion?: number;
       threadId?: string;
       inPortalThread?: boolean;
       inSearchWorkflow?: boolean;
@@ -197,93 +199,123 @@ export const chatPlugin: StateCreator<
     if (triggerAiMessage) await triggerAIMessage({ parentId: id });
   },
   invokeBuiltinTool: async (id, payload, diagnosticId) => {
-    const {
-      internal_togglePluginApiCalling,
-      internal_updateMessageContent,
-      internal_updatePluginError,
-    } = get();
+    const { internal_togglePluginApiCalling } = get();
+    const invocationGeneration = get().conversationClearGeneration;
     const params = JSON.parse(payload.arguments);
-    internal_togglePluginApiCalling(true, id, n('invokeBuiltinTool/start') as string);
-    let data;
-    try {
-      data = await useToolStore.getState().transformApiArgumentsToAiState(payload.apiName, params);
-    } catch (error) {
-      const err = error as Error;
-      console.error(err);
-
-      const tool = builtinTools.find((tool) => tool.identifier === payload.identifier);
-      const schema = tool?.manifest?.api.find((api) => api.name === payload.apiName)?.parameters;
-
-      await internal_updatePluginError(id, {
-        type: ChatErrorType.PluginFailToTransformArguments,
-        body: {
-          message:
-            "[plugin] fail to transform plugin arguments to ai state, it may due to model's limited tools calling capacity. You can refer to https://lobehub.com/docs/usage/tools-calling for more detail.",
-          stack: err.stack,
-          arguments: params,
-          schema,
-        },
-        message: '',
-      });
-    }
-    internal_togglePluginApiCalling(false, id, n('invokeBuiltinTool/end') as string);
-
-    if (!data) {
-      return {
-        data: undefined,
-        outcome: 'skipped',
-        shouldContinue: false,
-      };
-    }
-
-    await internal_updateMessageContent(id, data);
-
-    // run tool api call
-    // postToolCalling
-    // @ts-ignore
-    const { [payload.apiName]: action } = get();
-    if (!action) {
-      return {
-        data: undefined,
-        outcome: 'skipped',
-        shouldContinue: false,
-      };
-    }
-
-    let content;
+    const abortController = internal_togglePluginApiCalling(
+      true,
+      id,
+      n('invokeBuiltinTool/start') as string,
+    );
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration &&
+      !abortController?.signal.aborted;
 
     try {
-      content = JSON.parse(data);
-    } catch {
-      /* empty block */
-    }
+      let data;
+      try {
+        data = await useToolStore
+          .getState()
+          .transformApiArgumentsToAiState(payload.apiName, params, invocationIsCurrent);
+      } catch (error) {
+        if (!invocationIsCurrent()) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
 
-    if (!content) {
+        const err = error as Error;
+        console.error(err);
+
+        const tool = builtinTools.find((tool) => tool.identifier === payload.identifier);
+        const schema = tool?.manifest?.api.find((api) => api.name === payload.apiName)?.parameters;
+
+        await get().internal_updatePluginError(id, {
+          type: ChatErrorType.PluginFailToTransformArguments,
+          body: {
+            message:
+              "[plugin] fail to transform plugin arguments to ai state, it may due to model's limited tools calling capacity. You can refer to https://lobehub.com/docs/usage/tools-calling for more detail.",
+            stack: err.stack,
+            arguments: params,
+            schema,
+          },
+          message: '',
+        });
+      }
+
+      if (!invocationIsCurrent()) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      }
+
+      if (!data) {
+        return {
+          data: undefined,
+          outcome: 'skipped',
+          shouldContinue: false,
+        };
+      }
+
+      await get().internal_updateMessageContent(id, data);
+      if (!invocationIsCurrent()) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      }
+
+      // run tool api call
+      // postToolCalling
+      // @ts-ignore
+      const { [payload.apiName]: action } = get();
+      if (!action) {
+        return {
+          data: undefined,
+          outcome: 'skipped',
+          shouldContinue: false,
+        };
+      }
+
+      let content;
+
+      try {
+        content = JSON.parse(data);
+      } catch {
+        /* empty block */
+      }
+
+      if (!content) {
+        return {
+          data: undefined,
+          outcome: 'skipped',
+          shouldContinue: false,
+        };
+      }
+
+      const actionResult = await action(id, content, undefined, diagnosticId);
+      if (!invocationIsCurrent()) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      }
+
+      if (
+        actionResult &&
+        typeof actionResult === 'object' &&
+        'data' in actionResult &&
+        'outcome' in actionResult
+      ) {
+        return actionResult as ToolInvocationResult;
+      }
+
+      const updatedMessage = chatSelectors.getMessageById(id)(get());
+      const diagnosticError = updatedMessage?.error ?? updatedMessage?.pluginError;
+
       return {
-        data: undefined,
-        outcome: 'skipped',
-        shouldContinue: false,
+        data: diagnosticError ?? updatedMessage?.content,
+        outcome: diagnosticError ? 'failed' : actionResult === undefined ? 'skipped' : 'completed',
+        shouldContinue: actionResult === true,
       };
+    } finally {
+      internal_togglePluginApiCalling(
+        false,
+        id,
+        n('invokeBuiltinTool/end') as string,
+        abortController,
+      );
     }
-
-    const actionResult = await action(id, content, undefined, diagnosticId);
-    if (
-      actionResult &&
-      typeof actionResult === 'object' &&
-      'data' in actionResult &&
-      'outcome' in actionResult
-    ) {
-      return actionResult as ToolInvocationResult;
-    }
-
-    const updatedMessage = chatSelectors.getMessageById(id)(get());
-    const diagnosticError = updatedMessage?.error ?? updatedMessage?.pluginError;
-
-    return {
-      data: diagnosticError ?? updatedMessage?.content,
-      outcome: diagnosticError ? 'failed' : actionResult === undefined ? 'skipped' : 'completed',
-      shouldContinue: actionResult === true,
-    };
   },
 
   invokeProviderBuiltinTool: async (id, payload) => {
@@ -349,6 +381,7 @@ export const chatPlugin: StateCreator<
   },
 
   triggerAIMessage: async ({
+    expectedConversationVersion,
     parentId,
     traceId,
     threadId,
@@ -367,6 +400,7 @@ export const chatPlugin: StateCreator<
       : chatSelectors.mainAIChats(get());
 
     await internal_coreProcessMessage(chats, parentId ?? chats.at(-1)!.id, {
+      expectedConversationVersion,
       traceId,
       threadId,
       inPortalThread,
@@ -398,12 +432,22 @@ export const chatPlugin: StateCreator<
     );
   },
 
-  triggerToolCalls: async (assistantId, { threadId, inPortalThread, inSearchWorkflow } = {}) => {
+  triggerToolCalls: async (
+    assistantId,
+    { expectedConversationVersion, threadId, inPortalThread, inSearchWorkflow } = {},
+  ) => {
+    const resolvedConversationVersion =
+      expectedConversationVersion ?? (await messageService.getConversationVersion());
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration;
     const message = chatSelectors.getMessageById(assistantId)(get());
     if (!message || !message.tools) return;
 
     const { cacheContinuationEnabled, toolLifecycleEnabled } =
       await toolTelemetryService.getCapabilities();
+    if (!invocationIsCurrent()) return;
+
     const collectToolCorrelation = cacheContinuationEnabled || toolLifecycleEnabled;
     const toolCorrelation: ToolCacheDebugMetadata | undefined = collectToolCorrelation
       ? {
@@ -421,6 +465,16 @@ export const chatPlugin: StateCreator<
       const runtimeType = toolLifecycleEnabled
         ? resolveToolDiagnosticRuntimeType(payload)
         : undefined;
+      if (!invocationIsCurrent()) {
+        return {
+          data: undefined,
+          diagnosticId,
+          outcome: 'cancelled',
+          payload,
+          runtimeType,
+        };
+      }
+
       const toolMessage: CreateMessageParams = {
         content: '',
         parentId: assistantId,
@@ -433,7 +487,20 @@ export const chatPlugin: StateCreator<
         groupId: message.groupId, // Propagate groupId from parent message for group chat
       };
 
-      const id = await get().internal_createMessage(toolMessage);
+      const id = await get().internal_createMessage(toolMessage, {
+        expectedConversationVersion: resolvedConversationVersion,
+      });
+      if (!invocationIsCurrent()) {
+        return {
+          data: undefined,
+          diagnosticId,
+          id,
+          outcome: 'cancelled',
+          payload,
+          runtimeType,
+        };
+      }
+
       if (!id) {
         return {
           data: undefined,
@@ -451,6 +518,17 @@ export const chatPlugin: StateCreator<
           toolCorrelation,
           diagnosticId,
         );
+        if (!invocationIsCurrent()) {
+          return {
+            data: undefined,
+            diagnosticId,
+            id,
+            outcome: 'cancelled',
+            payload,
+            runtimeType,
+          };
+        }
+
         const invocationResult =
           rawInvocationResult &&
           typeof rawInvocationResult === 'object' &&
@@ -476,7 +554,7 @@ export const chatPlugin: StateCreator<
           data: undefined,
           diagnosticId,
           id,
-          outcome: isAbortError(error) ? 'cancelled' : 'failed',
+          outcome: !invocationIsCurrent() || isAbortError(error) ? 'cancelled' : 'failed',
           payload,
           runtimeType,
         };
@@ -484,8 +562,12 @@ export const chatPlugin: StateCreator<
     });
 
     const settledResults = await Promise.allSettled(messagePools).finally(async () => {
-      await get().internal_toggleMessageInToolsCalling(false, assistantId);
+      if (invocationIsCurrent()) {
+        await get().internal_toggleMessageInToolsCalling(false, assistantId);
+      }
     });
+    if (!invocationIsCurrent()) return;
+
     const completedResults = settledResults.flatMap((result, index): ToolBatchExecutionResult[] => {
       if (result.status === 'fulfilled') return [result.value];
 
@@ -558,10 +640,12 @@ export const chatPlugin: StateCreator<
 
     // only default type tool calls should trigger AI message
     if (!latestCompletedTool) return;
+    if (!invocationIsCurrent()) return;
 
     const traceId = chatSelectors.getTraceIdByMessageId(latestCompletedTool.id)(get());
 
     await get().triggerAIMessage({
+      expectedConversationVersion: resolvedConversationVersion,
       traceId,
       threadId,
       inPortalThread,

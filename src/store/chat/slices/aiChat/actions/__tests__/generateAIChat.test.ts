@@ -16,7 +16,6 @@ import {
   resetTestEnvironment,
   setupMockSelectors,
   setupStoreWithMessages,
-  spyOnChatService,
   spyOnMessageService,
 } from './helpers';
 
@@ -40,11 +39,11 @@ beforeEach(() => {
   act(() => {
     useSessionStore.setState({ triggerSessionUpdate: vi.fn() });
     useChatStore.setState({
-      internal_fetchMessages: vi.fn(),
-      refreshMessages: vi.fn(),
-      refreshThreads: vi.fn(),
-      refreshTopic: vi.fn(),
       internal_coreProcessMessage: vi.fn(),
+      internal_fetchMessages: vi.fn(),
+      refreshMessages: vi.fn(() => Promise.resolve()),
+      refreshThreads: vi.fn(),
+      refreshTopic: vi.fn(() => Promise.resolve()),
     });
   });
 });
@@ -87,7 +86,7 @@ describe('chatMessage actions', () => {
         const { result } = renderHook(() => useChatStore());
 
         await act(async () => {
-          await result.current.sendMessage({ message: TEST_CONTENT.EMPTY, files: [] });
+          await result.current.sendMessage({ files: [], message: TEST_CONTENT.EMPTY });
         });
 
         expect(messageService.createMessage).not.toHaveBeenCalled();
@@ -102,13 +101,17 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(messageService.createMessage).toHaveBeenCalledWith({
-          content: TEST_CONTENT.USER_MESSAGE,
-          files: undefined,
-          role: 'user',
-          sessionId: TEST_IDS.SESSION_ID,
-          topicId: TEST_IDS.TOPIC_ID,
-        });
+        expect(messageService.createMessage).toHaveBeenCalledWith(
+          {
+            content: TEST_CONTENT.USER_MESSAGE,
+            files: undefined,
+            role: 'user',
+            sessionId: TEST_IDS.SESSION_ID,
+            threadId: undefined,
+            topicId: TEST_IDS.TOPIC_ID,
+          },
+          { expectedConversationVersion: 7 },
+        );
         expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
       });
 
@@ -117,16 +120,20 @@ describe('chatMessage actions', () => {
         const files = [{ id: TEST_IDS.FILE_ID } as UploadFileItem];
 
         await act(async () => {
-          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE, files });
+          await result.current.sendMessage({ files, message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(messageService.createMessage).toHaveBeenCalledWith({
-          content: TEST_CONTENT.USER_MESSAGE,
-          files: [TEST_IDS.FILE_ID],
-          role: 'user',
-          sessionId: TEST_IDS.SESSION_ID,
-          topicId: TEST_IDS.TOPIC_ID,
-        });
+        expect(messageService.createMessage).toHaveBeenCalledWith(
+          {
+            content: TEST_CONTENT.USER_MESSAGE,
+            files: [TEST_IDS.FILE_ID],
+            role: 'user',
+            sessionId: TEST_IDS.SESSION_ID,
+            threadId: undefined,
+            topicId: TEST_IDS.TOPIC_ID,
+          },
+          { expectedConversationVersion: 7 },
+        );
       });
 
       it('should send files without message content', async () => {
@@ -134,16 +141,20 @@ describe('chatMessage actions', () => {
         const files = [{ id: TEST_IDS.FILE_ID } as UploadFileItem];
 
         await act(async () => {
-          await result.current.sendMessage({ message: TEST_CONTENT.EMPTY, files });
+          await result.current.sendMessage({ files, message: TEST_CONTENT.EMPTY });
         });
 
-        expect(messageService.createMessage).toHaveBeenCalledWith({
-          content: TEST_CONTENT.EMPTY,
-          files: [TEST_IDS.FILE_ID],
-          role: 'user',
-          sessionId: TEST_IDS.SESSION_ID,
-          topicId: TEST_IDS.TOPIC_ID,
-        });
+        expect(messageService.createMessage).toHaveBeenCalledWith(
+          {
+            content: TEST_CONTENT.EMPTY,
+            files: [TEST_IDS.FILE_ID],
+            role: 'user',
+            sessionId: TEST_IDS.SESSION_ID,
+            threadId: undefined,
+            topicId: TEST_IDS.TOPIC_ID,
+          },
+          { expectedConversationVersion: 7 },
+        );
       });
 
       it('should not process AI when onlyAddUserMessage is true', async () => {
@@ -190,17 +201,17 @@ describe('chatMessage actions', () => {
         act(() => {
           setupMockSelectors({
             agentConfig: {
-              enableAutoCreateTopic: true,
               autoCreateTopicThreshold: TOPIC_THRESHOLD,
+              enableAutoCreateTopic: true,
             },
           });
 
           useChatStore.setState({
             activeTopicId: undefined,
+            createTopic: createTopicMock,
             messagesMap: {
               [messageMapKey(TEST_IDS.SESSION_ID)]: createMockMessages(TOPIC_THRESHOLD),
             },
-            createTopic: createTopicMock,
             switchTopic: switchTopicMock,
           });
         });
@@ -258,15 +269,18 @@ describe('chatMessage actions', () => {
 
         await act(async () => {
           await result.current.sendMessage({
-            message: TEST_CONTENT.USER_MESSAGE,
             isWelcomeQuestion: true,
+            message: TEST_CONTENT.USER_MESSAGE,
           });
         });
 
         expect(result.current.internal_coreProcessMessage).toHaveBeenCalledWith(
           expect.anything(),
           expect.anything(),
-          { isWelcomeQuestion: true },
+          expect.objectContaining({
+            expectedConversationVersion: 7,
+            isWelcomeQuestion: true,
+          }),
         );
       });
 
@@ -287,7 +301,7 @@ describe('chatMessage actions', () => {
     describe('topic creation flow', () => {
       it('should handle tempMessage during topic creation', async () => {
         setupMockSelectors({
-          chatConfig: { enableAutoCreateTopic: true, autoCreateTopicThreshold: 2 },
+          chatConfig: { autoCreateTopicThreshold: 2, enableAutoCreateTopic: true },
         });
 
         act(() => {
@@ -317,7 +331,7 @@ describe('chatMessage actions', () => {
 
       it('should call summaryTopicTitle after processing when new topic created', async () => {
         setupMockSelectors({
-          chatConfig: { enableAutoCreateTopic: true, autoCreateTopicThreshold: 2 },
+          chatConfig: { autoCreateTopicThreshold: 2, enableAutoCreateTopic: true },
         });
 
         act(() => {
@@ -344,7 +358,7 @@ describe('chatMessage actions', () => {
 
       it('should handle topic creation failure gracefully', async () => {
         setupMockSelectors({
-          chatConfig: { enableAutoCreateTopic: true, autoCreateTopicThreshold: 2 },
+          chatConfig: { autoCreateTopicThreshold: 2, enableAutoCreateTopic: true },
         });
 
         act(() => {
@@ -366,6 +380,49 @@ describe('chatMessage actions', () => {
         expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
         expect(updateTopicLoadingSpy).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('sendGroupMessage', () => {
+    it('ignores a message creation that resolves after conversation history is cleared', async () => {
+      let resolveMessageCreation: (messageId: string | undefined) => void;
+      const messageCreationPromise = new Promise<string | undefined>((resolve) => {
+        resolveMessageCreation = resolve;
+      });
+      const state = useChatStore.getState();
+      const internalCreateMessage = vi
+        .spyOn(state, 'internal_createMessage')
+        .mockImplementation(() => messageCreationPromise);
+      const internalRouteGroupUserMessage = vi
+        .spyOn(state, 'internal_routeGroupUserMessage')
+        .mockResolvedValue(undefined);
+
+      act(() => {
+        useChatStore.setState({
+          conversationClearGeneration: 0,
+        });
+      });
+
+      const sendPromise = useChatStore.getState().sendGroupMessage({
+        groupId: TEST_IDS.SESSION_ID,
+        message: TEST_CONTENT.USER_MESSAGE,
+      });
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      act(() => {
+        useChatStore.setState({ conversationClearGeneration: 1, isCreatingMessage: true });
+      });
+
+      await act(async () => {
+        resolveMessageCreation!(TEST_IDS.MESSAGE_ID);
+        await sendPromise;
+      });
+
+      expect(internalRouteGroupUserMessage).not.toHaveBeenCalled();
+      expect(useChatStore.getState().isCreatingMessage).toBe(true);
     });
   });
 
@@ -463,15 +520,15 @@ describe('chatMessage actions', () => {
 
       const { result } = renderHook(() => useChatStore());
       const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
         id: TEST_IDS.USER_MESSAGE_ID,
         role: 'user',
-        content: TEST_CONTENT.USER_MESSAGE,
       });
 
       // ✅ Spy the direct dependency instead of chatService
       const fetchAIChatSpy = vi
         .spyOn(result.current, 'internal_fetchAIChatMessage')
-        .mockResolvedValue({ isFunctionCall: false, content: 'AI response' });
+        .mockResolvedValue({ content: 'AI response', isFunctionCall: false });
 
       const createMessageSpy = vi
         .spyOn(messageService, 'createMessage')
@@ -483,12 +540,13 @@ describe('chatMessage actions', () => {
 
       expect(createMessageSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          role: 'assistant',
           content: LOADING_FLAT,
           parentId: TEST_IDS.USER_MESSAGE_ID,
+          role: 'assistant',
           sessionId: TEST_IDS.SESSION_ID,
           topicId: TEST_IDS.TOPIC_ID,
         }),
+        { expectedConversationVersion: 7 },
       );
 
       expect(fetchAIChatSpy).toHaveBeenCalled();
@@ -502,9 +560,9 @@ describe('chatMessage actions', () => {
 
       const { result } = renderHook(() => useChatStore());
       const userMessage = createMockMessage({
+        content: TEST_CONTENT.RAG_QUERY,
         id: TEST_IDS.USER_MESSAGE_ID,
         role: 'user',
-        content: TEST_CONTENT.RAG_QUERY,
       });
 
       const retrieveChunksSpy = vi
@@ -544,7 +602,7 @@ describe('chatMessage actions', () => {
       // ✅ Spy the direct dependency instead of chatService
       const fetchAIChatSpy = vi
         .spyOn(result.current, 'internal_fetchAIChatMessage')
-        .mockResolvedValue({ isFunctionCall: false, content: '' });
+        .mockResolvedValue({ content: '', isFunctionCall: false });
 
       vi.spyOn(messageService, 'createMessage').mockResolvedValue(undefined as any);
 
@@ -673,14 +731,14 @@ describe('chatMessage actions', () => {
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onMessageHandle, onFinish }) => {
           // Simulate text chunks streaming
-          await onMessageHandle?.({ type: 'text', text: TEST_CONTENT.AI_RESPONSE } as any);
+          await onMessageHandle?.({ text: TEST_CONTENT.AI_RESPONSE, type: 'text' } as any);
           await onFinish?.(TEST_CONTENT.AI_RESPONSE, {});
         });
 
       await act(async () => {
         const response = await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -700,7 +758,7 @@ describe('chatMessage actions', () => {
       };
       const reasoning = { content: 'Reasoning' };
       const toolCalls = [
-        { id: 'tool-1', type: 'function', function: { name: 'test', arguments: '{}' } },
+        { function: { arguments: '{}', name: 'test' }, id: 'tool-1', type: 'function' },
       ];
 
       useChatStore.setState({
@@ -726,8 +784,8 @@ describe('chatMessage actions', () => {
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -774,7 +832,7 @@ describe('chatMessage actions', () => {
           await onMessageHandle?.({
             isAnimationActives: [true],
             tool_calls: [
-              { id: 'tool-1', type: 'function', function: { name: 'test', arguments: '{}' } },
+              { function: { arguments: '{}', name: 'test' }, id: 'tool-1', type: 'function' },
             ],
             type: 'tool_calls',
           } as any);
@@ -784,8 +842,8 @@ describe('chatMessage actions', () => {
 
       await expect(
         useChatStore.getState().internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         }),
@@ -815,17 +873,17 @@ describe('chatMessage actions', () => {
       const streamSpy = vi
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onErrorHandle }) => {
-          await onErrorHandle?.({ type: 'InvalidProviderAPIKey', message: 'Network error' } as any);
+          await onErrorHandle?.({ message: 'Network error', type: 'InvalidProviderAPIKey' } as any);
         });
 
       const updateMessageErrorSpy = vi.spyOn(messageService, 'updateMessageError');
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
-          messages,
-          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
         });
       });
 
@@ -845,23 +903,23 @@ describe('chatMessage actions', () => {
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onMessageHandle, onFinish }) => {
           await onMessageHandle?.({
-            type: 'tool_calls',
             isAnimationActives: [true],
             tool_calls: [
-              { id: 'tool-1', type: 'function', function: { name: 'test', arguments: '{}' } },
+              { function: { arguments: '{}', name: 'test' }, id: 'tool-1', type: 'function' },
             ],
+            type: 'tool_calls',
           } as any);
           await onFinish?.(TEST_CONTENT.AI_RESPONSE, {
             toolCalls: [
-              { id: 'tool-1', type: 'function', function: { name: 'test', arguments: '{}' } },
+              { function: { arguments: '{}', name: 'test' }, id: 'tool-1', type: 'function' },
             ],
           } as any);
         });
 
       await act(async () => {
         const response = await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -879,15 +937,15 @@ describe('chatMessage actions', () => {
       const streamSpy = vi
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onMessageHandle, onFinish }) => {
-          await onMessageHandle?.({ type: 'text', text: 'Hello' } as any);
-          await onMessageHandle?.({ type: 'text', text: ' World' } as any);
+          await onMessageHandle?.({ text: 'Hello', type: 'text' } as any);
+          await onMessageHandle?.({ text: ' World', type: 'text' } as any);
           await onFinish?.('Hello World', {} as any);
         });
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -912,15 +970,15 @@ describe('chatMessage actions', () => {
       const streamSpy = vi
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onMessageHandle, onFinish }) => {
-          await onMessageHandle?.({ type: 'reasoning', text: 'Thinking...' } as any);
-          await onMessageHandle?.({ type: 'text', text: 'Answer' } as any);
+          await onMessageHandle?.({ text: 'Thinking...', type: 'reasoning' } as any);
+          await onMessageHandle?.({ text: 'Answer', type: 'text' } as any);
           await onFinish?.('Answer', {} as any);
         });
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -946,16 +1004,16 @@ describe('chatMessage actions', () => {
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onMessageHandle, onFinish }) => {
           await onMessageHandle?.({
-            type: 'grounding',
             grounding: { citations: [], searchQueries: [] },
+            type: 'grounding',
           } as any);
           await onFinish?.('Answer', {} as any);
         });
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -980,19 +1038,19 @@ describe('chatMessage actions', () => {
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onMessageHandle, onFinish }) => {
           await onMessageHandle?.({
-            type: 'grounding',
             grounding: {
-              citations: [{ url: 'https://example.com', title: 'Example' }],
+              citations: [{ title: 'Example', url: 'https://example.com' }],
               searchQueries: ['test query'],
             },
+            type: 'grounding',
           } as any);
           await onFinish?.('Answer', {} as any);
         });
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -1022,17 +1080,17 @@ describe('chatMessage actions', () => {
         .spyOn(chatService, 'createAssistantMessageStream')
         .mockImplementation(async ({ onMessageHandle, onFinish }) => {
           await onMessageHandle?.({
+            image: { data: 'base64data', id: 'img-1' },
+            images: [{ data: 'base64data', id: 'img-1' }],
             type: 'base64_image',
-            image: { id: 'img-1', data: 'base64data' },
-            images: [{ id: 'img-1', data: 'base64data' }],
           } as any);
           await onFinish?.('Answer', {} as any);
         });
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -1060,15 +1118,15 @@ describe('chatMessage actions', () => {
         .mockImplementation(async ({ onFinish }) => {
           await onFinish?.(TEST_CONTENT.AI_RESPONSE, {
             toolCalls: [
-              { id: 'tool-1', type: 'function', function: { name: 'test', arguments: '' } },
+              { function: { arguments: '', name: 'test' }, id: 'tool-1', type: 'function' },
             ],
           } as any);
         });
 
       await act(async () => {
         const response = await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -1092,8 +1150,8 @@ describe('chatMessage actions', () => {
 
       await act(async () => {
         await result.current.internal_fetchAIChatMessage({
-          messages,
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
           model: 'gpt-4o-mini',
           provider: 'openai',
         });
@@ -1308,6 +1366,7 @@ describe('chatMessage actions', () => {
           TEST_IDS.SESSION_ID,
           { content: user.content, targetId: user.targetId },
           true,
+          7,
         );
         expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
         expect(useChatStore.getState().messagesMap[key]).toEqual([user]);
@@ -1317,7 +1376,7 @@ describe('chatMessage actions', () => {
         const { result } = renderHook(() => useChatStore());
         const messages = [
           createMockMessage({ id: 'msg-1', role: 'system' }),
-          createMockMessage({ id: TEST_IDS.MESSAGE_ID, role: 'user', meta: { avatar: '😀' } }),
+          createMockMessage({ id: TEST_IDS.MESSAGE_ID, meta: { avatar: '😀' }, role: 'user' }),
           createMockMessage({ id: 'msg-3', role: 'assistant' }),
         ];
 
@@ -1348,8 +1407,8 @@ describe('chatMessage actions', () => {
         const parentId = 'msg-2';
         const messages = [
           createMockMessage({ id: 'msg-1', role: 'system' }),
-          createMockMessage({ id: parentId, role: 'user', meta: { avatar: '😀' } }),
-          createMockMessage({ id: TEST_IDS.MESSAGE_ID, role: 'assistant', parentId }),
+          createMockMessage({ id: parentId, meta: { avatar: '😀' }, role: 'user' }),
+          createMockMessage({ id: TEST_IDS.MESSAGE_ID, parentId, role: 'assistant' }),
         ];
 
         act(() => {
@@ -1602,7 +1661,7 @@ describe('chatMessage actions', () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [
         createMockMessage({ id: 'msg-1', role: 'user' }),
-        createMockMessage({ id: TEST_IDS.MESSAGE_ID, role: 'assistant', parentId: undefined }),
+        createMockMessage({ id: TEST_IDS.MESSAGE_ID, parentId: undefined, role: 'assistant' }),
       ];
 
       act(() => {
@@ -1649,7 +1708,7 @@ describe('chatMessage actions', () => {
         );
       });
 
-      expect(triggerSupervisor).toHaveBeenCalledWith(groupId, TEST_IDS.TOPIC_ID, true);
+      expect(triggerSupervisor).toHaveBeenCalledWith(groupId, TEST_IDS.TOPIC_ID, true, 7);
       expect(triggerDebounced).not.toHaveBeenCalled();
     });
   });

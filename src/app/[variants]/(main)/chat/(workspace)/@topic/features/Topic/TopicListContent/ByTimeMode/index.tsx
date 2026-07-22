@@ -34,7 +34,7 @@ const ByTimeMode = memo(() => {
 
   const itemContent = useCallback(
     (index: number) => {
-      const { id, favorite, title } = topics[index];
+      const { id, favorite, lastActivityAt, title } = topics[index];
 
       return index === 0 ? (
         <TopicItem active={!activeTopicId} fav={favorite} title={title} />
@@ -44,6 +44,7 @@ const ByTimeMode = memo(() => {
           fav={favorite}
           id={id}
           key={id}
+          lastActivityAt={lastActivityAt}
           threadId={activeThreadId}
           title={title}
         />

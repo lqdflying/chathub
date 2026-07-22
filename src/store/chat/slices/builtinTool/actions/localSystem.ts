@@ -303,21 +303,34 @@ export const localSystemSlice: StateCreator<
     );
   },
   internal_triggerLocalFileToolCalling: async (id, callingService) => {
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration;
+
     get().toggleLocalFileLoading(id, true);
     try {
       const { state, content } = await callingService();
+      if (!invocationIsCurrent()) return false;
+
       if (state) {
         await get().updatePluginState(id, state as any);
+        if (!invocationIsCurrent()) return false;
       }
       await get().internal_updateMessageContent(id, JSON.stringify(content));
+      if (!invocationIsCurrent()) return false;
     } catch (error) {
+      if (!invocationIsCurrent()) return false;
+
       await get().internal_updateMessagePluginError(id, {
         body: error,
         message: (error as Error).message,
         type: 'PluginServerError',
       });
+      if (!invocationIsCurrent()) return false;
     }
-    get().toggleLocalFileLoading(id, false);
+    if (invocationIsCurrent()) {
+      get().toggleLocalFileLoading(id, false);
+    }
 
     return true;
   },

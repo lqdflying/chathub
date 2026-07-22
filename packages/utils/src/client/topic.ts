@@ -7,6 +7,52 @@ import isYesterday from 'dayjs/plugin/isYesterday';
 dayjs.extend(isToday);
 dayjs.extend(isYesterday);
 
+const toTimestamp = (value: Date | number | string | undefined, fallback: number): number => {
+  if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
+
+  const parsedValue = value ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(parsedValue) ? fallback : parsedValue;
+};
+
+export const normalizeTopic = (topic: ChatTopic): ChatTopic => {
+  const createdAt = toTimestamp(topic.createdAt, Date.now());
+  const updatedAt = toTimestamp(topic.updatedAt, createdAt);
+
+  return {
+    ...topic,
+    createdAt,
+    lastActivityAt: toTimestamp(topic.lastActivityAt, updatedAt),
+    updatedAt,
+  };
+};
+
+export const getTopicActivityTimestamp = (topic: ChatTopic): number =>
+  topic.lastActivityAt ?? topic.updatedAt ?? topic.createdAt;
+
+export const formatTopicRelativeTime = (
+  timestamp: number,
+  locale: string,
+  now: number = Date.now(),
+): string => {
+  const differenceInSeconds = Math.round((timestamp - now) / 1000);
+  const absoluteSeconds = Math.abs(differenceInSeconds);
+  const units = [
+    { divisor: 31_536_000, unit: 'year' as const },
+    { divisor: 2_592_000, unit: 'month' as const },
+    { divisor: 604_800, unit: 'week' as const },
+    { divisor: 86_400, unit: 'day' as const },
+    { divisor: 3600, unit: 'hour' as const },
+    { divisor: 60, unit: 'minute' as const },
+  ];
+  const selectedUnit = units.find(({ divisor }) => absoluteSeconds >= divisor) ?? units.at(-1)!;
+
+  return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
+    Math.round(differenceInSeconds / selectedUnit.divisor),
+    selectedUnit.unit,
+  );
+};
+
 const getTopicGroupId = (timestamp: number): TimeGroupId => {
   const date = dayjs(timestamp);
   const now = dayjs();
@@ -67,11 +113,14 @@ const sortGroups = (groups: GroupedTopic[]): GroupedTopic[] => {
 export const groupTopicsByTime = (topics: ChatTopic[]): GroupedTopic[] => {
   if (!topics.length) return [];
 
-  const sortedTopics = [...topics].sort((a, b) => b.createdAt - a.createdAt);
+  const sortedTopics = [...topics].sort(
+    (firstTopic, secondTopic) =>
+      getTopicActivityTimestamp(secondTopic) - getTopicActivityTimestamp(firstTopic),
+  );
   const groupsMap = new Map<TimeGroupId, ChatTopic[]>();
 
   sortedTopics.forEach((topic) => {
-    const groupId = getTopicGroupId(topic.createdAt);
+    const groupId = getTopicGroupId(getTopicActivityTimestamp(topic));
     const existingGroup = groupsMap.get(groupId) || [];
     groupsMap.set(groupId, [...existingGroup, topic]);
   });

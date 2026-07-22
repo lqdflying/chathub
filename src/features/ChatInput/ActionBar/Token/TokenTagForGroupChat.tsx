@@ -11,6 +11,7 @@ import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
+import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
@@ -22,7 +23,8 @@ import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
-import { userProfileSelectors } from '@/store/user/selectors';
+import { useUserStore } from '@/store/user';
+import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
 
 import ActionPopover from '../components/ActionPopover';
@@ -38,6 +40,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
 
   const input = useChatStore((s) => s.inputMessage);
   const activeTopicId = useChatStore((s) => s.activeTopicId);
+  const generalInstruction = useUserStore(userGeneralSettingsSelectors.generalInstruction);
 
   const [model, provider] = useAgentStore((s) => {
     return [
@@ -112,7 +115,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
       const firstAgent = groupAgents[0];
       if (!firstAgent) return '';
 
-      const baseSystemRole = firstAgent.systemRole || '';
+      const baseSystemRole = composeSystemRole(generalInstruction, firstAgent.systemRole);
       const members: GroupMemberInfo[] = agentTitleMap as GroupMemberInfo[];
 
       // Build the group chat system prompt (same as used in agent processing)
@@ -132,7 +135,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
       console.warn('Failed to calculate system role tokens:', error);
       return '';
     }
-  }, [groupAgents, messageString]);
+  }, [generalInstruction, groupAgents, messageString]);
 
   const systemRoleToken = useTokenCount(systemRolePerAgentString);
 

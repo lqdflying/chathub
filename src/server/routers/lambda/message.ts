@@ -6,6 +6,11 @@ import { updateMessagePluginSchema } from '@/database/schemas';
 import { getServerDB } from '@/database/server';
 import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import {
+  getConversationVersion,
+  withConversationClearLock,
+  withConversationWriteLockOrThrow,
+} from '@/server/services/conversationWriteLock';
 import { FileService } from '@/server/services/file';
 
 type ChatMessageList = UIChatMessage[];
@@ -23,9 +28,29 @@ const messageProcedure = authedProcedure.use(serverDatabase).use(async (opts) =>
 
 export const messageRouter = router({
   batchCreateMessages: messageProcedure
-    .input(z.array(z.any()))
+    .input(
+      z.union([
+        z.array(z.any()),
+        z.object({
+          expectedConversationVersion: z.number().optional(),
+          messages: z.array(z.any()),
+        }),
+      ]),
+    )
     .mutation(async ({ input, ctx }): Promise<BatchTaskResult> => {
-      const data = await ctx.messageModel.batchCreate(input);
+      const expectedConversationVersion = Array.isArray(input)
+        ? undefined
+        : input.expectedConversationVersion;
+      const messages = Array.isArray(input) ? input : input.messages;
+      const data = await withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const messageModel = new MessageModel(transaction, ctx.userId);
+          return messageModel.batchCreate(messages);
+        },
+        expectedConversationVersion,
+      );
 
       return { added: data.rowCount as number, ids: [], skips: [], success: true };
     }),
@@ -61,7 +86,16 @@ export const messageRouter = router({
   createMessage: messageProcedure
     .input(z.object({}).passthrough().partial())
     .mutation(async ({ input, ctx }) => {
-      const data = await ctx.messageModel.create(input as any);
+      const { expectedConversationVersion, ...message } = input;
+      const data = await withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const messageModel = new MessageModel(transaction, ctx.userId);
+          return messageModel.create(message as any);
+        },
+        expectedConversationVersion as number | undefined,
+      );
 
       return data.id;
     }),
@@ -69,9 +103,18 @@ export const messageRouter = router({
   createNewMessage: messageProcedure
     .input(z.object({}).passthrough().partial())
     .mutation(async ({ input, ctx }) => {
-      return ctx.messageModel.createNewMessage(input as any, {
-        postProcessUrl: (path) => ctx.fileService.getUIFileUrl(path),
-      });
+      const { expectedConversationVersion, ...message } = input;
+      return withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const messageModel = new MessageModel(transaction, ctx.userId);
+          return messageModel.createNewMessage(message as any, {
+            postProcessUrl: (path) => ctx.fileService.getUIFileUrl(path),
+          });
+        },
+        expectedConversationVersion as number | undefined,
+      );
     }),
 
   // TODO: it will be removed in V2
@@ -89,6 +132,10 @@ export const messageRouter = router({
     .query(async ({ ctx, input }): Promise<ChatMessageList> => {
       return ctx.messageModel.queryBySessionId(input.sessionId) as any;
     }),
+
+  getConversationVersion: messageProcedure.query(async ({ ctx }) => {
+    return getConversationVersion(ctx.serverDB, ctx.userId);
+  }),
 
   getHeatmaps: messageProcedure.query(async ({ ctx }) => {
     return ctx.messageModel.getHeatmaps();
@@ -123,6 +170,14 @@ export const messageRouter = router({
 
   removeAllMessages: messageProcedure.mutation(async ({ ctx }) => {
     return ctx.messageModel.deleteAllMessages();
+  }),
+
+  removeAllTopicsHistory: messageProcedure.mutation(async ({ ctx }) => {
+    return withConversationClearLock(ctx.serverDB, ctx.userId, async (transaction) => {
+      const messageModel = new MessageModel(transaction, ctx.userId);
+
+      return messageModel.deleteAllTopicsHistoryInTransaction(transaction);
+    });
   }),
 
   removeMessage: messageProcedure

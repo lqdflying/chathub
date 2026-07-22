@@ -11,7 +11,7 @@ import {
   Trash,
   Wand2,
 } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -21,6 +21,8 @@ import { isDesktop } from '@/const/version';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useChatStore } from '@/store/chat';
 import { useGlobalStore } from '@/store/global';
+import { globalGeneralSelectors } from '@/store/global/selectors';
+import { formatTopicRelativeTime } from '@/utils/client/topic';
 
 const useStyles = createStyles(({ css }) => ({
   content: css`
@@ -39,14 +41,17 @@ const useStyles = createStyles(({ css }) => ({
 interface TopicContentProps {
   fav?: boolean;
   id: string;
+  lastActivityAt?: number;
   showMore?: boolean;
   title: string;
 }
 
-const TopicContent = memo<TopicContentProps>(({ id, title, fav, showMore }) => {
+const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, showMore }) => {
   const { t } = useTranslation(['topic', 'common']);
 
   const mobile = useIsMobile();
+  const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
+  const [, setActivityRefreshTime] = useState(() => Date.now());
 
   const openTopicInNewWindow = useGlobalStore((s) => s.openTopicInNewWindow);
 
@@ -70,6 +75,19 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, showMore }) => {
     s.activeId,
   ]);
   const { styles, theme } = useStyles();
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setActivityRefreshTime(Date.now());
+    }, 30_000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const activityTime = lastActivityAt ? new Date(lastActivityAt) : undefined;
+  const activityLabel = activityTime
+    ? formatTopicRelativeTime(activityTime.getTime(), locale)
+    : undefined;
 
   const toggleEditing = (visible?: boolean) => {
     useChatStore.setState({ topicRenamingId: visible ? id : '' });
@@ -185,18 +203,33 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, showMore }) => {
             <BubblesLoading />
           </Flexbox>
         ) : (
-          <Text
-            className={styles.title}
-            ellipsis={{ rows: 1, tooltip: { placement: 'left', title } }}
-            onDoubleClick={() => {
-              if (isDesktop) {
-                openTopicInNewWindow(activeId, id)
-              }
-            }}
-            style={{ margin: 0 }}
-          >
-            {title}
-          </Text>
+          <Flexbox flex={1} style={{ minWidth: 0 }}>
+            <Text
+              className={styles.title}
+              ellipsis={{ rows: 1, tooltip: { placement: 'left', title } }}
+              onDoubleClick={() => {
+                if (isDesktop) {
+                  openTopicInNewWindow(activeId, id);
+                }
+              }}
+              style={{ margin: 0 }}
+            >
+              {title}
+            </Text>
+            {activityTime && activityLabel && (
+              <time
+                dateTime={activityTime.toISOString()}
+                style={{
+                  color: theme.colorTextDescription,
+                  fontSize: 11,
+                  lineHeight: '14px',
+                }}
+                title={activityTime.toLocaleString(locale)}
+              >
+                {activityLabel}
+              </time>
+            )}
+          </Flexbox>
         )
       ) : (
         <EditableText

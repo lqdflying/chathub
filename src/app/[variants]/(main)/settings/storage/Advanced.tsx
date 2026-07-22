@@ -12,9 +12,6 @@ import { DEFAULT_SETTINGS } from '@/const/settings';
 import DataImporter from '@/features/DataImporter';
 import { configService } from '@/services/config';
 import { useChatStore } from '@/store/chat';
-import { useFileStore } from '@/store/file';
-import { useSessionStore } from '@/store/session';
-import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 import { settingsSelectors } from '@/store/user/selectors';
 
@@ -22,16 +19,7 @@ const AdvancedActions = () => {
   const { t } = useTranslation('setting');
   const [form] = Form.useForm();
   const { message, modal } = App.useApp();
-  const [clearSessions, clearSessionGroups] = useSessionStore((s) => [
-    s.clearSessions,
-    s.clearSessionGroups,
-  ]);
-  const [clearTopics, clearAllMessages] = useChatStore((s) => [
-    s.removeAllTopics,
-    s.clearAllMessages,
-  ]);
-  const [removeAllFiles] = useFileStore((s) => [s.removeAllFiles]);
-  const removeAllPlugins = useToolStore((s) => s.removeAllPlugins);
+  const clearAllTopicsHistory = useChatStore((s) => s.clearAllMessages);
   const settings = useUserStore(settingsSelectors.currentSettings, isEqual);
   const [resetSettings] = useUserStore((s) => [s.resetSettings]);
 
@@ -42,12 +30,7 @@ const AdvancedActions = () => {
         danger: true,
       },
       onOk: async () => {
-        await clearSessions();
-        await removeAllPlugins();
-        await clearTopics();
-        await removeAllFiles();
-        await clearAllMessages();
-        await clearSessionGroups();
+        await clearAllTopicsHistory();
 
         message.success(t('danger.clear.success'));
       },

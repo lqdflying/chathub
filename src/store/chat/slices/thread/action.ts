@@ -15,6 +15,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
+import { messageService } from '@/services/message';
 import { threadService } from '@/services/thread';
 import { threadSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
@@ -41,6 +42,7 @@ export interface ChatThreadAction {
   resendThreadMessage: (messageId: string) => Promise<void>;
   delAndResendThreadMessage: (messageId: string) => Promise<void>;
   createThread: (params: {
+    expectedConversationVersion?: number;
     message: CreateMessageParams;
     sourceMessageId: string;
     topicId: string;
@@ -112,6 +114,7 @@ export const chatThreadMessage: StateCreator<
     // if message is empty or no files, then stop
     if (!message) return;
 
+    const expectedConversationVersion = await messageService.getConversationVersion();
     set({ isCreatingThreadMessage: true }, false, n('creatingThreadMessage/start'));
 
     const newMessage: CreateMessageParams = {
@@ -139,6 +142,7 @@ export const chatThreadMessage: StateCreator<
       get().internal_toggleMessageLoading(true, tempMessageId);
 
       const { threadId, messageId } = await get().createThread({
+        expectedConversationVersion,
         message: newMessage,
         sourceMessageId: threadStartMessageId,
         topicId: activeTopicId,
@@ -158,7 +162,10 @@ export const chatThreadMessage: StateCreator<
       tempMessageId = get().internal_createTmpMessage(newMessage);
       get().internal_toggleMessageLoading(true, tempMessageId);
 
-      parentMessageId = await get().internal_createMessage(newMessage, { tempMessageId });
+      parentMessageId = await get().internal_createMessage(newMessage, {
+        expectedConversationVersion,
+        tempMessageId,
+      });
     }
 
     get().internal_toggleMessageLoading(false, tempMessageId);
@@ -171,6 +178,7 @@ export const chatThreadMessage: StateCreator<
     const messages = threadSelectors.portalAIChats(get());
 
     await internal_coreProcessMessage(messages, parentMessageId, {
+      expectedConversationVersion,
       ragQuery: get().internal_shouldUseRAG() ? message : undefined,
       threadId: get().portalThreadId,
       inPortalThread: true,
@@ -200,15 +208,24 @@ export const chatThreadMessage: StateCreator<
   delAndResendThreadMessage: async (id) => {
     await get().resendThreadMessage(id);
   },
-  createThread: async ({ message, sourceMessageId, topicId, type }) => {
+  createThread: async ({
+    expectedConversationVersion,
+    message,
+    sourceMessageId,
+    topicId,
+    type,
+  }) => {
     set({ isCreatingThread: true }, false, n('creatingThread/start'));
 
-    const data = await threadService.createThreadWithMessage({
-      topicId,
-      sourceMessageId,
-      type,
-      message,
-    });
+    const data = await threadService.createThreadWithMessage(
+      {
+        topicId,
+        sourceMessageId,
+        type,
+        message,
+      },
+      expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
+    );
     set({ isCreatingThread: false }, false, n('creatingThread/end'));
 
     return data;

@@ -14,6 +14,8 @@ import {
 } from '@lobechat/types';
 import type { HeatmapsProps } from '@lobehub/charts';
 
+import type { ConversationWriteOptions } from '@/services/conversationWrite';
+
 /* eslint-disable typescript-sort-keys/interface */
 
 export interface MessageOperationOptions {
@@ -23,10 +25,17 @@ export interface MessageOperationOptions {
 }
 
 export interface IMessageService {
-  createMessage(data: CreateMessageParams): Promise<string>;
-  createNewMessage(data: CreateMessageParams): Promise<CreateMessageResult>;
-  batchCreateMessages(messages: DBMessageItem[]): Promise<any>;
+  createMessage(data: CreateMessageParams, options?: ConversationWriteOptions): Promise<string>;
+  createNewMessage(
+    data: CreateMessageParams,
+    options?: ConversationWriteOptions,
+  ): Promise<CreateMessageResult>;
+  batchCreateMessages(
+    messages: DBMessageItem[],
+    options?: ConversationWriteOptions,
+  ): Promise<any>;
 
+  getConversationVersion(): Promise<number | undefined>;
   getMessages(sessionId: string, topicId?: string, groupId?: string): Promise<UIChatMessage[]>;
   getGroupMessages(groupId: string, topicId?: string): Promise<UIChatMessage[]>;
   getAllMessages(): Promise<UIChatMessage[]>;
@@ -61,6 +70,10 @@ export interface IMessageService {
   removeMessagesByAssistant(assistantId: string, topicId?: string): Promise<any>;
   removeMessagesByGroup(groupId: string, topicId?: string): Promise<any>;
   removeAllMessages(): Promise<any>;
+  removeAllTopicsHistory(): Promise<{
+    deletedMessageCount: number;
+    deletedTopicCount: number;
+  }>;
   messageCountToCheckTrace(): Promise<boolean>;
   hasMessages(): Promise<boolean>;
 }

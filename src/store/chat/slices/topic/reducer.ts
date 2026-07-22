@@ -10,6 +10,7 @@ interface AddChatTopicAction {
 
 interface UpdateChatTopicAction {
   id: string;
+  touchActivity?: boolean;
   type: 'updateTopic';
   value: Partial<ChatTopic>;
 }
@@ -30,6 +31,15 @@ export type ChatTopicDispatch =
   | DeleteChatTopicAction
   | UpdateTopicsAction;
 
+const compareTopicsByActivity = (firstTopic: ChatTopic, secondTopic: ChatTopic): number => {
+  const favoriteDifference = Number(secondTopic.favorite) - Number(firstTopic.favorite);
+  if (favoriteDifference !== 0) return favoriteDifference;
+
+  const firstActivity = firstTopic.lastActivityAt ?? firstTopic.updatedAt;
+  const secondActivity = secondTopic.lastActivityAt ?? secondTopic.updatedAt;
+  return secondActivity - firstActivity;
+};
+
 export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch): ChatTopic[] => {
   switch (payload.type) {
     case 'addTopic': {
@@ -39,11 +49,12 @@ export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch
           createdAt: Date.now(),
           favorite: false,
           id: payload.value.id ?? Date.now().toString(),
+          lastActivityAt: Date.now(),
           sessionId: payload.value.sessionId ? payload.value.sessionId : undefined,
           updatedAt: Date.now(),
         });
 
-        return draftState.sort((a, b) => Number(b.favorite) - Number(a.favorite));
+        return draftState.sort(compareTopicsByActivity);
       });
     }
 
@@ -53,15 +64,21 @@ export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch
         const topicIndex = draftState.findIndex((topic) => topic.id === id);
 
         if (topicIndex !== -1) {
-          // TODO: updatedAt 类型后续需要修改为 Date
-          // @ts-ignore
-          draftState[topicIndex] = { ...draftState[topicIndex], ...value, updatedAt: new Date() };
+          const activityTimestamp = payload.touchActivity
+            ? Date.now()
+            : value.lastActivityAt ?? draftState[topicIndex].lastActivityAt;
+          draftState[topicIndex] = {
+            ...draftState[topicIndex],
+            ...value,
+            lastActivityAt: activityTimestamp,
+            updatedAt: Date.now(),
+          };
         }
       });
     }
 
     case 'updateTopics': {
-      return payload.value;
+      return [...payload.value].sort(compareTopicsByActivity);
     }
 
     case 'deleteTopic': {

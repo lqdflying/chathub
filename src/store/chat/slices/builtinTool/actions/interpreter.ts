@@ -27,7 +27,7 @@ export interface ChatCodeInterpreterAction {
     params: CodeInterpreterParams,
   ) => Promise<{
     data: unknown;
-    outcome: 'completed' | 'failed';
+    outcome: 'cancelled' | 'completed' | 'failed';
     shouldContinue: boolean;
   }>;
   toggleInterpreterExecuting: (id: string, loading: boolean) => void;
@@ -35,7 +35,11 @@ export interface ChatCodeInterpreterAction {
     id: string,
     updater: (data: CodeInterpreterResponse) => void,
   ) => Promise<void>;
-  uploadInterpreterFiles: (id: string, files: CodeInterpreterFileItem[]) => Promise<void>;
+  uploadInterpreterFiles: (
+    id: string,
+    files: CodeInterpreterFileItem[],
+    expectedGeneration?: number,
+  ) => Promise<void>;
   useFetchInterpreterFileItem: (id?: string) => SWRResponse;
 }
 
@@ -46,14 +50,11 @@ export const codeInterpreterSlice: StateCreator<
   ChatCodeInterpreterAction
 > = (set, get) => ({
   python: async (id: string, params: CodeInterpreterParams) => {
-    const {
-      toggleInterpreterExecuting,
-      updatePluginState,
-      internal_updateMessageContent,
-      uploadInterpreterFiles,
-    } = get();
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration;
 
-    toggleInterpreterExecuting(id, true);
+    get().toggleInterpreterExecuting(id, true);
 
     // TODO: 应该只下载 AI 用到的文件
     const files: File[] = [];
@@ -82,12 +83,30 @@ export const codeInterpreterSlice: StateCreator<
     }
 
     try {
+      if (!invocationIsCurrent()) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      }
+
       const result = await pythonService.runPython(params.code, params.packages, files);
+      if (!invocationIsCurrent()) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      }
+
       if (result?.files) {
-        await internal_updateMessageContent(id, JSON.stringify(result));
-        await uploadInterpreterFiles(id, result.files);
+        await get().internal_updateMessageContent(id, JSON.stringify(result));
+        if (!invocationIsCurrent()) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
+
+        await get().uploadInterpreterFiles(id, result.files, invocationGeneration);
+        if (!invocationIsCurrent()) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
       } else {
-        await internal_updateMessageContent(id, JSON.stringify(result));
+        await get().internal_updateMessageContent(id, JSON.stringify(result));
+        if (!invocationIsCurrent()) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
       }
 
       return {
@@ -96,7 +115,11 @@ export const codeInterpreterSlice: StateCreator<
         shouldContinue: true,
       };
     } catch (error) {
-      await updatePluginState(id, { error });
+      if (!invocationIsCurrent()) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      }
+
+      await get().updatePluginState(id, { error });
 
       return {
         data: error,
@@ -104,7 +127,9 @@ export const codeInterpreterSlice: StateCreator<
         shouldContinue: false,
       };
     } finally {
-      toggleInterpreterExecuting(id, false);
+      if (invocationIsCurrent()) {
+        get().toggleInterpreterExecuting(id, false);
+      }
     }
   },
 
@@ -131,22 +156,24 @@ export const codeInterpreterSlice: StateCreator<
     await get().internal_updateMessageContent(id, JSON.stringify(nextResult));
   },
 
-  uploadInterpreterFiles: async (id: string, files: CodeInterpreterFileItem[]) => {
-    const { updateInterpreterFileItem } = get();
-
+  uploadInterpreterFiles: async (id, files, expectedGeneration) => {
     if (!files) return;
+    const invocationIsCurrent = () =>
+      expectedGeneration === undefined ||
+      get().conversationClearGeneration === expectedGeneration;
 
     await pMap(files, async (file, index) => {
-      if (!file.data) return;
+      if (!file.data || !invocationIsCurrent()) return;
 
       try {
         const uploadResult = await useFileStore.getState().uploadWithProgress({
           file: file.data,
           skipCheckFileType: true,
         });
+        if (!invocationIsCurrent()) return;
 
         if (uploadResult?.id) {
-          await updateInterpreterFileItem(id, (draft) => {
+          await get().updateInterpreterFileItem(id, (draft) => {
             if (draft.files?.[index]) {
               draft.files[index].fileId = uploadResult.id;
               draft.files[index].previewUrl = undefined;

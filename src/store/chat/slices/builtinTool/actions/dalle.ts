@@ -32,7 +32,10 @@ export const dalleSlice: StateCreator<
   ChatDallEAction
 > = (set, get) => ({
   generateImageFromPrompts: async (items, messageId) => {
-    const { toggleDallEImageLoading, updateImageItem } = get();
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration;
+
     // eslint-disable-next-line unicorn/consistent-function-scoping
     const getMessageById = (id: string) => chatSelectors.getMessageById(id)(get());
 
@@ -44,37 +47,45 @@ export const dalleSlice: StateCreator<
     let errorArray: any[] = [];
 
     await pMap(items, async (params, index) => {
-      toggleDallEImageLoading(messageId + params.prompt, true);
+      if (!invocationIsCurrent()) return;
+
+      get().toggleDallEImageLoading(messageId + params.prompt, true);
 
       let url = '';
       try {
         url = await imageGenerationService.generateImage(params);
       } catch (e) {
-        toggleDallEImageLoading(messageId + params.prompt, false);
+        if (!invocationIsCurrent()) return;
+
+        get().toggleDallEImageLoading(messageId + params.prompt, false);
         errorArray[index] = e;
 
         await get().updatePluginState(messageId, { error: errorArray });
       }
+      if (!invocationIsCurrent()) return;
 
       if (!url) return;
 
-      await updateImageItem(messageId, (draft) => {
+      await get().updateImageItem(messageId, (draft) => {
         draft[index].previewUrl = url;
       });
+      if (!invocationIsCurrent()) return;
 
-      toggleDallEImageLoading(messageId + params.prompt, false);
+      get().toggleDallEImageLoading(messageId + params.prompt, false);
       const imageFile = await uploadService.getImageFileByUrlWithCORS(
         url,
         `${originPrompt || params.prompt}_${index}.png`,
       );
+      if (!invocationIsCurrent()) return;
 
       const data = await useFileStore.getState().uploadWithProgress({
         file: imageFile,
       });
+      if (!invocationIsCurrent()) return;
 
       if (!data) return;
 
-      await updateImageItem(messageId, (draft) => {
+      await get().updateImageItem(messageId, (draft) => {
         draft[index].imageId = data.id;
         draft[index].previewUrl = undefined;
       });

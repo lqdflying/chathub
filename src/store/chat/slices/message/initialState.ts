@@ -15,6 +15,8 @@ export interface ChatMessageState {
    * Derived from session.type, used for caching to avoid repeated lookups
    */
   activeSessionType?: 'agent' | 'group';
+  /** Incremented when conversation history is cleared to invalidate stale producers */
+  conversationClearGeneration: number;
   /**
    * Group agents maps by group ID
    */
@@ -62,6 +64,7 @@ export interface ChatMessageState {
 export const initialMessageState: ChatMessageState = {
   activeId: 'inbox',
   activeSessionType: undefined,
+  conversationClearGeneration: 0,
   groupAgentMaps: {},
   groupMaps: {},
   groupsInit: false,

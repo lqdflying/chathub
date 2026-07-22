@@ -1,6 +1,7 @@
 /* eslint-disable typescript-sort-keys/interface */
 import { CreateMessageParams } from '@lobechat/types';
 
+import type { ConversationWriteOptions } from '@/services/conversationWrite';
 import { CreateThreadParams, ThreadItem } from '@/types/topic';
 
 interface CreateThreadWithMessageParams extends CreateThreadParams {
@@ -13,7 +14,8 @@ export interface IThreadService {
   createThreadWithMessage({
     message,
     ...params
-  }: CreateThreadWithMessageParams): Promise<{ messageId: string; threadId: string }>;
+  }: CreateThreadWithMessageParams,
+  options?: ConversationWriteOptions): Promise<{ messageId: string; threadId: string }>;
 
   updateThread(id: string, data: Partial<ThreadItem>): Promise<any>;
   //

@@ -26,11 +26,18 @@ const FlatMode = memo(() => {
   );
 
   const itemContent = useCallback(
-    (index: number, { id, favorite, title }: ChatTopic) =>
+    (index: number, { id, favorite, lastActivityAt, title }: ChatTopic) =>
       index === 0 ? (
         <TopicItem active={!activeTopicId} fav={favorite} title={title} />
       ) : (
-        <TopicItem active={activeTopicId === id} fav={favorite} id={id} key={id} title={title} />
+        <TopicItem
+          active={activeTopicId === id}
+          fav={favorite}
+          id={id}
+          key={id}
+          lastActivityAt={lastActivityAt}
+          title={title}
+        />
       ),
     [activeTopicId],
   );

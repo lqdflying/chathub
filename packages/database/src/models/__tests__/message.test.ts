@@ -14,6 +14,7 @@ import {
   fileChunks,
   files,
   messagePlugins,
+  messageGroups,
   messageQueries,
   messageQueryChunks,
   messageTTS,
@@ -24,6 +25,8 @@ import {
   threads,
   topics,
   users,
+  userInstalledPlugins,
+  userSettings,
 } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
 import { MessageModel } from '../message';
@@ -746,6 +749,28 @@ describe('MessageModel', () => {
       const result = await serverDB.select().from(messages).where(eq(messages.userId, userId));
       expect(result).toHaveLength(1);
       expect(result[0].content).toBe('new message');
+    });
+
+    it('should touch the associated topic activity when creating a message', async () => {
+      const previousActivityAt = new Date('2024-01-01T00:00:00.000Z');
+      await serverDB.insert(topics).values({
+        id: 'message-activity-topic',
+        lastActivityAt: previousActivityAt,
+        userId,
+      });
+
+      await messageModel.create({
+        content: 'new topic message',
+        role: 'user',
+        topicId: 'message-activity-topic',
+      });
+
+      const [updatedTopic] = await serverDB
+        .select()
+        .from(topics)
+        .where(eq(topics.id, 'message-activity-topic'));
+
+      expect(updatedTopic.lastActivityAt.getTime()).toBeGreaterThan(previousActivityAt.getTime());
     });
 
     it('should create a message', async () => {
@@ -1562,6 +1587,59 @@ describe('MessageModel', () => {
       const otherResult = await serverDB.select().from(messages).where(eq(messages.userId, '456'));
 
       expect(otherResult).toHaveLength(1);
+    });
+  });
+
+  describe('deleteAllTopicsHistory', () => {
+    it('should clear current-user conversation history while preserving configuration and other users', async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction.insert(chatGroups).values({ id: 'history-group', userId });
+        await transaction.insert(agents).values({ id: 'history-agent', title: 'Preserved assistant', userId });
+        await transaction.insert(userSettings).values({
+          general: { generalInstruction: 'Preserved instruction' },
+          id: userId,
+        });
+        await transaction.insert(userInstalledPlugins).values({
+          identifier: 'preserved-plugin',
+          type: 'customPlugin',
+          userId,
+        });
+        await transaction.insert(topics).values({ id: 'history-topic', userId });
+        await transaction.insert(messages).values([
+          { id: 'topic-history-message', role: 'user', topicId: 'history-topic', userId },
+          { id: 'default-history-message', role: 'user', sessionId: '1', userId },
+          { id: 'group-history-message', role: 'assistant', groupId: 'history-group', userId },
+          { id: 'other-user-message', role: 'user', userId: '456' },
+        ]);
+        await transaction.insert(messageGroups).values({
+          id: 'history-message-group',
+          topicId: 'history-topic',
+          userId,
+        });
+      });
+
+      const result = await messageModel.deleteAllTopicsHistory();
+
+      expect(result).toEqual({ deletedMessageCount: 3, deletedTopicCount: 1 });
+      expect(await serverDB.select().from(topics).where(eq(topics.userId, userId))).toHaveLength(0);
+      expect(
+        await serverDB.select().from(messages).where(eq(messages.userId, userId)),
+      ).toHaveLength(0);
+      expect(
+        await serverDB.select().from(messageGroups).where(eq(messageGroups.userId, userId)),
+      ).toHaveLength(0);
+      expect(await serverDB.select().from(messages).where(eq(messages.userId, '456'))).toHaveLength(1);
+      expect(await serverDB.select().from(sessions).where(eq(sessions.userId, userId))).toHaveLength(1);
+      expect(await serverDB.select().from(files).where(eq(files.userId, userId))).toHaveLength(1);
+      expect(await serverDB.select().from(embeddings).where(eq(embeddings.userId, userId))).toHaveLength(1);
+      expect(await serverDB.select().from(agents).where(eq(agents.userId, userId))).toHaveLength(1);
+      expect(await serverDB.select().from(userSettings).where(eq(userSettings.id, userId))).toHaveLength(1);
+      expect(
+        await serverDB
+          .select()
+          .from(userInstalledPlugins)
+          .where(eq(userInstalledPlugins.userId, userId)),
+      ).toHaveLength(1);
     });
   });
 

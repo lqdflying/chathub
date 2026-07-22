@@ -2,7 +2,7 @@ import { DBMessageItem, TopicRankItem } from '@lobechat/types';
 import { and, asc, count, desc, eq, gt, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import { TopicItem, agentsToSessions, messages, topics } from '../schemas';
-import { LobeChatDatabase } from '../type';
+import { LobeChatDatabase, Transaction } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
 import {
@@ -35,9 +35,9 @@ interface QueryTopicParams {
 
 export class TopicModel {
   private userId: string;
-  private db: LobeChatDatabase;
+  private db: LobeChatDatabase | Transaction;
 
-  constructor(db: LobeChatDatabase, userId: string) {
+  constructor(db: LobeChatDatabase | Transaction, userId: string) {
     this.userId = userId;
     this.db = db;
   }
@@ -52,6 +52,7 @@ export class TopicModel {
           favorite: topics.favorite,
           historySummary: topics.historySummary,
           id: topics.id,
+          lastActivityAt: topics.lastActivityAt,
           metadata: topics.metadata,
           title: topics.title,
           updatedAt: topics.updatedAt,
@@ -60,7 +61,7 @@ export class TopicModel {
         .where(and(eq(topics.userId, this.userId), this.matchContainer(containerId)))
         // In boolean sorting, false is considered "smaller" than true.
         // So here we use desc to ensure that topics with favorite as true are in front.
-        .orderBy(desc(topics.favorite), desc(topics.updatedAt))
+        .orderBy(desc(topics.favorite), desc(topics.lastActivityAt))
         .limit(pageSize)
         .offset(offset)
     );
@@ -117,7 +118,7 @@ export class TopicModel {
 
     // 查询标题匹配的主题
     const topicsByTitle = await this.db.query.topics.findMany({
-      orderBy: [desc(topics.updatedAt)],
+      orderBy: [desc(topics.favorite), desc(topics.lastActivityAt)],
       where: and(
         eq(topics.userId, this.userId),
         this.matchContainer(containerId),
@@ -147,7 +148,7 @@ export class TopicModel {
     // 查询通过消息内容找到的主题
     const topicIds = topicIdsByMessages.map((t) => t.topicId);
     const topicsByMessages = await this.db.query.topics.findMany({
-      orderBy: [desc(topics.updatedAt)],
+      orderBy: [desc(topics.favorite), desc(topics.lastActivityAt)],
       where: and(eq(topics.userId, this.userId), inArray(topics.id, topicIds)),
     });
 
@@ -161,10 +162,13 @@ export class TopicModel {
       }
     }
 
-    // 按更新时间排序
-    return allTopics.sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
+    return allTopics.sort((firstTopic, secondTopic) => {
+      const favoriteDifference =
+        Number(secondTopic.favorite) - Number(firstTopic.favorite);
+      if (favoriteDifference !== 0) return favoriteDifference;
+
+      return secondTopic.lastActivityAt.getTime() - firstTopic.lastActivityAt.getTime();
+    });
   };
   count = async (params?: {
     endDate?: string;
@@ -294,6 +298,7 @@ export class TopicModel {
           ...originalTopic,
           clientId: null,
           id: this.genId(),
+          lastActivityAt: new Date(),
           title: newTitle || originalTopic?.title,
         })
         .returning();
@@ -384,10 +389,17 @@ export class TopicModel {
 
   // **************** Update *************** //
 
-  update = async (id: string, data: Partial<TopicItem>) => {
+  update = async (
+    id: string,
+    data: Partial<TopicItem>,
+    options: { touchActivity?: boolean } = {},
+  ) => {
+    const shouldTouchActivity = options.touchActivity || data.title !== undefined;
+    const lastActivityAt = shouldTouchActivity ? new Date() : data.lastActivityAt;
+
     return this.db
       .update(topics)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...data, lastActivityAt, updatedAt: new Date() })
       .where(and(eq(topics.id, id), eq(topics.userId, this.userId)))
       .returning();
   };

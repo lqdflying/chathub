@@ -150,18 +150,14 @@ export class Sitemap {
     );
 
     // 获取需要分页的类型的页数
-    const [pluginPages] = await Promise.all([
-      this.getPluginPageCount(),
-    ]);
+    const pluginPages = await this.getPluginPageCount();
 
     // 生成分页sitemap链接
-    const paginatedSitemaps = [
-      ...Array.from({ length: pluginPages }, (_, i) =>
-        this._generateSitemapLink(
-          getCanonicalUrl(SITEMAP_BASE_URL, isDev ? `plugins-${i + 1}` : `plugins-${i + 1}.xml`),
-        ),
+    const paginatedSitemaps = Array.from({ length: pluginPages }, (_, i) =>
+      this._generateSitemapLink(
+        getCanonicalUrl(SITEMAP_BASE_URL, isDev ? `plugins-${i + 1}` : `plugins-${i + 1}.xml`),
       ),
-    ];
+    );
 
     return [
       '<?xml version="1.0" encoding="UTF-8"?>',

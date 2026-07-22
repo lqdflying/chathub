@@ -15,6 +15,15 @@ vi.mock('@/components/AntdStaticMethods', () => ({
 
 const initialState = useChatStore.getInitialState();
 
+const createDeferred = <Result>() => {
+  let resolve!: (value: Result) => void;
+  const promise = new Promise<Result>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
+};
+
 const createHTMLRPCError = () =>
   new ToolsRPCResponseError({
     bodyBytes: 615,
@@ -419,7 +428,6 @@ describe('MCP tool-result persistence recovery', () => {
       inPortalThread: undefined,
       inSearchWorkflow: undefined,
       threadId: undefined,
-      traceId: 'trace-id',
       toolCacheDebug: expect.objectContaining({
         batchId: expect.stringMatching(/^tb_[\w-]{20}$/),
         continuationId: expect.stringMatching(/^tc_[\w-]{20}$/),
@@ -434,6 +442,7 @@ describe('MCP tool-result persistence recovery', () => {
           }),
         ]),
       }),
+      traceId: 'trace-id',
     });
     expect(reportToolCompletion).toHaveBeenCalledTimes(2);
     expect(reportToolCompletion).toHaveBeenCalledWith(
@@ -459,6 +468,69 @@ describe('MCP tool-result persistence recovery', () => {
 
     resolveTelemetry({ reported: true });
     await pendingTelemetry;
+  });
+
+  it('does not continue a tool batch that completes after conversation history is cleared', async () => {
+    const assistantId = 'assistant-cleared';
+    const toolMessageId = 'tool-message-cleared';
+    const toolPayload = {
+      apiName: 'python',
+      arguments: '{"code":"print(1)"}',
+      id: 'tool-cleared',
+      identifier: 'builtin',
+      type: 'builtin',
+    } as const;
+    const assistantMessage = {
+      content: '',
+      id: assistantId,
+      role: 'assistant',
+      tools: [toolPayload],
+    } as UIChatMessage;
+    const deferredInvocation = createDeferred<{
+      data: string;
+      outcome: 'completed';
+      shouldContinue: true;
+    }>();
+    const invokeTool = vi.fn().mockReturnValue(deferredInvocation.promise);
+    const toggleToolsCalling = vi.fn().mockResolvedValue(undefined);
+    const triggerAIMessage = vi.fn();
+
+    vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
+      cacheContinuationEnabled: false,
+      toolLifecycleEnabled: false,
+    });
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      conversationClearGeneration: 0,
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      internal_invokeDifferentTypePlugin: invokeTool,
+      internal_toggleMessageInToolsCalling: toggleToolsCalling,
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage],
+      },
+      triggerAIMessage,
+    });
+
+    const toolBatchPromise = useChatStore.getState().triggerToolCalls(assistantId);
+    await vi.waitFor(() => {
+      expect(invokeTool).toHaveBeenCalledOnce();
+    });
+
+    useChatStore.setState((state) => ({
+      conversationClearGeneration: state.conversationClearGeneration + 1,
+      messagesMap: {},
+    }));
+    deferredInvocation.resolve({
+      data: '{"stdout":"stale"}',
+      outcome: 'completed',
+      shouldContinue: true,
+    });
+
+    await toolBatchPromise;
+
+    expect(toggleToolsCalling).not.toHaveBeenCalled();
+    expect(triggerAIMessage).not.toHaveBeenCalled();
   });
 
   it('continues after a handled tool failure explicitly requests continuation', async () => {

@@ -25,6 +25,7 @@ import { sessionSelectors } from '@/store/session/selectors';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
 import { ChatTopic } from '@/types/topic';
+import { normalizeTopic } from '@/utils/client/topic';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -47,7 +48,11 @@ export interface ChatTopicAction {
   removeTopic: (id: string) => Promise<void>;
   removeUnstarredTopic: () => Promise<void>;
   saveToTopic: (sessionId?: string, groupId?: string) => Promise<string | undefined>;
-  createTopic: (sessionId?: string, groupId?: string) => Promise<string | undefined>;
+  createTopic: (
+    sessionId?: string,
+    groupId?: string,
+    expectedConversationVersion?: number,
+  ) => Promise<string | undefined>;
 
   autoRenameTopicTitle: (id: string) => Promise<void>;
   duplicateTopic: (id: string) => Promise<void>;
@@ -67,7 +72,10 @@ export interface ChatTopicAction {
 
   internal_updateTopicTitleInSummary: (id: string, title: string) => void;
   internal_updateTopicLoading: (id: string, loading: boolean) => void;
-  internal_createTopic: (params: CreateTopicParams) => Promise<string>;
+  internal_createTopic: (
+    params: CreateTopicParams,
+    expectedConversationVersion?: number,
+  ) => Promise<string>;
   internal_updateTopic: (id: string, data: Partial<ChatTopic>) => Promise<void>;
   internal_dispatchTopic: (payload: ChatTopicDispatch, action?: any) => void;
 }
@@ -90,19 +98,22 @@ export const chatTopic: StateCreator<
     }
   },
 
-  createTopic: async (sessionId, groupId) => {
+  createTopic: async (sessionId, groupId, expectedConversationVersion) => {
     const { activeId, activeSessionType, internal_createTopic } = get();
 
     const messages = chatSelectors.activeBaseChats(get());
 
     set({ creatingTopic: true }, false, n('creatingTopic/start'));
-    const topicId = await internal_createTopic({
-      title: t('defaultTitle', { ns: 'topic' }),
-      messages: messages.map((m) => m.id),
-      ...(activeSessionType === 'group'
-        ? { groupId: groupId || activeId }
-        : { sessionId: sessionId || activeId }),
-    });
+    const topicId = await internal_createTopic(
+      {
+        title: t('defaultTitle', { ns: 'topic' }),
+        messages: messages.map((m) => m.id),
+        ...(activeSessionType === 'group'
+          ? { groupId: groupId || activeId }
+          : { sessionId: sessionId || activeId }),
+      },
+      expectedConversationVersion,
+    );
     set({ creatingTopic: false }, false, n('creatingTopic/end'));
 
     return topicId;
@@ -158,6 +169,7 @@ export const chatTopic: StateCreator<
 
   duplicateTopic: async (id) => {
     const { refreshTopic, switchTopic } = get();
+    const expectedConversationVersion = await messageService.getConversationVersion();
 
     const topic = topicSelectors.getTopicById(id)(get());
     if (!topic) return;
@@ -170,7 +182,9 @@ export const chatTopic: StateCreator<
       duration: 0,
     });
 
-    const newTopicId = await topicService.cloneTopic(id, newTitle);
+    const newTopicId = await topicService.cloneTopic(id, newTitle, {
+      expectedConversationVersion,
+    });
     await refreshTopic();
     message.destroy('duplicateTopic');
     message.success(t('duplicateSuccess', { ns: 'topic' }));
@@ -219,7 +233,17 @@ export const chatTopic: StateCreator<
   },
 
   updateTopicTitle: async (id, title) => {
-    await get().internal_updateTopic(id, { title });
+    const lastActivityAt = Date.now();
+    get().internal_dispatchTopic({
+      id,
+      touchActivity: true,
+      type: 'updateTopic',
+      value: { lastActivityAt, title },
+    });
+    get().internal_updateTopicLoading(id, true);
+    await topicService.updateTopic(id, { title }, { touchActivity: true });
+    await get().refreshTopic();
+    get().internal_updateTopicLoading(id, false);
   },
 
   autoRenameTopicTitle: async (id) => {
@@ -236,8 +260,10 @@ export const chatTopic: StateCreator<
   useFetchTopics: (enable, containerId) =>
     useClientDataSWR<ChatTopic[]>(
       enable ? [SWR_USE_FETCH_TOPIC, containerId] : null,
-      async ([, containerId]: [string, string | undefined]) =>
-        topicService.getTopics({ containerId }),
+      async ([, containerId]: [string, string | undefined]) => {
+        const topics = await topicService.getTopics({ containerId });
+        return topics.map(normalizeTopic);
+      },
       {
         onSuccess: (topics) => {
           if (!containerId) return;
@@ -263,7 +289,10 @@ export const chatTopic: StateCreator<
         string,
         string | undefined,
         string | undefined,
-      ]) => topicService.searchTopics(keywords, sessionId, groupId),
+      ]) =>
+        topicService
+          .searchTopics(keywords, sessionId, groupId)
+          .then((topics) => topics.map(normalizeTopic)),
       {
         onSuccess: (data) => {
           set(
@@ -401,7 +430,8 @@ export const chatTopic: StateCreator<
     await get().refreshTopic();
     get().internal_updateTopicLoading(id, false);
   },
-  internal_createTopic: async (params) => {
+  internal_createTopic: async (params, expectedConversationVersion) => {
+    const conversationClearGeneration = get().conversationClearGeneration;
     const tmpId = Date.now().toString();
     get().internal_dispatchTopic(
       { type: 'addTopic', value: { ...params, id: tmpId } },
@@ -409,7 +439,12 @@ export const chatTopic: StateCreator<
     );
 
     get().internal_updateTopicLoading(tmpId, true);
-    const topicId = await topicService.createTopic(params);
+    const topicId = await topicService.createTopic(
+      params,
+      expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
+    );
+    if (get().conversationClearGeneration !== conversationClearGeneration) return topicId;
+
     get().internal_updateTopicLoading(tmpId, false);
 
     get().internal_updateTopicLoading(topicId, true);

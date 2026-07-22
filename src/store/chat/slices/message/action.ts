@@ -16,7 +16,7 @@ import {
   type UpdateMessageParams,
   UpdateMessageRAGParams,
 } from '@lobechat/types';
-import type { ChatHubRPCDiagnosticOperation } from '@lobechat/const';
+import { MESSAGE_CANCEL_FLAT, type ChatHubRPCDiagnosticOperation } from '@lobechat/const';
 import { nanoid } from '@lobechat/utils';
 import { copyToClipboard } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
@@ -33,6 +33,7 @@ import { ChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
+import { useToolStore } from '@/store/tool';
 import { Action, setNamespace } from '@/utils/storeDebug';
 
 import type { ChatStoreState } from '../../initialState';
@@ -43,11 +44,26 @@ import { MessageDispatch, messagesReducer } from './reducer';
 const n = setNamespace('m');
 
 const SWR_USE_FETCH_MESSAGES = 'SWR_USE_FETCH_MESSAGES';
+const conversationCacheKeys = new Set([
+  SWR_USE_FETCH_MESSAGES,
+  'SWR_USE_FETCH_TOPIC',
+  'SWR_USE_FETCH_THREADS',
+]);
+
+const isConversationCacheKey = (key: unknown): boolean => {
+  if (!Array.isArray(key)) return false;
+
+  return conversationCacheKeys.has(key[0] as string);
+};
 
 export interface ChatMessageAction {
   // create
   addAIMessage: () => Promise<void>;
-  addUserMessage: (params: { message: string; fileList?: string[] }) => Promise<void>;
+  addUserMessage: (params: {
+    expectedConversationVersion?: number;
+    fileList?: string[];
+    message: string;
+  }) => Promise<void>;
   // delete
   /**
    * clear message on the active session
@@ -121,7 +137,11 @@ export interface ChatMessageAction {
    */
   internal_createMessage: (
     params: CreateMessageParams,
-    context?: { tempMessageId?: string; skipRefresh?: boolean },
+    context?: {
+      expectedConversationVersion?: number;
+      skipRefresh?: boolean;
+      tempMessageId?: string;
+    },
   ) => Promise<string | undefined>;
   /**
    * create a temp message for optimistic update
@@ -247,9 +267,114 @@ export const chatMessage: StateCreator<
     switchTopic();
   },
   clearAllMessages: async () => {
-    const { refreshMessages } = get();
-    await messageService.removeAllMessages();
-    await refreshMessages();
+    const {
+      chatLoadingIdsAbortController,
+      internal_cancelAllSupervisorDecisions,
+      mainSendMessageOperations,
+      messageInToolsCallingIdsAbortController,
+      pluginApiAbortControllers,
+      reasoningLoadingIdsAbortController,
+      searchWorkflowLoadingIdsAbortController,
+    } = get();
+
+    set(
+      (state) => ({ conversationClearGeneration: state.conversationClearGeneration + 1 }),
+      false,
+      n('clearAllMessages/start'),
+    );
+
+    chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+
+    for (const abortController of Object.values(pluginApiAbortControllers)) {
+      abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
+
+    for (const [operationKey, operation] of Object.entries(mainSendMessageOperations)) {
+      if (operation.isLoading) {
+        operation.abortController?.abort(MESSAGE_CANCEL_FLAT);
+      }
+      get().internal_toggleSendMessageOperation(operationKey, false);
+    }
+
+    internal_cancelAllSupervisorDecisions();
+    get().internal_toggleChatLoading(false, undefined, n('clearAllMessages/cancelChatLoading'));
+    get().internal_toggleMessageInToolsCalling(
+      false,
+      undefined,
+      n('clearAllMessages/cancelTools'),
+    );
+    get().internal_togglePluginApiCalling(false, undefined, n('clearAllMessages/cancelPlugin'));
+    get().internal_toggleChatReasoning(false, undefined, n('clearAllMessages/cancelReasoning'));
+    get().internal_toggleSearchWorkflow(false);
+    useToolStore.setState({ builtinToolLoading: {} });
+
+    set(
+      {
+        activePageContentUrl: undefined,
+        activeThreadId: undefined,
+        activeTopicId: null as any,
+        chatLoadingIds: [],
+        chatLoadingIdsAbortController: undefined,
+        codeInterpreterExecuting: {},
+        codeInterpreterImageMap: {},
+        conversationClearGeneration: get().conversationClearGeneration,
+        creatingTopic: false,
+        dalleImageLoading: {},
+        dalleImageMap: {},
+        inSearchingMode: false,
+        isCreatingMessage: false,
+        isCreatingThread: false,
+        isCreatingThreadMessage: false,
+        isSearchingTopic: false,
+        messageEditingIds: [],
+        messageLoadingIds: [],
+        messageInToolsCallingIds: [],
+        messageInToolsCallingIdsAbortController: undefined,
+        messageRAGLoadingIds: [],
+        messageRetryingIds: [],
+        messagesInit: false,
+        messagesMap: {},
+        mainSendMessageOperations: {},
+        localFileLoading: {},
+        pluginApiAbortControllers: {},
+        pluginApiLoadingIds: [],
+        portalMessageDetail: undefined,
+        portalThreadId: undefined,
+        portalToolMessage: undefined,
+        reasoningLoadingIds: [],
+        reasoningLoadingIdsAbortController: undefined,
+        searchTopics: [],
+        searchLoading: {},
+        searchWorkflowLoadingIds: [],
+        searchWorkflowLoadingIdsAbortController: undefined,
+        topicLoadingIds: [],
+        topicMaps: {},
+        topicSearchKeywords: '',
+        showPortal: false,
+        startToForkThread: undefined,
+        supervisorTodos: {},
+        supervisorDebounceTimers: {},
+        supervisorDecisionAbortControllers: {},
+        supervisorDecisionLoading: [],
+        threadStartMessageId: undefined,
+        toolCallingStreamIds: {},
+        threadLoadingIds: [],
+        threadMaps: {},
+        threadInputMessage: '',
+        threadsInit: false,
+        topicsInit: false,
+      },
+      false,
+      n('clearAllMessages'),
+    );
+
+    await messageService.removeAllTopicsHistory();
+
+    await mutate(isConversationCacheKey, undefined, { revalidate: false });
+    await Promise.all([get().refreshMessages(), get().refreshTopic()]);
   },
   addAIMessage: async () => {
     const { internal_createMessage, updateInputMessage, activeTopicId, activeId, inputMessage } =
@@ -266,12 +391,12 @@ export const chatMessage: StateCreator<
 
     updateInputMessage('');
   },
-  addUserMessage: async ({ message, fileList }) => {
+  addUserMessage: async ({ message, fileList, expectedConversationVersion }) => {
     const { internal_createMessage, updateInputMessage, activeTopicId, activeId, activeThreadId } =
       get();
     if (!activeId) return;
 
-    await internal_createMessage({
+    const newMessage: CreateMessageParams = {
       content: message,
       files: fileList,
       role: 'user',
@@ -279,7 +404,13 @@ export const chatMessage: StateCreator<
       // if there is activeTopicId，then add topicId to message
       topicId: activeTopicId,
       threadId: activeThreadId,
-    });
+    };
+
+    if (expectedConversationVersion === undefined) {
+      await internal_createMessage(newMessage);
+    } else {
+      await internal_createMessage(newMessage, { expectedConversationVersion });
+    }
 
     updateInputMessage('');
   },
@@ -482,6 +613,7 @@ export const chatMessage: StateCreator<
       internal_toggleMessageLoading,
       internal_dispatchMessage,
     } = get();
+    const conversationClearGeneration = get().conversationClearGeneration;
     let tempId = context?.tempMessageId;
     if (!tempId) {
       // use optimistic update to avoid the slow waiting
@@ -492,8 +624,15 @@ export const chatMessage: StateCreator<
 
     let id: string;
     try {
-      id = await messageService.createMessage(message);
+      id =
+        context?.expectedConversationVersion === undefined
+          ? await messageService.createMessage(message)
+          : await messageService.createMessage(message, {
+              expectedConversationVersion: context.expectedConversationVersion,
+            });
     } catch (error) {
+      if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
       internal_toggleMessageLoading(false, tempId);
       internal_dispatchMessage({
         id: tempId,
@@ -509,7 +648,24 @@ export const chatMessage: StateCreator<
       return;
     }
 
+    if (get().conversationClearGeneration !== conversationClearGeneration) {
+      await messageService.removeMessage(id);
+      return;
+    }
+
     internal_dispatchMessage({ id: tempId, type: 'updateMessage', value: { id } });
+
+    if (message.topicId) {
+      get().internal_dispatchTopic({
+        id: message.topicId,
+        touchActivity: true,
+        type: 'updateTopic',
+        value: { lastActivityAt: Date.now() },
+      });
+      void get()
+        .refreshTopic()
+        .catch(() => undefined);
+    }
 
     if (!context?.skipRefresh) {
       try {

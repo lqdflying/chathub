@@ -12,6 +12,7 @@ export interface SendNewMessage {
 }
 
 export interface SendMessageServerParams {
+  expectedConversationVersion?: number;
   newAssistantMessage: {
     model: string;
     provider: string;
@@ -28,6 +29,7 @@ export interface SendMessageServerParams {
 }
 
 export const AiSendMessageServerSchema = z.object({
+  expectedConversationVersion: z.number().optional(),
   newAssistantMessage: z.object({
     model: z.string().optional(),
     provider: z.string().optional(),

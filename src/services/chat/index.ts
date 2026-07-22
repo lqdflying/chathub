@@ -49,6 +49,7 @@ import { createTraceHeader, getTraceId } from '@/utils/trace';
 import { createHeaderWithAuth } from '../_auth';
 import { API_ENDPOINTS } from '../_url';
 import { initializeWithClientStore } from './clientModelRuntime';
+import { composeSystemRole } from './composeSystemRole';
 import { contextEngineering } from './contextEngineering';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
@@ -132,6 +133,8 @@ class ChatService {
     const agentStoreState = getAgentStoreState();
     const agentConfig = agentSelectors.currentAgentConfig(agentStoreState);
     const chatConfig = agentChatConfigSelectors.currentChatConfig(agentStoreState);
+    const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
+    const systemRole = composeSystemRole(generalInstruction, agentConfig.systemRole);
 
     // Apply context engineering with preprocessing configuration
     let oaiMessages = await contextEngineering({
@@ -145,7 +148,7 @@ class ChatService {
       model: payload.model,
       provider: payload.provider!,
       sessionId: options?.trace?.sessionId,
-      systemRole: agentConfig.systemRole,
+      systemRole,
       tools: enabledToolIds,
     });
 

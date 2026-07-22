@@ -27,6 +27,7 @@ export const topics = pgTable(
     clientId: text('client_id'),
     historySummary: text('history_summary'),
     metadata: jsonb('metadata').$type<ChatTopicMetadata | undefined>(),
+    lastActivityAt: timestamptz('last_activity_at').notNull().defaultNow(),
     ...timestamps,
   },
   (t) => [

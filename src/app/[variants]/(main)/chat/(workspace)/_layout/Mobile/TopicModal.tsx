@@ -23,6 +23,7 @@ const Topics = memo(({ children }: PropsWithChildren) => {
     <Modal
       allowFullscreen
       footer={null}
+      id="mobile-topic-modal"
       onCancel={() => setOpen(false)}
       open={open}
       styles={{

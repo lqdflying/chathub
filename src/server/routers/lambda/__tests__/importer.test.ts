@@ -2,7 +2,6 @@ import { TRPCError } from '@trpc/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DataImporterRepos } from '@/database/repositories/dataImporter';
-import { FileService } from '@/server/services/file';
 import { ImportResultData } from '@/types/importer';
 
 import { importerRouter } from '../importer';
@@ -11,6 +10,8 @@ const mockGetFileContent = vi.fn();
 const mockDeleteFile = vi.fn();
 const mockImportData = vi.fn();
 const mockImportPgData = vi.fn();
+const mockTransaction = { transaction: 'conversation-write' };
+const mockWithConversationWriteLockOrThrow = vi.fn();
 
 vi.mock('@/database/repositories/dataImporter', () => ({
   DataImporterRepos: vi.fn().mockImplementation(() => ({
@@ -21,15 +22,19 @@ vi.mock('@/database/repositories/dataImporter', () => ({
 
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn().mockImplementation(() => ({
-    getFileContent: mockGetFileContent,
     deleteFile: mockDeleteFile,
+    getFileContent: mockGetFileContent,
   })),
+}));
+vi.mock('@/server/services/conversationWriteLock', () => ({
+  withConversationWriteLockOrThrow: (...args: unknown[]) =>
+    mockWithConversationWriteLockOrThrow(...args),
 }));
 
 describe('importerRouter', () => {
   const mockFileContent = JSON.stringify({
-    version: 1,
     messages: [],
+    version: 1,
   });
 
   const mockPgData = {
@@ -39,23 +44,30 @@ describe('importerRouter', () => {
   };
 
   const mockImportResult: ImportResultData = {
-    success: true,
     results: { messages: { added: 1, errors: 0, skips: 0 } },
+    success: true,
   };
 
   const mockImportErrorResult: ImportResultData = {
-    success: false,
     error: {
-      message: 'Import failed',
       details: 'Error details',
+      message: 'Import failed',
     },
     results: {},
+    success: false,
   };
 
   beforeEach(() => {
     mockGetFileContent.mockResolvedValue(mockFileContent);
     mockImportData.mockResolvedValue(mockImportResult);
     mockImportPgData.mockResolvedValue(mockImportResult);
+    mockWithConversationWriteLockOrThrow.mockImplementation(
+      async (
+        _database: unknown,
+        _userId: string,
+        callback: (transaction: unknown) => Promise<unknown>,
+      ) => callback(mockTransaction),
+    );
   });
 
   afterEach(() => {
@@ -63,18 +75,28 @@ describe('importerRouter', () => {
   });
 
   const ctx = {
-    userId: 'user-1',
     serverDB: {} as any,
+    userId: 'user-1',
   };
 
   describe('importByFile', () => {
     it('should successfully import file data', async () => {
       const caller = importerRouter.createCaller(ctx);
 
-      const result = await caller.importByFile({ pathname: 'test.json' });
+      const result = await caller.importByFile({
+        expectedConversationVersion: 7,
+        pathname: 'test.json',
+      });
 
       expect(result).toEqual(mockImportResult);
       expect(mockGetFileContent).toHaveBeenCalledWith('test.json');
+      expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+        ctx.serverDB,
+        ctx.userId,
+        expect.any(Function),
+        7,
+      );
+      expect(DataImporterRepos).toHaveBeenCalledWith(mockTransaction, ctx.userId);
       expect(mockImportData).toHaveBeenCalledWith(JSON.parse(mockFileContent));
       expect(mockDeleteFile).toHaveBeenCalledWith('test.json');
     });
@@ -87,6 +109,7 @@ describe('importerRouter', () => {
       const result = await caller.importByFile({ pathname: 'test.json' });
 
       expect(result).toEqual(mockImportResult);
+      expect(DataImporterRepos).toHaveBeenCalledWith(mockTransaction, ctx.userId);
       expect(mockImportPgData).toHaveBeenCalledWith(mockPgData);
     });
 
@@ -113,15 +136,23 @@ describe('importerRouter', () => {
 
       const postData = {
         data: {
-          version: 1,
           messages: [],
+          version: 1,
         },
+        expectedConversationVersion: 7,
       };
 
       const result = await caller.importByPost(postData);
 
       expect(result).toEqual(mockImportResult);
+      expect(DataImporterRepos).toHaveBeenCalledWith(mockTransaction, ctx.userId);
       expect(mockImportData).toHaveBeenCalledWith(postData.data);
+      expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+        ctx.serverDB,
+        ctx.userId,
+        expect.any(Function),
+        7,
+      );
     });
 
     it('should handle import failure', async () => {
@@ -131,8 +162,8 @@ describe('importerRouter', () => {
 
       const result = await caller.importByPost({
         data: {
-          version: 1,
           messages: [],
+          version: 1,
         },
       });
 
@@ -144,10 +175,20 @@ describe('importerRouter', () => {
     it('should successfully import PG data', async () => {
       const caller = importerRouter.createCaller(ctx);
 
-      const result = await caller.importPgByPost(mockPgData);
+      const result = await caller.importPgByPost({
+        ...mockPgData,
+        expectedConversationVersion: 7,
+      });
 
       expect(result).toEqual(mockImportResult);
+      expect(DataImporterRepos).toHaveBeenCalledWith(mockTransaction, ctx.userId);
       expect(mockImportPgData).toHaveBeenCalledWith(mockPgData);
+      expect(mockWithConversationWriteLockOrThrow).toHaveBeenCalledWith(
+        ctx.serverDB,
+        ctx.userId,
+        expect.any(Function),
+        7,
+      );
     });
 
     it('should handle import failure', async () => {

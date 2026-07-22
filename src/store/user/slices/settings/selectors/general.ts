@@ -10,11 +10,13 @@ const highlighterTheme = (s: UserStore) => generalConfig(s).highlighterTheme;
 const mermaidTheme = (s: UserStore) => generalConfig(s).mermaidTheme;
 const transitionMode = (s: UserStore) => generalConfig(s).transitionMode;
 const animationMode = (s: UserStore) => generalConfig(s).animationMode;
+const generalInstruction = (s: UserStore) => generalConfig(s).generalInstruction;
 
 export const userGeneralSettingsSelectors = {
   animationMode,
   config: generalConfig,
   fontSize,
+  generalInstruction,
   highlighterTheme,
   mermaidTheme,
   neutralColor,

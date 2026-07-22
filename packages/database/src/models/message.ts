@@ -30,6 +30,7 @@ import {
   fileChunks,
   files,
   messagePlugins,
+  messageGroups,
   messageQueries,
   messageQueryChunks,
   messageTTS,
@@ -37,8 +38,9 @@ import {
   messages,
   messagesFiles,
   threads,
+  topics,
 } from '../schemas';
-import { LobeChatDatabase } from '../type';
+import { LobeChatDatabase, Transaction } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
 import {
@@ -57,9 +59,9 @@ interface MCPResultRecoveryState {
 
 export class MessageModel {
   private userId: string;
-  private db: LobeChatDatabase;
+  private db: LobeChatDatabase | Transaction;
 
-  constructor(db: LobeChatDatabase, userId: string) {
+  constructor(db: LobeChatDatabase | Transaction, userId: string) {
     this.userId = userId;
     this.db = db;
   }
@@ -536,6 +538,13 @@ export class MessageModel {
         );
       }
 
+      if (message.topicId) {
+        await trx
+          .update(topics)
+          .set({ lastActivityAt: new Date() })
+          .where(and(eq(topics.id, message.topicId), eq(topics.userId, this.userId)));
+      }
+
       return removeMessageOrder(item) as DBMessageItem;
     });
   };
@@ -977,6 +986,28 @@ export class MessageModel {
 
   deleteAllMessages = async () => {
     return this.db.delete(messages).where(eq(messages.userId, this.userId));
+  };
+
+  deleteAllTopicsHistory = async () => {
+    return this.db.transaction((transaction) => this.deleteAllTopicsHistoryInTransaction(transaction));
+  };
+
+  deleteAllTopicsHistoryInTransaction = async (transaction: Transaction) => {
+    const deletedMessages = await transaction
+      .delete(messages)
+      .where(eq(messages.userId, this.userId))
+      .returning({ id: messages.id });
+    const deletedTopics = await transaction
+      .delete(topics)
+      .where(eq(topics.userId, this.userId))
+      .returning({ id: topics.id });
+
+    await transaction.delete(messageGroups).where(eq(messageGroups.userId, this.userId));
+
+    return {
+      deletedMessageCount: deletedMessages.length,
+      deletedTopicCount: deletedTopics.length,
+    };
   };
 
   // **************** Helper *************** //

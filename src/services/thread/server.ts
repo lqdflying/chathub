@@ -11,9 +11,10 @@ export class ServerService implements IThreadService {
   createThreadWithMessage: IThreadService['createThreadWithMessage'] = async ({
     message,
     ...params
-  }) => {
+  }, options) => {
     return lambdaClient.thread.createThreadWithMessage.mutate({
       ...params,
+      expectedConversationVersion: options?.expectedConversationVersion,
       message: { ...message, sessionId: this.toDbSessionId(message.sessionId) },
     });
   };

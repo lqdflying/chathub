@@ -5,6 +5,7 @@ import { ThreadModel } from '@/database/models/thread';
 import { insertThreadSchema } from '@/database/schemas';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 import { ThreadItem, createThreadSchema } from '@/types/topic/thread';
 
 const threadProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
@@ -20,34 +21,52 @@ const threadProcedure = authedProcedure.use(serverDatabase).use(async (opts) => 
 
 export const threadRouter = router({
   createThread: threadProcedure.input(createThreadSchema).mutation(async ({ input, ctx }) => {
-    const thread = await ctx.threadModel.create({
-      parentThreadId: input.parentThreadId,
-      sourceMessageId: input.sourceMessageId,
-      title: input.title,
-      topicId: input.topicId,
-      type: input.type,
-    });
+    const thread = await withConversationWriteLockOrThrow(
+      ctx.serverDB,
+      ctx.userId,
+      async (transaction) => {
+        const threadModel = new ThreadModel(transaction, ctx.userId);
+        return threadModel.create({
+          parentThreadId: input.parentThreadId,
+          sourceMessageId: input.sourceMessageId,
+          title: input.title,
+          topicId: input.topicId,
+          type: input.type,
+        });
+      },
+    );
 
     return thread?.id;
   }),
   createThreadWithMessage: threadProcedure
     .input(
       createThreadSchema.extend({
+        expectedConversationVersion: z.number().optional(),
         message: z.any(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const thread = await ctx.threadModel.create({
-        parentThreadId: input.parentThreadId,
-        sourceMessageId: input.sourceMessageId,
-        title: input.message.content.slice(0, 20),
-        topicId: input.topicId,
-        type: input.type,
-      });
+      const { expectedConversationVersion } = input;
+      return withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const messageModel = new MessageModel(transaction, ctx.userId);
+          const threadModel = new ThreadModel(transaction, ctx.userId);
+          const thread = await threadModel.create({
+            parentThreadId: input.parentThreadId,
+            sourceMessageId: input.sourceMessageId,
+            title: input.message.content.slice(0, 20),
+            topicId: input.topicId,
+            type: input.type,
+          });
 
-      const message = await ctx.messageModel.create({ ...input.message, threadId: thread?.id });
+          const message = await messageModel.create({ ...input.message, threadId: thread?.id });
 
-      return { messageId: message?.id, threadId: thread?.id };
+          return { messageId: message?.id, threadId: thread?.id };
+        },
+        expectedConversationVersion,
+      );
     }),
   getThread: threadProcedure.query(async ({ ctx }): Promise<ThreadItem[]> => {
     return ctx.threadModel.query() as any;

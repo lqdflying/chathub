@@ -1,5 +1,4 @@
-import { TraceEventType } from '@lobechat/types';
-import { UIChatMessage } from '@lobechat/types';
+import { TraceEventType , UIChatMessage } from '@lobechat/types';
 import * as lobeUIModules from '@lobehub/ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
@@ -9,6 +8,7 @@ import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { useToolStore } from '@/store/tool';
 
 import { useChatStore } from '../../store';
 
@@ -25,14 +25,14 @@ vi.mock('zustand/traditional', async (importOriginal) => await importOriginal())
 // Mock service
 vi.mock('@/services/message', () => ({
   messageService: {
-    getMessages: vi.fn(),
-    updateMessageError: vi.fn(),
-    removeMessage: vi.fn(),
-    removeMessagesByAssistant: vi.fn(),
-    removeMessages: vi.fn(() => Promise.resolve()),
     createMessage: vi.fn(() => Promise.resolve('new-message-id')),
+    getMessages: vi.fn(),
+    removeAllTopicsHistory: vi.fn(() => Promise.resolve()),
+    removeMessage: vi.fn(),
+    removeMessages: vi.fn(() => Promise.resolve()),
+    removeMessagesByAssistant: vi.fn(),
     updateMessage: vi.fn(),
-    removeAllMessages: vi.fn(() => Promise.resolve()),
+    updateMessageError: vi.fn(),
   },
 }));
 vi.mock('@/services/topic', () => ({
@@ -51,10 +51,10 @@ const mockState = {
   activeId: 'session-id',
   activeThreadId: undefined,
   activeTopicId: 'topic-id',
-  messages: [],
-  refreshMessages: vi.fn(),
-  refreshTopic: vi.fn(),
   internal_coreProcessMessage: vi.fn(),
+  messages: [],
+  refreshMessages: vi.fn(() => Promise.resolve()),
+  refreshTopic: vi.fn(() => Promise.resolve()),
   saveToTopic: vi.fn(),
 };
 
@@ -136,7 +136,7 @@ describe('chatMessage actions', () => {
       const { result } = renderHook(() => useChatStore());
 
       await act(async () => {
-        await result.current.addUserMessage({ message, fileList });
+        await result.current.addUserMessage({ fileList, message });
       });
 
       expect(messageService.createMessage).toHaveBeenCalledWith({
@@ -144,8 +144,8 @@ describe('chatMessage actions', () => {
         files: fileList,
         role: 'user',
         sessionId: mockState.activeId,
-        topicId: mockState.activeTopicId,
         threadId: undefined,
+        topicId: mockState.activeTopicId,
       });
     });
 
@@ -154,8 +154,8 @@ describe('chatMessage actions', () => {
       const activeThreadId = 'thread-123';
       useChatStore.setState({
         activeId: mockState.activeId,
-        activeTopicId: mockState.activeTopicId,
         activeThreadId,
+        activeTopicId: mockState.activeTopicId,
       });
       const { result } = renderHook(() => useChatStore());
 
@@ -168,8 +168,8 @@ describe('chatMessage actions', () => {
         files: undefined,
         role: 'user',
         sessionId: mockState.activeId,
-        topicId: mockState.activeTopicId,
         threadId: activeThreadId,
+        topicId: mockState.activeTopicId,
       });
     });
 
@@ -198,8 +198,8 @@ describe('chatMessage actions', () => {
         files: undefined,
         role: 'user',
         sessionId: mockState.activeId,
-        topicId: mockState.activeTopicId,
         threadId: undefined,
+        topicId: mockState.activeTopicId,
       });
     });
   });
@@ -239,8 +239,8 @@ describe('chatMessage actions', () => {
           messagesMap: {
             [messageMapKey('session-id')]: [
               { id: messageId, tools: [{ id: 'tool1' }, { id: 'tool2' }] } as UIChatMessage,
-              { id: '2', tool_call_id: 'tool1', role: 'tool' } as UIChatMessage,
-              { id: '3', tool_call_id: 'tool2', role: 'tool' } as UIChatMessage,
+              { id: '2', role: 'tool', tool_call_id: 'tool1' } as UIChatMessage,
+              { id: '3', role: 'tool', tool_call_id: 'tool2' } as UIChatMessage,
             ],
           },
         });
@@ -305,10 +305,10 @@ describe('chatMessage actions', () => {
               {
                 id: '2',
                 parentId: messageId,
-                tool_call_id: 'tool1',
                 role: 'tool',
+                tool_call_id: 'tool1',
               } as UIChatMessage,
-              { id: '3', tool_call_id: 'tool2', role: 'tool' } as UIChatMessage,
+              { id: '3', role: 'tool', tool_call_id: 'tool2' } as UIChatMessage,
             ],
           },
         });
@@ -326,16 +326,86 @@ describe('chatMessage actions', () => {
   });
 
   describe('clearAllMessages', () => {
-    it('clearAllMessages should remove all messages', async () => {
+    it('clears history state and returns to the default topic', async () => {
+      useToolStore.setState({ builtinToolLoading: { python: true } });
+      useChatStore.setState({
+        activePageContentUrl: 'https://example.com',
+        activeThreadId: 'thread-id',
+        activeTopicId: 'topic-id',
+        codeInterpreterExecuting: { 'tool-message': true },
+        codeInterpreterImageMap: {
+          'image-id': { id: 'image-id' } as any,
+        },
+        creatingTopic: true,
+        dalleImageLoading: { 'tool-message-prompt': true },
+        dalleImageMap: {
+          'dalle-image-id': { id: 'dalle-image-id' } as any,
+        },
+        inSearchingMode: true,
+        isCreatingThread: true,
+        isCreatingThreadMessage: true,
+        isSearchingTopic: true,
+        localFileLoading: { 'tool-message': true },
+        messagesInit: true,
+        messagesMap: { cached: [{ id: 'message-id' } as UIChatMessage] },
+        portalMessageDetail: 'message-id',
+        portalThreadId: 'thread-id',
+        portalToolMessage: { id: 'tool-message', identifier: 'tool' },
+        searchLoading: { 'tool-message': true },
+        searchTopics: [{ id: 'search-topic', title: 'Search result' }],
+        showPortal: true,
+        startToForkThread: true,
+        supervisorTodos: { cached: [] },
+        threadInputMessage: 'thread draft',
+        threadMaps: { 'topic-id': [] },
+        threadStartMessageId: 'message-id',
+        threadsInit: true,
+        topicMaps: { 'session-id': [{ id: 'topic-id', title: 'Topic' }] },
+        topicSearchKeywords: 'search',
+        topicsInit: true,
+      });
       const { result } = renderHook(() => useChatStore());
-      const clearAllSpy = vi.spyOn(result.current, 'clearAllMessages');
 
       await act(async () => {
         await result.current.clearAllMessages();
       });
 
-      expect(clearAllSpy).toHaveBeenCalled();
-      expect(result.current.refreshMessages).toHaveBeenCalled();
+      expect(messageService.removeAllTopicsHistory).toHaveBeenCalledOnce();
+      expect(useChatStore.getState()).toMatchObject({
+        activePageContentUrl: undefined,
+        activeThreadId: undefined,
+        activeTopicId: null,
+        codeInterpreterExecuting: {},
+        codeInterpreterImageMap: {},
+        creatingTopic: false,
+        dalleImageLoading: {},
+        dalleImageMap: {},
+        inSearchingMode: false,
+        isCreatingThread: false,
+        isCreatingThreadMessage: false,
+        isSearchingTopic: false,
+        localFileLoading: {},
+        messagesInit: false,
+        messagesMap: {},
+        portalMessageDetail: undefined,
+        portalThreadId: undefined,
+        portalToolMessage: undefined,
+        searchLoading: {},
+        searchTopics: [],
+        showPortal: false,
+        startToForkThread: undefined,
+        supervisorTodos: {},
+        threadInputMessage: '',
+        threadMaps: {},
+        threadStartMessageId: undefined,
+        threadsInit: false,
+        topicMaps: {},
+        topicSearchKeywords: '',
+        topicsInit: false,
+      });
+      expect(useToolStore.getState().builtinToolLoading).toEqual({});
+      expect(mockState.refreshMessages).toHaveBeenCalledOnce();
+      expect(mockState.refreshTopic).toHaveBeenCalledOnce();
     });
   });
 
@@ -726,7 +796,7 @@ describe('chatMessage actions', () => {
     it('should fetch messages for given session and topic ids', async () => {
       const sessionId = 'session-id';
       const topicId = 'topic-id';
-      const messages = [{ id: 'message-id', content: 'Hello' }];
+      const messages = [{ content: 'Hello', id: 'message-id' }];
 
       // 设置模拟返回值
       (messageService.getMessages as Mock).mockResolvedValue(messages);

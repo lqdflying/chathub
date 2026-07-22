@@ -8,22 +8,40 @@ import { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from '@/libs/trpc/client/tools';
 import { IMessageService } from './type';
 
 export class ServerService implements IMessageService {
-  createMessage: IMessageService['createMessage'] = async ({ sessionId, ...params }) => {
+  createMessage: IMessageService['createMessage'] = async ({ sessionId, ...params }, options) => {
     return lambdaClient.message.createMessage.mutate({
       ...params,
+      expectedConversationVersion: options?.expectedConversationVersion,
       sessionId: sessionId ? this.toDbSessionId(sessionId) : undefined,
     });
   };
 
-  createNewMessage: IMessageService['createNewMessage'] = async ({ sessionId, ...params }) => {
+  createNewMessage: IMessageService['createNewMessage'] = async (
+    { sessionId, ...params },
+    options,
+  ) => {
     return lambdaClient.message.createNewMessage.mutate({
       ...params,
+      expectedConversationVersion: options?.expectedConversationVersion,
       sessionId: sessionId ? this.toDbSessionId(sessionId) : undefined,
     });
   };
 
-  batchCreateMessages: IMessageService['batchCreateMessages'] = async (messages) => {
-    return lambdaClient.message.batchCreateMessages.mutate(messages);
+  batchCreateMessages: IMessageService['batchCreateMessages'] = async (messages, options) => {
+    return lambdaClient.message.batchCreateMessages.mutate({
+      expectedConversationVersion: options?.expectedConversationVersion,
+      messages,
+    });
+  };
+
+  getConversationVersion: IMessageService['getConversationVersion'] = async () => {
+    const version = await lambdaClient.message.getConversationVersion.query();
+
+    if (version === undefined) {
+      throw new Error('Conversation version is unavailable.');
+    }
+
+    return version;
   };
 
   getMessages: IMessageService['getMessages'] = async (sessionId, topicId, groupId) => {
@@ -148,6 +166,10 @@ export class ServerService implements IMessageService {
 
   removeAllMessages: IMessageService['removeAllMessages'] = async () => {
     return lambdaClient.message.removeAllMessages.mutate();
+  };
+
+  removeAllTopicsHistory: IMessageService['removeAllTopicsHistory'] = async () => {
+    return lambdaClient.message.removeAllTopicsHistory.mutate();
   };
 
   private toDbSessionId = (sessionId: string | undefined) => {

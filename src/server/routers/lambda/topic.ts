@@ -4,6 +4,7 @@ import { TopicModel } from '@/database/models/topic';
 import { getServerDB } from '@/database/server';
 import { authedProcedure, publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 import { BatchTaskResult } from '@/types/service';
 
 const topicProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
@@ -17,21 +18,47 @@ const topicProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
 export const topicRouter = router({
   batchCreateTopics: topicProcedure
     .input(
-      z.array(
+      z.union([
+        z.array(
+          z.object({
+            favorite: z.boolean().optional(),
+            id: z.string().optional(),
+            messages: z.array(z.string()).optional(),
+            sessionId: z.string().optional(),
+            title: z.string(),
+          }),
+        ),
         z.object({
-          favorite: z.boolean().optional(),
-          id: z.string().optional(),
-          messages: z.array(z.string()).optional(),
-          sessionId: z.string().optional(),
-          title: z.string(),
+          expectedConversationVersion: z.number().optional(),
+          topics: z.array(
+            z.object({
+              favorite: z.boolean().optional(),
+              id: z.string().optional(),
+              messages: z.array(z.string()).optional(),
+              sessionId: z.string().optional(),
+              title: z.string(),
+            }),
+          ),
         }),
-      ),
+      ]),
     )
     .mutation(async ({ input, ctx }): Promise<BatchTaskResult> => {
-      const data = await ctx.topicModel.batchCreate(
-        input.map((item) => ({
-          ...item,
-        })) as any,
+      const expectedConversationVersion = Array.isArray(input)
+        ? undefined
+        : input.expectedConversationVersion;
+      const topics = Array.isArray(input) ? input : input.topics;
+      const data = await withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const topicModel = new TopicModel(transaction, ctx.userId);
+          return topicModel.batchCreate(
+            topics.map((item) => ({
+              ...item,
+            })) as any,
+          );
+        },
+        expectedConversationVersion,
       );
 
       return { added: data.length, ids: [], skips: [], success: true };
@@ -50,9 +77,23 @@ export const topicRouter = router({
     }),
 
   cloneTopic: topicProcedure
-    .input(z.object({ id: z.string(), newTitle: z.string().optional() }))
+    .input(
+      z.object({
+        expectedConversationVersion: z.number().optional(),
+        id: z.string(),
+        newTitle: z.string().optional(),
+      }),
+    )
     .mutation(async ({ input, ctx }) => {
-      const data = await ctx.topicModel.duplicate(input.id, input.newTitle);
+      const data = await withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const topicModel = new TopicModel(transaction, ctx.userId);
+          return topicModel.duplicate(input.id, input.newTitle);
+        },
+        input.expectedConversationVersion,
+      );
 
       return data.topic.id;
     }),
@@ -74,6 +115,7 @@ export const topicRouter = router({
   createTopic: topicProcedure
     .input(
       z.object({
+        expectedConversationVersion: z.number().optional(),
         favorite: z.boolean().optional(),
         groupId: z.string().nullable().optional(),
         messages: z.array(z.string()).optional(),
@@ -82,7 +124,16 @@ export const topicRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const data = await ctx.topicModel.create(input);
+      const { expectedConversationVersion, ...topic } = input;
+      const data = await withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const topicModel = new TopicModel(transaction, ctx.userId);
+          return topicModel.create(topic);
+        },
+        expectedConversationVersion,
+      );
 
       return data.id;
     }),
@@ -90,17 +141,6 @@ export const topicRouter = router({
   getAllTopics: topicProcedure.query(async ({ ctx }) => {
     return ctx.topicModel.queryAll();
   }),
-
-  listTopicsForAgentMemoryRollup: topicProcedure
-    .input(
-      z.object({
-        agentId: z.string(),
-        limit: z.number().min(1).max(500).optional(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      return ctx.topicModel.listTopicsForAgentMemoryRollup(input.agentId, input.limit);
-    }),
 
   // TODO: this procedure should be used with authedProcedure
   getTopics: publicProcedure
@@ -123,6 +163,17 @@ export const topicRouter = router({
   hasTopics: topicProcedure.query(async ({ ctx }) => {
     return (await ctx.topicModel.count()) === 0;
   }),
+
+  listTopicsForAgentMemoryRollup: topicProcedure
+    .input(
+      z.object({
+        agentId: z.string(),
+        limit: z.number().min(1).max(500).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.topicModel.listTopicsForAgentMemoryRollup(input.agentId, input.limit);
+    }),
 
   rankTopics: topicProcedure.input(z.number().optional()).query(async ({ ctx, input }) => {
     return ctx.topicModel.rank(input);
@@ -148,6 +199,7 @@ export const topicRouter = router({
     .input(
       z.object({
         id: z.string(),
+        touchActivity: z.boolean().optional(),
         value: z.object({
           favorite: z.boolean().optional(),
           historySummary: z.string().optional(),
@@ -164,7 +216,9 @@ export const topicRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      return ctx.topicModel.update(input.id, input.value);
+      return ctx.topicModel.update(input.id, input.value, {
+        touchActivity: input.touchActivity,
+      });
     }),
 });
 

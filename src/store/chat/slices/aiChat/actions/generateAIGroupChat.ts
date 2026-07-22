@@ -18,11 +18,13 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
+import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { messageService } from '@/services/message';
 import { ChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
-import { userProfileSelectors } from '@/store/user/selectors';
+import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
@@ -192,6 +194,7 @@ export interface ChatGroupChatAction {
     groupId: string,
     topicId?: string | null,
     isManualTrigger?: boolean,
+    expectedConversationVersion?: number,
   ) => Promise<void>;
 
   /**
@@ -199,13 +202,17 @@ export interface ChatGroupChatAction {
    * Fast: 1s, Medium: 2s, Slow: 5s, Default: 3s
    * Cancels previous pending decisions and schedules a new one
    */
-  internal_triggerSupervisorDecisionDebounced: (groupId: string) => void;
+  internal_triggerSupervisorDecisionDebounced: (
+    groupId: string,
+    expectedConversationVersion?: number,
+  ) => void;
 
   /** Route an already-persisted user message without creating a duplicate user row. */
   internal_routeGroupUserMessage: (
     groupId: string,
     message: Pick<UIChatMessage, 'content' | 'targetId'>,
     immediateSupervisor?: boolean,
+    expectedConversationVersion?: number,
   ) => Promise<void>;
 
   /**
@@ -233,6 +240,7 @@ export interface ChatGroupChatAction {
   internal_executeAgentResponses: (
     groupId: string,
     decisions: SupervisorDecisionList,
+    expectedConversationVersion?: number,
   ) => Promise<void>;
 
   /**
@@ -243,6 +251,7 @@ export interface ChatGroupChatAction {
     agentId: string,
     targetId?: string,
     instruction?: string,
+    expectedConversationVersion?: number,
   ) => Promise<void>;
 
   /**
@@ -286,9 +295,11 @@ export const chatAiGroupChat: StateCreator<
         internal_setActiveGroup,
         activeTopicId,
       } = get();
+      const conversationClearGeneration = get().conversationClearGeneration;
 
       if (!message.trim() && (!files || files.length === 0)) return;
 
+      const expectedConversationVersion = await messageService.getConversationVersion();
       internal_setActiveGroup(groupId);
 
       set({ isCreatingMessage: true }, false, n('creatingGroupMessage/start'));
@@ -304,7 +315,10 @@ export const chatAiGroupChat: StateCreator<
           targetId: targetMemberId,
         };
 
-        const messageId = await internal_createMessage(userMessage);
+        const messageId = await internal_createMessage(userMessage, {
+          expectedConversationVersion,
+        });
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
 
         // if only add user message, then stop
         if (onlyAddUserMessage) {
@@ -313,29 +327,54 @@ export const chatAiGroupChat: StateCreator<
         }
 
         if (messageId) {
-          await internal_routeGroupUserMessage(groupId, {
-            content: message,
-            targetId: targetMemberId,
-          });
+          await internal_routeGroupUserMessage(
+            groupId,
+            {
+              content: message,
+              targetId: targetMemberId,
+            },
+            false,
+            expectedConversationVersion,
+          );
         }
       } catch (error) {
         console.error('Failed to send group message:', error);
       } finally {
-        set({ isCreatingMessage: false }, false, n('creatingGroupMessage/end'));
+        if (get().conversationClearGeneration === conversationClearGeneration) {
+          set({ isCreatingMessage: false }, false, n('creatingGroupMessage/end'));
+        }
       }
     },
 
     // ========= ↓ Group Chat Internal Methods ↓ ========== //
 
-    internal_routeGroupUserMessage: async (groupId, message, immediateSupervisor = false) => {
+    internal_routeGroupUserMessage: async (
+      groupId,
+      message,
+      immediateSupervisor = false,
+      expectedConversationVersion,
+    ) => {
+      const resolvedConversationVersion =
+        expectedConversationVersion ?? (await messageService.getConversationVersion());
+      const conversationClearGeneration = get().conversationClearGeneration;
+
       // Use the specific group's config rather than relying on whichever session is active later.
       const groupConfig = selectGroupConfig(groupId);
 
       if (groupConfig?.enableSupervisor) {
         if (immediateSupervisor) {
-          await get().internal_triggerSupervisorDecision(groupId, get().activeTopicId, true);
+          await get().internal_triggerSupervisorDecision(
+            groupId,
+            get().activeTopicId,
+            true,
+            resolvedConversationVersion,
+          );
         } else {
-          get().internal_triggerSupervisorDecisionDebounced(groupId);
+          if (get().conversationClearGeneration !== conversationClearGeneration) return;
+          get().internal_triggerSupervisorDecisionDebounced(
+            groupId,
+            resolvedConversationVersion,
+          );
         }
         return;
       }
@@ -358,12 +397,14 @@ export const chatAiGroupChat: StateCreator<
       );
       if (validAgentIds.length === 0) return;
 
+      if (get().conversationClearGeneration !== conversationClearGeneration) return;
       await get().internal_executeAgentResponses(
         groupId,
         validAgentIds.map((agentId) => ({
           id: agentId,
           target: message.targetId === agentId ? 'user' : undefined,
         })),
+        resolvedConversationVersion,
       );
     },
 
@@ -371,13 +412,17 @@ export const chatAiGroupChat: StateCreator<
       groupId: string,
       topicId?: string | null,
       isManualTrigger: boolean = false,
+      expectedConversationVersion?: number,
     ) => {
+      const resolvedConversationVersion =
+        expectedConversationVersion ?? (await messageService.getConversationVersion());
       const {
         messagesMap,
         internal_toggleSupervisorLoading,
         internal_createMessage,
         supervisorTodos,
       } = get();
+      const conversationClearGeneration = get().conversationClearGeneration;
 
       // Capture topicId at invocation time to avoid leaking state after topic switches
       const currentTopicId = typeof topicId === 'undefined' ? get().activeTopicId : topicId;
@@ -404,7 +449,9 @@ export const chatAiGroupChat: StateCreator<
 
         console.log('Creating supervisor todo message:', supervisorMessage);
 
-        await internal_createMessage(supervisorMessage);
+        await internal_createMessage(supervisorMessage, {
+          expectedConversationVersion: resolvedConversationVersion,
+        });
       };
 
       const messages = messagesMap[messageMapKey(groupId, currentTopicId)] || [];
@@ -463,6 +510,7 @@ export const chatAiGroupChat: StateCreator<
         internal_toggleSupervisorLoading(true, groupId);
 
         const { decisions, todos, todoUpdated } = await supervisor.makeDecision(context);
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
 
         // Turn off supervisor thinking immediately after decision is made
         internal_toggleSupervisorLoading(false, groupId);
@@ -471,14 +519,21 @@ export const chatAiGroupChat: StateCreator<
 
         if (todoUpdated) {
           await createSupervisorTodoMessage(todos);
+          if (get().conversationClearGeneration !== conversationClearGeneration) return;
         }
 
         console.log('Supervisor decisions:', decisions);
 
         if (decisions.length > 0) {
-          await get().internal_executeAgentResponses(groupId, decisions);
+          await get().internal_executeAgentResponses(
+            groupId,
+            decisions,
+            resolvedConversationVersion,
+          );
         }
       } catch (error) {
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
         // Turn off supervisor thinking on error
         internal_toggleSupervisorLoading(false, groupId);
 
@@ -500,7 +555,9 @@ export const chatAiGroupChat: StateCreator<
         // Clean up AbortController from state
         set(
           produce((state: ChatStoreState) => {
-            delete state.supervisorDecisionAbortControllers[groupId];
+            if (state.supervisorDecisionAbortControllers[groupId] === abortController) {
+              delete state.supervisorDecisionAbortControllers[groupId];
+            }
           }),
           false,
           n(`cleanupSupervisorAbortController/${groupId}`),
@@ -508,9 +565,16 @@ export const chatAiGroupChat: StateCreator<
       }
     },
 
-    internal_executeAgentResponses: async (groupId: string, decisions: SupervisorDecisionList) => {
+    internal_executeAgentResponses: async (
+      groupId: string,
+      decisions: SupervisorDecisionList,
+      expectedConversationVersion?: number,
+    ) => {
+      const resolvedConversationVersion =
+        expectedConversationVersion ?? (await messageService.getConversationVersion());
       log('Executing agent responses with decisions:', decisions);
       const { internal_processAgentMessage, internal_triggerSupervisorDecisionDebounced } = get();
+      const conversationClearGeneration = get().conversationClearGeneration;
 
       // Read the target group's config to respect per-group settings
       const groupConfig = selectGroupConfig(groupId);
@@ -535,6 +599,8 @@ export const chatAiGroupChat: StateCreator<
         if (groupConfig?.responseOrder === 'sequential') {
           // Process agents sequentially with delay
           for (const [index, decision] of sortedDecisions.entries()) {
+            if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
             // Add delay between agents (except for the first one)
             if (index > 0) {
               await new Promise((resolve) => {
@@ -547,7 +613,9 @@ export const chatAiGroupChat: StateCreator<
               decision.id,
               decision.target,
               decision.instruction,
+              resolvedConversationVersion,
             );
+            if (get().conversationClearGeneration !== conversationClearGeneration) return;
           }
         } else {
           // Process agents in parallel for natural response order
@@ -557,17 +625,21 @@ export const chatAiGroupChat: StateCreator<
               decision.id,
               decision.target,
               decision.instruction,
+              resolvedConversationVersion,
             ),
           );
           await Promise.all(responsePromises);
+          if (get().conversationClearGeneration !== conversationClearGeneration) return;
         }
 
         // Only trigger next supervisor decision after ALL agents have completed their responses
         // This prevents rapid-fire agent responses and gives time for conversation to settle
         if (sortedDecisions.length > 0) {
-          internal_triggerSupervisorDecisionDebounced(groupId);
+          internal_triggerSupervisorDecisionDebounced(groupId, resolvedConversationVersion);
         }
       } catch (error) {
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
         console.error('Failed to execute agent responses:', error);
         // Create supervisor error message to show the error to users
         await get().internal_createSupervisorErrorMessage(
@@ -584,7 +656,10 @@ export const chatAiGroupChat: StateCreator<
       agentId: string,
       targetId?: string,
       instruction?: string,
+      expectedConversationVersion?: number,
     ) => {
+      const resolvedConversationVersion =
+        expectedConversationVersion ?? (await messageService.getConversationVersion());
       log('internal_processAgentMessage called with:', {
         groupId,
         agentId,
@@ -601,8 +676,11 @@ export const chatAiGroupChat: StateCreator<
         internal_toggleChatLoading,
         triggerToolCalls,
       } = get();
+      const conversationClearGeneration = get().conversationClearGeneration;
 
       try {
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
         const allMessages = messagesMap[messageMapKey(groupId, activeTopicId)] || [];
         if (allMessages.length === 0) return;
 
@@ -641,7 +719,8 @@ export const chatAiGroupChat: StateCreator<
           ...(agents || []).map((agent) => ({ id: agent.id || '', title: agent.title || '' })),
         ];
 
-        const baseSystemRole = agentData.systemRole || '';
+        const generalInstruction = userGeneralSettingsSelectors.generalInstruction(userStoreState);
+        const baseSystemRole = composeSystemRole(generalInstruction, agentData.systemRole);
         const members: GroupMemberInfo[] = agentTitleMap as GroupMemberInfo[];
         const groupChatSystemPrompt = buildGroupChatSystemPrompt({
           groupMembers: members,
@@ -667,7 +746,10 @@ export const chatAiGroupChat: StateCreator<
 
         log('Creating agent message with:', agentMessage);
 
-        const assistantId = await internal_createMessage(agentMessage);
+        const assistantId = await internal_createMessage(agentMessage, {
+          expectedConversationVersion: resolvedConversationVersion,
+        });
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
 
         const systemMessage: UIChatMessage = {
           id: 'group-system',
@@ -714,6 +796,7 @@ export const chatAiGroupChat: StateCreator<
               agentConfig: agentData,
             },
           });
+          if (get().conversationClearGeneration !== conversationClearGeneration) return;
 
           // Handle tool calling in group chat like single chat
           if (isFunctionCall) {
@@ -729,22 +812,34 @@ export const chatAiGroupChat: StateCreator<
             get().internal_toggleMessageInToolsCalling(true, assistantId);
             await refreshMessages();
             await triggerToolCalls(assistantId, {
+              expectedConversationVersion: resolvedConversationVersion,
               threadId: undefined,
               inPortalThread: false,
             });
+            if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
             // Change: if an agent message is a tool call, make the same agent speak again
             // instead of asking supervisor for a decision.
-            await get().internal_processAgentMessage(groupId, agentId, targetId, instruction);
+            await get().internal_processAgentMessage(
+              groupId,
+              agentId,
+              targetId,
+              instruction,
+              resolvedConversationVersion,
+            );
             return;
           }
         }
 
         await refreshMessages();
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
 
         // Don't trigger supervisor decision after individual agent responses
         // This prevents infinite loops of agent responses
         // Supervisor decisions should only be triggered after user messages or when all agents complete
       } catch (error) {
+        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
         console.error('Failed to process message for agent:', agentId, error);
 
         // Create supervisor error message to show the error to users
@@ -774,7 +869,9 @@ export const chatAiGroupChat: StateCreator<
           });
         }
       } finally {
-        internal_toggleChatLoading(false, undefined, n('processAgentMessage(end)'));
+        if (get().conversationClearGeneration === conversationClearGeneration) {
+          internal_toggleChatLoading(false, undefined, n('processAgentMessage(end)'));
+        }
       }
     },
 
@@ -797,7 +894,10 @@ export const chatAiGroupChat: StateCreator<
       );
     },
 
-    internal_triggerSupervisorDecisionDebounced: (groupId: string) => {
+    internal_triggerSupervisorDecisionDebounced: (
+      groupId: string,
+      expectedConversationVersion?: number,
+    ) => {
       const { internal_cancelSupervisorDecision, internal_triggerSupervisorDecision } = get();
 
       internal_cancelSupervisorDecision(groupId);
@@ -813,9 +913,12 @@ export const chatAiGroupChat: StateCreator<
 
       // Capture topicId at schedule time to decouple from future topic switches
       const scheduledTopicId = get().activeTopicId;
+      const scheduledConversationClearGeneration = get().conversationClearGeneration;
 
       // Set a new timer with dynamic debounce based on group settings
       const timerId = setTimeout(async () => {
+        if (get().conversationClearGeneration !== scheduledConversationClearGeneration) return;
+
         console.log(`Debounced supervisor decision triggered for group ${groupId}`);
 
         // Clean up the timer from state before executing
@@ -828,7 +931,12 @@ export const chatAiGroupChat: StateCreator<
         );
 
         try {
-          await internal_triggerSupervisorDecision(groupId, scheduledTopicId, false); // false = automatic trigger
+          await internal_triggerSupervisorDecision(
+            groupId,
+            scheduledTopicId,
+            false,
+            expectedConversationVersion,
+          );
         } catch (error) {
           console.error('Failed to execute supervisor decision for group:', groupId, error);
         }

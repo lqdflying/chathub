@@ -27,7 +27,9 @@ export const minimaxVisionSlice: StateCreator<
   MinimaxVisionAction
 > = (set, get) => ({
   analyzeImage: async (id, params, aiSummary = true, diagnosticId) => {
-    const { internal_updateMessageContent, internal_updatePluginError } = get();
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration;
 
     getToolStoreState().toggleBuiltinToolLoading('minimaxVision', true);
 
@@ -37,27 +39,33 @@ export const minimaxVisionSlice: StateCreator<
       const result: BuiltinServerRuntimeOutput = await runtime.analyzeImage(params, {
         diagnosticId,
       });
+      if (!invocationIsCurrent()) return false;
 
       if (result.success) {
-        await internal_updateMessageContent(id, result.content);
+        await get().internal_updateMessageContent(id, result.content);
       } else {
-        await internal_updatePluginError(id, {
+        await get().internal_updatePluginError(id, {
           body: result.error,
           message: result.content || 'Vision analysis failed',
           type: 'PluginServerError',
         });
       }
+      if (!invocationIsCurrent()) return false;
 
       getToolStoreState().toggleBuiltinToolLoading('minimaxVision', false);
       return aiSummary;
     } catch (e) {
+      if (!invocationIsCurrent()) return false;
+
       const err = e as Error;
       console.error('[minimaxVision] Error:', err);
       const errorContent = {
         errorMessage: err.message || 'Unknown error during vision analysis',
         errorType: err.name || 'Error',
       };
-      await internal_updateMessageContent(id, JSON.stringify(errorContent));
+      await get().internal_updateMessageContent(id, JSON.stringify(errorContent));
+      if (!invocationIsCurrent()) return false;
+
       getToolStoreState().toggleBuiltinToolLoading('minimaxVision', false);
       return aiSummary;
     }

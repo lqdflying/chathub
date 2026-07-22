@@ -18,7 +18,11 @@ interface Text2ImageParams extends Pick<OpenAIImagePayload, 'quality' | 'style' 
 export interface BuiltinToolAction {
   text2image: (params: Text2ImageParams) => DallEImageItem[];
   toggleBuiltinToolLoading: (key: string, value: boolean) => void;
-  transformApiArgumentsToAiState: (key: string, params: any) => Promise<string | undefined>;
+  transformApiArgumentsToAiState: (
+    key: string,
+    params: any,
+    invocationIsCurrent?: () => boolean,
+  ) => Promise<string | undefined>;
 }
 
 export const createBuiltinToolSlice: StateCreator<
@@ -33,7 +37,7 @@ export const createBuiltinToolSlice: StateCreator<
     set({ builtinToolLoading: { [key]: value } }, false, n('toggleBuiltinToolLoading'));
   },
 
-  transformApiArgumentsToAiState: async (key, params) => {
+  transformApiArgumentsToAiState: async (key, params, invocationIsCurrent) => {
     const { builtinToolLoading, toggleBuiltinToolLoading } = get();
     if (builtinToolLoading[key]) return;
 
@@ -46,11 +50,14 @@ export const createBuiltinToolSlice: StateCreator<
     try {
       // @ts-ignore
       const result = await action(params);
+      if (invocationIsCurrent?.() === false) return;
 
       toggleBuiltinToolLoading(key, false);
 
       return JSON.stringify(result);
     } catch (e) {
+      if (invocationIsCurrent?.() === false) throw e;
+
       toggleBuiltinToolLoading(key, false);
       throw e;
     }

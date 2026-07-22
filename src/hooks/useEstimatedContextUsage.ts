@@ -5,12 +5,15 @@ import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { useModelContextWindowTokens } from '@/hooks/useModelContextWindowTokens';
 import { useModelSupportToolUse } from '@/hooks/useModelSupportToolUse';
 import { useTokenCount } from '@/hooks/useTokenCount';
+import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
+import { useUserStore } from '@/store/user';
+import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
 export interface EstimatedContextUsage {
   chatsToken: number;
@@ -49,6 +52,8 @@ export const useEstimatedContextUsage = (): EstimatedContextUsage => {
   const maxTokens = useModelContextWindowTokens(model, provider);
   const canUseTool = useModelSupportToolUse(model, provider);
   const pluginIds = useAgentStore(agentSelectors.currentAgentPlugins);
+  const generalInstruction = useUserStore(userGeneralSettingsSelectors.generalInstruction);
+  const composedSystemRole = composeSystemRole(generalInstruction, systemRole);
 
   const toolsString = useToolStore((s) => {
     const toolsEngine = createChatToolsEngine({ model, provider });
@@ -72,7 +77,7 @@ export const useEstimatedContextUsage = (): EstimatedContextUsage => {
   }, [messageFingerprint, historyCount, enableHistoryCount]);
 
   const chatsToken = useTokenCount(chatsString) + inputTokenCount;
-  const systemRoleToken = useTokenCount(systemRole);
+  const systemRoleToken = useTokenCount(composedSystemRole);
   const memorySummary = useMemo(
     () =>
       buildHistorySummaryForRequest({

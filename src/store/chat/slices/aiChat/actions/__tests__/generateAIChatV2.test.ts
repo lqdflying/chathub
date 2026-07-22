@@ -9,6 +9,7 @@ import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { useSessionStore } from '@/store/session';
 import { UploadFileItem } from '@/types/files/upload';
 
 import { useChatStore } from '../../../../store';
@@ -17,15 +18,15 @@ import { TEST_CONTENT, TEST_IDS, createMockStoreState } from './fixtures';
 import { resetTestEnvironment, setupMockSelectors, spyOnMessageService } from './helpers';
 
 // Keep zustand mock as it's needed globally
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 // Mock server mode for V2 tests
 vi.mock('@/const/version', async (importOriginal) => {
   const module = await importOriginal();
   return {
     ...(module as any),
-    isServerMode: true,
     isDesktop: false,
+    isServerMode: true,
   };
 });
 
@@ -37,27 +38,27 @@ vi.mock('@/services/aiChat', () => ({
       const assistantId = TEST_IDS.ASSISTANT_MESSAGE_ID;
       const topicId = params.topicId ?? TEST_IDS.TOPIC_ID;
       return {
+        assistantMessageId: assistantId,
+        isCreateNewTopic: !params.topicId,
         messages: [
           {
+            content: params.newUserMessage?.content ?? '',
             id: userId,
             role: 'user',
-            content: params.newUserMessage?.content ?? '',
             sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
             topicId,
           } as any,
           {
+            content: LOADING_FLAT,
             id: assistantId,
             role: 'assistant',
-            content: LOADING_FLAT,
             sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
             topicId,
           } as any,
         ],
-        topics: [],
         topicId,
+        topics: [],
         userMessageId: userId,
-        assistantMessageId: assistantId,
-        isCreateNewTopic: !params.topicId,
       } as any;
     }),
   },
@@ -74,13 +75,14 @@ beforeEach(() => {
 
   // Setup common mock methods that most V2 tests need
   act(() => {
+    useSessionStore.setState({ triggerSessionUpdate: vi.fn() });
     useChatStore.setState({
       activeId: TEST_IDS.SESSION_ID,
       activeTopicId: TEST_IDS.TOPIC_ID,
-      mainSendMessageOperations: {},
-      refreshMessages: vi.fn(),
-      refreshTopic: vi.fn(),
       internal_execAgentRuntime: vi.fn(),
+      mainSendMessageOperations: {},
+      refreshMessages: vi.fn(() => Promise.resolve()),
+      refreshTopic: vi.fn(() => Promise.resolve()),
       saveToTopic: vi.fn(),
       switchTopic: vi.fn(),
     });
@@ -93,6 +95,38 @@ afterEach(() => {
 });
 
 describe('generateAIChatV2 actions', () => {
+  describe('internal_refreshAiChat', () => {
+    it('normalizes and replaces topics returned after an existing-topic send', () => {
+      const { result } = renderHook(() => useChatStore());
+      const latestActivity = new Date('2026-07-21T16:00:00.000Z');
+
+      act(() => {
+        result.current.internal_refreshAiChat({
+          messages: [],
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+          topics: [
+            {
+              createdAt: new Date('2026-07-20T16:00:00.000Z'),
+              id: TEST_IDS.TOPIC_ID,
+              lastActivityAt: latestActivity,
+              title: 'Updated topic',
+              updatedAt: latestActivity,
+            } as any,
+          ],
+        });
+      });
+
+      expect(useChatStore.getState().topicMaps[TEST_IDS.SESSION_ID]).toEqual([
+        expect.objectContaining({
+          id: TEST_IDS.TOPIC_ID,
+          lastActivityAt: latestActivity.getTime(),
+          updatedAt: latestActivity.getTime(),
+        }),
+      ]);
+    });
+  });
+
   describe('sendMessageInServer', () => {
     describe('validation', () => {
       it('should not send when there is no active session', async () => {
@@ -124,7 +158,7 @@ describe('generateAIChatV2 actions', () => {
         const { result } = renderHook(() => useChatStore());
 
         await act(async () => {
-          await result.current.sendMessage({ message: TEST_CONTENT.EMPTY, files: [] });
+          await result.current.sendMessage({ files: [], message: TEST_CONTENT.EMPTY });
         });
 
         expect(messageService.createMessage).not.toHaveBeenCalled();
@@ -141,15 +175,18 @@ describe('generateAIChatV2 actions', () => {
 
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           {
+            expectedConversationVersion: 7,
             newAssistantMessage: {
               model: DEFAULT_MODEL,
               provider: DEFAULT_PROVIDER,
             },
+            newTopic: undefined,
             newUserMessage: {
               content: TEST_CONTENT.USER_MESSAGE,
               files: undefined,
             },
             sessionId: TEST_IDS.SESSION_ID,
+            threadId: undefined,
             topicId: TEST_IDS.TOPIC_ID,
           },
           expect.anything(),
@@ -184,8 +221,8 @@ describe('generateAIChatV2 actions', () => {
 
         (agentChatConfigSelectors.currentChatConfig as Mock).mockReturnValue({
           ...DEFAULT_AGENT_CHAT_CONFIG,
-          enableAutoCreateTopic: true,
           autoCreateTopicThreshold: 1,
+          enableAutoCreateTopic: true,
         });
 
         await act(async () => {
@@ -209,8 +246,8 @@ describe('generateAIChatV2 actions', () => {
 
         (agentChatConfigSelectors.currentChatConfig as Mock).mockReturnValue({
           ...DEFAULT_AGENT_CHAT_CONFIG,
-          enableAutoCreateTopic: true,
           autoCreateTopicThreshold: 10,
+          enableAutoCreateTopic: true,
         });
 
         await act(async () => {
@@ -232,20 +269,23 @@ describe('generateAIChatV2 actions', () => {
         const files = [{ id: TEST_IDS.FILE_ID } as UploadFileItem];
 
         await act(async () => {
-          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE, files });
+          await result.current.sendMessage({ files, message: TEST_CONTENT.USER_MESSAGE });
         });
 
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           {
+            expectedConversationVersion: 7,
             newAssistantMessage: {
               model: DEFAULT_MODEL,
               provider: DEFAULT_PROVIDER,
             },
+            newTopic: undefined,
             newUserMessage: {
               content: TEST_CONTENT.USER_MESSAGE,
               files: [TEST_IDS.FILE_ID],
             },
             sessionId: TEST_IDS.SESSION_ID,
+            threadId: undefined,
             topicId: TEST_IDS.TOPIC_ID,
           },
           expect.anything(),
@@ -257,20 +297,23 @@ describe('generateAIChatV2 actions', () => {
         const files = [{ id: TEST_IDS.FILE_ID } as UploadFileItem];
 
         await act(async () => {
-          await result.current.sendMessage({ message: TEST_CONTENT.EMPTY, files });
+          await result.current.sendMessage({ files, message: TEST_CONTENT.EMPTY });
         });
 
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           {
+            expectedConversationVersion: 7,
             newAssistantMessage: {
               model: DEFAULT_MODEL,
               provider: DEFAULT_PROVIDER,
             },
+            newTopic: undefined,
             newUserMessage: {
               content: TEST_CONTENT.EMPTY,
               files: [TEST_IDS.FILE_ID],
             },
             sessionId: TEST_IDS.SESSION_ID,
+            threadId: undefined,
             topicId: TEST_IDS.TOPIC_ID,
           },
           expect.anything(),
@@ -349,8 +392,8 @@ describe('generateAIChatV2 actions', () => {
 
         await act(async () => {
           await result.current.sendMessage({
-            message: TEST_CONTENT.USER_MESSAGE,
             isWelcomeQuestion: true,
+            message: TEST_CONTENT.USER_MESSAGE,
           });
         });
 
@@ -371,9 +414,9 @@ describe('generateAIChatV2 actions', () => {
 
       const { result } = renderHook(() => useChatStore());
       const userMessage = {
+        content: TEST_CONTENT.USER_MESSAGE,
         id: TEST_IDS.USER_MESSAGE_ID,
         role: 'user',
-        content: TEST_CONTENT.USER_MESSAGE,
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
       } as UIChatMessage;
@@ -383,9 +426,9 @@ describe('generateAIChatV2 actions', () => {
 
       await act(async () => {
         await result.current.internal_execAgentRuntime({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
           messages,
           userMessageId: userMessage.id,
-          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
         });
       });
 
@@ -436,11 +479,11 @@ describe('generateAIChatV2 actions', () => {
       const { result } = renderHook(() => useChatStore());
 
       vi.spyOn(aiChatService, 'sendMessageInServer').mockResolvedValueOnce({
-        isCreateNewTopic: true,
-        topicId: TEST_IDS.TOPIC_ID,
-        messages: [{}, {}] as any,
-        topics: [{}] as any,
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: true,
+        messages: [{}, {}] as any,
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [{}] as any,
         userMessageId: TEST_IDS.USER_MESSAGE_ID,
       });
 
@@ -501,14 +544,14 @@ describe('generateAIChatV2 actions', () => {
         useChatStore.setState({
           activeId: TEST_IDS.SESSION_ID,
           activeTopicId: TEST_IDS.TOPIC_ID,
+          mainInputEditor: { setJSONState: mockSetJSONState } as any,
           mainSendMessageOperations: {
             [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: {
-              isLoading: true,
               abortController: { abort: mockAbort, signal: {} as any },
               inputEditorTempState: { content: 'saved content' },
+              isLoading: true,
             },
           },
-          mainInputEditor: { setJSONState: mockSetJSONState } as any,
         });
       });
 
@@ -535,8 +578,8 @@ describe('generateAIChatV2 actions', () => {
           activeId: TEST_IDS.SESSION_ID,
           mainSendMessageOperations: {
             [messageMapKey(TEST_IDS.SESSION_ID, customTopicId)]: {
-              isLoading: true,
               abortController: { abort: mockAbort, signal: {} as any },
+              isLoading: true,
             },
           },
         });
@@ -574,8 +617,8 @@ describe('generateAIChatV2 actions', () => {
           activeTopicId: TEST_IDS.TOPIC_ID,
           mainSendMessageOperations: {
             [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: {
-              isLoading: false,
               inputSendErrorMsg: 'Some error',
+              isLoading: false,
             },
           },
         });
@@ -630,8 +673,8 @@ describe('generateAIChatV2 actions', () => {
       let abortController: AbortController | undefined;
       act(() => {
         result.current.internal_updateSendMessageOperation('test-key', {
-          isLoading: true,
           abortController: mockAbortController,
+          isLoading: true,
         });
 
         abortController = result.current.internal_toggleSendMessageOperation('test-key', false);
@@ -648,8 +691,8 @@ describe('generateAIChatV2 actions', () => {
 
       act(() => {
         result.current.internal_updateSendMessageOperation('test-key', {
-          isLoading: true,
           abortController: mockAbortController,
+          isLoading: true,
         });
 
         result.current.internal_toggleSendMessageOperation('test-key', false, 'Test cancel reason');
@@ -680,16 +723,16 @@ describe('generateAIChatV2 actions', () => {
 
       act(() => {
         result.current.internal_updateSendMessageOperation('test-key', {
-          isLoading: true,
           abortController: mockAbortController,
           inputSendErrorMsg: 'test error',
+          isLoading: true,
         });
       });
 
       expect(result.current.mainSendMessageOperations['test-key']).toEqual({
-        isLoading: true,
         abortController: mockAbortController,
         inputSendErrorMsg: 'test error',
+        isLoading: true,
       });
     });
 
@@ -699,8 +742,8 @@ describe('generateAIChatV2 actions', () => {
 
       act(() => {
         result.current.internal_updateSendMessageOperation('test-key', {
-          isLoading: true,
           abortController: initialController,
+          isLoading: true,
         });
 
         result.current.internal_updateSendMessageOperation('test-key', {
@@ -709,9 +752,9 @@ describe('generateAIChatV2 actions', () => {
       });
 
       expect(result.current.mainSendMessageOperations['test-key']).toEqual({
-        isLoading: true,
         abortController: initialController,
         inputSendErrorMsg: 'new error',
+        isLoading: true,
       });
     });
   });

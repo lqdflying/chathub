@@ -29,6 +29,7 @@ import type { ChatStore } from '@/store/chat/store';
 import { getFileStoreState } from '@/store/file/store';
 import { getSessionStoreState } from '@/store/session';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
+import { normalizeTopic } from '@/utils/client/topic';
 import { setNamespace } from '@/utils/storeDebug';
 
 import { chatSelectors, topicSelectors } from '../../../selectors';
@@ -36,11 +37,15 @@ import { messageMapKey } from '../../../utils/messageMapKey';
 
 const n = setNamespace('ai');
 
+type GuardedSendMessageParams = SendMessageParams & {
+  expectedConversationVersion?: number;
+};
+
 export interface AIGenerateV2Action {
   /**
    * Sends a new message to the AI chat system
    */
-  sendMessageInServer: (params: SendMessageParams) => Promise<void>;
+  sendMessageInServer: (params: GuardedSendMessageParams) => Promise<void>;
   /**
    * Cancels sendMessageInServer operation for a specific topic/session
    */
@@ -57,6 +62,7 @@ export interface AIGenerateV2Action {
    * including preprocessing and postprocessing steps
    */
   internal_execAgentRuntime: (params: {
+    expectedConversationVersion?: number;
     messages: UIChatMessage[];
     userMessageId: string;
     assistantMessageId: string;
@@ -91,10 +97,17 @@ export const generateAIChatV2: StateCreator<
   [],
   AIGenerateV2Action
 > = (set, get) => ({
-  sendMessageInServer: async ({ message, files, onlyAddUserMessage, isWelcomeQuestion }) => {
+  sendMessageInServer: async ({
+    expectedConversationVersion: capturedConversationVersion,
+    files,
+    isWelcomeQuestion,
+    message,
+    onlyAddUserMessage,
+  }) => {
     const { activeTopicId, activeId, activeThreadId, internal_execAgentRuntime, mainInputEditor } =
       get();
     if (!activeId) return;
+    const conversationClearGeneration = get().conversationClearGeneration;
 
     const fileIdList = files?.map((f) => f.id);
 
@@ -103,8 +116,11 @@ export const generateAIChatV2: StateCreator<
     // if message is empty or no files, then stop
     if (!message && !hasFile) return;
 
+    const expectedConversationVersion =
+      capturedConversationVersion ?? (await messageService.getConversationVersion());
+
     if (onlyAddUserMessage) {
-      await get().addUserMessage({ message, fileList: fileIdList });
+      await get().addUserMessage({ expectedConversationVersion, fileList: fileIdList, message });
 
       return;
     }
@@ -174,10 +190,12 @@ export const generateAIChatV2: StateCreator<
     );
 
     let data: SendMessageServerResponse | undefined;
+    let operationWasCurrent = false;
     try {
       const { model, provider } = agentSelectors.currentAgentConfig(getAgentStoreState());
       data = await aiChatService.sendMessageInServer(
         {
+          expectedConversationVersion,
           newUserMessage: {
             content: message,
             files: fileIdList,
@@ -196,6 +214,8 @@ export const generateAIChatV2: StateCreator<
         },
         abortController,
       );
+      if (get().conversationClearGeneration !== conversationClearGeneration) return;
+
       // refresh the total data
       get().internal_refreshAiChat({
         messages: data.messages,
@@ -211,30 +231,49 @@ export const generateAIChatV2: StateCreator<
       if (e instanceof TRPCClientError) {
         const isAbort = e.message.includes('aborted') || e.name === 'AbortError';
         // Check if error is due to cancellation
-        if (!isAbort) {
+        const currentOperation = get().mainSendMessageOperations[operationKey];
+        const isCurrentOperation =
+          get().conversationClearGeneration === conversationClearGeneration &&
+          currentOperation?.abortController === abortController;
+
+        if (!isAbort && isCurrentOperation) {
           get().internal_updateSendMessageOperation(operationKey, { inputSendErrorMsg: e.message });
           get().mainInputEditor?.setJSONState(jsonState);
         }
       }
     } finally {
       // Stop tracking sendMessageInServer operation
-      get().internal_toggleSendMessageOperation(operationKey, false);
+      const currentOperation = get().mainSendMessageOperations[operationKey];
+      const isCurrentOperation =
+        get().conversationClearGeneration === conversationClearGeneration &&
+        currentOperation?.abortController === abortController;
+
+      if (isCurrentOperation) {
+        operationWasCurrent = true;
+        get().internal_updateSendMessageOperation(
+          operationKey,
+          { inputEditorTempState: null },
+          'creatingMessage/finished',
+        );
+        get().internal_toggleSendMessageOperation(operationKey, false);
+      }
     }
 
     // remove temporally message
-    if (data?.isCreateNewTopic) {
+    if (
+      data?.isCreateNewTopic &&
+      operationWasCurrent &&
+      get().conversationClearGeneration === conversationClearGeneration
+    ) {
       get().internal_dispatchMessage(
         { type: 'deleteMessage', id: tempId },
         { topicId: activeTopicId, sessionId: activeId },
       );
     }
 
-    get().internal_toggleMessageLoading(false, tempId);
-    get().internal_updateSendMessageOperation(
-      operationKey,
-      { inputEditorTempState: null },
-      'creatingMessage/finished',
-    );
+    if (operationWasCurrent && get().conversationClearGeneration === conversationClearGeneration) {
+      get().internal_toggleMessageLoading(false, tempId);
+    }
 
     if (!data) return;
 
@@ -270,6 +309,7 @@ export const generateAIChatV2: StateCreator<
 
     try {
       await internal_execAgentRuntime({
+        expectedConversationVersion,
         messages: baseMessages,
         userMessageId: data.userMessageId,
         assistantMessageId: data.assistantMessageId,
@@ -320,9 +360,19 @@ export const generateAIChatV2: StateCreator<
     );
   },
   internal_refreshAiChat: ({ topics, messages, sessionId, topicId }) => {
+    const normalizedTopics = topics?.map(normalizeTopic);
+    const currentTopics = get().topicMaps[sessionId] ?? [];
+    const topicsById = new Map(currentTopics.map((topic) => [topic.id, topic]));
+
+    for (const topic of normalizedTopics ?? []) {
+      topicsById.set(topic.id, topic);
+    }
+
     set(
       {
-        topicMaps: topics ? { ...get().topicMaps, [sessionId]: topics } : get().topicMaps,
+        topicMaps: normalizedTopics
+          ? { ...get().topicMaps, [sessionId]: [...topicsById.values()] }
+          : get().topicMaps,
         messagesMap: { ...get().messagesMap, [messageMapKey(sessionId, topicId)]: messages },
       },
       false,
@@ -331,6 +381,8 @@ export const generateAIChatV2: StateCreator<
   },
 
   internal_execAgentRuntime: async (params) => {
+    const expectedConversationVersion =
+      params.expectedConversationVersion ?? (await messageService.getConversationVersion());
     const {
       assistantMessageId: assistantId,
       userMessageId,
@@ -485,6 +537,7 @@ export const generateAIChatV2: StateCreator<
         get().internal_toggleMessageInToolsCalling(true, assistantId);
         await refreshMessages();
         await triggerToolCalls(assistantId, {
+          expectedConversationVersion,
           threadId: params?.threadId,
           inPortalThread: params?.inPortalThread,
         });
@@ -517,6 +570,7 @@ export const generateAIChatV2: StateCreator<
       get().internal_toggleMessageInToolsCalling(true, assistantId);
       await refreshMessages();
       await triggerToolCalls(assistantId, {
+        expectedConversationVersion,
         threadId: params?.threadId,
         inPortalThread: params?.inPortalThread,
       });

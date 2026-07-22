@@ -2,10 +2,10 @@
 
 import { Form, type FormGroupItemType, Icon, ImageSelect, InputPassword } from '@lobehub/ui';
 import { Select } from '@lobehub/ui';
-import { Segmented, Skeleton } from 'antd';
+import { Input, Segmented, Skeleton } from 'antd';
 import isEqual from 'fast-deep-equal';
 import { Ban, Gauge, Loader2Icon, Monitor, Moon, Sun, Waves } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { FORM_STYLE } from '@/const/layoutTokens';
@@ -33,6 +33,11 @@ const Common = memo(() => {
     s.isStatusInit,
   ]);
   const [loading, setLoading] = useState(false);
+  const [generalInstruction, setGeneralInstruction] = useState(general.generalInstruction ?? '');
+
+  useEffect(() => {
+    setGeneralInstruction(general.generalInstruction ?? '');
+  }, [general.generalInstruction]);
 
   const handleLangChange = (value: LocaleMode) => {
     switchLocale(value);
@@ -43,6 +48,26 @@ const Common = memo(() => {
 
   const theme: FormGroupItemType = {
     children: [
+      {
+        children: (
+          <Input.TextArea
+            autoSize={{ maxRows: 10, minRows: 4 }}
+            onBlur={async () => {
+              if (generalInstruction === (general.generalInstruction ?? '')) return;
+
+              setLoading(true);
+              await setSettings({ general: { generalInstruction } });
+              setLoading(false);
+            }}
+            onChange={(event) => setGeneralInstruction(event.target.value)}
+            placeholder={t('settingCommon.generalInstruction.placeholder')}
+            value={generalInstruction}
+          />
+        ),
+        desc: t('settingCommon.generalInstruction.desc'),
+        label: t('settingCommon.generalInstruction.title'),
+        minWidth: undefined,
+      },
       {
         children: (
           <ImageSelect

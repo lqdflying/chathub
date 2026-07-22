@@ -18,11 +18,22 @@ describe('settingsSelectors', () => {
       expect(result).toEqual({
         animationMode: 'agile',
         fontSize: 12,
+        generalInstruction: '',
         highlighterTheme: 'lobe-theme',
         mermaidTheme: 'lobe-theme',
         transitionMode: 'fadeIn',
       });
     });
+  });
+
+  it('should return the configured general instruction', () => {
+    const s: UserState = merge(initialState, {
+      settings: {
+        general: { generalInstruction: 'Be concise.' },
+      },
+    });
+
+    expect(userGeneralSettingsSelectors.generalInstruction(s as UserStore)).toBe('Be concise.');
   });
 
   describe('fontSize', () => {

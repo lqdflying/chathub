@@ -22,10 +22,10 @@
   "danger": {
     "clear": {
       "action": "Clear Now",
-      "confirm": "Confirm to clear all chat data?",
-      "desc": "This will clear all session data, including assistant, files, messages, plugins, etc.",
-      "success": "All session messages have been cleared",
-      "title": "Clear All Session Messages"
+      "confirm": "Clear all conversation topics and messages?",
+      "desc": "This removes all conversation topics, including the Default Topic and group chat history. Assistants, Session Settings, files, plugins, and groups are preserved.",
+      "success": "All conversation history has been cleared",
+      "title": "Clear All Topics"
     },
     "reset": {
       "action": "Reset Now",
@@ -343,6 +343,11 @@
     }
   },
   "settingCommon": {
+    "generalInstruction": {
+      "desc": "This instruction is added to the role settings of normal assistants and group members. It does not apply to supervisors or internal automation.",
+      "placeholder": "Describe the behavior you want ChatHub assistants to follow...",
+      "title": "General Instruction"
+    },
     "lang": {
       "autoMode": "Follow System",
       "title": "Language"

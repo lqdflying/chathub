@@ -3,17 +3,25 @@ import { lambdaClient } from '@/libs/trpc/client';
 import { ITopicService } from '@/services/topic/type';
 
 export class ServerService implements ITopicService {
-  createTopic: ITopicService['createTopic'] = (params) =>
+  createTopic: ITopicService['createTopic'] = (params, options) =>
     lambdaClient.topic.createTopic.mutate({
       ...params,
+      expectedConversationVersion: options?.expectedConversationVersion,
       sessionId: this.toDbSessionId(params.sessionId),
     });
 
-  batchCreateTopics: ITopicService['batchCreateTopics'] = (importTopics) =>
-    lambdaClient.topic.batchCreateTopics.mutate(importTopics);
+  batchCreateTopics: ITopicService['batchCreateTopics'] = (importTopics, options) =>
+    lambdaClient.topic.batchCreateTopics.mutate({
+      expectedConversationVersion: options?.expectedConversationVersion,
+      topics: importTopics,
+    });
 
-  cloneTopic: ITopicService['cloneTopic'] = (id, newTitle) =>
-    lambdaClient.topic.cloneTopic.mutate({ id, newTitle });
+  cloneTopic: ITopicService['cloneTopic'] = (id, newTitle, options) =>
+    lambdaClient.topic.cloneTopic.mutate({
+      expectedConversationVersion: options?.expectedConversationVersion,
+      id,
+      newTitle,
+    });
 
   getTopics: ITopicService['getTopics'] = (params) =>
     lambdaClient.topic.getTopics.query({
@@ -47,8 +55,8 @@ export class ServerService implements ITopicService {
       sessionId: this.toDbSessionId(sessionId),
     }) as any;
 
-  updateTopic: ITopicService['updateTopic'] = (id, data) =>
-    lambdaClient.topic.updateTopic.mutate({ id, value: data });
+  updateTopic: ITopicService['updateTopic'] = (id, data, options) =>
+    lambdaClient.topic.updateTopic.mutate({ id, ...options, value: data });
 
   removeTopic: ITopicService['removeTopic'] = (id) => lambdaClient.topic.removeTopic.mutate({ id });
 

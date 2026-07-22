@@ -24,8 +24,15 @@ const SearchResult = memo(() => {
   const topics = useChatStore(topicSelectors.searchTopics, isEqual);
 
   const itemContent = useCallback(
-    (index: number, { id, favorite, title }: ChatTopic) => (
-      <TopicItem active={activeTopicId === id} fav={favorite} id={id} key={id} title={title} />
+    (index: number, { id, favorite, lastActivityAt, title }: ChatTopic) => (
+      <TopicItem
+        active={activeTopicId === id}
+        fav={favorite}
+        id={id}
+        key={id}
+        lastActivityAt={lastActivityAt}
+        title={title}
+      />
     ),
     [activeTopicId],
   );

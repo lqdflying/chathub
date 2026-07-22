@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { DataImporterRepos } from '@/database/repositories/dataImporter';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 import { FileService } from '@/server/services/file';
 import { ImportPgDataStructure } from '@/types/export';
 import { ImportResultData, ImporterEntryData } from '@/types/importer';
@@ -13,7 +14,6 @@ const importProcedure = authedProcedure.use(serverDatabase).use(async (opts) => 
 
   return opts.next({
     ctx: {
-      dataImporterService: new DataImporterRepos(ctx.serverDB, ctx.userId),
       fileService: new FileService(ctx.serverDB, ctx.userId),
     },
   });
@@ -21,7 +21,12 @@ const importProcedure = authedProcedure.use(serverDatabase).use(async (opts) => 
 
 export const importerRouter = router({
   importByFile: importProcedure
-    .input(z.object({ pathname: z.string() }))
+    .input(
+      z.object({
+        expectedConversationVersion: z.number().optional(),
+        pathname: z.string(),
+      }),
+    )
     .mutation(async ({ input, ctx }): Promise<ImportResultData> => {
       let data: ImporterEntryData | undefined;
 
@@ -41,11 +46,25 @@ export const importerRouter = router({
 
       let result: ImportResultData;
       if ('schemaHash' in data) {
-        result = await ctx.dataImporterService.importPgData(
-          data as unknown as ImportPgDataStructure,
+        result = await withConversationWriteLockOrThrow(
+          ctx.serverDB,
+          ctx.userId,
+          async (transaction) => {
+            const dataImporterService = new DataImporterRepos(transaction, ctx.userId);
+            return dataImporterService.importPgData(data as unknown as ImportPgDataStructure);
+          },
+          input.expectedConversationVersion,
         );
       } else {
-        result = await ctx.dataImporterService.importData(data);
+        result = await withConversationWriteLockOrThrow(
+          ctx.serverDB,
+          ctx.userId,
+          async (transaction) => {
+            const dataImporterService = new DataImporterRepos(transaction, ctx.userId);
+            return dataImporterService.importData(data);
+          },
+          input.expectedConversationVersion,
+        );
       }
 
       // clean file after upload
@@ -64,20 +83,40 @@ export const importerRouter = router({
           topics: z.array(z.any()).optional(),
           version: z.number(),
         }),
+        expectedConversationVersion: z.number().optional(),
       }),
     )
     .mutation(async ({ input, ctx }): Promise<ImportResultData> => {
-      return ctx.dataImporterService.importData(input.data);
+      return withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const dataImporterService = new DataImporterRepos(transaction, ctx.userId);
+          return dataImporterService.importData(input.data);
+        },
+        input.expectedConversationVersion,
+      );
     }),
   importPgByPost: importProcedure
     .input(
       z.object({
         data: z.record(z.string(), z.array(z.any())),
+        expectedConversationVersion: z.number().optional(),
         mode: z.enum(['pglite', 'postgres']),
         schemaHash: z.string(),
       }),
     )
     .mutation(async ({ input, ctx }): Promise<ImportResultData> => {
-      return ctx.dataImporterService.importPgData(input);
+      const { expectedConversationVersion, ...importData } = input;
+
+      return withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const dataImporterService = new DataImporterRepos(transaction, ctx.userId);
+          return dataImporterService.importPgData(importData);
+        },
+        expectedConversationVersion,
+      );
     }),
 });

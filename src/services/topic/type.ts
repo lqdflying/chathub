@@ -1,6 +1,7 @@
 /* eslint-disable typescript-sort-keys/interface */
 import type { TopicMemoryRollupRow } from '@/database/models/topic';
 
+import type { ConversationWriteOptions } from '@/services/conversationWrite';
 import { BatchTaskResult } from '@/types/service';
 import { ChatTopic, TopicRankItem } from '@/types/topic';
 
@@ -19,9 +20,12 @@ export interface QueryTopicParams {
 }
 
 export interface ITopicService {
-  createTopic(params: CreateTopicParams): Promise<string>;
-  batchCreateTopics(importTopics: ChatTopic[]): Promise<BatchTaskResult>;
-  cloneTopic(id: string, newTitle?: string): Promise<string>;
+  createTopic(params: CreateTopicParams, options?: ConversationWriteOptions): Promise<string>;
+  batchCreateTopics(
+    importTopics: ChatTopic[],
+    options?: ConversationWriteOptions,
+  ): Promise<BatchTaskResult>;
+  cloneTopic(id: string, newTitle?: string, options?: ConversationWriteOptions): Promise<string>;
 
   getTopics(params: QueryTopicParams): Promise<ChatTopic[]>;
   listTopicsForAgentMemoryRollup(agentId: string, limit?: number): Promise<TopicMemoryRollupRow[]>;
@@ -34,7 +38,11 @@ export interface ITopicService {
   rankTopics(limit?: number): Promise<TopicRankItem[]>;
   searchTopics(keyword: string, sessionId?: string, groupId?: string): Promise<ChatTopic[]>;
 
-  updateTopic(id: string, data: Partial<ChatTopic>): Promise<any>;
+  updateTopic(
+    id: string,
+    data: Partial<ChatTopic>,
+    options?: { touchActivity?: boolean },
+  ): Promise<any>;
 
   removeTopic(id: string): Promise<any>;
   removeTopics(sessionId: string): Promise<any>;

@@ -50,34 +50,46 @@ export const searchSlice: StateCreator<
   SearchAction
 > = (set, get) => ({
   crawlMultiPages: async (id, params, aiSummary = true, diagnosticId) => {
-    const { internal_updateMessageContent } = get();
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration;
+
     get().toggleSearchLoading(id, true);
     try {
       const { content, success, error, state } = await runtime.crawlMultiPages(
         params,
         diagnosticId ? { diagnosticId } : undefined,
       );
+      if (!invocationIsCurrent()) return false;
 
-      await internal_updateMessageContent(id, content);
+      await get().internal_updateMessageContent(id, content);
+      if (!invocationIsCurrent()) return false;
 
       if (success) {
         await get().updatePluginState(id, state);
       } else {
         await get().internal_updatePluginError(id, error);
       }
-      get().toggleSearchLoading(id, false);
+      if (!invocationIsCurrent()) return false;
 
       // Convert to XML format to save tokens
 
       // if aiSummary is true, then trigger ai message
       return aiSummary;
     } catch (e) {
+      if (!invocationIsCurrent()) return false;
+
       const err = e as Error;
       console.error(e);
       const content = [{ errorMessage: err.message, errorType: err.name }];
 
       const xmlContent = crawlResultsPrompt(content);
-      await internal_updateMessageContent(id, xmlContent);
+      await get().internal_updateMessageContent(id, xmlContent);
+      if (!invocationIsCurrent()) return false;
+    } finally {
+      if (invocationIsCurrent()) {
+        get().toggleSearchLoading(id, false);
+      }
     }
   },
 
@@ -129,12 +141,17 @@ export const searchSlice: StateCreator<
   },
 
   search: async (id, params, aiSummary = true, diagnosticId) => {
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () =>
+      get().conversationClearGeneration === invocationGeneration;
+
     get().toggleSearchLoading(id, true);
 
     const { content, success, error, state } = await runtime.search(
       params,
       diagnosticId ? { diagnosticId } : undefined,
     );
+    if (!invocationIsCurrent()) return false;
 
     if (success) {
       await get().updatePluginState(id, state);
@@ -155,10 +172,12 @@ export const searchSlice: StateCreator<
         });
       }
     }
+    if (!invocationIsCurrent()) return false;
 
     get().toggleSearchLoading(id, false);
 
     await get().internal_updateMessageContent(id, content);
+    if (!invocationIsCurrent()) return false;
 
     // 如果 aiSummary 为 true，则会自动触发总结
     return aiSummary;
@@ -176,8 +195,10 @@ export const searchSlice: StateCreator<
   },
 
   triggerSearchAgain: async (id, data, options) => {
+    const invocationGeneration = get().conversationClearGeneration;
     get().toggleSearchLoading(id, true);
     await get().updatePluginArguments(id, data);
+    if (get().conversationClearGeneration !== invocationGeneration) return;
 
     await get().search(id, data, options?.aiSummary);
   },

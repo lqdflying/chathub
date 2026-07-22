@@ -101,6 +101,7 @@ const collectDependentRewindIds = (
 };
 
 interface ProcessMessageParams {
+  expectedConversationVersion?: number;
   traceId?: string;
   isWelcomeQuestion?: boolean;
   inSearchWorkflow?: boolean;
@@ -242,9 +243,17 @@ export const generateAIChat: StateCreator<
     // if message is empty or no files, then stop
     if (!message && !hasFile) return;
 
+    const expectedConversationVersion = await messageService.getConversationVersion();
+
     // router to server mode send message
     if (isServerMode)
-      return sendMessageInServer({ message, files, onlyAddUserMessage, isWelcomeQuestion });
+      return sendMessageInServer({
+        expectedConversationVersion,
+        files,
+        isWelcomeQuestion,
+        message,
+        onlyAddUserMessage,
+      });
 
     set({ isCreatingMessage: true }, false, n('creatingMessage/start'));
 
@@ -280,7 +289,7 @@ export const generateAIChat: StateCreator<
         tempMessageId = get().internal_createTmpMessage(newMessage);
         get().internal_toggleMessageLoading(true, tempMessageId);
 
-        const topicId = await get().createTopic();
+        const topicId = await get().createTopic(undefined, undefined, expectedConversationVersion);
 
         if (topicId) {
           newTopicId = topicId;
@@ -303,6 +312,7 @@ export const generateAIChat: StateCreator<
     useSessionStore.getState().triggerSessionUpdate(get().activeId);
 
     const id = await get().internal_createMessage(newMessage, {
+      expectedConversationVersion,
       tempMessageId,
       skipRefresh: !onlyAddUserMessage && newMessage.fileList?.length === 0,
     });
@@ -337,6 +347,7 @@ export const generateAIChat: StateCreator<
     const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
 
     await internal_coreProcessMessage(messages, id, {
+      expectedConversationVersion,
       isWelcomeQuestion,
       ragQuery: get().internal_shouldUseRAG() ? message : undefined,
       threadId: activeThreadId,
@@ -387,6 +398,8 @@ export const generateAIChat: StateCreator<
   // the internal process method of the AI message
   internal_coreProcessMessage: async (originalMessages, userMessageId, params) => {
     const { internal_fetchAIChatMessage, triggerToolCalls, refreshMessages, activeTopicId } = get();
+    const expectedConversationVersion =
+      params?.expectedConversationVersion ?? (await messageService.getConversationVersion());
 
     // create a new array to avoid the original messages array change
     const messages = [...originalMessages];
@@ -443,7 +456,9 @@ export const generateAIChat: StateCreator<
       ragQueryId,
     };
 
-    const assistantId = await get().internal_createMessage(assistantMessage);
+    const assistantId = await get().internal_createMessage(assistantMessage, {
+      expectedConversationVersion,
+    });
 
     if (!assistantId) return;
 
@@ -544,6 +559,7 @@ export const generateAIChat: StateCreator<
         get().internal_toggleMessageInToolsCalling(true, assistantId);
         await refreshMessages();
         await triggerToolCalls(assistantId, {
+          expectedConversationVersion,
           threadId: params?.threadId,
           inPortalThread: params?.inPortalThread,
         });
@@ -580,6 +596,7 @@ export const generateAIChat: StateCreator<
         // Persistence is confirmed; revalidation must not block execution.
       }
       await triggerToolCalls(assistantId, {
+        expectedConversationVersion,
         threadId: params?.threadId,
         inPortalThread: params?.inPortalThread,
       });
@@ -870,6 +887,7 @@ export const generateAIChat: StateCreator<
     const anchor = resolveRetryAnchor(chats, messageId);
     if (!anchor || get().messageRetryingIds.length > 0) return;
 
+    const expectedConversationVersion = await messageService.getConversationVersion();
     const contextMessages = chats.slice(0, anchor.index + 1);
     const tailMessages = chats.slice(anchor.index + 1);
     const state = get();
@@ -1040,6 +1058,7 @@ export const generateAIChat: StateCreator<
           groupId,
           { content: anchor.message.content, targetId: anchor.message.targetId },
           true,
+          expectedConversationVersion,
         );
         return;
       }
@@ -1047,6 +1066,7 @@ export const generateAIChat: StateCreator<
       const threadId =
         anchor.message.threadId ?? (tailMessages.length === 0 ? requestedThreadId : undefined);
       await get().internal_coreProcessMessage(contextMessages, anchor.message.id, {
+        expectedConversationVersion,
         traceId,
         ragQuery: get().internal_shouldUseRAG() ? anchor.message.content : undefined,
         threadId,
