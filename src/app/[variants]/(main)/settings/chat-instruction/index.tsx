@@ -1,10 +1,9 @@
 'use client';
 
 import { MESSAGE_CANCEL_FLAT } from '@lobechat/const';
-import { Button, Form, type FormGroupItemType, Icon } from '@lobehub/ui';
+import { Button, Form, Icon, Text } from '@lobehub/ui';
 import { EditableMessage } from '@lobehub/ui/chat';
 import { Skeleton } from 'antd';
-import { createStyles } from 'antd-style';
 import { Loader2Icon, PenLineIcon } from 'lucide-react';
 import { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -45,27 +44,14 @@ const isInstructionSaveAbort = (error: unknown): boolean => {
   return false;
 };
 
-const useStyles = createStyles(({ css }) => ({
-  instructionPreview: css`
-    min-width: 0;
-    max-height: 160px;
-    overflow: auto;
-  `,
-  instructionPreviewWrapper: css`
-    min-width: 0;
-  `,
-}));
-
 const ChatInstruction = memo(() => {
   const { t } = useTranslation('setting');
-  const { styles } = useStyles();
   const generalInstruction =
     useUserStore(userGeneralSettingsSelectors.generalInstruction) ?? '';
   const [setSettings, isUserStateInit] = useUserStore((state) => [
     state.setSettings,
     state.isUserStateInit,
   ]);
-  const [instructionEditorOpen, setInstructionEditorOpen] = useState(false);
   const [instructionEditing, setInstructionEditing] = useState(false);
   const [instructionSaving, setInstructionSaving] = useState(false);
   const instructionSaveOperation = useRef(0);
@@ -75,15 +61,9 @@ const ChatInstruction = memo(() => {
     if (!instructionSaving) confirmedInstruction.current = generalInstruction;
   }, [generalInstruction, instructionSaving]);
 
-  const handleInstructionEditorOpenChange = (open: boolean) => {
-    setInstructionEditorOpen(open);
-    if (!open) setInstructionEditing(false);
-  };
-
   const handleInstructionChange = async (updatedInstruction: string) => {
     if (updatedInstruction === generalInstruction) {
       setInstructionEditing(false);
-      setInstructionEditorOpen(false);
       return;
     }
 
@@ -91,7 +71,6 @@ const ChatInstruction = memo(() => {
     const previousInstruction = confirmedInstruction.current;
     setInstructionSaving(true);
     setInstructionEditing(false);
-    setInstructionEditorOpen(false);
 
     try {
       await setSettings(
@@ -121,19 +100,30 @@ const ChatInstruction = memo(() => {
 
   const handleInstructionEdit = () => {
     setInstructionEditing(true);
-    setInstructionEditorOpen(true);
   };
 
   if (!isUserStateInit) return <Skeleton active paragraph={{ rows: 3 }} title={false} />;
 
-  const instructionGroup: FormGroupItemType = {
-    children: [
-      {
-        children: (
-          <Flexbox align={'flex-start'} gap={12} horizontal width={'100%'}>
-            <Flexbox className={styles.instructionPreviewWrapper} flex={1}>
+  const editButton = !instructionEditing && !!generalInstruction && (
+    <Button
+      icon={PenLineIcon}
+      iconPosition={'end'}
+      iconProps={{ size: 12 }}
+      onClick={handleInstructionEdit}
+      size={'small'}
+      type={'primary'}
+    >
+      {t('edit', { ns: 'common' })}
+    </Button>
+  );
+
+  return (
+    <Form
+      items={[
+        {
+          children: (
+            <Flexbox gap={8}>
               <EditableMessage
-                classNames={{ markdown: styles.instructionPreview }}
                 editing={instructionEditing}
                 height={'auto'}
                 markdownProps={{
@@ -143,45 +133,34 @@ const ChatInstruction = memo(() => {
                 }}
                 onChange={handleInstructionChange}
                 onEditingChange={setInstructionEditing}
-                onOpenChange={handleInstructionEditorOpenChange}
-                openModal={instructionEditorOpen}
                 placeholder={t('chatInstruction.placeholder')}
+                showEditWhenEmpty
                 text={{
                   cancel: t('cancel', { ns: 'common' }),
                   confirm: t('ok', { ns: 'common' }),
-                  edit: t('edit', { ns: 'common' }),
-                  title: t('chatInstruction.title'),
                 }}
                 value={generalInstruction}
                 variant={'borderless'}
               />
+              {!instructionEditing && (
+                <Text fontSize={12} type={'secondary'}>
+                  {t('chatInstruction.desc')}
+                </Text>
+              )}
             </Flexbox>
-            <Button
-              icon={PenLineIcon}
-              iconPosition={'end'}
-              iconProps={{ size: 12 }}
-              onClick={handleInstructionEdit}
-              size={'small'}
-              type={'primary'}
-            >
-              {t('edit', { ns: 'common' })}
-            </Button>
-          </Flexbox>
-        ),
-        desc: t('chatInstruction.desc'),
-        label: t('chatInstruction.title'),
-        minWidth: undefined,
-      },
-    ],
-    extra: instructionSaving && (
-      <Icon icon={Loader2Icon} size={16} spin style={{ opacity: 0.5 }} />
-    ),
-    title: t('chatInstruction.title'),
-  };
-
-  return (
-    <Form
-      items={[instructionGroup]}
+          ),
+          extra:
+            (instructionSaving || editButton) && (
+              <Flexbox align={'center'} gap={8} horizontal>
+                {instructionSaving && (
+                  <Icon icon={Loader2Icon} size={16} spin style={{ opacity: 0.5 }} />
+                )}
+                {editButton}
+              </Flexbox>
+            ),
+          title: t('chatInstruction.title'),
+        },
+      ]}
       itemsType={'group'}
       variant={'borderless'}
       {...FORM_STYLE}

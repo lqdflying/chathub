@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React, {
   type PropsWithChildren,
   type ReactNode,
@@ -28,18 +28,18 @@ vi.mock('@lobehub/ui', () => {
   const Form = ({
     items,
   }: {
-    items: Array<{ children: Array<{ children?: ReactNode; desc?: ReactNode; label?: ReactNode }> }>;
+    items: Array<{ children?: ReactNode; extra?: ReactNode; title?: ReactNode }>;
   }) => (
     <div>
-      {items.flatMap((group) =>
-        group.children.map((item, index) => (
-          <section key={index}>
-            {item.label && <div>{item.label}</div>}
-            {item.desc && <div>{item.desc}</div>}
-            {item.children}
-          </section>
-        )),
-      )}
+      {items.map((group, index) => (
+        <section data-testid="instruction-section" key={index}>
+          <header>
+            <div>{group.title}</div>
+            {group.extra}
+          </header>
+          {group.children}
+        </section>
+      ))}
     </div>
   );
 
@@ -54,6 +54,7 @@ vi.mock('@lobehub/ui', () => {
     ),
     Form,
     Icon: () => null,
+    Text: ({ children }: PropsWithChildren) => <span>{children}</span>,
   };
 });
 
@@ -62,73 +63,68 @@ vi.mock('@lobehub/ui/chat', () => ({
     editing,
     onChange,
     onEditingChange,
-    onOpenChange,
-    openModal,
     placeholder,
+    showEditWhenEmpty,
     text,
     value,
   }: {
     editing: boolean;
     onChange: (value: string) => void;
     onEditingChange: (editing: boolean) => void;
-    onOpenChange: (open: boolean) => void;
-    openModal: boolean;
     placeholder: string;
-    text: { cancel: string; confirm: string; edit: string; title: string };
+    showEditWhenEmpty: boolean;
+    text: { cancel: string; confirm: string };
     value: string;
   }) => {
     const [draft, setDraft] = useState(value);
-    const previousOpen = useRef(openModal);
+    const wasEditing = useRef(editing);
 
     useEffect(() => {
-      if (openModal && !previousOpen.current) setDraft(value);
-      previousOpen.current = openModal;
-    }, [openModal, value]);
+      if (editing && !wasEditing.current) setDraft(value);
+      wasEditing.current = editing;
+    }, [editing, value]);
 
     return (
       <div>
-        <div data-testid="instruction-preview">{value || placeholder}</div>
-        {openModal && (
-          <div aria-label={text.title} role="dialog">
-            {editing ? (
-              <>
-                <textarea
-                  aria-label="instruction-editor"
-                  onChange={(event) => setDraft(event.target.value)}
-                  value={draft}
-                />
-                <button
-                  onClick={() => {
-                    onEditingChange(false);
-                    setDraft(value);
-                  }}
-                  type="button"
-                >
-                  {text.cancel}
-                </button>
-                <button
-                  onClick={() => {
-                    onEditingChange(false);
-                    onChange(draft);
-                    setDraft(value);
-                  }}
-                  type="button"
-                >
-                  {text.confirm}
-                </button>
-              </>
-            ) : (
-              <>
-                <div data-testid="instruction-modal-preview">{value || placeholder}</div>
-                <button onClick={() => onEditingChange(true)} type="button">
-                  {text.edit}
-                </button>
-                <button onClick={() => onOpenChange(false)} type="button">
-                  close
-                </button>
-              </>
+        {editing ? (
+          <>
+            <textarea
+              aria-label="instruction-editor"
+              onChange={(event) => setDraft(event.target.value)}
+              value={draft}
+            />
+            <button
+              onClick={() => {
+                onEditingChange(false);
+                setDraft(value);
+              }}
+              type="button"
+            >
+              {text.cancel}
+            </button>
+            <button
+              onClick={() => {
+                onEditingChange(false);
+                onChange(draft);
+              }}
+              type="button"
+            >
+              {text.confirm}
+            </button>
+          </>
+        ) : (
+          <>
+            <div data-testid="instruction-preview">{value || placeholder}</div>
+            {showEditWhenEmpty && !value && (
+              <button
+                aria-label="empty-instruction-edit"
+                onClick={() => onEditingChange(true)}
+                type="button"
+              >
+                edit
+              </button>
             )}
-          </div>
+          </>
         )}
       </div>
     );
@@ -137,15 +133,6 @@ vi.mock('@lobehub/ui/chat', () => ({
 
 vi.mock('antd', () => ({
   Skeleton: () => <div data-testid="skeleton" />,
-}));
-
-vi.mock('antd-style', () => ({
-  createStyles: () => () => ({
-    styles: {
-      instructionPreview: 'instructionPreview',
-      instructionPreviewWrapper: 'instructionPreviewWrapper',
-    },
-  }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -186,17 +173,21 @@ describe('Chat Instruction settings', () => {
     });
   });
 
-  it('renders the stored Markdown and opens the raw editor', () => {
+  it('renders one full-width section and opens the inline editor', () => {
     render(<ChatInstruction />);
 
+    expect(screen.getAllByText('chatInstruction.title')).toHaveLength(1);
+    expect(screen.getByText('chatInstruction.desc')).not.toBeNull();
     expect(screen.getByTestId('instruction-preview').textContent).toBe('# Be concise');
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
 
-    expect(screen.getByRole('dialog', { name: 'chatInstruction.title' })).not.toBeNull();
+    expect(screen.queryByText('chatInstruction.desc')).toBeNull();
     expect(
       (screen.getByRole('textbox', { name: 'instruction-editor' }) as HTMLTextAreaElement).value,
     ).toBe('# Be concise');
+    expect(screen.getByRole('button', { name: 'common:cancel' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'common:ok' })).not.toBeNull();
   });
 
   it('persists confirmed Markdown changes', async () => {
@@ -216,7 +207,7 @@ describe('Chat Instruction settings', () => {
       { skipRefresh: true },
     );
     await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByRole('textbox', { name: 'instruction-editor' })).toBeNull();
     });
   });
 
@@ -239,7 +230,7 @@ describe('Chat Instruction settings', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'common:ok' }));
 
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'instruction-editor' })).toBeNull();
     expect(screen.getByTestId('instruction-preview').textContent).toBe('## Updated instruction');
 
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
@@ -251,7 +242,6 @@ describe('Chat Instruction settings', () => {
       resolveSave?.();
     });
 
-    expect(screen.getByRole('dialog')).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: 'instruction-editor' }) as HTMLTextAreaElement).value,
     ).toBe('### Newer unsaved draft');
@@ -376,7 +366,7 @@ describe('Chat Instruction settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common:ok' }));
 
     await waitFor(() => {
-      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.queryByRole('textbox', { name: 'instruction-editor' })).toBeNull();
     });
     fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
 
@@ -398,12 +388,11 @@ describe('Chat Instruction settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common:cancel' }));
 
     expect(setSettings).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).not.toBeNull();
     expect(screen.queryByRole('textbox', { name: 'instruction-editor' })).toBeNull();
-    expect(screen.getByTestId('instruction-modal-preview').textContent).toBe('# Be concise');
     expect(screen.getByTestId('instruction-preview').textContent).toBe('# Be concise');
+    expect(screen.getByText('chatInstruction.desc')).not.toBeNull();
 
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'common:edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
     expect(
       (screen.getByRole('textbox', { name: 'instruction-editor' }) as HTMLTextAreaElement).value,
     ).toBe('# Be concise');
@@ -417,7 +406,8 @@ describe('Chat Instruction settings', () => {
       'chatInstruction.placeholder',
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'common:edit' }));
+    expect(screen.queryByRole('button', { name: 'common:edit' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'empty-instruction-edit' }));
 
     expect(
       (screen.getByRole('textbox', { name: 'instruction-editor' }) as HTMLTextAreaElement).value,
