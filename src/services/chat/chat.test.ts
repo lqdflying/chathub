@@ -20,6 +20,7 @@ import { WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { buildConnectionCheckParams } from '../../app/[variants]/(main)/settings/provider/features/ProviderConfig/connectionCheckParams';
 import { API_ENDPOINTS } from '../_url';
+import * as clientModelRuntime from './clientModelRuntime';
 import * as helpers from './helper';
 import { chatService } from './index';
 
@@ -1566,6 +1567,116 @@ describe('ChatService', () => {
         },
         store: true,
       });
+    });
+
+    it('preserves provider identity and error classification for browser-direct capture failures', async () => {
+      const contextExportRequest = {
+        allocation: { total: 12 },
+        captureId: 'context-browser-direct',
+        continuationReason: 'initial' as const,
+        purpose: 'assistant' as const,
+        requestId: 'request-browser-direct',
+        sequence: 0,
+      };
+      const providerError = {
+        error: { message: 'provider rejected request' },
+        errorType: 'ProviderBizError',
+        provider: 'openai',
+      };
+      const preparedProviderRequest = {
+        messages: [{ content: 'prepared browser request', role: 'user' }],
+        metadata: { user_id: 'private-user' },
+        model: 'gpt-4o',
+      };
+
+      vi.spyOn(helpers, 'isEnableFetchOnClient').mockReturnValue(true);
+      vi.spyOn(helpers, 'resolveRuntimeProvider').mockReturnValue('openai');
+      vi.spyOn(clientModelRuntime, 'initializeWithClientStore').mockResolvedValue({
+        chat: vi.fn().mockImplementation(async (_payload, options) => {
+          options.onRequestPrepared(preparedProviderRequest, { apiMode: 'chatCompletion' });
+          throw providerError;
+        }),
+      } as any);
+      mockFetchSSE.mockImplementation(async (url: string, options: any) => {
+        const response = await options.fetcher('https://unused.test');
+        const errorResponse = await response.json();
+
+        expect(url).toBe(API_ENDPOINTS.chat('custom-openai'));
+        expect(response.ok).toBe(false);
+        expect(response.status).toBe(471);
+        expect(errorResponse.errorType).toBe('ProviderBizError');
+        expect(errorResponse.body).toMatchObject({
+          contextExportSnapshot: {
+            ...contextExportRequest,
+            error: 'Provider request rejected before streaming began',
+            metadata: {
+              apiMode: 'chatCompletion',
+              model: 'gpt-4o',
+              provider: 'custom-openai',
+              runtime: 'openai',
+            },
+            providerRequest: {
+              messages: [{ content: 'prepared browser request', role: 'user' }],
+              model: 'gpt-4o',
+            },
+            status: 'error',
+          },
+          error: providerError.error,
+          provider: 'custom-openai',
+        });
+        expect(errorResponse.body.error).not.toHaveProperty('contextExportSnapshot');
+
+        return response;
+      });
+
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-4o',
+          provider: 'custom-openai',
+        },
+        {
+          contextExportRequest,
+          onContextSnapshot: vi.fn(),
+        },
+      );
+    });
+
+    it('preserves provider error classification without context export capture', async () => {
+      const providerError = {
+        error: { message: 'provider rejected request' },
+        errorType: 'ProviderBizError',
+      };
+
+      vi.spyOn(helpers, 'isEnableFetchOnClient').mockReturnValue(true);
+      vi.spyOn(clientModelRuntime, 'initializeWithClientStore').mockResolvedValue({
+        chat: vi.fn().mockRejectedValue(providerError),
+      } as any);
+      mockFetchSSE.mockImplementation(async (_url: string, options: any) => {
+        const response = await options.fetcher('https://unused.test');
+        const errorResponse = await response.json();
+
+        expect(response.ok).toBe(false);
+        expect(response.status).toBe(471);
+        expect(errorResponse).toEqual({
+          body: {
+            error: providerError.error,
+            provider: 'openai',
+          },
+          errorType: 'ProviderBizError',
+        });
+
+        return response;
+      });
+
+      await chatService.getChatCompletion(
+        {
+          messages: [],
+          model: 'gpt-4o',
+          provider: 'openai',
+        },
+        {},
+      );
     });
 
     it('should return InvalidAccessCode error when enableFetchOnClient is true and auth is enabled but user is not signed in', async () => {

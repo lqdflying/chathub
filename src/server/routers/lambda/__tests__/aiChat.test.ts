@@ -289,4 +289,65 @@ describe('aiChatRouter', () => {
       });
     });
   });
+
+  describe('outputJSONWithContext', () => {
+    it('returns the prepared provider request when structured generation rejects', async () => {
+      const { getXorPayload } = await import('@/utils/server');
+      const { initModelRuntimeWithUserPayload } = await import('@/server/modules/ModelRuntime');
+      const providerRequest = {
+        messages: [{ content: 'prepared request', role: 'user' }],
+        metadata: { user_id: 'private-user' },
+        model: 'gpt-4o',
+      };
+      const mockGenerateObject = vi.fn().mockImplementation(async (_payload, options) => {
+        options.onRequestPrepared(providerRequest, { apiMode: 'generateObject' });
+        throw new Error('provider rejected request');
+      });
+
+      vi.mocked(getXorPayload).mockReturnValue({
+        apiKey: 'test-key',
+        runtimeProvider: 'openai',
+      });
+      vi.mocked(initModelRuntimeWithUserPayload).mockReturnValue({
+        generateObject: mockGenerateObject,
+      } as any);
+
+      const caller = aiChatRouter.createCaller(mockCtx as any);
+      const result = await caller.outputJSONWithContext({
+        contextExportRequest: {
+          allocation: { total: 0 },
+          captureId: 'context-supervisor',
+          continuationReason: 'initial',
+          purpose: 'supervisor',
+          requestId: 'request-supervisor',
+          sequence: 0,
+        },
+        keyVaultsPayload: 'encrypted-payload',
+        messages: [{ content: 'supervisor input', role: 'user' }],
+        model: 'gpt-4o',
+        provider: 'custom-openai',
+      } as any);
+
+      expect(result).toMatchObject({
+        error: { message: 'provider rejected request' },
+        snapshot: {
+          captureId: 'context-supervisor',
+          error: 'Provider request rejected during supervisor generation',
+          metadata: {
+            apiMode: 'generateObject',
+            model: 'gpt-4o',
+            provider: 'custom-openai',
+            runtime: 'openai',
+          },
+          providerRequest: {
+            messages: [{ content: 'prepared request', role: 'user' }],
+            model: 'gpt-4o',
+          },
+          requestId: 'request-supervisor',
+          status: 'error',
+        },
+        success: false,
+      });
+    });
+  });
 });

@@ -1,5 +1,10 @@
 import { contextSupervisorMakeDecision } from '@lobechat/prompts';
-import { GroupMemberWithAgent, UIChatMessage } from '@lobechat/types';
+import {
+  ContextExportRequestContext,
+  ContextExportRequestSnapshot,
+  GroupMemberWithAgent,
+  UIChatMessage,
+} from '@lobechat/types';
 import debug from 'debug';
 
 import { aiChatService } from '@/services/aiChat';
@@ -45,10 +50,12 @@ export interface SupervisorContext {
   abortController?: AbortController;
   allowDM?: boolean;
   availableAgents: GroupMemberWithAgent[];
+  contextExportRequest?: ContextExportRequestContext;
   groupId: string;
   messages: UIChatMessage[];
   model: string;
   provider: string;
+  onContextSnapshot?: (snapshot: ContextExportRequestSnapshot) => void;
   // Group scene controls which tools are exposed (e.g., todos only in 'productive')
   scene?: 'casual' | 'productive';
   systemPrompt?: string;
@@ -104,14 +111,29 @@ export class GroupChatSupervisor {
     });
 
     try {
-      const response = await aiChatService.generateJSON(
-        {
-          ...(contexts as any),
-          model: context.model,
-          provider: context.provider,
-        },
-        context.abortController || new AbortController(),
-      );
+      const requestPayload = {
+        ...(contexts as any),
+        model: context.model,
+        provider: context.provider,
+      };
+      const abortController = context.abortController || new AbortController();
+      let response: unknown;
+      if (context.contextExportRequest) {
+        const captureResult = await aiChatService.generateJSONWithContext(
+          requestPayload,
+          context.contextExportRequest,
+          abortController,
+        );
+        context.onContextSnapshot?.(captureResult.snapshot);
+
+        if (!captureResult.success) {
+          throw new Error(captureResult.error.message);
+        }
+
+        response = captureResult.result;
+      } else {
+        response = await aiChatService.generateJSON(requestPayload, abortController);
+      }
 
       console.log('SUPERVISOR RESPONSE', JSON.stringify(response, null, 2));
 

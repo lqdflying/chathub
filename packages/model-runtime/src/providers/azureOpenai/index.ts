@@ -145,15 +145,17 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
           }
         : baseParams;
 
-      const response = enableStreaming
-        ? await this.client.chat.completions.create({
+      const requestPayload = enableStreaming
+        ? {
             ...openaiParams,
-            stream: true,
+            stream: true as const,
             ...(supportsStreamingUsage(this.apiVersion)
               ? { stream_options: { include_usage: true } }
               : {}),
-          })
-        : await this.client.chat.completions.create({ ...openaiParams, stream: false });
+          }
+        : { ...openaiParams, stream: false as const };
+      await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
+      const response = await this.client.chat.completions.create(requestPayload);
       if (enableStreaming) {
         let stream = response as Stream<OpenAI.ChatCompletionChunk>;
         if (process.env.DEBUG_AZURE_CHAT_COMPLETION === '1') {

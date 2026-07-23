@@ -28,6 +28,7 @@ import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user
 import { getUserStoreState } from '@/store/user/store';
 
 import ActionPopover from '../components/ActionPopover';
+import ContextExportControl from './ContextExportControl';
 import TokenProgress from './TokenProgress';
 
 interface TokenTagForGroupChatProps {
@@ -94,9 +95,13 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
   });
   const toolsToken = useTokenCount(canUseTool ? toolsString : '');
 
-  // System role token calculation for group chat
-  // Calculate the tokens for system message + user message that are sent per agent response
-  const systemRolePerAgentString = useMemo(() => {
+  const representativeRoleSettings = useMemo(() => {
+    return groupAgents?.[0]?.systemRole?.trim() || '';
+  }, [groupAgents]);
+  const chatInstructionToken = useTokenCount(generalInstruction?.trim());
+  const roleSettingsToken = useTokenCount(representativeRoleSettings);
+
+  const groupOrchestrationString = useMemo(() => {
     if (!groupAgents || groupAgents.length === 0) return '';
 
     try {
@@ -118,7 +123,6 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
       const baseSystemRole = composeSystemRole(generalInstruction, firstAgent.systemRole);
       const members: GroupMemberInfo[] = agentTitleMap as GroupMemberInfo[];
 
-      // Build the group chat system prompt (same as used in agent processing)
       const groupChatSystemPrompt = groupChatPrompts.buildGroupChatSystemPrompt({
         agentId: firstAgent.id || '',
         baseSystemRole,
@@ -126,18 +130,22 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
         messages: chats,
       });
 
-      // Build the user message (instruction for agent to respond)
-      const userInstruction = `Now it's your turn to respond. You are sending message to the group publicly. Please respond as this agent would, considering the full conversation history provided above. Directly return the message content, no other text. You do not need add author name or anything else.`;
+      if (!baseSystemRole) return groupChatSystemPrompt;
 
-      // Return combined system + user message tokens
-      return groupChatSystemPrompt + '\n\n' + userInstruction;
+      const roleIndex = groupChatSystemPrompt.indexOf(baseSystemRole);
+      if (roleIndex < 0) return groupChatSystemPrompt;
+
+      return (
+        groupChatSystemPrompt.slice(0, roleIndex) +
+        groupChatSystemPrompt.slice(roleIndex + baseSystemRole.length)
+      ).trim();
     } catch (error) {
-      console.warn('Failed to calculate system role tokens:', error);
+      console.warn('Failed to calculate group orchestration tokens:', error);
       return '';
     }
   }, [generalInstruction, groupAgents, messageString]);
 
-  const systemRoleToken = useTokenCount(systemRolePerAgentString);
+  const groupOrchestrationToken = useTokenCount(groupOrchestrationString);
 
   // Supervisor token calculation for group chat
   const supervisorPrompt = useMemo(() => {
@@ -186,8 +194,33 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
 
   const chatsToken = useTokenCount(chatsString) + inputTokenCount;
 
-  // Total token (include supervisor tokens and system role tokens for group chat)
-  const totalToken = systemRoleToken + toolsToken + chatsToken + supervisorToken;
+  const totalToken =
+    chatInstructionToken +
+    roleSettingsToken +
+    groupOrchestrationToken +
+    toolsToken +
+    chatsToken +
+    supervisorToken;
+  const contextExportAllocation = useMemo(
+    () => ({
+      chatInstruction: chatInstructionToken,
+      chatMessages: chatsToken,
+      groupOrchestration: groupOrchestrationToken,
+      pluginSettings: toolsToken,
+      roleSettings: roleSettingsToken,
+      supervisor: supervisorToken,
+      total: totalToken,
+    }),
+    [
+      chatInstructionToken,
+      chatsToken,
+      groupOrchestrationToken,
+      roleSettingsToken,
+      supervisorToken,
+      toolsToken,
+      totalToken,
+    ],
+  );
 
   const content = (
     <Flexbox gap={12} style={{ minWidth: 200 }}>
@@ -219,9 +252,21 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
         data={[
           {
             color: theme.magenta,
-            id: 'systemRole',
-            title: t('tokenDetails.systemRole'),
-            value: systemRoleToken,
+            id: 'chatInstruction',
+            title: t('tokenDetails.chatInstruction'),
+            value: chatInstructionToken,
+          },
+          {
+            color: theme.cyan,
+            id: 'roleSettings',
+            title: t('tokenDetails.roleSettings'),
+            value: roleSettingsToken,
+          },
+          {
+            color: theme.volcano,
+            id: 'groupOrchestration',
+            title: t('tokenDetails.groupOrchestration'),
+            value: groupOrchestrationToken,
           },
           {
             color: theme.geekblue,
@@ -266,6 +311,7 @@ const TokenTagForGroupChat = memo<TokenTagForGroupChatProps>(({ total: messageSt
         showIcon
         showTotal={t('tokenDetails.total')}
       />
+      <ContextExportControl allocation={contextExportAllocation} />
     </Flexbox>
   );
 

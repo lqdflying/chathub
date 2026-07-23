@@ -21,6 +21,7 @@ vi.mock('@lobechat/prompts', () => ({
 vi.mock('@/services/aiChat', () => ({
   aiChatService: {
     generateJSON: vi.fn(),
+    generateJSONWithContext: vi.fn(),
   },
 }));
 
@@ -162,5 +163,50 @@ describe('GroupChatSupervisor', () => {
     await expect(supervisor.makeDecision({ ...baseContext })).rejects.toThrow(
       'Supervisor decision failed: LLM error',
     );
+  });
+
+  it('emits an error snapshot before propagating capture-aware provider failures', async () => {
+    const onContextSnapshot = vi.fn();
+    const snapshot = {
+      allocation: {},
+      captureId: 'context-supervisor',
+      capturedAt: '2026-07-23T00:00:00.000Z',
+      error: 'Provider request rejected during supervisor generation',
+      metadata: {
+        apiMode: 'generateObject',
+        model: 'gpt-4o',
+        provider: 'openai',
+        runtime: 'openai',
+      },
+      providerRequest: { model: 'gpt-4o' },
+      purpose: 'supervisor',
+      redactions: [],
+      requestId: 'request-supervisor',
+      sequence: 0,
+      status: 'error',
+    } as const;
+
+    vi.mocked(aiChatService.generateJSONWithContext).mockResolvedValue({
+      error: { message: 'provider rejected request' },
+      snapshot,
+      success: false,
+    });
+
+    await expect(
+      supervisor.makeDecision({
+        ...baseContext,
+        contextExportRequest: {
+          allocation: {},
+          captureId: 'context-supervisor',
+          capturedAt: '2026-07-23T00:00:00.000Z',
+          purpose: 'supervisor',
+          requestId: 'request-supervisor',
+          sequence: 0,
+        },
+        onContextSnapshot,
+      }),
+    ).rejects.toThrow('Supervisor decision failed: provider rejected request');
+
+    expect(onContextSnapshot).toHaveBeenCalledWith(snapshot);
   });
 });

@@ -1,5 +1,6 @@
 import {
   AiSendMessageServerSchema,
+  ContextExportRequestContextSchema,
   SendMessageServerResponse,
   StructureOutputSchema,
 } from '@lobechat/types';
@@ -16,6 +17,10 @@ import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { AiChatService } from '@/server/services/aiChat';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 import { FileService } from '@/server/services/file';
+import {
+  contextExportRedactions,
+  sanitizeContextExportValue,
+} from '@/services/chat/contextExport';
 import { getXorPayload } from '@/utils/server';
 
 const log = debug('lobe-lambda-router:ai-chat');
@@ -68,6 +73,85 @@ export const aiChatRouter = router({
     log('generateObject completed, result: %O', result);
     return result;
   }),
+
+  outputJSONWithContext: aiChatProcedure
+    .input(
+      StructureOutputSchema.extend({
+        contextExportRequest: ContextExportRequestContextSchema,
+      }),
+    )
+    .mutation(async ({ input }) => {
+      let keyVaults: object | undefined;
+
+      try {
+        keyVaults = getXorPayload(input.keyVaultsPayload);
+      } catch (error) {
+        log('capture-aware payload parse error: %O', error);
+      }
+
+      if (!keyVaults) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'keyVaultsPayload is not correct',
+        });
+      }
+
+      const runtimeProvider =
+        (keyVaults as { runtimeProvider?: string }).runtimeProvider ?? input.provider;
+      const modelRuntime = initModelRuntimeWithUserPayload(input.provider, keyVaults);
+      const generateObjectPayload = {
+        messages: input.messages,
+        model: input.model,
+        schema: input.schema,
+        tools: input.tools,
+      };
+      let preparedProviderRequest:
+        | { apiMode?: string; providerRequest: ReturnType<typeof sanitizeContextExportValue> }
+        | undefined;
+
+      const createSnapshot = (status: 'complete' | 'error' | 'partial') => ({
+        ...input.contextExportRequest,
+        engineeredInput: sanitizeContextExportValue(generateObjectPayload),
+        metadata: {
+          apiMode: preparedProviderRequest?.apiMode ?? 'generateObject',
+          model: input.model,
+          provider: input.provider,
+          runtime: runtimeProvider,
+        },
+        providerRequest: preparedProviderRequest?.providerRequest,
+        redactions: contextExportRedactions,
+        status,
+      });
+
+      try {
+        const result = await modelRuntime.generateObject(generateObjectPayload, {
+          onRequestPrepared: (request, metadata) => {
+            preparedProviderRequest = {
+              apiMode: metadata?.apiMode,
+              providerRequest: sanitizeContextExportValue(request),
+            };
+          },
+        });
+
+        return {
+          result,
+          snapshot: createSnapshot(preparedProviderRequest ? 'complete' : 'partial'),
+          success: true as const,
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Supervisor provider request failed';
+
+        return {
+          error: { message: errorMessage },
+          snapshot: {
+            ...createSnapshot('error'),
+            error: 'Provider request rejected during supervisor generation',
+          },
+          success: false as const,
+        };
+      }
+    }),
 
   sendMessageInServer: aiChatProcedure
     .input(AiSendMessageServerSchema)

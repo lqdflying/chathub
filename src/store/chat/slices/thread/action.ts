@@ -176,13 +176,19 @@ export const chatThreadMessage: StateCreator<
 
     // Get the current messages to generate AI response
     const messages = threadSelectors.portalAIChats(get());
+    const contextExportCaptureId = get().consumeContextExportArm();
 
-    await internal_coreProcessMessage(messages, parentMessageId, {
-      expectedConversationVersion,
-      ragQuery: get().internal_shouldUseRAG() ? message : undefined,
-      threadId: get().portalThreadId,
-      inPortalThread: true,
-    });
+    try {
+      await internal_coreProcessMessage(messages, parentMessageId, {
+        contextExportCaptureId,
+        expectedConversationVersion,
+        ragQuery: get().internal_shouldUseRAG() ? message : undefined,
+        threadId: get().portalThreadId,
+        inPortalThread: true,
+      });
+    } finally {
+      if (contextExportCaptureId) get().completeContextExport(contextExportCaptureId);
+    }
 
     set({ isCreatingThreadMessage: false }, false, n('creatingThreadMessage/stop'));
 
@@ -217,15 +223,18 @@ export const chatThreadMessage: StateCreator<
   }) => {
     set({ isCreatingThread: true }, false, n('creatingThread/start'));
 
-    const data = await threadService.createThreadWithMessage(
-      {
-        topicId,
-        sourceMessageId,
-        type,
-        message,
-      },
-      expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
-    );
+    const createThreadPayload = {
+      topicId,
+      sourceMessageId,
+      type,
+      message,
+    };
+    const data =
+      expectedConversationVersion === undefined
+        ? await threadService.createThreadWithMessage(createThreadPayload)
+        : await threadService.createThreadWithMessage(createThreadPayload, {
+            expectedConversationVersion,
+          });
     set({ isCreatingThread: false }, false, n('creatingThread/end'));
 
     return data;

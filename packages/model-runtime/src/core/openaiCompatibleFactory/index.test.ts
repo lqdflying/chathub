@@ -64,7 +64,7 @@ beforeEach(() => {
 
   // Use vi.spyOn to mock the chat.completions.create method
   vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue(
-    new ReadableStream() as any,
+    (async function* () {})() as any,
   );
 });
 
@@ -114,7 +114,7 @@ describe('LobeOpenAICompatibleFactory', () => {
 
     it('should call chat API with corresponding options', async () => {
       // Arrange
-      const mockStream = new ReadableStream();
+      const mockStream = (async function* () {})();
       const mockResponse = Promise.resolve(mockStream);
 
       (instance['client'].chat.completions.create as Mock).mockResolvedValue(mockResponse);
@@ -129,6 +129,7 @@ describe('LobeOpenAICompatibleFactory', () => {
       });
 
       // Assert
+      await result.text();
       expect(instance['client'].chat.completions.create).toHaveBeenCalledWith(
         {
           max_tokens: 1024,
@@ -150,13 +151,56 @@ describe('LobeOpenAICompatibleFactory', () => {
       expect(result).toBeInstanceOf(Response);
     });
 
+    it('captures the exact semantic SDK payload without request options', async () => {
+      const responsePayload = {
+        choices: [
+          {
+            finish_reason: 'stop',
+            index: 0,
+            message: { content: 'Hello', role: 'assistant' },
+          },
+        ],
+        created: 123,
+        id: 'response-id',
+        model: 'test-model',
+        object: 'chat.completion',
+      } as OpenAI.ChatCompletion;
+      const createSpy = vi
+        .spyOn(instance['client'].chat.completions, 'create')
+        .mockResolvedValue(responsePayload);
+      const onRequestPrepared = vi.fn();
+      const signal = new AbortController().signal;
+
+      const response = await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'test-model',
+          stream: false,
+        },
+        {
+          headers: { Authorization: 'Bearer private-token' },
+          onRequestPrepared,
+          signal,
+        },
+      );
+
+      expect(onRequestPrepared).toHaveBeenCalledWith(
+        createSpy.mock.calls[0][0],
+        { apiMode: 'chatCompletion' },
+      );
+      expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('headers');
+      expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('signal');
+      expect(createSpy.mock.calls[0][1]).toMatchObject({ signal });
+      await response.text();
+    });
+
     it('should send configured Chat Completions cache hints for OpenAI-compatible payloads', async () => {
-      const mockStream = new ReadableStream();
+      const mockStream = (async function* () {})();
       const mockCreateMethod = vi
         .spyOn(instance['client'].chat.completions, 'create')
         .mockResolvedValue(mockStream as any);
 
-      await instance.chat({
+      const response = await instance.chat({
         messages: [
           { content: 'Keep the response brief.', role: 'system' },
           { content: 'Hello', role: 'user' },
@@ -170,6 +214,7 @@ describe('LobeOpenAICompatibleFactory', () => {
         },
         temperature: 0,
       });
+      await response.text();
 
       const requestPayload = mockCreateMethod.mock.calls[0][0] as any;
       const requestOptions = mockCreateMethod.mock.calls[0][1] as any;
@@ -818,7 +863,7 @@ describe('LobeOpenAICompatibleFactory', () => {
       it('should add user in payload correctly', async () => {
         const mockCreateMethod = vi.spyOn(instance['client'].chat.completions, 'create');
 
-        await instance.chat(
+        const response = await instance.chat(
           {
             messages: [{ content: 'Hello', role: 'user' }],
             model: 'mistralai/mistral-7b-instruct:free',
@@ -826,6 +871,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           },
           { user: 'abc' },
         );
+        await response.text();
 
         expect(mockCreateMethod).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -849,9 +895,9 @@ describe('LobeOpenAICompatibleFactory', () => {
         const instance = new LobeMockProvider({ apiKey: 'test' });
         const mockCreateMethod = vi
           .spyOn(instance['client'].chat.completions, 'create')
-          .mockResolvedValue(new ReadableStream() as any);
+          .mockResolvedValue((async function* () {})() as any);
 
-        await instance.chat(
+        const response = await instance.chat(
           {
             messages: [{ content: 'Hello', role: 'user' }],
             model: 'open-mistral-7b',
@@ -859,6 +905,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           },
           { user: 'testUser' },
         );
+        await response.text();
 
         expect(mockCreateMethod).toHaveBeenCalledWith(
           expect.not.objectContaining({
@@ -880,9 +927,9 @@ describe('LobeOpenAICompatibleFactory', () => {
         const instance = new LobeMockProvider({ apiKey: 'test' });
         const mockCreateMethod = vi
           .spyOn(instance['client'].chat.completions, 'create')
-          .mockResolvedValue(new ReadableStream() as any);
+          .mockResolvedValue((async function* () {})() as any);
 
-        await instance.chat(
+        const response = await instance.chat(
           {
             messages: [{ content: 'Hello', role: 'user' }],
             model: 'open-mistral-7b',
@@ -890,6 +937,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           },
           { user: 'testUser' },
         );
+        await response.text();
 
         expect(mockCreateMethod).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -908,9 +956,9 @@ describe('LobeOpenAICompatibleFactory', () => {
         const instance = new LobeMockProvider({ apiKey: 'test' });
         const mockCreateMethod = vi
           .spyOn(instance['client'].chat.completions, 'create')
-          .mockResolvedValue(new ReadableStream() as any);
+          .mockResolvedValue((async function* () {})() as any);
 
-        await instance.chat(
+        const response = await instance.chat(
           {
             messages: [{ content: 'Hello', role: 'user' }],
             model: 'open-mistral-7b',
@@ -918,6 +966,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           },
           { user: 'testUser' },
         );
+        await response.text();
 
         expect(mockCreateMethod).toHaveBeenCalledWith(
           expect.objectContaining({

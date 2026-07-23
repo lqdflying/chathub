@@ -122,6 +122,7 @@ export interface ChatPluginAction {
 
   reInvokeToolMessage: (id: string) => Promise<void>;
   triggerAIMessage: (params: {
+    contextExportCaptureId?: string;
     expectedConversationVersion?: number;
     parentId?: string;
     traceId?: string;
@@ -138,6 +139,7 @@ export interface ChatPluginAction {
   triggerToolCalls: (
     id: string,
     params?: {
+      contextExportCaptureId?: string;
       expectedConversationVersion?: number;
       threadId?: string;
       inPortalThread?: boolean;
@@ -381,6 +383,7 @@ export const chatPlugin: StateCreator<
   },
 
   triggerAIMessage: async ({
+    contextExportCaptureId,
     expectedConversationVersion,
     parentId,
     traceId,
@@ -400,6 +403,7 @@ export const chatPlugin: StateCreator<
       : chatSelectors.mainAIChats(get());
 
     await internal_coreProcessMessage(chats, parentId ?? chats.at(-1)!.id, {
+      contextExportCaptureId,
       expectedConversationVersion,
       traceId,
       threadId,
@@ -434,7 +438,13 @@ export const chatPlugin: StateCreator<
 
   triggerToolCalls: async (
     assistantId,
-    { expectedConversationVersion, threadId, inPortalThread, inSearchWorkflow } = {},
+    {
+      contextExportCaptureId,
+      expectedConversationVersion,
+      threadId,
+      inPortalThread,
+      inSearchWorkflow,
+    } = {},
   ) => {
     const resolvedConversationVersion =
       expectedConversationVersion ?? (await messageService.getConversationVersion());
@@ -645,6 +655,7 @@ export const chatPlugin: StateCreator<
     const traceId = chatSelectors.getTraceIdByMessageId(latestCompletedTool.id)(get());
 
     await get().triggerAIMessage({
+      contextExportCaptureId,
       expectedConversationVersion: resolvedConversationVersion,
       traceId,
       threadId,

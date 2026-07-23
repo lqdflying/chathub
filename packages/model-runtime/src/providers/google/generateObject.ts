@@ -161,11 +161,13 @@ export const createGoogleGenerateObject = async (
     responseMimeType: config.responseMimeType,
   });
 
-  const response = await client.models.generateContent({
+  const requestPayload = {
     config,
     contents,
     model,
-  });
+  };
+  await options?.onRequestPrepared?.(requestPayload, { apiMode: 'generateContent' });
+  const response = await client.models.generateContent(requestPayload);
 
   debug('API response received', { hasText: !!response.text, textLength: response.text?.length });
 
@@ -244,11 +246,13 @@ export const createGoogleGenerateObjectWithTools = async (
     model,
   });
 
-  const response = await client.models.generateContent({
+  const requestPayload = {
     config,
     contents,
     model,
-  });
+  };
+  await options?.onRequestPrepared?.(requestPayload, { apiMode: 'generateContent' });
+  const response = await client.models.generateContent(requestPayload);
 
   debug('API response received', {
     candidatesCount: response.candidates?.length,

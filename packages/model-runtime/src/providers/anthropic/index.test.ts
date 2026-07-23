@@ -260,6 +260,34 @@ describe('LobeAnthropicAI', () => {
       expect(result).toBeInstanceOf(Response);
     });
 
+    it('captures the exact Messages payload without request options', async () => {
+      const createSpy = vi
+        .spyOn(instance['client'].messages, 'create')
+        .mockReturnValue(new ReadableStream() as any);
+      const onRequestPrepared = vi.fn();
+      const signal = new AbortController().signal;
+
+      await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'claude-3-haiku-20240307',
+        },
+        {
+          headers: { Authorization: 'Bearer private-token' },
+          onRequestPrepared,
+          signal,
+        },
+      );
+
+      expect(onRequestPrepared).toHaveBeenCalledWith(
+        createSpy.mock.calls[0][0],
+        { apiMode: 'messages' },
+      );
+      expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('headers');
+      expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('signal');
+      expect(createSpy.mock.calls[0][1]).toMatchObject({ signal });
+    });
+
     it('should handle system prompt correctly', async () => {
       // Arrange
       const mockStream = new ReadableStream({

@@ -529,6 +529,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
         if (customClient?.createChatCompletionStream) {
           log('using custom client for chat completion stream');
+          await options?.onRequestPrepared?.(finalPayload, { apiMode: 'chatCompletion' });
           response = customClient.createChatCompletionStream(
             this.client,
             finalPayload as ChatStreamPayload,
@@ -538,6 +539,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           if (chatCompletionPayload.stream) {
             response = createDeferredAsyncIterable<OpenAI.ChatCompletionChunk>(async (signal) => {
               try {
+                await options?.onRequestPrepared?.(finalPayload, { apiMode: 'chatCompletion' });
                 return (await this.client.chat.completions.create(finalPayload, {
                   // https://github.com/lobehub/lobe-chat/pull/318
                   headers: requestHeaders,
@@ -548,6 +550,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
               }
             }, options?.signal) as Stream<OpenAI.ChatCompletionChunk>;
           } else {
+            await options?.onRequestPrepared?.(finalPayload, { apiMode: 'chatCompletion' });
             response = await this.client.chat.completions.create(finalPayload, {
               // https://github.com/lobehub/lobe-chat/pull/318
               headers: requestHeaders,
@@ -766,14 +769,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           type: 'function',
         };
 
+        const requestPayload = {
+          messages,
+          model,
+          tool_choice: { function: { name: tool.function.name }, type: 'function' as const },
+          tools: [tool],
+          user: options?.user,
+        };
+        await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
         const res = await this.client.chat.completions.create(
-          {
-            messages,
-            model,
-            tool_choice: { function: { name: tool.function.name }, type: 'function' },
-            tools: [tool],
-            user: options?.user,
-          },
+          requestPayload,
           { headers: options?.headers, signal: options?.signal },
         );
 
@@ -840,13 +845,15 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       if (shouldUseResponses) {
         log('calling responses.create for structured output');
+        const requestPayload = {
+          input: messages,
+          model,
+          text: { format: { strict: true, type: 'json_schema' as const, ...processedSchema } },
+          user: options?.user,
+        };
+        await options?.onRequestPrepared?.(requestPayload, { apiMode: 'responses' });
         const res = await this.client!.responses.create(
-          {
-            input: messages,
-            model,
-            text: { format: { strict: true, type: 'json_schema', ...processedSchema } },
-            user: options?.user,
-          },
+          requestPayload,
           { headers: options?.headers, signal: options?.signal },
         );
 
@@ -864,13 +871,18 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       log('calling chat.completions.create for structured output');
-      const res = await this.client.chat.completions.create(
-        {
-          messages,
-          model,
-          response_format: { json_schema: processedSchema, type: 'json_schema' },
-          user: options?.user,
+      const requestPayload = {
+        messages,
+        model,
+        response_format: {
+          json_schema: processedSchema,
+          type: 'json_schema' as const,
         },
+        user: options?.user,
+      };
+      await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
+      const res = await this.client.chat.completions.create(
+        requestPayload,
         { headers: options?.headers, signal: options?.signal },
       );
       const text = res.choices[0].message.content!;
@@ -1276,6 +1288,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         let prodStream: Stream<OpenAI.Responses.ResponseStreamEvent> | ReadableStream =
           createDeferredAsyncIterable<OpenAI.Responses.ResponseStreamEvent>(async (signal) => {
             try {
+              await options?.onRequestPrepared?.(postPayload, { apiMode: 'responses' });
               return (await this.client.responses.create(postPayload, {
                 headers: requestHeaders,
                 signal,
@@ -1314,6 +1327,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       let response: OpenAI.Responses.Response;
       try {
+        await options?.onRequestPrepared?.(postPayload, { apiMode: 'responses' });
         response = await this.client.responses.create(postPayload, {
           headers: requestHeaders,
           signal: options?.signal,
@@ -1478,14 +1492,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         log('calling responses.create for tool calling');
         const input = await convertOpenAIResponseInputs(messages as any, this.id);
 
+        const requestPayload = {
+          input,
+          model,
+          tool_choice: 'required' as const,
+          tools: tools!.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
+          user: options?.user,
+        };
+        await options?.onRequestPrepared?.(requestPayload, { apiMode: 'responses' });
         const res = await this.client.responses.create(
-          {
-            input,
-            model,
-            tool_choice: 'required',
-            tools: tools!.map((tool) => this.convertChatCompletionToolToResponseTool(tool)),
-            user: options?.user,
-          },
+          requestPayload,
           { headers: options?.headers, signal: options?.signal },
         );
 
@@ -1514,14 +1530,16 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('calling chat.completions.create for tool calling');
       const msgs = messages;
 
+      const requestPayload = {
+        messages: msgs,
+        model,
+        tool_choice: 'required' as const,
+        tools,
+        user: options?.user,
+      };
+      await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
       const res = await this.client.chat.completions.create(
-        {
-          messages: msgs,
-          model,
-          tool_choice: 'required',
-          tools,
-          user: options?.user,
-        },
+        requestPayload,
         { headers: options?.headers, signal: options?.signal },
       );
 

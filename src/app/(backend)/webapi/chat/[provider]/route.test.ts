@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { getAuth } from '@clerk/nextjs/server';
+import { LOBE_CHAT_CONTEXT_EXPORT_HEADER } from '@lobechat/const';
 import { LobeRuntimeAI, ModelRuntime } from '@lobechat/model-runtime';
 import { ChatErrorType } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
@@ -449,6 +450,79 @@ describe('POST handler', () => {
         },
         errorType: 500,
       });
+    });
+
+    it('returns a sanitized prepared request when the provider rejects eagerly', async () => {
+      vi.mocked(getXorPayload).mockReturnValueOnce({
+        accessCode: 'test-access-code',
+        apiKey: 'test-api-key',
+        runtimeProvider: 'openai',
+        userId: 'authenticated-user',
+      });
+
+      const contextExportRequest = {
+        captureId: 'capture-1',
+        continuationReason: 'initial',
+        purpose: 'assistant',
+        requestId: 'request-1',
+        sequence: 0,
+      };
+      request = new Request(new URL('https://test.com'), {
+        body: JSON.stringify({
+          messages: [{ content: 'Hello, world!', role: 'user' }],
+          model: 'test-model',
+        }),
+        headers: {
+          [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token',
+          [LOBE_CHAT_CONTEXT_EXPORT_HEADER]: JSON.stringify(contextExportRequest),
+        },
+        method: 'POST',
+      });
+
+      vi.spyOn(ModelRuntime.prototype, 'chat').mockImplementationOnce(
+        async (_payload, options) => {
+          options?.onRequestPrepared?.(
+            {
+              messages: [{ content: 'Hello, world!', role: 'user' }],
+              model: 'test-model',
+              prompt_cache_key: 'private-cache-key',
+              user: 'authenticated-user',
+            },
+            { apiMode: 'chatCompletion' },
+          );
+
+          throw {
+            error: { message: 'Provider rejected request' },
+            errorType: ChatErrorType.InternalServerError,
+          };
+        },
+      );
+
+      const response = await POST(request, {
+        params: Promise.resolve({ provider: 'test-provider' }),
+      });
+      const responseBody = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(responseBody.body.contextExportSnapshot).toMatchObject({
+        ...contextExportRequest,
+        error: 'Provider request rejected: 500',
+        metadata: {
+          apiMode: 'chatCompletion',
+          model: 'test-model',
+          provider: 'test-provider',
+          runtime: 'openai',
+        },
+        providerRequest: {
+          messages: [{ content: 'Hello, world!', role: 'user' }],
+          model: 'test-model',
+        },
+        status: 'error',
+      });
+      expect(responseBody.body.contextExportSnapshot.providerRequest).not.toHaveProperty('user');
+      expect(responseBody.body.contextExportSnapshot.providerRequest).not.toHaveProperty(
+        'prompt_cache_key',
+      );
     });
   });
 });

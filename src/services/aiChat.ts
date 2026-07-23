@@ -1,8 +1,25 @@
-import { SendMessageServerParams, StructureOutputParams } from '@lobechat/types';
+import {
+  ContextExportRequestContext,
+  ContextExportRequestSnapshot,
+  SendMessageServerParams,
+  StructureOutputParams,
+} from '@lobechat/types';
 import { cleanObject } from '@lobechat/utils';
 
 import { lambdaClient } from '@/libs/trpc/client';
 import { createXorKeyVaultsPayload } from '@/services/_auth';
+
+type GenerateJSONWithContextResult =
+  | {
+      result: unknown;
+      snapshot: ContextExportRequestSnapshot;
+      success: true;
+    }
+  | {
+      error: { message: string };
+      snapshot: ContextExportRequestSnapshot;
+      success: false;
+    };
 
 class AiChatService {
   sendMessageInServer = async (
@@ -21,6 +38,24 @@ class AiChatService {
   ) => {
     return lambdaClient.aiChat.outputJSON.mutate(
       { ...params, keyVaultsPayload: createXorKeyVaultsPayload(params.provider) },
+      {
+        context: { showNotification: false },
+        signal: abortController?.signal,
+      },
+    );
+  };
+
+  generateJSONWithContext = async (
+    params: Omit<StructureOutputParams, 'keyVaultsPayload'>,
+    contextExportRequest: ContextExportRequestContext,
+    abortController: AbortController,
+  ): Promise<GenerateJSONWithContextResult> => {
+    return lambdaClient.aiChat.outputJSONWithContext.mutate(
+      {
+        ...params,
+        contextExportRequest,
+        keyVaultsPayload: createXorKeyVaultsPayload(params.provider),
+      },
       {
         context: { showNotification: false },
         signal: abortController?.signal,

@@ -71,6 +71,32 @@ describe('LobeGoogleAI', () => {
       // Additional assertions can be added, such as verifying the returned stream content
     });
 
+    it('captures the exact Gemini payload without request options', async () => {
+      const createSpy = vi
+        .spyOn(instance['client'].models, 'generateContentStream')
+        .mockResolvedValue((async function* (): AsyncGenerator<GenerateContentResponse> {})());
+      const onRequestPrepared = vi.fn();
+
+      await instance.chat(
+        {
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'gemini-2.5-flash',
+        },
+        {
+          headers: { Authorization: 'Bearer private-token' },
+          onRequestPrepared,
+          signal: new AbortController().signal,
+        },
+      );
+
+      expect(onRequestPrepared).toHaveBeenCalledWith(
+        createSpy.mock.calls[0][0],
+        { apiMode: 'generateContent' },
+      );
+      expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('headers');
+      expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('signal');
+    });
+
     it('should withGrounding', () => {
       const data = [
         {

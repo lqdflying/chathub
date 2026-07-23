@@ -3,22 +3,26 @@ import { TokenTag } from '@lobehub/ui/chat';
 import { Button } from 'antd';
 import { useTheme } from 'antd-style';
 import numeral from 'numeral';
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
-import { useEstimatedContextUsage } from '@/hooks/useEstimatedContextUsage';
+import {
+  EstimatedContextConversationSource,
+  useEstimatedContextUsage,
+} from '@/hooks/useEstimatedContextUsage';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 
 import ActionPopover from '../components/ActionPopover';
+import ContextExportControl from './ContextExportControl';
 import TokenProgress from './TokenProgress';
 
 interface TokenTagProps {
-  total: string;
+  conversationSource?: EstimatedContextConversationSource;
 }
-const Token = memo<TokenTagProps>(({ total: _messageString }) => {
+const Token = memo<TokenTagProps>(({ conversationSource }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
   const [compacting, setCompacting] = useState(false);
@@ -30,13 +34,32 @@ const Token = memo<TokenTagProps>(({ total: _messageString }) => {
   );
 
   const {
+    chatInstructionToken,
     chatsToken,
     historySummaryToken,
     maxTokens,
-    systemRoleToken,
+    roleSettingsToken,
     toolsToken,
     totalToken,
-  } = useEstimatedContextUsage();
+  } = useEstimatedContextUsage(conversationSource);
+  const contextExportAllocation = useMemo(
+    () => ({
+      chatInstruction: chatInstructionToken,
+      chatMessages: chatsToken,
+      historySummary: historySummaryToken,
+      pluginSettings: toolsToken,
+      roleSettings: roleSettingsToken,
+      total: totalToken,
+    }),
+    [
+      chatInstructionToken,
+      chatsToken,
+      historySummaryToken,
+      roleSettingsToken,
+      toolsToken,
+      totalToken,
+    ],
+  );
 
   const content = (
     <Flexbox gap={12} style={{ minWidth: 200 }}>
@@ -68,9 +91,15 @@ const Token = memo<TokenTagProps>(({ total: _messageString }) => {
         data={[
           {
             color: theme.magenta,
-            id: 'systemRole',
-            title: t('tokenDetails.systemRole'),
-            value: systemRoleToken,
+            id: 'chatInstruction',
+            title: t('tokenDetails.chatInstruction'),
+            value: chatInstructionToken,
+          },
+          {
+            color: theme.cyan,
+            id: 'roleSettings',
+            title: t('tokenDetails.roleSettings'),
+            value: roleSettingsToken,
           },
           {
             color: theme.geekblue,
@@ -130,6 +159,7 @@ const Token = memo<TokenTagProps>(({ total: _messageString }) => {
       >
         {t('memoryCompaction.compactNow')}
       </Button>
+      <ContextExportControl allocation={contextExportAllocation} />
     </Flexbox>
   );
 

@@ -396,12 +396,49 @@
       "token_threshold": "Context usage"
     }
   },
+  "contextExport": {
+    "allocation": "Estimated context allocation",
+    "cancelCapture": "Cancel capture",
+    "captureNext": "Capture next request",
+    "capturing": "Capturing",
+    "continuation": {
+      "initial": "Initial",
+      "tool": "Tool continuation"
+    },
+    "copyLayer": "Copy selected layer",
+    "copySuccess": "Selected context layer copied",
+    "downloadBatch": "Download complete JSON",
+    "engineeredContext": "Engineered Context",
+    "exportNext": "Export next request",
+    "noRequests": "No model requests were recorded for this capture",
+    "partialWarning": "Some requests did not reach the provider dispatch boundary, so this export may be incomplete.",
+    "providerBoundary": "This is the semantic request object passed to the SDK. Authentication and SDK serialization happen afterward.",
+    "providerRequest": "Provider Request",
+    "purpose": {
+      "assistant": "Assistant",
+      "member": "Group member",
+      "supervisor": "Group host"
+    },
+    "request": "Model request",
+    "requestOption": "#{{index}} · {{purpose}} · {{continuation}} · {{model}}",
+    "status": {
+      "capturing": "Capturing",
+      "complete": "Complete",
+      "error": "Error",
+      "partial": "Partial"
+    },
+    "title": "Context Export",
+    "unknownModel": "Unknown model",
+    "viewCaptured": "View captured context"
+  },
   "tokenDetails": {
+    "chatInstruction": "Chat Instruction",
     "chats": "Chat Messages",
+    "groupOrchestration": "Group Orchestration",
     "historySummary": "History Summary",
     "rest": "Remaining",
+    "roleSettings": "Role Settings",
     "supervisor": "Group Host",
-    "systemRole": "Role Settings",
     "title": "Context Details",
     "tools": "Plugin Settings",
     "total": "Total Available",

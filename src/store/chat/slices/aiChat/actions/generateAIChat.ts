@@ -101,6 +101,7 @@ const collectDependentRewindIds = (
 };
 
 interface ProcessMessageParams {
+  contextExportCaptureId?: string;
   expectedConversationVersion?: number;
   traceId?: string;
   isWelcomeQuestion?: boolean;
@@ -345,13 +346,19 @@ export const generateAIChat: StateCreator<
     // Get the current messages to generate AI response
     const messages = chatSelectors.activeBaseChats(get());
     const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
+    const contextExportCaptureId = !isWelcomeQuestion ? get().consumeContextExportArm() : undefined;
 
-    await internal_coreProcessMessage(messages, id, {
-      expectedConversationVersion,
-      isWelcomeQuestion,
-      ragQuery: get().internal_shouldUseRAG() ? message : undefined,
-      threadId: activeThreadId,
-    });
+    try {
+      await internal_coreProcessMessage(messages, id, {
+        contextExportCaptureId,
+        expectedConversationVersion,
+        isWelcomeQuestion,
+        ragQuery: get().internal_shouldUseRAG() ? message : undefined,
+        threadId: activeThreadId,
+      });
+    } finally {
+      if (contextExportCaptureId) get().completeContextExport(contextExportCaptureId);
+    }
 
     set({ isCreatingMessage: false }, false, n('creatingMessage/stop'));
 
@@ -559,6 +566,7 @@ export const generateAIChat: StateCreator<
         get().internal_toggleMessageInToolsCalling(true, assistantId);
         await refreshMessages();
         await triggerToolCalls(assistantId, {
+          contextExportCaptureId: params?.contextExportCaptureId,
           expectedConversationVersion,
           threadId: params?.threadId,
           inPortalThread: params?.inPortalThread,
@@ -596,6 +604,7 @@ export const generateAIChat: StateCreator<
         // Persistence is confirmed; revalidation must not block execution.
       }
       await triggerToolCalls(assistantId, {
+        contextExportCaptureId: params?.contextExportCaptureId,
         expectedConversationVersion,
         threadId: params?.threadId,
         inPortalThread: params?.inPortalThread,
@@ -689,9 +698,17 @@ export const generateAIChat: StateCreator<
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: summaryBlock?.content,
     });
+    const contextExportRequest = params?.contextExportCaptureId
+      ? get().createContextExportRequest(
+          params.contextExportCaptureId,
+          params.agentId ? 'member' : 'assistant',
+          params.isToolContinuation ? 'tool' : 'initial',
+        )
+      : undefined;
     try {
       await chatService.createAssistantMessageStream({
         abortController,
+        contextExportRequest,
         params: {
           messages,
           model,
@@ -700,6 +717,28 @@ export const generateAIChat: StateCreator<
           plugins: agentConfig.plugins,
         },
         historySummary: historySummaryForRequest,
+        onContextEngineered: ({ engineeredInput, metadata, request }) => {
+          get().appendContextExportSnapshot({
+            ...request,
+            engineeredInput,
+            metadata,
+            redactions: [
+              'credentials',
+              'transportHeaders',
+              'transportOptions',
+              'baseUrls',
+              'signalsAndCallbacks',
+              'storedIdentifiers',
+              'traceAndDiagnostics',
+              'cacheRouting',
+              'inlineMediaData',
+            ],
+            status: 'capturing',
+          });
+        },
+        onContextSnapshot: (snapshot) => {
+          get().appendContextExportSnapshot(snapshot);
+        },
         toolCacheDebug: params?.toolCacheDebug,
         trace: {
           traceId: params?.traceId,
@@ -709,6 +748,24 @@ export const generateAIChat: StateCreator<
         },
         isWelcomeQuestion: params?.isWelcomeQuestion,
         onErrorHandle: async (error) => {
+          if (contextExportRequest) {
+            get().appendContextExportSnapshot({
+              ...contextExportRequest,
+              error: `Provider request failed: ${String(error.type)}`,
+              redactions: [
+                'credentials',
+                'transportHeaders',
+                'transportOptions',
+                'baseUrls',
+                'signalsAndCallbacks',
+                'storedIdentifiers',
+                'traceAndDiagnostics',
+                'cacheRouting',
+                'inlineMediaData',
+              ],
+              status: 'error',
+            });
+          }
           await messageService.updateMessageError(messageId, error);
           await refreshMessages();
         },

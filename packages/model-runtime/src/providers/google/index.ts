@@ -302,11 +302,13 @@ export class LobeGoogleAI implements LobeRuntimeAI {
           ]).callback
         : options?.callback;
 
-      const geminiStreamResponse = await this.client.models.generateContentStream({
+      const requestPayload = {
         config,
         contents,
         model,
-      });
+      };
+      await options?.onRequestPrepared?.(requestPayload, { apiMode: 'generateContent' });
+      const geminiStreamResponse = await this.client.models.generateContentStream(requestPayload);
 
       const googleStream = this.createEnhancedStream(geminiStreamResponse, controller.signal);
 

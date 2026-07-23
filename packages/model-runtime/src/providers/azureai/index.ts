@@ -104,16 +104,18 @@ export class LobeAzureAI implements LobeRuntimeAI {
             { callback: cacheDiagnosticCallbacks },
           ]).callback
         : options?.callback;
+      const requestPayload = {
+        messages: updatedMessages as OpenAI.ChatCompletionMessageParam[],
+        model,
+        ...params,
+        stream: enableStreaming,
+        temperature: model.includes('o3') || model.includes('o4') ? undefined : temperature,
+        tool_choice: params.tools ? 'auto' : undefined,
+        top_p: model.includes('o3') || model.includes('o4') ? undefined : top_p,
+      };
+      await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
       const response = this.client.path('/chat/completions').post({
-        body: {
-          messages: updatedMessages as OpenAI.ChatCompletionMessageParam[],
-          model,
-          ...params,
-          stream: enableStreaming,
-          temperature: model.includes('o3') || model.includes('o4') ? undefined : temperature,
-          tool_choice: params.tools ? 'auto' : undefined,
-          top_p: model.includes('o3') || model.includes('o4') ? undefined : top_p,
-        },
+        body: requestPayload,
       });
 
       if (enableStreaming) {

@@ -4,6 +4,7 @@ import {
   ChatErrorType,
   ChatImageChunk,
   ChatMessageError,
+  ContextExportRequestSnapshot,
   GroundingSearch,
   MessageToolCall,
   ModelPerformance,
@@ -76,6 +77,7 @@ interface MessageToolCallsChunk {
 export interface FetchSSEOptions {
   fetcher?: typeof fetch;
   onAbort?: (text: string) => Promise<void>;
+  onContextSnapshot?: (snapshot: ContextExportRequestSnapshot) => void;
   onErrorHandle?: (error: ChatMessageError) => void;
   onFinish?: OnFinishHandler;
   onMessageHandle?: (
@@ -329,6 +331,11 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
       }
 
       switch (ev.event) {
+        case 'context_snapshot': {
+          options.onContextSnapshot?.(data);
+          break;
+        }
+
         case 'error': {
           finishedType = 'error';
           options.onErrorHandle?.(data);
@@ -437,7 +444,22 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
       response = res.clone();
       // 如果不 ok 说明有请求错误
       if (!response.ok) {
-        throw await getMessageError(res);
+        const messageError = await getMessageError(res);
+        if (messageError.body && typeof messageError.body === 'object') {
+          const { contextExportSnapshot, ...errorBody } = messageError.body as Record<
+            string,
+            unknown
+          >;
+
+          if (contextExportSnapshot) {
+            options.onContextSnapshot?.(
+              contextExportSnapshot as ContextExportRequestSnapshot,
+            );
+            throw { ...messageError, body: errorBody };
+          }
+        }
+
+        throw messageError;
       }
     },
     signal: options.signal,

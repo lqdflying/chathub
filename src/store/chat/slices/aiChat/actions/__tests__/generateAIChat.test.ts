@@ -8,6 +8,8 @@ import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { chatSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
+import { sessionSelectors } from '@/store/session/selectors';
+import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
 
 import { useChatStore } from '../../../../store';
@@ -26,6 +28,7 @@ vi.mock('@/components/AntdStaticMethods', () => ({
 }));
 
 const realCoreProcessMessage = useChatStore.getState().internal_coreProcessMessage;
+const realProcessAgentMessage = useChatStore.getState().internal_processAgentMessage;
 
 beforeEach(() => {
   resetTestEnvironment();
@@ -186,6 +189,24 @@ describe('chatMessage actions', () => {
         });
 
         expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+      });
+
+      it('keeps context export armed when message creation fails', async () => {
+        const { result } = renderHook(() => useChatStore());
+        vi.spyOn(messageService, 'createMessage').mockRejectedValue(
+          new Error('create message error'),
+        );
+
+        act(() => {
+          result.current.armContextExport();
+        });
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(result.current.contextExportCaptureStatus).toBe('armed');
+        expect(result.current.contextExportBatch).toBeUndefined();
       });
     });
 
@@ -423,6 +444,194 @@ describe('chatMessage actions', () => {
 
       expect(internalRouteGroupUserMessage).not.toHaveBeenCalled();
       expect(useChatStore.getState().isCreatingMessage).toBe(true);
+    });
+
+    it('keeps a capture active until the debounced supervisor finishes', async () => {
+      vi.useFakeTimers();
+
+      try {
+        const state = useChatStore.getState();
+        vi.spyOn(state, 'internal_createMessage').mockResolvedValue(TEST_IDS.MESSAGE_ID);
+        const triggerSupervisorDecision = vi
+          .spyOn(state, 'internal_triggerSupervisorDecision')
+          .mockResolvedValue(undefined);
+
+        act(() => {
+          useChatStore.setState({
+            groupMaps: {
+              [TEST_IDS.SESSION_ID]: {
+                config: { enableSupervisor: true, responseSpeed: 'fast' },
+              } as any,
+            },
+          });
+          state.armContextExport();
+        });
+
+        await act(async () => {
+          await state.sendGroupMessage({
+            groupId: TEST_IDS.SESSION_ID,
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+
+        const captureId = useChatStore.getState().contextExportBatch?.captureId;
+        expect(captureId).toBeDefined();
+        expect(useChatStore.getState().contextExportCaptureStatus).toBe('capturing');
+        expect(triggerSupervisorDecision).not.toHaveBeenCalled();
+
+        await act(async () => {
+          await vi.runAllTimersAsync();
+        });
+
+        expect(triggerSupervisorDecision).toHaveBeenCalledWith(
+          TEST_IDS.SESSION_ID,
+          TEST_IDS.TOPIC_ID,
+          false,
+          7,
+          captureId,
+        );
+        expect(useChatStore.getState().contextExportCaptureStatus).toBe('ready');
+        expect(useChatStore.getState().contextExportBatch?.status).toBe('partial');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('transfers a pending capture when a second group message replaces the debounce timer', async () => {
+      vi.useFakeTimers();
+
+      try {
+        const state = useChatStore.getState();
+        vi.spyOn(state, 'internal_createMessage').mockResolvedValue(TEST_IDS.MESSAGE_ID);
+        const triggerSupervisorDecision = vi
+          .spyOn(state, 'internal_triggerSupervisorDecision')
+          .mockResolvedValue(undefined);
+
+        act(() => {
+          useChatStore.setState({
+            groupMaps: {
+              [TEST_IDS.SESSION_ID]: {
+                config: { enableSupervisor: true, responseSpeed: 'fast' },
+              } as any,
+            },
+          });
+          state.armContextExport();
+        });
+
+        await act(async () => {
+          await state.sendGroupMessage({
+            groupId: TEST_IDS.SESSION_ID,
+            message: 'first captured message',
+          });
+        });
+
+        const captureId = useChatStore.getState().contextExportBatch?.captureId;
+        expect(captureId).toBeDefined();
+
+        await act(async () => {
+          await state.sendGroupMessage({
+            groupId: TEST_IDS.SESSION_ID,
+            message: 'second debounced message',
+          });
+        });
+
+        expect(useChatStore.getState().contextExportCaptureStatus).toBe('capturing');
+        expect(useChatStore.getState().contextExportBatch?.captureId).toBe(captureId);
+        expect(triggerSupervisorDecision).not.toHaveBeenCalled();
+
+        await act(async () => {
+          await vi.runAllTimersAsync();
+        });
+
+        expect(triggerSupervisorDecision).toHaveBeenCalledTimes(1);
+        expect(triggerSupervisorDecision).toHaveBeenCalledWith(
+          TEST_IDS.SESSION_ID,
+          TEST_IDS.TOPIC_ID,
+          false,
+          7,
+          captureId,
+        );
+        expect(useChatStore.getState().contextExportCaptureStatus).toBe('ready');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('internal_processAgentMessage', () => {
+    it('keeps the capture ID through group tool execution and continuation', async () => {
+      const groupId = TEST_IDS.SESSION_ID;
+      const agentId = 'group-agent';
+      const contextExportCaptureId = 'context_group_tool';
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        groupId,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+      const chatKey = messageMapKey(groupId, TEST_IDS.TOPIC_ID);
+      const state = useChatStore.getState();
+
+      vi.spyOn(sessionSelectors, 'currentGroupAgents').mockReturnValue([
+        {
+          id: agentId,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+          systemRole: 'Group member role',
+          title: 'Group Agent',
+        } as any,
+      ]);
+      vi.spyOn(userProfileSelectors, 'nickName').mockReturnValue('Test User');
+      vi.spyOn(userGeneralSettingsSelectors, 'generalInstruction').mockReturnValue('');
+      vi.spyOn(state, 'internal_createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      vi.spyOn(state, 'internal_fetchAIChatMessage').mockResolvedValue({
+        content: '',
+        isFunctionCall: true,
+        persistenceAmbiguous: false,
+      });
+      vi.spyOn(state, 'refreshMessages').mockResolvedValue(undefined);
+      const triggerToolCalls = vi.spyOn(state, 'triggerToolCalls').mockResolvedValue(undefined);
+      const processAgentMessage = vi
+        .fn()
+        .mockImplementationOnce(realProcessAgentMessage)
+        .mockResolvedValue(undefined);
+
+      act(() => {
+        useChatStore.setState({
+          internal_processAgentMessage: processAgentMessage,
+          messagesMap: { [chatKey]: [userMessage] },
+        });
+      });
+
+      await act(async () => {
+        await useChatStore
+          .getState()
+          .internal_processAgentMessage(
+            groupId,
+            agentId,
+            undefined,
+            undefined,
+            7,
+            contextExportCaptureId,
+          );
+      });
+
+      expect(triggerToolCalls).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID, {
+        contextExportCaptureId,
+        expectedConversationVersion: 7,
+        inPortalThread: false,
+        threadId: undefined,
+      });
+      expect(processAgentMessage).toHaveBeenNthCalledWith(
+        2,
+        groupId,
+        agentId,
+        undefined,
+        undefined,
+        7,
+        contextExportCaptureId,
+        true,
+      );
     });
   });
 
@@ -868,6 +1077,12 @@ describe('chatMessage actions', () => {
     it('should handle streaming errors gracefully', async () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [createMockMessage({ role: 'user' })];
+      let contextExportCaptureId: string | undefined;
+
+      act(() => {
+        result.current.armContextExport();
+        contextExportCaptureId = result.current.consumeContextExportArm();
+      });
 
       // ✅ Mock chatService to simulate error
       const streamSpy = vi
@@ -883,6 +1098,7 @@ describe('chatMessage actions', () => {
           messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
           messages,
           model: 'gpt-4o-mini',
+          params: { contextExportCaptureId },
           provider: 'openai',
         });
       });
@@ -891,6 +1107,10 @@ describe('chatMessage actions', () => {
         TEST_IDS.ASSISTANT_MESSAGE_ID,
         expect.objectContaining({ type: 'InvalidProviderAPIKey' }),
       );
+      expect(result.current.contextExportBatch?.requests[0]).toMatchObject({
+        error: 'Provider request failed: InvalidProviderAPIKey',
+        status: 'error',
+      });
 
       streamSpy.mockRestore();
     });

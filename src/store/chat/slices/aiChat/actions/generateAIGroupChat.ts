@@ -195,6 +195,7 @@ export interface ChatGroupChatAction {
     topicId?: string | null,
     isManualTrigger?: boolean,
     expectedConversationVersion?: number,
+    contextExportCaptureId?: string,
   ) => Promise<void>;
 
   /**
@@ -205,6 +206,7 @@ export interface ChatGroupChatAction {
   internal_triggerSupervisorDecisionDebounced: (
     groupId: string,
     expectedConversationVersion?: number,
+    contextExportCaptureId?: string,
   ) => void;
 
   /** Route an already-persisted user message without creating a duplicate user row. */
@@ -213,12 +215,13 @@ export interface ChatGroupChatAction {
     message: Pick<UIChatMessage, 'content' | 'targetId'>,
     immediateSupervisor?: boolean,
     expectedConversationVersion?: number,
+    contextExportCaptureId?: string,
   ) => Promise<void>;
 
   /**
    * Cancels pending supervisor decision for a group
    */
-  internal_cancelSupervisorDecision: (groupId: string) => void;
+  internal_cancelSupervisorDecision: (groupId: string, preservePendingCapture?: boolean) => void;
 
   /**
    * Cancels all pending supervisor decisions (cleanup method)
@@ -241,6 +244,7 @@ export interface ChatGroupChatAction {
     groupId: string,
     decisions: SupervisorDecisionList,
     expectedConversationVersion?: number,
+    contextExportCaptureId?: string,
   ) => Promise<void>;
 
   /**
@@ -252,6 +256,8 @@ export interface ChatGroupChatAction {
     targetId?: string,
     instruction?: string,
     expectedConversationVersion?: number,
+    contextExportCaptureId?: string,
+    isToolContinuation?: boolean,
   ) => Promise<void>;
 
   /**
@@ -280,6 +286,8 @@ export const chatAiGroupChat: StateCreator<
   [],
   ChatGroupChatAction
 > = (set, get) => {
+  const pendingSupervisorCaptureIds = new Map<string, string>();
+
   const selectGroupConfig = (groupId: string) => {
     const { groupMaps } = get();
     const group = groupMaps[groupId];
@@ -303,6 +311,7 @@ export const chatAiGroupChat: StateCreator<
       internal_setActiveGroup(groupId);
 
       set({ isCreatingMessage: true }, false, n('creatingGroupMessage/start'));
+      let contextExportCaptureId: string | undefined;
 
       try {
         const userMessage: CreateMessageParams = {
@@ -327,6 +336,7 @@ export const chatAiGroupChat: StateCreator<
         }
 
         if (messageId) {
+          contextExportCaptureId = get().consumeContextExportArm();
           await internal_routeGroupUserMessage(
             groupId,
             {
@@ -335,11 +345,18 @@ export const chatAiGroupChat: StateCreator<
             },
             false,
             expectedConversationVersion,
+            contextExportCaptureId,
           );
         }
       } catch (error) {
         console.error('Failed to send group message:', error);
       } finally {
+        if (
+          contextExportCaptureId &&
+          pendingSupervisorCaptureIds.get(groupId) !== contextExportCaptureId
+        ) {
+          get().completeContextExport(contextExportCaptureId);
+        }
         if (get().conversationClearGeneration === conversationClearGeneration) {
           set({ isCreatingMessage: false }, false, n('creatingGroupMessage/end'));
         }
@@ -353,6 +370,7 @@ export const chatAiGroupChat: StateCreator<
       message,
       immediateSupervisor = false,
       expectedConversationVersion,
+      contextExportCaptureId,
     ) => {
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
@@ -363,17 +381,28 @@ export const chatAiGroupChat: StateCreator<
 
       if (groupConfig?.enableSupervisor) {
         if (immediateSupervisor) {
-          await get().internal_triggerSupervisorDecision(
-            groupId,
-            get().activeTopicId,
-            true,
-            resolvedConversationVersion,
-          );
+          if (contextExportCaptureId) {
+            await get().internal_triggerSupervisorDecision(
+              groupId,
+              get().activeTopicId,
+              true,
+              resolvedConversationVersion,
+              contextExportCaptureId,
+            );
+          } else {
+            await get().internal_triggerSupervisorDecision(
+              groupId,
+              get().activeTopicId,
+              true,
+              resolvedConversationVersion,
+            );
+          }
         } else {
           if (get().conversationClearGeneration !== conversationClearGeneration) return;
           get().internal_triggerSupervisorDecisionDebounced(
             groupId,
             resolvedConversationVersion,
+            contextExportCaptureId,
           );
         }
         return;
@@ -405,6 +434,7 @@ export const chatAiGroupChat: StateCreator<
           target: message.targetId === agentId ? 'user' : undefined,
         })),
         resolvedConversationVersion,
+        contextExportCaptureId,
       );
     },
 
@@ -413,6 +443,7 @@ export const chatAiGroupChat: StateCreator<
       topicId?: string | null,
       isManualTrigger: boolean = false,
       expectedConversationVersion?: number,
+      contextExportCaptureId?: string,
     ) => {
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
@@ -492,13 +523,20 @@ export const chatAiGroupChat: StateCreator<
 
       try {
         const todoKey = messageMapKey(groupId, currentTopicId);
+        const contextExportRequest = contextExportCaptureId
+          ? get().createContextExportRequest(contextExportCaptureId, 'supervisor')
+          : undefined;
 
         const context: SupervisorContext = {
           allowDM: groupConfig.allowDM,
           availableAgents: agents!,
+          contextExportRequest,
           groupId,
           messages,
           model: groupConfig.orchestratorModel,
+          onContextSnapshot: (snapshot) => {
+            get().appendContextExportSnapshot(snapshot);
+          },
           provider: groupConfig.orchestratorProvider,
           scene: groupConfig.scene,
           userName: realUserName,
@@ -529,6 +567,7 @@ export const chatAiGroupChat: StateCreator<
             groupId,
             decisions,
             resolvedConversationVersion,
+            contextExportCaptureId,
           );
         }
       } catch (error) {
@@ -569,6 +608,7 @@ export const chatAiGroupChat: StateCreator<
       groupId: string,
       decisions: SupervisorDecisionList,
       expectedConversationVersion?: number,
+      contextExportCaptureId?: string,
     ) => {
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
@@ -614,6 +654,7 @@ export const chatAiGroupChat: StateCreator<
               decision.target,
               decision.instruction,
               resolvedConversationVersion,
+              contextExportCaptureId,
             );
             if (get().conversationClearGeneration !== conversationClearGeneration) return;
           }
@@ -626,6 +667,7 @@ export const chatAiGroupChat: StateCreator<
               decision.target,
               decision.instruction,
               resolvedConversationVersion,
+              contextExportCaptureId,
             ),
           );
           await Promise.all(responsePromises);
@@ -657,6 +699,8 @@ export const chatAiGroupChat: StateCreator<
       targetId?: string,
       instruction?: string,
       expectedConversationVersion?: number,
+      contextExportCaptureId?: string,
+      isToolContinuation = false,
     ) => {
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
@@ -792,6 +836,8 @@ export const chatAiGroupChat: StateCreator<
             model: agentModel,
             provider: agentProvider,
             params: {
+              contextExportCaptureId,
+              isToolContinuation,
               traceId: `group-${groupId}-agent-${agentId}`,
               agentConfig: agentData,
             },
@@ -812,6 +858,7 @@ export const chatAiGroupChat: StateCreator<
             get().internal_toggleMessageInToolsCalling(true, assistantId);
             await refreshMessages();
             await triggerToolCalls(assistantId, {
+              contextExportCaptureId,
               expectedConversationVersion: resolvedConversationVersion,
               threadId: undefined,
               inPortalThread: false,
@@ -826,6 +873,8 @@ export const chatAiGroupChat: StateCreator<
               targetId,
               instruction,
               resolvedConversationVersion,
+              contextExportCaptureId,
+              true,
             );
             return;
           }
@@ -897,10 +946,14 @@ export const chatAiGroupChat: StateCreator<
     internal_triggerSupervisorDecisionDebounced: (
       groupId: string,
       expectedConversationVersion?: number,
+      contextExportCaptureId?: string,
     ) => {
       const { internal_cancelSupervisorDecision, internal_triggerSupervisorDecision } = get();
+      const inheritedContextExportCaptureId = pendingSupervisorCaptureIds.get(groupId);
+      const activeContextExportCaptureId =
+        contextExportCaptureId ?? inheritedContextExportCaptureId;
 
-      internal_cancelSupervisorDecision(groupId);
+      internal_cancelSupervisorDecision(groupId, !!inheritedContextExportCaptureId);
 
       // Use per-group config for debounce calculation
       const groupConfig = selectGroupConfig(groupId);
@@ -917,7 +970,20 @@ export const chatAiGroupChat: StateCreator<
 
       // Set a new timer with dynamic debounce based on group settings
       const timerId = setTimeout(async () => {
-        if (get().conversationClearGeneration !== scheduledConversationClearGeneration) return;
+        if (get().conversationClearGeneration !== scheduledConversationClearGeneration) {
+          pendingSupervisorCaptureIds.delete(groupId);
+          set(
+            produce((state: ChatStoreState) => {
+              delete state.supervisorDebounceTimers[groupId];
+            }),
+            false,
+            n(`discardSupervisorTimer/${groupId}`),
+          );
+          if (activeContextExportCaptureId) {
+            get().completeContextExport(activeContextExportCaptureId);
+          }
+          return;
+        }
 
         console.log(`Debounced supervisor decision triggered for group ${groupId}`);
 
@@ -929,6 +995,7 @@ export const chatAiGroupChat: StateCreator<
           false,
           n(`cleanupSupervisorTimer/${groupId}`),
         );
+        pendingSupervisorCaptureIds.delete(groupId);
 
         try {
           await internal_triggerSupervisorDecision(
@@ -936,13 +1003,21 @@ export const chatAiGroupChat: StateCreator<
             scheduledTopicId,
             false,
             expectedConversationVersion,
+            activeContextExportCaptureId,
           );
         } catch (error) {
           console.error('Failed to execute supervisor decision for group:', groupId, error);
+        } finally {
+          if (activeContextExportCaptureId) {
+            get().completeContextExport(activeContextExportCaptureId);
+          }
         }
       }, debounceThreshold);
 
       // Store the timer in state
+      if (activeContextExportCaptureId) {
+        pendingSupervisorCaptureIds.set(groupId, activeContextExportCaptureId);
+      }
       set(
         produce((state: ChatStoreState) => {
           state.supervisorDebounceTimers[groupId] = timerId as any;
@@ -952,7 +1027,7 @@ export const chatAiGroupChat: StateCreator<
       );
     },
 
-    internal_cancelSupervisorDecision: (groupId: string) => {
+    internal_cancelSupervisorDecision: (groupId: string, preservePendingCapture = false) => {
       const {
         supervisorDebounceTimers,
         supervisorDecisionAbortControllers,
@@ -964,6 +1039,11 @@ export const chatAiGroupChat: StateCreator<
       // Cancel pending debounced timer
       if (existingTimer) {
         clearTimeout(existingTimer);
+        const pendingCaptureId = pendingSupervisorCaptureIds.get(groupId);
+        pendingSupervisorCaptureIds.delete(groupId);
+        if (pendingCaptureId && !preservePendingCapture) {
+          get().completeContextExport(pendingCaptureId);
+        }
         console.log(`Cancelled pending supervisor decision timer for group ${groupId}`);
 
         // Remove timer from state
@@ -1010,6 +1090,9 @@ export const chatAiGroupChat: StateCreator<
           if (timer) {
             clearTimeout(timer);
           }
+          const pendingCaptureId = pendingSupervisorCaptureIds.get(groupId);
+          pendingSupervisorCaptureIds.delete(groupId);
+          if (pendingCaptureId) get().completeContextExport(pendingCaptureId);
         });
 
         // Abort all ongoing requests

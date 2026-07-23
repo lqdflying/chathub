@@ -38,6 +38,7 @@ import { messageMapKey } from '../../../utils/messageMapKey';
 const n = setNamespace('ai');
 
 type GuardedSendMessageParams = SendMessageParams & {
+  contextExportCaptureId?: string;
   expectedConversationVersion?: number;
 };
 
@@ -62,6 +63,7 @@ export interface AIGenerateV2Action {
    * including preprocessing and postprocessing steps
    */
   internal_execAgentRuntime: (params: {
+    contextExportCaptureId?: string;
     expectedConversationVersion?: number;
     messages: UIChatMessage[];
     userMessageId: string;
@@ -98,6 +100,7 @@ export const generateAIChatV2: StateCreator<
   AIGenerateV2Action
 > = (set, get) => ({
   sendMessageInServer: async ({
+    contextExportCaptureId,
     expectedConversationVersion: capturedConversationVersion,
     files,
     isWelcomeQuestion,
@@ -257,6 +260,13 @@ export const generateAIChatV2: StateCreator<
         );
         get().internal_toggleSendMessageOperation(operationKey, false);
       }
+
+      if (
+        contextExportCaptureId &&
+        (!data || get().conversationClearGeneration !== conversationClearGeneration)
+      ) {
+        get().completeContextExport(contextExportCaptureId);
+      }
     }
 
     // remove temporally message
@@ -285,6 +295,8 @@ export const generateAIChatV2: StateCreator<
     const baseMessages = chatSelectors
       .activeBaseChats(get())
       .filter((item) => item.id !== data.assistantMessageId);
+    const activeContextExportCaptureId =
+      contextExportCaptureId ?? (!isWelcomeQuestion ? get().consumeContextExportArm() : undefined);
 
     if (data.topicId) get().internal_updateTopicLoading(data.topicId, true);
 
@@ -309,6 +321,7 @@ export const generateAIChatV2: StateCreator<
 
     try {
       await internal_execAgentRuntime({
+        contextExportCaptureId: activeContextExportCaptureId,
         expectedConversationVersion,
         messages: baseMessages,
         userMessageId: data.userMessageId,
@@ -327,6 +340,9 @@ export const generateAIChatV2: StateCreator<
     } catch (e) {
       console.error(e);
     } finally {
+      if (activeContextExportCaptureId) {
+        get().completeContextExport(activeContextExportCaptureId);
+      }
       if (data.topicId) get().internal_updateTopicLoading(data.topicId, false);
     }
   },
@@ -537,6 +553,7 @@ export const generateAIChatV2: StateCreator<
         get().internal_toggleMessageInToolsCalling(true, assistantId);
         await refreshMessages();
         await triggerToolCalls(assistantId, {
+          contextExportCaptureId: params.contextExportCaptureId,
           expectedConversationVersion,
           threadId: params?.threadId,
           inPortalThread: params?.inPortalThread,
@@ -570,6 +587,7 @@ export const generateAIChatV2: StateCreator<
       get().internal_toggleMessageInToolsCalling(true, assistantId);
       await refreshMessages();
       await triggerToolCalls(assistantId, {
+        contextExportCaptureId: params.contextExportCaptureId,
         expectedConversationVersion,
         threadId: params?.threadId,
         inPortalThread: params?.inPortalThread,

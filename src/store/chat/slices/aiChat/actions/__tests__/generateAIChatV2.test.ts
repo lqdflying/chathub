@@ -350,6 +350,25 @@ describe('generateAIChatV2 actions', () => {
 
         expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
+
+      it('keeps context export armed when server persistence fails', async () => {
+        const { result } = renderHook(() => useChatStore());
+        vi.spyOn(aiChatService, 'sendMessageInServer').mockRejectedValue(
+          new Error('create message error'),
+        );
+
+        act(() => {
+          result.current.armContextExport();
+        });
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(result.current.contextExportCaptureStatus).toBe('armed');
+        expect(result.current.contextExportBatch).toBeUndefined();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+      });
     });
 
     describe('RAG integration', () => {

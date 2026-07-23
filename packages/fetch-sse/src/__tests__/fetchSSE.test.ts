@@ -72,6 +72,39 @@ describe('fetchSSE', () => {
     expect(mockOnMessageHandle).toHaveBeenCalledWith({ text: 'Hello', type: 'text' });
   });
 
+  it('delivers context snapshots through the dedicated callback', async () => {
+    const mockOnContextSnapshot = vi.fn();
+    const mockOnMessageHandle = vi.fn();
+    const snapshot = {
+      captureId: 'capture-1',
+      continuationReason: 'initial',
+      purpose: 'assistant',
+      redactions: [],
+      requestId: 'request-1',
+      sequence: 0,
+      status: 'complete',
+    };
+
+    (fetchEventSource as any).mockImplementationOnce(
+      (_url: string, options: FetchEventSourceInit) => {
+        options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+        options.onmessage!({
+          data: JSON.stringify(snapshot),
+          event: 'context_snapshot',
+        } as any);
+      },
+    );
+
+    await fetchSSE('/', {
+      onContextSnapshot: mockOnContextSnapshot,
+      onMessageHandle: mockOnMessageHandle,
+      responseAnimation: 'none',
+    });
+
+    expect(mockOnContextSnapshot).toHaveBeenCalledWith(snapshot);
+    expect(mockOnMessageHandle).not.toHaveBeenCalled();
+  });
+
   it('should handle tool_calls event correctly', async () => {
     const mockOnMessageHandle = vi.fn();
     const mockOnFinish = vi.fn();
@@ -597,6 +630,58 @@ describe('fetchSSE', () => {
           type: 'SomeError',
         });
       }
+    });
+
+    it('extracts a context snapshot from a non-ok response before reporting the error', async () => {
+      const mockOnContextSnapshot = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+      const contextExportSnapshot = {
+        captureId: 'capture-1',
+        continuationReason: 'initial',
+        providerRequest: { model: 'test-model' },
+        purpose: 'assistant',
+        redactions: ['storedIdentifiers'],
+        requestId: 'request-1',
+        sequence: 0,
+        status: 'error',
+      };
+
+      (fetchEventSource as any).mockImplementationOnce(
+        async (_url: string, options: FetchEventSourceInit) => {
+          const response = new Response(
+            JSON.stringify({
+              body: {
+                contextExportSnapshot,
+                error: { message: 'provider rejected request' },
+                provider: 'test-provider',
+              },
+              errorType: 'ProviderBizError',
+            }),
+            { status: 471, statusText: 'Provider Error' },
+          );
+
+          try {
+            await options.onopen!(response);
+          } catch (error) {
+            options.onerror!(error);
+          }
+        },
+      );
+
+      await fetchSSE('/', {
+        onContextSnapshot: mockOnContextSnapshot,
+        onErrorHandle: mockOnErrorHandle,
+      });
+
+      expect(mockOnContextSnapshot).toHaveBeenCalledWith(contextExportSnapshot);
+      expect(mockOnErrorHandle).toHaveBeenCalledWith({
+        body: {
+          error: { message: 'provider rejected request' },
+          provider: 'test-provider',
+        },
+        message: 'translated_response.ProviderBizError',
+        type: 'ProviderBizError',
+      });
     });
 
     it('should call onErrorHandle when stream chunk has error type', async () => {

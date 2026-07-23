@@ -101,6 +101,46 @@ Moonshot, MiniMax, DeepSeek, and Anthropic-compatible troubleshooting can use pr
 
 Use this first for endpoint/path problems such as `url.not_found`, then inspect the raw payload only if the structured request shape is not enough. The raw debug logs can include prompt and response content.
 
+## Context export request boundary
+
+The runtime exposes an isolated `onRequestPrepared` callback on chat and
+structured-output options. Provider adapters invoke it immediately before the
+SDK/client dispatch, after the provider-native semantic request has been built.
+The callback receives the request object and logical API mode, but not request
+options, credentials, headers, base URLs, abort signals, or transport metadata.
+
+This boundary supports Context Export without changing normal generation. The
+OpenAI-compatible factory covers Chat Completions and Responses requests;
+Anthropic Messages, Google/Vertex `generateContent`, Azure OpenAI, and Azure AI
+invoke the same callback in their provider-specific dispatch paths. DeepSeek,
+MiniMax, and Moonshot builders remain upstream of the shared compatible runtime
+boundary, so their native request fields are captured after those conversions.
+
+For streamed chat routes, the sanitized snapshot is framed as a dedicated
+`context_snapshot` SSE event before the first upstream content event. Browser
+direct calls and server routes use the same event contract. A stream that ends
+before request preparation closes without waiting for a snapshot. If dispatch
+rejects after `onRequestPrepared`, browser-direct and server routes return an
+`error` snapshot containing the sanitized prepared request. Structured-output
+supervisor captures use the same rule through the capture-aware tRPC procedure:
+the snapshot is delivered before the provider error is propagated to supervisor
+handling.
+
+The semantic request is intentionally not a byte-level HTTP dump. SDK
+serialization, authentication, headers, endpoint selection, and network
+transport happen after this callback. The client sanitizes the captured object
+before storing it in transient Zustand state; raw snapshots are not logged,
+traced, persisted, or written to message metadata. Sanitization redacts
+provider-native inline media content in `inlineData.data`, `inline_data.data`,
+`source.data`, and `inputAudio.data`, in addition to `data:` URLs. It does not
+remove ordinary tool argument fields merely because they are named `data`.
+JSON Schema name maps retain their keys so tool contracts are represented
+faithfully, while sensitive request fields within schema values remain subject
+to recursive sanitization. Browser-direct capture wrapping preserves the
+original provider error classification alongside the exported error snapshot.
+Capture metadata keeps the selected provider ID separate from the runtime
+adapter used to execute the request.
+
 Be careful when editing this area because it affects:
 
 - streaming and non-streaming request behavior

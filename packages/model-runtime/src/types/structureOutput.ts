@@ -31,6 +31,7 @@ export interface GenerateObjectOptions {
    * response headers
    */
   headers?: Record<string, any>;
+  onRequestPrepared?: (request: unknown, metadata?: { apiMode?: string }) => Promise<void> | void;
 
   signal?: AbortSignal;
   /**

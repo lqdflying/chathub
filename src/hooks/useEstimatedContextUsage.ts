@@ -9,25 +9,32 @@ import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
-import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
+import { chatHelpers } from '@/store/chat/helpers';
+import { chatSelectors, threadSelectors, topicSelectors } from '@/store/chat/selectors';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
 export interface EstimatedContextUsage {
+  chatInstructionToken: number;
   chatsToken: number;
   historySummaryToken: number;
   inputTokenCount: number;
   maxTokens: number;
   ratio: number;
+  roleSettingsToken: number;
   systemRoleToken: number;
   toolsToken: number;
   totalToken: number;
 }
 
+export type EstimatedContextConversationSource = 'main' | 'portal';
+
 /** Same token accounting as the chat input token popover (debounced via useTokenCount). */
-export const useEstimatedContextUsage = (): EstimatedContextUsage => {
+export const useEstimatedContextUsage = (
+  conversationSource: EstimatedContextConversationSource = 'main',
+): EstimatedContextUsage => {
   const [input, historySummary, memoryArchives] = useChatStore((s) => [
     s.inputMessage,
     topicSelectors.currentActiveTopicSummary(s)?.content,
@@ -69,15 +76,33 @@ export const useEstimatedContextUsage = (): EstimatedContextUsage => {
 
   const toolsToken = useTokenCount(canUseTool ? toolsString : '');
   const inputTokenCount = useTokenCount(input);
-  const messageFingerprint = useChatStore(chatSelectors.mainAIChatsMessageString);
+  const messageFingerprint = useChatStore((state) => {
+    const chats =
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChats(state)
+        : chatSelectors.mainAIChats(state);
+
+    return chats.map((chat) => `${chat.id}\u0000${chat.content}`).join('\u0001');
+  });
 
   const chatsString = useMemo(() => {
-    const chats = chatSelectors.mainAIChatsWithHistoryConfig(useChatStore.getState());
-    return chats.map((chat) => chat.content).join('');
-  }, [messageFingerprint, historyCount, enableHistoryCount]);
+    const state = useChatStore.getState();
+    const chats =
+      conversationSource === 'portal'
+        ? threadSelectors.portalAIChats(state)
+        : chatSelectors.mainAIChats(state);
+    const chatsWithHistoryConfig = chatHelpers.getSlicedMessages(chats, {
+      enableHistoryCount,
+      historyCount,
+    });
+
+    return chatsWithHistoryConfig.map((chat) => chat.content).join('');
+  }, [conversationSource, enableHistoryCount, historyCount, messageFingerprint]);
 
   const chatsToken = useTokenCount(chatsString) + inputTokenCount;
   const systemRoleToken = useTokenCount(composedSystemRole);
+  const chatInstructionToken = useTokenCount(generalInstruction?.trim());
+  const roleSettingsToken = Math.max(0, systemRoleToken - chatInstructionToken);
   const memorySummary = useMemo(
     () =>
       buildHistorySummaryForRequest({
@@ -94,11 +119,13 @@ export const useEstimatedContextUsage = (): EstimatedContextUsage => {
   const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
 
   return {
+    chatInstructionToken,
     chatsToken,
     historySummaryToken,
     inputTokenCount,
     maxTokens,
     ratio,
+    roleSettingsToken,
     systemRoleToken,
     toolsToken,
     totalToken,

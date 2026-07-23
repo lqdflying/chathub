@@ -217,6 +217,7 @@ export interface ChatMethodOptions {
    * send the request to the ai api endpoint
    */
   requestHeaders?: Record<string, any>;
+  onRequestPrepared?: (request: unknown, metadata?: { apiMode?: string }) => Promise<void> | void;
   /**
    * Trusted runtime provider selected by the server route.
    */

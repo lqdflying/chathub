@@ -3,7 +3,7 @@ import { PropsWithChildren, memo } from 'react';
 
 import { useModelHasContextWindowToken } from '@/hooks/useModelHasContextWindowToken';
 import { useChatStore } from '@/store/chat';
-import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
+import { chatSelectors } from '@/store/chat/selectors';
 
 const LargeTokenContent = dynamic(() => import('./TokenTag'), { ssr: false });
 const LargeTokenContentForGroupChat = dynamic(() => import('./TokenTagForGroupChat'), {
@@ -17,21 +17,17 @@ const Token = memo<PropsWithChildren>(({ children }) => {
 });
 
 export const MainToken = memo(() => {
-  const total = useChatStore(chatSelectors.mainAIChatsMessageString);
-
   return (
     <Token>
-      <LargeTokenContent total={total} />
+      <LargeTokenContent />
     </Token>
   );
 });
 
 export const PortalToken = memo(() => {
-  const total = useChatStore(threadSelectors.portalDisplayChatsString);
-
   return (
     <Token>
-      <LargeTokenContent total={total} />
+      <LargeTokenContent conversationSource={'portal'} />
     </Token>
   );
 });

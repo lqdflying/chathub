@@ -239,6 +239,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
         console.log(JSON.stringify(anthropicPayload), '\n');
       }
 
+      await options?.onRequestPrepared?.(requestPayload, { apiMode: 'messages' });
       let response = await this.client.messages.create(requestPayload, {
         signal: options?.signal,
       });

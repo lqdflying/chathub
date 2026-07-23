@@ -3,6 +3,7 @@ import { TraceNameMap } from '@lobechat/types';
 export const LOBE_CHAT_TRACE_HEADER = 'X-lobe-trace';
 export const LOBE_CHAT_TRACE_ID = 'X-lobe-chat-trace-id';
 export const LOBE_CHAT_OBSERVATION_ID = 'X-lobe-observation-id';
+export const LOBE_CHAT_CONTEXT_EXPORT_HEADER = 'X-lobe-chat-context-export';
 
 export interface TracePayload {
   /**

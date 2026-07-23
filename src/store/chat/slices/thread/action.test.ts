@@ -794,6 +794,61 @@ describe('thread action', () => {
         );
       });
 
+      it('captures and finalizes the next persisted portal send', async () => {
+        const { result } = renderHook(() => useChatStore());
+
+        act(() => {
+          useChatStore.setState({ portalThreadId: 'existing-thread-id' });
+          result.current.armContextExport();
+        });
+
+        vi.spyOn(result.current, 'internal_createMessage').mockResolvedValue('new-msg-id');
+        vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('temp-msg-id');
+        vi.spyOn(result.current, 'internal_toggleMessageLoading');
+        const coreProcessSpy = vi
+          .spyOn(result.current, 'internal_coreProcessMessage')
+          .mockImplementation(async (_messages, _parentId, params) => {
+            expect(params?.contextExportCaptureId).toBe(
+              useChatStore.getState().contextExportBatch?.captureId,
+            );
+            expect(useChatStore.getState().contextExportCaptureStatus).toBe('capturing');
+          });
+
+        await act(async () => {
+          await result.current.sendThreadMessage({ message: 'captured portal message' });
+        });
+
+        const contextExportCaptureId = coreProcessSpy.mock.calls[0][2]?.contextExportCaptureId;
+        expect(contextExportCaptureId).toMatch(/^context_/);
+        expect(result.current.contextExportCaptureStatus).toBe('ready');
+        expect(result.current.contextExportBatch).toMatchObject({
+          captureId: contextExportCaptureId,
+          status: 'partial',
+        });
+      });
+
+      it('keeps context export armed when portal message persistence fails', async () => {
+        const { result } = renderHook(() => useChatStore());
+
+        act(() => {
+          useChatStore.setState({ portalThreadId: 'existing-thread-id' });
+          result.current.armContextExport();
+        });
+
+        vi.spyOn(result.current, 'internal_createMessage').mockResolvedValue(undefined);
+        vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('temp-msg-id');
+        vi.spyOn(result.current, 'internal_toggleMessageLoading');
+        const coreProcessSpy = vi.spyOn(result.current, 'internal_coreProcessMessage');
+
+        await act(async () => {
+          await result.current.sendThreadMessage({ message: 'failed portal message' });
+        });
+
+        expect(coreProcessSpy).not.toHaveBeenCalled();
+        expect(result.current.contextExportCaptureStatus).toBe('armed');
+        expect(result.current.contextExportBatch).toBeUndefined();
+      });
+
       it('should not auto-summarize title for existing threads', async () => {
         const { result } = renderHook(() => useChatStore());
 

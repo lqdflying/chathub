@@ -1,4 +1,5 @@
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
+import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { getAgentStoreState } from '@/store/agent/store';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, getAiInfraStoreState } from '@/store/aiInfra';
@@ -6,6 +7,8 @@ import { ChatStoreState } from '@/store/chat/initialState';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import { getToolStoreState } from '@/store/tool/store';
 import { toolSelectors } from '@/store/tool/selectors';
+import { getUserStoreState } from '@/store/user/store';
+import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { encodeAsync } from '@/utils/tokenizer';
 
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
@@ -34,7 +37,11 @@ export const estimateContextUsageAsync = async ({
       topicSummary: historySummary,
     }) || '';
 
-  const systemRole = agentSelectors.currentAgentSystemRole(agentState);
+  const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
+  const systemRole = composeSystemRole(
+    generalInstruction,
+    agentSelectors.currentAgentSystemRole(agentState),
+  );
   const model = agentSelectors.currentAgentModel(agentState) as string;
   const provider = agentSelectors.currentAgentModelProvider(agentState) as string;
 

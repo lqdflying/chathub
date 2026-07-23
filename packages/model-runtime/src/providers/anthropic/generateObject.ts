@@ -60,15 +60,17 @@ export const createAnthropicGenerateObject = async (
   try {
     log('calling Anthropic API with max_tokens: %d', 8192);
 
+    const requestPayload = {
+      max_tokens: 8192,
+      messages: anthropicMessages,
+      model,
+      system: systemPrompts,
+      tool_choice: tool_choice,
+      tools: finalTools,
+    };
+    await options?.onRequestPrepared?.(requestPayload, { apiMode: 'messages' });
     const response = await client.messages.create(
-      {
-        max_tokens: 8192,
-        messages: anthropicMessages,
-        model,
-        system: systemPrompts,
-        tool_choice: tool_choice,
-        tools: finalTools,
-      },
+      requestPayload,
       { signal: options?.signal },
     );
 

@@ -144,5 +144,19 @@ export const mergeMultipleChatMethodOptions = (options: ChatMethodOptions[]): Ch
       };
     return acc;
   }, {});
+  if (options.some((option) => option.onRequestPrepared)) {
+    completionOptions.onRequestPrepared = async (request, metadata) => {
+      for (const option of options) {
+        if (option.onRequestPrepared) {
+          try {
+            await option.onRequestPrepared(request, metadata);
+          } catch (error) {
+            log('onRequestPrepared callback error:');
+            log(JSON.stringify(error));
+          }
+        }
+      }
+    };
+  }
   return completionOptions;
 };

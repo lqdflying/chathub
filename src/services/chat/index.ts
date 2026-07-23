@@ -7,9 +7,12 @@ import {
 import {
   AgentRuntimeError,
   ChatCompletionErrorPayload,
+  createContextExportCaptureBridge,
+  prependContextSnapshotToResponse,
   REASONING_BUDGET_TOKEN_ADAPTIVE,
   supportsAnthropicAdaptiveThinking,
 } from '@lobechat/model-runtime';
+import { LOBE_CHAT_CONTEXT_EXPORT_HEADER } from '@lobechat/const';
 import {
   ChatErrorType,
   ToolCacheDebugMetadata,
@@ -50,6 +53,7 @@ import { createHeaderWithAuth } from '../_auth';
 import { API_ENDPOINTS } from '../_url';
 import { initializeWithClientStore } from './clientModelRuntime';
 import { composeSystemRole } from './composeSystemRole';
+import { contextExportRedactions, sanitizeContextExportValue } from './contextExport';
 import { contextEngineering } from './contextEngineering';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
@@ -93,6 +97,8 @@ interface CreateAssistantMessageStream extends FetchSSEOptions {
   abortController?: AbortController;
   historySummary?: string;
   isWelcomeQuestion?: boolean;
+  contextExportRequest?: FetchOptions['contextExportRequest'];
+  onContextEngineered?: FetchOptions['onContextEngineered'];
   params: GetChatCompletionPayload;
   toolCacheDebug?: ToolCacheDebugMetadata;
   trace?: TracePayload;
@@ -312,6 +318,9 @@ class ChatService {
     isWelcomeQuestion,
     historySummary,
     toolCacheDebug,
+    contextExportRequest,
+    onContextEngineered,
+    onContextSnapshot,
   }: CreateAssistantMessageStream) => {
     await this.createAssistantMessage(
       {
@@ -321,6 +330,9 @@ class ChatService {
       {
         historySummary,
         isWelcomeQuestion,
+        contextExportRequest,
+        onContextEngineered,
+        onContextSnapshot,
         onAbort,
         onErrorHandle,
         onFinish,
@@ -397,6 +409,19 @@ class ChatService {
 
     const sdkType = resolveRuntimeProvider(provider);
 
+    if (options?.contextExportRequest && options.onContextEngineered) {
+      options.onContextEngineered({
+        engineeredInput: sanitizeContextExportValue(payload),
+        metadata: {
+          apiMode: apiMode === 'responses' ? 'responses' : 'chatCompletion',
+          model,
+          provider,
+          runtime: sdkType,
+        },
+        request: options.contextExportRequest,
+      });
+    }
+
     /**
      * Use browser agent runtime
      */
@@ -416,19 +441,38 @@ class ChatService {
        */
       fetcher = async () => {
         try {
-          return await this.fetchOnClient({ payload, provider, runtimeProvider: sdkType, signal });
+          return await this.fetchOnClient({
+            contextExportRequest: options?.contextExportRequest,
+            payload,
+            provider,
+            runtimeProvider: sdkType,
+            signal,
+          });
         } catch (e) {
+          const wrappedError = e as ChatCompletionErrorPayload & {
+            contextExportSnapshot?: unknown;
+          };
+          const originalError = wrappedError.contextExportSnapshot
+            ? (wrappedError.error ?? e)
+            : e;
           const {
             errorType = ChatErrorType.BadRequest,
             error: errorContent,
             ...res
-          } = e as ChatCompletionErrorPayload;
+          } = originalError as ChatCompletionErrorPayload;
 
-          const error = errorContent || e;
+          const error = errorContent || originalError;
           // track the error at server side
           console.error(`Route: [${provider}] ${errorType}:`, error);
 
-          return createErrorResponse(errorType, { error, ...res, provider });
+          return createErrorResponse(errorType, {
+            ...(wrappedError.contextExportSnapshot
+              ? { contextExportSnapshot: wrappedError.contextExportSnapshot }
+              : {}),
+            error,
+            ...res,
+            provider,
+          });
         }
       };
     }
@@ -436,7 +480,15 @@ class ChatService {
     const traceHeader = createTraceHeader({ ...options?.trace });
 
     const headers = await createHeaderWithAuth({
-      headers: { 'Content-Type': 'application/json', ...traceHeader },
+      headers: {
+        'Content-Type': 'application/json',
+        ...traceHeader,
+        ...(options?.contextExportRequest
+          ? {
+              [LOBE_CHAT_CONTEXT_EXPORT_HEADER]: JSON.stringify(options.contextExportRequest),
+            }
+          : {}),
+      },
       provider,
     });
 
@@ -453,12 +505,13 @@ class ChatService {
       responseAnimation,
     ].reduce((acc, cur) => merge(acc, standardizeAnimationStyle(cur)), {});
 
-    return fetchSSE(API_ENDPOINTS.chat(sdkType), {
+    return fetchSSE(API_ENDPOINTS.chat(provider), {
       body: JSON.stringify(payload),
       fetcher: fetcher,
       headers,
       method: 'POST',
       onAbort: options?.onAbort,
+      onContextSnapshot: options?.onContextSnapshot,
       onErrorHandle: options?.onErrorHandle,
       onFinish: options?.onFinish,
       onMessageHandle: options?.onMessageHandle,
@@ -587,6 +640,7 @@ class ChatService {
 
    */
   private fetchOnClient = async (params: {
+    contextExportRequest?: FetchOptions['contextExportRequest'];
     payload: Partial<ChatStreamPayload>;
     provider: string;
     runtimeProvider: string;
@@ -607,7 +661,56 @@ class ChatService {
     });
     const data = params.payload as ChatStreamPayload;
 
-    return agentRuntime.chat(data, { signal: params.signal });
+    const contextExportBridge = params.contextExportRequest
+      ? createContextExportCaptureBridge(sanitizeContextExportValue)
+      : undefined;
+    let response: Response;
+
+    try {
+      response = await agentRuntime.chat(data, {
+        ...(contextExportBridge
+          ? { onRequestPrepared: contextExportBridge.onRequestPrepared }
+          : {}),
+        signal: params.signal,
+      });
+    } catch (error) {
+      const preparedSnapshot = contextExportBridge?.getSnapshot();
+      if (!params.contextExportRequest || !preparedSnapshot) throw error;
+
+      const contextExportSnapshot = {
+        ...params.contextExportRequest,
+        error: 'Provider request rejected before streaming began',
+        metadata: {
+          apiMode: preparedSnapshot.apiMode as any,
+          model: data.model,
+          provider: params.provider,
+          runtime: params.runtimeProvider,
+        },
+        providerRequest: preparedSnapshot.providerRequest,
+        redactions: contextExportRedactions,
+        status: 'error' as const,
+      };
+
+      throw { contextExportSnapshot, error };
+    }
+
+    if (!params.contextExportRequest || !contextExportBridge) return response;
+
+    return prependContextSnapshotToResponse(
+      response,
+      contextExportBridge.snapshot.then(({ apiMode, providerRequest }) => ({
+        ...params.contextExportRequest!,
+        metadata: {
+          apiMode: apiMode as any,
+          model: data.model,
+          provider: params.provider,
+          runtime: params.runtimeProvider,
+        },
+        providerRequest,
+        redactions: contextExportRedactions,
+        status: 'complete',
+      })),
+    );
   };
 }
 
