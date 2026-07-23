@@ -47,6 +47,15 @@ These idempotent `CREATE IF NOT EXISTS` queries are safe to run on every contain
 
 For every **fix** or **feature**: **never** implement on `main`. If currently on `main`, create a `feat/<slug>` or `fix/<slug>` branch before editing; if already on a non-`main` branch, continue there by default even when the troubleshooting target changes before GA. Do not create another branch just because the next fix/feature touches a different area; use distinct commit messages to separate phases unless the user explicitly asks for a fresh/isolation branch. **Implementation plans** (Plan mode / `CreatePlan`) must include a short **Git workflow** subsection plus the no-commit/push-without-explicit-approval rule. Full workflow, canary/GA, and Docker release: **`.cursor/rules/git-and-release.mdc`**.
 
+## Documentation impact
+
+Every implementation plan and non-trivial change must follow
+**`.cursor/rules/documentation-policy.mdc`**. Plans must state whether OpenWiki,
+the user-facing GitHub Wiki, both, or neither need updates, with target pages and
+a reason. User-facing workflows, settings, controls, deployment, configuration,
+diagnostics, and troubleshooting changes require a GitHub Wiki update when the
+wiki is available. OpenWiki does not replace user-facing documentation.
+
 ## Branding / fork cleanup — when clearing values or rebranding
 
 ### If you set a SOCIAL_URL, BRANDING_EMAIL, or any URL constant to `undefined`

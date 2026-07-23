@@ -1,0 +1,49 @@
+---
+description: Mandatory documentation impact evaluation for plans and implementation work
+alwaysApply: true
+---
+
+# Documentation Impact Policy
+
+Every implementation plan and non-trivial change must evaluate documentation
+impact. Documentation is part of completion, not an optional follow-up.
+
+## Required plan section
+
+Every implementation plan must include a concise **Documentation impact**
+section that states:
+
+- whether repo-local OpenWiki (`openwiki/`) needs an update, with target pages
+- whether the user-facing GitHub Wiki (`wiki/`) needs an update, with target pages
+- why either surface does not need an update
+- whether the wiki clone is unavailable or contains unrelated uncommitted work
+
+If documentation is required, include explicit documentation tasks in the plan.
+
+## Decision matrix
+
+- **User-facing Wiki required:** new or changed user workflows, settings,
+  controls, visible behavior, deployment steps, upgrade actions, configuration,
+  diagnostics, or troubleshooting guidance.
+- **OpenWiki required:** non-trivial architecture, data flow, runtime behavior,
+  integration contracts, operational internals, or maintainer workflows.
+- **Both required:** a change affects users/operators and also changes internal
+  architecture or maintainer behavior.
+- **Neither required:** tests, refactors, or implementation-only fixes that do
+  not change behavior or knowledge needed by users, operators, or maintainers.
+  Record this decision and reason in the plan.
+
+Do not treat an OpenWiki update as a substitute for user-facing documentation.
+
+## GitHub Wiki handling
+
+- If `wiki/` exists, verify `git -C wiki branch -avv` before editing; it must be
+  the separate wiki repository on `master`.
+- Preserve unrelated wiki changes and stage only files for the current task.
+- If `wiki/` is absent, report that it is unavailable; do not clone it implicitly.
+- Wiki commit and push still require explicit in-turn user approval.
+
+## Completion gate
+
+Do not mark implementation complete until required documentation is updated and
+reviewed, or the plan records a justified no-documentation decision.

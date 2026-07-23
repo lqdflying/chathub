@@ -12,13 +12,23 @@ Full workflow (stash, canary/GA tags, Docker release, recovery): **`.cursor/rule
 
 ## Planning (Plan mode)
 
-When writing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with the rules above (branch first only when currently on `main`, no edits on `main`, no commit/push without explicit approval).
+When writing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include:
+
+- a short **Git workflow** subsection aligned with the rules above (branch first only when currently on `main`, no edits on `main`, no commit/push without explicit approval)
+- a **Documentation impact** subsection following **`.cursor/rules/documentation-policy.mdc`**
 
 ## Project context
 
 Overview, stack, naming, wiki workflow: **`.cursor/rules/project.mdc`**. Per-model API toggles (extendParams): **`.cursor/rules/provider-model-options.mdc`**. Commands and test constraints: **`.cursor/rules/commands.mdc`**. MCP management UI patterns: **`.cursor/rules/mcp-management-ui.mdc`**.
 
-When changing provider/runtime behavior, cache diagnostics, or user-facing provider settings, update repo-local OpenWiki (`openwiki/`) when documentation is part of the requested change or clearly necessary. Update the GitHub wiki clone (`wiki/`) only if it exists and wiki publication is relevant or explicitly requested. `wiki/` is a separate git repository on branch `master`; verify it with `git -C wiki branch -avv` before wiki commits or pushes. If `wiki/` is absent, note that the clone was unavailable rather than bootstrapping it implicitly.
+Every non-trivial change must follow **`.cursor/rules/documentation-policy.mdc`**.
+User-facing workflows, settings, controls, deployment, configuration, diagnostics,
+and troubleshooting changes require a GitHub Wiki evaluation and update when
+applicable. Internal architecture and maintainer behavior require OpenWiki when
+applicable; changes affecting both audiences update both surfaces. The GitHub
+Wiki clone (`wiki/`) is a separate repository on branch `master`; verify it with
+`git -C wiki branch -avv` before edits and preserve unrelated wiki work. If
+`wiki/` is absent, note that it was unavailable rather than cloning it implicitly.
 
 ## OpenWiki
 
