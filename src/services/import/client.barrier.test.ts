@@ -42,6 +42,7 @@ describe('client import conversation barrier', () => {
     vi.clearAllMocks();
     mockImportData.mockResolvedValue({
       results: { messages: { added: 1, errors: 0, skips: 0 } },
+      success: true,
     });
     mockImportPgData.mockResolvedValue({
       results: { messages: { added: 1, errors: 0, skips: 0 } },
@@ -49,7 +50,7 @@ describe('client import conversation barrier', () => {
     });
     mockDataImporterRepos.mockImplementation(() => ({
       importData: mockImportData,
-      importPgData: mockImportPgData,
+      importPgDataInTransaction: mockImportPgData,
     }));
     mockQueue.mockImplementation(
       async (_userId: string, operation: (transaction: unknown) => Promise<unknown>) =>
@@ -87,6 +88,6 @@ describe('client import conversation barrier', () => {
 
     expect(mockQueue).toHaveBeenCalledWith('user-1', expect.any(Function));
     expect(mockDataImporterRepos).toHaveBeenCalledWith(mockTransaction, 'user-1');
-    expect(mockImportPgData).toHaveBeenCalledWith(importData, 'override');
+    expect(mockImportPgData).toHaveBeenCalledWith(importData, 'replace');
   });
 });

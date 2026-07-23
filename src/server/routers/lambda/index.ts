@@ -19,7 +19,6 @@ import { generationBatchRouter } from './generationBatch';
 import { generationTopicRouter } from './generationTopic';
 import { groupRouter } from './group';
 import { imageRouter } from './image';
-import { importerRouter } from './importer';
 import { knowledgeBaseRouter } from './knowledgeBase';
 import { marketRouter } from './market';
 import { messageRouter } from './message';
@@ -51,7 +50,6 @@ export const lambdaRouter = router({
   group: groupRouter,
   healthcheck: publicProcedure.query(() => "i'm live!"),
   image: imageRouter,
-  importer: importerRouter,
   knowledgeBase: knowledgeBaseRouter,
   market: marketRouter,
   message: messageRouter,

@@ -5,7 +5,7 @@ import React from 'react';
 import { Center, Flexbox } from 'react-layout-kit';
 import { mutate } from 'swr';
 
-import { exportService } from '@/services/export';
+import { configService } from '@/services/config';
 
 import Header from '../../features/Header';
 import Table from '../../features/Table';
@@ -42,8 +42,7 @@ const DataTable = ({ tableName }: DataTableProps) => {
           {
             icon: Download,
             onClick: async () => {
-              const data = await exportService.exportData();
-              console.log(data);
+              await configService.exportAll();
             },
             title: 'Export',
           },

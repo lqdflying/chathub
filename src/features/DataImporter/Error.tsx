@@ -18,6 +18,9 @@ interface ErrorProps {
 
 const Error = memo<ErrorProps>(({ error, onClick }) => {
   const { t } = useTranslation('common');
+  const localizedMessage = error
+    ? t(`importModal.error.codes.${error.code}`, { defaultValue: error.message })
+    : undefined;
   return (
     <Result
       extra={
@@ -28,7 +31,7 @@ const Error = memo<ErrorProps>(({ error, onClick }) => {
                 {JSON.stringify(error, null, 2)}
               </Highlighter>
             }
-            message={error?.message}
+            message={localizedMessage}
             style={{ flex: 1 }}
             type={'error'}
           />

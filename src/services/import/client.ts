@@ -20,8 +20,13 @@ export class ClientService extends BaseClientService implements IImportService {
       );
       const duration = Date.now() - time;
 
-      callbacks?.onStageChange?.(ImportStage.Success);
-      callbacks?.onSuccess?.(result.results, duration);
+      if (result.success) {
+        callbacks?.onStageChange?.(ImportStage.Success);
+        callbacks?.onSuccess?.(result.results, duration);
+      } else {
+        callbacks?.onStageChange?.(ImportStage.Error);
+        callbacks?.onError?.({ code: 'ImportError', httpStatus: 0, message: result.error.message });
+      }
     } catch (e) {
       console.error(e);
       callbacks?.onStageChange?.(ImportStage.Error);
@@ -33,24 +38,25 @@ export class ClientService extends BaseClientService implements IImportService {
 
   importPgData: IImportService['importPgData'] = async (
     data,
-    { callbacks, overwriteExisting } = {},
+    { callbacks, overwriteExisting, strategy } = {},
   ) => {
     callbacks?.onStageChange?.(ImportStage.Importing);
     const time = Date.now();
     try {
       const result = await withClientConversationWriteQueue(this.userId, (transaction) =>
-        new DataImporterRepos(transaction, this.userId).importPgData(
+        new DataImporterRepos(transaction, this.userId).importPgDataInTransaction(
           data,
-          overwriteExisting ? 'override' : 'skip',
+          strategy || (overwriteExisting ? 'replace' : 'merge'),
         ),
       );
 
       const duration = Date.now() - time;
 
-      callbacks?.onStageChange?.(ImportStage.Success);
       if (result.success) {
+        callbacks?.onStageChange?.(ImportStage.Success);
         callbacks?.onSuccess?.(result.results, duration);
       } else {
+        callbacks?.onStageChange?.(ImportStage.Error);
         callbacks?.onError?.({ code: 'ImportError', httpStatus: 0, message: result.error.message });
       }
     } catch (e) {

@@ -1,9 +1,9 @@
-import { BRANDING_NAME, isDeprecatedEdition, isServerMode } from '@lobechat/const';
-import { downloadFile, exportJSONFile } from '@lobechat/utils/client';
+import { BRANDING_NAME, isDeprecatedEdition } from '@lobechat/const';
+import { exportJSONFile } from '@lobechat/utils/client';
 import dayjs from 'dayjs';
 
 import { CURRENT_CONFIG_VERSION } from '@/migrations';
-import { ImportPgDataStructure } from '@/types/export';
+import { CURRENT_DATA_BACKUP_FORMAT_VERSION } from '@/types/export';
 
 import { exportService } from './export';
 import { configService as deprecatedExportService } from './export/_deprecated';
@@ -18,20 +18,12 @@ class ConfigService {
       return;
     }
 
-    const { data, url } = await exportService.exportData();
-    const filename = `${dayjs().format('YYYY-MM-DD-hh-mm')}_${BRANDING_NAME}-data.json`;
+    const backup = await exportService.exportData();
+    const filename = `${dayjs().format(
+      'YYYY-MM-DD-HH-mm',
+    )}_${BRANDING_NAME}-data-v${CURRENT_DATA_BACKUP_FORMAT_VERSION}.json`;
 
-    // if url exists, means export data from server and upload the data to S3
-    // just need to download the file
-    if (url) {
-      await downloadFile(url, filename);
-      return;
-    }
-
-    // or export to file with the data
-    const result = await this.createDataStructure(data, isServerMode ? 'postgres' : 'pglite');
-
-    exportJSONFile(result, filename);
+    exportJSONFile(backup, filename);
   };
 
   exportAgents = async () => {
@@ -69,7 +61,7 @@ class ConfigService {
   exportSettings = async () => {
     // TODO: remove this in V2
     if (isDeprecatedEdition) {
-      const config = await deprecatedExportService.exportSessions();
+      const config = await deprecatedExportService.exportSettings();
       const filename = `${BRANDING_NAME}-settings-v${CURRENT_CONFIG_VERSION}.json`;
       exportJSONFile(config, filename);
       return;
@@ -86,19 +78,6 @@ class ConfigService {
       exportJSONFile(data.config, filename);
       return;
     }
-  };
-
-  private createDataStructure = async (
-    data: any,
-    mode: 'pglite' | 'postgres',
-  ): Promise<ImportPgDataStructure> => {
-    const { default: json } = await import('@/database/core/migrations.json');
-    const latestHash = json.at(-1)?.hash;
-    if (!latestHash) {
-      throw new Error('Not find database sql hash');
-    }
-
-    return { data, mode, schemaHash: latestHash };
   };
 }
 

@@ -182,7 +182,7 @@ describe('DataExporterRepos', () => {
 
       expect(result).toHaveProperty('userSettings');
       expect(result.userSettings).toHaveLength(1);
-      expect(result.userSettings[0]).toHaveProperty('id', testIds.userId);
+      expect(result.userSettings[0]).not.toHaveProperty('id');
 
       // expect(result).toHaveProperty('files');
       // expect(result.files).toHaveLength(1);
@@ -312,19 +312,24 @@ describe('DataExporterRepos', () => {
     });
 
     it('should handle database query errors', async () => {
-      // 模拟查询错误
-      // @ts-ignore
-      vi.spyOn(db.query.users, 'findMany').mockRejectedValueOnce(new Error('Database error'));
+      const failingDatabase = {
+        transaction: vi.fn().mockRejectedValueOnce(new Error('Database error')),
+      } as unknown as LobeChatDatabase;
+      const dataExporter = new DataExporterRepos(failingDatabase, userId);
 
-      // 创建导出器实例
-      const dataExporter = new DataExporterRepos(db, userId);
+      await expect(dataExporter.export()).rejects.toThrow('Database error');
+    });
 
-      // 执行导出
-      const result = await dataExporter.export();
+    it('should export inside a read-only repeatable-read snapshot', async () => {
+      const transaction = vi.fn().mockResolvedValue({});
+      const snapshotDatabase = { transaction } as unknown as LobeChatDatabase;
 
-      // 验证其他表仍然被导出
-      expect(result).toHaveProperty('sessions');
-      expect(result.sessions).toHaveLength(1);
+      await new DataExporterRepos(snapshotDatabase, userId).export();
+
+      expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
+        accessMode: 'read only',
+        isolationLevel: 'repeatable read',
+      });
     });
 
     it.skip('should skip relation tables when source tables have no data', async () => {

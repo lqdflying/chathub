@@ -4,7 +4,7 @@ import { Button, Form, type FormGroupItemType, Icon } from '@lobehub/ui';
 import { App } from 'antd';
 import isEqual from 'fast-deep-equal';
 import { HardDriveDownload, HardDriveUpload } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { FORM_STYLE } from '@/const/layoutTokens';
@@ -19,6 +19,7 @@ const AdvancedActions = () => {
   const { t } = useTranslation('setting');
   const [form] = Form.useForm();
   const { message, modal } = App.useApp();
+  const [exporting, setExporting] = useState(false);
   const clearAllTopicsHistory = useChatStore((s) => s.clearAllTopicsHistory);
   const settings = useUserStore(settingsSelectors.currentSettings, isEqual);
   const [resetSettings] = useUserStore((s) => [s.resetSettings]);
@@ -72,8 +73,16 @@ const AdvancedActions = () => {
         children: (
           <Button
             icon={<Icon icon={HardDriveUpload} />}
-            onClick={() => {
-              configService.exportAll();
+            loading={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                await configService.exportAll();
+              } catch (error) {
+                message.error(error instanceof Error ? error.message : String(error));
+              } finally {
+                setExporting(false);
+              }
             }}
           >
             {t('storage.actions.export.button')}

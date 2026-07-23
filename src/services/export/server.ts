@@ -1,9 +1,24 @@
-import { lambdaClient } from '@/libs/trpc/client';
+import { createHeaderWithAuth } from '@/services/_auth';
+import { parseDatabaseBackup } from '@/types/export';
 
 import { IExportService } from './type';
 
 export class ServerService implements IExportService {
   exportData: IExportService['exportData'] = async () => {
-    return await lambdaClient.exporter.exportData.mutate();
+    const headers = await createHeaderWithAuth();
+    const response = await fetch('/webapi/data/export', {
+      cache: 'no-store',
+      headers,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => undefined);
+      throw new Error(error?.message || `Data export failed (${response.status})`);
+    }
+
+    const parsed = parseDatabaseBackup(await response.json());
+    if (parsed.format !== 'v2') throw new Error('Server returned an outdated backup format');
+
+    return parsed.backup;
   };
 }

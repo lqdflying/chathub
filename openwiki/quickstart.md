@@ -9,6 +9,7 @@ Start here if you are new to the repo:
 - [Context engineering and conversation shaping](architecture/context-engineering.md)
 - [MCP and tool integrations](integrations/mcp-and-tools.md)
 - [Authentication and environment setup](operations/auth-and-env.md)
+- [Data backup and restore internals](operations/data-backup-and-restore.md)
 - [Testing and change checklist](testing.md)
 
 ## What this repository is

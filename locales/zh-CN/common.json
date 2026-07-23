@@ -196,6 +196,17 @@
   "importData": "导入数据",
   "importModal": {
     "error": {
+      "codes": {
+        "BACKUP_SECRET_MISMATCH": "加密凭据需要使用创建此备份时的 KEY_VAULTS_SECRET。",
+        "CONVERSATION_VERSION_CONFLICT": "上传期间会话数据发生变化，请重新打开预览后重试。",
+        "IMPORT_FAILED_ROLLED_BACK": "导入失败，所有数据库更改均已回滚。",
+        "INVALID_BACKUP": "所选文件不是有效的 ChatHub 备份。",
+        "NETWORK_ERROR": "无法将备份传输到服务器。",
+        "SOURCE_SCHEMA_NEWER": "请先升级 ChatHub，再导入此新版备份。",
+        "TRANSFER_TOO_LARGE": "备份超过代理请求正文限制，请提高限制后重试。",
+        "UNKNOWN_SCHEMA": "备份或目标数据库使用了未知的迁移版本。",
+        "UNSUPPORTED_BACKUP_FORMAT": "当前 ChatHub 版本不支持此备份格式。"
+      },
       "desc": "非常抱歉，数据导入过程发生异常。请尝试重新导入，或 <1>提交问题</1>，我们将会第一时间帮你排查问题。",
       "title": "数据导入失败"
     },
@@ -227,6 +238,22 @@
   },
   "importPreview": {
     "confirmImport": "确认导入",
+    "credentials": "加密凭据",
+    "credentialsDescription": "供应商凭据保持加密状态，恢复时必须使用创建备份时相同的 KEY_VAULTS_SECRET。",
+    "exportedAt": "导出时间",
+    "format": "备份格式",
+    "ignoredTables": "不支持的旧版数据",
+    "ignoredTablesDescription": "以下派生或排除的数据表不会恢复：{{tables}}",
+    "source": "源数据库",
+    "strategy": {
+      "merge": "安全合并（推荐）",
+      "mergeDescription": "添加缺失记录、更新单例设置并跳过已经存在的内容。",
+      "replace": "替换当前数据",
+      "replaceConfirm": "我了解当前备份范围内的数据将被替换。",
+      "replaceDescription": "以原子方式移除当前备份范围内的数据并恢复此文件。身份验证和二进制文件不受影响。",
+      "replaceWarning": "替换操作具有破坏性",
+      "title": "冲突处理"
+    },
     "tables": {
       "count": "记录数",
       "name": "表名"

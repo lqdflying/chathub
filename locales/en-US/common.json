@@ -196,6 +196,17 @@
   "importData": "Import Data",
   "importModal": {
     "error": {
+      "codes": {
+        "BACKUP_SECRET_MISMATCH": "Encrypted credentials require the KEY_VAULTS_SECRET used to create this backup.",
+        "CONVERSATION_VERSION_CONFLICT": "Conversation data changed during upload. Reopen the preview and retry.",
+        "IMPORT_FAILED_ROLLED_BACK": "Import failed. All database changes were rolled back.",
+        "INVALID_BACKUP": "The selected file is not a valid ChatHub backup.",
+        "NETWORK_ERROR": "The backup could not be transferred to the server.",
+        "SOURCE_SCHEMA_NEWER": "Upgrade ChatHub before importing this newer backup.",
+        "TRANSFER_TOO_LARGE": "The backup exceeds a proxy request-body limit. Increase the limit and retry.",
+        "UNKNOWN_SCHEMA": "The backup or target database uses an unknown migration version.",
+        "UNSUPPORTED_BACKUP_FORMAT": "This backup format is not supported by the current ChatHub version."
+      },
       "desc": "Sorry, an error occurred during the data import process. Please try importing again, or <1>submit a request</1>, and we will help you troubleshoot the issue as soon as possible.",
       "title": "Data Import Failed"
     },
@@ -227,6 +238,22 @@
   },
   "importPreview": {
     "confirmImport": "Confirm Import",
+    "credentials": "Encrypted credentials",
+    "credentialsDescription": "Provider credentials remain encrypted and require the same KEY_VAULTS_SECRET that was used when this backup was created.",
+    "exportedAt": "Exported",
+    "format": "Backup format",
+    "ignoredTables": "Unsupported legacy data",
+    "ignoredTablesDescription": "These derived or excluded tables will not be restored: {{tables}}",
+    "source": "Source database",
+    "strategy": {
+      "merge": "Merge safely (recommended)",
+      "mergeDescription": "Add missing records, update singleton settings, and skip content that is already present.",
+      "replace": "Replace current data",
+      "replaceConfirm": "I understand that current in-scope data will be replaced.",
+      "replaceDescription": "Atomically remove current backup-scoped data and restore this file. Authentication and binary files are not changed.",
+      "replaceWarning": "Replace is destructive",
+      "title": "Conflict handling"
+    },
     "tables": {
       "count": "Record Count",
       "name": "Table Name"

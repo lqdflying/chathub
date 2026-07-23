@@ -1,20 +1,29 @@
 'use client';
 
 import { Button, Modal, Text } from '@lobehub/ui';
-import { Table } from 'antd';
+import { Alert, Checkbox, Radio, Space, Table } from 'antd';
 import { createStyles } from 'antd-style';
 import { Info } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { ImportPgDataStructure } from '@/types/export';
+import {
+  DATA_BACKUP_TABLES,
+  DataImportStrategy,
+  ImportPgDataStructure,
+  getIgnoredBackupTables,
+} from '@/types/export';
 
 const getNonEmptyTables = (data: ImportPgDataStructure) => {
   const result = [];
 
   for (const [key, value] of Object.entries(data.data)) {
-    if (Array.isArray(value) && value.length > 0) {
+    if (
+      DATA_BACKUP_TABLES.includes(key as (typeof DATA_BACKUP_TABLES)[number]) &&
+      Array.isArray(value) &&
+      value.length > 0
+    ) {
       result.push({
         count: value.length,
         name: key,
@@ -84,7 +93,7 @@ const useStyles = createStyles(({ token, css }) => {
 interface ImportPreviewModalProps {
   importData: ImportPgDataStructure;
   onCancel?: () => void;
-  onConfirm?: (overwriteExisting: boolean) => void;
+  onConfirm?: (strategy: DataImportStrategy) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }
@@ -98,9 +107,12 @@ const ImportPreviewModal = ({
 }: ImportPreviewModalProps) => {
   const { t } = useTranslation('common');
   const { styles } = useStyles();
-  const [duplicateAction] = useState<string>('skip');
+  const [strategy, setStrategy] = useState<DataImportStrategy>('merge');
+  const [replaceConfirmed, setReplaceConfirmed] = useState(false);
   const tables = getNonEmptyTables(importData);
   const totalRecords = getTotalRecords(tables);
+  const ignoredTables = getIgnoredBackupTables(importData);
+  const isV2 = 'formatVersion' in importData;
 
   // 表格列定义
   const columns = [
@@ -118,7 +130,7 @@ const ImportPreviewModal = ({
   ];
 
   const handleConfirm = () => {
-    onConfirm(duplicateAction === 'overwrite');
+    onConfirm(strategy);
     onOpenChange(false);
   };
 
@@ -134,7 +146,13 @@ const ImportPreviewModal = ({
         >
           {t('cancel')}
         </Button>,
-        <Button key="confirm" onClick={handleConfirm} type="primary">
+        <Button
+          danger={strategy === 'replace'}
+          disabled={strategy === 'replace' && !replaceConfirmed}
+          key="confirm"
+          onClick={handleConfirm}
+          type="primary"
+        >
           {t('importPreview.confirmImport')}
         </Button>,
       ]}
@@ -160,6 +178,20 @@ const ImportPreviewModal = ({
             <Flexbox className={styles.hash} gap={4} horizontal>
               Hash: <span>{importData.schemaHash}</span>
             </Flexbox>
+            <Flexbox className={styles.hash} gap={4}>
+              <span>
+                {t('importPreview.format')}:{' '}
+                {isV2 ? `v${importData.formatVersion} · ${importData.appVersion}` : 'Legacy v1'}
+              </span>
+              <span>
+                {t('importPreview.source')}: {importData.mode}
+              </span>
+              {isV2 && (
+                <span>
+                  {t('importPreview.exportedAt')}: {new Date(importData.exportedAt).toLocaleString()}
+                </span>
+              )}
+            </Flexbox>
           </Flexbox>
 
           <div className={styles.tableContainer}>
@@ -173,25 +205,57 @@ const ImportPreviewModal = ({
             />
           </div>
 
-          {/*<Flexbox>*/}
-          {/*  重复数据处理方式：*/}
-          {/*  <div className={styles.duplicateOptions}>*/}
-          {/*    <Radio.Group*/}
-          {/*      onChange={(e) => setDuplicateAction(e.target.value)}*/}
-          {/*      value={duplicateAction}*/}
-          {/*    >*/}
-          {/*      <Space>*/}
-          {/*        <Radio value="skip">跳过</Radio>*/}
-          {/*        <Radio value="overwrite">覆盖</Radio>*/}
-          {/*      </Space>*/}
-          {/*    </Radio.Group>*/}
-          {/*  </div>*/}
-          {/*  <div className={styles.duplicateDescription}>*/}
-          {/*    {duplicateAction === 'skip'*/}
-          {/*      ? '选择跳过将仅导入不重复的数据，保留现有数据不变。'*/}
-          {/*      : '选择覆盖将使用导入数据替换系统中具有相同 ID 的现有记录。'}*/}
-          {/*  </div>*/}
-          {/*</Flexbox>*/}
+          {ignoredTables.length > 0 && (
+            <Alert
+              description={t('importPreview.ignoredTablesDescription', {
+                tables: ignoredTables.join(', '),
+              })}
+              message={t('importPreview.ignoredTables')}
+              showIcon
+              type="warning"
+            />
+          )}
+
+          <Alert
+            description={t('importPreview.credentialsDescription')}
+            message={t('importPreview.credentials')}
+            showIcon
+            type="info"
+          />
+
+          <Flexbox gap={8}>
+            <Text strong>{t('importPreview.strategy.title')}</Text>
+            <Radio.Group
+              onChange={(event) => {
+                setStrategy(event.target.value);
+                setReplaceConfirmed(false);
+              }}
+              value={strategy}
+            >
+              <Space direction="vertical">
+                <Radio value="merge">{t('importPreview.strategy.merge')}</Radio>
+                <Radio value="replace">{t('importPreview.strategy.replace')}</Radio>
+              </Space>
+            </Radio.Group>
+            <Text type="secondary">
+              {t(`importPreview.strategy.${strategy}Description`)}
+            </Text>
+            {strategy === 'replace' && (
+              <Alert
+                description={
+                  <Checkbox
+                    checked={replaceConfirmed}
+                    onChange={(event) => setReplaceConfirmed(event.target.checked)}
+                  >
+                    {t('importPreview.strategy.replaceConfirm')}
+                  </Checkbox>
+                }
+                message={t('importPreview.strategy.replaceWarning')}
+                showIcon
+                type="warning"
+              />
+            )}
+          </Flexbox>
         </Flexbox>
       </div>
     </Modal>

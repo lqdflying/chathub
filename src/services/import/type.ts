@@ -1,4 +1,4 @@
-import { ImportPgDataStructure } from '@/types/export';
+import { DataImportStrategy, ImportPgDataStructure } from '@/types/export';
 import { ImporterEntryData, OnImportCallbacks } from '@/types/importer';
 import { UserSettings } from '@/types/user/settings';
 
@@ -9,7 +9,9 @@ export interface IImportService {
     data: ImportPgDataStructure,
     options?: {
       callbacks?: OnImportCallbacks;
+      /** @deprecated use strategy */
       overwriteExisting?: boolean;
+      strategy?: DataImportStrategy;
     },
   ): Promise<void>;
 

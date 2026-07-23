@@ -1,267 +1,50 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, getTableColumns } from 'drizzle-orm';
+import { Md5 } from 'ts-md5';
 
-import { ImportPgDataStructure } from '@/types/export';
+import {
+  DataBackupTable,
+  DataImportStrategy,
+  ImportPgDataStructure,
+  parseDatabaseBackup,
+} from '@/types/export';
 import { ImportResultData, ImporterEntryData } from '@/types/importer';
-import { uuid } from '@/utils/uuid';
 
-import * as EXPORT_TABLES from '../../schemas';
 import { LobeChatDatabase } from '../../type';
 import { sortMessagesParentFirst } from '../../utils/sortMessagesParentFirst';
+import {
+  BackupRelation,
+  DATA_BACKUP_REGISTRY,
+  DATA_BACKUP_TABLE_OBJECTS,
+  DataBackupTableConfig,
+} from '../dataBackupRegistry';
 import { DeprecatedDataImporterRepos } from './deprecated';
 
 interface ImportResult {
   added: number;
   errors: number;
   skips: number;
-  updated?: number;
+  updated: number;
 }
 
-type ConflictStrategy = 'skip' | 'override' | 'merge';
-
-interface TableImportConfig {
-  // 冲突处理策略
-  conflictStrategy?: ConflictStrategy;
-  // 字段处理函数
-  fieldProcessors?: {
-    [field: string]: (value: any) => any;
-  };
-  // 是否使用复合主键（没有单独的id字段）
-  isCompositeKey?: boolean;
-  // 是否保留原始ID
-  preserveId?: boolean;
-  // 关系字段定义
-  relations?: {
-    field: string;
-    sourceField?: string;
-    sourceTable: string;
-  }[];
-  // 自引用字段
-  selfReferences?: {
-    field: string;
-    sourceField?: string;
-  }[];
-  // 表名
-  table: string;
-  // 唯一约束字段
-  uniqueConstraints?: string[];
+interface DeferredRecord {
+  config: DataBackupTableConfig;
+  source: Record<string, any>;
+  targetId: string;
 }
 
-// 导入表配置
-const IMPORT_TABLE_CONFIG: TableImportConfig[] = [
-  {
-    conflictStrategy: 'merge',
-    preserveId: true,
-    // 特殊表，ID与用户ID相同
-    table: 'userSettings',
-    uniqueConstraints: ['id'],
-  },
-  {
-    conflictStrategy: 'merge',
-    isCompositeKey: true,
-    table: 'userInstalledPlugins',
-    uniqueConstraints: ['identifier'],
-  },
-  {
-    conflictStrategy: 'skip',
-    preserveId: true,
-    table: 'aiProviders',
-    uniqueConstraints: ['id'],
-  },
-  {
-    conflictStrategy: 'skip',
-    preserveId: true, // 需要保留原始ID
-    relations: [
-      {
-        field: 'providerId',
-        sourceTable: 'aiProviders',
-      },
-    ],
-    table: 'aiModels',
-    uniqueConstraints: ['id', 'providerId'],
-  },
-  {
-    table: 'sessionGroups',
-    uniqueConstraints: [],
-  },
-  {
-    fieldProcessors: {
-      slug: (value) => (value ? `${value}-${uuid().slice(0, 8)}` : null),
-    },
-    table: 'agents',
-    uniqueConstraints: ['slug'],
-  },
-  {
-    // 对slug字段进行特殊处理
-    fieldProcessors: {
-      slug: (value) => `${value}-${uuid().slice(0, 8)}`,
-    },
-    relations: [
-      {
-        field: 'groupId',
-        sourceTable: 'sessionGroups',
-      },
-    ],
-    table: 'sessions',
-    uniqueConstraints: ['slug'],
-  },
-  {
-    relations: [
-      {
-        field: 'sessionId',
-        sourceTable: 'sessions',
-      },
-    ],
-    table: 'topics',
-  },
-  {
-    conflictStrategy: 'skip',
-    isCompositeKey: true, // 使用复合主键 [agentId, sessionId]
-    relations: [
-      {
-        field: 'agentId',
-        sourceTable: 'agents',
-      },
-      {
-        field: 'sessionId',
-        sourceTable: 'sessions',
-      },
-    ],
-    table: 'agentsToSessions',
-    uniqueConstraints: ['agentId', 'sessionId'],
-  },
-  {
-    relations: [
-      {
-        field: 'topicId',
-        sourceTable: 'topics',
-      },
-    ],
-    selfReferences: [
-      {
-        field: 'parentThreadId',
-      },
-    ],
-    table: 'threads',
-  },
-  {
-    relations: [
-      {
-        field: 'sessionId',
-        sourceTable: 'sessions',
-      },
-      {
-        field: 'topicId',
-        sourceTable: 'topics',
-      },
-      {
-        field: 'agentId',
-        sourceTable: 'agents',
-      },
-      {
-        field: 'threadId',
-        sourceTable: 'threads',
-      },
-    ],
-    selfReferences: [
-      {
-        field: 'parentId',
-      },
-      {
-        field: 'quotaId',
-      },
-    ],
-    table: 'messages',
-  },
-  {
-    conflictStrategy: 'skip',
-    preserveId: true, // 使用消息ID作为主键
-    relations: [
-      {
-        field: 'id',
-        sourceTable: 'messages',
-      },
-    ],
-    table: 'messagePlugins',
-  },
-  {
-    isCompositeKey: true, // 使用复合主键 [messageId, chunkId]
-    relations: [
-      {
-        field: 'messageId',
-        sourceTable: 'messages',
-      },
-      {
-        field: 'chunkId',
-        sourceTable: 'chunks',
-      },
-    ],
-    table: 'messageChunks',
-  },
-  {
-    isCompositeKey: true, // 使用复合主键 [id, queryId, chunkId]
-    relations: [
-      {
-        field: 'id',
-        sourceTable: 'messages',
-      },
-      {
-        field: 'queryId',
-        sourceTable: 'messageQueries',
-      },
-      {
-        field: 'chunkId',
-        sourceTable: 'chunks',
-      },
-    ],
-    table: 'messageQueryChunks',
-  },
-  // {
-  //   relations: [
-  //     {
-  //       field: 'messageId',
-  //       sourceTable: 'messages',
-  //     },
-  //     {
-  //       field: 'embeddingsId',
-  //       sourceTable: 'embeddings',
-  //     },
-  //   ],
-  //   table: 'messageQueries',
-  // },
-  {
-    conflictStrategy: 'skip',
-    preserveId: true, // 使用消息ID作为主键
-    relations: [
-      {
-        field: 'id',
-        sourceTable: 'messages',
-      },
-    ],
-    table: 'messageTranslates',
-  },
-  // {
-  //   conflictStrategy: 'skip',
-  //   preserveId: true, // 使用消息ID作为主键
-  //   relations: [
-  //     {
-  //       field: 'id',
-  //       sourceTable: 'messages',
-  //     },
-  //     {
-  //       field: 'fileId',
-  //       sourceTable: 'files',
-  //     },
-  //   ],
-  //   table: 'messageTTS',
-  // },
-];
+type CompatibleImportStrategy = DataImportStrategy | 'override' | 'skip';
+
+const EMPTY_RESULT = (): ImportResult => ({ added: 0, errors: 0, skips: 0, updated: 0 });
+
+const hasChanges = (result: ImportResult) =>
+  result.added > 0 || result.skips > 0 || result.updated > 0;
 
 export class DataImporterRepos {
-  private userId: string;
-  private db: LobeChatDatabase;
-  private deprecatedDataImporterRepos: DeprecatedDataImporterRepos;
-  private idMaps: Record<string, Record<string, string>> = {};
-  private conflictRecords: Record<string, { field: string; value: any }[]> = {};
+  private readonly userId: string;
+  private readonly db: LobeChatDatabase;
+  private readonly deprecatedDataImporterRepos: DeprecatedDataImporterRepos;
+  private idMaps: Partial<Record<DataBackupTable, Record<string, string>>> = {};
+  private deferredRecords: DeferredRecord[] = [];
 
   constructor(db: LobeChatDatabase, userId: string) {
     this.userId = userId;
@@ -275,466 +58,409 @@ export class DataImporterRepos {
   };
 
   /**
-   * 导入PostgreSQL数据
+   * Transaction-owning entry point for client DB and repository callers.
+   * Server callers that already hold the conversation lock must use
+   * importPgDataInTransaction to avoid a nested transaction/savepoint.
    */
   async importPgData(
-    dbData: ImportPgDataStructure,
-    conflictStrategy: ConflictStrategy = 'skip',
+    input: ImportPgDataStructure,
+    strategy: CompatibleImportStrategy = 'merge',
   ): Promise<ImportResultData> {
-    const results: Record<string, ImportResult> = {};
-    const { data } = dbData;
-
-    // 初始化ID映射表和冲突记录
-    this.idMaps = {};
-    this.conflictRecords = {};
-
     try {
-      await this.db.transaction(async (trx) => {
-        // 按配置顺序导入表
-        for (const config of IMPORT_TABLE_CONFIG) {
-          const { table: tableName } = config;
-
-          // @ts-ignore
-          const tableData = data[tableName];
-
-          if (!tableData || tableData.length === 0) {
-            continue;
-          }
-
-          // 使用统一的导入方法
-          const result = await this.importTableData(trx, config, tableData, conflictStrategy);
-          console.log(`imported table: ${tableName}, records: ${tableData.length}`);
-
-          if (Object.values(result).some((value) => value > 0)) {
-            results[tableName] = result;
-          }
-        }
-      });
-
-      return { results, success: true };
+      return await this.db.transaction(async (transaction) =>
+        new DataImporterRepos(transaction as LobeChatDatabase, this.userId).importPgDataInTransaction(
+          input,
+          strategy,
+        ),
+      );
     } catch (error) {
-      console.error('Import failed:', error);
-
+      console.error('[data-backup] import failed and was rolled back:', error);
       return {
         error: {
-          details: this.extractErrorDetails(error),
-          message: (error as any).message,
+          details: error instanceof Error ? error.stack : undefined,
+          message: error instanceof Error ? error.message : String(error),
         },
-        results,
+        results: {},
         success: false,
       };
     }
   }
 
   /**
-   * 从错误中提取详细信息
+   * Imports into the supplied transaction and deliberately lets every error
+   * escape. This guarantees the transaction owner can roll back the full
+   * restore instead of committing partially imported tables.
    */
-  private extractErrorDetails(error: any) {
-    if (error.code === '23505') {
-      // PostgreSQL 唯一约束错误码
-      const match = error.detail?.match(/Key \((.+?)\)=\((.+?)\) already exists/);
-      if (match) {
-        return {
-          constraintType: 'unique',
-          field: match[1],
-          value: match[2],
-        };
+  async importPgDataInTransaction(
+    input: ImportPgDataStructure,
+    strategy: CompatibleImportStrategy = 'merge',
+  ): Promise<ImportResultData> {
+    const { backup } = parseDatabaseBackup(input);
+    const normalizedStrategy: DataImportStrategy =
+      strategy === 'override' || strategy === 'replace' ? 'replace' : 'merge';
+    const results: Record<string, ImportResult> = {};
+
+    this.idMaps = {};
+    this.deferredRecords = [];
+
+    if (normalizedStrategy === 'replace') await this.deleteCurrentBackupData();
+
+    for (const config of DATA_BACKUP_REGISTRY) {
+      const tableData = backup.data[config.table] || [];
+      if (tableData.length === 0) continue;
+      if (config.idStrategy === 'singleton' && tableData.length > 1) {
+        throw new Error(`Backup table ${config.table} contains multiple singleton records`);
       }
+
+      const result = await this.importTable(config, tableData);
+      if (hasChanges(result)) results[config.table] = result;
     }
 
-    return error.detail || 'Unknown error details';
+    await this.restoreDeferredRelationships();
+
+    return { results, success: true };
   }
 
-  /**
-   * 统一的表数据导入函数 - 处理所有类型的表
-   */
-  private async importTableData(
-    trx: any,
-    config: TableImportConfig,
-    tableData: any[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _userConflictStrategy: ConflictStrategy,
-  ): Promise<ImportResult> {
-    const {
-      table: tableName,
-      preserveId,
-      isCompositeKey = false,
-      uniqueConstraints = [],
-      conflictStrategy = 'override',
-      fieldProcessors = {},
-      relations = [],
-      selfReferences = [],
-    } = config;
+  private getIdMap(table: DataBackupTable): Record<string, string> {
+    this.idMaps[table] ||= {};
+    return this.idMaps[table]!;
+  }
 
-    // @ts-ignore
-    const table = EXPORT_TABLES[tableName];
-    const result: ImportResult = { added: 0, errors: 0, skips: 0, updated: 0 };
+  private createStableImportedId(table: DataBackupTable, sourceId: string): string {
+    const digest = Md5.hashStr(`${this.userId}:${table}:${sourceId}`);
+    const prefix = sourceId.includes('_') ? sourceId.split('_', 1)[0] : 'import';
+    return `${prefix}_${digest}`;
+  }
 
-    // 初始化该表的ID映射
-    if (!this.idMaps[tableName]) {
-      this.idMaps[tableName] = {};
+  private async deleteCurrentBackupData() {
+    for (const config of [...DATA_BACKUP_REGISTRY].reverse()) {
+      if (config.table === 'users') continue;
+
+      const table = DATA_BACKUP_TABLE_OBJECTS[config.table] as any;
+      await (this.db as any)
+        .delete(table)
+        .where(eq(table[config.userField], this.userId));
+    }
+  }
+
+  private async getExistingRows(config: DataBackupTableConfig): Promise<Record<string, any>[]> {
+    const table = DATA_BACKUP_TABLE_OBJECTS[config.table] as any;
+
+    return (this.db as any)
+      .select()
+      .from(table)
+      .where(eq(table[config.userField], this.userId));
+  }
+
+  private findExistingGeneratedRecord(
+    existingRows: Record<string, any>[],
+    source: Record<string, any>,
+    stableId: string,
+  ) {
+    const sourceIdentity = source.clientId || source.id;
+
+    return existingRows.find(
+      (row) =>
+        row.id === source.id ||
+        row.id === stableId ||
+        (sourceIdentity && row.clientId && row.clientId === sourceIdentity),
+    );
+  }
+
+  private findExistingConflict(
+    existingRows: Record<string, any>[],
+    conflictFields: string[],
+    record: Record<string, any>,
+  ) {
+    return existingRows.find((existing) =>
+      conflictFields.every((field) => existing[field] === record[field]),
+    );
+  }
+
+  private convertColumnValue(
+    column: { dataType?: string },
+    field: string,
+    value: unknown,
+  ): unknown {
+    if (value === null || value === undefined) return value;
+    if (column.dataType !== 'date') return value;
+
+    const date = value instanceof Date ? value : new Date(value as string | number);
+    if (Number.isNaN(date.getTime())) throw new Error(`Invalid date value for ${field}`);
+
+    return date;
+  }
+
+  private mapRelationValue(relation: BackupRelation, value: unknown): unknown {
+    if (value === null || value === undefined) return value;
+
+    const mappedId = this.getIdMap(relation.sourceTable)[String(value)];
+    if (!mappedId) {
+      throw new Error(
+        `Backup relationship is incomplete: ${relation.sourceTable}.${String(value)} is missing`,
+      );
     }
 
-    try {
-      // 1. 查找已存在的记录（基于clientId和userId）
-      let existingRecords: any[] = [];
+    return mappedId;
+  }
 
-      if ('clientId' in table && 'userId' in table) {
-        const clientIds = tableData.map((item) => item.clientId || item.id).filter(Boolean);
+  private prepareRecord(
+    config: DataBackupTableConfig,
+    source: Record<string, any>,
+    targetId?: string,
+  ): Record<string, any> {
+    const table = DATA_BACKUP_TABLE_OBJECTS[config.table] as any;
+    const columns = getTableColumns(table) as Record<string, any>;
+    const record: Record<string, any> = {};
 
-        if (clientIds.length > 0) {
-          existingRecords = await trx.query[tableName].findMany({
-            where: and(eq(table.userId, this.userId), inArray(table.clientId, clientIds)),
-          });
-        }
+    for (const [field, column] of Object.entries(columns)) {
+      if (field === config.userField || field === 'messageOrder') continue;
+      if (!(field in source)) continue;
+
+      record[field] = this.convertColumnValue(column, field, source[field]);
+    }
+
+    if ('userId' in columns) record.userId = this.userId;
+    if (config.userField === 'id' && config.table === 'userSettings') record.id = this.userId;
+    if (targetId) record.id = targetId;
+
+    if (config.idStrategy === 'generated' && 'clientId' in columns) {
+      record.clientId = source.clientId || source.id;
+    }
+
+    for (const relation of config.relations || []) {
+      if (
+        !(relation.field in record) ||
+        record[relation.field] === null ||
+        record[relation.field] === undefined
+      )
+        continue;
+
+      if (relation.deferred) {
+        // threads.sourceMessageId is required but intentionally has no FK, so
+        // retain the source ID as a temporary value until messages are mapped.
+        record[relation.field] =
+          config.table === 'threads' && relation.field === 'sourceMessageId'
+            ? record[relation.field]
+            : null;
+      } else {
+        record[relation.field] = this.mapRelationValue(relation, record[relation.field]);
       }
+    }
 
-      // 如果需要保留原始ID，还需要检查ID是否已存在
-      if (preserveId && !isCompositeKey) {
-        const ids = tableData.map((item) => item.id).filter(Boolean);
-        if (ids.length > 0) {
-          const idExistingRecords = await trx.query[tableName].findMany({
-            where: inArray(table.id, ids),
-          });
+    if (config.table === 'topics' && !record.lastActivityAt) {
+      record.lastActivityAt = record.updatedAt || record.createdAt || new Date(0);
+    }
 
-          // 合并到已存在记录集合中
-          existingRecords = [
-            ...existingRecords,
-            ...idExistingRecords.filter(
-              (record: any) => !existingRecords.some((existing) => existing.id === record.id),
-            ),
-          ];
-        }
-      }
-
-      result.skips = existingRecords.length;
-
-      // 2. 为已存在的记录建立ID映射
-      for (const record of existingRecords) {
-        // 只有非复合主键表才需要ID映射
-        if (!isCompositeKey) {
-          this.idMaps[tableName][record.id] = record.id;
-          if (record.clientId) {
-            this.idMaps[tableName][record.clientId] = record.id;
-          }
-
-          // 记录中可能使用的任何其他ID标识符
-          const originalRecord = tableData.find(
-            (item) => item.id === record.id || item.clientId === record.clientId,
-          );
-
-          if (originalRecord) {
-            // 确保原始记录ID也映射到数据库记录ID
-            this.idMaps[tableName][originalRecord.id] = record.id;
-          }
-        }
-      }
-
-      // 3. 筛选出需要插入的记录
-      const recordsToInsert = tableData.filter(
-        (item) =>
-          !existingRecords.some(
-            (record) =>
-              (record.clientId === (item.clientId || item.id) && record.clientId) ||
-              (preserveId && !isCompositeKey && record.id === item.id),
-          ),
+    if (config.table === 'userMemoriesContexts' && Array.isArray(record.userMemoryIds)) {
+      record.userMemoryIds = record.userMemoryIds.map((id: unknown) =>
+        this.mapRelationValue({ field: 'userMemoryIds', sourceTable: 'userMemories' }, id),
       );
+    }
 
-      if (recordsToInsert.length === 0) {
-        return result;
-      }
+    if (config.table === 'messages' && typeof record.targetId === 'string') {
+      record.targetId = this.getIdMap('agents')[record.targetId] || record.targetId;
+    }
 
-      // 4. 准备导入数据
-      const preparedData = recordsToInsert.map((item) => {
-        const originalId = item.id;
+    if ((config.table === 'agents' || config.table === 'sessions') && record.slug) {
+      record.slug = `${String(record.slug).slice(0, 88)}-${Md5.hashStr(
+        `${this.userId}:${config.table}:${String(source.id)}`,
+      ).slice(0, 8)}`;
+    }
 
-        // 处理日期字段
-        const dateFields: any = {};
-        if (item.createdAt) dateFields.createdAt = new Date(item.createdAt);
-        if (item.updatedAt) dateFields.updatedAt = new Date(item.updatedAt);
-        if (item.accessedAt) dateFields.accessedAt = new Date(item.accessedAt);
+    return record;
+  }
 
-        // 创建新记录对象
-        let newRecord: any = {};
+  private async importSingleton(
+    config: DataBackupTableConfig,
+    source: Record<string, any>,
+  ): Promise<ImportResult> {
+    const result = EMPTY_RESULT();
+    const table = DATA_BACKUP_TABLE_OBJECTS[config.table] as any;
+    const existingRows = await this.getExistingRows(config);
+    const record = this.prepareRecord(config, source);
 
-        // 根据是否复合主键和是否保留ID决定如何处理
-        if (isCompositeKey) {
-          // 对于复合主键表，不包含id字段
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { id: _, ...rest } = item;
-          newRecord = {
-            ...rest,
-            ...dateFields,
-            clientId: item.clientId || item.id,
-            userId: this.userId,
-          };
-        } else {
-          // 非复合主键表处理
-          newRecord = {
-            ...(preserveId ? item : { ...item, id: undefined }),
-            ...dateFields,
-            clientId: item.clientId || item.id,
-            userId: this.userId,
-          };
-        }
+    if (config.table === 'users') {
+      const allowedUpdate: Record<string, unknown> = {};
+      if ('isOnboarded' in source) allowedUpdate.isOnboarded = source.isOnboarded;
+      if ('preference' in source) allowedUpdate.preference = source.preference;
 
-        // 应用字段处理器
-        for (const field in fieldProcessors) {
-          if (newRecord[field] !== undefined) {
-            newRecord[field] = fieldProcessors[field](newRecord[field]);
-          }
-        }
-
-        // 特殊表处理
-        if (tableName === 'userSettings') {
-          newRecord.id = this.userId;
-        }
-        // 处理关系字段（外键引用）
-        for (const relation of relations) {
-          const { field, sourceTable } = relation;
-
-          if (newRecord[field] && this.idMaps[sourceTable]) {
-            const mappedId = this.idMaps[sourceTable][newRecord[field]];
-
-            if (mappedId) {
-              newRecord[field] = mappedId;
-            } else {
-              // 找不到映射，设为null
-              console.warn(
-                `Could not find mapped ID for ${field}=${newRecord[field]} in table ${sourceTable}`,
-              );
-              newRecord[field] = null;
-            }
-          }
-        }
-
-        // 简化处理自引用字段 - 直接设为null
-        for (const selfRef of selfReferences) {
-          const { field } = selfRef;
-          if (newRecord[field] !== undefined) {
-            newRecord[field] = null;
-          }
-        }
-
-        if (tableName === 'messages') {
-          delete newRecord.messageOrder;
-        }
-
-        return { newRecord, originalId };
-      });
-
-      // 5. 检查唯一约束并应用冲突策略
-      for (const record of preparedData) {
-        if (isCompositeKey && uniqueConstraints.length > 0) {
-          // 对于复合主键表，将所有唯一约束字段作为一个组合条件
-          const whereConditions = uniqueConstraints
-            .filter((field) => record.newRecord[field] !== undefined)
-            .map((field) => eq(table[field], record.newRecord[field]));
-
-          // 添加userId条件（如果表有userId字段）
-          if ('userId' in table) {
-            whereConditions.push(eq(table.userId, this.userId));
-          }
-
-          if (whereConditions.length > 0) {
-            const exists = await trx.query[tableName].findFirst({
-              where: and(...whereConditions),
-            });
-
-            if (exists) {
-              // 记录冲突
-              if (!this.conflictRecords[tableName]) this.conflictRecords[tableName] = [];
-              this.conflictRecords[tableName].push({
-                field: uniqueConstraints.join(','),
-                value: uniqueConstraints
-                  .map((field) => `${field}=${record.newRecord[field]}`)
-                  .join(','),
-              });
-
-              // 应用冲突策略
-              switch (conflictStrategy) {
-                case 'skip': {
-                  record.newRecord._skip = true;
-                  result.skips++;
-
-                  // 关键改进：即使跳过，也建立ID映射关系
-                  if (!isCompositeKey) {
-                    this.idMaps[tableName][record.originalId] = exists.id;
-                    if (record.newRecord.clientId) {
-                      this.idMaps[tableName][record.newRecord.clientId] = exists.id;
-                    }
-                  }
-                  break;
-                }
-                case 'override': {
-                  // 不需要额外操作，插入时会覆盖
-                  break;
-                }
-                case 'merge': {
-                  // 合并数据
-                  await trx
-                    .update(table)
-                    .set(record.newRecord)
-                    .where(and(...whereConditions));
-                  record.newRecord._skip = true;
-                  if (result.updated) result.updated++;
-                  else {
-                    result.updated = 1;
-                  }
-                  break;
-                }
-              }
-            }
-          }
-        } else {
-          // 处理唯一约束
-          for (const field of uniqueConstraints) {
-            if (!record.newRecord[field]) continue;
-
-            // 检查字段值是否已存在
-            const exists = await trx.query[tableName].findFirst({
-              where: eq(table[field], record.newRecord[field]),
-            });
-
-            if (exists) {
-              // 记录冲突
-              if (!this.conflictRecords[tableName]) this.conflictRecords[tableName] = [];
-              this.conflictRecords[tableName].push({
-                field,
-                value: record.newRecord[field],
-              });
-
-              // 应用冲突策略
-              switch (conflictStrategy) {
-                case 'skip': {
-                  record.newRecord._skip = true;
-                  result.skips++;
-
-                  // 关键改进：即使跳过，也建立ID映射关系
-                  if (!isCompositeKey) {
-                    this.idMaps[tableName][record.originalId] = exists.id;
-                    if (record.newRecord.clientId) {
-                      this.idMaps[tableName][record.newRecord.clientId] = exists.id;
-                    }
-                  }
-                  break;
-                }
-                case 'override': {
-                  // 应用字段处理器
-                  if (field in fieldProcessors) {
-                    record.newRecord[field] = fieldProcessors[field](record.newRecord[field]);
-                  }
-                  break;
-                }
-
-                case 'merge': {
-                  // 合并数据
-                  await trx
-                    .update(table)
-                    .set(record.newRecord)
-                    .where(eq(table[field], record.newRecord[field]));
-                  record.newRecord._skip = true;
-                  if (result.updated) result.updated++;
-                  else {
-                    result.updated = 1;
-                  }
-                  break;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // 过滤掉标记为跳过的记录
-      let filteredData = preparedData.filter((record) => !record.newRecord._skip);
-
-      // 清除临时标记
-      filteredData.forEach((record) => delete record.newRecord._skip);
-
-      if (tableName === 'messages') {
-        const originalMessageById = new Map(
-          tableData.map((message) => [message.id, message] as const),
-        );
-        filteredData = sortMessagesParentFirst(filteredData, ({ originalId }) => {
-          const originalMessage = originalMessageById.get(originalId);
-
-          return {
-            createdAt: originalMessage?.createdAt,
-            id: originalId,
-            parentId: originalMessage?.parentId,
-          };
-        });
-      }
-
-      // 6. 批量插入数据
-      const BATCH_SIZE = 100;
-
-      for (let i = 0; i < filteredData.length; i += BATCH_SIZE) {
-        const batch = filteredData.slice(i, i + BATCH_SIZE).filter(Boolean);
-
-        const itemsToInsert = batch.map((item) => item.newRecord);
-        const originalIds = batch.map((item) => item.originalId);
-
-        try {
-          // 插入并返回结果
-          const insertQuery = trx.insert(table).values(itemsToInsert);
-
-          let insertResult;
-
-          // 只对非复合主键表需要返回ID
-          if (!isCompositeKey) {
-            const res = await insertQuery.returning();
-            insertResult = res.map((item: any) => ({
-              clientId: 'clientId' in item ? item.clientId : undefined,
-              id: item.id,
-            }));
-          } else {
-            await insertQuery;
-            insertResult = itemsToInsert.map(() => ({})); // 创建空结果以维持计数
-          }
-
-          result.added += insertResult.length;
-
-          // 建立ID映射关系 (只对非复合主键表)
-          if (!isCompositeKey) {
-            for (const [j, newRecord] of insertResult.entries()) {
-              const originalId = originalIds[j];
-              this.idMaps[tableName][originalId] = newRecord.id;
-
-              // 同时确保clientId也能映射到正确的ID
-              const originalRecord = tableData.find((item) => item.id === originalId);
-              if (originalRecord && originalRecord.clientId) {
-                this.idMaps[tableName][originalRecord.clientId] = newRecord.id;
-              }
-            }
-          }
-        } catch (error) {
-          console.error('Error batch inserting:', tableName, error);
-
-          // 处理错误并记录
-          if ((error as any).code === '23505') {
-            const match = (error as any).detail?.match(/Key \((.+?)\)=\((.+?)\) already exists/);
-            if (match) {
-              const conflictField = match[1];
-
-              if (!this.conflictRecords[tableName]) this.conflictRecords[tableName] = [];
-              this.conflictRecords[tableName].push({
-                field: conflictField,
-                value: match[2],
-              });
-            }
-          }
-
-          result.errors += batch.length;
-        }
+      if (Object.keys(allowedUpdate).length > 0) {
+        await (this.db as any)
+          .update(table)
+          .set(allowedUpdate)
+          .where(eq(table.id, this.userId));
+        result.updated = 1;
       }
 
       return result;
-    } catch (error) {
-      console.error('Error importing table:', tableName, error);
-      result.errors = tableData.length;
-      return result;
+    }
+
+    if (existingRows.length > 0) {
+      await (this.db as any)
+        .update(table)
+        .set(record)
+        .where(eq(table.id, this.userId));
+      result.updated = 1;
+    } else {
+      await (this.db as any).insert(table).values(record);
+      result.added = 1;
+    }
+
+    return result;
+  }
+
+  private async importGenerated(
+    config: DataBackupTableConfig,
+    tableData: Record<string, any>[],
+  ): Promise<ImportResult> {
+    const result = EMPTY_RESULT();
+    const table = DATA_BACKUP_TABLE_OBJECTS[config.table] as any;
+    const existingRows = await this.getExistingRows(config);
+    const idMap = this.getIdMap(config.table);
+    const sourceRows =
+      config.table === 'messages'
+        ? sortMessagesParentFirst(tableData, (message) => ({
+            createdAt: message.createdAt,
+            id: message.id,
+            parentId: message.parentId,
+          }))
+        : tableData;
+    const recordsToInsert: {
+      record: Record<string, any>;
+      source: Record<string, any>;
+      stableId: string;
+    }[] = [];
+
+    for (const source of sourceRows) {
+      if (typeof source.id !== 'string' || !source.id) {
+        throw new Error(`Backup table ${config.table} contains a record without an ID`);
+      }
+
+      const stableId = this.createStableImportedId(config.table, source.id);
+      const existing = this.findExistingGeneratedRecord(existingRows, source, stableId);
+
+      if (existing) {
+        idMap[source.id] = existing.id;
+        if (source.clientId) idMap[source.clientId] = existing.id;
+        result.skips++;
+        continue;
+      }
+
+      const record = this.prepareRecord(config, source, stableId);
+      recordsToInsert.push({ record, source, stableId });
+    }
+
+    const batchSize = 100;
+    for (let index = 0; index < recordsToInsert.length; index += batchSize) {
+      const batch = recordsToInsert.slice(index, index + batchSize);
+      await (this.db as any)
+        .insert(table)
+        .values(batch.map(({ record }) => record));
+
+      for (const { record, source, stableId } of batch) {
+        existingRows.push(record);
+        idMap[source.id] = stableId;
+        if (source.clientId) idMap[source.clientId] = stableId;
+        result.added++;
+
+        if (config.relations?.some(({ deferred }) => deferred)) {
+          this.deferredRecords.push({ config, source, targetId: stableId });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private async importNaturalOrJunction(
+    config: DataBackupTableConfig,
+    tableData: Record<string, any>[],
+  ): Promise<ImportResult> {
+    const result = EMPTY_RESULT();
+    const table = DATA_BACKUP_TABLE_OBJECTS[config.table] as any;
+    const existingRows = await this.getExistingRows(config);
+    const conflictFields = config.conflictFields || [];
+
+    for (const source of tableData) {
+      const record = this.prepareRecord(config, source);
+      const existing = this.findExistingConflict(existingRows, conflictFields, record);
+
+      if (existing) {
+        if (config.idStrategy === 'natural' && source.id) {
+          this.getIdMap(config.table)[source.id] = existing.id;
+        }
+        result.skips++;
+        continue;
+      }
+
+      const [inserted] = await (this.db as any).insert(table).values(record).returning();
+      existingRows.push(inserted || record);
+      result.added++;
+
+      if (config.idStrategy === 'natural' && source.id) {
+        this.getIdMap(config.table)[source.id] = inserted?.id || record.id;
+      }
+    }
+
+    return result;
+  }
+
+  private async importTable(
+    config: DataBackupTableConfig,
+    tableData: Record<string, any>[],
+  ): Promise<ImportResult> {
+    if (config.idStrategy === 'singleton') {
+      return this.importSingleton(config, tableData[0]);
+    }
+
+    if (config.idStrategy === 'generated') {
+      return this.importGenerated(config, tableData);
+    }
+
+    return this.importNaturalOrJunction(config, tableData);
+  }
+
+  private async restoreDeferredRelationships() {
+    for (const { config, source, targetId } of this.deferredRecords) {
+      const table = DATA_BACKUP_TABLE_OBJECTS[config.table] as any;
+      const updates: Record<string, unknown> = {};
+
+      for (const relation of config.relations?.filter(({ deferred }) => deferred) || []) {
+        if (!(relation.field in source)) continue;
+        const sourceValue = source[relation.field];
+        if (sourceValue === null || sourceValue === undefined) {
+          updates[relation.field] = sourceValue;
+          continue;
+        }
+
+        const mappedValue = this.getIdMap(relation.sourceTable)[String(sourceValue)];
+        if (!mappedValue) {
+          if (config.table === 'threads' && relation.field === 'sourceMessageId') {
+            throw new Error(
+              `Backup relationship is incomplete: messages.${String(sourceValue)} is missing`,
+            );
+          }
+
+          // Older backups can contain dangling optional message/thread parent
+          // pointers. Preserve importability while never pointing at another
+          // user's record.
+          updates[relation.field] = null;
+          continue;
+        }
+
+        updates[relation.field] = mappedValue;
+      }
+
+      if (Object.keys(updates).length === 0) continue;
+
+      const conditions = [eq(table.id, targetId)];
+      if ('userId' in table) conditions.push(eq(table.userId, this.userId));
+
+      await (this.db as any)
+        .update(table)
+        .set(updates)
+        .where(and(...conditions));
     }
   }
 }

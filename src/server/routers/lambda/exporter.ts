@@ -1,3 +1,4 @@
+import { CURRENT_VERSION, isDesktop } from '@lobechat/const';
 import { marked } from 'marked';
 import PDFDocument from 'pdfkit';
 import { z } from 'zod';
@@ -8,7 +9,11 @@ import { SessionModel } from '@/database/models/session';
 import { DataExporterRepos } from '@/database/repositories/dataExporter';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { ExportDatabaseData } from '@/types/export';
+import {
+  CURRENT_DATA_BACKUP_FORMAT_VERSION,
+  ExportDatabaseData,
+  dataBackupV2Schema,
+} from '@/types/export';
 
 const exportProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -172,7 +177,15 @@ export const exporterRouter = router({
   exportData: exportProcedure.mutation(async ({ ctx }): Promise<ExportDatabaseData> => {
     const data = await ctx.dataExporterRepos.export(5);
     const schemaHash = await ctx.drizzleMigration.getLatestMigrationHash();
-    return { data, schemaHash };
+    return dataBackupV2Schema.parse({
+      appVersion: CURRENT_VERSION,
+      data,
+      exportedAt: new Date().toISOString(),
+      formatVersion: CURRENT_DATA_BACKUP_FORMAT_VERSION,
+      mode: isDesktop ? 'pglite' : 'postgres',
+      schemaHash,
+      secretStrategy: 'deployment-keyed',
+    });
   }),
 
   exportPdf: exportProcedure

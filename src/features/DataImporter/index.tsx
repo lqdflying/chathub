@@ -58,6 +58,7 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
   const [importResults, setImportResults] = useState<ImportResults | undefined>();
   const [showImportModal, setShowImportModal] = useState(false);
   const [importPgData, setImportPgData] = useState<ImportPgDataStructure | undefined>(undefined);
+  const [reloadAfterFinish, setReloadAfterFinish] = useState(false);
 
   const dataSource = useMemo(() => {
     if (!importResults) return;
@@ -86,6 +87,7 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
     setUploadingState(undefined);
 
     onFinishImport?.();
+    if (reloadAfterFinish) window.location.reload();
   };
 
   const content = useMemo(() => {
@@ -139,7 +141,16 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
         return undefined;
       }
     }
-  }, [importState, fileUploadingState]);
+  }, [
+    closeModal,
+    dataSource,
+    duration,
+    fileUploadingState,
+    importError,
+    importState,
+    isFinished,
+    t,
+  ]);
 
   return (
     <>
@@ -161,7 +172,6 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
             // TODO: remove in V2
             await importConfigFile(file, async (config) => {
               setImportState(ImportStage.Preparing);
-              console.log(config);
 
               const importConfigState = async (
                 config: ConfigFile,
@@ -189,6 +199,7 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
                 );
               };
 
+              let importSucceeded = false;
               await importConfigState(config, {
                 onError: (error) => {
                   setImportError(error);
@@ -198,16 +209,20 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
                 },
                 onStageChange: (stage) => {
                   setImportState(stage);
+                  if (stage === ImportStage.Success) importSucceeded = true;
                 },
                 onSuccess: (data, duration) => {
                   if (data) setImportResults(data);
                   setDuration(duration);
+                  importSucceeded = true;
                 },
               });
 
-              await refreshSessions();
-              await refreshMessages();
-              await refreshTopics();
+              if (importSucceeded) {
+                await refreshSessions();
+                await refreshMessages();
+                await refreshTopics();
+              }
             });
 
             return false;
@@ -228,7 +243,7 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
       {importPgData && (
         <ImportPreviewModal
           importData={importPgData}
-          onConfirm={async (overwriteExisting) => {
+          onConfirm={async (strategy) => {
             setImportState(ImportStage.Preparing);
 
             await importService.importPgData(importPgData, {
@@ -245,14 +260,11 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
                 onSuccess: (data, duration) => {
                   if (data) setImportResults(data);
                   setDuration(duration);
+                  setReloadAfterFinish(true);
                 },
               },
-              overwriteExisting,
+              strategy,
             });
-
-            await refreshSessions();
-            await refreshMessages();
-            await refreshTopics();
           }}
           onOpenChange={setShowImportModal}
           open={showImportModal}
