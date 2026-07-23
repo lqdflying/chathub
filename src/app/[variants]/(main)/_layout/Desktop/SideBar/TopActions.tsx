@@ -1,7 +1,7 @@
 import { ActionIcon, ActionIconProps, Hotkey } from '@lobehub/ui';
-import { Compass, FolderClosed, MessageSquare, Palette, Wrench } from 'lucide-react';
+import { Compass, FolderClosed, Image as ImageIcon, MessageSquare, Wrench } from 'lucide-react';
 import Link from 'next/link';
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -86,7 +86,7 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
         <Link aria-label={t('tab.aiImage')} href={'/image'}>
           <ActionIcon
             active={isImageActive}
-            icon={Palette}
+            icon={ImageIcon}
             size={ICON_SIZE}
             title={t('tab.aiImage')}
             tooltipProps={{ placement: 'right' }}

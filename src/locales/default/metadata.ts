@@ -39,7 +39,7 @@ export default {
   },
   image: {
     description: '{{appName}} 带给你最好的 GPT Image, Flux, Midjourney, Stable Diffusion 使用体验',
-    title: 'AI 绘画',
+    title: '图像',
   },
   plugins: {
     description:

@@ -84,8 +84,8 @@ describe('CreateImageAction', () => {
       });
 
       // Verify state changes
-      expect(result.current.isCreating).toBe(false);
-      expect(result.current.isCreatingWithNewTopic).toBe(false);
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
 
       // Verify service calls
       expect(mockImageService.createImage).toHaveBeenCalledWith({
@@ -124,8 +124,8 @@ describe('CreateImageAction', () => {
       });
 
       // Verify state changes
-      expect(result.current.isCreating).toBe(false);
-      expect(result.current.isCreatingWithNewTopic).toBe(false);
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
 
       // Verify topic creation
       expect(mockCreateGenerationTopic).toHaveBeenCalledWith(['test prompt']);
@@ -159,6 +159,9 @@ describe('CreateImageAction', () => {
           await result.current.createImage();
         }),
       ).rejects.toThrow('parameters is not initialized');
+
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
     });
 
     it('should throw error when prompt is empty', async () => {
@@ -179,6 +182,74 @@ describe('CreateImageAction', () => {
           await result.current.createImage();
         }),
       ).rejects.toThrow('prompt is empty');
+
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+    });
+
+    it('should trim the prompt before creating an image', async () => {
+      const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          parameters: { prompt: '  test prompt  ', width: 1024, height: 1024 },
+          refreshGenerationBatches: mockRefreshGenerationBatches,
+        });
+      });
+
+      await act(async () => {
+        await result.current.createImage();
+      });
+
+      expect(mockImageService.createImage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: { prompt: 'test prompt', width: 1024, height: 1024 },
+        }),
+      );
+    });
+
+    it('should reject a whitespace-only prompt without entering a busy state', async () => {
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          parameters: { prompt: '   ', width: 1024, height: 1024 },
+        });
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.createImage();
+        }),
+      ).rejects.toThrow('prompt is empty');
+
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+    });
+
+    it('should reset busy states when topic creation fails', async () => {
+      const mockCreateGenerationTopic = vi.fn().mockRejectedValue(new Error('Topic error'));
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          activeGenerationTopicId: '',
+          createGenerationTopic: mockCreateGenerationTopic,
+        });
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.createImage();
+        }),
+      ).rejects.toThrow('Topic error');
+
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
     });
 
     it('should handle service error', async () => {
@@ -205,6 +276,8 @@ describe('CreateImageAction', () => {
 
       // Verify prompt is NOT cleared when error occurs
       expect(result.current.parameters?.prompt).toBe('test prompt');
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
     });
 
     it('should handle service error with new topic', async () => {
@@ -226,18 +299,24 @@ describe('CreateImageAction', () => {
         });
       });
 
-      await expect(
-        act(async () => {
+      let thrownError: unknown;
+      await act(async () => {
+        try {
           await result.current.createImage();
-        }),
-      ).rejects.toThrow('Service error');
+        } catch (error) {
+          thrownError = error;
+        }
+      });
 
       // Verify topic was created before the error
+      expect(thrownError).toEqual(error);
       expect(mockCreateGenerationTopic).toHaveBeenCalled();
       expect(mockSwitchGenerationTopic).toHaveBeenCalled();
 
       // Verify prompt is NOT cleared when error occurs
       expect(result.current.parameters?.prompt).toBe('test prompt');
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
     });
 
     it('should clear prompt input after successful image creation', async () => {
@@ -292,7 +371,7 @@ describe('CreateImageAction', () => {
       });
 
       // Verify state changes
-      expect(result.current.isCreating).toBe(false);
+      expect(useImageStore.getState().isCreating).toBe(false);
 
       // Verify batch removal
       expect(mockRemoveGenerationBatch).toHaveBeenCalledWith('batch-id', 'active-topic-id');
@@ -308,6 +387,9 @@ describe('CreateImageAction', () => {
 
       // Verify refresh was called
       expect(mockRefreshGenerationBatches).toHaveBeenCalled();
+      expect(mockImageService.createImage.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRemoveGenerationBatch.mock.invocationCallOrder[0],
+      );
     });
 
     it('should throw error when no active topic', async () => {
@@ -324,13 +406,29 @@ describe('CreateImageAction', () => {
           await result.current.recreateImage('batch-id');
         }),
       ).rejects.toThrow('No active generation topic');
+
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+    });
+
+    it('should throw error when the generation batch does not exist', async () => {
+      const { result } = renderHook(() => useImageStore());
+
+      await expect(
+        act(async () => {
+          await result.current.recreateImage('missing-batch');
+        }),
+      ).rejects.toThrow('Generation batch not found');
+
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
     });
 
     it('should handle service error', async () => {
       const error = new Error('Service error');
       mockImageService.createImage.mockRejectedValueOnce(error);
 
-      const mockRefreshGenerationBatches = vi.fn();
+      const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
       const mockRemoveGenerationBatch = vi.fn().mockResolvedValue(undefined);
 
       const { result } = renderHook(() => useImageStore());
@@ -342,36 +440,53 @@ describe('CreateImageAction', () => {
         });
       });
 
-      await expect(
-        act(async () => {
+      let thrownError: unknown;
+      await act(async () => {
+        try {
           await result.current.recreateImage('batch-id');
-        }),
-      ).rejects.toThrow('Service error');
+        } catch (caughtError) {
+          thrownError = caughtError;
+        }
+      });
 
-      // Verify batch was removed before the error
-      expect(mockRemoveGenerationBatch).toHaveBeenCalledWith('batch-id', 'active-topic-id');
+      // The failed batch is preserved if its replacement cannot be submitted.
+      expect(thrownError).toEqual(error);
+      expect(mockRemoveGenerationBatch).not.toHaveBeenCalled();
+      expect(mockRefreshGenerationBatches).toHaveBeenCalled();
+      expect(useImageStore.getState().isCreating).toBe(false);
     });
 
     it('should handle batch removal error', async () => {
       const error = new Error('Removal error');
       const mockRemoveGenerationBatch = vi.fn().mockRejectedValueOnce(error);
+      const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
 
       const { result } = renderHook(() => useImageStore());
 
       act(() => {
         useImageStore.setState({
+          refreshGenerationBatches: mockRefreshGenerationBatches,
           removeGenerationBatch: mockRemoveGenerationBatch,
         });
       });
 
-      await expect(
-        act(async () => {
+      let thrownError: unknown;
+      await act(async () => {
+        try {
           await result.current.recreateImage('batch-id');
-        }),
-      ).rejects.toThrow('Removal error');
+        } catch (caughtError) {
+          thrownError = caughtError;
+        }
+      });
 
-      // Verify image service was not called after removal error
-      expect(mockImageService.createImage).not.toHaveBeenCalled();
+      // The replacement is accepted before the original batch is removed.
+      expect(thrownError).toEqual(error);
+      expect(mockImageService.createImage).toHaveBeenCalled();
+      expect(mockImageService.createImage.mock.invocationCallOrder[0]).toBeLessThan(
+        mockRemoveGenerationBatch.mock.invocationCallOrder[0],
+      );
+      expect(mockRefreshGenerationBatches).toHaveBeenCalled();
+      expect(useImageStore.getState().isCreating).toBe(false);
     });
   });
 });

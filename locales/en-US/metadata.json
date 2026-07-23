@@ -34,7 +34,7 @@
   },
   "image": {
     "description": "{{appName}} brings you the best experience with GPT Image, Flux, Midjourney, and Stable Diffusion",
-    "title": "AI Painting"
+    "title": "Image"
   },
   "plugins": {
     "description": "Search, chart generation, academic tools, image generation, video generation, voice generation, automated workflows—customize Tools Calling plugin capabilities for ChatGPT / Claude.",

@@ -28,8 +28,6 @@ export const createCreateImageSlice: StateCreator<
   CreateImageAction
 > = (set, get) => ({
   async createImage() {
-    set({ isCreating: true }, false, 'createImage/startCreateImage');
-
     const store = get();
     const imageNum = imageGenerationConfigSelectors.imageNum(store);
     const parameters = imageGenerationConfigSelectors.parameters(store);
@@ -42,104 +40,99 @@ export const createCreateImageSlice: StateCreator<
       throw new TypeError('parameters is not initialized');
     }
 
-    if (!parameters.prompt) {
+    const prompt = parameters.prompt.trim();
+    if (!prompt) {
       throw new TypeError('prompt is empty');
     }
 
-    // Track the final topic ID to use for image creation
-    let finalTopicId = activeGenerationTopicId;
-
-    // 1. Create generation topic if not exists
-    let generationTopicId = activeGenerationTopicId;
-    let isNewTopic = false;
-
-    if (!generationTopicId) {
-      isNewTopic = true;
-      const prompts = [parameters.prompt];
-      const newGenerationTopicId = await createGenerationTopic(prompts);
-      finalTopicId = newGenerationTopicId;
-
-      // 2. Initialize empty batch array to avoid skeleton screen
-      setTopicBatchLoaded(newGenerationTopicId);
-
-      // 3. Switch to the new topic (now it has empty data, so no skeleton screen)
-      switchGenerationTopic(newGenerationTopicId);
-    }
+    const isNewTopic = !activeGenerationTopicId;
+    set(
+      { isCreating: true, isCreatingWithNewTopic: isNewTopic },
+      false,
+      'createImage/startCreateImage',
+    );
 
     try {
-      // 4. If it's a new topic, set the creating state after topic creation
-      if (isNewTopic) {
-        set({ isCreatingWithNewTopic: true }, false, 'createImage/startCreateImageWithNewTopic');
+      let generationTopicId = activeGenerationTopicId;
+
+      if (!generationTopicId) {
+        generationTopicId = await createGenerationTopic([prompt]);
+        setTopicBatchLoaded(generationTopicId);
+        switchGenerationTopic(generationTopicId);
       }
 
-      // 5. Create image via service
       await imageService.createImage({
-        generationTopicId: finalTopicId!,
-        provider,
-        model,
+        generationTopicId,
         imageNum,
-        params: parameters as any,
+        model,
+        params: { ...parameters, prompt } as any,
+        provider,
       });
 
-      // 6. Only refresh generation batches if it's not a new topic
       if (!isNewTopic) {
         await get().refreshGenerationBatches();
       }
 
-      // 7. Clear the prompt input after successful image creation
       set(
-        (state) => ({
-          parameters: { ...state.parameters, prompt: '' },
-        }),
+        (state) =>
+          state.parameters?.prompt === parameters.prompt
+            ? { parameters: { ...state.parameters, prompt: '' } }
+            : {},
         false,
         'createImage/clearPrompt',
       );
     } finally {
-      // 8. Reset all creating states
-      if (isNewTopic) {
-        set(
-          { isCreating: false, isCreatingWithNewTopic: false },
-          false,
-          'createImage/endCreateImageWithNewTopic',
-        );
-      } else {
-        set({ isCreating: false }, false, 'createImage/endCreateImage');
-      }
+      set(
+        { isCreating: false, isCreatingWithNewTopic: false },
+        false,
+        'createImage/endCreateImage',
+      );
     }
   },
 
   async recreateImage(generationBatchId: string) {
-    set({ isCreating: true }, false, 'recreateImage/startCreateImage');
-
     const store = get();
     const activeGenerationTopicId = generationTopicSelectors.activeGenerationTopicId(store);
     if (!activeGenerationTopicId) {
       throw new Error('No active generation topic');
     }
 
-    const { removeGenerationBatch } = store;
-    const batch = generationBatchSelectors.getGenerationBatchByBatchId(generationBatchId)(store)!;
+    const batch = generationBatchSelectors.getGenerationBatchByBatchId(generationBatchId)(store);
+    if (!batch) {
+      throw new Error('Generation batch not found');
+    }
 
-    // Use batch.generations.length to preserve original imageNum (not UI config)
     const imageNum = batch.generations.length;
+    set({ isCreating: true }, false, 'recreateImage/startCreateImage');
 
+    let operationError: unknown;
     try {
-      // 1. Delete generation batch
-      await removeGenerationBatch(generationBatchId, activeGenerationTopicId);
-
-      // 2. Create image via service
       await imageService.createImage({
         generationTopicId: activeGenerationTopicId,
-        provider: batch.provider,
-        model: batch.model,
         imageNum,
+        model: batch.model,
         params: batch.config as any,
+        provider: batch.provider,
       });
 
-      // 3. Refresh generation batches to show the real data
-      await store.refreshGenerationBatches();
-    } finally {
-      set({ isCreating: false }, false, 'recreateImage/endCreateImage');
+      // Only remove the failed batch after its replacement was accepted.
+      await get().removeGenerationBatch(generationBatchId, activeGenerationTopicId);
+    } catch (error) {
+      operationError = error;
     }
+
+    try {
+      await get().refreshGenerationBatches();
+    } catch (error) {
+      if (!operationError) {
+        operationError = error;
+      } else {
+        console.error('Failed to refresh generation batches after recreate:', error);
+      }
+    }
+
+    set({ isCreating: false }, false, 'recreateImage/endCreateImage');
+
+    if (operationError) throw operationError;
   },
 });

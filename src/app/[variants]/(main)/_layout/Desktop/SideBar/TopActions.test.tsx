@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
+import React from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_FEATURE_FLAGS, mapFeatureFlagsEnvToState } from '@/config/featureFlags';
@@ -28,12 +29,14 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  createServerConfigStore().setState({
-    featureFlags: {
-      ...createServerConfigStore().getState().featureFlags,
-      showMarket: true,
-      showAiImage: true,
-    },
+  act(() => {
+    createServerConfigStore().setState({
+      featureFlags: {
+        ...createServerConfigStore().getState().featureFlags,
+        showMarket: true,
+        showAiImage: true,
+      },
+    });
   });
   cleanup();
 });
@@ -69,12 +72,12 @@ const renderTopActions = (props: TopActionProps = {}) => {
 };
 
 describe('TopActions', () => {
-  it('should render Chat, AI Image and Market by default', () => {
+  it('should render Chat, Image and Market by default', () => {
     renderTopActions();
 
-    expect(screen.getByText('tab.chat')).toBeInTheDocument();
-    expect(screen.getByText('tab.aiImage')).toBeInTheDocument();
-    expect(screen.getByText('tab.discover')).toBeInTheDocument();
+    expect(screen.getByText('tab.chat')).toBeTruthy();
+    expect(screen.getByText('tab.aiImage')).toBeTruthy();
+    expect(screen.getByText('tab.discover')).toBeTruthy();
   });
 
   it('should render only Chat icon when `-market` is set', () => {
@@ -89,8 +92,8 @@ describe('TopActions', () => {
 
     renderTopActions();
 
-    expect(screen.getByText('tab.chat')).toBeInTheDocument();
-    expect(screen.queryByText('tab.discover')).not.toBeInTheDocument();
+    expect(screen.getByText('tab.chat')).toBeTruthy();
+    expect(screen.queryByText('tab.discover')).toBeNull();
   });
 
   it('should render File icon when `-knowledge_base` is set', () => {
@@ -105,11 +108,11 @@ describe('TopActions', () => {
 
     renderTopActions();
 
-    expect(screen.getByText('tab.chat')).toBeInTheDocument();
-    expect(screen.queryByText('tab.files')).not.toBeInTheDocument();
+    expect(screen.getByText('tab.chat')).toBeTruthy();
+    expect(screen.queryByText('tab.files')).toBeNull();
   });
 
-  it('should not render AI Image icon when ai_image is disabled', () => {
+  it('should not render Image icon when ai_image is disabled', () => {
     act(() => {
       createServerConfigStore().setState({
         featureFlags: {
@@ -121,8 +124,8 @@ describe('TopActions', () => {
 
     renderTopActions();
 
-    expect(screen.getByText('tab.chat')).toBeInTheDocument();
-    expect(screen.queryByText('tab.aiImage')).not.toBeInTheDocument();
+    expect(screen.getByText('tab.chat')).toBeTruthy();
+    expect(screen.queryByText('tab.aiImage')).toBeNull();
   });
 
   it('should switch back to previous active session', () => {

@@ -10,9 +10,13 @@ export const useStyles = createStyles(({ cx, css, token }) => ({
       inset-block-start: 8px;
       inset-inline-end: 8px;
 
-      opacity: 0;
+      opacity: 1;
 
       transition: opacity 0.1s ${token.motionEaseInOut};
+
+      @media (hover: hover) and (pointer: fine) {
+        opacity: 0;
+      }
     `,
   ),
 
@@ -21,7 +25,8 @@ export const useStyles = createStyles(({ cx, css, token }) => ({
     overflow: hidden;
     width: 100%;
 
-    &:hover .generation-actions {
+    &:hover .generation-actions,
+    &:focus-within .generation-actions {
       opacity: 1;
     }
   `,
@@ -40,7 +45,8 @@ export const useStyles = createStyles(({ cx, css, token }) => ({
     overflow: hidden;
     width: 100%;
 
-    &:hover .generation-actions {
+    &:hover .generation-actions,
+    &:focus-within .generation-actions {
       opacity: 1;
     }
   `,

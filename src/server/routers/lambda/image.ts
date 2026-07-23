@@ -1,6 +1,5 @@
 import debug from 'debug';
 import { and, eq } from 'drizzle-orm';
-import { z } from 'zod';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import {
@@ -22,32 +21,11 @@ import {
 } from '@/types/asyncTask';
 import { generateUniqueSeeds } from '@/utils/number';
 
-const log = debug('lobe-image:lambda');
+import { createImageInputSchema, validateNoUrlsInConfig } from './image/schema';
 
-/**
- * Recursively validate that no full URLs are present in the config
- * This is a defensive check to ensure only keys are stored in database
- */
-function validateNoUrlsInConfig(obj: any, path: string = ''): void {
-  if (typeof obj === 'string') {
-    if (obj.startsWith('http://') || obj.startsWith('https://')) {
-      throw new Error(
-        `Invalid configuration: Found full URL instead of key at ${path || 'root'}. ` +
-          `URL: "${obj.slice(0, 100)}${obj.length > 100 ? '...' : ''}". ` +
-          `All URLs must be converted to storage keys before database insertion.`,
-      );
-    }
-  } else if (Array.isArray(obj)) {
-    obj.forEach((item, index) => {
-      validateNoUrlsInConfig(item, `${path}[${index}]`);
-    });
-  } else if (obj && typeof obj === 'object') {
-    Object.entries(obj).forEach(([key, value]) => {
-      const currentPath = path ? `${path}.${key}` : key;
-      validateNoUrlsInConfig(value, currentPath);
-    });
-  }
-}
+export type { CreateImageServicePayload } from './image/schema';
+
+const log = debug('lobe-image:lambda');
 
 const imageProcedure = authedProcedure
   .use(keyVaults)
@@ -69,25 +47,6 @@ const imageProcedure = authedProcedure
       },
     });
   });
-
-const createImageInputSchema = z.object({
-  generationTopicId: z.string(),
-  imageNum: z.number(),
-  model: z.string(),
-  params: z
-    .object({
-      cfg: z.number().optional(),
-      height: z.number().optional(),
-      imageUrls: z.array(z.string()).optional(),
-      prompt: z.string(),
-      seed: z.number().nullable().optional(),
-      steps: z.number().optional(),
-      width: z.number().optional(),
-    })
-    .passthrough(),
-  provider: z.string(),
-});
-export type CreateImageServicePayload = z.infer<typeof createImageInputSchema>;
 
 export const imageRouter = router({
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {

@@ -27,8 +27,12 @@ const useStyles = createStyles(({ cx, css, token }) => ({
   batchActions: cx(
     'batch-actions',
     css`
-      opacity: 0;
+      opacity: 1;
       transition: opacity 0.1s ${token.motionEaseInOut};
+
+      @media (hover: hover) and (pointer: fine) {
+        opacity: 0;
+      }
     `,
   ),
   batchDeleteButton: css`
@@ -39,7 +43,8 @@ const useStyles = createStyles(({ cx, css, token }) => ({
     }
   `,
   container: css`
-    &:hover {
+    &:hover,
+    &:focus-within {
       .batch-actions {
         opacity: 1;
       }
@@ -127,7 +132,10 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
           removeGenerationBatch(batch.id, activeTopicId!);
         }}
         onRecreate={() => {
-          recreateImage(batch.id);
+          recreateImage(batch.id).catch((error) => {
+            console.error('Failed to recreate image:', error);
+            message.error(t('generation.actions.generateFailed'));
+          });
         }}
         provider={batch.provider}
       />
@@ -145,7 +153,7 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
     <>
       <Markdown variant={'chat'}>{batch.prompt}</Markdown>
       <Flexbox gap={4} horizontal justify="space-between" style={{ marginBottom: 10 }}>
-        <Flexbox gap={4} horizontal>
+        <Flexbox gap={4} horizontal wrap="wrap">
           <ModelTag model={batch.model} />
           {batch.width && batch.height && (
             <Tag>
@@ -162,13 +170,13 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
     <Block className={styles.container} gap={8} variant="borderless">
       {isSingleImageLayout ? (
         // Single image layout: horizontal arrangement with vertical centering
-        <Flexbox align="center" gap={16} horizontal>
+        <Flexbox align="center" gap={16} horizontal wrap="wrap">
           <ReferenceImages
             imageUrl={batch.config?.imageUrl}
             imageUrls={batch.config?.imageUrls}
             layout="single"
           />
-          <Flexbox flex={1} gap={8}>
+          <Flexbox flex={1} gap={8} style={{ minWidth: 0 }}>
             {promptAndMetadata}
           </Flexbox>
         </Flexbox>
@@ -207,6 +215,7 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
           {time}
         </Text>
         <ActionIconGroup
+          actionIconProps={{ size: { blockSize: 44, size: 20 } }}
           items={[
             {
               icon: RotateCcwSquareIcon,

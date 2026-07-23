@@ -1,5 +1,6 @@
 'use client';
 
+import { MAX_IMAGE_GENERATION_COUNT, MIN_IMAGE_GENERATION_COUNT } from '@lobechat/const';
 import { ActionIcon, InputNumber } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { Check, Plus, X } from 'lucide-react';
@@ -118,7 +119,12 @@ interface ImageNumSelectorProps {
 }
 
 const ImageNum = memo<ImageNumSelectorProps>(
-  ({ presetCounts = [1, 2, 4, 8], min = 1, max = 50, disabled = false }) => {
+  ({
+    presetCounts = [1, 2, 4, 8],
+    min = MIN_IMAGE_GENERATION_COUNT,
+    max = MAX_IMAGE_GENERATION_COUNT,
+    disabled = false,
+  }) => {
     const imageNum = useImageStore(imageGenerationConfigSelectors.imageNum);
     const setImageNum = useImageStore((s) => s.setImageNum);
 
@@ -176,8 +182,6 @@ const ImageNum = memo<ImageNumSelectorProps>(
 
     // 处理输入变化
     const handleInputChange = useCallback((value: number | string | null) => {
-      console.log('handleInputChange', value);
-
       if (value === null) {
         setCustomCount(null);
         customCountRef.current = null;

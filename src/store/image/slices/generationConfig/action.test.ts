@@ -1,10 +1,13 @@
 import { act, renderHook } from '@testing-library/react';
 import { ModelParamsSchema, RuntimeImageGenParams, extractDefaultValues } from 'model-bank';
-import { fluxSchnellParamsSchema } from 'model-bank';
 import { AIImageModelCard } from 'model-bank';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useImageStore } from '@/store/image';
+
+import { testFluxSchnellParamsSchema } from './test-fixtures';
+
+const fluxSchnellParamsSchema = testFluxSchnellParamsSchema;
 
 const { currentImageSettingsMock } = vi.hoisted(() => ({
   currentImageSettingsMock: vi.fn(() => ({

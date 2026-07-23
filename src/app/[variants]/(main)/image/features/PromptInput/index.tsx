@@ -1,6 +1,7 @@
 'use client';
 
 import { Button, TextArea } from '@lobehub/ui';
+import { App } from 'antd';
 import { createStyles } from 'antd-style';
 import { Sparkles } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
@@ -30,9 +31,11 @@ const useStyles = createStyles(({ css, token, isDarkMode }) => ({
     background-color: ${token.colorBgContainer};
     box-shadow:
       ${token.boxShadowTertiary},
-      ${isDarkMode
-        ? `0 0 48px 32px ${token.colorBgContainerSecondary}`
-        : `0 0 0  ${token.colorBgContainerSecondary}`},
+      ${
+        isDarkMode
+          ? `0 0 48px 32px ${token.colorBgContainerSecondary}`
+          : `0 0 0  ${token.colorBgContainerSecondary}`
+      },
       0 32px 0 ${token.colorBgContainerSecondary};
   `,
   wrapper: css`
@@ -48,6 +51,7 @@ const useStyles = createStyles(({ css, token, isDarkMode }) => ({
 const PromptInput = ({ showTitle = false }: PromptInputProps) => {
   const { styles } = useStyles();
   const { t } = useTranslation('image');
+  const { message } = App.useApp();
   const { value, setValue } = useGenerationConfigParam('prompt');
   const isCreating = useImageStore(createImageSelectors.isCreating);
   const createImage = useImageStore((s) => s.createImage);
@@ -56,6 +60,8 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
   const checkGeminiChineseWarning = useGeminiChineseWarning();
 
   const handleGenerate = async () => {
+    if (!value.trim() || isCreating) return;
+
     if (!isLogin) {
       loginRequired.redirect({ timeout: 2000 });
       return;
@@ -69,7 +75,12 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
 
     if (!shouldContinue) return;
 
-    await createImage();
+    try {
+      await createImage();
+    } catch (error) {
+      console.error('Failed to create image:', error);
+      message.error(t('generation.actions.generateFailed'));
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -113,7 +124,8 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
           variant={'borderless'}
         />
         <Button
-          disabled={!value}
+          aria-label={t('generation.actions.generate')}
+          disabled={!value.trim()}
           icon={Sparkles}
           loading={isCreating}
           onClick={handleGenerate}

@@ -24,6 +24,7 @@ export const ActionButtons = memo<ActionButtonsProps>(
     return (
       <ActionIconGroup
         actionIconProps={{
+          size: { blockSize: 44, size: 20 },
           tooltipProps: { placement: 'left' },
         }}
         className={styles.generationActionButton}

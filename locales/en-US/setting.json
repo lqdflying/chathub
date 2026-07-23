@@ -461,7 +461,7 @@
     "defaultCount": {
       "desc": "Set the default number of images generated when creating a new task in the image generation panel.",
       "label": "Default Image Count",
-      "title": "AI Drawing Settings"
+      "title": "Image Settings"
     }
   },
   "settingModel": {
@@ -681,9 +681,9 @@
       "title": "Custom Prompt"
     },
     "generationTopic": {
-      "label": "AI Art Topic Naming Model",
-      "modelDesc": "Model designated for automatic naming of AI art topics",
-      "title": "AI Art Automatic Topic Naming"
+      "label": "Image Topic Naming Model",
+      "modelDesc": "Model designated for automatically naming image topics",
+      "title": "Automatic Image Topic Naming"
     },
     "helpInfo": "When creating a new assistant, the default assistant settings will be used as preset values.",
     "historyCompress": {
@@ -720,7 +720,7 @@
     "common": "General",
     "experiment": "Experiment",
     "hotkey": "Hotkeys",
-    "image": "AI Drawing",
+    "image": "Image",
     "llm": "Language Model",
     "mcp-management": "MCP Management",
     "provider": "AI Service Provider",

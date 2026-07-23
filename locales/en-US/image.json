@@ -10,7 +10,7 @@
     },
     "header": {
       "desc": "Brief description, create instantly",
-      "title": "Painting"
+      "title": "Image Settings"
     },
     "height": {
       "label": "Height"
@@ -47,7 +47,7 @@
     "steps": {
       "label": "Steps"
     },
-    "title": "AI Image",
+    "title": "Image",
     "width": {
       "label": "Width"
     }
@@ -65,6 +65,7 @@
       "errorCopied": "Error Message Copied to Clipboard",
       "errorCopyFailed": "Failed to Copy Error Message",
       "generate": "Generate",
+      "generateFailed": "Failed to start image generation. Please check your settings and try again.",
       "promptCopied": "Prompt Copied to Clipboard",
       "promptCopyFailed": "Failed to Copy Prompt",
       "reuseSettings": "Reuse Settings",
@@ -93,18 +94,18 @@
         "title": "LLM-Assisted Image Generation"
       },
       "multiProviders": {
-        "desc": "Supports multiple AI image generation providers, including OpenAI gpt-image-1, Google Imagen, FAL.ai, and more, offering a wide selection of models.",
+        "desc": "Supports multiple image generation providers, including OpenAI gpt-image-1, Google Imagen, FAL.ai, and more, offering a wide selection of models.",
         "title": "Multi-Provider Support"
       }
     },
-    "title": "Current Deployment Mode Does Not Support AI Image Generation"
+    "title": "Current Deployment Mode Does Not Support Image Generation"
   },
   "topic": {
     "createNew": "New Topic",
     "deleteConfirm": "Delete Generation Topic",
     "deleteConfirmDesc": "You are about to delete this generation topic. This action cannot be undone, please proceed with caution.",
     "empty": "No generation topics",
-    "title": "Painting Theme",
+    "title": "Image Topics",
     "untitled": "Default Topic"
   }
 }

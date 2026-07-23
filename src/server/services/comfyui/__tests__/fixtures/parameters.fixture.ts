@@ -1,11 +1,78 @@
-import {
-  fluxDevParamsSchema,
-  fluxKontextDevParamsSchema,
-  fluxSchnellParamsSchema,
-  sd15T2iParamsSchema,
-  sd35ParamsSchema,
-  sdxlT2iParamsSchema,
-} from 'model-bank/comfyui';
+import { ModelParamsSchema } from 'model-bank';
+
+const fluxAspectRatios = ['21:9', '16:9', '4:3', '3:2', '1:1', '2:3', '3:4', '9:16'];
+const sdAspectRatios = ['16:9', '4:3', '1:1', '3:4', '9:16'];
+
+// Test-local snapshots for the legacy ComfyUI transformer suite. ComfyUI is no
+// longer exported by model-bank, but these fixtures still protect transformer behavior.
+const fluxSchnellParamsSchema: ModelParamsSchema = {
+  aspectRatio: { default: '1:1', enum: fluxAspectRatios },
+  cfg: { default: 1, max: 1, min: 1, step: 0 },
+  height: { default: 1024, max: 1536, min: 512, step: 8 },
+  prompt: { default: '' },
+  samplerName: { default: 'euler' },
+  scheduler: { default: 'simple' },
+  seed: { default: null },
+  steps: { default: 4, max: 4, min: 1, step: 1 },
+  width: { default: 1024, max: 1536, min: 512, step: 8 },
+};
+
+const fluxDevParamsSchema: ModelParamsSchema = {
+  aspectRatio: { default: '1:1', enum: fluxAspectRatios },
+  cfg: { default: 3.5, max: 10, min: 1, step: 0.5 },
+  height: { default: 1024, max: 2048, min: 512, step: 8 },
+  prompt: { default: '' },
+  samplerName: { default: 'euler' },
+  scheduler: { default: 'simple' },
+  seed: { default: null },
+  steps: { default: 20, max: 50, min: 10, step: 1 },
+  width: { default: 1024, max: 2048, min: 512, step: 8 },
+};
+
+const fluxKontextDevParamsSchema: ModelParamsSchema = {
+  cfg: { default: 3.5, max: 10, min: 1, step: 0.5 },
+  imageUrl: { default: '' },
+  prompt: { default: '' },
+  seed: { default: null },
+  steps: { default: 28, max: 50, min: 10, step: 1 },
+  strength: { default: 0.85, max: 1, min: 0, step: 0.05 },
+};
+
+const sd15T2iParamsSchema: ModelParamsSchema = {
+  aspectRatio: { default: '1:1', enum: sdAspectRatios },
+  cfg: { default: 7, max: 20, min: 1, step: 0.5 },
+  height: { default: 512, max: 1024, min: 256, step: 8 },
+  prompt: { default: '' },
+  samplerName: { default: 'euler' },
+  scheduler: { default: 'normal' },
+  seed: { default: null },
+  steps: { default: 25, max: 50, min: 10, step: 1 },
+  width: { default: 512, max: 1024, min: 256, step: 8 },
+};
+
+const sd35ParamsSchema: ModelParamsSchema = {
+  aspectRatio: { default: '1:1', enum: fluxAspectRatios },
+  cfg: { default: 4, max: 20, min: 1, step: 0.5 },
+  height: { default: 1024, max: 2048, min: 512, step: 8 },
+  prompt: { default: '' },
+  samplerName: { default: 'euler' },
+  scheduler: { default: 'sgm_uniform' },
+  seed: { default: null },
+  steps: { default: 20, max: 50, min: 10, step: 1 },
+  width: { default: 1024, max: 2048, min: 512, step: 8 },
+};
+
+const sdxlT2iParamsSchema: ModelParamsSchema = {
+  aspectRatio: { default: '1:1', enum: sdAspectRatios },
+  cfg: { default: 8, max: 20, min: 1, step: 0.5 },
+  height: { default: 1024, max: 2048, min: 512, step: 8 },
+  prompt: { default: '' },
+  samplerName: { default: 'euler' },
+  scheduler: { default: 'normal' },
+  seed: { default: null },
+  steps: { default: 30, max: 50, min: 10, step: 1 },
+  width: { default: 1024, max: 2048, min: 512, step: 8 },
+};
 
 export const parametersFixture = {
   models: {

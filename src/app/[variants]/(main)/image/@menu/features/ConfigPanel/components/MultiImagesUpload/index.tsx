@@ -11,7 +11,6 @@ import { Center } from 'react-layout-kit';
 import { useFileStore } from '@/store/file';
 import { FileUploadStatus } from '@/types/files/upload';
 
-import { CONFIG_PANEL_WIDTH } from '../../constants';
 import { useDragAndDrop } from '../../hooks/useDragAndDrop';
 import { useUploadFilesValidation } from '../../hooks/useUploadFilesValidation';
 import { useConfigPanelStyles } from '../../style';
@@ -44,7 +43,7 @@ export interface MultiImagesUploadProps {
   onChange?: (
     data:
       | string[] // Old API: just URLs
-      | { dimensions?: { height: number, width: number; }, urls: string[]; }, // New API: URLs with first image dimensions
+      | { dimensions?: { height: number; width: number }; urls: string[] }, // New API: URLs with first image dimensions
   ) => void;
   style?: React.CSSProperties;
   value?: string[];
@@ -53,11 +52,6 @@ export interface MultiImagesUploadProps {
 // ======== Styles ======== //
 
 const useStyles = createStyles(({ css, token }) => {
-  // Calculate available width for thumbnails
-  // Panel width - outer padding (16px * 2) - gaps (8px * 3 for 4 items)
-  const availableWidth = CONFIG_PANEL_WIDTH - 32 - 24;
-  const thumbnailSize = availableWidth / 4;
-
   return {
     deleteIcon: css`
       cursor: pointer;
@@ -73,11 +67,13 @@ const useStyles = createStyles(({ css, token }) => {
 
       width: 20px;
       height: 20px;
+      padding: 0;
+      border: 0;
       border-radius: 50%;
 
       color: ${token.colorTextLightSolid};
 
-      opacity: 0;
+      opacity: 1;
       background: ${token.colorBgMask};
 
       transition: opacity 0.2s ease;
@@ -86,20 +82,31 @@ const useStyles = createStyles(({ css, token }) => {
         color: ${token.colorError};
         background: ${token.colorErrorBg};
       }
+
+      @media (hover: hover) and (pointer: fine) {
+        opacity: 0;
+      }
+
+      @media (hover: none), (pointer: coarse) {
+        width: 44px;
+        height: 44px;
+      }
     `,
 
     imageItem: css`
       position: relative;
 
       overflow: hidden;
+      flex: 1 1 0;
 
-      width: ${thumbnailSize}px;
-      height: ${thumbnailSize}px;
+      aspect-ratio: 1;
+      min-width: 0;
       border-radius: ${token.borderRadius}px;
 
       background: ${token.colorBgContainer};
 
-      &:hover .delete-icon {
+      &:hover .delete-icon,
+      &:focus-within .delete-icon {
         opacity: 1;
       }
     `,
@@ -112,7 +119,7 @@ const useStyles = createStyles(({ css, token }) => {
       gap: 8px;
 
       width: 100%;
-      height: ${thumbnailSize}px;
+      min-height: 48px;
       padding: 0;
       border-radius: ${token.borderRadiusLG}px;
 
@@ -227,11 +234,13 @@ const useStyles = createStyles(({ css, token }) => {
 
       transition: all 0.2s ease;
 
-      &:hover .upload-more-overlay {
+      &:hover .upload-more-overlay,
+      &:focus-within .upload-more-overlay {
         opacity: 1;
       }
 
-      &:hover .delete-icon {
+      &:hover .delete-icon,
+      &:focus-within .delete-icon {
         opacity: 1;
       }
 
@@ -243,6 +252,7 @@ const useStyles = createStyles(({ css, token }) => {
     uploadMoreButton: css`
       cursor: pointer;
 
+      min-height: 44px;
       padding-block: 8px;
       padding-inline: 16px;
       border: 1px solid ${token.colorBorder};
@@ -271,10 +281,14 @@ const useStyles = createStyles(({ css, token }) => {
       align-items: center;
       justify-content: center;
 
-      opacity: 0;
+      opacity: 1;
       background: ${token.colorBgMask};
 
       transition: opacity 0.2s ease;
+
+      @media (hover: hover) and (pointer: fine) {
+        opacity: 0;
+      }
     `,
   };
 });
@@ -301,10 +315,19 @@ const ImageUploadPlaceholder: FC<ImageUploadPlaceholderProps> = memo(({ isDragOv
 
   return (
     <Center
+      aria-label={t('MultiImagesUpload.placeholder.primary')}
       className={`${styles.placeholder} ${isDragOver ? 'drag-over' : ''}`}
       gap={16}
       horizontal={false}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick?.();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
       <ImageIcon className={styles.placeholderIcon} size={48} strokeWidth={1.5} />
       <div className={styles.placeholderText}>
@@ -458,6 +481,7 @@ const ImageThumbnails: FC<ImageThumbnailsProps> = memo(
   ({ images, isDragOver, onClick, onDelete }) => {
     const { styles } = useStyles();
     const { styles: configStyles } = useConfigPanelStyles();
+    const { t } = useTranslation('components');
 
     // Display max 4 images, with overflow indication
     const displayImages = images.slice(0, 4);
@@ -482,12 +506,14 @@ const ImageThumbnails: FC<ImageThumbnailsProps> = memo(
             unoptimized
           />
           {!showOverlay && (
-            <div
+            <button
+              aria-label={t('MultiImagesUpload.actions.deleteImage')}
               className={`${styles.deleteIcon} delete-icon`}
               onClick={(e) => handleDelete(index, e)}
+              type="button"
             >
               <X size={12} />
-            </div>
+            </button>
           )}
           {showOverlay && <div className={styles.moreOverlay}>+{remainingCount}</div>}
         </div>
@@ -496,8 +522,18 @@ const ImageThumbnails: FC<ImageThumbnailsProps> = memo(
 
     return (
       <div
+        aria-label={t('MultiImagesUpload.actions.uploadMore')}
         className={`${styles.imageThumbnails} ${configStyles.dragTransition} ${isDragOver ? configStyles.dragOver : ''}`}
         onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClick?.();
+          }
+        }}
+        role="button"
+        tabIndex={0}
       >
         {displayImages.map(renderImageItem)}
       </div>
@@ -543,9 +579,14 @@ const SingleImageDisplay: FC<SingleImageDisplayProps> = memo(
         />
 
         {/* Delete button */}
-        <div className={`${styles.deleteIcon} delete-icon`} onClick={handleDelete}>
+        <button
+          aria-label={t('MultiImagesUpload.actions.deleteImage')}
+          className={`${styles.deleteIcon} delete-icon`}
+          onClick={handleDelete}
+          type="button"
+        >
           <X size={12} />
-        </div>
+        </button>
 
         {/* Upload more overlay */}
         <div
@@ -655,7 +696,7 @@ const MultiImagesUpload: FC<MultiImagesUploadProps> = memo(
       // Wait for all uploads to complete and collect successful URLs and dimensions
       const uploadResults = await Promise.allSettled(uploadPromises);
       const successfulUrls: string[] = [];
-      let firstImageDimensions: { height: number, width: number; } | undefined;
+      let firstImageDimensions: { height: number; width: number } | undefined;
 
       uploadResults.forEach((result, index) => {
         const displayItem = newDisplayItems[index];

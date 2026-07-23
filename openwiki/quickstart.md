@@ -6,6 +6,7 @@ Start here if you are new to the repo:
 
 - [Repository overview and architecture](architecture/overview.md)
 - [Runtime and provider model](architecture/model-runtime.md)
+- [Image generation](architecture/image-generation.md)
 - [Context engineering and conversation shaping](architecture/context-engineering.md)
 - [MCP and tool integrations](integrations/mcp-and-tools.md)
 - [Authentication and environment setup](operations/auth-and-env.md)
@@ -46,6 +47,7 @@ This repo is a monorepo with workspaces under `packages/*` and the main app unde
 
 - [Architecture overview](architecture/overview.md)
 - [Model runtime details](architecture/model-runtime.md)
+- [Image generation](architecture/image-generation.md)
 - [Context engineering](architecture/context-engineering.md)
 - [MCP and tools](integrations/mcp-and-tools.md)
 - [OpenAI-compatible cache matrix](integrations/openai-compatible-cache-matrix.md)

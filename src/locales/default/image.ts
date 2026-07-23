@@ -10,7 +10,7 @@ export default {
     },
     header: {
       desc: '简单描述，即刻创作',
-      title: '绘画',
+      title: '图像设置',
     },
     height: {
       label: '高度',
@@ -47,7 +47,7 @@ export default {
     steps: {
       label: '步数',
     },
-    title: 'AI 绘画',
+    title: '图像',
     width: {
       label: '宽度',
     },
@@ -65,6 +65,7 @@ export default {
       errorCopied: '错误信息已复制到剪贴板',
       errorCopyFailed: '复制错误信息失败',
       generate: '生成',
+      generateFailed: '图像生成启动失败，请检查设置后重试。',
       promptCopied: '提示词已复制到剪贴板',
       promptCopyFailed: '复制提示词失败',
       reuseSettings: '复用设置',
@@ -93,18 +94,18 @@ export default {
         title: 'LLM 辅助生图',
       },
       multiProviders: {
-        desc: '支持多种 AI 绘画服务商，包括 OpenAI gpt-image-1、Google Imagen、FAL.ai 等，提供丰富的模型选择',
+        desc: '支持多种图像生成服务商，包括 OpenAI gpt-image-1、Google Imagen、FAL.ai 等，提供丰富的模型选择',
         title: '多 Providers 支持',
       },
     },
-    title: '当前部署模式不支持 AI 绘画',
+    title: '当前部署模式不支持图像生成',
   },
   topic: {
     createNew: '新建主题',
     deleteConfirm: '删除生成主题',
     deleteConfirmDesc: '即将删除该生成主题，删除后将不可恢复，请谨慎操作。',
     empty: '暂无生成主题',
-    title: '绘画主题',
+    title: '图像主题',
     untitled: '默认主题',
   },
 };

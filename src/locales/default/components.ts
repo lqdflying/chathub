@@ -101,6 +101,7 @@ export default {
   ImageUpload: {
     actions: {
       changeImage: '点击更换图片',
+      deleteImage: '删除图片',
       dropMultipleFiles: '不支持多上传多个文件，只会使用第一个文件',
     },
     placeholder: {
@@ -146,6 +147,7 @@ export default {
   },
   MultiImagesUpload: {
     actions: {
+      deleteImage: '删除图片',
       uploadMore: '点击或拖拽上传更多',
     },
     modal: {

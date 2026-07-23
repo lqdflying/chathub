@@ -469,7 +469,7 @@ export default {
     defaultCount: {
       desc: '设置图像生成面板在创建新任务时的默认图片数量。',
       label: '默认图片数量',
-      title: 'AI 绘画设置',
+      title: '图像设置',
     },
   },
   settingModel: {
@@ -689,9 +689,9 @@ export default {
       title: '自定义提示词',
     },
     generationTopic: {
-      label: 'AI 绘画话题命名模型',
-      modelDesc: '指定用于 AI 绘画自动命名话题的模型',
-      title: 'AI 绘画自动命名话题',
+      label: '图像主题命名模型',
+      modelDesc: '指定用于自动命名图像主题的模型',
+      title: '自动命名图像主题',
     },
     helpInfo: '当创建新助手时，将以默认助手设置作为预设值。',
     historyCompress: {
@@ -728,7 +728,7 @@ export default {
     'common': '通用设置',
     'experiment': '实验',
     'hotkey': '快捷键',
-    'image': 'AI 绘画',
+    'image': '图像',
     'llm': '语言模型',
     'mcp-management': 'MCP 管理',
     'provider': 'AI 服务商',

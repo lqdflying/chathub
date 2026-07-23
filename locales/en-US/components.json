@@ -99,6 +99,7 @@
   "ImageUpload": {
     "actions": {
       "changeImage": "Click to change image",
+      "deleteImage": "Delete image",
       "dropMultipleFiles": "Uploading multiple files at once is not supported; only the first file will be used"
     },
     "placeholder": {
@@ -144,6 +145,7 @@
   },
   "MultiImagesUpload": {
     "actions": {
+      "deleteImage": "Delete image",
       "uploadMore": "Click or drag to upload more"
     },
     "modal": {

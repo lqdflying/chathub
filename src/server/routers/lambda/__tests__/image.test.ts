@@ -1,28 +1,63 @@
 import { describe, expect, it } from 'vitest';
 
-// Copy of the validation function from image.ts for testing
-function validateNoUrlsInConfig(obj: any, path: string = ''): void {
-  if (typeof obj === 'string') {
-    if (obj.startsWith('http://') || obj.startsWith('https://')) {
-      throw new Error(
-        `Invalid configuration: Found full URL instead of key at ${path || 'root'}. ` +
-          `URL: "${obj.slice(0, 100)}${obj.length > 100 ? '...' : ''}". ` +
-          `All URLs must be converted to storage keys before database insertion.`,
-      );
-    }
-  } else if (Array.isArray(obj)) {
-    obj.forEach((item, index) => {
-      validateNoUrlsInConfig(item, `${path}[${index}]`);
-    });
-  } else if (obj && typeof obj === 'object') {
-    Object.entries(obj).forEach(([key, value]) => {
-      const currentPath = path ? `${path}.${key}` : key;
-      validateNoUrlsInConfig(value, currentPath);
-    });
-  }
-}
+import {
+  createImageInputSchema,
+  validateNoUrlsInConfig,
+} from '@/server/routers/lambda/image/schema';
+
+const validInput = {
+  generationTopicId: 'topic-id',
+  imageNum: 4,
+  model: 'gpt-image-1',
+  params: { prompt: 'Generate an image' },
+  provider: 'openai',
+};
 
 describe('imageRouter', () => {
+  describe('createImageInputSchema', () => {
+    it.each([1, 50])('accepts the image count boundary %i', (imageNum) => {
+      expect(createImageInputSchema.parse({ ...validInput, imageNum }).imageNum).toBe(imageNum);
+    });
+
+    it.each([0, 51, 1.5])('rejects an invalid image count %s', (imageNum) => {
+      expect(() => createImageInputSchema.parse({ ...validInput, imageNum })).toThrow();
+    });
+
+    it.each([
+      ['generationTopicId', ''],
+      ['generationTopicId', '   '],
+      ['model', ''],
+      ['model', '   '],
+      ['provider', ''],
+      ['provider', '   '],
+    ])('rejects an empty %s', (key, value) => {
+      expect(() => createImageInputSchema.parse({ ...validInput, [key]: value })).toThrow();
+    });
+
+    it('rejects an empty or whitespace-only prompt', () => {
+      expect(() =>
+        createImageInputSchema.parse({ ...validInput, params: { prompt: '   ' } }),
+      ).toThrow();
+    });
+
+    it('trims identifiers and the prompt', () => {
+      const result = createImageInputSchema.parse({
+        ...validInput,
+        generationTopicId: ' topic-id ',
+        model: ' gpt-image-1 ',
+        params: { prompt: ' Generate an image ' },
+        provider: ' openai ',
+      });
+
+      expect(result).toMatchObject({
+        generationTopicId: 'topic-id',
+        model: 'gpt-image-1',
+        params: { prompt: 'Generate an image' },
+        provider: 'openai',
+      });
+    });
+  });
+
   describe('validateNoUrlsInConfig utility', () => {
     describe('valid configurations', () => {
       it('should pass with normal keys', () => {

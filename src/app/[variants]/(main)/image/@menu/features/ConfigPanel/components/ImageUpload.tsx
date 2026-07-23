@@ -24,7 +24,7 @@ export interface ImageUploadProps {
   onChange?: (
     data?:
       | string // Old API: just URL
-      | { dimensions?: { height: number, width: number; }, url: string; }, // New API: URL with dimensions
+      | { dimensions?: { height: number; width: number }; url: string }, // New API: URL with dimensions
   ) => void;
   style?: React.CSSProperties;
   value?: string | null;
@@ -48,6 +48,7 @@ const useStyles = createStyles(({ css, token }) => {
     changeButton: css`
       cursor: pointer;
 
+      min-height: 44px;
       padding-block: 8px;
       padding-inline: 16px;
       border: 1px solid ${token.colorBorder};
@@ -75,10 +76,14 @@ const useStyles = createStyles(({ css, token }) => {
       align-items: center;
       justify-content: center;
 
-      opacity: 0;
+      opacity: 1;
       background: ${token.colorBgMask};
 
       transition: opacity ${token.motionDurationMid} ease;
+
+      @media (hover: hover) and (pointer: fine) {
+        opacity: 0;
+      }
     `,
     container: css`
       width: 100%;
@@ -97,11 +102,13 @@ const useStyles = createStyles(({ css, token }) => {
 
       width: 24px;
       height: 24px;
+      padding: 0;
+      border: 0;
       border-radius: 50%;
 
       color: ${token.colorTextLightSolid};
 
-      opacity: 0;
+      opacity: 1;
       background: ${token.colorBgMask};
 
       transition: opacity ${token.motionDurationMid} ease;
@@ -109,6 +116,15 @@ const useStyles = createStyles(({ css, token }) => {
       &:hover {
         color: ${token.colorError};
         background: ${token.colorErrorBg};
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        opacity: 0;
+      }
+
+      @media (hover: none), (pointer: coarse) {
+        width: 44px;
+        height: 44px;
       }
     `,
     placeholder: css`
@@ -159,11 +175,13 @@ const useStyles = createStyles(({ css, token }) => {
 
       transition: all ${token.motionDurationMid} ease;
 
-      &:hover .change-overlay {
+      &:hover .change-overlay,
+      &:focus-within .change-overlay {
         opacity: 1;
       }
 
-      &:hover .delete-icon {
+      &:hover .delete-icon,
+      &:focus-within .delete-icon {
         opacity: 1;
       }
 
@@ -315,10 +333,19 @@ const Placeholder: FC<PlaceholderProps> = memo(({ isDragOver, onClick }) => {
 
   return (
     <Center
+      aria-label={t('ImageUpload.placeholder.primary')}
       className={`${styles.placeholder} ${configStyles.dragTransition} ${isDragOver ? configStyles.dragOver : ''}`}
       gap={16}
       horizontal={false}
       onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick?.();
+        }
+      }}
+      role="button"
+      tabIndex={0}
     >
       <ImageIcon className={styles.placeholderIcon} size={48} strokeWidth={1.5} />
       <div className={styles.placeholderText}>
@@ -401,9 +428,14 @@ const SuccessDisplay: FC<SuccessDisplayProps> = memo(
         />
 
         {/* Delete button */}
-        <div className={`${styles.deleteIcon} delete-icon`} onClick={handleDelete}>
+        <button
+          aria-label={t('ImageUpload.actions.deleteImage')}
+          className={`${styles.deleteIcon} delete-icon`}
+          onClick={handleDelete}
+          type="button"
+        >
           <X size={14} />
-        </div>
+        </button>
 
         {/* Change image overlay */}
         <div className={`${styles.changeOverlay} change-overlay`} onClick={handleChangeImage}>

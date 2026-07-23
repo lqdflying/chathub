@@ -334,7 +334,7 @@ export default {
     unconnected: { tip: '信令服务器连接失败，将无法建立点对点通信频道，请检查网络后重试' },
   },
   tab: {
-    aiImage: 'AI 绘画',
+    aiImage: '图像',
     chat: '会话',
     discover: '发现',
     files: '文件',

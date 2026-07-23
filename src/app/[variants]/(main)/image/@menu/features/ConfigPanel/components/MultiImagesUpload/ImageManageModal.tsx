@@ -57,6 +57,11 @@ const useStyles = createStyles(({ css, token }) => ({
     display: flex;
     height: 480px;
     background: ${token.colorBgContainer};
+
+    @media (max-width: 640px) {
+      flex-direction: column;
+      height: min(64dvh, 520px);
+    }
   `,
   fileName: css`
     margin-block-start: 16px;
@@ -80,6 +85,12 @@ const useStyles = createStyles(({ css, token }) => ({
     border-block-start: 1px solid ${token.colorBorderSecondary};
 
     background: ${token.colorBgContainer};
+
+    @media (max-width: 640px) {
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 12px;
+    }
   `,
   modal: css`
     .ant-modal-content {
@@ -113,6 +124,11 @@ const useStyles = createStyles(({ css, token }) => ({
     justify-content: center;
 
     padding: 24px;
+
+    @media (max-width: 640px) {
+      min-height: 0;
+      padding: 12px;
+    }
   `,
   previewEmpty: css`
     font-size: 16px;
@@ -132,6 +148,16 @@ const useStyles = createStyles(({ css, token }) => ({
     border-inline-end: 1px solid ${token.colorBorderSecondary};
 
     background: ${token.colorBgLayout};
+
+    @media (max-width: 640px) {
+      flex-shrink: 0;
+
+      width: 100%;
+      height: 124px;
+      padding: 12px;
+      border-block-end: 1px solid ${token.colorBorderSecondary};
+      border-inline-end: 0;
+    }
   `,
   thumbnail: css`
     cursor: pointer;
@@ -151,12 +177,18 @@ const useStyles = createStyles(({ css, token }) => ({
       border-color: ${token.colorPrimary};
     }
 
-    &:hover .thumbnail-delete {
+    &:hover .thumbnail-delete,
+    &:focus-within .thumbnail-delete {
       opacity: 1;
     }
 
     &.selected {
       border-color: ${token.colorPrimary};
+    }
+
+    @media (max-width: 640px) {
+      flex: 0 0 96px;
+      height: 96px;
     }
   `,
   thumbnailDelete: css`
@@ -173,11 +205,13 @@ const useStyles = createStyles(({ css, token }) => ({
 
     width: 20px;
     height: 20px;
+    padding: 0;
+    border: 0;
     border-radius: 50%;
 
     color: ${token.colorTextLightSolid};
 
-    opacity: 0;
+    opacity: 1;
     background: ${token.colorBgMask};
 
     transition: opacity 0.2s ease;
@@ -186,11 +220,24 @@ const useStyles = createStyles(({ css, token }) => ({
       color: ${token.colorError};
       background: ${token.colorErrorBg};
     }
+
+    @media (hover: hover) and (pointer: fine) {
+      opacity: 0;
+    }
+
+    @media (hover: none), (pointer: coarse) {
+      width: 44px;
+      height: 44px;
+    }
   `,
   thumbnailList: css`
     display: flex;
     flex-direction: column;
     gap: 8px;
+
+    @media (max-width: 640px) {
+      flex-direction: row;
+    }
   `,
 }));
 
@@ -321,9 +368,20 @@ const ImageManageModal: FC<ImageManageModalProps> = memo(
 
       return (
         <div
+          aria-label={`Image ${index + 1}`}
+          aria-pressed={index === selectedIndex}
           className={`${styles.thumbnail} ${index === selectedIndex ? 'selected' : ''}`}
           key={item.id}
           onClick={() => setSelectedIndex(index)}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setSelectedIndex(index);
+            }
+          }}
+          role="button"
+          tabIndex={0}
         >
           <Image
             alt={`Image ${index + 1}`}
@@ -341,12 +399,14 @@ const ImageManageModal: FC<ImageManageModalProps> = memo(
           )}
 
           {/* 删除按钮 */}
-          <div
+          <button
+            aria-label={t('MultiImagesUpload.actions.deleteImage')}
             className={`${styles.thumbnailDelete} thumbnail-delete`}
             onClick={(e) => handleThumbnailDelete(index, e)}
+            type="button"
           >
             <X size={12} />
-          </div>
+          </button>
         </div>
       );
     };
