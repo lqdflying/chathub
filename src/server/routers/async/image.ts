@@ -1,21 +1,39 @@
 import { AgentRuntimeErrorType } from '@lobechat/model-runtime';
 import { AsyncTaskError, AsyncTaskErrorType, AsyncTaskStatus } from '@lobechat/types';
-import debug from 'debug';
 import { RuntimeImageGenParams } from 'model-bank';
 import { z } from 'zod';
 
 import { ASYNC_TASK_TIMEOUT, AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
 import { GenerationModel } from '@/database/models/generation';
+import {
+  describeImageDebugError,
+  fingerprintImageDebugValue,
+  logImageDebugSafe,
+  logImageDebugVerbose,
+} from '@/libs/logger/imageDebug';
 import { asyncAuthedProcedure, asyncRouter as router } from '@/libs/trpc/async';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { GenerationService } from '@/server/services/generation';
 
-const log = debug('lobe-image:async');
-
-// Constants for better maintainability
 const FILENAME_MAX_LENGTH = 50;
-const IMAGE_URL_PREVIEW_LENGTH = 100;
+
+const createTaskDebugFields = ({
+  generationId,
+  model,
+  provider,
+  taskId,
+}: {
+  generationId: string;
+  model: string;
+  provider: string;
+  taskId: string;
+}) => ({
+  generationHash: fingerprintImageDebugValue('generation-id', generationId),
+  modelHash: fingerprintImageDebugValue('image-model', model),
+  provider,
+  taskHash: fingerprintImageDebugValue('async-task-id', taskId),
+});
 
 const imageProcedure = asyncAuthedProcedure.use(async (opts) => {
   const { ctx } = opts;
@@ -66,14 +84,6 @@ const categorizeError = (
   error: any,
   isAborted: boolean,
 ): { errorMessage: string; errorType: AsyncTaskErrorType } => {
-  log('🔥🔥🔥 [ASYNC] categorizeError called:', {
-    errorMessage: error?.message,
-    errorName: error?.name,
-    errorStatus: error?.status,
-    errorType: error?.errorType,
-    fullError: JSON.stringify(error, null, 2),
-    isAborted,
-  });
   // Handle Comfy UI errors
   if (error.errorType === AgentRuntimeErrorType.ComfyUIServiceUnavailable) {
     return {
@@ -173,23 +183,29 @@ const categorizeError = (
 export const imageRouter = router({
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {
     const { taskId, generationId, provider, model, params } = input;
+    const taskFields = createTaskDebugFields({ generationId, model, provider, taskId });
 
-    log('Starting async image generation: %O', {
-      generationId,
-      imageParams: {
-        cfg: params.cfg,
-        height: params.height,
-        steps: params.steps,
-        width: params.width,
-      },
-      model,
-      prompt: params.prompt,
-      provider,
-      taskId,
+    const taskClaimed = await ctx.asyncTaskModel.claimPendingTask(taskId);
+    logImageDebugSafe('task_status_settled', {
+      ...taskFields,
+      outcome: taskClaimed ? 'updated' : 'skipped',
+      phase: 'start',
+      taskStatus: taskClaimed ? AsyncTaskStatus.Processing : 'unchanged',
     });
 
-    log('Updating task status to Processing: %s', taskId);
-    await ctx.asyncTaskModel.update(taskId, { status: AsyncTaskStatus.Processing });
+    if (!taskClaimed) return;
+
+    logImageDebugSafe('async_task_started', {
+      ...taskFields,
+      cfgConfigured: params.cfg !== undefined,
+      height: params.height,
+      imageReferenceCount: Array.isArray(params.imageUrls) ? params.imageUrls.length : 0,
+      phase: 'async_task',
+      seedConfigured: 'seed' in params,
+      steps: params.steps,
+      width: params.width,
+    });
+    logImageDebugVerbose('async_task_started', { model, params, provider });
 
     // Use AbortController to prevent resource leaks
     const abortController = new AbortController();
@@ -197,42 +213,39 @@ export const imageRouter = router({
 
     try {
       const imageGenerationPromise = async (signal: AbortSignal) => {
-        log('Initializing agent runtime for provider: %s', provider);
-
+        logImageDebugSafe('provider_call_started', {
+          ...taskFields,
+          phase: 'runtime_initialization',
+        });
         const agentRuntime = await initModelRuntimeWithUserPayload(provider, ctx.jwtPayload);
 
         // Check if operation has been cancelled
         checkAbortSignal(signal);
-        log('Agent runtime initialized, calling createImage');
+        logImageDebugSafe('provider_call_started', {
+          ...taskFields,
+          phase: 'provider_call',
+        });
         const response = await agentRuntime.createImage!({
           model,
           params: params as unknown as RuntimeImageGenParams,
         });
 
         if (!response) {
-          log('Create image response is empty');
           throw new Error('Create image response is empty');
         }
-
-        log('Create image response: %O', {
-          ...response,
-          imageUrl: response.imageUrl?.startsWith('data:')
-            ? response.imageUrl.slice(0, IMAGE_URL_PREVIEW_LENGTH) + '...'
-            : response.imageUrl,
-        });
 
         // Check if operation has been cancelled
         checkAbortSignal(signal);
 
-        log('Image generation successful: %O', {
+        logImageDebugSafe('provider_call_settled', {
+          ...taskFields,
           height: response.height,
-          imageUrl: response.imageUrl.startsWith('data:')
-            ? response.imageUrl.slice(0, IMAGE_URL_PREVIEW_LENGTH) + '...'
-            : response.imageUrl,
+          imageUrlKind: response.imageUrl.startsWith('data:') ? 'data_uri' : 'remote',
+          outcome: 'completed',
+          phase: 'provider_call',
           width: response.width,
         });
 
-        log('Transforming image for generation');
         const { imageUrl, width, height } = response;
 
         // Extract ComfyUI authentication headers if provider is ComfyUI
@@ -241,29 +254,71 @@ export const imageRouter = router({
           // Use the public interface method to get auth headers
           // This avoids accessing private members and exposing credentials
           authHeaders = agentRuntime.getAuthHeaders();
-          if (authHeaders) {
-            log('Using authentication headers for ComfyUI image download');
-          } else {
-            log('No authentication configured for ComfyUI');
-          }
         }
 
-        const { image, thumbnailImage } = await ctx.generationService.transformImageForGeneration(
-          imageUrl,
-          authHeaders,
-        );
+        let transformedImages: Awaited<
+          ReturnType<GenerationService['transformImageForGeneration']>
+        >;
+        try {
+          transformedImages = await ctx.generationService.transformImageForGeneration(
+            imageUrl,
+            authHeaders,
+          );
+          logImageDebugSafe('transform_settled', {
+            ...taskFields,
+            image: {
+              height: transformedImages.image.height,
+              mime: transformedImages.image.mime,
+              size: transformedImages.image.size,
+              width: transformedImages.image.width,
+            },
+            outcome: 'completed',
+            phase: 'transform',
+            thumbnail: {
+              height: transformedImages.thumbnailImage.height,
+              mime: transformedImages.thumbnailImage.mime,
+              size: transformedImages.thumbnailImage.size,
+              width: transformedImages.thumbnailImage.width,
+            },
+          });
+        } catch (error) {
+          logImageDebugSafe('transform_settled', {
+            ...taskFields,
+            ...describeImageDebugError(error),
+            failurePhase: 'transform',
+            outcome: 'failed',
+            phase: 'transform',
+          });
+          throw error;
+        }
+        const { image, thumbnailImage } = transformedImages;
 
         // Check if operation has been cancelled
         checkAbortSignal(signal);
 
-        log('Uploading image for generation');
-        const { imageUrl: uploadedImageUrl, thumbnailImageUrl } =
-          await ctx.generationService.uploadImageForGeneration(image, thumbnailImage);
+        let uploaded: Awaited<ReturnType<GenerationService['uploadImageForGeneration']>>;
+        try {
+          uploaded = await ctx.generationService.uploadImageForGeneration(image, thumbnailImage);
+          logImageDebugSafe('upload_settled', {
+            ...taskFields,
+            outcome: 'completed',
+            phase: 'upload',
+          });
+        } catch (error) {
+          logImageDebugSafe('upload_settled', {
+            ...taskFields,
+            ...describeImageDebugError(error),
+            failurePhase: 'upload',
+            outcome: 'failed',
+            phase: 'upload',
+          });
+          throw error;
+        }
+        const { imageUrl: uploadedImageUrl, thumbnailImageUrl } = uploaded;
 
         // Check if operation has been cancelled
         checkAbortSignal(signal);
 
-        log('Updating generation asset and file');
         await ctx.generationModel.createAssetAndFile(
           generationId,
           {
@@ -289,19 +344,26 @@ export const imageRouter = router({
             url: uploadedImageUrl,
           },
         );
+        logImageDebugSafe('task_status_settled', {
+          ...taskFields,
+          outcome: 'completed',
+          phase: 'asset_persistence',
+        });
 
-        log('Updating task status to Success: %s', taskId);
         await ctx.asyncTaskModel.update(taskId, {
           status: AsyncTaskStatus.Success,
         });
-
-        log('Async image generation completed successfully: %s', taskId);
+        logImageDebugSafe('task_status_settled', {
+          ...taskFields,
+          outcome: 'updated',
+          phase: 'complete',
+          taskStatus: AsyncTaskStatus.Success,
+        });
         return { success: true };
       };
 
       // Set timeout to cancel operation and prevent resource leaks
       timeoutId = setTimeout(() => {
-        log('Image generation timeout, aborting operation: %s', taskId);
         abortController.abort();
       }, ASYNC_TASK_TIMEOUT);
 
@@ -321,21 +383,28 @@ export const imageRouter = router({
         timeoutId = null;
       }
 
-      log('Async image generation failed: %O', {
-        error: error.message || error,
-        generationId,
-        taskId,
-      });
-
       // Improved error categorization logic
       const { errorType, errorMessage } = categorizeError(error, abortController.signal.aborted);
+
+      logImageDebugSafe('provider_call_settled', {
+        ...taskFields,
+        ...describeImageDebugError(error),
+        errorType,
+        outcome: 'failed',
+        phase: 'error_categorization',
+      });
 
       await ctx.asyncTaskModel.update(taskId, {
         error: new AsyncTaskError(errorType, errorMessage),
         status: AsyncTaskStatus.Error,
       });
-
-      log('Task status updated to Error: %s, errorType: %s', taskId, errorType);
+      logImageDebugSafe('task_status_settled', {
+        ...taskFields,
+        errorType,
+        outcome: 'updated',
+        phase: 'error',
+        taskStatus: AsyncTaskStatus.Error,
+      });
 
       return {
         message: `Image generation ${taskId} failed: ${errorMessage}`,

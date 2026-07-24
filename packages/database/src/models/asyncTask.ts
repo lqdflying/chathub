@@ -47,6 +47,41 @@ export class AsyncTaskModel {
       .where(and(eq(asyncTasks.id, taskId)));
   }
 
+  claimPendingTask = async (taskId: string): Promise<boolean> => {
+    const claimed = await this.db
+      .update(asyncTasks)
+      .set({ status: AsyncTaskStatus.Processing, updatedAt: new Date() })
+      .where(
+        and(
+          eq(asyncTasks.id, taskId),
+          eq(asyncTasks.userId, this.userId),
+          eq(asyncTasks.status, AsyncTaskStatus.Pending),
+        ),
+      )
+      .returning({ id: asyncTasks.id });
+
+    return claimed.length > 0;
+  };
+
+  updatePendingToError = async (
+    taskId: string,
+    value: Pick<AsyncTaskSelectItem, 'error' | 'status'>,
+  ): Promise<boolean> => {
+    const updated = await this.db
+      .update(asyncTasks)
+      .set({ ...value, updatedAt: new Date() })
+      .where(
+        and(
+          eq(asyncTasks.id, taskId),
+          eq(asyncTasks.userId, this.userId),
+          eq(asyncTasks.status, AsyncTaskStatus.Pending),
+        ),
+      )
+      .returning({ id: asyncTasks.id });
+
+    return updated.length > 0;
+  };
+
   findByIds = async (taskIds: string[], type: AsyncTaskType): Promise<AsyncTaskSelectItem[]> => {
     let chunkTasks: AsyncTaskSelectItem[] = [];
 

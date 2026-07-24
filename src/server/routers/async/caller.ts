@@ -5,32 +5,68 @@ import urlJoin from 'url-join';
 
 import { serverDBEnv } from '@/config/db';
 import { LOBE_CHAT_AUTH_HEADER } from '@/const/auth';
+import { CHATHUB_IMAGE_DIAGNOSTIC_HEADER } from '@/const/tools';
 import { isDesktop } from '@/const/version';
 import { appEnv } from '@/envs/app';
+import {
+  fingerprintImageDebugValue,
+  getImageDebugContext,
+  logImageDebugSafe,
+} from '@/libs/logger/imageDebug';
 import { createAsyncCallerFactory } from '@/libs/trpc/async';
 import { createAsyncContextInner } from '@/libs/trpc/async/context';
+import { createImageDiagnosticFetch } from '@/libs/trpc/async/imageDiagnosticFetch';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
 import { asyncRouter } from './index';
 import type { AsyncRouter } from './index';
+import { resolveAsyncServerBaseUrl } from './internalUrl';
+
+export const getAsyncServerBaseUrl = () => {
+  const resolved = resolveAsyncServerBaseUrl({
+    appUrl: appEnv.APP_URL,
+    internalAppUrl: appEnv.INTERNAL_APP_URL,
+    isVercel: process.env.VERCEL === '1',
+    localRewriteEnabled: appEnv.MIDDLEWARE_REWRITE_THROUGH_LOCAL,
+    port: process.env.PORT || '3210',
+  });
+
+  if (resolved.warning) {
+    logImageDebugSafe('config_warning', {
+      internalOriginHash: fingerprintImageDebugValue('async-server-base-url', resolved.url),
+      internalOriginSource: resolved.source,
+      outcome: 'warning',
+      phase: 'configuration',
+      reason: resolved.warning,
+    });
+  }
+
+  return resolved.url;
+};
 
 export const createAsyncServerClient = async (userId: string, payload: ClientSecretPayload) => {
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
-  const headers: Record<string, string> = {
+  const baseHeaders: Record<string, string> = {
     Authorization: `Bearer ${serverDBEnv.KEY_VAULTS_SECRET}`,
     [LOBE_CHAT_AUTH_HEADER]: await gateKeeper.encrypt(JSON.stringify({ payload, userId })),
   };
 
   if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
-    headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    baseHeaders['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
   }
 
   const client = createTRPCClient<AsyncRouter>({
     links: [
       httpLink({
-        headers,
+        fetch: createImageDiagnosticFetch(globalThis.fetch.bind(globalThis)),
+        headers: () => {
+          const headers = { ...baseHeaders };
+          const diagnosticId = getImageDebugContext()?.diagnosticId;
+          if (diagnosticId) headers[CHATHUB_IMAGE_DIAGNOSTIC_HEADER] = diagnosticId;
+          return headers;
+        },
         transformer: superjson,
-        url: urlJoin(appEnv.APP_URL!, '/trpc/async'),
+        url: urlJoin(getAsyncServerBaseUrl(), '/trpc/async'),
       }),
     ],
   });

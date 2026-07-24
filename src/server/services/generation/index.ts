@@ -87,7 +87,10 @@ export class GenerationService {
     image: ImageForGeneration;
     thumbnailImage: ImageForGeneration;
   }> {
-    log('Starting image transformation for:', url.startsWith('data:') ? 'base64 data' : url);
+    log(
+      'Starting image transformation for: %s',
+      url.startsWith('data:') ? 'base64 data' : 'remote image',
+    );
 
     // Fetch image buffer and MIME type using utility function
     const { buffer: originalImageBuffer, mimeType: originalMimeType } = await fetchImageFromUrl(
@@ -245,7 +248,10 @@ export class GenerationService {
    * @returns The key of the uploaded cover image
    */
   async createCoverFromUrl(coverUrl: string): Promise<string> {
-    log('Creating cover image from URL:', coverUrl.startsWith('data:') ? 'base64 data' : coverUrl);
+    log(
+      'Creating cover image from URL: %s',
+      coverUrl.startsWith('data:') ? 'base64 data' : 'remote image',
+    );
 
     // Fetch image buffer using utility function
     const { buffer: originalImageBuffer } = await fetchImageFromUrl(coverUrl);

@@ -1,30 +1,47 @@
 ---
-description: How to verify CHATHUB_TOOLS_DEBUG and cache-hit debug are working in production Axiom logs
+description: How to verify CHATHUB_TOOLS_DEBUG, CHATHUB_IMAGE_DEBUG, and cache-hit debug are working in production Axiom logs
 alwaysApply: false
 ---
 
-# Checking Tool & Cache Debug Logs
+# Checking Tool, Image & Cache Debug Logs
 
 Both dedicated switches emit prefixed JSON. Query their distinct `debug_namespace` values to select the desired diagnostic stream.
 
 ## Safe switches
 
-| Switch                              | Level   | What it turns on                              |
-| ----------------------------------- | ------- | --------------------------------------------- |
-| `CHATHUB_TOOLS_DEBUG=1`             | safe    | structured tool metadata events               |
-| `CHATHUB_TOOLS_DEBUG=verbose`       | verbose | safe events + structured payload fingerprints |
-| `DEBUG_OPENAI_CACHE=1`              | safe    | native OpenAI cache events                    |
-| `DEBUG_AZURE_CACHE=1`               | safe    | Azure OpenAI cache events                     |
-| `DEBUG_AZUREAI_CACHE=1`             | safe    | Azure AI cache support/usage events           |
-| `DEBUG_MOONSHOT_CACHE=1`            | safe    | Moonshot/Kimi cache events                    |
-| `DEBUG_DEEPSEEK_CACHE=1`            | safe    | DeepSeek cache events                         |
-| `DEBUG_MINIMAX_CACHE=1`             | safe    | MiniMax cache events                          |
-| `DEBUG_ANTHROPIC_CACHE=1`           | safe    | Anthropic cache events                        |
-| `DEBUG_ANTHROPICCOMPATIBLE_CACHE=1` | safe    | Anthropic-compatible cache events             |
-| `DEBUG_GOOGLE_CACHE=1`              | safe    | Gemini and Vertex cache events                |
-| `DEBUG_OPENAICOMPATIBLE_CACHE=1`    | safe    | OpenAI-compatible cache events                |
+| Switch                              | Level   | What it turns on                               |
+| ----------------------------------- | ------- | ---------------------------------------------- |
+| `CHATHUB_TOOLS_DEBUG=1`             | safe    | structured tool metadata events                |
+| `CHATHUB_TOOLS_DEBUG=verbose`       | verbose | safe events + structured payload fingerprints  |
+| `CHATHUB_IMAGE_DEBUG=1`             | safe    | structured image generation lifecycle events   |
+| `CHATHUB_IMAGE_DEBUG=verbose`       | verbose | safe events + keyed prompt/config fingerprints |
+| `DEBUG_OPENAI_CACHE=1`              | safe    | native OpenAI cache events                     |
+| `DEBUG_AZURE_CACHE=1`               | safe    | Azure OpenAI cache events                      |
+| `DEBUG_AZUREAI_CACHE=1`             | safe    | Azure AI cache support/usage events            |
+| `DEBUG_MOONSHOT_CACHE=1`            | safe    | Moonshot/Kimi cache events                     |
+| `DEBUG_DEEPSEEK_CACHE=1`            | safe    | DeepSeek cache events                          |
+| `DEBUG_MINIMAX_CACHE=1`             | safe    | MiniMax cache events                           |
+| `DEBUG_ANTHROPIC_CACHE=1`           | safe    | Anthropic cache events                         |
+| `DEBUG_ANTHROPICCOMPATIBLE_CACHE=1` | safe    | Anthropic-compatible cache events              |
+| `DEBUG_GOOGLE_CACHE=1`              | safe    | Gemini and Vertex cache events                 |
+| `DEBUG_OPENAICOMPATIBLE_CACHE=1`    | safe    | OpenAI-compatible cache events                 |
 
 Cache switches require `KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET`. Raw `DEBUG_*_CHAT_COMPLETION` and `DEBUG_OPENAICOMPATIBLE_RESPONSES` switches are separate transport debugging and can expose prompts/responses.
+
+Image correlation headers are trusted only on async requests whose bearer
+matches `KEY_VAULTS_SECRET`. External or unauthorized
+`x-chathub-image-diagnostic-id` values must not appear in logs or response
+headers. Image response diagnostics do not clone response streams: route events
+contain status/header metadata, while `dispatch_http_parse` records add the
+bounded sample created during the caller's single JSON body read. Provider
+values are keyed hashes under `payload.provider.hash`. Authenticated async
+requests emit one `async_route_started` and one `async_route_settled`; use the
+settled record for the terminal outcome. A failed `dispatch_http_parse` event
+with `failurePhase=response_read` means the body stream failed after response
+headers arrived; intentional request aborts do not emit this event. Abort
+classification requires an aborted request signal or the exact `AbortError`
+class, never matching message text. Unknown `Error.name` values appear as
+`OtherError`.
 
 ## Current production shape
 
@@ -35,6 +52,7 @@ The Docker line is `<container> | [<namespace>:<event>] {<json>}`. In Axiom:
 - OpenAI-compatible cache uses `debug_namespace=openai-compatible-cache-debug` for backward compatibility.
 - All other cache providers use `debug_namespace=model-cache-debug`; use the `provider` and `runtimeFamily` payload fields to split providers.
 - Tools use `debug_namespace=chathub-tools-debug`.
+- Image generation uses `debug_namespace=chathub-image-debug`.
 - Payload fields listed by `getschema` may still be null in current ingestion. Parse the JSON suffix from `message`, then extract fields in a second `extend`:
 
 ```apl
@@ -95,6 +113,25 @@ Tools debug:
 ['chathub'] | where ['debug_namespace'] == 'chathub-tools-debug'
 | summarize cnt=count() by debug_event | top 50 by cnt
 ```
+
+Image debug:
+
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-image-debug'
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend diagnosticId=tostring(payload.diagnosticId), spanId=tostring(payload.spanId),
+  eventSequence=tolong(payload.eventSequence), phase=tostring(payload.phase),
+  outcome=tostring(payload.outcome), providerHash=tostring(payload.provider.hash),
+  httpStatus=tolong(payload.response.httpStatus),
+  bodyKind=tostring(payload.response.bodyKind),
+  fingerprintTruncated=tobool(payload.response.fingerprintTruncated)
+| project _time, diagnosticId, spanId, eventSequence, debug_event, phase,
+  outcome, providerHash, httpStatus, bodyKind, fingerprintTruncated
+| sort by _time asc
+```
+
+`bodyKind=json` with `fingerprintTruncated=true` is a valid large JSON response;
+the flag describes the bounded diagnostic sample, not JSON validity.
 
 Tool-call failures:
 
@@ -172,12 +209,14 @@ Detect a downstream proxy replacement: compare `tools_rpc_complete.response.resp
 
 ## Verify the env var is actually live
 
-Absence of `debug_namespace=chathub-tools-debug` records almost always means the var is not in the running container or the image predates structured tool diagnostics — not an app bug.
+Absence of `debug_namespace=chathub-tools-debug` or `debug_namespace=chathub-image-debug` records almost always means the var is not in the running container or the image predates structured diagnostics — not an app bug.
 
 ```bash
 docker inspect lobe-chat --format '{{.Config.Image}}'
 docker exec lobe-chat env | grep CHATHUB_TOOLS_DEBUG # must print the value
+docker exec lobe-chat env | grep CHATHUB_IMAGE_DEBUG # must print the value
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_TOOLS_DEBUG'
+docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_IMAGE_DEBUG'
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG_.*_CACHE|KEY_VAULTS_SECRET|NEXT_AUTH_SECRET"'
 ```
 
@@ -186,5 +225,6 @@ docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG
 ## Healthy signals
 
 - Tools: an MCP call should end with `call_tool_complete` and `tools_rpc_complete` HTTP 200 for the same `diagnosticId`, ordered by per-span `eventSequence`. Cold connections may also show `client_initialized`; warm calls commonly show `client_cache_lookup` with `outcome=hit` and no initialization event. Safe technical tool/procedure labels may be readable, but arguments, results, bodies, arbitrary errors, credentials, query strings, environment values, and user/connection identifiers must never be raw.
+- Image: one image submission should show `submission_accepted`, `batch_persisted`, `dispatch_started`, paired `async_route_started`/`async_route_settled`, provider events, transform/upload events, and terminal `task_status_settled`. Safe records may show provider hashes, dimensions, status/media metadata, counts, and keyed hashes, but provider labels, prompts, image URLs/data, response bodies, user/database IDs, credentials, headers/cookies, arbitrary error messages, stacks, and environment values must never be raw.
 - Tool lifecycle: every local batch should have `tool_batch_started`, one `tool_completion_reported` per expected call, and `tool_batch_settled`. `resultCount + failureCount` should equal `toolCallCount`. Provider-native tools are `delegated`/`handed_off`; ChatHub built-ins are `builtin`.
 - Cache: every enabled request should have one `request` followed by one `usage`, `usage_missing`, or `terminal_error` for the same `requestHash`. `cachedTokens=0` is an explicit zero only when the provider reported it. Missing cache counters or `cacheStatus=not_reported` are unavailable telemetry, not misses.

@@ -53,8 +53,58 @@ persist a full URL, and creates the generation batch, generation rows, and
 asynchronous task rows in one database transaction. It then dispatches the
 background image tasks through the async caller.
 
+Server-to-server async dispatch resolves `/trpc/async` with an internal origin:
+explicit `INTERNAL_APP_URL`, then Docker loopback
+`http://127.0.0.1:${PORT || 3210}` when local container rewriting is enabled,
+then public `APP_URL`. `APP_URL` remains the public/canonical URL for browser,
+OAuth, webhook, and link-generation behavior. An explicit internal URL is valid
+only when it is a root HTTP(S) origin without credentials, path, query, or
+fragment; invalid values use the existing fallback chain.
+
+Image submission remains non-blocking. Each detached dispatch promise has a
+rejection handler; transport failures mark only tasks still in `Pending` as
+`Error` with `TaskTriggerError`. Tasks already `Processing`, `Success`, or
+`Error` are not overwritten, so ambiguous transport failures cannot race a task
+that already started. The async worker likewise claims `Pending -> Processing`
+atomically and exits before provider initialization when the claim fails. A
+late or duplicate dispatch therefore cannot revive an errored task or generate
+the same task twice.
+
 The user setting `MAX_DEFAULT_IMAGE_NUM` remains 20; it is a settings boundary,
 not the per-request generation limit.
+
+## Structured diagnostics
+
+`CHATHUB_IMAGE_DEBUG` enables server-only prefixed JSON diagnostics for the core
+image path. `1`/`safe` records lifecycle metadata; `2`/`verbose` adds keyed
+fingerprints whose strings, arrays, object width, depth, and output size are
+bounded. The event chain covers submission acceptance, batch persistence,
+dispatch start/settlement, async route start/settlement, provider call,
+async task start, transform, upload, and task-status settlement. Each
+authenticated async HTTP request emits one `async_route_started` record and
+exactly one
+`async_route_settled` record whose outcome reflects tRPC errors and HTTP status.
+
+Diagnostics propagate an opaque `x-chathub-image-diagnostic-id` header only
+when the async request presents the internal server bearer secret. External,
+malformed, or unauthorized headers are neither logged nor reflected. The ID is
+not returned to public clients and is not stored in the database.
+
+Async route diagnostics inspect response status and headers without consuming
+or cloning the body. The dispatch client samples a bounded prefix only while its
+normal `json()` call consumes the response once. `bodyKind` describes the
+observed media/prefix independently from `fingerprintTruncated`, which indicates
+only that the response sample reached its byte limit. If response body
+consumption fails after headers arrive, `dispatch_http_parse` emits a failed
+record with `failurePhase=response_read` and status/media metadata; intentional
+request aborts, identified by an aborted request signal or the exact
+`AbortError` class, do not emit this failure record. Error message text is never
+used to infer cancellation. Recognized runtime error classes remain readable;
+arbitrary `Error.name` values normalize to `OtherError`. Records must not include
+raw prompts, URLs, image data, response bodies, user IDs, database IDs,
+credentials, headers, cookies, environment values, arbitrary error messages, or
+stacks. Arbitrary provider strings are emitted only as keyed hash and length
+metadata.
 
 ## Retry safety
 
@@ -79,6 +129,7 @@ the user's failed batch before a replacement has been accepted.
 - `src/store/image` — image state and orchestration
 - `src/services/image.ts` — client tRPC service
 - `src/server/routers/lambda/image.ts` — persistence and async task dispatch
+- `src/server/routers/async/caller.ts` — internal async origin and dispatch headers
 - `src/server/routers/lambda/image/schema.ts` — request validation and config guard
 
 ## Verification

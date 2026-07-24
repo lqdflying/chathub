@@ -2,7 +2,12 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
+import {
+  AsyncTaskError,
+  AsyncTaskErrorType,
+  AsyncTaskStatus,
+  AsyncTaskType,
+} from '@/types/asyncTask';
 
 import { asyncTasks, users } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
@@ -97,6 +102,123 @@ describe('AsyncTaskModel', () => {
         where: eq(asyncTasks.id, id),
       });
       expect(updatedTask?.status).toBe(AsyncTaskStatus.Success);
+    });
+  });
+
+  describe('claimPendingTask', () => {
+    it('should atomically claim a pending task for processing', async () => {
+      const { id } = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.ImageGeneration,
+          status: AsyncTaskStatus.Pending,
+          userId,
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      const claimed = await asyncTaskModel.claimPendingTask(id);
+
+      const updatedTask = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, id),
+      });
+      expect(claimed).toBe(true);
+      expect(updatedTask?.status).toBe(AsyncTaskStatus.Processing);
+    });
+
+    it.each([AsyncTaskStatus.Processing, AsyncTaskStatus.Error, AsyncTaskStatus.Success])(
+      'should not claim a task with status %s',
+      async (status) => {
+        const { id } = await serverDB
+          .insert(asyncTasks)
+          .values({
+            type: AsyncTaskType.ImageGeneration,
+            status,
+            userId,
+          })
+          .returning()
+          .then((res) => res[0]);
+
+        const claimed = await asyncTaskModel.claimPendingTask(id);
+
+        const unchangedTask = await serverDB.query.asyncTasks.findFirst({
+          where: eq(asyncTasks.id, id),
+        });
+        expect(claimed).toBe(false);
+        expect(unchangedTask?.status).toBe(status);
+      },
+    );
+
+    it('should not claim a pending task owned by another user', async () => {
+      const otherUserId = 'other-async-task-model-test-user-id';
+      await serverDB.insert(users).values([{ id: otherUserId }]);
+      const { id } = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.ImageGeneration,
+          status: AsyncTaskStatus.Pending,
+          userId: otherUserId,
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      const claimed = await asyncTaskModel.claimPendingTask(id);
+
+      const unchangedTask = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, id),
+      });
+      expect(claimed).toBe(false);
+      expect(unchangedTask?.status).toBe(AsyncTaskStatus.Pending);
+    });
+  });
+
+  describe('updatePendingToError', () => {
+    it('should update a pending task to error', async () => {
+      const { id } = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.ImageGeneration,
+          status: AsyncTaskStatus.Pending,
+          userId,
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      const updated = await asyncTaskModel.updatePendingToError(id, {
+        error: new AsyncTaskError(AsyncTaskErrorType.TaskTriggerError, 'trigger failed'),
+        status: AsyncTaskStatus.Error,
+      });
+
+      const updatedTask = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, id),
+      });
+      expect(updated).toBe(true);
+      expect(updatedTask?.status).toBe(AsyncTaskStatus.Error);
+      expect(updatedTask?.error).toBeDefined();
+    });
+
+    it('should not overwrite a processing task', async () => {
+      const { id } = await serverDB
+        .insert(asyncTasks)
+        .values({
+          type: AsyncTaskType.ImageGeneration,
+          status: AsyncTaskStatus.Processing,
+          userId,
+        })
+        .returning()
+        .then((res) => res[0]);
+
+      const updated = await asyncTaskModel.updatePendingToError(id, {
+        error: new AsyncTaskError(AsyncTaskErrorType.TaskTriggerError, 'trigger failed'),
+        status: AsyncTaskStatus.Error,
+      });
+
+      const updatedTask = await serverDB.query.asyncTasks.findFirst({
+        where: eq(asyncTasks.id, id),
+      });
+      expect(updated).toBe(false);
+      expect(updatedTask?.status).toBe(AsyncTaskStatus.Processing);
+      expect(updatedTask?.error).toBeNull();
     });
   });
 

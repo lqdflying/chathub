@@ -2,15 +2,17 @@ import debug from 'debug';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  bootstrapDebug,
-  getPinoLevel,
-  parseToolsDebugLevel,
   TOOLS_SAFE_NS,
   TOOLS_VERBOSE_NS,
+  bootstrapDebug,
+  getPinoLevel,
+  parseImageDebugLevel,
+  parseToolsDebugLevel,
 } from '../bootstrap';
 
 const clearDebugEnv = () => {
   delete process.env.CHATHUB_DEBUG;
+  delete process.env.CHATHUB_IMAGE_DEBUG;
   delete process.env.CHATHUB_TOOLS_DEBUG;
   delete process.env.DEBUG;
   delete process.env.LOG_LEVEL;
@@ -38,6 +40,31 @@ describe('parseToolsDebugLevel', () => {
   it('returns off for unrecognized values', () => {
     expect(parseToolsDebugLevel('yes')).toBe('off');
     expect(parseToolsDebugLevel('enabled')).toBe('off');
+  });
+});
+
+describe('parseImageDebugLevel', () => {
+  it('parses off values', () => {
+    for (const v of [undefined, '', '0', 'false', 'off', ' OFF ', 'FALSE']) {
+      expect(parseImageDebugLevel(v)).toBe('off');
+    }
+  });
+
+  it('parses safe values', () => {
+    for (const v of ['1', 'true', 'on', 'safe', ' SAFE ', 'TRUE']) {
+      expect(parseImageDebugLevel(v)).toBe('safe');
+    }
+  });
+
+  it('parses verbose values', () => {
+    for (const v of ['2', 'verbose', ' VERBOSE ']) {
+      expect(parseImageDebugLevel(v)).toBe('verbose');
+    }
+  });
+
+  it('returns off for unrecognized values', () => {
+    expect(parseImageDebugLevel('yes')).toBe('off');
+    expect(parseImageDebugLevel('enabled')).toBe('off');
   });
 });
 
@@ -123,6 +150,25 @@ describe('bootstrapDebug', () => {
 
     expect(enableSpy).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('should emit a structured image warning for unrecognized CHATHUB_IMAGE_DEBUG', () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.env.CHATHUB_IMAGE_DEBUG = 'private-invalid-value';
+
+    bootstrapDebug();
+
+    expect(enableSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const [prefix, json] = logSpy.mock.calls[0];
+    expect(prefix).toBe('[chathub-image-debug:config_warning]');
+    expect(JSON.parse(json)).toMatchObject({
+      outcome: 'warning',
+      reason: 'unrecognized_debug_value',
+      schemaVersion: 1,
+      valueLength: 'private-invalid-value'.length,
+    });
+    expect(json).not.toContain('private-invalid-value');
   });
 
   it('should never auto-enable provider raw-stream env var names', () => {

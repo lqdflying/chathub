@@ -26,6 +26,24 @@ A notable recent change in `src/server/modules/ModelRuntime/index.ts` is special
 
 The README presents Docker + PostgreSQL as the primary deployment target. Migrations run automatically in the container startup flow, and the README points readers to the Docker deployment wiki for upgrade procedures and troubleshooting.
 
+`APP_URL` remains required in server-mode deployments and should point at the
+public ChatHub origin used by browsers, OAuth callbacks, webhooks, and canonical
+links. Server-to-server async jobs may use `INTERNAL_APP_URL` instead. The
+async caller resolves its origin in this order:
+
+1. valid explicit `INTERNAL_APP_URL`
+2. `http://127.0.0.1:${PORT || 3210}` when Docker local rewrite is enabled and
+   the app is not running on Vercel
+3. public `APP_URL`
+
+`INTERNAL_APP_URL` must be a clean HTTP(S) origin such as
+`http://127.0.0.1:3210`: no credentials, path, query string, or fragment.
+Invalid values emit an `invalid_internal_app_url` diagnostic warning and use
+the normal loopback/`APP_URL` fallback instead.
+
+This keeps background image, file-processing, and RAG jobs away from external
+CDNs/proxies when a container-local route is available.
+
 ## Provider debug environment variables
 
 Provider runtime debugging is opt-in and should be used only for active troubleshooting. The provider chat-completion flags emit raw request payloads and stream chunks, and some providers also emit a redacted structured request-shape line:
@@ -57,11 +75,34 @@ Neither level records raw request/response bodies, HTML, tool arguments/results,
 
 Explicit `DEBUG=chathub-tools:safe|verbose` remains available as a legacy plain-text fallback. Structured output wins per event when both switches enable it, preventing duplicate records. Other explicit `DEBUG=...` namespaces are preserved and deduped. Existing `lobe-mcp:*`, `context-engine:*`, `lobe-search:*`, and `lobe-chat:*` namespaces are never auto-enabled; some have broader/raw logging contracts and should be explicit, short-lived troubleshooting opt-ins. An unrecognized `CHATHUB_TOOLS_DEBUG` value is treated as off with a one-line startup warning.
 
+## Image debug environment variable
+
+`CHATHUB_IMAGE_DEBUG` is a server-only switch for PII-safe image generation
+diagnostics. It works standalone and does not lower global Pino level.
+
+| Value               | Effect                                                        |
+| ------------------- | ------------------------------------------------------------- |
+| unset / `0` / `off` | Structured image diagnostics off (default)                    |
+| `1` / `safe`        | Submission, dispatch, provider, transform, upload, task state |
+| `verbose` / `2`     | Safe records plus bounded keyed prompt/config fingerprints    |
+
+Output uses `[chathub-image-debug:<event>]` with schema version 1. Correlation
+uses `x-chathub-image-diagnostic-id` across async dispatch only after the request
+bearer matches the internal server secret. Unauthorized values are not logged or
+reflected. Response status/header inspection does not clone or consume the body;
+the dispatch client's normal JSON read creates the bounded fingerprint sample.
+Records omit raw prompts, URLs, image data, response bodies, user/database IDs,
+credentials, headers, cookies, environment values, arbitrary provider labels,
+arbitrary error messages, and stacks. Provider values are represented by keyed
+hash and length metadata. Unknown values are treated as off and emit a
+structured `config_warning` without echoing the invalid value.
+
 ## Change guidance
 
 If you add or rename environment variables, update all of these places together:
 
 - `src/envs/llm.ts`
+- `src/envs/app.ts` or `src/envs/serverDebug.ts` for app/debug variables
 - `README.md`
 - relevant docs under `doc/`
 - runtime resolution in `src/server/modules/ModelRuntime/index.ts`
