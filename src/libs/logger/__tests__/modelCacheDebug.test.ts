@@ -227,6 +227,8 @@ describe('model cache diagnostic logging', () => {
       errorClass: 'PRIVATE_ERROR_MESSAGE https://secret.example.com',
       errorCode: 'UPSTREAM_ERROR',
       requestHash: '0123456789abcdef0123456789abcdef',
+      terminalReason: 'unexpected_end',
+      terminalSource: 'missing_terminal_event',
       type: 'terminal_error',
     });
 
@@ -234,6 +236,8 @@ describe('model cache diagnostic logging', () => {
     expect(JSON.parse(serializedRecord)).toMatchObject({
       errorClass: 'ProviderError',
       errorCode: 'UPSTREAM_ERROR',
+      terminalReason: 'unexpected_end',
+      terminalSource: 'missing_terminal_event',
       type: 'terminal_error',
     });
     expect(serializedRecord).not.toMatch(/PRIVATE_ERROR_MESSAGE|secret\.example\.com/);

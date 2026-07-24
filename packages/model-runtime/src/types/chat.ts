@@ -5,7 +5,10 @@ import {
   ToolCacheDebugMetadata,
 } from '@lobechat/types';
 
-import type { ModelCacheDiagnosticContext } from './cacheDiagnostics';
+import type {
+  ModelCacheDiagnosticContext,
+  ModelCacheTerminalErrorMetadata,
+} from './cacheDiagnostics';
 import { MessageToolCall, MessageToolCallChunk } from './toolsCalling';
 
 export type LLMRoleType = 'user' | 'system' | 'assistant' | 'function' | 'tool';
@@ -283,7 +286,7 @@ export interface ChatStreamCallbacks {
   onCancel?: (reason: unknown) => Promise<void> | void;
   onCompletion?: (data: OnFinishData) => Promise<void> | void;
   /** `onError`: Called when the normalized stream emits an error event. */
-  onError?: (error: unknown) => Promise<void> | void;
+  onError?: (error: unknown, metadata?: ModelCacheTerminalErrorMetadata) => Promise<void> | void;
   /**
    * `onFinal`: Called once when the stream is closed with the final completion message.
    **/

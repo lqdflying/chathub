@@ -1461,6 +1461,53 @@ describe('LobeOpenAICompatibleFactory', () => {
         await vi.waitFor(() => expect(upstreamSignal?.aborted).toBe(true));
         expect(onCancel).toHaveBeenCalledWith('consumer_cancelled');
         expect(events.map((event) => event.type)).toEqual(['request', 'terminal_error']);
+        expect(events.at(-1)).toEqual(
+          expect.objectContaining({
+            terminalReason: 'consumer_cancelled',
+            terminalSource: 'request_cancelled',
+            type: 'terminal_error',
+          }),
+        );
+      });
+
+      it('should classify a Responses stream that closes without a terminal event', async () => {
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const { context, events } = createCacheDiagnosticContext(ModelProvider.OpenAI);
+        vi.spyOn(inst['client'].responses, 'create').mockResolvedValue(
+          (async function* () {
+            yield {
+              response: { id: 'private-response-id', status: 'in_progress' },
+              type: 'response.created',
+            };
+          })() as any,
+        );
+
+        const response = await inst.chat(
+          {
+            messages: [{ content: 'continue after tools', role: 'user' }],
+            model: 'gpt-5.6-sol',
+            stream: true,
+          },
+          { cacheDiagnostics: context },
+        );
+        const streamOutput = await response.text();
+
+        expect(streamOutput).toContain('Stream ended unexpectedly');
+        expect(events).toEqual([
+          expect.objectContaining({ type: 'request' }),
+          expect.objectContaining({
+            errorCode: 'unexpected_end',
+            terminalReason: 'unexpected_end',
+            terminalSource: 'missing_terminal_event',
+            type: 'terminal_error',
+          }),
+        ]);
+        expect(JSON.stringify(events)).not.toContain('private-response-id');
       });
 
       it('should emit terminal diagnostics for non-streaming Responses request rejection', async () => {

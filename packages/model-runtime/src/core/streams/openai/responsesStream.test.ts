@@ -409,6 +409,7 @@ describe('OpenAIResponsesStream', () => {
     'should sanitize an HTML Responses stream failure $name',
     async ({ emittedEvents, expectedId }) => {
       const onCompletion = vi.fn();
+      const onError = vi.fn();
       const onFinal = vi.fn();
       let eventIndex = 0;
       const mockOpenAIStream = {
@@ -431,7 +432,7 @@ describe('OpenAIResponsesStream', () => {
       const chunks = await readStreamChunk(
         OpenAIResponsesStream(
           mockOpenAIStream as any,
-          { callbacks: { onCompletion, onFinal } },
+          { callbacks: { onCompletion, onError, onFinal } },
           { requireTerminalEvent: true },
         ),
       );
@@ -447,11 +448,16 @@ describe('OpenAIResponsesStream', () => {
       expect(streamOutput).not.toContain('Gateway error');
       expect(streamOutput).not.toContain('Unexpected token');
       expect(onCompletion).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(expect.any(Object), {
+        terminalReason: 'html_response',
+        terminalSource: 'upstream_iterator_exception',
+      });
       expect(onFinal).toHaveBeenCalledOnce();
     },
   );
 
   it('should classify a non-HTML JSON parse failure as an invalid Responses stream', async () => {
+    const onError = vi.fn();
     const mockOpenAIStream = {
       [Symbol.asyncIterator]() {
         return this;
@@ -462,9 +468,13 @@ describe('OpenAIResponsesStream', () => {
     };
 
     const chunks = await readStreamChunk(
-      OpenAIResponsesStream(mockOpenAIStream as any, undefined, {
-        requireTerminalEvent: true,
-      }),
+      OpenAIResponsesStream(
+        mockOpenAIStream as any,
+        { callbacks: { onError } },
+        {
+          requireTerminalEvent: true,
+        },
+      ),
     );
     const streamOutput = chunks.join('');
 
@@ -472,6 +482,10 @@ describe('OpenAIResponsesStream', () => {
     expect(streamOutput).toContain('invalid_json');
     expect(streamOutput).toContain('The provider returned a malformed Responses API stream.');
     expect(streamOutput).not.toContain('Unexpected end of JSON input');
+    expect(onError).toHaveBeenCalledWith(expect.any(Object), {
+      terminalReason: 'invalid_json',
+      terminalSource: 'upstream_iterator_exception',
+    });
   });
 
   it('should handle response.created event', async () => {
@@ -1171,6 +1185,7 @@ describe('OpenAIResponsesStream', () => {
         type: 'response.failed',
       },
       expectedMessage: 'Upstream generation failed',
+      expectedTerminalReason: 'response_failed',
       name: 'failed',
     },
     {
@@ -1183,6 +1198,7 @@ describe('OpenAIResponsesStream', () => {
         type: 'response.incomplete',
       },
       expectedMessage: 'Response incomplete: max_output_tokens',
+      expectedTerminalReason: 'max_output_tokens',
       name: 'incomplete',
     },
     {
@@ -1193,12 +1209,14 @@ describe('OpenAIResponsesStream', () => {
         type: 'error',
       },
       expectedMessage: 'Too many requests',
+      expectedTerminalReason: 'responses_stream_error',
       name: 'explicit error',
     },
   ])(
     'should terminate $name streams as errors without invoking completion',
-    async ({ event, expectedMessage }) => {
+    async ({ event, expectedMessage, expectedTerminalReason }) => {
       const onCompletion = vi.fn();
+      const onError = vi.fn();
       const onFinal = vi.fn();
       const mockOpenAIStream = createReadableStream([
         {
@@ -1211,7 +1229,7 @@ describe('OpenAIResponsesStream', () => {
       const chunks = await readStreamChunk(
         OpenAIResponsesStream(
           mockOpenAIStream,
-          { callbacks: { onCompletion, onFinal } },
+          { callbacks: { onCompletion, onError, onFinal } },
           { requireTerminalEvent: true },
         ),
       );
@@ -1220,6 +1238,10 @@ describe('OpenAIResponsesStream', () => {
       expect(streamOutput).toContain('event: error');
       expect(streamOutput).toContain(expectedMessage);
       expect(onCompletion).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith(expect.any(Object), {
+        terminalReason: expectedTerminalReason,
+        terminalSource: 'provider_terminal_event',
+      });
       expect(onFinal).toHaveBeenCalledOnce();
     },
   );
@@ -1258,6 +1280,7 @@ describe('OpenAIResponsesStream', () => {
 
   it('should synthesize an error when a strict stream ends without a terminal event', async () => {
     const onCompletion = vi.fn();
+    const onError = vi.fn();
     const onFinal = vi.fn();
     const mockOpenAIStream = createReadableStream([
       {
@@ -1274,7 +1297,7 @@ describe('OpenAIResponsesStream', () => {
     const chunks = await readStreamChunk(
       OpenAIResponsesStream(
         mockOpenAIStream,
-        { callbacks: { onCompletion, onFinal } },
+        { callbacks: { onCompletion, onError, onFinal } },
         { requireTerminalEvent: true },
       ),
     );
@@ -1283,6 +1306,10 @@ describe('OpenAIResponsesStream', () => {
     expect(streamOutput).toContain('event: error');
     expect(streamOutput).toContain('Stream ended unexpectedly');
     expect(onCompletion).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.any(Object), {
+      terminalReason: 'unexpected_end',
+      terminalSource: 'missing_terminal_event',
+    });
     expect(onFinal).toHaveBeenCalledOnce();
   });
 

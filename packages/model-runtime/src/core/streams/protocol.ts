@@ -8,7 +8,10 @@ import type { Pricing } from 'model-bank';
 
 import { parseToolCalls } from '../../helpers';
 import { ChatStreamCallbacks } from '../../types';
-import type { ModelCacheDiagnosticContext } from '../../types/cacheDiagnostics';
+import type {
+  ModelCacheDiagnosticContext,
+  ModelCacheTerminalErrorMetadata,
+} from '../../types/cacheDiagnostics';
 import { AgentRuntimeErrorType } from '../../types/error';
 import { safeParseJSON } from '../../utils/safeParseJSON';
 import { nanoid } from '../../utils/uuid';
@@ -60,6 +63,7 @@ export interface StreamContext {
    * O series models need a condition to separate part
    */
   startReasoning?: boolean;
+  terminalErrorMetadata?: ModelCacheTerminalErrorMetadata;
   thinking?: {
     id: string;
     name: string;
@@ -93,6 +97,7 @@ export interface StreamContext {
 export interface StreamProtocolChunk {
   data: any;
   id?: string;
+  terminalErrorMetadata?: ModelCacheTerminalErrorMetadata;
   type:
     // pure text
     | 'text'
@@ -462,6 +467,12 @@ export const createSSEProtocolTransformer = (
           name: 'Stream parsing error',
           type: 'StreamChunkError',
         };
+        if (streamStack) {
+          streamStack.terminalErrorMetadata = {
+            terminalReason: 'unexpected_end',
+            terminalSource: 'missing_terminal_event',
+          };
+        }
         controller.enqueue(`id: ${id}\n`);
         controller.enqueue(`event: error\n`);
         controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
@@ -472,7 +483,11 @@ export const createSSEProtocolTransformer = (
 
       const buffers = Array.isArray(result) ? result : [result];
 
-      buffers.filter(Boolean).forEach(({ type, id, data }) => {
+      buffers.filter(Boolean).forEach(({ type, id, data, terminalErrorMetadata }) => {
+        if (terminalErrorMetadata && streamStack) {
+          streamStack.terminalErrorMetadata = terminalErrorMetadata;
+        }
+
         if (type !== 'reasoning' || typeof data !== 'string') {
           if (pendingReasoningHtmlCommentStart) {
             controller.enqueue(`id: ${pendingReasoningId || id}\n`);
@@ -512,6 +527,7 @@ export const createSSEProtocolTransformer = (
 export function createCallbacksTransformer(
   cb: ChatStreamCallbacks | undefined,
   options?: {
+    resolveTerminalErrorMetadata?: () => ModelCacheTerminalErrorMetadata | undefined;
     resolveUsage?: (serializedUsage: ModelUsage) => ModelUsage;
     shouldCallCompletion?: () => boolean;
   },
@@ -601,7 +617,12 @@ export function createCallbacksTransformer(
           }
 
           case 'error': {
-            await callbacks.onError?.(data);
+            const terminalErrorMetadata = options?.resolveTerminalErrorMetadata?.();
+            if (terminalErrorMetadata) {
+              await callbacks.onError?.(data, terminalErrorMetadata);
+            } else {
+              await callbacks.onError?.(data);
+            }
             break;
           }
 

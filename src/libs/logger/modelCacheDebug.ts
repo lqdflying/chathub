@@ -259,6 +259,8 @@ const emitModelCacheDiagnostic = (
             : 'ProviderError',
           errorCode: event.errorCode,
           requestHash: event.requestHash,
+          terminalReason: event.terminalReason,
+          terminalSource: event.terminalSource,
           type: event.type,
         };
       }

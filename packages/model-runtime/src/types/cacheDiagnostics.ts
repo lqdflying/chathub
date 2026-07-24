@@ -24,6 +24,32 @@ export type ModelCacheStatus = 'hit' | 'miss' | 'mixed' | 'not_reported' | 'unsu
 
 export type ModelCacheSupportState = 'supported' | 'unobservable' | 'unsupported';
 
+export type ModelCacheTerminalReason =
+  | 'consumer_cancelled'
+  | 'content_filter'
+  | 'html_response'
+  | 'invalid_json'
+  | 'max_output_tokens'
+  | 'missing_status'
+  | 'provider_error'
+  | 'response_failed'
+  | 'response_incomplete'
+  | 'responses_stream_error'
+  | 'stream_chunk_error'
+  | 'tool_call_correlation_error'
+  | 'unexpected_end';
+
+export type ModelCacheTerminalSource =
+  | 'missing_terminal_event'
+  | 'provider_terminal_event'
+  | 'request_cancelled'
+  | 'upstream_iterator_exception';
+
+export interface ModelCacheTerminalErrorMetadata {
+  terminalReason: ModelCacheTerminalReason;
+  terminalSource: ModelCacheTerminalSource;
+}
+
 export type ModelCacheRuntimeFamily =
   | 'anthropic'
   | 'anthropic-compatible'
@@ -93,6 +119,8 @@ export interface ModelCacheDiagnosticTerminalError {
   errorClass: string;
   errorCode?: string;
   requestHash?: string;
+  terminalReason?: ModelCacheTerminalReason;
+  terminalSource?: ModelCacheTerminalSource;
 }
 
 export type ModelCacheDiagnosticEvent =

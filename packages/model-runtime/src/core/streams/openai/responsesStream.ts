@@ -2,6 +2,7 @@ import { ChatCitationItem, ChatMessageError } from '@lobechat/types';
 import OpenAI from 'openai';
 import type { Stream } from 'openai/streaming';
 
+import type { ModelCacheTerminalErrorMetadata } from '../../../types/cacheDiagnostics';
 import { AgentRuntimeErrorType } from '../../../types/error';
 import { normalizeOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatCache';
 import { debugOpenAICompatCacheUsage } from '../../openaiCompatibleFactory/openaicompatDebug';
@@ -39,6 +40,7 @@ const createResponsesErrorChunk = (
   streamContext: StreamContext,
   message: string,
   name: string,
+  terminalErrorMetadata?: ModelCacheTerminalErrorMetadata,
 ): StreamProtocolChunk => {
   const errorData = {
     body: { message, name },
@@ -46,7 +48,12 @@ const createResponsesErrorChunk = (
     type: AgentRuntimeErrorType.ProviderBizError,
   } satisfies ChatMessageError;
 
-  return { data: errorData, id: streamContext.id, type: 'error' };
+  return {
+    data: errorData,
+    id: streamContext.id,
+    terminalErrorMetadata,
+    type: 'error',
+  };
 };
 
 const isJSONSyntaxError = (error: ResponsesIteratorError) =>
@@ -71,6 +78,10 @@ const createResponsesIteratorError = (
       { ...streamContext, id: errorId },
       'The provider returned HTML instead of a valid Responses API stream. Verify that the configured endpoint supports /v1/responses and check the provider or reverse proxy logs.',
       'html_response',
+      {
+        terminalReason: 'html_response',
+        terminalSource: 'upstream_iterator_exception',
+      },
     );
   }
 
@@ -79,6 +90,10 @@ const createResponsesIteratorError = (
       { ...streamContext, id: errorId },
       'The provider returned a malformed Responses API stream. Verify that it emits SSE events with valid JSON data.',
       'invalid_json',
+      {
+        terminalReason: 'invalid_json',
+        terminalSource: 'upstream_iterator_exception',
+      },
     );
   }
 
@@ -99,7 +114,23 @@ const createResponsesIteratorError = (
         : AgentRuntimeErrorType.ProviderBizError,
   } satisfies ChatMessageError;
 
-  return { data: errorData, id: errorId, type: 'error' };
+  return {
+    data: errorData,
+    id: errorId,
+    terminalErrorMetadata: {
+      terminalReason: 'provider_error',
+      terminalSource: 'upstream_iterator_exception',
+    },
+    type: 'error',
+  };
+};
+
+const resolveIncompleteTerminalReason = (
+  reason: string | null | undefined,
+): ModelCacheTerminalErrorMetadata['terminalReason'] => {
+  if (reason === 'content_filter' || reason === 'max_output_tokens') return reason;
+
+  return 'response_incomplete';
 };
 
 const getResponsesToolState = (
@@ -211,6 +242,10 @@ const transformOpenAIStream = (
             streamContext,
             `Unable to correlate completed arguments for tool ${chunk.name}`,
             'tool_call_correlation_error',
+            {
+              terminalReason: 'tool_call_correlation_error',
+              terminalSource: 'provider_terminal_event',
+            },
           );
         }
 
@@ -289,13 +324,24 @@ const transformOpenAIStream = (
         const errObj = chunk.response?.error;
         const message =
           errObj?.message || (errObj?.code ? `Response failed: ${errObj.code}` : 'Response failed');
-        return createResponsesErrorChunk(streamContext, message, errObj?.code || 'response_failed');
+        return createResponsesErrorChunk(
+          streamContext,
+          message,
+          errObj?.code || 'response_failed',
+          {
+            terminalReason: 'response_failed',
+            terminalSource: 'provider_terminal_event',
+          },
+        );
       }
 
       case 'response.incomplete': {
         const reason = chunk.response?.incomplete_details?.reason;
         const message = reason ? `Response incomplete: ${reason}` : 'Response incomplete';
-        return createResponsesErrorChunk(streamContext, message, reason || 'response_incomplete');
+        return createResponsesErrorChunk(streamContext, message, reason || 'response_incomplete', {
+          terminalReason: resolveIncompleteTerminalReason(reason),
+          terminalSource: 'provider_terminal_event',
+        });
       }
 
       case 'response.completed': {
@@ -309,7 +355,15 @@ const transformOpenAIStream = (
           const message =
             chunk.response?.error?.message ||
             (reason ? `Response ${status}: ${reason}` : `Response ${status}`);
-          return createResponsesErrorChunk(streamContext, message, String(reason));
+          return createResponsesErrorChunk(streamContext, message, String(reason), {
+            terminalReason:
+              reason === 'content_filter' || reason === 'max_output_tokens'
+                ? reason
+                : reason === 'missing_status'
+                  ? 'missing_status'
+                  : 'provider_error',
+            terminalSource: 'provider_terminal_event',
+          });
         }
 
         if (responsesStreamState) responsesStreamState.succeeded = true;
@@ -356,6 +410,10 @@ const transformOpenAIStream = (
           streamContext,
           chunk.message || 'Responses stream error',
           chunk.code || 'responses_stream_error',
+          {
+            terminalReason: 'responses_stream_error',
+            terminalSource: 'provider_terminal_event',
+          },
         );
       }
 
@@ -381,7 +439,15 @@ const transformOpenAIStream = (
     } as ChatMessageError;
     /* eslint-enable */
 
-    return { data: errorData, id: streamContext.id, type: 'error' };
+    return {
+      data: errorData,
+      id: streamContext.id,
+      terminalErrorMetadata: {
+        terminalReason: 'stream_chunk_error',
+        terminalSource: 'provider_terminal_event',
+      },
+      type: 'error',
+    };
   }
 };
 
@@ -426,6 +492,7 @@ export const OpenAIResponsesStream = (
       )
       .pipeThrough(
         createCallbacksTransformer(callbacks, {
+          resolveTerminalErrorMetadata: () => streamStack.terminalErrorMetadata,
           resolveUsage: (serializedUsage) => streamStack.usage ?? serializedUsage,
           shouldCallCompletion: () => responsesStreamState.succeeded,
         }),

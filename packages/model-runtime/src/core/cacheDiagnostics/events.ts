@@ -7,6 +7,9 @@ import type {
   ModelCachePolicy,
   ModelCacheStatus,
   ModelCacheSupportState,
+  ModelCacheTerminalErrorMetadata,
+  ModelCacheTerminalReason,
+  ModelCacheTerminalSource,
 } from '../../types/cacheDiagnostics';
 import type { ChatStreamCallbacks } from '../../types/chat';
 
@@ -32,6 +35,46 @@ interface EmitModelCacheUsageOptions {
 
 const normalizeCounter = (value: number | null | undefined): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+
+const modelCacheTerminalReasons = new Set<ModelCacheTerminalReason>([
+  'consumer_cancelled',
+  'content_filter',
+  'html_response',
+  'invalid_json',
+  'max_output_tokens',
+  'missing_status',
+  'provider_error',
+  'response_failed',
+  'response_incomplete',
+  'responses_stream_error',
+  'stream_chunk_error',
+  'tool_call_correlation_error',
+  'unexpected_end',
+]);
+
+const modelCacheTerminalSources = new Set<ModelCacheTerminalSource>([
+  'missing_terminal_event',
+  'provider_terminal_event',
+  'request_cancelled',
+  'upstream_iterator_exception',
+]);
+
+const sanitizeTerminalErrorMetadata = (
+  metadata: ModelCacheTerminalErrorMetadata | undefined,
+): ModelCacheTerminalErrorMetadata | undefined => {
+  if (
+    !metadata ||
+    !modelCacheTerminalReasons.has(metadata.terminalReason) ||
+    !modelCacheTerminalSources.has(metadata.terminalSource)
+  ) {
+    return undefined;
+  }
+
+  return {
+    terminalReason: metadata.terminalReason,
+    terminalSource: metadata.terminalSource,
+  };
+};
 
 export const resolveModelCacheStatus = (
   usage: ModelTokensUsage,
@@ -127,6 +170,7 @@ export const emitModelCacheTerminalError = (
   options: {
     apiType: ModelCacheAPIType;
     error: unknown;
+    metadata?: ModelCacheTerminalErrorMetadata;
     requestHash?: string;
   },
 ): void => {
@@ -136,17 +180,23 @@ export const emitModelCacheTerminalError = (
     options.error && typeof options.error === 'object'
       ? (options.error as Record<string, unknown>)
       : undefined;
-  const rawCode = errorRecord?.code;
+  const errorBody =
+    errorRecord?.body && typeof errorRecord.body === 'object'
+      ? (errorRecord.body as Record<string, unknown>)
+      : undefined;
+  const rawCode = errorRecord?.code ?? errorBody?.code ?? errorBody?.reason ?? errorBody?.name;
   const errorCode =
     (typeof rawCode === 'string' && /^\w{2,64}$/i.test(rawCode)) || typeof rawCode === 'number'
       ? String(rawCode)
       : undefined;
+  const terminalErrorMetadata = sanitizeTerminalErrorMetadata(options.metadata);
 
   context.emit({
     apiType: options.apiType,
     errorClass: options.error instanceof Error ? options.error.name : 'ProviderError',
     errorCode,
     requestHash: options.requestHash,
+    ...terminalErrorMetadata,
     type: 'terminal_error',
   });
 };
@@ -164,13 +214,14 @@ export const createModelCacheDiagnosticCallbacks = (
   let terminalEventEmitted = false;
 
   return {
-    onError: (error) => {
+    onError: (error, metadata) => {
       if (terminalEventEmitted) return;
 
       terminalEventEmitted = true;
       emitModelCacheTerminalError(context, {
         apiType: options.apiType,
         error,
+        metadata,
         requestHash: options.requestHash,
       });
     },

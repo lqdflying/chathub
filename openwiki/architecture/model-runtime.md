@@ -57,6 +57,34 @@ not include the raw HTML, malformed event body, or SDK stack. For
 `html_response`, verify that the configured endpoint implements `/v1/responses`
 streaming and inspect provider or reverse-proxy logs for the underlying response.
 
+Responses success still requires an explicit `response.completed` event with
+`status: completed`. If the transport closes normally without any Responses
+terminal event, the strict SSE transformer emits the existing
+`unexpected_end` error. This guard must not infer success from a clean TCP/HTTP
+EOF because a gateway can truncate a valid stream after partial output.
+
+Provider cache diagnostics classify terminal failures without changing the
+user-visible SSE payload:
+
+- `missing_terminal_event` covers strict EOF and uses
+  `terminalReason=unexpected_end`.
+- `upstream_iterator_exception` covers stream-open/read failures, including
+  `html_response`, `invalid_json`, and other sanitized provider errors.
+- `provider_terminal_event` covers explicit `response.failed`,
+  `response.incomplete`, `error`, invalid completed statuses, and stream-chunk
+  correlation/parsing failures.
+- `request_cancelled` covers downstream consumer cancellation and uses
+  `terminalReason=consumer_cancelled`.
+
+Only allowlisted `terminalSource` and `terminalReason` values enter structured
+diagnostics. Provider-specific codes may use the existing bounded `errorCode`
+field; prompts, raw chunks, URLs, response IDs, messages, and stacks are never
+copied into these fields. A repeated `unexpected_end` at a consistent elapsed
+boundary usually points to a gateway, reverse-proxy, or upstream model timeout,
+not ChatHub's terminal-event parser. ChatHub's SSE heartbeats keep only the
+downstream browser connection active and cannot extend the upstream provider
+request.
+
 ### Fixed OpenAI-compatible catalog
 
 The `openaicompatible` provider intentionally uses a fixed, non-editable model list instead of exposing arbitrary model fetching. Its chat catalog clones `gpt-5.6-sol` and `gpt-5.5` from the native OpenAI model bank, preserves their option settings, and disables the native-search ability so search remains an explicit compatible-provider option. `gpt-image-2` remains the fixed image model.

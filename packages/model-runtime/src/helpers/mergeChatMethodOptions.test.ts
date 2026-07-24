@@ -146,6 +146,23 @@ describe('mergeMultipleChatMethodOptions', () => {
     expect(callback2).toHaveBeenCalledWith(streamError);
   });
 
+  it('should forward terminal error metadata to all onError callbacks', async () => {
+    const callback1 = vi.fn();
+    const callback2 = vi.fn();
+    const streamError = { code: 'UPSTREAM_FAILED', name: 'ProviderStreamError' };
+    const terminalErrorMetadata = {
+      terminalReason: 'unexpected_end' as const,
+      terminalSource: 'missing_terminal_event' as const,
+    };
+    const options = [{ callback: { onError: callback1 } }, { callback: { onError: callback2 } }];
+
+    const result = mergeMultipleChatMethodOptions(options);
+    await result.callback?.onError?.(streamError, terminalErrorMetadata);
+
+    expect(callback1).toHaveBeenCalledWith(streamError, terminalErrorMetadata);
+    expect(callback2).toHaveBeenCalledWith(streamError, terminalErrorMetadata);
+  });
+
   it('should call all onFinal callbacks with data', async () => {
     const callback1 = vi.fn();
     const callback2 = vi.fn();

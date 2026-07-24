@@ -31,11 +31,15 @@ export const mergeMultipleChatMethodOptions = (options: ChatMethodOptions[]): Ch
         }
       }
     },
-    onError: async (errorData) => {
+    onError: async (errorData, metadata) => {
       for (const option of options) {
         if (option.callback?.onError) {
           try {
-            await option.callback.onError(errorData);
+            if (metadata) {
+              await option.callback.onError(errorData, metadata);
+            } else {
+              await option.callback.onError(errorData);
+            }
           } catch (error) {
             log('onError callback error:');
             log(JSON.stringify(error));

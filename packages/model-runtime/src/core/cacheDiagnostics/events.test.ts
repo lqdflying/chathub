@@ -111,11 +111,17 @@ describe('model cache diagnostic events', () => {
       requestHash: 'request-fingerprint',
     });
 
-    await callbacks?.onError?.({
-      code: 'UPSTREAM_FAILED',
-      message: 'PRIVATE_PROVIDER_MESSAGE',
-      name: 'ProviderStreamError',
-    });
+    await callbacks?.onError?.(
+      {
+        code: 'UPSTREAM_FAILED',
+        message: 'PRIVATE_PROVIDER_MESSAGE',
+        name: 'ProviderStreamError',
+      },
+      {
+        terminalReason: 'invalid_json',
+        terminalSource: 'upstream_iterator_exception',
+      },
+    );
     await callbacks?.onFinal?.({ text: '' });
 
     expect(events).toEqual([
@@ -123,10 +129,71 @@ describe('model cache diagnostic events', () => {
         errorClass: 'ProviderError',
         errorCode: 'UPSTREAM_FAILED',
         requestHash: 'request-fingerprint',
+        terminalReason: 'invalid_json',
+        terminalSource: 'upstream_iterator_exception',
         type: 'terminal_error',
       }),
     ]);
     expect(JSON.stringify(events)).not.toContain('PRIVATE_PROVIDER_MESSAGE');
+  });
+
+  it('drops terminal metadata values outside the diagnostic allowlist', async () => {
+    const { context, events } = createDiagnosticContext();
+    const callbacks = createModelCacheDiagnosticCallbacks(context, {
+      apiType: 'responses',
+      cacheSupport: 'supported',
+      requestHash: 'request-fingerprint',
+    });
+
+    await callbacks?.onError?.(
+      {
+        body: {
+          name: 'PRIVATE_PROVIDER_CODE_WITH_PUNCTUATION!',
+          reason: 'PRIVATE_PROVIDER_REASON_WITH_PUNCTUATION!',
+        },
+        message: 'PRIVATE_PROVIDER_MESSAGE',
+      },
+      {
+        terminalReason: 'PRIVATE_UNSAFE_REASON',
+        terminalSource: 'PRIVATE_UNSAFE_SOURCE',
+      } as any,
+    );
+
+    expect(events).toEqual([
+      {
+        apiType: 'responses',
+        errorClass: 'ProviderError',
+        errorCode: undefined,
+        requestHash: 'request-fingerprint',
+        type: 'terminal_error',
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain('PRIVATE');
+  });
+
+  it('reconstructs allowlisted terminal metadata without additional properties', async () => {
+    const { context, events } = createDiagnosticContext();
+    const callbacks = createModelCacheDiagnosticCallbacks(context, {
+      apiType: 'responses',
+      cacheSupport: 'supported',
+      requestHash: 'request-fingerprint',
+    });
+
+    await callbacks?.onError?.(new Error('PRIVATE_PROVIDER_MESSAGE'), {
+      attackerControlled: 'PRIVATE_VALUE',
+      terminalReason: 'unexpected_end',
+      terminalSource: 'missing_terminal_event',
+    } as any);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        terminalReason: 'unexpected_end',
+        terminalSource: 'missing_terminal_event',
+        type: 'terminal_error',
+      }),
+    ]);
+    expect(events[0]).not.toHaveProperty('attackerControlled');
+    expect(JSON.stringify(events)).not.toContain('PRIVATE_VALUE');
   });
 
   it('does not construct callbacks when diagnostics are disabled', () => {

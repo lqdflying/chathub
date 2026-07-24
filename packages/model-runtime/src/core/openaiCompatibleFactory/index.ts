@@ -1316,7 +1316,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             onCancel: async (reason) => {
               await Promise.allSettled([
                 streamOptions.callbacks?.onCancel?.(reason),
-                cacheDiagnosticCallbacks?.onError?.(reason),
+                cacheDiagnosticCallbacks?.onError?.(reason, {
+                  terminalReason: 'consumer_cancelled',
+                  terminalSource: 'request_cancelled',
+                }),
               ]);
             },
           },

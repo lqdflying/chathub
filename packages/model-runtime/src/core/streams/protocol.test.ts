@@ -385,6 +385,11 @@ describe('createSSEProtocolTransformer', () => {
       `event: error\n`,
       `data: ${JSON.stringify(expectedData)}\n\n`,
     ]);
+    expect(streamStack.terminalErrorMetadata).toEqual({
+      terminalReason: 'unexpected_end',
+      terminalSource: 'missing_terminal_event',
+    });
+    expect(results.join('')).not.toContain('terminalErrorMetadata');
   });
 
   it('should skip chunks with undefined data', async () => {
