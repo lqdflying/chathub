@@ -3,7 +3,7 @@ import { createStyles, useTheme } from 'antd-style';
 import { LucideArrowRight, LucideBolt } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { memo, useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -12,6 +12,7 @@ import { isDeprecatedEdition } from '@/const/version';
 import { useAiInfraStore } from '@/store/aiInfra';
 import { aiProviderSelectors } from '@/store/aiInfra/slices/aiProvider/selectors';
 import { useImageStore } from '@/store/image';
+import { isImageModelConfigUsable } from '@/store/image/slices/generationConfig/modelConfig';
 import { imageGenerationConfigSelectors } from '@/store/image/slices/generationConfig/selectors';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { EnabledProviderWithModels } from '@/types/aiProvider';
@@ -37,9 +38,10 @@ const ModelSelect = memo(() => {
   const { showLLM } = useServerConfigStore(featureFlagsSelectors);
   const router = useRouter();
 
-  const [currentModel, currentProvider] = useImageStore((s) => [
+  const [currentModel, currentProvider, isImageModelAvailable] = useImageStore((s) => [
     imageGenerationConfigSelectors.model(s),
     imageGenerationConfigSelectors.provider(s),
+    s.isImageModelAvailable,
   ]);
   const setModelAndProviderOnSelect = useImageStore((s) => s.setModelAndProviderOnSelect);
 
@@ -47,11 +49,13 @@ const ModelSelect = memo(() => {
 
   const options = useMemo<SelectProps['options']>(() => {
     const getImageModels = (provider: EnabledProviderWithModels) => {
-      const modelOptions = provider.children.map((model) => ({
-        label: <ModelItemRender {...model} {...model.abilities} showInfoTag={false} />,
-        provider: provider.id,
-        value: `${provider.id}/${model.id}`,
-      }));
+      const modelOptions = provider.children
+        .filter((model) => isImageModelConfigUsable(model.id, provider.id))
+        .map((model) => ({
+          label: <ModelItemRender {...model} {...model.abilities} showInfoTag={false} />,
+          provider: provider.id,
+          value: `${provider.id}/${model.id}`,
+        }));
 
       // if there are no models, add a placeholder guide
       if (modelOptions.length === 0) {
@@ -143,7 +147,8 @@ const ModelSelect = memo(() => {
         if (value === 'no-provider' || value.includes('/empty')) return;
         const model = value.split('/').slice(1).join('/');
         const provider = (option as unknown as ModelOption).provider;
-        if (model !== currentModel || provider !== currentProvider) {
+        if (!isImageModelConfigUsable(model, provider)) return;
+        if (!isImageModelAvailable || model !== currentModel || provider !== currentProvider) {
           setModelAndProviderOnSelect(model, provider);
         }
       }}
@@ -153,7 +158,11 @@ const ModelSelect = memo(() => {
       style={{
         width: '100%',
       }}
-      value={currentProvider && currentModel ? `${currentProvider}/${currentModel}` : undefined}
+      value={
+        isImageModelAvailable && currentProvider && currentModel
+          ? `${currentProvider}/${currentModel}`
+          : undefined
+      }
     />
   );
 });

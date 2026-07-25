@@ -80,9 +80,17 @@ export interface SystemStatus {
    */
   lastSelectedImageModel?: string;
   /**
+   * 记住用户最后选择的图像生成数量
+   */
+  lastSelectedImageNum?: number;
+  /**
    * 记住用户最后选择的图像生成提供商
    */
   lastSelectedImageProvider?: string;
+  /**
+   * 记住用户最后选择的图像尺寸
+   */
+  lastSelectedImageSize?: string | null;
   latestChangelogId?: string;
   mobileShowPortal?: boolean;
   mobileShowTopic?: boolean;

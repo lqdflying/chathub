@@ -27,6 +27,10 @@ export interface GenerationConfigState {
    * 标记配置是否已初始化（包括从记忆中恢复）
    */
   isInit: boolean;
+  /**
+   * 标记当前是否存在可用的图像生成模型
+   */
+  isImageModelAvailable: boolean;
 }
 
 export const DEFAULT_IMAGE_GENERATION_PARAMETERS: RuntimeImageGenParams =
@@ -41,4 +45,5 @@ export const initialGenerationConfigState: GenerationConfigState = {
   isAspectRatioLocked: false,
   activeAspectRatio: null,
   isInit: false,
+  isImageModelAvailable: false,
 };

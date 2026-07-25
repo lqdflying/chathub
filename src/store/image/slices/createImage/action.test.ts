@@ -42,6 +42,8 @@ describe('CreateImageAction', () => {
       ...initialState,
       isCreating: false,
       isCreatingWithNewTopic: false,
+      isImageModelAvailable: true,
+      isInit: true,
       activeGenerationTopicId: 'active-topic-id',
       parameters: { prompt: 'test prompt', width: 1024, height: 1024 },
       provider: 'test-provider',
@@ -68,6 +70,40 @@ describe('CreateImageAction', () => {
   });
 
   describe('createImage', () => {
+    it('should reject creation until image configuration is initialized', async () => {
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({ isInit: false });
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.createImage();
+        }),
+      ).rejects.toThrow('image configuration is not initialized');
+
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+      expect(useImageStore.getState().isCreating).toBe(false);
+    });
+
+    it('should reject creation when no image model is available', async () => {
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({ isImageModelAvailable: false, isInit: true });
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.createImage();
+        }),
+      ).rejects.toThrow('image configuration is not initialized');
+
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+      expect(useImageStore.getState().isCreating).toBe(false);
+    });
+
     it('should create image with existing topic', async () => {
       const { result } = renderHook(() => useImageStore());
       const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);

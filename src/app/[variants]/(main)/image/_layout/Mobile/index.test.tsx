@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import Layout from './index';
@@ -66,6 +66,26 @@ vi.mock('react-layout-kit', () => ({
 }));
 
 describe('mobile Image layout', () => {
+  it('mounts the image workspace before the settings drawer opens', () => {
+    const onWorkspaceMount = vi.fn();
+
+    const ImageWorkspace = () => {
+      useEffect(onWorkspaceMount, []);
+
+      return <div>Initialized image workspace</div>;
+    };
+
+    render(
+      <Layout menu={<div>Image settings content</div>} topic={<div>Image topics content</div>}>
+        <ImageWorkspace />
+      </Layout>,
+    );
+
+    expect(onWorkspaceMount).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Initialized image workspace')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'config.header.title' })).toBeNull();
+  });
+
   it('renders the workspace and opens settings and topics in accessible drawers', () => {
     render(
       <Layout menu={<div>Image settings content</div>} topic={<div>Image topics content</div>}>

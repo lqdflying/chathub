@@ -31,12 +31,57 @@ pointer devices instead of depending on hover.
 - generation batches
 - create/recreate orchestration
 
-The prompt input rejects empty and whitespace-only values before entering a
-busy state. Submission trims the prompt, creates a topic when needed, sends the
-request through `imageService`, refreshes an existing topic, and clears only the
-prompt that was actually submitted. All topic and service failure paths reset
-both `isCreating` and `isCreatingWithNewTopic`; the UI reports submission
-failure with a localized message.
+`ImageWorkspace` owns configuration initialization so both desktop and mobile
+wait for hydrated global status, user settings, and enabled provider models
+before generation is available. This avoids mobile submitting the store's
+initial hardcoded values while Image Settings remains in its closed drawer.
+`isInit` records that hydration has settled, while `isImageModelAvailable`
+records whether the current configuration can generate. If no usable image
+model is enabled, initialization settles with `isInit: true` and
+`isImageModelAvailable: false`; Image Settings shows its provider/model guidance
+instead of a loading skeleton, submission remains unavailable, and `imageNum`
+is set to the user's current default rather than retaining the store's
+hardcoded initial value.
+
+For signed-in users, the browser-local `LOBE_SYSTEM_STATUS` record remembers
+the selected provider/model, image count, and a model-supported `size` value.
+Only these preference fields are restored; prompts, seeds, reference images,
+width/height, aspect-ratio edits, and other runtime parameters remain
+transient. Restore validates the count against the request range of 1 through
+50 and validates size against the active model schema. Missing, stale, or
+unsupported values use the user's default count and current model defaults. A
+removed, disabled, or unusable remembered model falls back to the first usable
+enabled image model while retaining a valid remembered image count. Usability
+requires the model's parameter schema to produce a valid generation
+configuration; schema-less entries remain in provider infrastructure state but
+are skipped by image configuration resolution. The model selector uses this
+same usability check, omits invalid entries, and shows the provider settings
+guidance when no child can produce a configuration. It also rechecks usability
+before dispatching selection to protect against provider-list changes between
+render and interaction. A draft prompt typed
+before asynchronous initialization completes is carried into the restored
+configuration and is never persisted. The enabled provider/model list and each
+model's parameter schema are part of the reactive configuration signature.
+Disabling the active selection switches to the first usable enabled image model.
+Changing a same-ID model schema rebuilds defaults and removes values the updated
+schema no longer supports. If no model is available, later provider updates can
+recover the settled configuration without reloading the workspace. Recovery
+prefers the remembered provider/model when it becomes usable, keeps the draft
+prompt, restores only valid persisted count and size preferences, and otherwise
+uses the user's current default count plus the newly available model's parameter
+defaults. Manual selection or settings reuse of a usable model restores
+`isImageModelAvailable`. Reselecting the retained provider/model during manual
+recovery rebuilds its current parameter defaults while preserving the draft
+prompt.
+
+The prompt input rejects empty and whitespace-only values and blocks submission
+until configuration initialization has completed and a usable model is
+available. Submission trims the prompt,
+creates a topic when needed, sends the request through `imageService`, refreshes
+an existing topic, and clears only the prompt that was actually submitted. All
+topic and service failure paths reset both `isCreating` and
+`isCreatingWithNewTopic`; the UI reports submission failure with a localized
+message.
 
 ## Server request and task flow
 

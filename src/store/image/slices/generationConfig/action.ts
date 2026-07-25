@@ -1,3 +1,5 @@
+import { MAX_IMAGE_GENERATION_COUNT, MIN_IMAGE_GENERATION_COUNT } from '@lobechat/const';
+import isEqual from 'fast-deep-equal';
 import {
   AIImageModelCard,
   ModelParamsSchema,
@@ -15,8 +17,14 @@ import { authSelectors } from '@/store/user/selectors';
 import { settingsSelectors } from '@/store/user/slices/settings/selectors';
 
 import type { ImageStore } from '../../store';
-import { calculateInitialAspectRatio } from '../../utils/aspectRatio';
 import { adaptSizeToRatio, parseRatio } from '../../utils/size';
+import {
+  getModelAndDefaults,
+  isImageModelConfigUsable,
+  prepareImageModelConfigState,
+} from './modelConfig';
+
+export { getModelAndDefaults } from './modelConfig';
 
 export interface GenerationConfigAction {
   setParamOnInput<K extends RuntimeImageGenParamsKeys>(
@@ -46,53 +54,100 @@ export interface GenerationConfigAction {
     isLogin?: boolean,
     lastSelectedImageModel?: string,
     lastSelectedImageProvider?: string,
+    lastSelectedImageNum?: number,
+    lastSelectedImageSize?: string | null,
   ): void;
+  revalidateImageConfig(): void;
 }
 
-/**
- * @internal
- * This function is exported only for testing purposes.
- * Do not use this function directly in application code.
- */
-export function getModelAndDefaults(model: string, provider: string) {
+function getEnabledImageModel(model: string, provider: string) {
+  const enabledImageModelList = aiProviderSelectors.enabledImageModelList(getAiInfraStoreState());
+  return enabledImageModelList
+    .find((providerItem) => providerItem.id === provider)
+    ?.children.find((modelItem) => modelItem.id === model) as AIImageModelCard | undefined;
+}
+
+function getUsableEnabledImageModel(model: string | undefined, provider: string | undefined) {
+  if (!model || !provider || !isImageModelConfigUsable(model, provider)) return;
+  return { model, provider };
+}
+
+function getFirstUsableEnabledImageModel() {
   const enabledImageModelList = aiProviderSelectors.enabledImageModelList(getAiInfraStoreState());
 
-  const providerItem = enabledImageModelList.find((providerItem) => providerItem.id === provider);
-  if (!providerItem) {
-    throw new Error(
-      `Provider "${provider}" not found in enabled image provider list. Available providers: ${enabledImageModelList.map((p) => p.id).join(', ')}`,
-    );
+  for (const providerItem of enabledImageModelList) {
+    for (const modelItem of providerItem.children) {
+      const usableModel = getUsableEnabledImageModel(modelItem.id, providerItem.id);
+      if (usableModel) return usableModel;
+    }
   }
-
-  const activeModel = providerItem.children.find(
-    (modelItem) => modelItem.id === model,
-  ) as unknown as AIImageModelCard;
-  if (!activeModel) {
-    throw new Error(
-      `Model "${model}" not found in provider "${provider}". Available models: ${providerItem.children.map((m) => m.id).join(', ')}`,
-    );
-  }
-
-  const parametersSchema = activeModel.parameters as ModelParamsSchema;
-  const defaultValues = extractDefaultValues(parametersSchema);
-
-  return { defaultValues, activeModel, parametersSchema };
 }
 
-/**
- * @internal Helper
- * Internal utility to derive initial config for a given provider/model.
- * Not exported; tests should cover through public actions.
- */
-function prepareModelConfigState(model: string, provider: string) {
-  const { defaultValues, parametersSchema } = getModelAndDefaults(model, provider);
-  const initialActiveRatio = calculateInitialAspectRatio(parametersSchema, defaultValues);
+function isValidImageCount(imageNum: number | undefined): imageNum is number {
+  return (
+    Number.isInteger(imageNum) &&
+    imageNum >= MIN_IMAGE_GENERATION_COUNT &&
+    imageNum <= MAX_IMAGE_GENERATION_COUNT
+  );
+}
+
+function isSupportedImageSize(
+  parametersSchema: ModelParamsSchema,
+  imageSize: string | null | undefined,
+): imageSize is string {
+  return !!imageSize && parametersSchema.size?.enum?.includes(imageSize);
+}
+
+function prepareInitializedImageConfig(
+  model: string,
+  provider: string,
+  defaultImageNum: number,
+  lastSelectedImageNum: number | undefined,
+  lastSelectedImageSize: string | null | undefined,
+  currentPrompt: string | undefined,
+) {
+  const { defaultValues, parametersSchema, initialActiveRatio } = prepareImageModelConfigState(
+    model,
+    provider,
+  );
+  const imageNum = isValidImageCount(lastSelectedImageNum) ? lastSelectedImageNum : defaultImageNum;
+  const parameters = {
+    ...defaultValues,
+    ...(isSupportedImageSize(parametersSchema, lastSelectedImageSize) && {
+      size: lastSelectedImageSize,
+    }),
+    ...(typeof currentPrompt === 'string' && { prompt: currentPrompt }),
+  };
 
   return {
-    defaultValues,
+    activeAspectRatio: initialActiveRatio,
+    imageNum,
+    isAspectRatioLocked: false,
+    model,
+    parameters,
     parametersSchema,
-    initialActiveRatio,
+    provider,
   };
+}
+
+function saveImagePreferences(
+  model: string,
+  provider: string,
+  imageNum: number,
+  parameters: Partial<RuntimeImageGenParams>,
+  parametersSchema: ModelParamsSchema,
+) {
+  const isLogin = authSelectors.isLogin(useUserStore.getState());
+  if (!isLogin) return;
+
+  useGlobalStore.getState().updateSystemStatus({
+    lastSelectedImageModel: model,
+    lastSelectedImageProvider: provider,
+    lastSelectedImageSize: isSupportedImageSize(parametersSchema, parameters.size)
+      ? parameters.size
+      : null,
+    ...(isValidImageCount(imageNum) && { lastSelectedImageNum: imageNum }),
+  });
 }
 
 export const createGenerationConfigSlice: StateCreator<
@@ -110,6 +165,11 @@ export const createGenerationConfigSlice: StateCreator<
       false,
       `setParamOnInput/${paramName}`,
     );
+
+    if (paramName !== 'size') return;
+
+    const { imageNum, model, parameters, parametersSchema, provider } = get();
+    saveImagePreferences(model, provider, imageNum, parameters, parametersSchema);
   },
 
   setWidth: (width) => {
@@ -279,50 +339,65 @@ export const createGenerationConfigSlice: StateCreator<
   },
 
   setModelAndProviderOnSelect: (model, provider) => {
-    const { defaultValues, parametersSchema, initialActiveRatio } = prepareModelConfigState(
+    const { defaultValues, parametersSchema, initialActiveRatio } = prepareImageModelConfigState(
       model,
       provider,
     );
+    const currentState = get();
+    const isRecoveringSameModel =
+      !currentState.isImageModelAvailable &&
+      currentState.model === model &&
+      currentState.provider === provider;
+    const parameters = {
+      ...defaultValues,
+      ...(isRecoveringSameModel &&
+        typeof currentState.parameters?.prompt === 'string' && {
+          prompt: currentState.parameters.prompt,
+        }),
+    };
 
     set(
       {
         model,
         provider,
-        parameters: defaultValues,
+        parameters,
         parametersSchema,
         isAspectRatioLocked: false,
         activeAspectRatio: initialActiveRatio,
+        isImageModelAvailable: true,
       },
       false,
       `setModelAndProviderOnSelect/${model}/${provider}`,
     );
 
-    // 仅在登录用户下记忆上次选择，保持与恢复策略一致
-    const isLogin = authSelectors.isLogin(useUserStore.getState());
-    if (isLogin) {
-      useGlobalStore.getState().updateSystemStatus({
-        lastSelectedImageModel: model,
-        lastSelectedImageProvider: provider,
-      });
-    }
+    const { imageNum } = get();
+    saveImagePreferences(model, provider, imageNum, parameters, parametersSchema);
   },
 
   setImageNum: (imageNum) => {
     set(() => ({ imageNum }), false, `setImageNum/${imageNum}`);
+
+    const { model, parameters, parametersSchema, provider } = get();
+    saveImagePreferences(model, provider, imageNum, parameters, parametersSchema);
   },
 
   reuseSettings: (model: string, provider: string, settings: Partial<RuntimeImageGenParams>) => {
     const { defaultValues, parametersSchema } = getModelAndDefaults(model, provider);
+    const parameters = { ...defaultValues, ...settings };
     set(
       () => ({
+        isImageModelAvailable: true,
         model,
         provider,
-        parameters: { ...defaultValues, ...settings },
+        parameters,
         parametersSchema: parametersSchema,
       }),
       false,
       `reuseSettings/${model}/${provider}`,
     );
+
+    const { imageNum } = get();
+    saveImagePreferences(model, provider, imageNum, parameters, parametersSchema);
   },
 
   reuseSeed: (seed: number) => {
@@ -331,39 +406,174 @@ export const createGenerationConfigSlice: StateCreator<
 
   _initializeDefaultImageConfig: () => {
     const { defaultImageNum } = settingsSelectors.currentImageSettings(useUserStore.getState());
-    set({ imageNum: defaultImageNum, isInit: true }, false, 'initializeImageConfig/default');
+    const fallbackImageModel = getFirstUsableEnabledImageModel();
+    if (!fallbackImageModel) {
+      set(
+        { imageNum: defaultImageNum, isImageModelAvailable: false, isInit: true },
+        false,
+        'initializeImageConfig/noEnabledModel',
+      );
+      return;
+    }
+
+    try {
+      const currentPrompt = get().parameters?.prompt;
+      const initialConfig = prepareInitializedImageConfig(
+        fallbackImageModel.model,
+        fallbackImageModel.provider,
+        defaultImageNum,
+        undefined,
+        undefined,
+        currentPrompt,
+      );
+      set(
+        { ...initialConfig, isImageModelAvailable: true, isInit: true },
+        false,
+        `initializeImageConfig/default/${fallbackImageModel.model}/${fallbackImageModel.provider}`,
+      );
+    } catch {
+      set(
+        { isImageModelAvailable: false, isInit: true },
+        false,
+        'initializeImageConfig/noUsableEnabledModel',
+      );
+    }
   },
 
-  initializeImageConfig: (isLogin, lastSelectedImageModel, lastSelectedImageProvider) => {
+  initializeImageConfig: (
+    isLogin,
+    lastSelectedImageModel,
+    lastSelectedImageProvider,
+    lastSelectedImageNum,
+    lastSelectedImageSize,
+  ) => {
     const { _initializeDefaultImageConfig } = get();
     const { defaultImageNum } = settingsSelectors.currentImageSettings(useUserStore.getState());
+    const currentPrompt = get().parameters?.prompt;
 
     if (isLogin && lastSelectedImageModel && lastSelectedImageProvider) {
       try {
-        const { defaultValues, parametersSchema, initialActiveRatio } = prepareModelConfigState(
+        const initialConfig = prepareInitializedImageConfig(
           lastSelectedImageModel,
           lastSelectedImageProvider,
+          defaultImageNum,
+          lastSelectedImageNum,
+          lastSelectedImageSize,
+          currentPrompt,
         );
 
         set(
-          {
-            model: lastSelectedImageModel,
-            provider: lastSelectedImageProvider,
-            parameters: defaultValues,
-            parametersSchema,
-            isAspectRatioLocked: false,
-            activeAspectRatio: initialActiveRatio,
-            imageNum: defaultImageNum,
-            isInit: true,
-          },
+          { ...initialConfig, isImageModelAvailable: true, isInit: true },
           false,
           `initializeImageConfig/${lastSelectedImageModel}/${lastSelectedImageProvider}`,
         );
       } catch {
-        _initializeDefaultImageConfig();
+        const fallbackImageModel = getFirstUsableEnabledImageModel();
+        if (!fallbackImageModel) {
+          _initializeDefaultImageConfig();
+          return;
+        }
+
+        try {
+          const initialConfig = prepareInitializedImageConfig(
+            fallbackImageModel.model,
+            fallbackImageModel.provider,
+            defaultImageNum,
+            lastSelectedImageNum,
+            undefined,
+            currentPrompt,
+          );
+          set(
+            { ...initialConfig, isImageModelAvailable: true, isInit: true },
+            false,
+            `initializeImageConfig/fallback/${fallbackImageModel.model}/${fallbackImageModel.provider}`,
+          );
+          saveImagePreferences(
+            fallbackImageModel.model,
+            fallbackImageModel.provider,
+            initialConfig.imageNum,
+            initialConfig.parameters,
+            initialConfig.parametersSchema,
+          );
+        } catch {
+          set(
+            { isImageModelAvailable: false, isInit: true },
+            false,
+            'initializeImageConfig/noUsableEnabledModel',
+          );
+        }
       }
     } else {
       _initializeDefaultImageConfig();
+    }
+  },
+
+  revalidateImageConfig: () => {
+    const {
+      imageNum,
+      isImageModelAvailable,
+      isInit,
+      model,
+      parameters,
+      parametersSchema,
+      provider,
+    } = get();
+    if (!isInit) return;
+
+    const status = useGlobalStore.getState().status;
+    const rememberedImageNum = isValidImageCount(status.lastSelectedImageNum)
+      ? status.lastSelectedImageNum
+      : isImageModelAvailable && isValidImageCount(imageNum)
+        ? imageNum
+        : undefined;
+    const currentEnabledModel = getEnabledImageModel(model, provider);
+    const isCurrentModelSchemaCurrent =
+      currentEnabledModel && isEqual(currentEnabledModel.parameters, parametersSchema);
+    if (isCurrentModelSchemaCurrent && isImageModelAvailable) return;
+
+    const rememberedImageModel = getUsableEnabledImageModel(
+      status.lastSelectedImageModel,
+      status.lastSelectedImageProvider,
+    );
+    const currentImageModel = getUsableEnabledImageModel(model, provider);
+    const nextImageModel = isImageModelAvailable
+      ? currentImageModel || getFirstUsableEnabledImageModel()
+      : rememberedImageModel || currentImageModel || getFirstUsableEnabledImageModel();
+    if (!nextImageModel) {
+      set({ isImageModelAvailable: false }, false, 'revalidateImageConfig/noEnabledModel');
+      return;
+    }
+
+    const isRestoringSameRememberedModel =
+      status.lastSelectedImageModel === nextImageModel.model &&
+      status.lastSelectedImageProvider === nextImageModel.provider;
+    const currentImageSize =
+      isImageModelAvailable && isRestoringSameRememberedModel ? parameters?.size : undefined;
+    const rememberedImageSize = currentImageSize ?? status.lastSelectedImageSize;
+    const { defaultImageNum } = settingsSelectors.currentImageSettings(useUserStore.getState());
+    try {
+      const initialConfig = prepareInitializedImageConfig(
+        nextImageModel.model,
+        nextImageModel.provider,
+        defaultImageNum,
+        rememberedImageNum,
+        isRestoringSameRememberedModel ? rememberedImageSize : undefined,
+        parameters?.prompt,
+      );
+      set(
+        { ...initialConfig, isImageModelAvailable: true },
+        false,
+        `revalidateImageConfig/${nextImageModel.model}/${nextImageModel.provider}`,
+      );
+      saveImagePreferences(
+        nextImageModel.model,
+        nextImageModel.provider,
+        initialConfig.imageNum,
+        initialConfig.parameters,
+        initialConfig.parametersSchema,
+      );
+    } catch {
+      set({ isImageModelAvailable: false }, false, 'revalidateImageConfig/noUsableEnabledModel');
     }
   },
 });

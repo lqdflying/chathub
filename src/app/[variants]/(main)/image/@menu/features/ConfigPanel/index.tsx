@@ -2,11 +2,10 @@
 
 import { Text } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
-import { ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { useFetchAiImageConfig } from '@/hooks/useFetchAiImageConfig';
 import { imageGenerationConfigSelectors } from '@/store/image/selectors';
 import { useDimensionControl } from '@/store/image/slices/generationConfig/hooks';
 import { useImageStore } from '@/store/image/store';
@@ -43,14 +42,12 @@ const ConfigPanel = memo(() => {
   const { t } = useTranslation('image');
   const theme = useTheme();
 
-  // Initialize image configuration
-  useFetchAiImageConfig();
-
   // All hooks must be called before any early returns
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
 
   const isInit = useImageStore((s) => s.isInit);
+  const isImageModelAvailable = useImageStore((s) => s.isImageModelAvailable);
   const isSupportImageUrl = useImageStore(isSupportedParamSelector('imageUrl'));
   const isSupportSize = useImageStore(isSupportedParamSelector('size'));
   const isSupportQuality = useImageStore(isSupportedParamSelector('quality'));
@@ -144,55 +141,57 @@ const ConfigPanel = memo(() => {
         <ModelSelect />
       </ConfigItemLayout>
 
-      {isSupportImageUrl && (
+      {isImageModelAvailable && isSupportImageUrl && (
         <ConfigItemLayout label={t('config.imageUrl.label')}>
           <ImageUrl />
         </ConfigItemLayout>
       )}
 
-      {isSupportImageUrls && (
+      {isImageModelAvailable && isSupportImageUrls && (
         <ConfigItemLayout label={t('config.imageUrls.label')}>
           <ImageUrlsUpload />
         </ConfigItemLayout>
       )}
 
-      {isSupportSize && (
+      {isImageModelAvailable && isSupportSize && (
         <ConfigItemLayout label={t('config.size.label')}>
           <SizeSelect />
         </ConfigItemLayout>
       )}
 
-      {isSupportQuality && (
+      {isImageModelAvailable && isSupportQuality && (
         <ConfigItemLayout label={t('config.quality.label')}>
           <QualitySelect />
         </ConfigItemLayout>
       )}
 
-      {showDimensionControl && <DimensionControlGroup />}
+      {isImageModelAvailable && showDimensionControl && <DimensionControlGroup />}
 
-      {isSupportSteps && (
+      {isImageModelAvailable && isSupportSteps && (
         <ConfigItemLayout label={t('config.steps.label')}>
           <StepsSliderInput />
         </ConfigItemLayout>
       )}
 
-      {isSupportCfg && (
+      {isImageModelAvailable && isSupportCfg && (
         <ConfigItemLayout label={t('config.cfg.label')}>
           <CfgSliderInput />
         </ConfigItemLayout>
       )}
 
-      {isSupportSeed && (
+      {isImageModelAvailable && isSupportSeed && (
         <ConfigItemLayout label={t('config.seed.label')}>
           <SeedNumberInput />
         </ConfigItemLayout>
       )}
 
-      <Flexbox padding="12px 0" style={stickyStyles}>
-        <ConfigItemLayout label={t('config.imageNum.label')}>
-          <ImageNum />
-        </ConfigItemLayout>
-      </Flexbox>
+      {isImageModelAvailable && (
+        <Flexbox padding="12px 0" style={stickyStyles}>
+          <ConfigItemLayout label={t('config.imageNum.label')}>
+            <ImageNum />
+          </ConfigItemLayout>
+        </Flexbox>
+      )}
     </Flexbox>
   );
 });

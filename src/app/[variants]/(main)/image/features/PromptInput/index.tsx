@@ -56,11 +56,13 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
   const isCreating = useImageStore(createImageSelectors.isCreating);
   const createImage = useImageStore((s) => s.createImage);
   const currentModel = useImageStore(imageGenerationConfigSelectors.model);
+  const isImageConfigInitialized = useImageStore((s) => s.isInit);
+  const isImageModelAvailable = useImageStore((s) => s.isImageModelAvailable);
   const isLogin = useUserStore(authSelectors.isLogin);
   const checkGeminiChineseWarning = useGeminiChineseWarning();
 
   const handleGenerate = async () => {
-    if (!value.trim() || isCreating) return;
+    if (!value.trim() || isCreating || !isImageConfigInitialized || !isImageModelAvailable) return;
 
     if (!isLogin) {
       loginRequired.redirect({ timeout: 2000 });
@@ -86,7 +88,7 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!isCreating && value.trim()) {
+      if (!isCreating && isImageConfigInitialized && isImageModelAvailable && value.trim()) {
         handleGenerate();
       }
     }
@@ -125,7 +127,7 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
         />
         <Button
           aria-label={t('generation.actions.generate')}
-          disabled={!value.trim()}
+          disabled={!isImageConfigInitialized || !isImageModelAvailable || !value.trim()}
           icon={Sparkles}
           loading={isCreating}
           onClick={handleGenerate}

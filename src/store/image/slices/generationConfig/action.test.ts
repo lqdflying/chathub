@@ -3,6 +3,8 @@ import { ModelParamsSchema, RuntimeImageGenParams, extractDefaultValues } from '
 import { AIImageModelCard } from 'model-bank';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { INITIAL_STATUS } from '@/store/global/initialState';
+import { useGlobalStore } from '@/store/global/store';
 import { useImageStore } from '@/store/image';
 
 import { testFluxSchnellParamsSchema } from './test-fixtures';
@@ -29,6 +31,11 @@ const customModelSchema: ModelParamsSchema = {
   steps: { default: 20, min: 1, max: 50 },
 };
 
+const sizeCapableModelSchema: ModelParamsSchema = {
+  prompt: { default: '' },
+  size: { default: '1024x1024', enum: ['1024x1024', '1536x1024'] },
+};
+
 const testImageModels: AIImageModelCard[] = [
   {
     id: 'flux/schnell',
@@ -44,6 +51,13 @@ const testImageModels: AIImageModelCard[] = [
     parameters: customModelSchema,
     releasedAt: '2024-01-01',
   },
+  {
+    id: 'size-model',
+    displayName: 'Size Model',
+    type: 'image',
+    parameters: sizeCapableModelSchema,
+    releasedAt: '2024-01-01',
+  },
 ];
 
 const mockProviders = [
@@ -55,7 +69,7 @@ const mockProviders = [
   {
     id: 'custom-provider',
     name: 'Custom Provider',
-    children: [testImageModels[1]],
+    children: [testImageModels[1], testImageModels[2]],
   },
 ];
 
@@ -70,8 +84,11 @@ vi.mock('@/store/aiInfra', () => ({
 // Test data
 const fluxSchnellDefaultValues = extractDefaultValues(fluxSchnellParamsSchema);
 const customModelDefaultValues = extractDefaultValues(customModelSchema);
+const sizeCapableModelDefaultValues = extractDefaultValues(sizeCapableModelSchema);
 
 const initialTestState = {
+  isImageModelAvailable: false,
+  isInit: false,
   model: 'initial-model',
   provider: 'initial-provider',
   imageNum: 1,
@@ -90,6 +107,12 @@ const initialTestState = {
 beforeEach(() => {
   vi.clearAllMocks();
   currentImageSettingsMock.mockReturnValue({ defaultImageNum: 4 });
+  mockProviders[0].children = [testImageModels[0]];
+  mockProviders[1].children = [testImageModels[1], testImageModels[2]];
+  useGlobalStore.setState({
+    isStatusInit: true,
+    status: { ...INITIAL_STATUS },
+  });
   useImageStore.setState(initialTestState);
 });
 
@@ -157,6 +180,16 @@ describe('GenerationConfigAction', () => {
       expect(result.current.imageNum).toBe(4);
     });
 
+    it('should persist a valid selected image count', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        result.current.setImageNum(8);
+      });
+
+      expect(useGlobalStore.getState().status.lastSelectedImageNum).toBe(8);
+    });
+
     it('should handle edge case values for imageNum', () => {
       const { result } = renderHook(() => useImageStore());
 
@@ -165,6 +198,7 @@ describe('GenerationConfigAction', () => {
       });
 
       expect(result.current.imageNum).toBe(0);
+      expect(useGlobalStore.getState().status.lastSelectedImageNum).toBeUndefined();
     });
   });
 
@@ -211,6 +245,30 @@ describe('GenerationConfigAction', () => {
 
       expect(result.current.parameters).toEqual(fluxSchnellDefaultValues);
       expect(result.current.parameters?.prompt).toBe('');
+    });
+
+    it('should persist and clear model-specific image size preferences', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        result.current.setImageNum(8);
+        result.current.setModelAndProviderOnSelect('size-model', 'custom-provider');
+        result.current.setParamOnInput('size', '1536x1024');
+      });
+
+      expect(useGlobalStore.getState().status).toMatchObject({
+        lastSelectedImageModel: 'size-model',
+        lastSelectedImageNum: 8,
+        lastSelectedImageProvider: 'custom-provider',
+        lastSelectedImageSize: '1536x1024',
+      });
+
+      act(() => {
+        result.current.setModelAndProviderOnSelect('custom-model', 'custom-provider');
+      });
+
+      expect(result.current.imageNum).toBe(8);
+      expect(useGlobalStore.getState().status.lastSelectedImageSize).toBeNull();
     });
   });
 
@@ -514,12 +572,65 @@ describe('GenerationConfigAction', () => {
 
       expect(result.current.model).toBe('flux/schnell');
       expect(result.current.provider).toBe('fal');
-      expect(result.current.parameters).toEqual(fluxSchnellDefaultValues);
+      expect(result.current.parameters).toEqual({
+        ...fluxSchnellDefaultValues,
+        prompt: 'initial prompt',
+      });
       expect(result.current.isInit).toBe(true);
       expect(result.current.imageNum).toBe(6);
     });
 
-    it('should handle initialization without remembered preferences', () => {
+    it('should restore a valid remembered image count and size', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      useImageStore.setState({
+        isInit: false,
+        model: '',
+        provider: '',
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(true, 'size-model', 'custom-provider', 8, '1536x1024');
+      });
+
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.parameters).toEqual({
+        ...sizeCapableModelDefaultValues,
+        prompt: 'initial prompt',
+        size: '1536x1024',
+      });
+      expect(result.current.isInit).toBe(true);
+    });
+
+    it('should fall back to current defaults for invalid remembered count and size', () => {
+      currentImageSettingsMock.mockReturnValueOnce({ defaultImageNum: 6 });
+      const { result } = renderHook(() => useImageStore());
+
+      useImageStore.setState({
+        isInit: false,
+        model: '',
+        provider: '',
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(
+          true,
+          'size-model',
+          'custom-provider',
+          0,
+          'invalid-size',
+        );
+      });
+
+      expect(result.current.imageNum).toBe(6);
+      expect(result.current.parameters).toEqual({
+        ...sizeCapableModelDefaultValues,
+        prompt: 'initial prompt',
+      });
+      expect(result.current.isInit).toBe(true);
+    });
+
+    it('should initialize an enabled image model without remembered preferences', () => {
       const { result } = renderHook(() => useImageStore());
 
       useImageStore.setState({ isInit: false });
@@ -530,6 +641,114 @@ describe('GenerationConfigAction', () => {
 
       expect(result.current.isInit).toBe(true);
       expect(result.current.imageNum).toBe(4);
+      expect(result.current.model).toBe('flux/schnell');
+      expect(result.current.provider).toBe('fal');
+    });
+
+    it('should skip a schema-less model when a later enabled model is usable', () => {
+      const { result } = renderHook(() => useImageStore());
+      mockProviders[0].children = [
+        {
+          ...testImageModels[0],
+          id: 'schema-less-model',
+          parameters: undefined,
+        },
+        testImageModels[0],
+      ];
+      useImageStore.setState({ isInit: false });
+
+      act(() => {
+        result.current.initializeImageConfig(false);
+      });
+
+      expect(result.current.isImageModelAvailable).toBe(true);
+      expect(result.current.isInit).toBe(true);
+      expect(result.current.model).toBe('flux/schnell');
+      expect(result.current.provider).toBe('fal');
+    });
+
+    it('should preserve a draft prompt typed before remembered preferences initialize', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      useImageStore.setState({
+        isInit: false,
+        parameters: { ...initialTestState.parameters, prompt: 'draft prompt' },
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(true, 'size-model', 'custom-provider', 8, '1536x1024');
+      });
+
+      expect(result.current.parameters).toEqual({
+        ...sizeCapableModelDefaultValues,
+        prompt: 'draft prompt',
+        size: '1536x1024',
+      });
+    });
+
+    it('should retain a valid remembered image count when the saved model is unavailable', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      useImageStore.setState({
+        isInit: false,
+        parameters: { ...initialTestState.parameters, prompt: 'draft prompt' },
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(true, 'removed-model', 'removed-provider', 8);
+      });
+
+      expect(result.current.isInit).toBe(true);
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.model).toBe('flux/schnell');
+      expect(result.current.provider).toBe('fal');
+      expect(result.current.parameters).toEqual({
+        ...fluxSchnellDefaultValues,
+        prompt: 'draft prompt',
+      });
+      expect(useGlobalStore.getState().status.lastSelectedImageNum).toBe(8);
+    });
+
+    it('should not apply a removed model size to the fallback model', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      mockProviders[0].children = [testImageModels[2]];
+      useImageStore.setState({
+        isInit: false,
+        parameters: { ...initialTestState.parameters, prompt: 'draft prompt' },
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(
+          true,
+          'removed-model',
+          'removed-provider',
+          8,
+          '1536x1024',
+        );
+      });
+
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.model).toBe('size-model');
+      expect(result.current.parameters).toEqual({
+        ...sizeCapableModelDefaultValues,
+        prompt: 'draft prompt',
+      });
+    });
+
+    it('should settle as unavailable when no image models are enabled', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      mockProviders[0].children = [];
+      mockProviders[1].children = [];
+      useImageStore.setState({ isInit: false });
+
+      act(() => {
+        result.current.initializeImageConfig(false);
+      });
+
+      expect(result.current.isInit).toBe(true);
+      expect(result.current.isImageModelAvailable).toBe(false);
     });
 
     it('should handle initialization errors gracefully', () => {
@@ -543,6 +762,217 @@ describe('GenerationConfigAction', () => {
 
       expect(result.current.isInit).toBe(true);
       expect(result.current.imageNum).toBe(4);
+      expect(result.current.model).toBe('flux/schnell');
+      expect(result.current.provider).toBe('fal');
+    });
+
+    it('should switch to an enabled model when the active selection is disabled', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      useImageStore.setState({
+        imageNum: 8,
+        isImageModelAvailable: true,
+        isInit: true,
+        model: 'flux/schnell',
+        parameters: { ...fluxSchnellDefaultValues, prompt: 'draft prompt' },
+        provider: 'fal',
+      });
+      mockProviders[0].children = [];
+
+      act(() => {
+        result.current.revalidateImageConfig();
+      });
+
+      expect(result.current.isImageModelAvailable).toBe(true);
+      expect(result.current.model).toBe('custom-model');
+      expect(result.current.provider).toBe('custom-provider');
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.parameters).toEqual({
+        ...customModelDefaultValues,
+        prompt: 'draft prompt',
+      });
+    });
+
+    it('should preserve the draft when the same usable model restores availability', () => {
+      const { result } = renderHook(() => useImageStore());
+      useImageStore.setState({
+        isImageModelAvailable: false,
+        isInit: true,
+        model: 'custom-model',
+        parameters: {
+          ...fluxSchnellDefaultValues,
+          prompt: 'draft prompt',
+        },
+        provider: 'custom-provider',
+      });
+
+      act(() => {
+        result.current.setModelAndProviderOnSelect('custom-model', 'custom-provider');
+      });
+
+      expect(result.current.isImageModelAvailable).toBe(true);
+      expect(result.current.model).toBe('custom-model');
+      expect(result.current.provider).toBe('custom-provider');
+      expect(result.current.parameters).toEqual({
+        ...customModelDefaultValues,
+        prompt: 'draft prompt',
+      });
+    });
+
+    it('should recover when image models become available after an empty state', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      mockProviders[0].children = [];
+      mockProviders[1].children = [];
+      useImageStore.setState({
+        isImageModelAvailable: false,
+        isInit: true,
+        parameters: { ...initialTestState.parameters, prompt: 'draft prompt' },
+      });
+      useGlobalStore.setState((state) => ({
+        status: {
+          ...state.status,
+          lastSelectedImageModel: 'size-model',
+          lastSelectedImageNum: 8,
+          lastSelectedImageProvider: 'custom-provider',
+          lastSelectedImageSize: '1536x1024',
+        },
+      }));
+
+      mockProviders[1].children = [testImageModels[2]];
+      act(() => {
+        result.current.revalidateImageConfig();
+      });
+
+      expect(result.current.isImageModelAvailable).toBe(true);
+      expect(result.current.model).toBe('size-model');
+      expect(result.current.provider).toBe('custom-provider');
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.parameters).toEqual({
+        ...sizeCapableModelDefaultValues,
+        prompt: 'draft prompt',
+        size: '1536x1024',
+      });
+    });
+
+    it('should use current defaults when no preferences exist after an empty state', () => {
+      currentImageSettingsMock.mockReturnValue({ defaultImageNum: 8 });
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        mockProviders[0].children = [];
+        mockProviders[1].children = [];
+        useImageStore.setState({
+          imageNum: 4,
+          parameters: {
+            ...initialTestState.parameters,
+            prompt: 'draft prompt',
+            size: '1536x1024',
+          },
+        });
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(false);
+      });
+
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.isImageModelAvailable).toBe(false);
+
+      mockProviders[1].children = [testImageModels[2]];
+      act(() => {
+        result.current.revalidateImageConfig();
+      });
+
+      expect(result.current.isImageModelAvailable).toBe(true);
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.parameters).toEqual({
+        ...sizeCapableModelDefaultValues,
+        prompt: 'draft prompt',
+      });
+    });
+
+    it('should prefer the remembered model over stale current state during recovery', () => {
+      const { result } = renderHook(() => useImageStore());
+      useImageStore.setState({
+        isImageModelAvailable: false,
+        isInit: true,
+        model: 'flux/schnell',
+        parameters: { ...fluxSchnellDefaultValues, prompt: 'draft prompt' },
+        parametersSchema: fluxSchnellParamsSchema,
+        provider: 'fal',
+      });
+      act(() => {
+        useGlobalStore.setState((state) => ({
+          status: {
+            ...state.status,
+            lastSelectedImageModel: 'size-model',
+            lastSelectedImageNum: 8,
+            lastSelectedImageProvider: 'custom-provider',
+            lastSelectedImageSize: '1536x1024',
+          },
+        }));
+        result.current.revalidateImageConfig();
+      });
+
+      expect(result.current.isImageModelAvailable).toBe(true);
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.model).toBe('size-model');
+      expect(result.current.provider).toBe('custom-provider');
+      expect(result.current.parameters).toEqual({
+        ...sizeCapableModelDefaultValues,
+        prompt: 'draft prompt',
+        size: '1536x1024',
+      });
+    });
+
+    it('should refresh parameters when an enabled model schema changes', () => {
+      const { result } = renderHook(() => useImageStore());
+      const refreshedSizeSchema: ModelParamsSchema = {
+        prompt: { default: '' },
+        size: { default: '1024x1024', enum: ['1024x1024'] },
+      };
+
+      useImageStore.setState({
+        imageNum: 8,
+        isImageModelAvailable: true,
+        isInit: true,
+        model: 'size-model',
+        parameters: {
+          ...sizeCapableModelDefaultValues,
+          prompt: 'draft prompt',
+          size: '1536x1024',
+        },
+        parametersSchema: sizeCapableModelSchema,
+        provider: 'custom-provider',
+      });
+      act(() => {
+        useGlobalStore.setState((state) => ({
+          status: {
+            ...state.status,
+            lastSelectedImageModel: 'size-model',
+            lastSelectedImageNum: 8,
+            lastSelectedImageProvider: 'custom-provider',
+            lastSelectedImageSize: '1536x1024',
+          },
+        }));
+        mockProviders[1].children = [
+          testImageModels[1],
+          { ...testImageModels[2], parameters: refreshedSizeSchema },
+        ];
+      });
+
+      act(() => {
+        result.current.revalidateImageConfig();
+      });
+
+      expect(result.current.isImageModelAvailable).toBe(true);
+      expect(result.current.parametersSchema).toEqual(refreshedSizeSchema);
+      expect(result.current.parameters).toEqual({
+        prompt: 'draft prompt',
+        size: '1024x1024',
+      });
+      expect(useGlobalStore.getState().status.lastSelectedImageSize).toBe('1024x1024');
     });
   });
 });

@@ -29,6 +29,10 @@ export const createCreateImageSlice: StateCreator<
 > = (set, get) => ({
   async createImage() {
     const store = get();
+    if (!store.isInit || !store.isImageModelAvailable) {
+      throw new TypeError('image configuration is not initialized');
+    }
+
     const imageNum = imageGenerationConfigSelectors.imageNum(store);
     const parameters = imageGenerationConfigSelectors.parameters(store);
     const provider = imageGenerationConfigSelectors.provider(store);
