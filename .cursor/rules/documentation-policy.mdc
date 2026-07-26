@@ -42,10 +42,12 @@ Do not treat an OpenWiki update as a substitute for user-facing documentation.
 - Preserve unrelated wiki changes and stage only files for the current task.
 - If `wiki/` is absent, report that it is unavailable; do not clone it implicitly.
 - After the associated fix/feature is complete, commit only its Wiki pages
-  locally in the separate Wiki repository. Wiki push still requires explicit
-  in-turn user approval.
+  locally in the separate Wiki repository. If both repositories changed, the
+  main repository and Wiki repository each require their own local commit before
+  the work is complete. Wiki push still requires explicit in-turn user approval.
 
 ## Completion gate
 
-Do not mark implementation complete until required documentation is updated and
-reviewed, or the plan records a justified no-documentation decision.
+Do not mark implementation complete until required documentation is updated,
+reviewed, and locally committed in every affected repository, or the plan
+records a justified no-documentation decision.

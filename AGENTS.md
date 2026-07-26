@@ -6,7 +6,7 @@ This file is for automated agents and assistants working in this repository. Aut
 
 - For every **bugfix** or **feature**: **do not** implement on **`main`**. If currently on `main`, create a **`fix/<short-slug>`** or **`feat/<short-slug>`** branch before editing.
 - If already on a non-`main` branch, continue there by default even when the troubleshooting target changes before GA. Do not create another branch just because the next fix/feature touches a different area; use distinct commit messages to separate phases unless the user explicitly asks for a fresh/isolation branch.
-- After each completed and verified bugfix or feature, create a local commit automatically. Use a separate local commit for every later fix/feature; do not amend completed work.
+- After each completed and verified bugfix or feature, create local commits automatically in **every affected Git repository**. If both the main repository and the separate `wiki/` repository changed, commit each repository locally with only its relevant files. Use separate local commits for every later fix/feature; do not amend completed work.
 - **Never** `git push`, create/push a tag, trigger a remote build, or perform GA/release actions without an **explicit in-turn** user instruction.
 
 Full workflow (stash, canary/GA tags, Docker release, recovery): **`.cursor/rules/git-and-release.mdc`**.
@@ -15,7 +15,7 @@ Full workflow (stash, canary/GA tags, Docker release, recovery): **`.cursor/rule
 
 When writing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include:
 
-- a short **Git workflow** subsection aligned with the rules above (branch first only when currently on `main`, automatic separate local commits after completion, no push/tag/release without explicit approval)
+- a short **Git workflow** subsection aligned with the rules above (branch first only when currently on `main`, automatic local commits in every affected repository after completion, no push/tag/release without explicit approval)
 - a **Documentation impact** subsection following **`.cursor/rules/documentation-policy.mdc`**
 
 ## Project context

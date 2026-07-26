@@ -40,14 +40,17 @@ Once a feature or fix branch has been merged into `main`, delete that branch loc
 
 ## Planning (Plan mode / implementation plans)
 
-When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default even when the target changes, using distinct commits for each phase. Never plan work as if it will land directly on `main`. Note that completed fixes/features are committed locally after verification, while **push / tag / release** actions require an explicit in-turn user instruction (*Agent commit policy* below).
+When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default even when the target changes, using distinct commits for each phase. Never plan work as if it will land directly on `main`. Note that completed fixes/features are committed locally in every affected Git repository after verification, including the separate `wiki/` repository when it changed, while **push / tag / release** actions require an explicit in-turn user instruction (*Agent commit policy* below).
 
 ## Agent commit policy (STRICT)
 
 **After one bugfix or feature is complete, verified, and documented as required,
-stage only that work and create a local commit automatically.** Do not wait for
-another user prompt. A later bugfix or feature must receive a new local commit;
-do not amend or fold it into the previous completed change.
+stage only that work and create local commits automatically in every affected
+Git repository.** Do not wait for another user prompt. If both the main
+repository and the separate `wiki/` repository changed, each must receive its
+own local commit containing only its relevant files. A later bugfix or feature
+must receive new local commits; do not amend or fold it into previous completed
+work.
 
 - While a fix/feature is still in progress, keep edits uncommitted so verification
   and related corrections stay in one coherent commit.
@@ -56,8 +59,8 @@ do not amend or fold it into the previous completed change.
   required gitmoji commit-message style.
 - Documentation required by the completed change belongs in the same logical
   local commit when it lives in the main repository. When the GitHub Wiki is
-  updated in its separate repository, commit only the relevant Wiki pages
-  locally there and preserve unrelated Wiki edits.
+  updated in its separate repository, its relevant Wiki pages **must also be
+  committed locally before completion**; preserve unrelated Wiki edits.
 - Rule/docs-only maintenance requested as a standalone task is also committed
   locally after verification.
 - **Never run `git push`, create or push a tag, trigger a remote workflow, create
