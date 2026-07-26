@@ -41,7 +41,9 @@ Do not treat an OpenWiki update as a substitute for user-facing documentation.
   the separate wiki repository on `master`.
 - Preserve unrelated wiki changes and stage only files for the current task.
 - If `wiki/` is absent, report that it is unavailable; do not clone it implicitly.
-- Wiki commit and push still require explicit in-turn user approval.
+- After the associated fix/feature is complete, commit only its Wiki pages
+  locally in the separate Wiki repository. Wiki push still requires explicit
+  in-turn user approval.
 
 ## Completion gate
 

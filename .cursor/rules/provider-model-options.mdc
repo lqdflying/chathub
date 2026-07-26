@@ -85,7 +85,9 @@ When **MiniMax** rejects requests with context overflow (**`bad_request_error` /
 
 ## Shipping
 
-Follow **`.cursor/rules/git-and-release.mdc`** — **no commit / tag / push without an explicit in-turn user instruction** unless the user asked to ship.
+Follow **`.cursor/rules/git-and-release.mdc`** — create a separate local commit
+after each completed and verified provider fix/feature, but **never push, tag,
+trigger a remote build, or release without an explicit in-turn user instruction**.
 
 ## Quick checklist (new module or new toggle)
 

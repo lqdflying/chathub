@@ -45,7 +45,7 @@ These idempotent `CREATE IF NOT EXISTS` queries are safe to run on every contain
 
 ## Git & branches
 
-For every **fix** or **feature**: **never** implement on `main`. If currently on `main`, create a `feat/<slug>` or `fix/<slug>` branch before editing; if already on a non-`main` branch, continue there by default even when the troubleshooting target changes before GA. Do not create another branch just because the next fix/feature touches a different area; use distinct commit messages to separate phases unless the user explicitly asks for a fresh/isolation branch. **Implementation plans** (Plan mode / `CreatePlan`) must include a short **Git workflow** subsection plus the no-commit/push-without-explicit-approval rule. Full workflow, canary/GA, and Docker release: **`.cursor/rules/git-and-release.mdc`**.
+For every **fix** or **feature**: **never** implement on `main`. If currently on `main`, create a `feat/<slug>` or `fix/<slug>` branch before editing; if already on a non-`main` branch, continue there by default even when the troubleshooting target changes before GA. Do not create another branch just because the next fix/feature touches a different area. After each completed and verified fix/feature, create a separate local commit automatically; never amend a completed change to include later work. **Implementation plans** (Plan mode / `CreatePlan`) must include a short **Git workflow** subsection plus the no-push/tag/release-without-explicit-approval rule. Full workflow, canary/GA, and Docker release: **`.cursor/rules/git-and-release.mdc`**.
 
 ## Documentation impact
 

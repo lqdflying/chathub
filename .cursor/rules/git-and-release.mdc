@@ -40,28 +40,38 @@ Once a feature or fix branch has been merged into `main`, delete that branch loc
 
 ## Planning (Plan mode / implementation plans)
 
-When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default even when the target changes, using distinct commits for each phase. Never plan work as if it will land directly on `main`, and note that **commit / push / tag** require an explicit in-turn user instruction (*Agent commit policy* below).
+When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `CreatePlan`), include a short **Git workflow** subsection aligned with *Before first code edit* above: if currently on `main`, `git checkout -b` a `feat/<slug>` or `fix/<slug>` before edits; if already on a non-`main` branch, continue there by default even when the target changes, using distinct commits for each phase. Never plan work as if it will land directly on `main`. Note that completed fixes/features are committed locally after verification, while **push / tag / release** actions require an explicit in-turn user instruction (*Agent commit policy* below).
 
 ## Agent commit policy (STRICT)
 
-**Never run `git commit`, `git tag`, or `git push` without an explicit, in-turn
-user instruction.** This overrides any "keep triggering canary builds in a
-loop" style request once debugging is in progress — multiple fixes may need
-to be stacked before they are worth a new commit/tag.
+**After one bugfix or feature is complete, verified, and documented as required,
+stage only that work and create a local commit automatically.** Do not wait for
+another user prompt. A later bugfix or feature must receive a new local commit;
+do not amend or fold it into the previous completed change.
 
-- Default behavior while iterating: edit files, run type-checks / unit tests,
-  and surface the diff (e.g. `git status`, `git diff --stat`) for review.
-- Only proceed with `git add` / `git commit` / `git tag` / `git push` when the
-  user explicitly says something like "commit it", "tag canary.N", "push", or
-  "ship it". Approval must be given in the current turn; earlier blanket
-  approvals do not carry over across newly-discovered bugs.
+- While a fix/feature is still in progress, keep edits uncommitted so verification
+  and related corrections stay in one coherent commit.
+- Before the automatic local commit, inspect status and diff, preserve unrelated
+  work, stage only files belonging to the completed fix/feature, and use the
+  required gitmoji commit-message style.
+- Documentation required by the completed change belongs in the same logical
+  local commit when it lives in the main repository. When the GitHub Wiki is
+  updated in its separate repository, commit only the relevant Wiki pages
+  locally there and preserve unrelated Wiki edits.
+- Rule/docs-only maintenance requested as a standalone task is also committed
+  locally after verification.
+- **Never run `git push`, create or push a tag, trigger a remote workflow, create
+  a GitHub release, or otherwise modify a remote without an explicit in-turn
+  user instruction.** Earlier approval to commit locally does not authorize any
+  remote action.
 - Never auto-bump the canary number between fixes. Wait for the user to
   confirm that the fix is ready to ship.
-- If you believe a commit is warranted, **ask first** instead of acting.
 
 ## Commits
 
 - Commit messages must be prefixed with a **gitmoji** (e.g. `🐛 fix(scope): …`, `✨ feat(scope): …`).
+- Use a new commit for every later fix or feature, even when continuing on the
+  same pre-GA branch.
 - Before merge: show `git status` and `git branch -a`.
 - After merge/push: run `git fetch --prune` to confirm remote branch cleanup.
 - After merge: verify with `git log --oneline -3`.
@@ -83,7 +93,10 @@ Version scheme: `v1.x.x` (ChatHub independent versioning, unrelated to upstream 
 
 If the user asks to **"trigger build"**, **"trigger image build"**, **"new image"**, **"test build"**, **"canary"**, **"ship"**, or **"commit and push to trigger build"**, treat that as a request for the canary flow unless the change is docs/rules-only.
 
-Before running `git commit`, `git push`, or `git tag` for that request, the agent must re-read this file's **Release triggers**, **Docs / rules-only commits**, and **Fix / feature canary flow** sections and state the intended action:
+Before running `git push` or `git tag` for that request (and before any local
+commit still needed for uncommitted work), the agent must re-read this file's
+**Release triggers**, **Docs / rules-only commits**, and **Fix / feature canary
+flow** sections and state the intended action:
 
 - current branch and whether it is non-`main`
 - whether the staged diff is docs/rules-only or contains code/config
@@ -106,7 +119,9 @@ Hard gates:
 
 Commits that change **only** documentation or rules files (`.md`, `.mdc` in `.cursor/rules/`, wiki, etc.) do NOT need a canary tag. These commits don't affect the Docker image output, so triggering a Docker build is wasteful.
 
-- `git add` + `git commit` + `git push` — that's it, no tag
+- Create the local commit automatically after verification.
+- Push that commit only when the user explicitly requests a remote update.
+- Do not create or push a tag.
 - Example: `📝 docs: add PWA icon style rule`
 - Example: `📝 docs: update git workflow rules`
 
@@ -121,7 +136,9 @@ both canary and formal tags.
 **Never commit fixes or features directly on `main` just to get an image.**
 
 1. Ensure the work is on a non-`main` branch (`fix/<slug>` or `feat/<slug>`). If already on a non-`main` branch, use it.
-2. Commit on the branch with a gitmoji prefix. **Do not** bump `package.json`.
+2. Verify the completed fix/feature already has its automatic local commit. If
+   shipping uncovered additional required edits, verify and create a new local
+   commit for those edits with a gitmoji prefix. **Do not** bump `package.json`.
 3. Pick the canary version — always a pre-release of the **next unreleased** version, never the current GA:
    - Read `package.json` version (= last GA, e.g. `3.4.38`).
    - If `git tag -l vX.Y.Z` matches → that GA shipped → canary = `vX.Y.(Z+1)-canary.N`.
