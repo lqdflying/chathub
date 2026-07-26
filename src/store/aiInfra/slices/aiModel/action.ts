@@ -11,19 +11,21 @@ import { StateCreator } from 'zustand/vanilla';
 import { useClientDataSWR } from '@/libs/swr';
 import { aiModelService } from '@/services/aiModel';
 import { AiInfraStore } from '@/store/aiInfra/store';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 const FETCH_AI_PROVIDER_MODEL_LIST_KEY = 'FETCH_AI_PROVIDER_MODELS';
 
 export interface AiModelAction {
   batchToggleAiModels: (ids: string[], enabled: boolean) => Promise<void>;
-  batchUpdateAiModels: (models: AiProviderModelListItem[]) => Promise<void>;
+  batchUpdateAiModels: (models: AiProviderModelListItem[], providerId?: string) => Promise<void>;
   clearModelsByProvider: (provider: string) => Promise<void>;
   clearRemoteModels: (provider: string) => Promise<void>;
   createNewAiModel: (params: CreateAiModelParams) => Promise<void>;
   fetchRemoteModelList: (providerId: string) => Promise<void>;
   internal_toggleAiModelLoading: (id: string, loading: boolean) => void;
 
-  refreshAiModelList: () => Promise<void>;
+  refreshAiModelList: (providerId?: string) => Promise<void>;
   removeAiModel: (id: string, providerId: string) => Promise<void>;
   toggleModelEnabled: (params: Omit<ToggleAiModelEnableParams, 'providerId'>) => Promise<void>;
   updateAiModelsConfig: (
@@ -47,14 +49,22 @@ export const createAiModelSlice: StateCreator<
     if (!activeAiProvider) return;
 
     await aiModelService.batchToggleAiModels(activeAiProvider, ids, enabled);
-    await get().refreshAiModelList();
+    await get().refreshAiModelList(activeAiProvider);
   },
-  batchUpdateAiModels: async (models) => {
-    const { activeAiProvider: id } = get();
-    if (!id) return;
+  batchUpdateAiModels: async (models, providerId) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    const targetProviderId = providerId ?? get().activeAiProvider;
+    if (!requestedScope || !targetProviderId) return;
 
-    await aiModelService.batchUpdateAiModels(id, models);
-    await get().refreshAiModelList();
+    await aiModelService.batchUpdateAiModels(targetProviderId, models);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
+    await get().refreshAiModelList(targetProviderId);
   },
   clearModelsByProvider: async (provider) => {
     await aiModelService.clearModelsByProvider(provider);
@@ -69,29 +79,51 @@ export const createAiModelSlice: StateCreator<
     await get().refreshAiModelList();
   },
   fetchRemoteModelList: async (providerId) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     const { modelsService } = await import('@/services/models');
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     const data = await modelsService.getModels(providerId);
-    if (data) {
-      await get().batchUpdateAiModels(
-        data.map((model) => ({
-          ...model,
-          abilities: {
-            files: model.files,
-            functionCall: model.functionCall,
-            imageOutput: model.imageOutput,
-            reasoning: model.reasoning,
-            search: model.search,
-            video: model.video,
-            vision: model.vision,
-          },
-          enabled: model.enabled || false,
-          source: 'remote',
-          type: model.type || 'chat',
-        })),
+    if (
+      data &&
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration
+    ) {
+      const remoteModels = data.map((model) => ({
+        ...model,
+        abilities: {
+          files: model.files,
+          functionCall: model.functionCall,
+          imageOutput: model.imageOutput,
+          reasoning: model.reasoning,
+          search: model.search,
+          video: model.video,
+          vision: model.vision,
+        },
+        enabled: model.enabled || false,
+        source: 'remote' as const,
+        type: model.type || 'chat',
+      }));
+
+      await aiModelService.batchUpdateAiModels(
+        providerId,
+        remoteModels,
       );
 
-      await get().refreshAiModelList();
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
+
+      await get().refreshAiModelList(providerId);
     }
   },
   internal_toggleAiModelLoading: (id, loading) => {
@@ -105,8 +137,19 @@ export const createAiModelSlice: StateCreator<
       'toggleAiModelLoading',
     );
   },
-  refreshAiModelList: async () => {
-    await mutate([FETCH_AI_PROVIDER_MODEL_LIST_KEY, get().activeAiProvider]);
+  refreshAiModelList: async (providerId) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    const targetProviderId = providerId ?? get().activeAiProvider;
+    if (!requestedScope || !targetProviderId) return;
+
+    await mutate([FETCH_AI_PROVIDER_MODEL_LIST_KEY, requestedScope, targetProviderId]);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     // make refresh provide runtime state async, not block
     get().refreshAiProviderRuntimeState();
   },
@@ -135,12 +178,16 @@ export const createAiModelSlice: StateCreator<
     await get().refreshAiModelList();
   },
 
-  useFetchAiProviderModels: (id) =>
-    useClientDataSWR<AiProviderModelListItem[]>(
-      [FETCH_AI_PROVIDER_MODEL_LIST_KEY, id],
-      ([, id]) => aiModelService.getAiProviderModelList(id as string),
+  useFetchAiProviderModels: (id) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<AiProviderModelListItem[]>(
+      requestedScope ? [FETCH_AI_PROVIDER_MODEL_LIST_KEY, requestedScope, id] : null,
+      () => aiModelService.getAiProviderModelList(id),
       {
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           // no need to update list if the list have been init and data is the same
           if (get().isAiModelListInit && isEqual(data, get().aiProviderModelList)) return;
 
@@ -151,5 +198,6 @@ export const createAiModelSlice: StateCreator<
           );
         },
       },
-    ),
+    );
+  },
 });

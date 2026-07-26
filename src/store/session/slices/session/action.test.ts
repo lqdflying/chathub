@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { message } from '@/components/AntdStaticMethods';
@@ -6,9 +6,15 @@ import { SESSION_CHAT_URL } from '@/const/url';
 import { chatGroupService } from '@/services/chatGroup';
 import { sessionService } from '@/services/session';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
 import { LobeSessionType } from '@/types/session';
 
 import { sessionSelectors } from './selectors';
+
+vi.mock('@/const/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/const/auth')>()),
+  enableAuth: true,
+}));
 
 // Mock sessionService 和其他依赖项
 vi.mock('@/services/session', () => ({
@@ -42,11 +48,28 @@ vi.mock('@/components/AntdStaticMethods', () => ({
   },
 }));
 
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
+
 const mockRefresh = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  useUserStore.setState({
+    authUserId: 'account-a',
+    isLoaded: true,
+    isSignedIn: true,
+    user: { id: 'account-a' },
+  });
   useSessionStore.setState({
+    activeId: 'account-a-session',
     refreshSessions: mockRefresh,
+    scopeGeneration: 0,
   });
 });
 
@@ -89,6 +112,44 @@ describe('SessionAction', () => {
       expect(createdSessionId).toBe(newSessionId);
     });
 
+    it('does not refresh or switch after the account changes during creation', async () => {
+      const createdSession = createDeferred<string>();
+      vi.mocked(sessionService.createSession).mockReturnValue(createdSession.promise);
+      const { result } = renderHook(() => useSessionStore());
+      let creationPromise!: ReturnType<typeof result.current.createSession>;
+
+      act(() => {
+        creationPromise = result.current.createSession({
+          config: { chatConfig: { displayMode: 'docs' } },
+        });
+      });
+
+      await waitFor(() => {
+        expect(sessionService.createSession).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          user: { id: 'account-b' },
+        });
+        useSessionStore.setState({
+          activeId: 'account-b-session',
+          scopeGeneration: 1,
+        });
+      });
+      createdSession.resolve('account-a-new-session');
+
+      let createdSessionId!: string;
+      await act(async () => {
+        createdSessionId = await creationPromise;
+      });
+
+      expect(createdSessionId).toBe('');
+      expect(mockRefresh).not.toHaveBeenCalled();
+      expect(useSessionStore.getState().activeId).toBe('account-b-session');
+    });
+
     it('should create a new session but not switch to it if isSwitchSession is false', async () => {
       const { result } = renderHook(() => useSessionStore());
       const newSessionId = 'new-session-id';
@@ -116,6 +177,11 @@ describe('SessionAction', () => {
       const { result } = renderHook(() => useSessionStore());
       const sessionId = 'session-id';
       const duplicatedSessionId = 'duplicated-session-id';
+      act(() => {
+        useSessionStore.setState({
+          sessions: [{ id: sessionId, meta: { title: 'Original Session' } } as any],
+        });
+      });
       vi.mocked(sessionService.cloneSession).mockResolvedValue(duplicatedSessionId);
       vi.mocked(message.loading).mockResolvedValue(true);
 
@@ -125,6 +191,50 @@ describe('SessionAction', () => {
 
       expect(message.loading).toHaveBeenCalled();
       expect(sessionService.cloneSession).toHaveBeenCalledWith(sessionId, undefined);
+      expect(mockRefresh).toHaveBeenCalled();
+      expect(useSessionStore.getState().activeId).toBe(duplicatedSessionId);
+    });
+
+    it('does not refresh or switch after the account changes during duplication', async () => {
+      const clonedSession = createDeferred<string>();
+      vi.mocked(sessionService.cloneSession).mockReturnValue(clonedSession.promise);
+      const { result } = renderHook(() => useSessionStore());
+      const sessionId = 'account-a-session';
+      act(() => {
+        useSessionStore.setState({
+          activeId: sessionId,
+          sessions: [{ id: sessionId, meta: { title: 'Account A Session' } } as any],
+        });
+      });
+
+      let duplicatePromise!: ReturnType<typeof result.current.duplicateSession>;
+      act(() => {
+        duplicatePromise = result.current.duplicateSession(sessionId);
+      });
+
+      await waitFor(() => {
+        expect(sessionService.cloneSession).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          user: { id: 'account-b' },
+        });
+        useSessionStore.setState({
+          activeId: 'account-b-session',
+          scopeGeneration: 1,
+        });
+      });
+      clonedSession.resolve('stale-account-a-clone');
+
+      await act(async () => {
+        await duplicatePromise;
+      });
+
+      expect(mockRefresh).not.toHaveBeenCalled();
+      expect(message.success).not.toHaveBeenCalled();
+      expect(useSessionStore.getState().activeId).toBe('account-b-session');
     });
   });
 

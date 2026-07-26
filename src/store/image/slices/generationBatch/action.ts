@@ -7,6 +7,8 @@ import { useClientDataSWR } from '@/libs/swr';
 import { GetGenerationStatusResult } from '@/server/routers/lambda/generation';
 import { generationService } from '@/services/generation';
 import { generationBatchService } from '@/services/generationBatch';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 import { GenerationBatch } from '@/types/generation';
 import { setNamespace } from '@/utils/storeDebug';
@@ -165,19 +167,26 @@ export const createGenerationBatchSlice: StateCreator<
 
   refreshGenerationBatches: async () => {
     const { activeGenerationTopicId } = get();
-    if (activeGenerationTopicId) {
-      await mutate([SWR_USE_FETCH_GENERATION_BATCHES, activeGenerationTopicId]);
-    }
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!activeGenerationTopicId || !requestedScope) return;
+
+    await mutate([SWR_USE_FETCH_GENERATION_BATCHES, requestedScope, activeGenerationTopicId]);
   },
 
-  useFetchGenerationBatches: (topicId) =>
-    useClientDataSWR<GenerationBatch[]>(
-      topicId ? [SWR_USE_FETCH_GENERATION_BATCHES, topicId] : null,
-      async ([, topicId]: [string, string]) => {
-        return generationBatchService.getGenerationBatches(topicId);
+  useFetchGenerationBatches: (topicId) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<GenerationBatch[]>(
+      topicId && requestedScope
+        ? [SWR_USE_FETCH_GENERATION_BATCHES, requestedScope, topicId]
+        : null,
+      async (cacheKey: [string, string, string]) => {
+        return generationBatchService.getGenerationBatches(cacheKey[2]);
       },
       {
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           const nextMap = {
             ...get().generationBatchesMap,
             [topicId!]: data,
@@ -195,17 +204,22 @@ export const createGenerationBatchSlice: StateCreator<
           );
         },
       },
-    ),
+    );
+  },
 
   useCheckGenerationStatus: (generationId, asyncTaskId, topicId, enable = true) => {
     const requestCountRef = useRef(0);
     const isErrorRef = useRef(false);
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
 
     return useClientDataSWR<GetGenerationStatusResult>(
-      enable && generationId && !generationId.startsWith('temp-') && asyncTaskId
-        ? [SWR_USE_CHECK_GENERATION_STATUS, generationId, asyncTaskId]
+      enable && generationId && !generationId.startsWith('temp-') && asyncTaskId && requestedScope
+        ? [SWR_USE_CHECK_GENERATION_STATUS, requestedScope, generationId, asyncTaskId]
         : null,
-      async ([, generationId, asyncTaskId]: [string, string, string]) => {
+      async (cacheKey: [string, string, string, string]) => {
+        const generationId = cacheKey[2];
+        const asyncTaskId = cacheKey[3];
+
         // 增加请求计数
         requestCountRef.current += 1;
         return generationService.getGenerationStatus(generationId, asyncTaskId);
@@ -245,6 +259,7 @@ export const createGenerationBatchSlice: StateCreator<
         },
         onSuccess: async (data: GetGenerationStatusResult) => {
           if (!data) return;
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
           // 成功时重置错误状态
           isErrorRef.current = false;
@@ -289,11 +304,15 @@ export const createGenerationBatchSlice: StateCreator<
                     topicId,
                     data.generation.asset.thumbnailUrl,
                   );
+                  if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) {
+                    return;
+                  }
                 }
               }
             }
 
             // 在成功或失败后都要 refreshGenerationBatches
+            if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
             await get().refreshGenerationBatches();
           }
         },

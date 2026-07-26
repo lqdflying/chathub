@@ -15,7 +15,7 @@ import { sessionService } from '@/services/session';
 import { getChatGroupStoreState } from '@/store/chatGroup';
 import { SessionStore } from '@/store/session';
 import { getUserStoreState, useUserStore } from '@/store/user';
-import { settingsSelectors, userProfileSelectors } from '@/store/user/selectors';
+import { authSelectors, settingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { MetaData } from '@/types/meta';
 import {
   ChatSessionList,
@@ -107,6 +107,9 @@ export const createSessionSlice: StateCreator<
 
   createSession: async (agent, isSwitchSession = true) => {
     const { switchSession, refreshSessions } = get();
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return '';
 
     // merge the defaultAgent in settings
     const defaultAgent = merge(
@@ -117,7 +120,18 @@ export const createSessionSlice: StateCreator<
     const newSession: LobeAgentSession = merge(defaultAgent, agent);
 
     const id = await sessionService.createSession(LobeSessionType.Agent, newSession);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return '';
+
     await refreshSessions();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return '';
 
     // Track new agent creation analytics
     const analytics = getSingletonAnalyticsOptional();
@@ -143,7 +157,13 @@ export const createSessionSlice: StateCreator<
   },
 
   duplicateSession: async (id) => {
-    const { switchSession, refreshSessions } = get();
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
+
     const session = sessionSelectors.getSessionById(id)(get());
 
     if (!session) return;
@@ -159,20 +179,26 @@ export const createSessionSlice: StateCreator<
       key: messageLoadingKey,
     });
 
-    const newId = await sessionService.cloneSession(id, newTitle);
+    let newId: string | undefined;
+    try {
+      newId = await sessionService.cloneSession(id, newTitle);
+    } finally {
+      message.destroy(messageLoadingKey);
+    }
+    if (!isCurrentRequest()) return;
 
     // duplicate Session Error
     if (!newId) {
-      message.destroy(messageLoadingKey);
       message.error(t('copyFail', { ns: 'common' }));
       return;
     }
 
-    await refreshSessions();
-    message.destroy(messageLoadingKey);
+    await get().refreshSessions();
+    if (!isCurrentRequest()) return;
+
     message.success(t('duplicateSession.success', { ns: 'chat' }));
 
-    switchSession(newId);
+    get().switchSession(newId);
   },
   pinSession: async (id, pinned) => {
     await get().internal_updateSession(id, { pinned });
@@ -234,9 +260,12 @@ export const createSessionSlice: StateCreator<
     await refreshSessions();
   },
 
-  useFetchSessions: (enabled, isLogin) =>
-    useClientDataSWR<ChatSessionList>(
-      enabled ? [FETCH_SESSIONS_KEY, isLogin] : null,
+  useFetchSessions: (enabled, isLogin) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+    const shouldFetch = enabled && isLogin !== undefined && !!requestedScope;
+
+    return useClientDataSWR<ChatSessionList>(
+      shouldFetch ? [FETCH_SESSIONS_KEY, requestedScope] : null,
       () => sessionService.getGroupedSessions(),
       {
         fallbackData: {
@@ -244,6 +273,8 @@ export const createSessionSlice: StateCreator<
           sessions: [],
         },
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           if (
             get().isSessionsFirstFetchFinished &&
             isEqual(get().sessions, data.sessions) &&
@@ -298,17 +329,21 @@ export const createSessionSlice: StateCreator<
         },
         suspense: true,
       },
-    ),
-  useSearchSessions: (keyword) =>
-    useSWR<LobeSessions>(
-      [SEARCH_SESSIONS_KEY, keyword],
+    );
+  },
+  useSearchSessions: (keyword) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useSWR<LobeSessions>(
+      requestedScope ? [SEARCH_SESSIONS_KEY, requestedScope, keyword] : null,
       async () => {
         if (!keyword) return [];
 
         return sessionService.searchSessions(keyword);
       },
       { revalidateOnFocus: false, revalidateOnMount: false },
-    ),
+    );
+  },
 
   /* eslint-disable sort-keys-fix/sort-keys-fix */
   internal_dispatchSessions: (payload) => {
@@ -345,6 +380,9 @@ export const createSessionSlice: StateCreator<
     );
   },
   refreshSessions: async () => {
-    await mutate([FETCH_SESSIONS_KEY, true]);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    await mutate([FETCH_SESSIONS_KEY, requestedScope]);
   },
 });

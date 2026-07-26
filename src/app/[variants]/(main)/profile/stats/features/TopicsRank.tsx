@@ -13,6 +13,8 @@ import { FORM_STYLE } from '@/const/layoutTokens';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { useClientDataSWR } from '@/libs/swr';
 import { topicService } from '@/services/topic';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { TopicRankItem } from '@/types/topic';
 
 export const TopicsRank = memo<{ mobile?: boolean }>(({ mobile }) => {
@@ -20,8 +22,10 @@ export const TopicsRank = memo<{ mobile?: boolean }>(({ mobile }) => {
   const { t } = useTranslation('auth');
   const theme = useTheme();
   const router = useRouter();
-  const { data, isLoading } = useClientDataSWR('rank-topics', async () =>
-    topicService.rankTopics(),
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
+  const { data, isLoading } = useClientDataSWR(
+    requestedScope ? ['rank-topics', requestedScope] : null,
+    async () => topicService.rankTopics(),
   );
 
   const showExtra = Boolean(data && data?.length > 5);

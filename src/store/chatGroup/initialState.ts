@@ -7,6 +7,7 @@ export interface ChatGroupState {
   groups: ChatGroupItem[];
   groupsInit: boolean;
   isGroupsLoading: boolean;
+  scopeGeneration: number;
   showGroupSetting: boolean;
 }
 
@@ -50,5 +51,6 @@ export const initialChatGroupState: ChatGroupState = {
   groups: [],
   groupsInit: false,
   isGroupsLoading: true,
+  scopeGeneration: 0,
   showGroupSetting: false,
 };

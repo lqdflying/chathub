@@ -339,7 +339,9 @@ describe('chatMessage actions', () => {
           .spyOn(result.current, 'internal_createTmpMessage')
           .mockReturnValue('temp-id');
         vi.spyOn(result.current, 'internal_fetchMessages').mockResolvedValue();
-        vi.spyOn(result.current, 'switchTopic').mockResolvedValue();
+        vi.spyOn(result.current, 'switchTopic').mockImplementation(async (topicId) => {
+          useChatStore.setState({ activeTopicId: topicId });
+        });
 
         await act(async () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
@@ -364,7 +366,9 @@ describe('chatMessage actions', () => {
         vi.spyOn(result.current, 'createTopic').mockResolvedValue(TEST_IDS.NEW_TOPIC_ID);
         vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('temp-id');
         vi.spyOn(result.current, 'internal_fetchMessages').mockResolvedValue();
-        vi.spyOn(result.current, 'switchTopic').mockResolvedValue();
+        vi.spyOn(result.current, 'switchTopic').mockImplementation(async (topicId) => {
+          useChatStore.setState({ activeTopicId: topicId });
+        });
 
         const summaryTopicTitleSpy = vi
           .spyOn(result.current, 'summaryTopicTitle')
@@ -722,6 +726,39 @@ describe('chatMessage actions', () => {
   });
 
   describe('internal_coreProcessMessage', () => {
+    it('stops before creating an assistant when the conversation changes', async () => {
+      let resolveConversationVersion: (version: number) => void;
+      const conversationVersionPromise = new Promise<number>((resolve) => {
+        resolveConversationVersion = resolve;
+      });
+      vi.spyOn(messageService, 'getConversationVersion').mockReturnValue(
+        conversationVersionPromise,
+      );
+      const createMessageSpy = vi.spyOn(messageService, 'createMessage');
+      const userMessage = createMockMessage({
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+
+      const processPromise = useChatStore
+        .getState()
+        .internal_coreProcessMessage([userMessage], userMessage.id);
+      await Promise.resolve();
+
+      act(() => {
+        useChatStore.getState().internal_updateActiveId('other-session');
+      });
+
+      resolveConversationVersion!(7);
+      await processPromise;
+
+      expect(createMessageSpy).not.toHaveBeenCalled();
+    });
+
     it('should process user message and generate AI response', async () => {
       act(() => {
         useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
@@ -1177,6 +1214,10 @@ describe('chatMessage actions', () => {
           type: 'updateMessage',
           value: expect.objectContaining({ content: 'Hello' }),
         }),
+        expect.objectContaining({
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+        }),
       );
 
       streamSpy.mockRestore();
@@ -1209,6 +1250,10 @@ describe('chatMessage actions', () => {
           id: TEST_IDS.ASSISTANT_MESSAGE_ID,
           type: 'updateMessage',
           value: expect.objectContaining({ reasoning: { content: 'Thinking...' } }),
+        }),
+        expect.objectContaining({
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
         }),
       );
 
@@ -1286,6 +1331,10 @@ describe('chatMessage actions', () => {
             }),
           }),
         }),
+        expect.objectContaining({
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+        }),
       );
 
       streamSpy.mockRestore();
@@ -1323,6 +1372,10 @@ describe('chatMessage actions', () => {
           value: expect.objectContaining({
             imageList: expect.any(Array),
           }),
+        }),
+        expect.objectContaining({
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
         }),
       );
 

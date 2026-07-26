@@ -55,6 +55,22 @@ export class ClientService implements IUserService {
     return UserModel.resetSettings();
   };
 
+  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig) => {
+    const migrationResult = await this.preferenceStorage.updateLocalStorageAtomically(
+      (currentPreference) => {
+        const existingImageConfig = currentPreference.imageConfig || {};
+        if (Object.keys(existingImageConfig).length > 0) return;
+
+        return { imageConfig };
+      },
+    );
+
+    return {
+      imageConfig: migrationResult.state.imageConfig || {},
+      migrated: migrationResult.updated,
+    };
+  };
+
   async updateAvatar(avatar: string) {
     await UserModel.updateAvatar(avatar);
   }
@@ -62,6 +78,12 @@ export class ClientService implements IUserService {
   async updatePreference(preference: Partial<UserPreference>) {
     await this.preferenceStorage.saveToLocalStorage(preference);
   }
+
+  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig) => {
+    await this.preferenceStorage.updateLocalStorage((preference) => ({
+      imageConfig: { ...preference.imageConfig, ...imageConfig },
+    }));
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars,unused-imports/no-unused-vars
   async updateGuide(guide: Partial<UserGuide>) {

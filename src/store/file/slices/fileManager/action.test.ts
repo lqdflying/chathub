@@ -13,7 +13,7 @@ import { unzipFile } from '@/utils/unzipFile';
 
 import { useFileStore as useStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 // Mock i18next translation function
 vi.mock('i18next', () => ({
@@ -610,7 +610,7 @@ describe('FileManagerActions', () => {
         await result.current.refreshFileList();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['useFetchFileManage', params]);
+      expect(mutate).toHaveBeenCalledWith(['useFetchFileManage', 'local', params]);
     });
 
     it('should call mutate with undefined params', async () => {
@@ -620,7 +620,7 @@ describe('FileManagerActions', () => {
         await result.current.refreshFileList();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['useFetchFileManage', undefined]);
+      expect(mutate).toHaveBeenCalledWith(['useFetchFileManage', 'local', undefined]);
     });
   });
 

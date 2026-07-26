@@ -12,8 +12,7 @@ import { CheckMcpInstallResult, MCPInstallStep } from '@/types/plugins';
 
 import { useToolStore } from '../../store';
 
-// Keep zustand mock as it's needed globally
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 // Mock sleep to speed up tests
 vi.mock('@/utils/sleep', () => ({
@@ -36,6 +35,7 @@ beforeEach(() => {
         currentPage: 1,
         totalCount: 0,
         categories: [],
+        scopeGeneration: 0,
         refreshPlugins: vi.fn(),
         updateInstallLoadingState: vi.fn(),
       },
@@ -719,6 +719,84 @@ describe('mcpStore actions', () => {
 
         expect(installResult).toBeUndefined();
         expect(mcpService.checkInstallation).not.toHaveBeenCalled();
+      });
+
+      it('should register the controller before fetching plugin details', async () => {
+        const { result } = renderHook(() => useToolStore());
+        let resolvePluginDetail: (value: PluginItem | null) => void;
+        const pluginDetailPromise = new Promise<PluginItem | null>((resolve) => {
+          resolvePluginDetail = resolve;
+        });
+        vi.spyOn(discoverService, 'getMcpDetail').mockReturnValue(pluginDetailPromise as any);
+
+        let installPromise: Promise<boolean | undefined>;
+        act(() => {
+          installPromise = result.current.installMCPPlugin('pending-plugin');
+        });
+
+        await waitFor(() => {
+          expect(result.current.mcpInstallAbortControllers['pending-plugin']).toBeDefined();
+        });
+
+        act(() => {
+          result.current.cancelInstallMCPPlugin('pending-plugin');
+          resolvePluginDetail!(mockPlugin);
+        });
+        await installPromise!;
+
+        expect(mcpService.checkInstallation).not.toHaveBeenCalled();
+      });
+
+      it('should preserve a newer controller when an older detail fetch completes', async () => {
+        const { result } = renderHook(() => useToolStore());
+        let resolveFirstDetail: (value: PluginItem | null) => void;
+        let resolveSecondDetail: (value: PluginItem | null) => void;
+        vi.spyOn(discoverService, 'getMcpDetail')
+          .mockReturnValueOnce(
+            new Promise<PluginItem | null>((resolve) => {
+              resolveFirstDetail = resolve;
+            }) as any,
+          )
+          .mockReturnValueOnce(
+            new Promise<PluginItem | null>((resolve) => {
+              resolveSecondDetail = resolve;
+            }) as any,
+          );
+
+        let firstInstallPromise: Promise<boolean | undefined>;
+        act(() => {
+          firstInstallPromise = result.current.installMCPPlugin('pending-plugin');
+        });
+        await waitFor(() => {
+          expect(result.current.mcpInstallAbortControllers['pending-plugin']).toBeDefined();
+        });
+        const firstController = result.current.mcpInstallAbortControllers['pending-plugin'];
+
+        let secondInstallPromise: Promise<boolean | undefined>;
+        act(() => {
+          secondInstallPromise = result.current.installMCPPlugin('pending-plugin');
+        });
+        await waitFor(() => {
+          expect(result.current.mcpInstallAbortControllers['pending-plugin']).not.toBe(
+            firstController,
+          );
+        });
+        const secondController = result.current.mcpInstallAbortControllers['pending-plugin'];
+
+        act(() => {
+          resolveFirstDetail!(mockPlugin);
+        });
+        await firstInstallPromise!;
+
+        expect(firstController.signal.aborted).toBe(true);
+        expect(result.current.mcpInstallAbortControllers['pending-plugin']).toBe(secondController);
+
+        act(() => {
+          resolveSecondDetail!(null);
+        });
+        await secondInstallPromise!;
+
+        expect(result.current.mcpInstallAbortControllers['pending-plugin']).toBeUndefined();
       });
     });
 

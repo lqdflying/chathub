@@ -1,5 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
+import { type ChatHubRPCDiagnosticOperation, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import {
   ChatErrorType,
   ChatImageItem,
@@ -16,7 +17,6 @@ import {
   type UpdateMessageParams,
   UpdateMessageRAGParams,
 } from '@lobechat/types';
-import { MESSAGE_CANCEL_FLAT, type ChatHubRPCDiagnosticOperation } from '@lobechat/const';
 import { nanoid } from '@lobechat/utils';
 import { copyToClipboard } from '@lobehub/ui';
 import isEqual from 'fast-deep-equal';
@@ -30,10 +30,13 @@ import { rpcDiagnosticsService } from '@/services/rpcDiagnostics';
 import { topicService } from '@/services/topic';
 import { traceService } from '@/services/trace';
 import { ChatStore } from '@/store/chat/store';
+import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { useToolStore } from '@/store/tool';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { Action, setNamespace } from '@/utils/storeDebug';
 
 import type { ChatStoreState } from '../../initialState';
@@ -54,6 +57,56 @@ const isConversationCacheKey = (key: unknown): boolean => {
   if (!Array.isArray(key)) return false;
 
   return conversationCacheKeys.has(key[0] as string);
+};
+
+const clearTitleSummaryOperations = (
+  state: ChatStoreState,
+): Pick<
+  ChatStoreState,
+  | 'threadLoadingIds'
+  | 'threadMaps'
+  | 'threadTitleSummaryOperations'
+  | 'topicLoadingIds'
+  | 'topicMaps'
+  | 'topicTitleSummaryOperations'
+> => {
+  let topicMaps = state.topicMaps;
+  let threadMaps = state.threadMaps;
+
+  for (const [topicId, operation] of Object.entries(state.topicTitleSummaryOperations)) {
+    const topics = topicMaps[operation.containerId];
+    const topic = topics?.find((item) => item.id === topicId);
+    if (!topic || topic.title !== operation.displayedTitle) continue;
+
+    if (topicMaps === state.topicMaps) topicMaps = { ...state.topicMaps };
+    topicMaps[operation.containerId] = topics.map((item) =>
+      item.id === topicId ? { ...item, title: operation.originalTitle } : item,
+    );
+  }
+
+  for (const [threadId, operation] of Object.entries(state.threadTitleSummaryOperations)) {
+    const threads = threadMaps[operation.containerId];
+    const thread = threads?.find((item) => item.id === threadId);
+    if (!thread || thread.title !== operation.displayedTitle) continue;
+
+    if (threadMaps === state.threadMaps) threadMaps = { ...state.threadMaps };
+    threadMaps[operation.containerId] = threads.map((item) =>
+      item.id === threadId ? { ...item, title: operation.originalTitle } : item,
+    );
+  }
+
+  return {
+    threadLoadingIds: state.threadLoadingIds.filter(
+      (threadId) => !state.threadTitleSummaryOperations[threadId],
+    ),
+    threadMaps,
+    threadTitleSummaryOperations: {},
+    topicLoadingIds: state.topicLoadingIds.filter(
+      (topicId) => !state.topicTitleSummaryOperations[topicId],
+    ),
+    topicMaps,
+    topicTitleSummaryOperations: {},
+  };
 };
 
 export interface ChatMessageAction {
@@ -84,7 +137,7 @@ export interface ChatMessageAction {
     type?: 'session' | 'group',
   ) => SWRResponse<UIChatMessage[]>;
   copyMessage: (id: string, content: string) => Promise<void>;
-  refreshMessages: () => Promise<void>;
+  refreshMessages: (context?: ConversationContext) => Promise<void>;
   replaceMessages: (messages: UIChatMessage[]) => void;
   // =========  ↓ Internal Method ↓  ========== //
   // ========================================== //
@@ -122,6 +175,7 @@ export interface ChatMessageAction {
       showNotification?: boolean;
       skipRefresh?: boolean;
       traceId?: string;
+      conversationContext?: ConversationContext;
     },
   ) => Promise<{ persistenceAmbiguous: boolean }>;
   /**
@@ -139,6 +193,7 @@ export interface ChatMessageAction {
     params: CreateMessageParams,
     context?: {
       expectedConversationVersion?: number;
+      conversationContext?: ConversationContext;
       skipRefresh?: boolean;
       tempMessageId?: string;
     },
@@ -177,6 +232,8 @@ export interface ChatMessageAction {
    * Update active session type
    */
   internal_updateActiveSessionType: (sessionType?: 'agent' | 'group') => void;
+  /** Invalidates and cancels producers owned by the current conversation. */
+  internal_invalidateConversation: () => void;
   /**
    * Update active session ID with cleanup of pending operations
    */
@@ -275,6 +332,8 @@ export const chatMessage: StateCreator<
       pluginApiAbortControllers,
       reasoningLoadingIdsAbortController,
       searchWorkflowLoadingIdsAbortController,
+      threadTitleSummaryOperations,
+      topicTitleSummaryOperations,
     } = get();
 
     set(
@@ -299,8 +358,19 @@ export const chatMessage: StateCreator<
       get().internal_toggleSendMessageOperation(operationKey, false);
     }
 
+    for (const operation of Object.values(topicTitleSummaryOperations)) {
+      operation.abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
+    for (const operation of Object.values(threadTitleSummaryOperations)) {
+      operation.abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
+
     internal_cancelAllSupervisorDecisions();
-    get().internal_toggleChatLoading(false, undefined, n('clearAllTopicsHistory/cancelChatLoading'));
+    get().internal_toggleChatLoading(
+      false,
+      undefined,
+      n('clearAllTopicsHistory/cancelChatLoading'),
+    );
     get().internal_toggleMessageInToolsCalling(
       false,
       undefined,
@@ -320,7 +390,8 @@ export const chatMessage: StateCreator<
     useToolStore.setState({ builtinToolLoading: {} });
 
     set(
-      {
+      (state) => ({
+        ...clearTitleSummaryOperations(state),
         activePageContentUrl: undefined,
         activeThreadId: undefined,
         activeTopicId: null as any,
@@ -330,6 +401,7 @@ export const chatMessage: StateCreator<
         codeInterpreterImageMap: {},
         conversationClearGeneration: get().conversationClearGeneration,
         creatingTopic: false,
+        creatingTopicId: undefined,
         dalleImageLoading: {},
         dalleImageMap: {},
         inSearchingMode: false,
@@ -361,6 +433,7 @@ export const chatMessage: StateCreator<
         topicLoadingIds: [],
         topicMaps: {},
         topicSearchKeywords: '',
+        topicTitleSummaryOperations: {},
         showPortal: false,
         startToForkThread: undefined,
         supervisorTodos: {},
@@ -368,13 +441,15 @@ export const chatMessage: StateCreator<
         supervisorDecisionAbortControllers: {},
         supervisorDecisionLoading: [],
         threadStartMessageId: undefined,
+        threadMessageSendingId: undefined,
         toolCallingStreamIds: {},
         threadLoadingIds: [],
         threadMaps: {},
         threadInputMessage: '',
+        threadTitleSummaryOperations: {},
         threadsInit: false,
         topicsInit: false,
-      },
+      }),
       false,
       n('clearAllTopicsHistory'),
     );
@@ -388,6 +463,11 @@ export const chatMessage: StateCreator<
     const { internal_createMessage, updateInputMessage, activeTopicId, activeId, inputMessage } =
       get();
     if (!activeId) return;
+    const requestedGeneration = get().conversationClearGeneration;
+    const isCurrentConversation = () =>
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === activeId &&
+      get().activeTopicId === activeTopicId;
 
     await internal_createMessage({
       content: inputMessage,
@@ -397,12 +477,18 @@ export const chatMessage: StateCreator<
       topicId: activeTopicId,
     });
 
-    updateInputMessage('');
+    if (isCurrentConversation()) updateInputMessage('');
   },
   addUserMessage: async ({ message, fileList, expectedConversationVersion }) => {
     const { internal_createMessage, updateInputMessage, activeTopicId, activeId, activeThreadId } =
       get();
     if (!activeId) return;
+    const requestedGeneration = get().conversationClearGeneration;
+    const isCurrentConversation = () =>
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === activeId &&
+      get().activeTopicId === activeTopicId &&
+      get().activeThreadId === activeThreadId;
 
     const newMessage: CreateMessageParams = {
       content: message,
@@ -420,7 +506,7 @@ export const chatMessage: StateCreator<
       await internal_createMessage(newMessage, { expectedConversationVersion });
     }
 
-    updateInputMessage('');
+    if (isCurrentConversation()) updateInputMessage('');
   },
   copyMessage: async (id, content) => {
     await copyToClipboard(content);
@@ -455,15 +541,26 @@ export const chatMessage: StateCreator<
    * @param enable - whether to enable the fetch
    * @param messageContextId - Can be sessionId or groupId
    */
-  useFetchMessages: (enable, messageContextId, activeTopicId, type = 'session') =>
-    useClientDataSWR<UIChatMessage[]>(
-      enable ? [SWR_USE_FETCH_MESSAGES, messageContextId, activeTopicId, type] : null,
-      async ([, sessionId, topicId, type]: [string, string, string | undefined, string]) =>
-        type === 'session'
+  useFetchMessages: (enable, messageContextId, activeTopicId, type = 'session') => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<UIChatMessage[]>(
+      enable && requestedScope
+        ? [SWR_USE_FETCH_MESSAGES, requestedScope, messageContextId, activeTopicId, type]
+        : null,
+      async (cacheKey: [string, string, string, string | undefined, string]) => {
+        const sessionId = cacheKey[2];
+        const topicId = cacheKey[3];
+        const requestType = cacheKey[4];
+
+        return requestType === 'session'
           ? messageService.getMessages(sessionId, topicId)
-          : messageService.getGroupMessages(sessionId, topicId),
+          : messageService.getGroupMessages(sessionId, topicId);
+      },
       {
         onSuccess: (messages, key) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           const nextMap = {
             ...get().messagesMap,
             [messageMapKey(messageContextId || '', activeTopicId)]: messages,
@@ -479,12 +576,24 @@ export const chatMessage: StateCreator<
           );
         },
       },
-    ),
+    );
+  },
   // TODO: The mutate should only be called once, but since we haven't merge session and group,
   // we need to call it twice
-  refreshMessages: async () => {
-    await mutate([SWR_USE_FETCH_MESSAGES, get().activeId, get().activeTopicId, 'session']);
-    await mutate([SWR_USE_FETCH_MESSAGES, get().activeId, get().activeTopicId, 'group']);
+  refreshMessages: async (context) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+    const sessionId = context?.sessionId ?? get().activeId;
+    const topicId = context?.topicId ?? get().activeTopicId;
+
+    await mutate([
+      SWR_USE_FETCH_MESSAGES,
+      requestedScope,
+      sessionId,
+      topicId,
+      'session',
+    ]);
+    await mutate([SWR_USE_FETCH_MESSAGES, requestedScope, sessionId, topicId, 'group']);
   },
   replaceMessages: (messages) => {
     set(
@@ -535,6 +644,10 @@ export const chatMessage: StateCreator<
 
   internal_updateMessageContent: async (id, content, extra) => {
     const { internal_dispatchMessage, refreshMessages, internal_transformToolCalls } = get();
+    const conversationContext = extra?.conversationContext;
+    const dispatchContext = conversationContext
+      ? { sessionId: conversationContext.sessionId, topicId: conversationContext.topicId }
+      : undefined;
 
     const tools = extra?.toolCalls ? internal_transformToolCalls(extra.toolCalls) : undefined;
     const update: UpdateMessageParams = {
@@ -553,7 +666,7 @@ export const chatMessage: StateCreator<
     // Due to the async update method and refresh need about 100ms
     // we need to update the message content at the frontend to avoid the update flick
     // refs: https://medium.com/@kyledeguzmanx/what-are-optimistic-updates-483662c3e171
-    internal_dispatchMessage({ id, type: 'updateMessage', value: update });
+    internal_dispatchMessage({ id, type: 'updateMessage', value: update }, dispatchContext);
 
     if (extra?.persistenceRecovery === 'assistant_finalization') {
       const diagnosticId = extra.diagnosticId || `td_${nanoid(20)}`;
@@ -581,19 +694,19 @@ export const chatMessage: StateCreator<
           if (attempt < 2) continue;
           if (!extra.skipRefresh) {
             try {
-              await refreshMessages();
+              await refreshMessages(conversationContext);
             } catch {
               // The streamed content remains authoritative until a later refresh succeeds.
             }
           }
-          internal_dispatchMessage({ id, type: 'updateMessage', value: update });
+          internal_dispatchMessage({ id, type: 'updateMessage', value: update }, dispatchContext);
           return { persistenceAmbiguous: true };
         }
       }
 
       if (!extra.skipRefresh) {
         try {
-          await refreshMessages();
+          await refreshMessages(conversationContext);
         } catch {
           // The confirmed write and optimistic payload remain authoritative until revalidation recovers.
         }
@@ -610,7 +723,7 @@ export const chatMessage: StateCreator<
     } else {
       await messageService.updateMessage(id, update);
     }
-    if (!extra?.skipRefresh) await refreshMessages();
+    if (!extra?.skipRefresh) await refreshMessages(conversationContext);
     return { persistenceAmbiguous: false };
   },
 
@@ -621,7 +734,12 @@ export const chatMessage: StateCreator<
       internal_toggleMessageLoading,
       internal_dispatchMessage,
     } = get();
-    const conversationClearGeneration = get().conversationClearGeneration;
+    const conversationContext = context?.conversationContext;
+    const conversationClearGeneration =
+      conversationContext?.generation ?? get().conversationClearGeneration;
+    const dispatchContext = conversationContext
+      ? { sessionId: conversationContext.sessionId, topicId: conversationContext.topicId }
+      : { sessionId: message.sessionId, topicId: message.topicId };
     let tempId = context?.tempMessageId;
     if (!tempId) {
       // use optimistic update to avoid the slow waiting
@@ -642,17 +760,20 @@ export const chatMessage: StateCreator<
       if (get().conversationClearGeneration !== conversationClearGeneration) return;
 
       internal_toggleMessageLoading(false, tempId);
-      internal_dispatchMessage({
-        id: tempId,
-        type: 'updateMessage',
-        value: {
-          error: {
-            body: error,
-            message: (error as Error).message,
-            type: ChatErrorType.CreateMessageError,
+      internal_dispatchMessage(
+        {
+          id: tempId,
+          type: 'updateMessage',
+          value: {
+            error: {
+              body: error,
+              message: (error as Error).message,
+              type: ChatErrorType.CreateMessageError,
+            },
           },
         },
-      });
+        dispatchContext,
+      );
       return;
     }
 
@@ -661,7 +782,10 @@ export const chatMessage: StateCreator<
       return;
     }
 
-    internal_dispatchMessage({ id: tempId, type: 'updateMessage', value: { id } });
+    internal_dispatchMessage(
+      { id: tempId, type: 'updateMessage', value: { id } },
+      dispatchContext,
+    );
 
     if (message.topicId) {
       get().internal_dispatchTopic({
@@ -677,7 +801,7 @@ export const chatMessage: StateCreator<
 
     if (!context?.skipRefresh) {
       try {
-        await refreshMessages();
+        await refreshMessages(conversationContext);
       } catch {
         // Creation succeeded; retain the reconciled optimistic row until revalidation recovers.
       }
@@ -776,13 +900,69 @@ export const chatMessage: StateCreator<
     set({ activeSessionType: sessionType }, false, n('updateActiveSessionType'));
   },
 
+  internal_invalidateConversation: () => {
+    const {
+      chatLoadingIdsAbortController,
+      mainSendMessageOperations,
+      messageInToolsCallingIdsAbortController,
+      pluginApiAbortControllers,
+      reasoningLoadingIdsAbortController,
+      searchWorkflowLoadingIdsAbortController,
+      threadTitleSummaryOperations,
+      topicTitleSummaryOperations,
+    } = get();
+
+    chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+
+    for (const abortController of Object.values(pluginApiAbortControllers)) {
+      abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
+
+    for (const operation of Object.values(mainSendMessageOperations)) {
+      operation.abortController?.abort(MESSAGE_CANCEL_FLAT);
+    }
+
+    for (const operation of Object.values(topicTitleSummaryOperations)) {
+      operation.abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
+    for (const operation of Object.values(threadTitleSummaryOperations)) {
+      operation.abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
+
+    get().internal_cancelAllSupervisorDecisions();
+    useToolStore.setState({ builtinToolLoading: {} });
+    set(
+      (state) => ({
+        ...clearTitleSummaryOperations(state),
+        chatLoadingIds: [],
+        chatLoadingIdsAbortController: undefined,
+        conversationClearGeneration: state.conversationClearGeneration + 1,
+        isCreatingMessage: false,
+        mainSendMessageOperations: {},
+        messageLoadingIds: [],
+        messageInToolsCallingIds: [],
+        messageInToolsCallingIdsAbortController: undefined,
+        pluginApiAbortControllers: {},
+        pluginApiLoadingIds: [],
+        reasoningLoadingIds: [],
+        reasoningLoadingIdsAbortController: undefined,
+        searchWorkflowLoadingIds: [],
+        searchWorkflowLoadingIdsAbortController: undefined,
+        toolCallingStreamIds: {},
+      }),
+      false,
+      n('invalidateConversation'),
+    );
+  },
+
   internal_updateActiveId: (activeId: string) => {
     const currentActiveId = get().activeId;
     if (currentActiveId === activeId) return;
 
-    // Before switching sessions, cancel all pending supervisor decisions
-    get().internal_cancelAllSupervisorDecisions();
-
+    get().internal_invalidateConversation();
     set({ activeId }, false, n(`updateActiveId/${activeId}`));
   },
 });

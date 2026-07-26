@@ -9,8 +9,10 @@ interface CreateFileParams extends Omit<UploadFileParams, 'url'> {
 }
 
 export class ServerService implements IFileService {
-  createFile: IFileService['createFile'] = async (params, knowledgeBaseId) => {
-    return lambdaClient.file.createFile.mutate({ ...params, knowledgeBaseId } as CreateFileParams);
+  createFile: IFileService['createFile'] = async (params, knowledgeBaseId, signal) => {
+    return lambdaClient.file.createFile.mutate({ ...params, knowledgeBaseId } as CreateFileParams, {
+      signal,
+    });
   };
 
   getFile: IFileService['getFile'] = async (id) => {
@@ -43,8 +45,8 @@ export class ServerService implements IFileService {
     return lambdaClient.file.getFileItemById.query({ id });
   };
 
-  checkFileHash: IFileService['checkFileHash'] = async (hash) => {
-    return lambdaClient.file.checkFileHash.mutate({ hash });
+  checkFileHash: IFileService['checkFileHash'] = async (hash, signal) => {
+    return lambdaClient.file.checkFileHash.mutate({ hash }, { signal });
   };
 
   removeFileAsyncTask = async (id: string, type: 'embedding' | 'chunk') => {

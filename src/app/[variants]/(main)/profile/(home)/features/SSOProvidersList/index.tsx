@@ -9,7 +9,7 @@ import AuthIcons from '@/components/NextAuth/AuthIcons';
 import { useOnlyFetchOnceSWR } from '@/libs/swr';
 import { userService } from '@/services/user';
 import { useUserStore } from '@/store/user';
-import { userProfileSelectors } from '@/store/user/selectors';
+import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
 
 const { Item } = List;
 
@@ -19,16 +19,23 @@ const providerNameStyle: CSSProperties = {
 
 export const SSOProvidersList = memo(() => {
   const [userProfile] = useUserStore((s) => [userProfileSelectors.userProfile(s)]);
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
   const { t } = useTranslation('auth');
 
   const [allowUnlink, setAllowUnlink] = useState<boolean>(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  const { data, isLoading, mutate } = useOnlyFetchOnceSWR('profile-sso-providers', async () => {
-    const list = await userService.getUserSSOProviders();
-    setAllowUnlink(list?.length > 1);
-    return list;
-  });
+  const { data, isLoading, mutate } = useOnlyFetchOnceSWR(
+    requestedScope ? ['profile-sso-providers', requestedScope] : null,
+    async () => userService.getUserSSOProviders(),
+    {
+      onSuccess: (list) => {
+        if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
+        setAllowUnlink(list?.length > 1);
+      },
+    },
+  );
 
   const handleUnlinkSSO = async (provider: string, providerAccountId: string) => {
     if (data?.length === 1 || !data) {
@@ -61,7 +68,7 @@ export const SSOProvidersList = memo(() => {
       {t('profile.sso.loading')}
     </Flexbox>
   ) : (
-    <Flexbox>
+    <Flexbox key={requestedScope || 'anonymous'}>
       {data?.map((item, index) => (
         <Item
           actions={

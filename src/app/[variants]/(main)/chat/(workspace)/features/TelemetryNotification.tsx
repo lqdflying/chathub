@@ -12,7 +12,7 @@ import Notification from '@/components/Notification';
 import { BRANDING_NAME } from '@/const/branding';
 import { PRIVACY_URL } from '@/const/url';
 import { useUserStore } from '@/store/user';
-import { preferenceSelectors } from '@/store/user/selectors';
+import { authSelectors, preferenceSelectors } from '@/store/user/selectors';
 
 const useStyles = createStyles(({ css, token }) => ({
   desc: css`
@@ -28,6 +28,7 @@ const TelemetryNotification = memo<{ mobile?: boolean }>(({ mobile }) => {
   const { styles, theme } = useStyles();
 
   const { t } = useTranslation('common');
+  const currentUserScope = useUserStore(authSelectors.currentUserScope);
   const isPreferenceInit = useUserStore(preferenceSelectors.isPreferenceInit);
 
   const [useCheckTrace, updatePreference] = useUserStore((s) => [
@@ -35,7 +36,7 @@ const TelemetryNotification = memo<{ mobile?: boolean }>(({ mobile }) => {
     s.updatePreference,
   ]);
 
-  const { data: showModal, mutate } = useCheckTrace(isPreferenceInit);
+  const { data: showModal, mutate } = useCheckTrace(isPreferenceInit, currentUserScope);
 
   const updateTelemetry = (telemetry: boolean) => {
     updatePreference({ telemetry });

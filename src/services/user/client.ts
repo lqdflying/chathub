@@ -76,12 +76,34 @@ export class ClientService extends BaseClientService implements IUserService {
     return this.userModel.deleteSetting();
   };
 
+  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig) => {
+    const migrationResult = await this.preferenceStorage.updateLocalStorageAtomically(
+      (currentPreference) => {
+        const existingImageConfig = currentPreference.imageConfig || {};
+        if (Object.keys(existingImageConfig).length > 0) return;
+
+        return { imageConfig };
+      },
+    );
+
+    return {
+      imageConfig: migrationResult.state.imageConfig || {},
+      migrated: migrationResult.updated,
+    };
+  };
+
   updateAvatar = async (avatar: string) => {
     await this.userModel.updateUser({ avatar });
   };
 
   updatePreference: IUserService['updatePreference'] = async (preference) => {
     await this.preferenceStorage.saveToLocalStorage(preference);
+  };
+
+  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig) => {
+    await this.preferenceStorage.updateLocalStorage((preference) => ({
+      imageConfig: { ...preference.imageConfig, ...imageConfig },
+    }));
   };
 
   updateGuide: IUserService['updateGuide'] = async () => {

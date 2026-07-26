@@ -5,6 +5,8 @@ import { StateCreator } from 'zustand/vanilla';
 import { useClientDataSWR } from '@/libs/swr';
 import { ragEvalService } from '@/services/ragEval';
 import { KnowledgeBaseStore } from '@/store/knowledgeBase/store';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 const FETCH_EVALUATION_LIST_KEY = 'FETCH_EVALUATION_LIST_KEY';
 
@@ -31,32 +33,72 @@ export const createRagEvalEvaluationSlice: StateCreator<
   },
 
   createNewEvaluation: async (params) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await ragEvalService.createEvaluation(params);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().refreshEvaluationList();
   },
   refreshEvaluationList: async () => {
-    await mutate(FETCH_EVALUATION_LIST_KEY);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    await mutate(
+      (key) =>
+        Array.isArray(key) && key[0] === FETCH_EVALUATION_LIST_KEY && key[1] === requestedScope,
+    );
   },
 
   removeEvaluation: async (id) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await ragEvalService.removeEvaluation(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     // await get().refreshEvaluationList();
   },
 
   runEvaluation: async (id) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await ragEvalService.startEvaluationTask(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
   },
 
-  useFetchEvaluationList: (knowledgeBaseId) =>
-    useClientDataSWR<RAGEvalDataSetItem[]>(
-      [FETCH_EVALUATION_LIST_KEY, knowledgeBaseId],
+  useFetchEvaluationList: (knowledgeBaseId) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<RAGEvalDataSetItem[]>(
+      requestedScope ? [FETCH_EVALUATION_LIST_KEY, requestedScope, knowledgeBaseId] : null,
       () => ragEvalService.getEvaluationList(knowledgeBaseId),
       {
         fallbackData: [],
         onSuccess: () => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           if (!get().initDatasetList)
             set({ initDatasetList: true }, false, 'useFetchDatasets/init');
         },
       },
-    ),
+    );
+  },
 });

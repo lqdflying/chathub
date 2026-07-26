@@ -51,6 +51,7 @@ interface UploadFileToS3Options {
   onNotSupported?: () => void;
   onProgress?: (status: FileUploadStatus, state: FileUploadState) => void;
   pathname?: string;
+  signal?: AbortSignal;
   skipCheckFileType?: boolean;
 }
 
@@ -60,8 +61,17 @@ class UploadService {
    */
   uploadFileToS3 = async (
     file: File,
-    { onProgress, directory, skipCheckFileType, onNotSupported, pathname }: UploadFileToS3Options,
+    {
+      onProgress,
+      directory,
+      signal,
+      skipCheckFileType,
+      onNotSupported,
+      pathname,
+    }: UploadFileToS3Options,
   ): Promise<{ data: FileMetadata; success: boolean }> => {
+    signal?.throwIfAborted();
+
     const { getElectronStoreState } = await import('@/store/electron');
     const { electronSyncSelectors } = await import('@/store/electron/selectors');
     // only if not enable sync
@@ -71,6 +81,7 @@ class UploadService {
     // 桌面端上传逻辑（并且没开启 sync 同步）
     if (isDesktop && !isSyncActive) {
       const data = await this.uploadToDesktopS3(file, { directory, pathname });
+      signal?.throwIfAborted();
       return { data, success: true };
     }
 
@@ -78,7 +89,7 @@ class UploadService {
     if (isServerMode) {
       // if is server mode, upload to server s3,
 
-      const data = await this.uploadToServerS3(file, { directory, onProgress, pathname });
+      const data = await this.uploadToServerS3(file, { directory, onProgress, pathname, signal });
       return { data, success: true };
     }
 
@@ -90,11 +101,13 @@ class UploadService {
     }
 
     const fileArrayBuffer = await file.arrayBuffer();
+    signal?.throwIfAborted();
 
     // 1. check file hash
     const hash = sha256(fileArrayBuffer);
     // Upload to the indexeddb in the browser
     const data = await this.uploadToClientS3(hash, file);
+    signal?.throwIfAborted();
 
     return { data, success: true };
   };
@@ -138,6 +151,7 @@ class UploadService {
 
     // 使用统一的上传方法
     const { data: metadata } = await this.uploadFileToS3(file, options);
+    options.signal?.throwIfAborted();
     const hash = sha256(await file.arrayBuffer());
 
     return {
@@ -160,15 +174,23 @@ class UploadService {
       onProgress,
       directory,
       pathname,
+      signal,
     }: {
       directory?: string;
       onProgress?: (status: FileUploadStatus, state: FileUploadState) => void;
       pathname?: string;
+      signal?: AbortSignal;
     },
   ): Promise<FileMetadata> => {
+    signal?.throwIfAborted();
     const xhr = new XMLHttpRequest();
 
-    const { preSignUrl, ...result } = await this.getSignedUploadUrl(file, { directory, pathname });
+    const { preSignUrl, ...result } = await this.getSignedUploadUrl(file, {
+      directory,
+      pathname,
+      signal,
+    });
+    signal?.throwIfAborted();
     let startTime = Date.now();
     xhr.upload.addEventListener('progress', (event) => {
       if (event.lengthComputable) {
@@ -190,9 +212,15 @@ class UploadService {
     xhr.open('PUT', preSignUrl);
     xhr.setRequestHeader('Content-Type', file.type);
     const data = await file.arrayBuffer();
+    signal?.throwIfAborted();
 
     await new Promise((resolve, reject) => {
+      const handleAbort = () => {
+        xhr.abort();
+        reject(signal?.reason);
+      };
       xhr.addEventListener('load', () => {
+        signal?.removeEventListener('abort', handleAbort);
         if (xhr.status >= 200 && xhr.status < 300) {
           onProgress?.('success', {
             progress: 100,
@@ -205,9 +233,15 @@ class UploadService {
         }
       });
       xhr.addEventListener('error', () => {
+        signal?.removeEventListener('abort', handleAbort);
         if (xhr.status === 0) reject(UPLOAD_NETWORK_ERROR);
         else reject(xhr.statusText);
       });
+      signal?.addEventListener('abort', handleAbort, { once: true });
+      if (signal?.aborted) {
+        handleAbort();
+        return;
+      }
       xhr.send(data);
     });
 
@@ -255,7 +289,7 @@ class UploadService {
 
   private getSignedUploadUrl = async (
     file: File,
-    options: { directory?: string; pathname?: string } = {},
+    options: { directory?: string; pathname?: string; signal?: AbortSignal } = {},
   ): Promise<
     FileMetadata & {
       preSignUrl: string;
@@ -264,7 +298,10 @@ class UploadService {
     // 生成文件路径元数据
     const { date, dirname, filename, pathname } = generateFilePathMetadata(file.name, options);
 
-    const preSignUrl = await lambdaClient.upload.createS3PreSignedUrl.mutate({ pathname });
+    const preSignUrl = await lambdaClient.upload.createS3PreSignedUrl.mutate(
+      { pathname },
+      { signal: options.signal },
+    );
 
     return {
       date,

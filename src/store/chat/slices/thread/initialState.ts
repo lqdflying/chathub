@@ -1,5 +1,7 @@
 import { ThreadItem, ThreadType } from '@/types/topic';
 
+import type { TitleSummaryOperation } from '../../types';
+
 export interface ChatThreadState {
   activeThreadId?: string;
   /**
@@ -16,11 +18,13 @@ export interface ChatThreadState {
   threadInputMessage: string;
   threadLoadingIds: string[];
   threadMaps: Record<string, ThreadItem[]>;
+  threadMessageSendingId?: string;
   threadRenamingId?: string;
   /**
    * when open thread creator, set the message id to it
    */
   threadStartMessageId?: string;
+  threadTitleSummaryOperations: Record<string, TitleSummaryOperation>;
   threadsInit?: boolean;
 }
 
@@ -30,5 +34,6 @@ export const initialThreadState: ChatThreadState = {
   threadInputMessage: '',
   threadLoadingIds: [],
   threadMaps: {},
+  threadTitleSummaryOperations: {},
   threadsInit: false,
 };

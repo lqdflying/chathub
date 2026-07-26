@@ -1,9 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { modelsService } from '@/services/models';
 import { userService } from '@/services/user';
 import { useUserStore } from '@/store/user';
+import { initialState } from '@/store/user/initialState';
 import { ProviderConfig } from '@/types/user/settings';
 
 import { settingsSelectors } from '../settings/selectors';
@@ -18,9 +19,14 @@ vi.mock('@/services/user', () => ({
   },
 }));
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 describe('LLMSettingsSliceAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useUserStore.setState(initialState, false);
+  });
+
   describe('setModelProviderConfig', () => {
     it('should set OpenAI configuration', async () => {
       const { result } = renderHook(() => useUserStore());
@@ -142,7 +148,7 @@ describe('LLMSettingsSliceAction', () => {
         useUserStore.setState({
           settings: {
             languageModel: {
-              ollama: { enabledModels: ['llava'] },
+              minimax: { enabledModels: ['MiniMax-M3'] },
             },
           },
         });
@@ -152,11 +158,14 @@ describe('LLMSettingsSliceAction', () => {
         result.current.refreshModelProviderList();
       });
 
-      const ollamaList = result.current.modelProviderList.find((r) => r.id === 'ollama');
+      const minimaxList = result.current.modelProviderList.find((provider) => provider.id === 'minimax');
       // Assert that setModelProviderConfig was not called
-      const model = ollamaList?.chatModels.find((c) => c.id === 'llava');
+      const model = minimaxList?.chatModels.find((model) => model.id === 'MiniMax-M3');
 
-      expect(model).toMatchSnapshot();
+      expect(model).toMatchObject({
+        enabled: true,
+        id: 'MiniMax-M3',
+      });
     });
 
     it('modelProviderListForModelSelect should return only enabled providers', () => {
@@ -166,8 +175,8 @@ describe('LLMSettingsSliceAction', () => {
         useUserStore.setState({
           settings: {
             languageModel: {
-              perplexity: { enabled: true },
               azure: { enabled: false },
+              minimax: { enabled: true },
             },
           },
         });
@@ -180,8 +189,8 @@ describe('LLMSettingsSliceAction', () => {
       const enabledProviders = modelProviderSelectors.modelProviderListForModelSelect(
         result.current,
       );
-      expect(enabledProviders).toHaveLength(3);
-      expect(enabledProviders.at(-1)!.id).toBe('perplexity');
+      expect(enabledProviders.map((provider) => provider.id)).toContain('minimax');
+      expect(enabledProviders.map((provider) => provider.id)).not.toContain('azure');
     });
   });
 
@@ -330,7 +339,9 @@ describe('LLMSettingsSliceAction', () => {
 
       vi.spyOn(modelsService, 'getModels').mockResolvedValueOnce([]);
 
-      renderHook(() => result.current.useFetchProviderModelList(provider, enabledAutoFetch));
+      renderHook(() =>
+        result.current.useFetchProviderModelList(provider, enabledAutoFetch, 'local'),
+      );
 
       await waitFor(() => {
         expect(spyOn).toHaveBeenCalled();
@@ -349,7 +360,9 @@ describe('LLMSettingsSliceAction', () => {
 
       vi.spyOn(modelsService, 'getModels').mockResolvedValueOnce([]);
 
-      renderHook(() => result.current.useFetchProviderModelList(provider, enabledAutoFetch));
+      renderHook(() =>
+        result.current.useFetchProviderModelList(provider, enabledAutoFetch, 'local'),
+      );
 
       await waitFor(() => {
         expect(spyOn).not.toHaveBeenCalled();

@@ -13,8 +13,10 @@ import { useSessionStore } from '@/store/session';
 const SessionHydration = memo(() => {
   const useStoreUpdater = createStoreUpdater(useSessionStore);
   const useAgentStoreUpdater = createStoreUpdater(useAgentStore);
-  const useChatStoreUpdater = createStoreUpdater(useChatStore);
-  const [switchTopic] = useChatStore((s) => [s.switchTopic]);
+  const [internalUpdateActiveId, switchTopic] = useChatStore((s) => [
+    s.internal_updateActiveId,
+    s.switchTopic,
+  ]);
 
   // two-way bindings the url and session store
   const [session, setSession] = useQueryState(
@@ -23,13 +25,13 @@ const SessionHydration = memo(() => {
   );
   useStoreUpdater('activeId', session);
   useAgentStoreUpdater('activeId', session);
-  useChatStoreUpdater('activeId', session);
 
   useEffect(() => {
     const unsubscribe = useSessionStore.subscribe(
       (s) => s.activeId,
       (state) => {
-        switchTopic();
+        internalUpdateActiveId(state);
+        void switchTopic(undefined, true);
         setSession(state);
       },
     );
@@ -37,7 +39,11 @@ const SessionHydration = memo(() => {
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [internalUpdateActiveId, setSession, switchTopic]);
+
+  useEffect(() => {
+    internalUpdateActiveId(session);
+  }, [internalUpdateActiveId, session]);
 
   return null;
 });

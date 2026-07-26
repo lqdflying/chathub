@@ -7,7 +7,7 @@ import { uploadService } from '@/services/upload';
 
 import { useFileStore as useStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 // Mock necessary modules and functions
 vi.mock('@/components/AntdStaticMethods', () => ({

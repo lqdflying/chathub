@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { picbedService } from '@/services/picbed';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import ImageCard from './ImageCard';
 import { usePicbedUpload } from './usePicbedUpload';
@@ -53,7 +55,11 @@ interface ImageRecord {
   url: string;
 }
 
-const PicbedWorkspace = memo(() => {
+interface PicbedWorkspaceContentProps {
+  requestedScope: string | undefined;
+}
+
+const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedScope }) => {
   const { styles, cx } = useStyles();
   const { t } = useTranslation('tools');
   const { message } = App.useApp();
@@ -63,38 +69,54 @@ const PicbedWorkspace = memo(() => {
   const PAGE_SIZE = 20;
 
   const loadImages = useCallback(async () => {
+    const scopeAtRequestStart = requestedScope;
+    if (!scopeAtRequestStart) {
+      setImages([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     try {
       const list = await picbedService.list();
+      if (authSelectors.currentUserScope(useUserStore.getState()) !== scopeAtRequestStart) return;
+
       setImages(list as ImageRecord[]);
     } finally {
-      setLoading(false);
+      if (authSelectors.currentUserScope(useUserStore.getState()) === scopeAtRequestStart) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [requestedScope]);
 
-  const { isDragging, uploadFiles, uploading } = usePicbedUpload(loadImages);
+  const { isDragging, uploadFiles, uploading } = usePicbedUpload(requestedScope, loadImages);
 
   useEffect(() => {
-    loadImages();
+    void loadImages();
   }, [loadImages]);
 
   const handleUpload = async (files: File[]) => {
+    const scopeAtRequestStart = requestedScope;
     const results = await uploadFiles(files);
-    if (results) {
+    if (results && authSelectors.currentUserScope(useUserStore.getState()) === scopeAtRequestStart) {
       setPage(1);
-      loadImages();
+      void loadImages();
     }
   };
 
   const pagedImages = images.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleDelete = async (id: string) => {
+    const scopeAtRequestStart = requestedScope;
     await picbedService.delete(id);
+    if (authSelectors.currentUserScope(useUserStore.getState()) !== scopeAtRequestStart) return;
+
     setImages((prev) => prev.filter((img) => img.id !== id));
     message.success(t('picbed.delete'));
   };
 
   const handleFileSelect = (file: File) => {
-    handleUpload([file]);
+    void handleUpload([file]);
     return false;
   };
 
@@ -158,6 +180,17 @@ const PicbedWorkspace = memo(() => {
         </>
       )}
     </Flexbox>
+  );
+});
+
+const PicbedWorkspace = memo(() => {
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+  return (
+    <PicbedWorkspaceContent
+      key={requestedScope || 'unresolved-user'}
+      requestedScope={requestedScope}
+    />
   );
 });
 

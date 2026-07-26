@@ -23,13 +23,21 @@ export interface MCPStoreState {
 }
 
 export const initialMCPStoreState: MCPStoreState = {
+  activeMCPIdentifier: undefined,
   categories: [],
   currentPage: 1,
+  isLoadingMore: false,
+  isMcpListInit: false,
   mcpInstallAbortControllers: {},
   mcpInstallProgress: {},
   mcpPluginItems: [],
+  mcpSearchKeywords: undefined,
   // 测试连接相关状态初始化
   mcpTestAbortControllers: {},
   mcpTestErrors: {},
   mcpTestLoading: {},
+  searchLoading: false,
+  tags: [],
+  totalCount: 0,
+  totalPages: 0,
 };

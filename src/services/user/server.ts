@@ -25,6 +25,10 @@ export class ServerService implements IUserService {
     return lambdaClient.user.makeUserOnboarded.mutate();
   };
 
+  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig) => {
+    return lambdaClient.user.migrateImageConfig.mutate(imageConfig);
+  };
+
   updateAvatar: IUserService['updateAvatar'] = async (avatar) => {
     return lambdaClient.user.updateAvatar.mutate(avatar);
   };
@@ -35,6 +39,10 @@ export class ServerService implements IUserService {
 
   updateGuide: IUserService['updateGuide'] = async (guide) => {
     return lambdaClient.user.updateGuide.mutate(guide);
+  };
+
+  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig) => {
+    return lambdaClient.user.updateImageConfig.mutate(imageConfig);
   };
 
   updateUserSettings: IUserService['updateUserSettings'] = async (value, signal) => {

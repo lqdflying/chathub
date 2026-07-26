@@ -128,6 +128,45 @@ describe('generateAIChatV2 actions', () => {
   });
 
   describe('sendMessageInServer', () => {
+    it('ignores a persistence response after switching conversations', async () => {
+      let resolveServerSend: (response: any) => void;
+      const serverSendPromise = new Promise<any>((resolve) => {
+        resolveServerSend = resolve;
+      });
+      (aiChatService.sendMessageInServer as Mock).mockReturnValueOnce(serverSendPromise);
+      const refreshAiChat = vi.fn();
+      const execAgentRuntime = vi.fn();
+
+      act(() => {
+        useChatStore.setState({
+          internal_execAgentRuntime: execAgentRuntime,
+          internal_refreshAiChat: refreshAiChat,
+        });
+      });
+
+      const sendPromise = useChatStore
+        .getState()
+        .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+      await Promise.resolve();
+
+      act(() => {
+        useChatStore.getState().internal_updateActiveId('other-session');
+      });
+
+      resolveServerSend!({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: false,
+        messages: [],
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      });
+      await sendPromise;
+
+      expect(refreshAiChat).not.toHaveBeenCalled();
+      expect(execAgentRuntime).not.toHaveBeenCalled();
+    });
+
     describe('validation', () => {
       it('should not send when there is no active session', async () => {
         act(() => {
@@ -511,7 +550,9 @@ describe('generateAIChatV2 actions', () => {
           activeId: TEST_IDS.SESSION_ID,
           activeTopicId: undefined,
           messagesMap: {},
-          switchTopic: vi.fn(),
+          switchTopic: vi.fn(async (topicId) => {
+            useChatStore.setState({ activeTopicId: topicId });
+          }),
         });
 
         await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });

@@ -11,5 +11,7 @@ export interface FileChunkState {
 export const initialFileChunkState: FileChunkState = {
   chunkDetailId: null,
   highlightChunkIds: [],
+  isSimilaritySearch: false,
+  isSimilaritySearching: false,
   similaritySearchChunks: [],
 };

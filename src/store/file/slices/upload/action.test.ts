@@ -8,7 +8,7 @@ import { getImageDimensions } from '@/utils/client/imageDimensions';
 
 import { useFileStore as useStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 // Mock necessary modules
 vi.mock('@/components/AntdStaticMethods', () => ({
@@ -84,15 +84,21 @@ describe('FileUploadAction', () => {
       });
 
       expect(getImageDimensions).toHaveBeenCalledWith(base64Data);
-      expect(uploadService.uploadBase64ToS3).toHaveBeenCalledWith(base64Data);
-      expect(fileService.createFile).toHaveBeenCalledWith({
-        fileType: mockUploadResult.fileType,
-        hash: mockUploadResult.hash,
-        metadata: mockUploadResult.metadata,
-        name: mockMetadata.filename,
-        size: mockUploadResult.size,
-        url: mockMetadata.path,
+      expect(uploadService.uploadBase64ToS3).toHaveBeenCalledWith(base64Data, {
+        signal: expect.any(AbortSignal),
       });
+      expect(fileService.createFile).toHaveBeenCalledWith(
+        {
+          fileType: mockUploadResult.fileType,
+          hash: mockUploadResult.hash,
+          metadata: mockUploadResult.metadata,
+          name: mockMetadata.filename,
+          size: mockUploadResult.size,
+          url: mockMetadata.path,
+        },
+        undefined,
+        expect.any(AbortSignal),
+      );
 
       expect(uploadResult).toEqual({
         ...mockFileResponse,
@@ -190,7 +196,10 @@ describe('FileUploadAction', () => {
           });
         });
 
-        expect(fileService.checkFileHash).toHaveBeenCalledWith('mock-hash-value');
+        expect(fileService.checkFileHash).toHaveBeenCalledWith(
+          'mock-hash-value',
+          expect.any(AbortSignal),
+        );
         expect(uploadToS3Spy).not.toHaveBeenCalled();
         expect(onStatusUpdate).toHaveBeenCalledWith({
           id: mockFile.name,
@@ -207,6 +216,7 @@ describe('FileUploadAction', () => {
             url: mockExistingMetadata.path, // Uses metadata.path when available
           },
           undefined,
+          expect.any(AbortSignal),
         );
         expect(uploadResult).toEqual({
           ...mockFileResponse,
@@ -253,10 +263,14 @@ describe('FileUploadAction', () => {
           });
         });
 
-        expect(fileService.checkFileHash).toHaveBeenCalledWith('mock-hash-value');
+        expect(fileService.checkFileHash).toHaveBeenCalledWith(
+          'mock-hash-value',
+          expect.any(AbortSignal),
+        );
         expect(uploadService.uploadFileToS3).toHaveBeenCalledWith(mockFile, {
           onNotSupported: expect.any(Function),
           onProgress: expect.any(Function),
+          signal: expect.any(AbortSignal),
           skipCheckFileType: undefined,
         });
         expect(fileService.createFile).toHaveBeenCalledWith(
@@ -269,6 +283,7 @@ describe('FileUploadAction', () => {
             url: mockMetadata.path,
           },
           undefined,
+          expect.any(AbortSignal),
         );
         expect(onStatusUpdate).toHaveBeenCalledWith({
           id: mockFile.name,
@@ -424,6 +439,7 @@ describe('FileUploadAction', () => {
             fileType: 'image/png',
           }),
           undefined,
+          expect.any(AbortSignal),
         );
       });
 
@@ -462,6 +478,7 @@ describe('FileUploadAction', () => {
             fileType: 'image/png',
           }),
           undefined,
+          expect.any(AbortSignal),
         );
       });
 
@@ -499,6 +516,7 @@ describe('FileUploadAction', () => {
             fileType: 'text/plain',
           }),
           undefined,
+          expect.any(AbortSignal),
         );
       });
     });
@@ -536,6 +554,7 @@ describe('FileUploadAction', () => {
             name: mockFile.name,
           }),
           knowledgeBaseId,
+          expect.any(AbortSignal),
         );
       });
     });

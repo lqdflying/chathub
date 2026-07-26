@@ -21,6 +21,8 @@ const CreateForm = memo<CreateFormProps>(({ onClose, onSuccess }) => {
     try {
       const id = await createNewKnowledgeBase(values);
       setLoading(false);
+      if (!id) return;
+
       onClose?.();
 
       // Call onSuccess callback if provided, otherwise navigate directly

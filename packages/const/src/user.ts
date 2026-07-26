@@ -7,6 +7,7 @@ export const DEFAULT_PREFERENCE: UserPreference = {
     moveSettingsToAvatar: true,
     topic: true,
   },
+  imageConfig: {},
   telemetry: null,
   topicDisplayMode: TopicDisplayMode.ByTime,
   useCmdEnterToSend: false,

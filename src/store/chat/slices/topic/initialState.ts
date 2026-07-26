@@ -1,9 +1,12 @@
 import { ChatTopic } from '@/types/topic';
 
+import type { TitleSummaryOperation } from '../../types';
+
 export interface ChatTopicState {
   // TODO: need to add the null to the type
   activeTopicId?: string;
   creatingTopic: boolean;
+  creatingTopicId?: string;
   inSearchingMode?: boolean;
   isSearchingTopic: boolean;
   searchTopics: ChatTopic[];
@@ -11,6 +14,7 @@ export interface ChatTopicState {
   topicMaps: Record<string, ChatTopic[]>;
   topicRenamingId?: string;
   topicSearchKeywords: string;
+  topicTitleSummaryOperations: Record<string, TitleSummaryOperation>;
   /**
    * whether topics have fetched
    */
@@ -25,5 +29,6 @@ export const initialTopicState: ChatTopicState = {
   topicLoadingIds: [],
   topicMaps: {},
   topicSearchKeywords: '',
+  topicTitleSummaryOperations: {},
   topicsInit: false,
 };

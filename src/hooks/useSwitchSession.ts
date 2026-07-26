@@ -8,6 +8,7 @@ import { useSessionStore } from '@/store/session';
 
 export const useSwitchSession = () => {
   const switchSession = useSessionStore((s) => s.switchSession);
+  const internalUpdateActiveId = useChatStore((s) => s.internal_updateActiveId);
   const togglePortal = useChatStore((s) => s.togglePortal);
   const mobile = useServerConfigStore((s) => s.isMobile);
   const router = useQueryRoute();
@@ -15,6 +16,7 @@ export const useSwitchSession = () => {
 
   return useCallback(
     (id: string) => {
+      internalUpdateActiveId(id);
       switchSession(id);
       togglePortal(false);
 
@@ -27,6 +29,6 @@ export const useSwitchSession = () => {
         }, 50);
       }
     },
-    [mobile, pathname],
+    [internalUpdateActiveId, mobile, pathname, router, switchSession, togglePortal],
   );
 };

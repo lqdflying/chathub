@@ -7,6 +7,8 @@ export interface CommonState {
   isUserHasConversation: boolean;
   isUserStateInit: boolean;
   subscriptionPlan?: Plans;
+  userStateOwnerId?: string;
+  userStateScope?: string;
 }
 
 export const initialCommonState: CommonState = {
@@ -15,4 +17,7 @@ export const initialCommonState: CommonState = {
   isUserCanEnableTrace: false,
   isUserHasConversation: false,
   isUserStateInit: false,
+  subscriptionPlan: undefined,
+  userStateOwnerId: undefined,
+  userStateScope: undefined,
 };

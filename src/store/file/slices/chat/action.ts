@@ -11,6 +11,8 @@ import {
   UploadFileListDispatch,
   uploadFileListReducer,
 } from '@/store/file/reducers/uploadFileList';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { FileListItem } from '@/types/files';
 import { UploadFileItem } from '@/types/files/upload';
 import { isChunkingUnsupported } from '@/utils/isChunkingUnsupported';
@@ -60,23 +62,48 @@ export const createFileSlice: StateCreator<
   },
 
   startAsyncTask: async (id, runner, onFileItemUpdate) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await runner(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     let isFinished = false;
 
     while (!isFinished) {
       // 每间隔 2s 查询一次任务状态
       await sleep(2000);
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
 
       let fileItem: FileListItem | undefined = undefined;
 
       try {
         fileItem = await serverFileService.getFileItem(id);
       } catch (e) {
+        if (
+          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+          get().scopeGeneration !== requestedGeneration
+        )
+          return;
+
         console.error('getFileItem Error:', e);
         continue;
       }
 
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
       if (!fileItem) return;
 
       onFileItemUpdate(fileItem);
@@ -93,6 +120,13 @@ export const createFileSlice: StateCreator<
   },
 
   uploadChatFiles: async (rawFiles) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
+    const isOperationCurrent = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
     const { dispatchChatUploadFileList } = get();
     // 0. skip file in blacklist
     const files = rawFiles.filter((file) => !FILE_UPLOAD_BLACKLIST.includes(file.name));
@@ -105,6 +139,9 @@ export const createFileSlice: StateCreator<
         // only image and video can be previewed, we create a previewUrl and base64Url for them
         if (file.type.startsWith('image') || file.type.startsWith('video')) {
           const data = await file.arrayBuffer();
+          if (!isOperationCurrent()) {
+            return { file, id: file.name, status: 'pending' } as UploadFileItem;
+          }
 
           previewUrl = URL.createObjectURL(new Blob([data!], { type: file.type }));
 
@@ -115,6 +152,13 @@ export const createFileSlice: StateCreator<
         return { base64Url, file, id: file.name, previewUrl, status: 'pending' } as UploadFileItem;
       }),
     );
+
+    if (!isOperationCurrent()) {
+      uploadFiles.forEach((fileItem) => {
+        if (fileItem?.previewUrl) URL.revokeObjectURL(fileItem.previewUrl);
+      });
+      return;
+    }
 
     dispatchChatUploadFileList({ files: uploadFiles, type: 'addFiles' });
 
@@ -128,6 +172,8 @@ export const createFileSlice: StateCreator<
           onStatusUpdate: dispatchChatUploadFileList,
         });
       } catch (error) {
+        if (!isOperationCurrent()) return;
+
         // skip `UNAUTHORIZED` error
         if ((error as any)?.message !== 'UNAUTHORIZED')
           notification.error({
@@ -145,13 +191,13 @@ export const createFileSlice: StateCreator<
         dispatchChatUploadFileList({ id: file.name, type: 'removeFile' });
       }
 
+      if (!isOperationCurrent()) return;
       if (!fileResult) return;
 
       // image don't need to be chunked and embedding
       if (isChunkingUnsupported(file.type)) return;
 
-      const data = await ragService.parseFileContent(fileResult.id);
-      console.log(data);
+      await ragService.parseFileContent(fileResult.id);
     });
 
     await Promise.all(pools);

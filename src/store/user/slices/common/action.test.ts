@@ -59,7 +59,7 @@ describe('createCommonSlice', () => {
 
       const { result } = renderHook(
         () =>
-          useUserStore().useInitUserState(false, mockServerConfig, {
+          useUserStore().useInitUserState(false, undefined, mockServerConfig, {
             onSuccess: successCallback,
           }),
         { wrapper: withSWR },
@@ -91,7 +91,7 @@ describe('createCommonSlice', () => {
 
       const { result } = renderHook(
         () =>
-          useUserStore().useInitUserState(true, mockServerConfig, {
+          useUserStore().useInitUserState(true, 'local', mockServerConfig, {
             onSuccess: successCallback,
           }),
         {
@@ -121,9 +121,12 @@ describe('createCommonSlice', () => {
 
       vi.spyOn(userService, 'getUserState').mockResolvedValueOnce(mockUserState);
 
-      const { result } = renderHook(() => useUserStore().useInitUserState(true, mockServerConfig), {
-        wrapper: withSWR,
-      });
+      const { result } = renderHook(
+        () => useUserStore().useInitUserState(true, 'local', mockServerConfig),
+        {
+          wrapper: withSWR,
+        },
+      );
 
       // 等待 SWR 完成数据获取
       await waitFor(() => expect(result.current.data).toEqual(mockUserState));
@@ -140,7 +143,9 @@ describe('createCommonSlice', () => {
       };
       vi.spyOn(userService, 'getUserState').mockResolvedValueOnce(mockUserState);
 
-      const { result } = renderHook(() => useUserStore().useInitUserState(true, mockServerConfig));
+      const { result } = renderHook(() =>
+        useUserStore().useInitUserState(true, 'local', mockServerConfig),
+      );
 
       await waitFor(() => expect(result.current.data).toEqual(mockUserState));
     });
@@ -165,7 +170,7 @@ describe('createCommonSlice', () => {
       vi.spyOn(userService, 'getUserState').mockResolvedValueOnce(mockUserState);
 
       const { result: preference } = renderHook(
-        () => result.current.useInitUserState(true, mockServerConfig),
+        () => result.current.useInitUserState(true, 'local', mockServerConfig),
         { wrapper: withSWR },
       );
 
@@ -188,7 +193,7 @@ describe('createCommonSlice', () => {
 
       vi.spyOn(userService, 'getUserState').mockResolvedValueOnce(mockUserState);
 
-      renderHook(() => result.current.useInitUserState(true, mockServerConfig), {
+      renderHook(() => result.current.useInitUserState(true, 'local', mockServerConfig), {
         wrapper: withSWR,
       });
 
@@ -215,7 +220,7 @@ describe('createCommonSlice', () => {
 
       vi.spyOn(userService, 'getUserState').mockResolvedValueOnce(mockUserState);
 
-      renderHook(() => result.current.useInitUserState(true, mockServerConfig), {
+      renderHook(() => result.current.useInitUserState(true, 'local', mockServerConfig), {
         wrapper: withSWR,
       });
 
@@ -228,7 +233,7 @@ describe('createCommonSlice', () => {
 
   describe('useCheckTrace', () => {
     it('should return undefined when shouldFetch is false', async () => {
-      const { result } = renderHook(() => useUserStore().useCheckTrace(false), {
+      const { result } = renderHook(() => useUserStore().useCheckTrace(false, 'user:test-user'), {
         wrapper: withSWR,
       });
 
@@ -238,9 +243,12 @@ describe('createCommonSlice', () => {
     it('should return false when userAllowTrace is already set', async () => {
       vi.spyOn(preferenceSelectors, 'userAllowTrace').mockReturnValueOnce(true);
 
-      const { result } = renderHook(() => useUserStore().useCheckTrace(true), {
-        wrapper: withSWR,
-      });
+      const { result } = renderHook(
+        () => useUserStore().useCheckTrace(true, 'user:test-user'),
+        {
+          wrapper: withSWR,
+        },
+      );
 
       await waitFor(() => expect(result.current.data).toBe(false));
     });
@@ -254,11 +262,45 @@ describe('createCommonSlice', () => {
         });
       });
 
-      const { result } = renderHook(() => useUserStore.getState().useCheckTrace(true), {
-        wrapper: withSWR,
-      });
+      const { result } = renderHook(
+        () => useUserStore.getState().useCheckTrace(true, 'user:test-user'),
+        {
+          wrapper: withSWR,
+        },
+      );
 
       await waitFor(() => expect(result.current.data).toBe(true));
+    });
+
+    it('uses separate cached consent results for each account scope', async () => {
+      vi.spyOn(preferenceSelectors, 'userAllowTrace')
+        .mockReturnValueOnce(null)
+        .mockReturnValueOnce(null);
+
+      act(() => {
+        useUserStore.setState({
+          isUserCanEnableTrace: true,
+        });
+      });
+
+      const { result, rerender } = renderHook(
+        ({ userScope }) => useUserStore.getState().useCheckTrace(true, userScope),
+        {
+          initialProps: { userScope: 'user:account-a' },
+          wrapper: withSWR,
+        },
+      );
+
+      await waitFor(() => expect(result.current.data).toBe(true));
+
+      act(() => {
+        useUserStore.setState({
+          isUserCanEnableTrace: false,
+        });
+      });
+      rerender({ userScope: 'user:account-b' });
+
+      await waitFor(() => expect(result.current.data).toBe(false));
     });
   });
 });

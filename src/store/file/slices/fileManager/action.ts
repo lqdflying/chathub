@@ -11,6 +11,8 @@ import {
   UploadFileListDispatch,
   uploadFileListReducer,
 } from '@/store/file/reducers/uploadFileList';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { FileListItem, QueryFileListParams } from '@/types/files';
 import { isChunkingUnsupported } from '@/utils/isChunkingUnsupported';
 import { unzipFile } from '@/utils/unzipFile';
@@ -55,6 +57,10 @@ export const createFileManageSlice: StateCreator<
     set({ dockUploadFileList: nextValue }, false, `dispatchDockFileList/${payload.type}`);
   },
   embeddingChunks: async (fileIds: string[]) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     // toggle file ids
     get().toggleEmbeddingIds(fileIds);
 
@@ -68,10 +74,26 @@ export const createFileManageSlice: StateCreator<
     });
 
     await Promise.all(pools);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().refreshFileList();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     get().toggleEmbeddingIds(fileIds, false);
   },
   parseFilesToChunks: async (ids: string[], params) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     // toggle file ids
     get().toggleParsingIds(ids);
 
@@ -85,10 +107,26 @@ export const createFileManageSlice: StateCreator<
     });
 
     await Promise.all(pools);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().refreshFileList();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     get().toggleParsingIds(ids, false);
   },
   pushDockFileList: async (rawFiles, knowledgeBaseId) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     const { dispatchDockFileList } = get();
 
     // 0. Process ZIP files and extract their contents
@@ -97,6 +135,11 @@ export const createFileManageSlice: StateCreator<
       if (file.type === 'application/zip' || file.name.endsWith('.zip')) {
         try {
           const extractedFiles = await unzipFile(file);
+          if (
+            authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+            get().scopeGeneration !== requestedGeneration
+          )
+            return;
           filesToUpload.push(...extractedFiles);
         } catch (error) {
           console.error('Failed to extract ZIP file:', error);
@@ -110,6 +153,11 @@ export const createFileManageSlice: StateCreator<
 
     // 1. skip file in blacklist
     const files = filesToUpload.filter((file) => !FILE_UPLOAD_BLACKLIST.includes(file.name));
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     // 2. Add all files to dock
     dispatchDockFileList({
@@ -127,13 +175,30 @@ export const createFileManageSlice: StateCreator<
           knowledgeBaseId,
           onStatusUpdate: dispatchDockFileList,
         });
+        if (
+          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+          get().scopeGeneration !== requestedGeneration
+        ) {
+          return { file, fileId: undefined, fileType: file.type };
+        }
 
         await get().refreshFileList();
+        if (
+          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+          get().scopeGeneration !== requestedGeneration
+        ) {
+          return { file, fileId: undefined, fileType: file.type };
+        }
 
         return { file, fileId: result?.id, fileType: file.type };
       },
       { concurrency: MAX_UPLOAD_FILE_COUNT },
     );
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     // 4. auto-embed files that support chunking
     const fileIdsToEmbed = uploadResults
@@ -146,44 +211,104 @@ export const createFileManageSlice: StateCreator<
   },
 
   reEmbeddingChunks: async (id) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
     if (fileManagerSelectors.isCreatingChunkEmbeddingTask(id)(get())) return;
 
     // toggle file ids
     get().toggleEmbeddingIds([id]);
 
     await serverFileService.removeFileAsyncTask(id, 'embedding');
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     await get().refreshFileList();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     await ragService.createEmbeddingChunksTask(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     await get().refreshFileList();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     get().toggleEmbeddingIds([id], false);
   },
   reParseFile: async (id) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     // toggle file ids
     get().toggleParsingIds([id]);
 
     await ragService.retryParseFile(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     await get().refreshFileList();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     get().toggleParsingIds([id], false);
   },
   refreshFileList: async () => {
-    await mutate([FETCH_FILE_LIST_KEY, get().queryListParams]);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    await mutate([FETCH_FILE_LIST_KEY, requestedScope, get().queryListParams]);
   },
   removeAllFiles: async () => {
     await fileService.removeAllFiles();
   },
   removeFileItem: async (id) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await fileService.removeFile(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().refreshFileList();
   },
 
   removeFiles: async (ids) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await fileService.removeFiles(ids);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().refreshFileList();
   },
   toggleEmbeddingIds: (ids, loading) => {
@@ -221,19 +346,28 @@ export const createFileManageSlice: StateCreator<
     });
   },
 
-  useFetchFileItem: (id) =>
-    useClientDataSWR<FileListItem | undefined>(!id ? null : ['useFetchFileItem', id], () =>
-      serverFileService.getFileItem(id!),
-    ),
+  useFetchFileItem: (id) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-  useFetchFileManage: (params) =>
-    useClientDataSWR<FileListItem[]>(
-      [FETCH_FILE_LIST_KEY, params],
+    return useClientDataSWR<FileListItem | undefined>(
+      !id || !requestedScope ? null : ['useFetchFileItem', requestedScope, id],
+      () => serverFileService.getFileItem(id!),
+    );
+  },
+
+  useFetchFileManage: (params) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<FileListItem[]>(
+      requestedScope ? [FETCH_FILE_LIST_KEY, requestedScope, params] : null,
       () => serverFileService.getFiles(params),
       {
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           set({ fileList: data, queryListParams: params });
         },
       },
-    ),
+    );
+  },
 });

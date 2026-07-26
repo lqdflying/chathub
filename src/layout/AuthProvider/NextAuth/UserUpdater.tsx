@@ -20,6 +20,7 @@ const UserUpdater = memo(() => {
   useStoreUpdater('isLoaded', isLoaded);
   useStoreUpdater('isSignedIn', isSignedIn);
   useStoreUpdater('nextSession', session!);
+  useStoreUpdater('authUserId', nextUser?.id);
 
   // 使用 useEffect 处理需要保持同步的用户数据
   useEffect(() => {

@@ -1,8 +1,5 @@
+import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS } from '@lobechat/prompts';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import {
-  ASSISTANT_MEMORY_MAX_CHARS,
-  ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
-} from '@lobechat/prompts';
 import { mutate } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,10 +11,15 @@ import { topicService } from '@/services/topic';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
 
 vi.mock('zustand/traditional', async () => {
   return await vi.importActual('zustand/traditional');
 });
+vi.mock('@/const/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/const/auth')>()),
+  enableAuth: true,
+}));
 vi.mock('@/services/chat', () => ({
   chatService: {
     fetchPresetTaskResult: vi.fn(),
@@ -48,6 +50,15 @@ vi.mock('swr', async (importOriginal) => {
   };
 });
 
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
+
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -56,8 +67,17 @@ beforeEach(() => {
     activeId: INBOX_SESSION_ID,
     agentConfigInitMap: {},
     agentMap: {},
+    inboxAgentRequestScope: undefined,
+    inboxAgentScope: undefined,
     isInboxAgentConfigInit: false,
+    scopeGeneration: 0,
   } as any);
+  useUserStore.setState({
+    authUserId: 'user-id',
+    isLoaded: true,
+    isSignedIn: true,
+    user: { id: 'user-id' },
+  });
 });
 
 describe('AgentSlice', () => {
@@ -287,17 +307,20 @@ describe('AgentSlice', () => {
         );
       });
 
-      const updateMock = vi.spyOn(result.current, 'updateAgentConfig').mockResolvedValue(undefined);
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
 
       const response = await result.current.rollupAssistantMemory();
 
       expect(response).toEqual({ success: true });
-      expect(listTopicsMock).toHaveBeenCalledWith(
-        'agent-1',
-        ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
-      );
+      expect(listTopicsMock).toHaveBeenCalledWith('agent-1', ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS);
 
-      const savedMemory = updateMock.mock.calls[0][0].assistantMemory as string;
+      expect(updateMock).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ assistantMemory: expect.any(String) }),
+      );
+      const savedMemory = updateMock.mock.calls[0][1].assistantMemory as string;
       expect(savedMemory).not.toContain('```');
       expect(savedMemory).not.toMatch(/^Here is/i);
       expect(savedMemory.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
@@ -313,6 +336,87 @@ describe('AgentSlice', () => {
         } as any);
       });
     });
+
+    it('does not write memory after an A-to-B-to-A account reset', async () => {
+      const rollupFinished = createDeferred<void>();
+      const { result } = renderHook(() => useAgentStore());
+
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: 'account-a-agent',
+          activeId: 'account-a-session',
+          agentMap: {
+            'account-a-session': {
+              assistantMemory: 'account A memory',
+            },
+          },
+          scopeGeneration: 0,
+        } as any);
+        useUserStore.setState({
+          authUserId: 'account-a',
+          user: { id: 'account-a' },
+        });
+      });
+
+      vi.mocked(topicService.listTopicsForAgentMemoryRollup).mockResolvedValue([
+        {
+          historySummary: 'Account A prefers concise answers.',
+          id: 'account-a-topic',
+          sessionId: 'account-a-session',
+          title: 'Account A preferences',
+          updatedAt: new Date(),
+        },
+      ]);
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+        await rollupFinished.promise;
+        await onFinish?.('Rolled up account A memory.');
+      });
+      const updateSessionConfig = vi.spyOn(sessionService, 'updateSessionConfig');
+
+      let rollupPromise!: ReturnType<typeof result.current.rollupAssistantMemory>;
+      act(() => {
+        rollupPromise = result.current.rollupAssistantMemory();
+      });
+
+      await waitFor(() => {
+        expect(chatService.fetchPresetTaskResult).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          user: { id: 'account-b' },
+        });
+        useAgentStore.setState({
+          activeAgentId: 'account-b-agent',
+          activeId: 'account-b-session',
+          agentMap: {
+            'account-b-session': {
+              assistantMemory: 'account B memory',
+            },
+          },
+          scopeGeneration: 1,
+        } as any);
+        useUserStore.setState({
+          authUserId: 'account-a',
+          user: { id: 'account-a' },
+        });
+        useAgentStore.setState({
+          activeAgentId: 'account-a-returned-agent',
+          activeId: 'account-a-returned-session',
+        } as any);
+      });
+      rollupFinished.resolve();
+
+      let response!: Awaited<typeof rollupPromise>;
+      await act(async () => {
+        response = await rollupPromise;
+      });
+
+      expect(response).toEqual({ success: false });
+      expect(updateSessionConfig).not.toHaveBeenCalled();
+      expect(useAgentStore.getState().agentMap['account-a-returned-session']).toBeUndefined();
+    });
   });
 
   describe('useFetchInboxAgentConfig', () => {
@@ -322,7 +426,7 @@ describe('AgentSlice', () => {
         model: 'gemini-pro',
       } as any);
 
-      renderHook(() => result.current.useInitInboxAgentStore(true));
+      renderHook(() => result.current.useInitInboxAgentStore(true, 'user:user-id'));
 
       await waitFor(async () => {
         expect(result.current.agentMap[INBOX_SESSION_ID]).toEqual({ model: 'gemini-pro' });
@@ -336,7 +440,7 @@ describe('AgentSlice', () => {
         model: 'gemini-pro',
       } as any);
 
-      renderHook(() => result.current.useInitInboxAgentStore(false));
+      renderHook(() => result.current.useInitInboxAgentStore(false, undefined));
 
       await waitFor(async () => {
         expect(result.current.agentMap[INBOX_SESSION_ID]).toBeUndefined();
@@ -349,11 +453,94 @@ describe('AgentSlice', () => {
 
       vi.spyOn(globalService, 'getDefaultAgentConfig').mockRejectedValueOnce(new Error());
 
-      renderHook(() => result.current.useInitInboxAgentStore(true));
+      renderHook(() => result.current.useInitInboxAgentStore(true, 'user:user-id'));
 
       await waitFor(async () => {
         expect(result.current.agentMap[INBOX_SESSION_ID]).toBeUndefined();
         expect(result.current.isInboxAgentConfigInit).toBe(false);
+      });
+    });
+
+    it('keys inbox config by account and clears the previous account during a switch', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      vi.spyOn(sessionService, 'getSessionConfig').mockResolvedValue({
+        model: 'account-model',
+      } as any);
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-a',
+          isLoaded: true,
+          user: { id: 'account-a' },
+        });
+      });
+      const { rerender } = renderHook(
+        ({ scope }) => result.current.useInitInboxAgentStore(true, scope),
+        { initialProps: { scope: 'user:account-a' } },
+      );
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().inboxAgentScope).toBe('user:account-a');
+        expect(useAgentStore.getState().agentMap[INBOX_SESSION_ID]).toEqual({
+          model: 'account-model',
+        });
+      });
+
+      act(() => {
+        useUserStore.setState({ authUserId: undefined, isLoaded: false, user: undefined });
+      });
+      rerender({ scope: undefined });
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().inboxAgentRequestScope).toBeUndefined();
+        expect(useAgentStore.getState().agentMap[INBOX_SESSION_ID]).toBeUndefined();
+        expect(useAgentStore.getState().isInboxAgentConfigInit).toBe(false);
+      });
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          isLoaded: true,
+          user: { id: 'account-b' },
+        });
+      });
+      rerender({ scope: 'user:account-b' });
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().inboxAgentRequestScope).toBe('user:account-b');
+        expect(useAgentStore.getState().agentMap[INBOX_SESSION_ID]).toBeUndefined();
+        expect(useAgentStore.getState().isInboxAgentConfigInit).toBe(false);
+      });
+    });
+
+    it('ignores an inbox response after the authenticated identity changes', async () => {
+      let resolveAccountA!: (config: any) => void;
+      const accountAResponse = new Promise<any>((resolve) => {
+        resolveAccountA = resolve;
+      });
+      vi.spyOn(sessionService, 'getSessionConfig').mockReturnValue(accountAResponse);
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-a',
+          isLoaded: true,
+          user: { id: 'account-a' },
+        });
+      });
+
+      renderHook(() => useAgentStore.getState().useInitInboxAgentStore(true, 'user:account-a'));
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          isLoaded: true,
+          user: { id: 'account-b' },
+        });
+        resolveAccountA({ model: 'account-a-model' });
+      });
+
+      await waitFor(() => {
+        expect(useAgentStore.getState().agentMap[INBOX_SESSION_ID]).toBeUndefined();
+        expect(useAgentStore.getState().inboxAgentScope).toBeUndefined();
+        expect(useAgentStore.getState().isInboxAgentConfigInit).toBe(false);
       });
     });
   });
@@ -485,7 +672,11 @@ describe('AgentSlice', () => {
         await result.current.internal_refreshAgentConfig('test-session-id');
       });
 
-      expect(mutate).toHaveBeenCalledWith(['FETCH_AGENT_CONFIG', 'test-session-id']);
+      expect(mutate).toHaveBeenCalledWith([
+        'FETCH_AGENT_CONFIG',
+        'user:user-id',
+        'test-session-id',
+      ]);
     });
   });
 

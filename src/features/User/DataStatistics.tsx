@@ -14,6 +14,8 @@ import { messageService } from '@/services/message';
 import { sessionService } from '@/services/session';
 import { topicService } from '@/services/topic';
 import { useServerConfigStore } from '@/store/serverConfig';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { formatShortenNumber } from '@/utils/format';
 import { today } from '@/utils/time';
 
@@ -45,17 +47,20 @@ const useStyles = createStyles(({ css, token }) => ({
 
 const DataStatistics = memo<Omit<FlexboxProps, 'children'>>(({ style, ...rest }) => {
   const mobile = useServerConfigStore((s) => s.isMobile);
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
   // sessions
-  const { data: sessions, isLoading: sessionsLoading } = useClientDataSWR('count-sessions', () =>
-    sessionService.countSessions(),
+  const { data: sessions, isLoading: sessionsLoading } = useClientDataSWR(
+    requestedScope ? ['count-sessions', requestedScope] : null,
+    () => sessionService.countSessions(),
   );
   // topics
-  const { data: topics, isLoading: topicsLoading } = useClientDataSWR('count-topics', () =>
-    topicService.countTopics(),
+  const { data: topics, isLoading: topicsLoading } = useClientDataSWR(
+    requestedScope ? ['count-topics', requestedScope] : null,
+    () => topicService.countTopics(),
   );
   // messages
   const { data: { messages, messagesToday } = {}, isLoading: messagesLoading } = useClientDataSWR(
-    'count-messages',
+    requestedScope ? ['count-messages', requestedScope] : null,
     async () => ({
       messages: await messageService.countMessages(),
       messagesToday: await messageService.countMessages({

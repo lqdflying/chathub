@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 
+import { enableAuth } from '@/const/auth';
 import { PicbedModel } from '@/database/models/picbed';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
@@ -21,12 +23,31 @@ export const picbedRouter = router({
       z.object({
         fileType: z.string(),
         name: z.string(),
+        requestedScope: z.string(),
         size: z.number(),
         url: z.string(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const record = await ctx.picbedModel.create(input);
+      const authenticatedUserId =
+        ctx.clerkAuth?.userId ?? ctx.nextAuth?.id ?? ctx.oidcAuth?.sub ?? ctx.userId;
+      const isCurrentOwner = enableAuth
+        ? input.requestedScope === `user:${authenticatedUserId}`
+        : input.requestedScope === 'local';
+
+      if (!isCurrentOwner) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Picbed upload account changed',
+        });
+      }
+
+      const record = await ctx.picbedModel.create({
+        fileType: input.fileType,
+        name: input.name,
+        size: input.size,
+        url: input.url,
+      });
       const fullUrl = await ctx.fileService.getFullFileUrl(record.url);
       return { ...record, url: fullUrl };
     }),

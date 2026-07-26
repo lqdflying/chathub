@@ -7,7 +7,16 @@ import { CreateKnowledgeBaseParams, KnowledgeBaseItem } from '@/types/knowledgeB
 
 import { useKnowledgeBaseStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -18,6 +27,7 @@ beforeEach(() => {
       initKnowledgeBaseList: false,
       knowledgeBaseLoadingIds: [],
       knowledgeBaseRenamingId: null,
+      scopeGeneration: 0,
     },
     false,
   );
@@ -47,6 +57,66 @@ describe('KnowledgeBaseCrudAction', () => {
       expect(knowledgeBaseService.createKnowledgeBase).toHaveBeenCalledWith(params);
       expect(refreshSpy).toHaveBeenCalled();
       expect(id).toBe('new-kb-id');
+    });
+
+    it('returns no navigable id when the account scope generation changes', async () => {
+      const createdId = createDeferred<string>();
+      vi.spyOn(knowledgeBaseService, 'createKnowledgeBase').mockReturnValue(createdId.promise);
+
+      const { result } = renderHook(() => useKnowledgeBaseStore());
+      const refreshSpy = vi.spyOn(result.current, 'refreshKnowledgeBaseList').mockResolvedValue();
+      let creationPromise!: ReturnType<typeof result.current.createNewKnowledgeBase>;
+
+      act(() => {
+        creationPromise = result.current.createNewKnowledgeBase({ name: 'Account A KB' });
+      });
+
+      await waitFor(() => {
+        expect(knowledgeBaseService.createKnowledgeBase).toHaveBeenCalledWith({
+          name: 'Account A KB',
+        });
+      });
+
+      act(() => {
+        useKnowledgeBaseStore.setState((state) => ({
+          scopeGeneration: state.scopeGeneration + 1,
+        }));
+      });
+      createdId.resolve('account-a-kb-id');
+
+      let id;
+      await act(async () => {
+        id = await creationPromise;
+      });
+
+      expect(id).toBe('');
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns no navigable id when the account changes during list refresh', async () => {
+      const refreshFinished = createDeferred<void>();
+      vi.spyOn(knowledgeBaseService, 'createKnowledgeBase').mockResolvedValue('account-a-kb-id');
+
+      const { result } = renderHook(() => useKnowledgeBaseStore());
+      vi.spyOn(result.current, 'refreshKnowledgeBaseList').mockReturnValue(refreshFinished.promise);
+      let creationPromise!: ReturnType<typeof result.current.createNewKnowledgeBase>;
+
+      act(() => {
+        creationPromise = result.current.createNewKnowledgeBase({ name: 'Account A KB' });
+      });
+
+      await waitFor(() => {
+        expect(result.current.refreshKnowledgeBaseList).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useKnowledgeBaseStore.setState((state) => ({
+          scopeGeneration: state.scopeGeneration + 1,
+        }));
+      });
+      refreshFinished.resolve();
+
+      await expect(creationPromise).resolves.toBe('');
     });
 
     it('should handle errors during creation', async () => {

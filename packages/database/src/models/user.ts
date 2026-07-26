@@ -1,7 +1,14 @@
-import { UserGuide, UserKeyVaults, UserPreference, UserSettings } from '@lobechat/types';
+import {
+  UserGuide,
+  UserImageGenerationConfig,
+  UserImageGenerationConfigMigrationResult,
+  UserKeyVaults,
+  UserPreference,
+  UserSettings,
+} from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import dayjs from 'dayjs';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { AdapterAccount } from 'next-auth/adapters';
 import type { PartialDeep } from 'type-fest';
 
@@ -169,13 +176,63 @@ export class UserModel {
   };
 
   updatePreference = async (value: Partial<UserPreference>) => {
-    const user = await this.db.query.users.findFirst({ where: eq(users.id, this.userId) });
-    if (!user) return;
-
     return this.db
       .update(users)
-      .set({ preference: merge(user.preference, value) })
+      .set({
+        preference: sql`coalesce(${users.preference}, '{}'::jsonb) || ${JSON.stringify(value)}::jsonb`,
+      })
       .where(eq(users.id, this.userId));
+  };
+
+  updateImageConfig = async (value: Partial<UserImageGenerationConfig>) => {
+    return this.db
+      .update(users)
+      .set({
+        preference: sql`
+          coalesce(${users.preference}, '{}'::jsonb)
+          || jsonb_build_object(
+            'imageConfig',
+            coalesce(${users.preference} -> 'imageConfig', '{}'::jsonb)
+            || ${JSON.stringify(value)}::jsonb
+          )
+        `,
+      })
+      .where(eq(users.id, this.userId));
+  };
+
+  migrateImageConfig = async (
+    value: UserImageGenerationConfig,
+  ): Promise<UserImageGenerationConfigMigrationResult> => {
+    const [migratedPreference] = await this.db
+      .update(users)
+      .set({
+        preference: sql`
+          coalesce(${users.preference}, '{}'::jsonb)
+          || jsonb_build_object('imageConfig', ${JSON.stringify(value)}::jsonb)
+        `,
+      })
+      .where(
+        and(
+          eq(users.id, this.userId),
+          sql`coalesce(${users.preference} -> 'imageConfig', '{}'::jsonb) = '{}'::jsonb`,
+        ),
+      )
+      .returning({
+        imageConfig: sql<UserImageGenerationConfig>`${users.preference} -> 'imageConfig'`,
+      });
+
+    if (migratedPreference) {
+      return { imageConfig: migratedPreference.imageConfig || {}, migrated: true };
+    }
+
+    const [existingPreference] = await this.db
+      .select({
+        imageConfig: sql<UserImageGenerationConfig>`${users.preference} -> 'imageConfig'`,
+      })
+      .from(users)
+      .where(eq(users.id, this.userId));
+
+    return { imageConfig: existingPreference?.imageConfig || {}, migrated: false };
   };
 
   updateGuide = async (value: Partial<UserGuide>) => {

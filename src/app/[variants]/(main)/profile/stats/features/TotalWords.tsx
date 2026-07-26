@@ -6,6 +6,8 @@ import StatisticCard from '@/components/StatisticCard';
 import TitleWithPercentage from '@/components/StatisticCard/TitleWithPercentage';
 import { useClientDataSWR } from '@/libs/swr';
 import { messageService } from '@/services/message';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { formatShortenNumber } from '@/utils/format';
 import { lastMonth } from '@/utils/time';
 
@@ -13,11 +15,15 @@ import TotalCard from './ShareButton/TotalCard';
 
 const TotalWords = memo<{ inShare?: boolean }>(({ inShare }) => {
   const { t } = useTranslation('auth');
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-  const { data, isLoading } = useClientDataSWR('stats-words', async () => ({
-    count: await messageService.countWords(),
-    prevCount: await messageService.countWords({ endDate: lastMonth().format('YYYY-MM-DD') }),
-  }));
+  const { data, isLoading } = useClientDataSWR(
+    requestedScope ? ['stats-words', requestedScope] : null,
+    async () => ({
+      count: await messageService.countWords(),
+      prevCount: await messageService.countWords({ endDate: lastMonth().format('YYYY-MM-DD') }),
+    }),
+  );
 
   if (inShare)
     return (

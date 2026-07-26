@@ -7,6 +7,7 @@ import {
   LobeDefaultAiModelListItem,
   ModelAbilities,
 } from 'model-bank';
+import { useEffect } from 'react';
 import { SWRResponse, mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -111,6 +112,7 @@ export interface AiProviderAction {
    */
   useFetchAiProviderRuntimeState: (
     isLoginOnInit: boolean | undefined,
+    userScope: string | undefined,
   ) => SWRResponse<AiProviderRuntimeStateWithBuiltinModels | undefined>;
 }
 
@@ -155,18 +157,24 @@ export const createAiProviderSlice: StateCreator<
     );
   },
   refreshAiProviderDetail: async () => {
-    await mutate([AiProviderSwrKey.fetchAiProviderItem, get().activeAiProvider]);
+    const userScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!userScope) return;
+
+    await mutate([AiProviderSwrKey.fetchAiProviderItem, userScope, get().activeAiProvider]);
     await get().refreshAiProviderRuntimeState();
   },
   refreshAiProviderList: async () => {
-    await mutate(AiProviderSwrKey.fetchAiProviderList);
+    const userScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!userScope) return;
+
+    await mutate([AiProviderSwrKey.fetchAiProviderList, userScope]);
     await get().refreshAiProviderRuntimeState();
   },
   refreshAiProviderRuntimeState: async () => {
-    await Promise.all([
-      mutate([AiProviderSwrKey.fetchAiProviderRuntimeState, true]),
-      mutate([AiProviderSwrKey.fetchAiProviderRuntimeState, false]),
-    ]);
+    const runtimeStateScope = get().runtimeStateScope;
+    if (!runtimeStateScope) return;
+
+    await mutate([AiProviderSwrKey.fetchAiProviderRuntimeState, runtimeStateScope]);
   },
   removeAiProvider: async (id) => {
     await aiProviderService.deleteAiProvider(id);
@@ -202,25 +210,35 @@ export const createAiProviderSlice: StateCreator<
     await aiProviderService.updateAiProviderOrder(items);
     await get().refreshAiProviderList();
   },
-  useFetchAiProviderItem: (id) =>
-    useClientDataSWR<AiProviderDetailItem | undefined>(
-      [AiProviderSwrKey.fetchAiProviderItem, id],
+  useFetchAiProviderItem: (id) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<AiProviderDetailItem | undefined>(
+      requestedScope ? [AiProviderSwrKey.fetchAiProviderItem, requestedScope, id] : null,
       () => aiProviderService.getAiProviderById(id),
       {
         onSuccess: (data) => {
           if (!data) return;
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
           set({ activeAiProvider: id, aiProviderDetail: data }, false, 'useFetchAiProviderItem');
         },
       },
-    ),
-  useFetchAiProviderList: (opts) =>
-    useClientDataSWR<AiProviderListItem[]>(
-      opts?.enabled === false ? null : AiProviderSwrKey.fetchAiProviderList,
+    );
+  },
+  useFetchAiProviderList: (opts) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<AiProviderListItem[]>(
+      opts?.enabled === false || !requestedScope
+        ? null
+        : [AiProviderSwrKey.fetchAiProviderList, requestedScope],
       () => aiProviderService.getAiProviderList(),
       {
         fallbackData: [],
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           if (!get().initAiProviderList) {
             set(
               { aiProviderList: data, initAiProviderList: true },
@@ -233,21 +251,53 @@ export const createAiProviderSlice: StateCreator<
           set({ aiProviderList: data }, false, 'useFetchAiProviderList/refresh');
         },
       },
-    ),
+    );
+  },
 
-  useFetchAiProviderRuntimeState: (isLogin) => {
+  useFetchAiProviderRuntimeState: (isLogin, userScope) => {
     const isAuthLoaded = authSelectors.isLoaded(useUserStore.getState());
+    const requestedScope = isLogin ? userScope : 'guest';
+    useEffect(() => {
+      if (get().runtimeStateRequestScope === requestedScope) return;
+
+      set(
+        {
+          activeAiProvider: undefined,
+          activeProviderModelList: [],
+          aiProviderDetail: undefined,
+          aiProviderList: [],
+          aiProviderModelList: [],
+          aiProviderRuntimeConfig: {},
+          enabledAiModels: undefined,
+          enabledAiProviders: undefined,
+          enabledChatModelList: [],
+          enabledImageModelList: [],
+          initAiProviderList: false,
+          isAiModelListInit: false,
+          isInitAiProviderRuntimeState: false,
+          runtimeStateRequestScope: requestedScope,
+          runtimeStateScope: undefined,
+        },
+        false,
+        'resetAiProviderRuntimeStateScope',
+      );
+    }, [requestedScope]);
+
     // Only fetch when auth is loaded and login status is explicitly defined (true or false)
     // Prevents unnecessary requests when login state is null/undefined
     const shouldFetch =
-      isAuthLoaded && !isDeprecatedEdition && isLogin !== null && isLogin !== undefined;
+      isAuthLoaded &&
+      !isDeprecatedEdition &&
+      isLogin !== null &&
+      isLogin !== undefined &&
+      !!requestedScope;
     return useClientDataSWR<AiProviderRuntimeStateWithBuiltinModels | undefined>(
-      shouldFetch ? [AiProviderSwrKey.fetchAiProviderRuntimeState, isLogin] : null,
-      async ([, isLogin]) => {
+      shouldFetch ? [AiProviderSwrKey.fetchAiProviderRuntimeState, requestedScope] : null,
+      async () => {
         const [{ LOBE_DEFAULT_MODEL_LIST: builtinAiModelList }, { DEFAULT_MODEL_PROVIDER_LIST }] =
           await Promise.all([import('model-bank'), import('@/config/modelProviders')]);
 
-        if (isLogin) {
+        if (requestedScope !== 'guest') {
           const data = await aiProviderService.getAiProviderRuntimeState();
 
           // Build model lists with proper async handling
@@ -304,6 +354,8 @@ export const createAiProviderSlice: StateCreator<
         focusThrottleInterval: isDesktop || isUsePgliteDB ? 100 : undefined,
         onSuccess: (data) => {
           if (!data) return;
+          if (get().runtimeStateRequestScope !== requestedScope) return;
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
           set(
             {
@@ -314,6 +366,7 @@ export const createAiProviderSlice: StateCreator<
               enabledChatModelList: data.enabledChatModelList || [],
               enabledImageModelList: data.enabledImageModelList || [],
               isInitAiProviderRuntimeState: true,
+              runtimeStateScope: requestedScope,
             },
             false,
             'useFetchAiProviderRuntimeState',

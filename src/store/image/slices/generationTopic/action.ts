@@ -10,7 +10,7 @@ import { chatService } from '@/services/chat';
 import { generationTopicService } from '@/services/generationTopic';
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
-import { systemAgentSelectors } from '@/store/user/selectors';
+import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
 import { ImageGenerationTopic } from '@/types/generation';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
@@ -54,10 +54,20 @@ export const createGenerationTopicSlice: StateCreator<
       throw new Error('Prompts cannot be empty when creating a generation topic');
     }
 
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return '';
+
     const { internal_createGenerationTopic, summaryGenerationTopicTitle } = get();
 
     // Create topic with default title
     const topicId = await internal_createGenerationTopic();
+    if (
+      !topicId ||
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return '';
 
     // Auto-generate title from prompts
     summaryGenerationTopicTitle(topicId, prompts);
@@ -86,6 +96,13 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   summaryGenerationTopicTitle: async (topicId: string, prompts: string[]) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return '';
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
+
     const topic = generationTopicSelectors.getGenerationTopicById(topicId)(get());
     if (!topic) throw new Error(`Topic ${topicId} not found`);
 
@@ -121,18 +138,26 @@ export const createGenerationTopicSlice: StateCreator<
         chainSummaryGenerationTitle(prompts, 'image', globalHelpers.getCurrentLanguage()),
       ),
       onError: async () => {
+        if (!isCurrentRequest()) return;
+
         const fallbackTitle = generateFallbackTitle();
         internal_updateGenerationTopicTitleInSummary(topicId, fallbackTitle);
         // Update the topic with fallback title
         await get().internal_updateGenerationTopic(topicId, { title: fallbackTitle });
       },
       onFinish: async (text) => {
+        if (!isCurrentRequest()) return;
+
         await get().internal_updateGenerationTopic(topicId, { title: text });
       },
       onLoadingChange: (loading) => {
+        if (!isCurrentRequest()) return;
+
         internal_updateGenerationTopicLoading(topicId, loading);
       },
       onMessageHandle: (chunk) => {
+        if (!isCurrentRequest()) return;
+
         switch (chunk.type) {
           case 'text': {
             output += chunk.text;
@@ -146,6 +171,10 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   internal_createGenerationTopic: async () => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return '';
+
     const tmpId = Date.now().toString();
 
     // 1. Optimistic update - add temporary topic
@@ -158,17 +187,33 @@ export const createGenerationTopicSlice: StateCreator<
 
     // 2. Call backend service
     const topicId = await generationTopicService.createTopic();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return '';
+
     get().internal_updateGenerationTopicLoading(tmpId, false);
 
     // 3. Refresh data to ensure consistency
     get().internal_updateGenerationTopicLoading(topicId, true);
     await get().refreshGenerationTopics();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return '';
+
     get().internal_updateGenerationTopicLoading(topicId, false);
 
     return topicId;
   },
 
   internal_updateGenerationTopic: async (id, data) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     // 1. Optimistic update
     get().internal_dispatchGenerationTopic({ type: 'updateTopic', id, value: data });
 
@@ -177,9 +222,20 @@ export const createGenerationTopicSlice: StateCreator<
 
     // 3. Call backend service
     await generationTopicService.updateTopic(id, data);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     // 4. Refresh data and clear loading
     await get().refreshGenerationTopics();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     get().internal_updateGenerationTopicLoading(id, false);
   },
 
@@ -217,25 +273,37 @@ export const createGenerationTopicSlice: StateCreator<
     );
   },
 
-  useFetchGenerationTopics: (enabled) =>
-    useClientDataSWR<ImageGenerationTopic[]>(
-      enabled ? [FETCH_GENERATION_TOPICS_KEY] : null,
+  useFetchGenerationTopics: (enabled) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<ImageGenerationTopic[]>(
+      enabled && requestedScope ? [FETCH_GENERATION_TOPICS_KEY, requestedScope] : null,
       () => generationTopicService.getAllGenerationTopics(),
       {
         suspense: true,
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           // No need to update if data is the same
           if (isEqual(data, get().generationTopics)) return;
           set({ generationTopics: data }, false, n('useFetchGenerationTopics'));
         },
       },
-    ),
+    );
+  },
 
   refreshGenerationTopics: async () => {
-    await mutate([FETCH_GENERATION_TOPICS_KEY]);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    await mutate([FETCH_GENERATION_TOPICS_KEY, requestedScope]);
   },
 
   removeGenerationTopic: async (id: string) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     const {
       internal_removeGenerationTopic,
       generationTopics,
@@ -252,6 +320,11 @@ export const createGenerationTopicSlice: StateCreator<
     }
 
     await internal_removeGenerationTopic(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     // if the active topic is the one being deleted, switch to the next topic
     if (isRemovingActiveTopic) {
@@ -276,12 +349,25 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   internal_removeGenerationTopic: async (id: string) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     get().internal_updateGenerationTopicLoading(id, true);
     try {
       await generationTopicService.deleteTopic(id);
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
+
       await get().refreshGenerationTopics();
     } finally {
-      get().internal_updateGenerationTopicLoading(id, false);
+      const isStaleRequest =
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration;
+      if (!isStaleRequest) get().internal_updateGenerationTopicLoading(id, false);
     }
   },
 
@@ -291,6 +377,10 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   internal_updateGenerationTopicCover: async (topicId: string, coverUrl: string) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     const {
       internal_dispatchGenerationTopic,
       internal_updateGenerationTopicLoading,
@@ -309,12 +399,22 @@ export const createGenerationTopicSlice: StateCreator<
     try {
       // 3. Call backend service to process and upload cover image
       await generationTopicService.updateTopicCover(topicId, coverUrl);
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
 
       // 4. Refresh data to get the final processed cover URL from S3
       await refreshGenerationTopics();
     } finally {
-      // 5. Clear loading state
-      internal_updateGenerationTopicLoading(topicId, false);
+      const isStaleRequest =
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration;
+      if (!isStaleRequest) {
+        // 5. Clear loading state
+        internal_updateGenerationTopicLoading(topicId, false);
+      }
     }
   },
 });

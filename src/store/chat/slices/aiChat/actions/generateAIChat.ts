@@ -26,6 +26,7 @@ import { getAgentStoreState } from '@/store/agent/store';
 import { aiModelSelectors, aiProviderSelectors } from '@/store/aiInfra';
 import { getAiInfraStoreState } from '@/store/aiInfra/store';
 import { ChatStore } from '@/store/chat/store';
+import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
 import { useSessionStore } from '@/store/session';
@@ -101,6 +102,7 @@ const collectDependentRewindIds = (
 };
 
 interface ProcessMessageParams {
+  conversationContext?: ConversationContext;
   contextExportCaptureId?: string;
   expectedConversationVersion?: number;
   traceId?: string;
@@ -156,6 +158,7 @@ export interface AIGenerateAction {
    * Retrieves an AI-generated chat message from the backend service
    */
   internal_fetchAIChatMessage: (input: {
+    conversationContext?: ConversationContext;
     messages: UIChatMessage[];
     messageId: string;
     params?: ProcessMessageParams;
@@ -236,6 +239,15 @@ export const generateAIChat: StateCreator<
       sendMessageInServer,
     } = get();
     if (!activeId) return;
+    let conversationContext: ConversationContext = {
+      generation: get().conversationClearGeneration,
+      sessionId: activeId,
+      topicId: activeTopicId,
+    };
+    const isCurrentConversation = () =>
+      get().conversationClearGeneration === conversationContext.generation &&
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
 
     const fileIdList = files?.map((f) => f.id);
 
@@ -245,6 +257,7 @@ export const generateAIChat: StateCreator<
     if (!message && !hasFile) return;
 
     const expectedConversationVersion = await messageService.getConversationVersion();
+    if (!isCurrentConversation()) return;
 
     // router to server mode send message
     if (isServerMode)
@@ -291,6 +304,11 @@ export const generateAIChat: StateCreator<
         get().internal_toggleMessageLoading(true, tempMessageId);
 
         const topicId = await get().createTopic(undefined, undefined, expectedConversationVersion);
+        const requestStillOwnsSourceConversation =
+          get().conversationClearGeneration === conversationContext.generation &&
+          get().activeId === activeId &&
+          (get().activeTopicId ?? null) === (activeTopicId ?? null);
+        if (!requestStillOwnsSourceConversation) return;
 
         if (topicId) {
           newTopicId = topicId;
@@ -312,15 +330,21 @@ export const generateAIChat: StateCreator<
     //  update assistant update to make it rerank
     useSessionStore.getState().triggerSessionUpdate(get().activeId);
 
+    const messageConversationContext = newTopicId
+      ? { ...conversationContext, topicId: newTopicId }
+      : conversationContext;
     const id = await get().internal_createMessage(newMessage, {
+      conversationContext: messageConversationContext,
       expectedConversationVersion,
       tempMessageId,
       skipRefresh: !onlyAddUserMessage && newMessage.fileList?.length === 0,
     });
 
     if (!id) {
-      set({ isCreatingMessage: false }, false, n('creatingMessage/start'));
-      if (!!newTopicId) get().internal_updateTopicLoading(newTopicId, false);
+      if (isCurrentConversation()) {
+        set({ isCreatingMessage: false }, false, n('creatingMessage/start'));
+        if (!!newTopicId) get().internal_updateTopicLoading(newTopicId, false);
+      }
       return;
     }
 
@@ -328,14 +352,15 @@ export const generateAIChat: StateCreator<
 
     // switch to the new topic if create the new topic
     if (!!newTopicId) {
+      conversationContext = messageConversationContext;
       await get().switchTopic(newTopicId, true);
-      await get().internal_fetchMessages();
 
       // delete previous messages
       // remove the temp message map
       const newMaps = { ...get().messagesMap, [messageMapKey(activeId, null)]: [] };
       set({ messagesMap: newMaps }, false, 'internal_copyMessages');
     }
+    if (!isCurrentConversation()) return;
 
     // if only add user message, then stop
     if (onlyAddUserMessage) {
@@ -344,12 +369,15 @@ export const generateAIChat: StateCreator<
     }
 
     // Get the current messages to generate AI response
-    const messages = chatSelectors.activeBaseChats(get());
+    const messages = chatSelectors.getBaseChatsByKey(
+      messageMapKey(conversationContext.sessionId, conversationContext.topicId),
+    )(get());
     const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
     const contextExportCaptureId = !isWelcomeQuestion ? get().consumeContextExportArm() : undefined;
 
     try {
       await internal_coreProcessMessage(messages, id, {
+        conversationContext,
         contextExportCaptureId,
         expectedConversationVersion,
         isWelcomeQuestion,
@@ -360,6 +388,7 @@ export const generateAIChat: StateCreator<
       if (contextExportCaptureId) get().completeContextExport(contextExportCaptureId);
     }
 
+    if (!isCurrentConversation()) return;
     set({ isCreatingMessage: false }, false, n('creatingMessage/stop'));
 
     const summaryTitle = async () => {
@@ -404,9 +433,23 @@ export const generateAIChat: StateCreator<
 
   // the internal process method of the AI message
   internal_coreProcessMessage: async (originalMessages, userMessageId, params) => {
-    const { internal_fetchAIChatMessage, triggerToolCalls, refreshMessages, activeTopicId } = get();
+    const { internal_fetchAIChatMessage, triggerToolCalls, refreshMessages } = get();
+    const conversationContext = params?.conversationContext ?? {
+      generation: get().conversationClearGeneration,
+      sessionId: get().activeId,
+      topicId: get().activeTopicId,
+    };
+    const dispatchContext = {
+      sessionId: conversationContext.sessionId,
+      topicId: conversationContext.topicId,
+    };
+    const isCurrentConversation = () =>
+      get().conversationClearGeneration === conversationContext.generation &&
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =
       params?.expectedConversationVersion ?? (await messageService.getConversationVersion());
+    if (!isCurrentConversation()) return;
 
     // create a new array to avoid the original messages array change
     const messages = [...originalMessages];
@@ -426,6 +469,7 @@ export const generateAIChat: StateCreator<
         // should skip the last content
         messages.map((m) => m.content).slice(0, messages.length - 1),
       );
+      if (!isCurrentConversation()) return;
 
       ragQueryId = queryId;
 
@@ -456,18 +500,19 @@ export const generateAIChat: StateCreator<
       fromProvider: provider,
 
       parentId: userMessageId,
-      sessionId: get().activeId,
-      topicId: activeTopicId, // if there is activeTopicId，then add it to topicId
+      sessionId: conversationContext.sessionId,
+      topicId: conversationContext.topicId,
       threadId: params?.threadId,
       fileChunks,
       ragQueryId,
     };
 
     const assistantId = await get().internal_createMessage(assistantMessage, {
+      conversationContext,
       expectedConversationVersion,
     });
 
-    if (!assistantId) return;
+    if (!assistantId || !isCurrentConversation()) return;
 
     // 3. place a search with the search working model if this model is not support tool use
     const aiInfraStoreState = getAiInfraStoreState();
@@ -510,6 +555,7 @@ export const generateAIChat: StateCreator<
       await chatService.fetchPresetTaskResult({
         params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
         onFinish: async (_, { toolCalls, usage }) => {
+          if (!isCurrentConversation()) return;
           if (toolCalls && toolCalls.length > 0) {
             get().internal_toggleToolCallingStreaming(assistantId, undefined);
             // update tools calling
@@ -518,25 +564,30 @@ export const generateAIChat: StateCreator<
               metadata: usage,
               model,
               provider,
+              conversationContext,
             });
           }
         },
         trace: {
           traceId: params?.traceId,
-          sessionId: get().activeId,
-          topicId: get().activeTopicId,
+          sessionId: conversationContext.sessionId,
+          topicId: conversationContext.topicId,
           traceName: TraceNameMap.SearchIntentRecognition,
         },
         abortController,
         onMessageHandle: async (chunk) => {
+          if (!isCurrentConversation()) return;
           if (chunk.type === 'tool_calls') {
             get().internal_toggleSearchWorkflow(false, assistantId);
             get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
-            get().internal_dispatchMessage({
-              id: assistantId,
-              type: 'updateMessage',
-              value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
-            });
+            get().internal_dispatchMessage(
+              {
+                id: assistantId,
+                type: 'updateMessage',
+                value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
+              },
+              dispatchContext,
+            );
             isToolsCalling = true;
           }
 
@@ -545,12 +596,14 @@ export const generateAIChat: StateCreator<
           }
         },
         onErrorHandle: async (error) => {
+          if (!isCurrentConversation()) return;
           isError = true;
           await messageService.updateMessageError(assistantId, error);
-          await refreshMessages();
+          await refreshMessages(conversationContext);
         },
       });
 
+      if (!isCurrentConversation()) return;
       get().internal_toggleChatLoading(
         false,
         assistantId,
@@ -564,7 +617,8 @@ export const generateAIChat: StateCreator<
       // if it's the function call message, trigger the function method
       if (isToolsCalling) {
         get().internal_toggleMessageInToolsCalling(true, assistantId);
-        await refreshMessages();
+        await refreshMessages(conversationContext);
+        if (!isCurrentConversation()) return;
         await triggerToolCalls(assistantId, {
           contextExportCaptureId: params?.contextExportCaptureId,
           expectedConversationVersion,
@@ -579,12 +633,14 @@ export const generateAIChat: StateCreator<
 
     // 4. fetch the AI response
     const { isFunctionCall, content, persistenceAmbiguous } = await internal_fetchAIChatMessage({
+      conversationContext,
       messages,
       messageId: assistantId,
       params,
       model,
       provider: provider!,
     });
+    if (!isCurrentConversation()) return;
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
@@ -599,10 +655,11 @@ export const generateAIChat: StateCreator<
 
       get().internal_toggleMessageInToolsCalling(true, assistantId);
       try {
-        await refreshMessages();
+        await refreshMessages(conversationContext);
       } catch {
         // Persistence is confirmed; revalidation must not block execution.
       }
+      if (!isCurrentConversation()) return;
       await triggerToolCalls(assistantId, {
         contextExportCaptureId: params?.contextExportCaptureId,
         expectedConversationVersion,
@@ -646,7 +703,14 @@ export const generateAIChat: StateCreator<
       await get().internal_summaryHistory(historyMessages, { trigger: 'message_count' });
     }
   },
-  internal_fetchAIChatMessage: async ({ messages, messageId, params, provider, model }) => {
+  internal_fetchAIChatMessage: async ({
+    conversationContext: requestedConversationContext,
+    messages,
+    messageId,
+    params,
+    provider,
+    model,
+  }) => {
     const {
       internal_toggleChatLoading,
       refreshMessages,
@@ -655,6 +719,24 @@ export const generateAIChat: StateCreator<
       internal_toggleToolCallingStreaming,
       internal_toggleChatReasoning,
     } = get();
+    const conversationContext =
+      requestedConversationContext ??
+      params?.conversationContext ?? {
+        generation: get().conversationClearGeneration,
+        sessionId: get().activeId,
+        topicId: get().activeTopicId,
+      };
+    const dispatchContext = {
+      sessionId: conversationContext.sessionId,
+      topicId: conversationContext.topicId,
+    };
+    const isCurrentConversation = () =>
+      get().conversationClearGeneration === conversationContext.generation &&
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
+    if (!isCurrentConversation()) {
+      return { content: '', isFunctionCall: false };
+    }
 
     const abortController = internal_toggleChatLoading(
       true,
@@ -689,14 +771,15 @@ export const generateAIChat: StateCreator<
     // to upload image
     const uploadTasks: Map<string, Promise<{ id?: string; url?: string }>> = new Map();
 
-    const summaryBlock = topicSelectors.currentActiveTopicSummary(get());
-    const activeTopic = topicSelectors.currentActiveTopic(get());
+    const activeTopic = conversationContext.topicId
+      ? topicSelectors.getTopicById(conversationContext.topicId)(get())
+      : undefined;
     const historySummaryForRequest = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
       assistantMemory: agentConfig.assistantMemory ?? undefined,
       enableCompressHistory: chatConfig.enableCompressHistory,
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
-      topicSummary: summaryBlock?.content,
+      topicSummary: activeTopic?.historySummary,
     });
     const contextExportRequest = params?.contextExportCaptureId
       ? get().createContextExportRequest(
@@ -718,6 +801,7 @@ export const generateAIChat: StateCreator<
         },
         historySummary: historySummaryForRequest,
         onContextEngineered: ({ engineeredInput, metadata, request }) => {
+          if (!isCurrentConversation()) return;
           get().appendContextExportSnapshot({
             ...request,
             engineeredInput,
@@ -737,17 +821,19 @@ export const generateAIChat: StateCreator<
           });
         },
         onContextSnapshot: (snapshot) => {
+          if (!isCurrentConversation()) return;
           get().appendContextExportSnapshot(snapshot);
         },
         toolCacheDebug: params?.toolCacheDebug,
         trace: {
           traceId: params?.traceId,
-          sessionId: get().activeId,
-          topicId: get().activeTopicId,
+          sessionId: conversationContext.sessionId,
+          topicId: conversationContext.topicId,
           traceName: TraceNameMap.Conversation,
         },
         isWelcomeQuestion: params?.isWelcomeQuestion,
         onErrorHandle: async (error) => {
+          if (!isCurrentConversation()) return;
           if (contextExportRequest) {
             get().appendContextExportSnapshot({
               ...contextExportRequest,
@@ -767,12 +853,13 @@ export const generateAIChat: StateCreator<
             });
           }
           await messageService.updateMessageError(messageId, error);
-          await refreshMessages();
+          await refreshMessages(conversationContext);
         },
         onFinish: async (
           content,
           { traceId, observationId, toolCalls, reasoning, grounding, usage, speed },
         ) => {
+          if (!isCurrentConversation()) return;
           msgTraceId = traceId;
 
           // 等待所有图片上传完成
@@ -815,10 +902,12 @@ export const generateAIChat: StateCreator<
             provider,
             persistenceRecovery: 'assistant_finalization',
             traceId,
+            conversationContext,
           });
           persistenceAmbiguous = finalization.persistenceAmbiguous;
         },
         onMessageHandle: async (chunk) => {
+          if (!isCurrentConversation()) return;
           switch (chunk.type) {
             case 'grounding': {
               // if there is no citations, then stop
@@ -829,27 +918,33 @@ export const generateAIChat: StateCreator<
               )
                 return;
 
-              internal_dispatchMessage({
-                id: messageId,
-                type: 'updateMessage',
-                value: {
-                  search: {
-                    citations: chunk.grounding.citations,
-                    searchQueries: chunk.grounding.searchQueries,
+              internal_dispatchMessage(
+                {
+                  id: messageId,
+                  type: 'updateMessage',
+                  value: {
+                    search: {
+                      citations: chunk.grounding.citations,
+                      searchQueries: chunk.grounding.searchQueries,
+                    },
                   },
                 },
-              });
+                dispatchContext,
+              );
               break;
             }
 
             case 'base64_image': {
-              internal_dispatchMessage({
-                id: messageId,
-                type: 'updateMessage',
-                value: {
-                  imageList: chunk.images.map((i) => ({ id: i.id, url: i.data, alt: i.id })),
+              internal_dispatchMessage(
+                {
+                  id: messageId,
+                  type: 'updateMessage',
+                  value: {
+                    imageList: chunk.images.map((i) => ({ id: i.id, url: i.data, alt: i.id })),
+                  },
                 },
-              });
+                dispatchContext,
+              );
               const image = chunk.image;
 
               const task = getFileStoreState()
@@ -882,14 +977,17 @@ export const generateAIChat: StateCreator<
                 }
               }
 
-              internal_dispatchMessage({
-                id: messageId,
-                type: 'updateMessage',
-                value: {
-                  content: output,
-                  reasoning: !!thinking ? { content: thinking, duration } : undefined,
+              internal_dispatchMessage(
+                {
+                  id: messageId,
+                  type: 'updateMessage',
+                  value: {
+                    content: output,
+                    reasoning: !!thinking ? { content: thinking, duration } : undefined,
+                  },
                 },
-              });
+                dispatchContext,
+              );
               break;
             }
 
@@ -906,31 +1004,39 @@ export const generateAIChat: StateCreator<
 
               thinking += chunk.text;
 
-              internal_dispatchMessage({
-                id: messageId,
-                type: 'updateMessage',
-                value: { reasoning: { content: thinking } },
-              });
+              internal_dispatchMessage(
+                {
+                  id: messageId,
+                  type: 'updateMessage',
+                  value: { reasoning: { content: thinking } },
+                },
+                dispatchContext,
+              );
               break;
             }
 
             // is this message is just a tool call
             case 'tool_calls': {
               internal_toggleToolCallingStreaming(messageId, chunk.isAnimationActives);
-              internal_dispatchMessage({
-                id: messageId,
-                type: 'updateMessage',
-                value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
-              });
+              internal_dispatchMessage(
+                {
+                  id: messageId,
+                  type: 'updateMessage',
+                  value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
+                },
+                dispatchContext,
+              );
               isFunctionCall = true;
             }
           }
         },
       });
     } finally {
-      internal_toggleToolCallingStreaming(messageId, undefined);
-      internal_toggleChatReasoning(false, messageId, n('generateMessage(reasoningEnd)') as string);
-      internal_toggleChatLoading(false, messageId, n('generateMessage(end)') as string);
+      if (isCurrentConversation()) {
+        internal_toggleToolCallingStreaming(messageId, undefined);
+        internal_toggleChatReasoning(false, messageId, n('generateMessage(reasoningEnd)') as string);
+        internal_toggleChatLoading(false, messageId, n('generateMessage(end)') as string);
+      }
     }
 
     return { isFunctionCall, persistenceAmbiguous, traceId: msgTraceId, content: output };

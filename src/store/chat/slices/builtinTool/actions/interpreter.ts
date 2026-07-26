@@ -14,6 +14,8 @@ import { pythonService } from '@/services/python';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { useFileStore } from '@/store/file';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -187,25 +189,35 @@ export const codeInterpreterSlice: StateCreator<
     });
   },
 
-  useFetchInterpreterFileItem: (id) =>
-    useClientDataSWR(id ? [SWR_FETCH_INTERPRETER_FILE_KEY, id] : null, async () => {
-      if (!id) return null;
+  useFetchInterpreterFileItem: (id) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-      const item = await fileService.getFile(id);
+    return useClientDataSWR(
+      id && requestedScope ? [SWR_FETCH_INTERPRETER_FILE_KEY, requestedScope, id] : null,
+      async () => {
+        if (!id || !requestedScope) return null;
+        const requestedGeneration = get().conversationClearGeneration;
+        if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return null;
 
-      set(
-        produce((draft) => {
-          if (!draft.codeInterpreterFileMap) {
-            draft.codeInterpreterFileMap = {};
-          }
-          if (draft.codeInterpreterFileMap[id]) return;
+        const item = await fileService.getFile(id);
+        if (
+          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+          get().conversationClearGeneration !== requestedGeneration
+        )
+          return item;
 
-          draft.codeInterpreterFileMap[id] = item;
-        }),
-        false,
-        n('useFetchInterpreterFileItem'),
-      );
+        set(
+          produce((draft) => {
+            if (draft.codeInterpreterImageMap[id]) return;
 
-      return item;
-    }),
+            draft.codeInterpreterImageMap[id] = item;
+          }),
+          false,
+          n('useFetchInterpreterFileItem'),
+        );
+
+        return item;
+      },
+    );
+  },
 });

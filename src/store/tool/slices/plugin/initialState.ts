@@ -13,4 +13,5 @@ export const initialPluginState: PluginState = {
   installedPlugins: [],
   loadingInstallPlugins: true,
   pluginsSettings: {},
+  updatePluginSettingsSignal: undefined,
 };

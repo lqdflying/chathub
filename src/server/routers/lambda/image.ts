@@ -1,4 +1,5 @@
 import { and, eq } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import {
@@ -7,6 +8,7 @@ import {
   asyncTasks,
   generationBatches,
   generations,
+  generationTopics,
 } from '@/database/schemas';
 import {
   createImageDiagnosticId,
@@ -190,6 +192,21 @@ export const imageRouter = router({
       // 步骤 1: 在事务中原子性地创建所有数据库记录
       const { batch: createdBatch, generationsWithTasks } = await serverDB.transaction(
         async (tx) => {
+          const [ownedTopic] = await tx
+            .select({ id: generationTopics.id })
+            .from(generationTopics)
+            .where(
+              and(eq(generationTopics.id, generationTopicId), eq(generationTopics.userId, userId)),
+            )
+            .limit(1);
+
+          if (!ownedTopic) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Generation topic does not belong to the current user',
+            });
+          }
+
           // 1. 创建 generationBatch
           const newBatch: NewGenerationBatch = {
             config: configForDatabase,

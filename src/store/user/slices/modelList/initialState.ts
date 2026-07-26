@@ -11,5 +11,7 @@ export interface ModelListState {
 
 export const initialModelListState: ModelListState = {
   defaultModelProviderList: DEFAULT_MODEL_PROVIDER_LIST,
+  editingCustomCardModel: undefined,
   modelProviderList: DEFAULT_MODEL_PROVIDER_LIST,
+  serverLanguageModel: undefined,
 };

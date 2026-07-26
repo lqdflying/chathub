@@ -1,9 +1,53 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+import { getServerDB } from '@/database/core/db-adaptor';
+import { createCallerFactory } from '@/libs/trpc/lambda';
 
 import {
   createImageInputSchema,
   validateNoUrlsInConfig,
 } from '@/server/routers/lambda/image/schema';
+
+import { imageRouter } from '../image';
+
+vi.mock('@/config/db', () => ({
+  serverDBEnv: {
+    KEY_VAULTS_SECRET: 'test-secret',
+  },
+}));
+
+vi.mock('@/database/core/db-adaptor', () => ({
+  getServerDB: vi.fn(),
+}));
+
+vi.mock('@/database/models/asyncTask', () => ({
+  AsyncTaskModel: vi.fn(),
+}));
+
+vi.mock('@/libs/logger/imageDebug', () => ({
+  describeImageDebugError: vi.fn(),
+  fingerprintImageDebugValue: vi.fn(() => ({ hash: 'test-hash' })),
+  isImageDebugEnabled: vi.fn(() => false),
+  logImageDebugSafe: vi.fn(),
+  logImageDebugVerbose: vi.fn(),
+  runWithImageDebugContext: vi.fn((callback: () => unknown) => callback()),
+}));
+
+vi.mock('@/server/modules/ModelRuntime', () => ({
+  initModelRuntimeWithUserPayload: vi.fn(),
+}));
+
+vi.mock('@/server/services/file', () => ({
+  FileService: vi.fn(),
+}));
+
+vi.mock('@/server/routers/async/caller', () => ({
+  createAsyncCaller: vi.fn(),
+}));
+
+vi.mock('@lobechat/utils/server', () => ({
+  getXorPayload: vi.fn(() => ({})),
+}));
 
 const validInput = {
   generationTopicId: 'topic-id',
@@ -14,6 +58,36 @@ const validInput = {
 };
 
 describe('imageRouter', () => {
+  it('rejects image creation when the topic belongs to another user', async () => {
+    const topicOwnershipQuery = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([]),
+    };
+    const transaction = {
+      select: vi.fn().mockReturnValue(topicOwnershipQuery),
+      insert: vi.fn(),
+    };
+    const serverDB = {
+      transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
+      ),
+    };
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-b',
+    } as never);
+
+    await expect(caller.createImage(validInput)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Generation topic does not belong to the current user',
+    });
+    expect(transaction.insert).not.toHaveBeenCalled();
+  });
+
   describe('createImageInputSchema', () => {
     it.each([1, 50])('accepts the image count boundary %i', (imageNum) => {
       expect(createImageInputSchema.parse({ ...validInput, imageNum }).imageNum).toBe(imageNum);

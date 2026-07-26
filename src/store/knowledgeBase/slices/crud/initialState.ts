@@ -13,4 +13,5 @@ export const initialKnowledgeBaseState: KnowledgeBaseState = {
   activeKnowledgeBaseItems: {},
   initKnowledgeBaseList: false,
   knowledgeBaseLoadingIds: [],
+  knowledgeBaseRenamingId: null,
 };

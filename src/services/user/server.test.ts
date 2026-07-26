@@ -25,10 +25,16 @@ vi.mock('@/libs/trpc/client', () => ({
       makeUserOnboarded: {
         mutate: vi.fn(),
       },
+      migrateImageConfig: {
+        mutate: vi.fn(),
+      },
       updatePreference: {
         mutate: vi.fn(),
       },
       updateGuide: {
+        mutate: vi.fn(),
+      },
+      updateImageConfig: {
         mutate: vi.fn(),
       },
       updateSettings: {
@@ -105,6 +111,22 @@ describe('ServerService', () => {
     expect(lambdaClient.user.makeUserOnboarded.mutate).toHaveBeenCalled();
   });
 
+  it('should migrate image config', async () => {
+    const imageConfig = {
+      imageNum: 8,
+      model: 'size-model',
+      provider: 'custom-provider',
+      size: '1536x1024',
+    };
+    const migrationResult = { imageConfig, migrated: true };
+    vi.mocked(lambdaClient.user.migrateImageConfig.mutate).mockResolvedValue(migrationResult);
+
+    const result = await service.migrateImageConfig(imageConfig);
+
+    expect(result).toEqual(migrationResult);
+    expect(lambdaClient.user.migrateImageConfig.mutate).toHaveBeenCalledWith(imageConfig);
+  });
+
   it('should update user preference', async () => {
     const preference: Partial<UserPreference> = {
       telemetry: true,
@@ -122,6 +144,17 @@ describe('ServerService', () => {
     };
     await service.updateGuide(guide);
     expect(lambdaClient.user.updateGuide.mutate).toHaveBeenCalledWith(guide);
+  });
+
+  it('should update image config', async () => {
+    const imageConfig = {
+      imageNum: 8,
+      model: 'size-model',
+      provider: 'custom-provider',
+      size: '1536x1024',
+    };
+    await service.updateImageConfig(imageConfig);
+    expect(lambdaClient.user.updateImageConfig.mutate).toHaveBeenCalledWith(imageConfig);
   });
 
   it('should update user settings', async () => {

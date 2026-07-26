@@ -10,7 +10,11 @@ import { ModelProvider } from 'model-bank';
 
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { useUserStore } from '@/store/user';
-import { keyVaultsConfigSelectors, userProfileSelectors } from '@/store/user/selectors';
+import {
+  authSelectors,
+  keyVaultsConfigSelectors,
+  userProfileSelectors,
+} from '@/store/user/selectors';
 import { obfuscatePayloadWithXOR } from '@/utils/client/xor-obfuscation';
 
 import { resolveRuntimeProvider } from './chat/helper';
@@ -68,7 +72,17 @@ export const createPayloadWithKeyVaults = (provider: string) => {
       useUserStore.getState(),
     );
   } else {
-    keyVaults = aiProviderSelectors.providerKeyVaults(provider)(useAiInfraStore.getState()) || {};
+    const userState = useUserStore.getState();
+    const runtimeState = useAiInfraStore.getState();
+    const expectedRuntimeScope = authSelectors.currentUserScope(userState);
+    const isCurrentRuntimeReady =
+      !!expectedRuntimeScope &&
+      runtimeState.runtimeStateRequestScope === expectedRuntimeScope &&
+      runtimeState.runtimeStateScope === expectedRuntimeScope;
+
+    keyVaults = isCurrentRuntimeReady
+      ? aiProviderSelectors.providerKeyVaults(provider)(runtimeState) || {}
+      : {};
   }
 
   const runtimeProvider = resolveRuntimeProvider(provider);

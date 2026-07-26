@@ -1,4 +1,5 @@
 import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
+import { useLayoutEffect } from 'react';
 import useSWR, { SWRResponse, mutate } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import type { StateCreator } from 'zustand/vanilla';
@@ -13,20 +14,25 @@ import type { UserSettings } from '@/types/user/settings';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
 
+import { authSelectors } from '../auth/selectors';
+import { initialModelListState } from '../modelList/initialState';
 import { preferenceSelectors } from '../preference/selectors';
+import { initialCommonState } from './initialState';
 
 const n = setNamespace('common');
 
 const GET_USER_STATE_KEY = 'initUserState';
+const getUserStateKey = (userScope: string) => [GET_USER_STATE_KEY, userScope] as const;
 /**
  * 设置操作
  */
 export interface CommonAction {
   refreshUserState: () => Promise<void>;
   updateAvatar: (avatar: string) => Promise<void>;
-  useCheckTrace: (shouldFetch: boolean) => SWRResponse;
+  useCheckTrace: (shouldFetch: boolean, userScope?: string) => SWRResponse;
   useInitUserState: (
     isLogin: boolean | undefined,
+    userScope: string | undefined,
     serverConfig: GlobalServerConfig,
     options?: {
       onSuccess: (data: UserInitializationState) => void;
@@ -41,7 +47,10 @@ export const createCommonSlice: StateCreator<
   CommonAction
 > = (set, get) => ({
   refreshUserState: async () => {
-    await mutate(GET_USER_STATE_KEY);
+    const userScope = get().userStateScope;
+    if (!userScope) return;
+
+    await mutate(getUserStateKey(userScope));
   },
   updateAvatar: async (avatar) => {
     // 1. 更新服务端/数据库中的头像
@@ -50,9 +59,9 @@ export const createCommonSlice: StateCreator<
     await get().refreshUserState();
   },
 
-  useCheckTrace: (shouldFetch) =>
+  useCheckTrace: (shouldFetch, userScope) =>
     useSWR<boolean>(
-      shouldFetch ? 'checkTrace' : null,
+      shouldFetch && userScope ? ['checkTrace', userScope] : null,
       () => {
         const userAllowTrace = preferenceSelectors.userAllowTrace(get());
 
@@ -66,12 +75,39 @@ export const createCommonSlice: StateCreator<
       },
     ),
 
-  useInitUserState: (isLogin, serverConfig, options) =>
-    useOnlyFetchOnceSWR<UserInitializationState>(
-      !!isLogin ? GET_USER_STATE_KEY : null,
+  useInitUserState: (isLogin, userScope, serverConfig, options) => {
+    useLayoutEffect(() => {
+      const currentScope = get().userStateScope;
+      const didUserScopeChange = currentScope !== userScope;
+      if (!didUserScopeChange) return;
+
+      set(
+        {
+          ...initialCommonState,
+          ...initialModelListState,
+          preference: DEFAULT_PREFERENCE,
+          settings: {},
+          user: undefined,
+        },
+        false,
+        n('resetUserStateScope'),
+      );
+    }, [isLogin, userScope]);
+
+    return useOnlyFetchOnceSWR<UserInitializationState>(
+      isLogin && userScope ? getUserStateKey(userScope) : null,
       () => userService.getUserState(),
       {
         onSuccess: (data) => {
+          const currentUserScope = authSelectors.currentUserScope(get());
+          if (currentUserScope !== userScope) return;
+          if (
+            userScope !== 'local' &&
+            (!data.authUserId || `user:${data.authUserId}` !== userScope)
+          ) {
+            return;
+          }
+
           options?.onSuccess?.(data);
 
           if (data) {
@@ -116,6 +152,8 @@ export const createCommonSlice: StateCreator<
                 settings: data.settings || {},
                 subscriptionPlan: data.subscriptionPlan,
                 user,
+                userStateOwnerId: data.userId || get().user?.id,
+                userStateScope: userScope,
               },
               false,
               n('initUserState'),
@@ -132,5 +170,6 @@ export const createCommonSlice: StateCreator<
           }
         },
       },
-    ),
+    );
+  },
 });

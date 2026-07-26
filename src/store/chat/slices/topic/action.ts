@@ -3,6 +3,7 @@
 // DON'T REMOVE THE FIRST LINE
 import { chainSummaryTitle } from '@lobechat/prompts';
 import { TraceNameMap, UIChatMessage } from '@lobechat/types';
+import { nanoid } from '@lobechat/utils';
 import isEqual from 'fast-deep-equal';
 import { t } from 'i18next';
 import { produce } from 'immer';
@@ -18,12 +19,13 @@ import { topicService } from '@/services/topic';
 import { CreateTopicParams } from '@/services/topic/type';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
+import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { useUserStore } from '@/store/user';
-import { systemAgentSelectors } from '@/store/user/selectors';
+import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
 import { ChatTopic } from '@/types/topic';
 import { normalizeTopic } from '@/utils/client/topic';
 import { merge } from '@/utils/merge';
@@ -75,7 +77,7 @@ export interface ChatTopicAction {
   internal_createTopic: (
     params: CreateTopicParams,
     expectedConversationVersion?: number,
-  ) => Promise<string>;
+  ) => Promise<string | undefined>;
   internal_updateTopic: (id: string, data: Partial<ChatTopic>) => Promise<void>;
   internal_dispatchTopic: (payload: ChatTopicDispatch, action?: any) => void;
 }
@@ -99,11 +101,24 @@ export const chatTopic: StateCreator<
   },
 
   createTopic: async (sessionId, groupId, expectedConversationVersion) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
     const { activeId, activeSessionType, internal_createTopic } = get();
+    if (!requestedScope || !activeId) return;
+    const creatingTopicId = `topic-create-${nanoid(8)}`;
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === activeId;
+    const clearCurrentTopicCreation = () => {
+      if (get().creatingTopicId !== creatingTopicId) return;
+
+      set({ creatingTopic: false, creatingTopicId: undefined }, false, n('creatingTopic/end'));
+    };
 
     const messages = chatSelectors.activeBaseChats(get());
 
-    set({ creatingTopic: true }, false, n('creatingTopic/start'));
+    set({ creatingTopic: true, creatingTopicId }, false, n('creatingTopic/start'));
     const topicId = await internal_createTopic(
       {
         title: t('defaultTitle', { ns: 'topic' }),
@@ -114,7 +129,12 @@ export const chatTopic: StateCreator<
       },
       expectedConversationVersion,
     );
-    set({ creatingTopic: false }, false, n('creatingTopic/end'));
+    if (!isCurrentRequest()) {
+      clearCurrentTopicCreation();
+      return;
+    }
+
+    clearCurrentTopicCreation();
 
     return topicId;
   },
@@ -134,6 +154,7 @@ export const chatTopic: StateCreator<
         ? { groupId: groupId || activeId }
         : { sessionId: sessionId || activeId }),
     });
+    if (!topicId) return;
 
     get().internal_updateTopicLoading(topicId, true);
     // 2. auto summary topic Title
@@ -168,65 +189,197 @@ export const chatTopic: StateCreator<
   },
 
   duplicateTopic: async (id) => {
-    const { refreshTopic, switchTopic } = get();
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!requestedScope || !requestedContainerId) return;
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId;
+
     const expectedConversationVersion = await messageService.getConversationVersion();
+    if (!isCurrentRequest()) return;
 
     const topic = topicSelectors.getTopicById(id)(get());
     if (!topic) return;
 
     const newTitle = t('duplicateTitle', { ns: 'chat', title: topic?.title });
+    const loadingMessageKey = `duplicateTopic-${requestedGeneration}-${id}`;
 
     message.loading({
       content: t('duplicateLoading', { ns: 'topic' }),
-      key: 'duplicateTopic',
+      key: loadingMessageKey,
       duration: 0,
     });
 
-    const newTopicId = await topicService.cloneTopic(id, newTitle, {
-      expectedConversationVersion,
-    });
-    await refreshTopic();
-    message.destroy('duplicateTopic');
+    let newTopicId: string;
+    try {
+      newTopicId = await topicService.cloneTopic(id, newTitle, {
+        expectedConversationVersion,
+      });
+    } finally {
+      message.destroy(loadingMessageKey);
+    }
+    if (!isCurrentRequest()) return;
+
+    await get().refreshTopic();
+    if (!isCurrentRequest()) return;
+
     message.success(t('duplicateSuccess', { ns: 'topic' }));
 
-    await switchTopic(newTopicId);
+    await get().switchTopic(newTopicId);
   },
   // update
   summaryTopicTitle: async (topicId, messages) => {
-    const { internal_updateTopicTitleInSummary, internal_updateTopicLoading } = get();
-    const topic = topicSelectors.getTopicById(topicId)(get());
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!requestedScope || !requestedContainerId) return;
+
+    const topic = get().topicMaps[requestedContainerId]?.find((item) => item.id === topicId);
     if (!topic) return;
 
-    internal_updateTopicTitleInSummary(topicId, LOADING_FLAT);
+    const previousOperation = get().topicTitleSummaryOperations[topicId];
+    previousOperation?.abortController.abort();
+
+    const operationId = `topic-summary-${nanoid(8)}`;
+    const abortController = new AbortController();
+    const originalTitle = previousOperation?.originalTitle ?? topic.title;
+    const isCurrentTopicRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId &&
+      get().topicTitleSummaryOperations[topicId]?.operationId === operationId;
+    const updateOwnedTitle = (title: string) => {
+      set(
+        (state) => {
+          const operation = state.topicTitleSummaryOperations[topicId];
+          if (operation?.operationId !== operationId) return state;
+
+          const topics = state.topicMaps[requestedContainerId] || [];
+          return {
+            topicMaps: {
+              ...state.topicMaps,
+              [requestedContainerId]: topics.map((item) =>
+                item.id === topicId ? { ...item, title } : item,
+              ),
+            },
+            topicTitleSummaryOperations: {
+              ...state.topicTitleSummaryOperations,
+              [topicId]: { ...operation, displayedTitle: title },
+            },
+          };
+        },
+        false,
+        n('summaryTopicTitle/update', { operationId, requestedContainerId, topicId }),
+      );
+    };
+    const finishOwnedOperation = (restoreOriginalTitle: boolean) => {
+      set(
+        (state) => {
+          const operation = state.topicTitleSummaryOperations[topicId];
+          if (operation?.operationId !== operationId) return state;
+
+          const nextOperations = { ...state.topicTitleSummaryOperations };
+          delete nextOperations[topicId];
+
+          const topics = state.topicMaps[requestedContainerId] || [];
+          const nextTopics = restoreOriginalTitle
+            ? topics.map((item) =>
+                item.id === topicId && item.title === operation.displayedTitle
+                  ? { ...item, title: operation.originalTitle }
+                  : item,
+              )
+            : topics;
+
+          return {
+            topicLoadingIds: state.topicLoadingIds.filter((id) => id !== topicId),
+            topicMaps:
+              nextTopics === topics
+                ? state.topicMaps
+                : { ...state.topicMaps, [requestedContainerId]: nextTopics },
+            topicTitleSummaryOperations: nextOperations,
+          };
+        },
+        false,
+        n('summaryTopicTitle/finish', { operationId, requestedContainerId, topicId }),
+      );
+    };
+
+    set(
+      (state) => ({
+        topicLoadingIds: state.topicLoadingIds.includes(topicId)
+          ? state.topicLoadingIds
+          : [...state.topicLoadingIds, topicId],
+        topicMaps: {
+          ...state.topicMaps,
+          [requestedContainerId]: (state.topicMaps[requestedContainerId] || []).map((item) =>
+            item.id === topicId ? { ...item, title: LOADING_FLAT } : item,
+          ),
+        },
+        topicTitleSummaryOperations: {
+          ...state.topicTitleSummaryOperations,
+          [topicId]: {
+            abortController,
+            containerId: requestedContainerId,
+            displayedTitle: LOADING_FLAT,
+            operationId,
+            originalTitle,
+          },
+        },
+      }),
+      false,
+      n('summaryTopicTitle/start', { operationId, requestedContainerId, topicId }),
+    );
 
     let output = '';
+    let didResolveTitle = false;
 
     // Get current agent for topic
     const topicConfig = systemAgentSelectors.topic(useUserStore.getState());
 
     // Automatically summarize the topic title
-    await chatService.fetchPresetTaskResult({
-      onError: () => {
-        internal_updateTopicTitleInSummary(topicId, topic.title);
-      },
-      onFinish: async (text) => {
-        await get().internal_updateTopic(topicId, { title: text });
-      },
-      onLoadingChange: (loading) => {
-        internal_updateTopicLoading(topicId, loading);
-      },
-      onMessageHandle: (chunk) => {
-        switch (chunk.type) {
-          case 'text': {
-            output += chunk.text;
-          }
-        }
+    try {
+      await chatService.fetchPresetTaskResult({
+        abortController,
+        onError: () => {
+          if (!isCurrentTopicRequest()) return;
 
-        internal_updateTopicTitleInSummary(topicId, output);
-      },
-      params: merge(topicConfig, chainSummaryTitle(messages, globalHelpers.getCurrentLanguage())),
-      trace: get().getCurrentTracePayload({ traceName: TraceNameMap.SummaryTopicTitle, topicId }),
-    });
+          didResolveTitle = true;
+          updateOwnedTitle(originalTitle);
+        },
+        onFinish: async (text) => {
+          if (!isCurrentTopicRequest()) return;
+
+          updateOwnedTitle(text);
+          await enqueueTitleSummaryPersistence(
+            `${requestedScope}:topic:${topicId}`,
+            async () => {
+              if (!isCurrentTopicRequest()) return;
+
+              await topicService.updateTopic(topicId, { title: text });
+            },
+          );
+          if (isCurrentTopicRequest()) didResolveTitle = true;
+        },
+        onMessageHandle: (chunk) => {
+          if (!isCurrentTopicRequest()) return;
+
+          switch (chunk.type) {
+            case 'text': {
+              output += chunk.text;
+            }
+          }
+
+          updateOwnedTitle(output);
+        },
+        params: merge(topicConfig, chainSummaryTitle(messages, globalHelpers.getCurrentLanguage())),
+        trace: get().getCurrentTracePayload({ traceName: TraceNameMap.SummaryTopicTitle, topicId }),
+      });
+    } finally {
+      finishOwnedOperation(!didResolveTitle);
+    }
   },
   favoriteTopic: async (id, favorite) => {
     await get().internal_updateTopic(id, { favorite });
@@ -257,15 +410,19 @@ export const chatTopic: StateCreator<
   },
 
   // query
-  useFetchTopics: (enable, containerId) =>
-    useClientDataSWR<ChatTopic[]>(
-      enable ? [SWR_USE_FETCH_TOPIC, containerId] : null,
-      async ([, containerId]: [string, string | undefined]) => {
+  useFetchTopics: (enable, containerId) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<ChatTopic[]>(
+      enable && requestedScope ? [SWR_USE_FETCH_TOPIC, requestedScope, containerId] : null,
+      async (cacheKey: [string, string, string | undefined]) => {
+        const containerId = cacheKey[2];
         const topics = await topicService.getTopics({ containerId });
         return topics.map(normalizeTopic);
       },
       {
         onSuccess: (topics) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
           if (!containerId) return;
 
           const nextMap = { ...get().topicMaps, [containerId]: topics };
@@ -280,21 +437,26 @@ export const chatTopic: StateCreator<
           );
         },
       },
-    ),
-  useSearchTopics: (keywords, sessionId, groupId) =>
-    useSWR<ChatTopic[]>(
-      [SWR_USE_SEARCH_TOPIC, keywords, sessionId, groupId],
-      ([, keywords, sessionId, groupId]: [
-        string,
-        string,
-        string | undefined,
-        string | undefined,
-      ]) =>
-        topicService
+    );
+  },
+  useSearchTopics: (keywords, sessionId, groupId) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useSWR<ChatTopic[]>(
+      requestedScope ? [SWR_USE_SEARCH_TOPIC, requestedScope, keywords, sessionId, groupId] : null,
+      (cacheKey: [string, string, string, string | undefined, string | undefined]) => {
+        const keywords = cacheKey[2];
+        const sessionId = cacheKey[3];
+        const groupId = cacheKey[4];
+
+        return topicService
           .searchTopics(keywords, sessionId, groupId)
-          .then((topics) => topics.map(normalizeTopic)),
+          .then((topics) => topics.map(normalizeTopic));
+      },
       {
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           set(
             { searchTopics: data, isSearchingTopic: false },
             false,
@@ -302,9 +464,14 @@ export const chatTopic: StateCreator<
           );
         },
       },
-    ),
+    );
+  },
 
   switchTopic: async (id, skipRefreshMessage) => {
+    const nextTopicId = id ?? null;
+    if ((get().activeTopicId ?? null) === nextTopicId) return;
+    if (!skipRefreshMessage) get().internal_invalidateConversation();
+
     set(
       { activeTopicId: !id ? (null as any) : id, activeThreadId: undefined },
       false,
@@ -407,7 +574,10 @@ export const chatTopic: StateCreator<
     );
   },
   refreshTopic: async () => {
-    return mutate([SWR_USE_FETCH_TOPIC, get().activeId]);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    return mutate([SWR_USE_FETCH_TOPIC, requestedScope, get().activeId]);
   },
 
   internal_updateTopicLoading: (id, loading) => {
@@ -431,8 +601,31 @@ export const chatTopic: StateCreator<
     get().internal_updateTopicLoading(id, false);
   },
   internal_createTopic: async (params, expectedConversationVersion) => {
-    const conversationClearGeneration = get().conversationClearGeneration;
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!requestedScope || !requestedContainerId) return;
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId;
+
     const tmpId = Date.now().toString();
+    const clearTemporaryTopic = () => {
+      set(
+        (state) => ({
+          topicLoadingIds: state.topicLoadingIds.filter((id) => id !== tmpId),
+          topicMaps: {
+            ...state.topicMaps,
+            [requestedContainerId]: (state.topicMaps[requestedContainerId] || []).filter(
+              (topic) => topic.id !== tmpId,
+            ),
+          },
+        }),
+        false,
+        n('internal_createTopic/clearTemporaryTopic', { requestedContainerId, tmpId }),
+      );
+    };
     get().internal_dispatchTopic(
       { type: 'addTopic', value: { ...params, id: tmpId } },
       'internal_createTopic',
@@ -443,12 +636,21 @@ export const chatTopic: StateCreator<
       params,
       expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
     );
-    if (get().conversationClearGeneration !== conversationClearGeneration) return topicId;
+    if (!isCurrentRequest()) {
+      clearTemporaryTopic();
+      return;
+    }
 
     get().internal_updateTopicLoading(tmpId, false);
 
     get().internal_updateTopicLoading(topicId, true);
     await get().refreshTopic();
+    if (!isCurrentRequest()) {
+      clearTemporaryTopic();
+      get().internal_updateTopicLoading(topicId, false);
+      return;
+    }
+
     get().internal_updateTopicLoading(topicId, false);
 
     return topicId;

@@ -6,7 +6,7 @@ import { createServerConfigStore } from '@/store/serverConfig/store';
 
 import { useFileStore as useStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 //  mock the arrayBuffer
 beforeAll(() => {

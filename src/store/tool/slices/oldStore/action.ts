@@ -10,6 +10,8 @@ import { pluginService } from '@/services/plugin';
 import { toolService } from '@/services/tool';
 import { globalHelpers } from '@/store/global/helpers';
 import { pluginStoreSelectors } from '@/store/tool/selectors';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { DiscoverPluginItem, PluginListResponse, PluginQueryParams } from '@/types/discover';
 import { PluginInstallError } from '@/types/tool/plugin';
 import { sleep } from '@/utils/sleep';
@@ -50,6 +52,13 @@ export const createPluginStoreSlice: StateCreator<
   PluginStoreAction
 > = (set, get) => ({
   installOldPlugin: async (name, type = 'plugin') => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+    const isOperationCurrent = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
+
     const plugin = pluginStoreSelectors.getPluginById(name)(get());
     if (!plugin) return;
 
@@ -66,6 +75,7 @@ export const createPluginStoreSlice: StateCreator<
       });
 
       const data = await toolService.getToolManifest(plugin.manifest);
+      if (!isOperationCurrent()) return;
 
       // 步骤 2: 安装插件
       updatePluginInstallProgress(name, {
@@ -74,6 +84,7 @@ export const createPluginStoreSlice: StateCreator<
       });
 
       await pluginService.installPlugin({ identifier: plugin.identifier, manifest: data, type });
+      if (!isOperationCurrent()) return;
 
       updatePluginInstallProgress(name, {
         progress: 85,
@@ -81,6 +92,7 @@ export const createPluginStoreSlice: StateCreator<
       });
 
       await refreshPlugins();
+      if (!isOperationCurrent()) return;
 
       // 步骤 4: 完成安装
       updatePluginInstallProgress(name, {
@@ -90,10 +102,13 @@ export const createPluginStoreSlice: StateCreator<
 
       // 短暂显示完成状态后清除进度
       await sleep(1000);
+      if (!isOperationCurrent()) return;
 
       updatePluginInstallProgress(name, undefined);
       updateInstallLoadingState(name, undefined);
     } catch (error) {
+      if (!isOperationCurrent()) return;
+
       console.error(error);
 
       const err = error as PluginInstallError;
@@ -114,6 +129,13 @@ export const createPluginStoreSlice: StateCreator<
     }
   },
   installPlugin: async (name, type = 'plugin') => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+    const isOperationCurrent = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
+
     const plugin = pluginStoreSelectors.getPluginById(name)(get());
     if (!plugin) return;
 
@@ -121,12 +143,18 @@ export const createPluginStoreSlice: StateCreator<
     try {
       updateInstallLoadingState(name, true);
       const data = await toolService.getToolManifest(plugin.manifest);
+      if (!isOperationCurrent()) return;
 
       await pluginService.installPlugin({ identifier: plugin.identifier, manifest: data, type });
+      if (!isOperationCurrent()) return;
+
       await refreshPlugins();
+      if (!isOperationCurrent()) return;
 
       updateInstallLoadingState(name, undefined);
     } catch (error) {
+      if (!isOperationCurrent()) return;
+
       console.error(error);
 
       const err = error as PluginInstallError;
@@ -172,7 +200,10 @@ export const createPluginStoreSlice: StateCreator<
     return data.items;
   },
   refreshPlugins: async () => {
-    await mutate(INSTALLED_PLUGINS);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    await mutate([INSTALLED_PLUGINS, requestedScope]);
   },
   resetPluginList: (keywords) => {
     set(
@@ -186,7 +217,17 @@ export const createPluginStoreSlice: StateCreator<
     );
   },
   uninstallPlugin: async (identifier) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await pluginService.uninstallPlugin(identifier);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().refreshPlugins();
   },
   updateInstallLoadingState: (key, value) => {
@@ -208,19 +249,28 @@ export const createPluginStoreSlice: StateCreator<
     );
   },
 
-  useFetchInstalledPlugins: (enabled: boolean) =>
-    useSWR<LobeTool[]>(enabled ? INSTALLED_PLUGINS : null, pluginService.getInstalledPlugins, {
-      fallbackData: [],
-      onSuccess: (data) => {
-        set(
-          { installedPlugins: data, loadingInstallPlugins: false },
-          false,
-          n('useFetchInstalledPlugins'),
-        );
+  useFetchInstalledPlugins: (enabled: boolean) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useSWR<LobeTool[]>(
+      enabled && requestedScope ? [INSTALLED_PLUGINS, requestedScope] : null,
+      pluginService.getInstalledPlugins,
+      {
+        fallbackData: [],
+        onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
+          set(
+            { installedPlugins: data, loadingInstallPlugins: false },
+            false,
+            n('useFetchInstalledPlugins'),
+          );
+        },
+        revalidateOnFocus: false,
+        suspense: true,
       },
-      revalidateOnFocus: false,
-      suspense: true,
-    }),
+    );
+  },
   useFetchPluginList: (params) => {
     const locale = globalHelpers.getCurrentLanguage();
 

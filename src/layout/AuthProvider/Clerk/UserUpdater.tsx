@@ -25,6 +25,7 @@ const UserUpdater = memo(() => {
   } as LobeUser;
 
   useStoreUpdater('isLoaded', isLoaded);
+  useStoreUpdater('authUserId', user?.id);
   useStoreUpdater('user', lobeUser);
   useStoreUpdater('isSignedIn', isSignedIn);
 

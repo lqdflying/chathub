@@ -1,10 +1,11 @@
 import { CheckFileHashResult, FileItem, UploadFileParams } from '@/types/files';
 
 export interface IFileService {
-  checkFileHash(hash: string): Promise<CheckFileHashResult>;
+  checkFileHash(hash: string, signal?: AbortSignal): Promise<CheckFileHashResult>;
   createFile(
     file: UploadFileParams,
     knowledgeBaseId?: string,
+    signal?: AbortSignal,
   ): Promise<{ id: string; url: string }>;
   getFile(id: string): Promise<FileItem>;
   removeAllFiles(): Promise<any>;

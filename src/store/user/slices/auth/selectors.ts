@@ -55,7 +55,17 @@ const isLogin = (s: UserStore) => {
   return s.isSignedIn;
 };
 
+const currentUserScope = (s: UserStore): string | undefined => {
+  if (!enableAuth) return 'local';
+  if (!s.isLoaded || s.isSignedIn === undefined) return undefined;
+  if (!s.isSignedIn) return 'guest';
+
+  const authenticatedUserId = s.authUserId || s.user?.id;
+  return authenticatedUserId ? `user:${authenticatedUserId}` : undefined;
+};
+
 export const authSelectors = {
+  currentUserScope,
   isLoaded: (s: UserStore) => s.isLoaded,
   isLogin,
   isLoginWithAuth: (s: UserStore) => s.isSignedIn,

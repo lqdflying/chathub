@@ -116,13 +116,20 @@ describe('userRouter', () => {
       const result = await userRouter.createCaller({ ...mockCtx }).getUserState();
 
       expect(result).toEqual({
+        authUserId: mockUserId,
+        avatar: undefined,
+        email: undefined,
+        firstName: undefined,
+        fullName: undefined,
         isOnboard: true,
+        lastName: undefined,
         preference: { telemetry: true },
         settings: {},
         hasConversation: true,
         canEnablePWAGuide: true,
         canEnableTrace: true,
         userId: mockUserId,
+        username: undefined,
       });
     });
 
@@ -181,13 +188,62 @@ describe('userRouter', () => {
       const result = await userRouter.createCaller({ ...mockCtx } as any).getUserState();
 
       expect(result).toEqual({
+        authUserId: mockUserId,
+        avatar: undefined,
+        email: undefined,
+        firstName: undefined,
+        fullName: undefined,
         isOnboard: true,
+        lastName: undefined,
         preference: { telemetry: null },
         settings: {},
         hasConversation: false,
         canEnablePWAGuide: false,
         canEnableTrace: false,
         userId: mockUserId,
+        username: undefined,
+      });
+    });
+
+    it('should preserve the raw Clerk identity when the data owner is mapped', async () => {
+      const rawClerkUserId = 'clerk-raw-user';
+      const mappedDataOwnerId = 'mapped-data-owner';
+
+      vi.mocked(UserModel).mockImplementation(
+        () =>
+          ({
+            getUserState: vi.fn().mockResolvedValue({
+              isOnboarded: true,
+              preference: { telemetry: true },
+              settings: {},
+            }),
+          }) as any,
+      );
+
+      vi.mocked(MessageModel).mockImplementation(
+        () =>
+          ({
+            hasMoreThanN: vi.fn().mockResolvedValue(false),
+          }) as any,
+      );
+
+      vi.mocked(SessionModel).mockImplementation(
+        () =>
+          ({
+            hasMoreThanN: vi.fn().mockResolvedValue(false),
+          }) as any,
+      );
+
+      const result = await userRouter
+        .createCaller({
+          clerkAuth: { userId: rawClerkUserId },
+          userId: mappedDataOwnerId,
+        } as any)
+        .getUserState();
+
+      expect(result).toMatchObject({
+        authUserId: rawClerkUserId,
+        userId: mappedDataOwnerId,
       });
     });
   });

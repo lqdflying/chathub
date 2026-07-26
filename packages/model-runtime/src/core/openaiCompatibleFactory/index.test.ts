@@ -2309,7 +2309,6 @@ describe('LobeOpenAICompatibleFactory', () => {
         );
         expect(instance['client'].images.edit).toHaveBeenCalledWith({
           image: expect.any(File),
-          input_fidelity: 'high',
           mask: 'https://example.com/mask.jpg',
           model: 'dall-e-2',
           n: 1,
@@ -2356,7 +2355,6 @@ describe('LobeOpenAICompatibleFactory', () => {
 
         expect(instance['client'].images.edit).toHaveBeenCalledWith({
           image: [mockFile1, mockFile2],
-          input_fidelity: 'high',
           model: 'dall-e-2',
           n: 1,
           prompt: 'Merge these images',
@@ -2486,7 +2484,6 @@ describe('LobeOpenAICompatibleFactory', () => {
         expect(instance['client'].images.edit).toHaveBeenCalledWith({
           customParam: 'should remain unchanged',
           image: expect.any(File),
-          input_fidelity: 'high',
           model: 'dall-e-2',
           n: 1,
           prompt: 'Test prompt',

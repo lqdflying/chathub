@@ -10,6 +10,8 @@ import { FC, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { lambdaClient } from '@/libs/trpc/client';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { ApiKeyItem, CreateApiKeyParams, UpdateApiKeyParams } from '@/types/apiKey';
 
 import { ApiKeyDisplay, ApiKeyModal, EditableCell } from './features';
@@ -38,6 +40,7 @@ const useStyles = createStyles(({ css, token }) => ({
 const Client: FC = () => {
   const { styles } = useStyles();
   const { t } = useTranslation('auth');
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
   const [modalOpen, setModalOpen] = useState(false);
 
   const actionRef = useRef<ActionType>(null);
@@ -176,10 +179,21 @@ const Client: FC = () => {
         className={styles.table}
         columns={columns}
         headerTitle={t('apikey.list.title')}
+        key={requestedScope || 'anonymous'}
         options={false}
         pagination={false}
         request={async () => {
+          const scopeAtRequestStart = requestedScope;
           const apiKeys = await lambdaClient.apiKey.getApiKeys.query();
+          if (
+            !scopeAtRequestStart ||
+            authSelectors.currentUserScope(useUserStore.getState()) !== scopeAtRequestStart
+          ) {
+            return {
+              data: [],
+              success: true,
+            };
+          }
 
           return {
             data: apiKeys,
@@ -197,6 +211,7 @@ const Client: FC = () => {
         }}
       />
       <ApiKeyModal
+        key={requestedScope || 'anonymous'}
         onCancel={() => setModalOpen(false)}
         onOk={handleModalOk}
         open={modalOpen}

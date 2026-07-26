@@ -24,6 +24,8 @@ export interface AIProviderState {
   initAiProviderList: boolean;
   isInitAiProviderRuntimeState: boolean;
   providerSearchKeyword: string;
+  runtimeStateRequestScope?: string;
+  runtimeStateScope?: string;
 }
 
 export const initialAIProviderState: AIProviderState = {
@@ -35,4 +37,6 @@ export const initialAIProviderState: AIProviderState = {
   initAiProviderList: false,
   isInitAiProviderRuntimeState: false,
   providerSearchKeyword: '',
+  runtimeStateRequestScope: undefined,
+  runtimeStateScope: undefined,
 };

@@ -91,6 +91,19 @@ The `openaicompatible` provider intentionally uses a fixed, non-editable model l
 
 `gpt-5.5` remains the provider connection-check model because compatible gateways may expose GPT-5.5 before they add GPT-5.6 Sol.
 
+The OpenAI-compatible Images API path uses `/images/generations` for
+text-to-image requests and `/images/edits` when reference images are present.
+Edit defaults are model-aware: GPT Image 1 and GPT Image 1.5 default
+`input_fidelity` to `high`, while GPT Image 2, GPT Image 1 Mini, and DALL·E
+requests omit the field. GPT Image 2 always processes reference inputs at high
+fidelity and rejects the parameter. Explicit stale `input_fidelity` values are
+therefore stripped from model families that reject it. Base64 responses use the
+response's `output_format` metadata when available, then the requested
+`output_format`, and finally PNG, so JPEG and WebP bytes receive the correct data
+URI MIME type. The fixed GPT Image 2 card still exposes the existing preset
+image controls; flexible arbitrary resolutions and new output/moderation
+controls require separate parameter meta-schema and UI work.
+
 GPT-5 reasoning effort is normalized by model before the request reaches the runtime:
 
 - `gpt-5.6-sol`: ChatHub exposes `high`, `xhigh`, `max`

@@ -1,4 +1,4 @@
-import { TraceEventType , UIChatMessage } from '@lobechat/types';
+import { TraceEventType, UIChatMessage } from '@lobechat/types';
 import * as lobeUIModules from '@lobehub/ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
@@ -44,6 +44,15 @@ vi.mock('@/services/topic', () => ({
 vi.mock('@/services/rpcDiagnostics', () => ({
   rpcDiagnosticsService: { reportClientRPCFailure },
 }));
+
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 const realRefreshMessages = useChatStore.getState().refreshMessages;
 // Mock state
@@ -109,6 +118,46 @@ describe('chatMessage actions', () => {
       });
 
       expect(updateInputMessageSpy).toHaveBeenCalledWith('');
+    });
+
+    it('should not clear a newer draft after stale assistant message creation', async () => {
+      const createdMessage = createDeferred<string | undefined>();
+      vi.mocked(messageService.createMessage).mockReturnValue(createdMessage.promise);
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'account-a-session',
+          activeTopicId: 'account-a-topic',
+          conversationClearGeneration: 0,
+          inputMessage: 'account A draft',
+        });
+      });
+
+      let addMessagePromise!: ReturnType<typeof result.current.addAIMessage>;
+      act(() => {
+        addMessagePromise = result.current.addAIMessage();
+      });
+
+      await waitFor(() => {
+        expect(messageService.createMessage).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'account-b-session',
+          activeTopicId: 'account-b-topic',
+          conversationClearGeneration: 1,
+          inputMessage: 'account B draft',
+        });
+      });
+      createdMessage.resolve(undefined);
+
+      await act(async () => {
+        await addMessagePromise;
+      });
+
+      expect(useChatStore.getState().inputMessage).toBe('account B draft');
     });
   });
 
@@ -182,6 +231,47 @@ describe('chatMessage actions', () => {
       });
 
       expect(updateInputMessageSpy).toHaveBeenCalledWith('');
+    });
+
+    it('should not clear a newer draft after stale user message creation', async () => {
+      const createdMessage = createDeferred<string | undefined>();
+      vi.mocked(messageService.createMessage).mockReturnValue(createdMessage.promise);
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'account-a-session',
+          activeThreadId: undefined,
+          activeTopicId: 'account-a-topic',
+          conversationClearGeneration: 0,
+          inputMessage: 'account A draft',
+        });
+      });
+
+      let addMessagePromise!: ReturnType<typeof result.current.addUserMessage>;
+      act(() => {
+        addMessagePromise = result.current.addUserMessage({ message: 'account A message' });
+      });
+
+      await waitFor(() => {
+        expect(messageService.createMessage).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'account-b-session',
+          activeTopicId: 'account-b-topic',
+          conversationClearGeneration: 1,
+          inputMessage: 'account B draft',
+        });
+      });
+      createdMessage.resolve(undefined);
+
+      await act(async () => {
+        await addMessagePromise;
+      });
+
+      expect(useChatStore.getState().inputMessage).toBe('account B draft');
     });
 
     it('should handle message without fileList', async () => {
@@ -597,11 +687,14 @@ describe('chatMessage actions', () => {
         await result.current.internal_updateMessageContent(messageId, newContent);
       });
 
-      expect(internal_dispatchMessageSpy).toHaveBeenCalledWith({
-        id: messageId,
-        type: 'updateMessage',
-        value: { content: newContent },
-      });
+      expect(internal_dispatchMessageSpy).toHaveBeenCalledWith(
+        {
+          id: messageId,
+          type: 'updateMessage',
+          value: { content: newContent },
+        },
+        undefined,
+      );
     });
 
     it('should refresh messages after updating content', async () => {
@@ -708,11 +801,14 @@ describe('chatMessage actions', () => {
       expect(updateMessage).toHaveBeenCalledTimes(2);
       expect(reportClientRPCFailure).toHaveBeenCalledTimes(2);
       expect(refreshMessages).toHaveBeenCalledTimes(1);
-      expect(dispatchMessage).toHaveBeenLastCalledWith({
-        id: 'message-id',
-        type: 'updateMessage',
-        value: { content: 'final content' },
-      });
+      expect(dispatchMessage).toHaveBeenLastCalledWith(
+        {
+          id: 'message-id',
+          type: 'updateMessage',
+          value: { content: 'final content' },
+        },
+        undefined,
+      );
     });
 
     it('does not absorb non-gateway assistant finalization failures', async () => {
@@ -758,12 +854,14 @@ describe('chatMessage actions', () => {
       // 确保 mutate 调用了正确的参数（session 和 group 两次）
       expect(mutate).toHaveBeenCalledWith([
         'SWR_USE_FETCH_MESSAGES',
+        'local',
         activeId,
         activeTopicId,
         'session',
       ]);
       expect(mutate).toHaveBeenCalledWith([
         'SWR_USE_FETCH_MESSAGES',
+        'local',
         activeId,
         activeTopicId,
         'group',

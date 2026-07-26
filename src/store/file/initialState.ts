@@ -4,7 +4,16 @@ import { FileManagerState, initialFileManagerState } from './slices/fileManager'
 
 export type FilesStoreState = ImageFileState & FileManagerState & FileChunkState;
 
-export const initialState: FilesStoreState = {
+export interface FileScopeState {
+  fileUploadAbortControllers: AbortController[];
+  scopeGeneration: number;
+}
+
+export type FileStoreState = FilesStoreState & FileScopeState;
+
+export const initialState: FileStoreState = {
+  fileUploadAbortControllers: [],
+  scopeGeneration: 0,
   ...initialImageFileState,
   ...initialFileManagerState,
   ...initialFileChunkState,

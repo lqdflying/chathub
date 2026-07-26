@@ -11,7 +11,10 @@ export interface AgentState {
   agentMap: Record<string, PartialDeep<LobeAgentConfig>>;
   agentSettingInstance?: AgentSettingsInstance | null;
   defaultAgentConfig: LobeAgentConfig;
+  inboxAgentRequestScope?: string;
+  inboxAgentScope?: string;
   isInboxAgentConfigInit: boolean;
+  scopeGeneration: number;
   showAgentSetting: boolean;
   updateAgentChatConfigSignal?: AbortController;
   updateAgentConfigSignal?: AbortController;
@@ -22,6 +25,9 @@ export const initialAgentChatState: AgentState = {
   agentConfigInitMap: {},
   agentMap: {},
   defaultAgentConfig: DEFAULT_AGENT_CONFIG,
+  inboxAgentRequestScope: undefined,
+  inboxAgentScope: undefined,
   isInboxAgentConfigInit: false,
+  scopeGeneration: 0,
   showAgentSetting: false,
 };

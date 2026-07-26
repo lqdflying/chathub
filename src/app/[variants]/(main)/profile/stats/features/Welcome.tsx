@@ -10,7 +10,7 @@ import { BRANDING_NAME } from '@/const/branding';
 import { useClientDataSWR } from '@/libs/swr';
 import { userService } from '@/services/user';
 import { useUserStore } from '@/store/user';
-import { userProfileSelectors } from '@/store/user/selectors';
+import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { formatIntergerNumber } from '@/utils/format';
 
 import TimeLabel from './TimeLabel';
@@ -29,9 +29,11 @@ const Welcome = memo<{ mobile?: boolean }>(({ mobile }) => {
     userProfileSelectors.nickName(s),
     userProfileSelectors.username(s),
   ]);
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-  const { data, isLoading } = useClientDataSWR('welcome', async () =>
-    userService.getUserRegistrationDuration(),
+  const { data, isLoading } = useClientDataSWR(
+    requestedScope ? ['welcome', requestedScope] : null,
+    async () => userService.getUserRegistrationDuration(),
   );
 
   return (

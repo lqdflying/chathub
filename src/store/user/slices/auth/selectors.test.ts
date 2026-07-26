@@ -242,6 +242,73 @@ describe('userProfileSelectors', () => {
 });
 
 describe('authSelectors', () => {
+  describe('currentUserScope', () => {
+    it('returns guest when the authenticated session is signed out', () => {
+      expect(
+        authSelectors.currentUserScope({
+          isLoaded: true,
+          isSignedIn: false,
+          user: null,
+        } as unknown as UserStore),
+      ).toBe('guest');
+    });
+
+    it('returns local when authentication is disabled', () => {
+      enableAuth = false;
+
+      expect(
+        authSelectors.currentUserScope({
+          isLoaded: true,
+          isSignedIn: false,
+          user: null,
+        } as unknown as UserStore),
+      ).toBe('local');
+    });
+
+    it('waits for the authenticated user identifier', () => {
+      expect(
+        authSelectors.currentUserScope({
+          isLoaded: true,
+          isSignedIn: true,
+          user: null,
+        } as unknown as UserStore),
+      ).toBeUndefined();
+    });
+
+    it('returns an identity-scoped key for authenticated users', () => {
+      expect(
+        authSelectors.currentUserScope({
+          authUserId: 'account-a',
+          isLoaded: true,
+          isSignedIn: true,
+          user: { id: 'account-a' },
+        } as UserStore),
+      ).toBe('user:account-a');
+    });
+
+    it('returns unresolved while authentication is reloading', () => {
+      expect(
+        authSelectors.currentUserScope({
+          authUserId: 'account-a',
+          isLoaded: false,
+          isSignedIn: true,
+          user: { id: 'account-a' },
+        } as UserStore),
+      ).toBeUndefined();
+    });
+
+    it('keeps the raw authentication identity when the data owner is mapped', () => {
+      expect(
+        authSelectors.currentUserScope({
+          authUserId: 'clerk-raw-user',
+          isLoaded: true,
+          isSignedIn: true,
+          user: { id: 'impersonated-data-owner' },
+        } as UserStore),
+      ).toBe('user:clerk-raw-user');
+    });
+  });
+
   describe('isLogin', () => {
     it('should return true when auth is disabled', () => {
       enableAuth = false;

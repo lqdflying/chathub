@@ -14,5 +14,7 @@ export const initialFileManagerState: FileManagerState = {
   creatingChunkingTaskIds: [],
   creatingEmbeddingTaskIds: [],
   dockUploadFileList: [],
+  fileDetail: undefined,
   fileList: [],
+  queryListParams: undefined,
 };

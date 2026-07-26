@@ -14,7 +14,27 @@ import { ChatTopic } from '@/types/topic';
 
 import { useChatStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+let currentUserScope = 'local';
+vi.mock('@/store/user', () => {
+  const userState = {};
+  const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
+    selector(userState)) as {
+    <Value>(selector: (state: typeof userState) => Value): Value;
+    getState: () => typeof userState;
+  };
+  useUserStore.getState = () => userState;
+
+  return { useUserStore };
+});
+vi.mock('@/store/user/selectors', () => ({
+  authSelectors: {
+    currentUserScope: () => currentUserScope,
+  },
+  systemAgentSelectors: {
+    topic: () => ({}),
+  },
+}));
 // Mock topicService 和 messageService
 vi.mock('@/services/topic', () => ({
   topicService: {
@@ -54,14 +74,31 @@ vi.mock('i18next', () => ({
   t: vi.fn((key, params) => (params.title ? key + '_' + params.title : key)),
 }));
 
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
+
 beforeEach(() => {
   // Setup initial state and mocks before each test
   vi.clearAllMocks();
+  currentUserScope = 'local';
   useChatStore.setState(
     {
       activeId: undefined,
       activeTopicId: undefined,
-      // ... initial state
+      conversationClearGeneration: 0,
+      creatingTopic: false,
+      creatingTopicId: undefined,
+      searchTopics: [],
+      topicLoadingIds: [],
+      topicMaps: {},
+      topicTitleSummaryOperations: {},
+      topicsInit: false,
     },
     false,
   );
@@ -157,6 +194,7 @@ describe('topic action', () => {
           messages: messages.map((m) => m.id),
           sessionId: 'session-id',
         }),
+        undefined,
       );
       expect(topicId).toEqual('new-topic-id');
     });
@@ -221,7 +259,7 @@ describe('topic action', () => {
       });
 
       // Check if mutate has been called with the active session ID
-      expect(mutate).toHaveBeenCalledWith(['SWR_USE_FETCH_TOPIC', activeId]);
+      expect(mutate).toHaveBeenCalledWith(['SWR_USE_FETCH_TOPIC', 'local', activeId]);
     });
 
     it('should handle errors during refreshing topics', async () => {
@@ -280,10 +318,14 @@ describe('topic action', () => {
 
       // Wait for the hook to resolve and update the state
       await waitFor(() => {
-        expect(result.current.data).toEqual(topics);
+        expect(result.current.data).toEqual([
+          expect.objectContaining({ id: 'topic-id', title: 'Test Topic' }),
+        ]);
       });
       expect(useChatStore.getState().topicsInit).toBeTruthy();
-      expect(useChatStore.getState().topicMaps).toEqual({ [sessionId]: topics });
+      expect(useChatStore.getState().topicMaps).toEqual({
+        [sessionId]: [expect.objectContaining({ id: 'topic-id', title: 'Test Topic' })],
+      });
     });
   });
   describe('useSearchTopics', () => {
@@ -299,7 +341,9 @@ describe('topic action', () => {
 
       // Wait for the hook to resolve and update the state
       await waitFor(() => {
-        expect(result.current.data).toEqual(searchResults);
+        expect(result.current.data).toEqual([
+          expect.objectContaining({ id: 'searched-topic-id', title: 'Searched Topic' }),
+        ]);
       });
     });
   });
@@ -321,9 +365,15 @@ describe('topic action', () => {
       });
 
       // Verify that the topicService.updateTitle was called with correct parameters
-      expect(spyOn).toHaveBeenCalledWith(topicId, {
-        title: 'Updated Topic Title',
-      });
+      expect(spyOn).toHaveBeenCalledWith(
+        topicId,
+        {
+          title: 'Updated Topic Title',
+        },
+        {
+          touchActivity: true,
+        },
+      );
 
       // Verify that the refreshTopic was called to update the state
       expect(refreshTopicSpy).toHaveBeenCalled();
@@ -571,34 +621,191 @@ describe('topic action', () => {
       const messages = [{ content: 'Hello', id: 'message-1' }] as UIChatMessage[];
       const topics = [{ id: 'topic-1', title: 'Test Topic' }] as ChatTopic[];
       const { result } = renderHook(() => useChatStore());
+      const updateTopicSpy = vi.spyOn(topicService, 'updateTopic').mockResolvedValue(undefined);
       await act(async () => {
         useChatStore.setState({ activeId: 'test', topicMaps: { test: topics } });
       });
 
-      // Mock the `updateTopicTitleInSummary` and `refreshTopic` for spying
-      const updateTopicTitleInSummarySpy = vi.spyOn(
-        result.current,
-        'internal_updateTopicTitleInSummary',
-      );
-      const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
-
       // Mock the `chatService.fetchPresetTaskResult` to simulate the AI response
-      vi.spyOn(chatService, 'fetchPresetTaskResult').mockImplementation((params) => {
+      vi.spyOn(chatService, 'fetchPresetTaskResult').mockImplementation(async (params) => {
         if (params) {
-          params.onFinish?.('Summarized Title', { type: 'done' });
+          await params.onFinish?.('Summarized Title', { type: 'done' });
         }
-        return Promise.resolve(undefined);
       });
 
       await act(async () => {
         await result.current.summaryTopicTitle(topicId, messages);
       });
 
-      // Verify that the title was updated and the topic was refreshed
-      expect(updateTopicTitleInSummarySpy).toHaveBeenCalledWith(topicId, LOADING_FLAT);
-      expect(refreshTopicSpy).toHaveBeenCalled();
+      expect(updateTopicSpy).toHaveBeenCalledWith(topicId, {
+        title: 'Summarized Title',
+      });
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+      expect(useChatStore.getState().topicMaps.test[0].title).toBe('Summarized Title');
+    });
 
-      // TODO: need to test with fetchPresetTaskResult
+    it('ignores stale title callbacks after an A-to-B-to-A reset', async () => {
+      const topicId = 'account-a-topic';
+      const messages = [{ content: 'Hello', id: 'account-a-message' }] as UIChatMessage[];
+      const { result } = renderHook(() => useChatStore());
+      const updateTopicSpy = vi.spyOn(topicService, 'updateTopic').mockResolvedValue(undefined);
+
+      act(() => {
+        currentUserScope = 'user:account-a';
+        useChatStore.setState({
+          activeId: 'account-a-session',
+          conversationClearGeneration: 0,
+          topicMaps: {
+            'account-a-session': [{ id: topicId, title: 'Original Title' }] as ChatTopic[],
+          },
+        });
+      });
+
+      vi.spyOn(chatService, 'fetchPresetTaskResult').mockImplementation(
+        async ({ onLoadingChange, onMessageHandle, onFinish }) => {
+          act(() => {
+            currentUserScope = 'user:account-b';
+            useChatStore.setState({
+              activeId: 'account-b-session',
+              conversationClearGeneration: 1,
+              topicMaps: {},
+            });
+            currentUserScope = 'user:account-a';
+            useChatStore.setState({
+              activeId: 'account-a-session',
+              topicMaps: {
+                'account-a-session': [{ id: topicId, title: 'Newer Title' }] as ChatTopic[],
+              },
+            });
+          });
+
+          await onLoadingChange?.(true);
+          await onMessageHandle?.({ text: 'Stale', type: 'text' });
+          await onFinish?.('Stale Title', { type: 'done' });
+          await onLoadingChange?.(false);
+        },
+      );
+
+      await act(async () => {
+        await result.current.summaryTopicTitle(topicId, messages);
+      });
+
+      expect(updateTopicSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+      expect(useChatStore.getState().topicTitleSummaryOperations).toEqual({});
+      expect(useChatStore.getState().topicMaps['account-a-session']?.[0]?.title).toBe(
+        'Newer Title',
+      );
+    });
+
+    it('aborts and cleans its owned placeholder when the conversation is invalidated', async () => {
+      const topicId = 'topic-to-abort';
+      const { result } = renderHook(() => useChatStore());
+      let observedAbortController: AbortController | undefined;
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'test-session',
+          conversationClearGeneration: 0,
+          topicMaps: {
+            'test-session': [{ id: topicId, title: 'Original Title' }] as ChatTopic[],
+          },
+        });
+      });
+
+      vi.spyOn(chatService, 'fetchPresetTaskResult').mockImplementation(
+        ({ abortController }) =>
+          new Promise((resolve) => {
+            observedAbortController = abortController;
+            abortController?.signal.addEventListener('abort', () => resolve(undefined), {
+              once: true,
+            });
+          }),
+      );
+
+      let summaryPromise!: ReturnType<typeof result.current.summaryTopicTitle>;
+      act(() => {
+        summaryPromise = result.current.summaryTopicTitle(topicId, []);
+      });
+
+      await waitFor(() => {
+        expect(observedAbortController).toBeDefined();
+        expect(useChatStore.getState().topicLoadingIds).toContain(topicId);
+        expect(useChatStore.getState().topicMaps['test-session'][0].title).toBe(LOADING_FLAT);
+      });
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      await act(async () => {
+        await summaryPromise;
+      });
+
+      expect(observedAbortController?.signal.aborted).toBe(true);
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+      expect(useChatStore.getState().topicTitleSummaryOperations).toEqual({});
+      expect(useChatStore.getState().topicMaps['test-session'][0].title).toBe('Original Title');
+    });
+
+    it('persists the newest overlapping summary after an older write finishes', async () => {
+      const topicId = 'overlapping-topic';
+      const olderPersistence = createDeferred<void>();
+      const { result } = renderHook(() => useChatStore());
+      const updateTopicSpy = vi
+        .spyOn(topicService, 'updateTopic')
+        .mockReturnValueOnce(olderPersistence.promise)
+        .mockResolvedValueOnce(undefined);
+      let summaryInvocation = 0;
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'test-session',
+          conversationClearGeneration: 0,
+          topicMaps: {
+            'test-session': [{ id: topicId, title: 'Original Title' }] as ChatTopic[],
+          },
+        });
+      });
+
+      vi.spyOn(chatService, 'fetchPresetTaskResult').mockImplementation(async ({ onFinish }) => {
+        summaryInvocation += 1;
+        await onFinish?.(summaryInvocation === 1 ? 'Older Title' : 'Newest Title', {
+          type: 'done',
+        });
+      });
+
+      let olderSummaryPromise!: ReturnType<typeof result.current.summaryTopicTitle>;
+      act(() => {
+        olderSummaryPromise = result.current.summaryTopicTitle(topicId, []);
+      });
+
+      await waitFor(() => {
+        expect(updateTopicSpy).toHaveBeenCalledWith(topicId, { title: 'Older Title' });
+      });
+
+      let newerSummaryPromise!: ReturnType<typeof result.current.summaryTopicTitle>;
+      act(() => {
+        newerSummaryPromise = result.current.summaryTopicTitle(topicId, []);
+      });
+
+      await waitFor(() => {
+        expect(useChatStore.getState().topicMaps['test-session'][0].title).toBe('Newest Title');
+      });
+      expect(updateTopicSpy).toHaveBeenCalledTimes(1);
+
+      olderPersistence.resolve();
+      await act(async () => {
+        await Promise.all([olderSummaryPromise, newerSummaryPromise]);
+      });
+
+      expect(updateTopicSpy.mock.calls).toEqual([
+        [topicId, { title: 'Older Title' }],
+        [topicId, { title: 'Newest Title' }],
+      ]);
+      expect(useChatStore.getState().topicMaps['test-session'][0].title).toBe('Newest Title');
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+      expect(useChatStore.getState().topicTitleSummaryOperations).toEqual({});
     });
   });
   describe('createTopic', () => {
@@ -625,12 +832,125 @@ describe('topic action', () => {
         expect(topicId).toBe(newTopicId);
       });
 
-      expect(createTopicSpy).toHaveBeenCalledWith({
-        messages: messages.map((m) => m.id),
-        sessionId: activeId,
-        title: 'defaultTitle',
-      });
+      expect(createTopicSpy).toHaveBeenCalledWith(
+        {
+          messages: messages.map((m) => m.id),
+          sessionId: activeId,
+          title: 'defaultTitle',
+        },
+        undefined,
+      );
       expect(refreshTopicSpy).toHaveBeenCalled();
+    });
+
+    it('clears its creation state and optimistic topic after switching sessions', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const createdTopic = createDeferred<string>();
+      const activeId = 'account-a-session';
+      const messages = [{ id: 'account-a-message' }] as UIChatMessage[];
+
+      act(() => {
+        currentUserScope = 'user:account-a';
+        useChatStore.setState({
+          activeId,
+          conversationClearGeneration: 0,
+          messagesMap: {
+            [messageMapKey(activeId)]: messages,
+          },
+        });
+      });
+
+      vi.spyOn(topicService, 'createTopic').mockReturnValue(createdTopic.promise);
+      const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
+
+      let createTopicPromise!: ReturnType<typeof result.current.createTopic>;
+      act(() => {
+        createTopicPromise = result.current.createTopic();
+      });
+
+      await waitFor(() => {
+        expect(topicService.createTopic).toHaveBeenCalled();
+      });
+
+      const creatingTopicId = useChatStore.getState().creatingTopicId;
+      const temporaryTopicId = useChatStore.getState().topicMaps[activeId]?.[0]?.id;
+      expect(creatingTopicId).toMatch(/^topic-create-/);
+      expect(temporaryTopicId).toBeDefined();
+      expect(useChatStore.getState().topicLoadingIds).toContain(temporaryTopicId);
+
+      act(() => {
+        useChatStore.setState({ activeId: 'account-a-other-session' });
+      });
+      createdTopic.resolve('stale-account-a-topic');
+
+      let topicId!: Awaited<typeof createTopicPromise>;
+      await act(async () => {
+        topicId = await createTopicPromise;
+      });
+
+      expect(topicId).toBeUndefined();
+      expect(refreshTopicSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().creatingTopic).toBe(false);
+      expect(useChatStore.getState().creatingTopicId).toBeUndefined();
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(temporaryTopicId);
+      expect(useChatStore.getState().topicMaps[activeId]).toEqual([]);
+    });
+
+    it('should cancel stale topic creation without clearing newer creation state', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const createdTopic = createDeferred<string>();
+      const activeId = 'account-a-session';
+      const messages = [{ id: 'account-a-message' }] as UIChatMessage[];
+
+      act(() => {
+        currentUserScope = 'user:account-a';
+        useChatStore.setState({
+          activeId,
+          conversationClearGeneration: 0,
+          messagesMap: {
+            [messageMapKey(activeId)]: messages,
+          },
+        });
+      });
+
+      vi.spyOn(topicService, 'createTopic').mockReturnValue(createdTopic.promise);
+      const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
+
+      let createTopicPromise!: ReturnType<typeof result.current.createTopic>;
+      act(() => {
+        createTopicPromise = result.current.createTopic();
+      });
+
+      await waitFor(() => {
+        expect(topicService.createTopic).toHaveBeenCalled();
+      });
+
+      act(() => {
+        currentUserScope = 'user:account-b';
+        useChatStore.setState({
+          activeId: 'account-b-session',
+          conversationClearGeneration: 1,
+          creatingTopic: true,
+          creatingTopicId: 'topic-create-account-b',
+          topicLoadingIds: ['account-b-topic'],
+        });
+        currentUserScope = 'user:account-a';
+        useChatStore.setState({
+          activeId: 'account-a-returned-session',
+        });
+      });
+      createdTopic.resolve('stale-account-a-topic');
+
+      let topicId!: Awaited<typeof createTopicPromise>;
+      await act(async () => {
+        topicId = await createTopicPromise;
+      });
+
+      expect(topicId).toBeUndefined();
+      expect(refreshTopicSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().creatingTopic).toBe(true);
+      expect(useChatStore.getState().creatingTopicId).toBe('topic-create-account-b');
+      expect(useChatStore.getState().topicLoadingIds).toEqual(['account-b-topic']);
     });
   });
   describe('duplicateTopic', () => {
@@ -657,6 +977,56 @@ describe('topic action', () => {
       });
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalledWith(newTopicId);
+    });
+
+    it('should not refresh or navigate when duplication finishes after a reset', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const clonedTopic = createDeferred<string>();
+      const topicId = 'account-a-topic';
+      const topics = [{ id: topicId, title: 'Account A Topic' }] as ChatTopic[];
+
+      act(() => {
+        currentUserScope = 'user:account-a';
+        useChatStore.setState({
+          activeId: 'account-a-session',
+          conversationClearGeneration: 0,
+          topicMaps: { 'account-a-session': topics },
+        });
+      });
+
+      vi.spyOn(topicService, 'cloneTopic').mockReturnValue(clonedTopic.promise);
+      const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
+      const switchTopicSpy = vi.spyOn(result.current, 'switchTopic');
+
+      let duplicatePromise!: ReturnType<typeof result.current.duplicateTopic>;
+      act(() => {
+        duplicatePromise = result.current.duplicateTopic(topicId);
+      });
+
+      await waitFor(() => {
+        expect(topicService.cloneTopic).toHaveBeenCalled();
+      });
+
+      act(() => {
+        currentUserScope = 'user:account-b';
+        useChatStore.setState({
+          activeId: 'account-b-session',
+          conversationClearGeneration: 1,
+          topicMaps: { 'account-b-session': [{ id: 'account-b-topic' }] as ChatTopic[] },
+        });
+        currentUserScope = 'user:account-a';
+        useChatStore.setState({
+          activeId: 'account-a-returned-session',
+        });
+      });
+      clonedTopic.resolve('stale-account-a-clone');
+
+      await act(async () => {
+        await duplicatePromise;
+      });
+
+      expect(refreshTopicSpy).not.toHaveBeenCalled();
+      expect(switchTopicSpy).not.toHaveBeenCalled();
     });
   });
   describe('autoRenameTopicTitle', () => {

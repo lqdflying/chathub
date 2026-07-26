@@ -10,6 +10,8 @@ import { uploadService } from '@/services/upload';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { useFileStore } from '@/store/file';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { DallEImageItem } from '@/types/tool/dalle';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -116,20 +118,35 @@ export const dalleSlice: StateCreator<
     await get().internal_updateMessageContent(id, JSON.stringify(nextContent));
   },
 
-  useFetchDalleImageItem: (id) =>
-    useClientDataSWR([SWR_FETCH_KEY, id], async () => {
-      const item = await fileService.getFile(id);
+  useFetchDalleImageItem: (id) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-      set(
-        produce((draft) => {
-          if (draft.dalleImageMap[id]) return;
+    return useClientDataSWR(
+      requestedScope ? [SWR_FETCH_KEY, requestedScope, id] : null,
+      async () => {
+        if (!requestedScope) return null;
+        const requestedGeneration = get().conversationClearGeneration;
+        if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return null;
 
-          draft.dalleImageMap[id] = item;
-        }),
-        false,
-        n('useFetchFile'),
-      );
+        const item = await fileService.getFile(id);
+        if (
+          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+          get().conversationClearGeneration !== requestedGeneration
+        )
+          return item;
 
-      return item;
-    }),
+        set(
+          produce((draft) => {
+            if (draft.dalleImageMap[id]) return;
+
+            draft.dalleImageMap[id] = item;
+          }),
+          false,
+          n('useFetchFile'),
+        );
+
+        return item;
+      },
+    );
+  },
 });

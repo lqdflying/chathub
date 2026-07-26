@@ -3,7 +3,7 @@ import { createWithEqualityFn } from 'zustand/traditional';
 import { StateCreator } from 'zustand/vanilla';
 
 import { createDevtools } from '../middleware/createDevtools';
-import { FilesStoreState, initialState } from './initialState';
+import { FileStoreState, initialState } from './initialState';
 import { FileAction, createFileSlice } from './slices/chat';
 import { FileChunkAction, createFileChunkSlice } from './slices/chunk';
 import { FileManageAction, createFileManageSlice } from './slices/fileManager';
@@ -12,7 +12,7 @@ import { FileUploadAction, createFileUploadSlice } from './slices/upload/action'
 
 //  ===============  聚合 createStoreFn ============ //
 
-export type FileStore = FilesStoreState &
+export type FileStore = FileStoreState &
   FileAction &
   TTSFileAction &
   FileManageAction &

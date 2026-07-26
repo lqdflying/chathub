@@ -28,6 +28,14 @@ export interface GenerationConfigState {
    */
   isInit: boolean;
   /**
+   * Tracks whether the current owner supplied any persisted image preference.
+   */
+  hasRememberedImageConfig: boolean;
+  /**
+   * Identifies the signed-in account or guest scope that supplied the current preferences.
+   */
+  preferenceOwner?: string;
+  /**
    * 标记当前是否存在可用的图像生成模型
    */
   isImageModelAvailable: boolean;
@@ -44,6 +52,8 @@ export const initialGenerationConfigState: GenerationConfigState = {
   parametersSchema: gptImage1ParamsSchema,
   isAspectRatioLocked: false,
   activeAspectRatio: null,
+  hasRememberedImageConfig: false,
   isInit: false,
   isImageModelAvailable: false,
+  preferenceOwner: undefined,
 };

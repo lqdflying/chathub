@@ -26,6 +26,7 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/slices/c
 import { aiModelSelectors, aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
+import type { ConversationContext } from '@/store/chat/types';
 import { getFileStoreState } from '@/store/file/store';
 import { getSessionStoreState } from '@/store/session';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
@@ -63,6 +64,7 @@ export interface AIGenerateV2Action {
    * including preprocessing and postprocessing steps
    */
   internal_execAgentRuntime: (params: {
+    conversationContext?: ConversationContext;
     contextExportCaptureId?: string;
     expectedConversationVersion?: number;
     messages: UIChatMessage[];
@@ -110,7 +112,15 @@ export const generateAIChatV2: StateCreator<
     const { activeTopicId, activeId, activeThreadId, internal_execAgentRuntime, mainInputEditor } =
       get();
     if (!activeId) return;
-    const conversationClearGeneration = get().conversationClearGeneration;
+    let conversationContext: ConversationContext = {
+      generation: get().conversationClearGeneration,
+      sessionId: activeId,
+      topicId: activeTopicId,
+    };
+    const isCurrentConversation = () =>
+      get().conversationClearGeneration === conversationContext.generation &&
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
 
     const fileIdList = files?.map((f) => f.id);
 
@@ -121,6 +131,7 @@ export const generateAIChatV2: StateCreator<
 
     const expectedConversationVersion =
       capturedConversationVersion ?? (await messageService.getConversationVersion());
+    if (!isCurrentConversation()) return;
 
     if (onlyAddUserMessage) {
       await get().addUserMessage({ expectedConversationVersion, fileList: fileIdList, message });
@@ -217,7 +228,7 @@ export const generateAIChatV2: StateCreator<
         },
         abortController,
       );
-      if (get().conversationClearGeneration !== conversationClearGeneration) return;
+      if (!isCurrentConversation()) return;
 
       // refresh the total data
       get().internal_refreshAiChat({
@@ -228,6 +239,7 @@ export const generateAIChatV2: StateCreator<
       });
 
       if (data.isCreateNewTopic && data.topicId) {
+        conversationContext = { ...conversationContext, topicId: data.topicId };
         await get().switchTopic(data.topicId, true);
       }
     } catch (e) {
@@ -236,7 +248,7 @@ export const generateAIChatV2: StateCreator<
         // Check if error is due to cancellation
         const currentOperation = get().mainSendMessageOperations[operationKey];
         const isCurrentOperation =
-          get().conversationClearGeneration === conversationClearGeneration &&
+          isCurrentConversation() &&
           currentOperation?.abortController === abortController;
 
         if (!isAbort && isCurrentOperation) {
@@ -248,7 +260,7 @@ export const generateAIChatV2: StateCreator<
       // Stop tracking sendMessageInServer operation
       const currentOperation = get().mainSendMessageOperations[operationKey];
       const isCurrentOperation =
-        get().conversationClearGeneration === conversationClearGeneration &&
+        isCurrentConversation() &&
         currentOperation?.abortController === abortController;
 
       if (isCurrentOperation) {
@@ -263,7 +275,7 @@ export const generateAIChatV2: StateCreator<
 
       if (
         contextExportCaptureId &&
-        (!data || get().conversationClearGeneration !== conversationClearGeneration)
+        (!data || !isCurrentConversation())
       ) {
         get().completeContextExport(contextExportCaptureId);
       }
@@ -273,7 +285,7 @@ export const generateAIChatV2: StateCreator<
     if (
       data?.isCreateNewTopic &&
       operationWasCurrent &&
-      get().conversationClearGeneration === conversationClearGeneration
+      isCurrentConversation()
     ) {
       get().internal_dispatchMessage(
         { type: 'deleteMessage', id: tempId },
@@ -281,20 +293,18 @@ export const generateAIChatV2: StateCreator<
       );
     }
 
-    if (operationWasCurrent && get().conversationClearGeneration === conversationClearGeneration) {
+    if (operationWasCurrent && isCurrentConversation()) {
       get().internal_toggleMessageLoading(false, tempId);
     }
 
-    if (!data) return;
+    if (!data || !isCurrentConversation()) return;
 
     //  update assistant update to make it rerank
-    getSessionStoreState().triggerSessionUpdate(get().activeId);
+    getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
 
     // Get the current messages to generate AI response
     // remove the latest assistant message id
-    const baseMessages = chatSelectors
-      .activeBaseChats(get())
-      .filter((item) => item.id !== data.assistantMessageId);
+    const baseMessages = data.messages.filter((item) => item.id !== data.assistantMessageId);
     const activeContextExportCaptureId =
       contextExportCaptureId ?? (!isWelcomeQuestion ? get().consumeContextExportArm() : undefined);
 
@@ -321,6 +331,7 @@ export const generateAIChatV2: StateCreator<
 
     try {
       await internal_execAgentRuntime({
+        conversationContext,
         contextExportCaptureId: activeContextExportCaptureId,
         expectedConversationVersion,
         messages: baseMessages,
@@ -397,8 +408,22 @@ export const generateAIChatV2: StateCreator<
   },
 
   internal_execAgentRuntime: async (params) => {
+    const conversationContext = params.conversationContext ?? {
+      generation: get().conversationClearGeneration,
+      sessionId: get().activeId,
+      topicId: get().activeTopicId,
+    };
+    const dispatchContext = {
+      sessionId: conversationContext.sessionId,
+      topicId: conversationContext.topicId,
+    };
+    const isCurrentConversation = () =>
+      get().conversationClearGeneration === conversationContext.generation &&
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =
       params.expectedConversationVersion ?? (await messageService.getConversationVersion());
+    if (!isCurrentConversation()) return;
     const {
       assistantMessageId: assistantId,
       userMessageId,
@@ -430,6 +455,7 @@ export const generateAIChatV2: StateCreator<
         // should skip the last content
         messages.map((m) => m.content).slice(0, messages.length - 1),
       );
+      if (!isCurrentConversation()) return;
 
       ragQueryId = queryId;
 
@@ -497,6 +523,7 @@ export const generateAIChatV2: StateCreator<
       await chatService.fetchPresetTaskResult({
         params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
         onFinish: async (_, { toolCalls, usage }) => {
+          if (!isCurrentConversation()) return;
           if (toolCalls && toolCalls.length > 0) {
             get().internal_toggleToolCallingStreaming(assistantId, undefined);
             // update tools calling
@@ -505,25 +532,30 @@ export const generateAIChatV2: StateCreator<
               metadata: usage,
               model,
               provider,
+              conversationContext,
             });
           }
         },
         trace: {
           traceId: params.traceId,
-          sessionId: get().activeId,
-          topicId: get().activeTopicId,
+          sessionId: conversationContext.sessionId,
+          topicId: conversationContext.topicId,
           traceName: TraceNameMap.SearchIntentRecognition,
         },
         abortController,
         onMessageHandle: async (chunk) => {
+          if (!isCurrentConversation()) return;
           if (chunk.type === 'tool_calls') {
             get().internal_toggleSearchWorkflow(false, assistantId);
             get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
-            get().internal_dispatchMessage({
-              id: assistantId,
-              type: 'updateMessage',
-              value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
-            });
+            get().internal_dispatchMessage(
+              {
+                id: assistantId,
+                type: 'updateMessage',
+                value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
+              },
+              dispatchContext,
+            );
             isToolsCalling = true;
           }
 
@@ -532,12 +564,14 @@ export const generateAIChatV2: StateCreator<
           }
         },
         onErrorHandle: async (error) => {
+          if (!isCurrentConversation()) return;
           isError = true;
           await messageService.updateMessageError(assistantId, error);
-          await refreshMessages();
+          await refreshMessages(conversationContext);
         },
       });
 
+      if (!isCurrentConversation()) return;
       get().internal_toggleChatLoading(
         false,
         assistantId,
@@ -551,7 +585,8 @@ export const generateAIChatV2: StateCreator<
       // if it's the function call message, trigger the function method
       if (isToolsCalling) {
         get().internal_toggleMessageInToolsCalling(true, assistantId);
-        await refreshMessages();
+        await refreshMessages(conversationContext);
+        if (!isCurrentConversation()) return;
         await triggerToolCalls(assistantId, {
           contextExportCaptureId: params.contextExportCaptureId,
           expectedConversationVersion,
@@ -566,12 +601,14 @@ export const generateAIChatV2: StateCreator<
 
     // 4. fetch the AI response
     const { isFunctionCall, content, persistenceAmbiguous } = await internal_fetchAIChatMessage({
+      conversationContext,
       messages,
       messageId: assistantId,
       params,
       model,
       provider: provider!,
     });
+    if (!isCurrentConversation()) return;
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
@@ -585,7 +622,8 @@ export const generateAIChatV2: StateCreator<
       }
 
       get().internal_toggleMessageInToolsCalling(true, assistantId);
-      await refreshMessages();
+      await refreshMessages(conversationContext);
+      if (!isCurrentConversation()) return;
       await triggerToolCalls(assistantId, {
         contextExportCaptureId: params.contextExportCaptureId,
         expectedConversationVersion,

@@ -12,6 +12,29 @@ import { convertOpenAIImageUsage } from '../usageConverters/openai';
 
 const log = createDebug('lobe-image:openai-compatible');
 
+const imageOutputMimeTypes = {
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+} as const;
+
+type ImageOutputFormat = keyof typeof imageOutputMimeTypes;
+
+const isImageOutputFormat = (value: unknown): value is ImageOutputFormat =>
+  typeof value === 'string' && value in imageOutputMimeTypes;
+
+const isModelFamily = (model: string, family: string): boolean =>
+  model === family || model.startsWith(`${family}-`);
+
+const rejectsInputFidelity = (model: string): boolean =>
+  isModelFamily(model, 'gpt-image-2') ||
+  isModelFamily(model, 'gpt-image-1-mini') ||
+  model.startsWith('dall-e-');
+
+const supportsDefaultHighInputFidelity = (model: string): boolean =>
+  !rejectsInputFidelity(model) &&
+  (isModelFamily(model, 'gpt-image-1') || isModelFamily(model, 'gpt-image-1.5'));
+
 /**
  * Generate images using traditional OpenAI images API (DALL-E, etc.)
  */
@@ -64,10 +87,14 @@ async function generateByImageMode(
     delete userInput.size;
   }
 
+  if (rejectsInputFidelity(model)) {
+    delete userInput.input_fidelity;
+  }
+
   const defaultInput = {
     n: 1,
     ...(model.includes('dall-e') ? { response_format: 'b64_json' } : {}),
-    ...(isImageEdit ? { input_fidelity: 'high' } : {}),
+    ...(isImageEdit && supportsDefaultHighInputFidelity(model) ? { input_fidelity: 'high' } : {}),
   };
 
   const options = cleanObject({
@@ -97,8 +124,15 @@ async function generateByImageMode(
 
   // Handle base64 format response
   if (imageData.b64_json) {
-    // Determine the image's MIME type, default to PNG
-    const mimeType = 'image/png'; // OpenAI image generation defaults to PNG format
+    const responseOutputFormat = img.output_format;
+    const requestedOutputFormat = userInput.output_format;
+    let outputFormat: ImageOutputFormat = 'png';
+    if (isImageOutputFormat(responseOutputFormat)) {
+      outputFormat = responseOutputFormat;
+    } else if (isImageOutputFormat(requestedOutputFormat)) {
+      outputFormat = requestedOutputFormat;
+    }
+    const mimeType = imageOutputMimeTypes[outputFormat];
 
     // Convert base64 string to complete data URL
     imageUrl = `data:${mimeType};base64,${imageData.b64_json}`;

@@ -1,6 +1,8 @@
 import { StateCreator } from 'zustand';
 
 import { imageService } from '@/services/image';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import { ImageStore } from '../../store';
 import { generationBatchSelectors } from '../generationBatch/selectors';
@@ -29,6 +31,14 @@ export const createCreateImageSlice: StateCreator<
 > = (set, get) => ({
   async createImage() {
     const store = get();
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = store.scopeGeneration;
+    const isOperationCurrent = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
+
+    if (!requestedScope) return;
+
     if (!store.isInit || !store.isImageModelAvailable) {
       throw new TypeError('image configuration is not initialized');
     }
@@ -61,9 +71,13 @@ export const createCreateImageSlice: StateCreator<
 
       if (!generationTopicId) {
         generationTopicId = await createGenerationTopic([prompt]);
+        if (!isOperationCurrent()) return;
+
         setTopicBatchLoaded(generationTopicId);
         switchGenerationTopic(generationTopicId);
       }
+
+      if (!isOperationCurrent()) return;
 
       await imageService.createImage({
         generationTopicId,
@@ -73,9 +87,14 @@ export const createCreateImageSlice: StateCreator<
         provider,
       });
 
+      if (!isOperationCurrent()) return;
+
       if (!isNewTopic) {
         await get().refreshGenerationBatches();
+        if (!isOperationCurrent()) return;
       }
+
+      if (!isOperationCurrent()) return;
 
       set(
         (state) =>
@@ -86,16 +105,26 @@ export const createCreateImageSlice: StateCreator<
         'createImage/clearPrompt',
       );
     } finally {
-      set(
-        { isCreating: false, isCreatingWithNewTopic: false },
-        false,
-        'createImage/endCreateImage',
-      );
+      if (isOperationCurrent()) {
+        set(
+          { isCreating: false, isCreatingWithNewTopic: false },
+          false,
+          'createImage/endCreateImage',
+        );
+      }
     }
   },
 
   async recreateImage(generationBatchId: string) {
     const store = get();
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = store.scopeGeneration;
+    const isOperationCurrent = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
+
+    if (!requestedScope) return;
+
     const activeGenerationTopicId = generationTopicSelectors.activeGenerationTopicId(store);
     if (!activeGenerationTopicId) {
       throw new Error('No active generation topic');
@@ -111,6 +140,8 @@ export const createCreateImageSlice: StateCreator<
 
     let operationError: unknown;
     try {
+      if (!isOperationCurrent()) return;
+
       await imageService.createImage({
         generationTopicId: activeGenerationTopicId,
         imageNum,
@@ -119,14 +150,20 @@ export const createCreateImageSlice: StateCreator<
         provider: batch.provider,
       });
 
+      if (!isOperationCurrent()) return;
+
       // Only remove the failed batch after its replacement was accepted.
       await get().removeGenerationBatch(generationBatchId, activeGenerationTopicId);
+      if (!isOperationCurrent()) return;
     } catch (error) {
       operationError = error;
     }
 
     try {
+      if (!isOperationCurrent()) return;
+
       await get().refreshGenerationBatches();
+      if (!isOperationCurrent()) return;
     } catch (error) {
       if (!operationError) {
         operationError = error;
@@ -135,7 +172,9 @@ export const createCreateImageSlice: StateCreator<
       }
     }
 
-    set({ isCreating: false }, false, 'recreateImage/endCreateImage');
+    if (isOperationCurrent()) {
+      set({ isCreating: false }, false, 'recreateImage/endCreateImage');
+    }
 
     if (operationError) throw operationError;
   },

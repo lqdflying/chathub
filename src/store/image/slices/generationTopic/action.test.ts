@@ -27,13 +27,27 @@ vi.mock('@/services/chat', () => ({
   },
 }));
 
-vi.mock('@/store/user', () => ({
-  useUserStore: {
-    getState: vi.fn(),
-  },
-}));
+vi.mock('@/store/user', () => {
+  const userState = {
+    authUserId: 'test-user',
+    isLoaded: true,
+    isSignedIn: true,
+    user: { id: 'test-user' },
+  };
+  const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
+    selector(userState)) as {
+    <Value>(selector: (state: typeof userState) => Value): Value;
+    getState: () => typeof userState;
+  };
+  useUserStore.getState = () => userState;
+
+  return { useUserStore };
+});
 
 vi.mock('@/store/user/selectors', () => ({
+  authSelectors: {
+    currentUserScope: () => 'user:test-user',
+  },
   systemAgentSelectors: {
     generationTopic: vi.fn().mockReturnValue({
       model: 'gpt-4',
@@ -42,12 +56,22 @@ vi.mock('@/store/user/selectors', () => ({
   },
 }));
 
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   useImageStore.setState({
     generationTopics: [],
     activeGenerationTopicId: null,
     loadingGenerationTopicIds: [],
+    scopeGeneration: 0,
   });
 });
 
@@ -82,6 +106,44 @@ describe('GenerationTopicAction', () => {
       expect(createdTopicId).toBe(newTopicId);
       expect(generationTopicService.createTopic).toHaveBeenCalled();
       expect(summaryTopicTitleSpy).toHaveBeenCalledWith(newTopicId, prompts);
+    });
+
+    it('returns no topic id after an A-to-B-to-A reset during creation', async () => {
+      const createdTopic = createDeferred<string>();
+      vi.mocked(generationTopicService.createTopic).mockReturnValue(createdTopic.promise);
+      const { result } = renderHook(() => useImageStore());
+      const summaryTopicTitleSpy = vi.spyOn(result.current, 'summaryGenerationTopicTitle');
+      let creationPromise!: ReturnType<typeof result.current.createGenerationTopic>;
+
+      act(() => {
+        creationPromise = result.current.createGenerationTopic(['Account A prompt']);
+      });
+
+      await waitFor(() => {
+        expect(generationTopicService.createTopic).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useImageStore.setState({
+          activeGenerationTopicId: 'account-a-returned-topic',
+          generationTopics: [
+            { id: 'account-a-returned-topic', title: 'Current topic' },
+          ] as ImageGenerationTopic[],
+          loadingGenerationTopicIds: [],
+          scopeGeneration: 1,
+        });
+      });
+      createdTopic.resolve('stale-account-a-topic');
+
+      let createdTopicId!: string;
+      await act(async () => {
+        createdTopicId = await creationPromise;
+      });
+
+      expect(createdTopicId).toBe('');
+      expect(summaryTopicTitleSpy).not.toHaveBeenCalled();
+      expect(useImageStore.getState().activeGenerationTopicId).toBe('account-a-returned-topic');
+      expect(useImageStore.getState().generationTopics).toHaveLength(1);
     });
 
     it('should throw error when prompts are empty', async () => {
@@ -388,6 +450,57 @@ describe('GenerationTopicAction', () => {
       expect(switchTopicSpy).not.toHaveBeenCalled();
       expect(openNewTopicSpy).not.toHaveBeenCalled();
     });
+
+    it('does not navigate or clear current loading after a stale deletion completes', async () => {
+      const deletionFinished = createDeferred<void>();
+      vi.mocked(generationTopicService.deleteTopic).mockReturnValue(deletionFinished.promise);
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          activeGenerationTopicId: 'shared-topic',
+          generationTopics: [
+            { id: 'shared-topic', title: 'Account A topic' },
+          ] as ImageGenerationTopic[],
+        });
+      });
+
+      const switchTopicSpy = vi.spyOn(result.current, 'switchGenerationTopic');
+      const openNewTopicSpy = vi.spyOn(result.current, 'openNewGenerationTopic');
+      const refreshSpy = vi.spyOn(result.current, 'refreshGenerationTopics').mockResolvedValue();
+      let removalPromise!: ReturnType<typeof result.current.removeGenerationTopic>;
+
+      act(() => {
+        removalPromise = result.current.removeGenerationTopic('shared-topic');
+      });
+
+      await waitFor(() => {
+        expect(generationTopicService.deleteTopic).toHaveBeenCalledWith('shared-topic');
+      });
+
+      act(() => {
+        useImageStore.setState({
+          activeGenerationTopicId: 'account-a-returned-topic',
+          generationTopics: [
+            { id: 'shared-topic', title: 'Current shared topic' },
+            { id: 'account-a-returned-topic', title: 'Current active topic' },
+          ] as ImageGenerationTopic[],
+          loadingGenerationTopicIds: ['shared-topic'],
+          scopeGeneration: 1,
+        });
+      });
+      deletionFinished.resolve();
+
+      await act(async () => {
+        await removalPromise;
+      });
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(switchTopicSpy).not.toHaveBeenCalled();
+      expect(openNewTopicSpy).not.toHaveBeenCalled();
+      expect(useImageStore.getState().activeGenerationTopicId).toBe('account-a-returned-topic');
+      expect(useImageStore.getState().loadingGenerationTopicIds).toEqual(['shared-topic']);
+    });
   });
 
   describe('useFetchGenerationTopics', () => {
@@ -455,7 +568,7 @@ describe('GenerationTopicAction', () => {
         await result.current.refreshGenerationTopics();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['fetchGenerationTopics']);
+      expect(mutate).toHaveBeenCalledWith(['fetchGenerationTopics', 'user:test-user']);
     });
   });
 
@@ -481,6 +594,58 @@ describe('GenerationTopicAction', () => {
         'internal_updateGenerationTopicCover/optimistic',
       );
       expect(generationTopicService.updateTopicCover).toHaveBeenCalledWith(topicId, coverUrl);
+    });
+
+    it('preserves current cover and loading state after a stale update completes', async () => {
+      const coverUpdateFinished = createDeferred<void>();
+      vi.mocked(generationTopicService.updateTopicCover).mockReturnValue(
+        coverUpdateFinished.promise,
+      );
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          generationTopics: [
+            { coverUrl: 'account-a-cover', id: 'shared-topic', title: 'Account A topic' },
+          ] as ImageGenerationTopic[],
+        });
+      });
+
+      const refreshSpy = vi.spyOn(result.current, 'refreshGenerationTopics').mockResolvedValue();
+      let updatePromise!: ReturnType<typeof result.current.updateGenerationTopicCover>;
+
+      act(() => {
+        updatePromise = result.current.updateGenerationTopicCover(
+          'shared-topic',
+          'stale-account-a-cover',
+        );
+      });
+
+      await waitFor(() => {
+        expect(generationTopicService.updateTopicCover).toHaveBeenCalledWith(
+          'shared-topic',
+          'stale-account-a-cover',
+        );
+      });
+
+      act(() => {
+        useImageStore.setState({
+          generationTopics: [
+            { coverUrl: 'current-cover', id: 'shared-topic', title: 'Current topic' },
+          ] as ImageGenerationTopic[],
+          loadingGenerationTopicIds: ['shared-topic'],
+          scopeGeneration: 1,
+        });
+      });
+      coverUpdateFinished.resolve();
+
+      await act(async () => {
+        await updatePromise;
+      });
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(useImageStore.getState().generationTopics[0].coverUrl).toBe('current-cover');
+      expect(useImageStore.getState().loadingGenerationTopicIds).toEqual(['shared-topic']);
     });
   });
 

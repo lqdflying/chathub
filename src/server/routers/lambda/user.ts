@@ -27,7 +27,7 @@ import { UserSettings } from '@/types/user/settings';
 const userProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next }) => {
   return next({
     ctx: {
-      clerkAuth: new ClerkAuth(),
+      clerkAuth: ctx.clerkAuth ?? new ClerkAuth(),
       fileService: new FileService(ctx.serverDB, ctx.userId),
       nextAuthUserService: new NextAuthUserService(ctx.serverDB),
       userModel: new UserModel(ctx.serverDB, ctx.userId),
@@ -113,6 +113,7 @@ export const userRouter = router({
     const hasExtraSession = await sessionModel.hasMoreThanN(1);
 
     return {
+      authUserId: ctx.clerkAuth?.userId ?? ctx.nextAuth?.id ?? ctx.userId,
       avatar: state.avatar,
       canEnablePWAGuide: hasMoreThan4Messages,
       canEnableTrace: hasMoreThan4Messages,
@@ -136,6 +137,19 @@ export const userRouter = router({
   makeUserOnboarded: userProcedure.mutation(async ({ ctx }) => {
     return ctx.userModel.updateUser({ isOnboarded: true });
   }),
+
+  migrateImageConfig: userProcedure
+    .input(
+      z.object({
+        imageNum: z.number().int().min(1).max(50).optional(),
+        model: z.string(),
+        provider: z.string(),
+        size: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.userModel.migrateImageConfig(input);
+    }),
 
   resetSettings: userProcedure.mutation(async ({ ctx }) => {
     return ctx.userModel.deleteSetting();
@@ -207,6 +221,21 @@ export const userRouter = router({
   updateGuide: userProcedure.input(UserGuideSchema).mutation(async ({ ctx, input }) => {
     return ctx.userModel.updateGuide(input);
   }),
+
+  updateImageConfig: userProcedure
+    .input(
+      z
+        .object({
+          imageNum: z.number().int().min(1).max(50).optional(),
+          model: z.string().optional(),
+          provider: z.string().optional(),
+          size: z.string().nullable().optional(),
+        })
+        .partial(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.userModel.updateImageConfig(input);
+    }),
 
   updatePreference: userProcedure.input(z.any()).mutation(async ({ ctx, input }) => {
     return ctx.userModel.updatePreference(input);

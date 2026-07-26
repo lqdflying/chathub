@@ -15,11 +15,14 @@ import {
 export type ImageStoreState = GenerationConfigState &
   GenerationTopicState &
   GenerationBatchState &
-  CreateImageState;
+  CreateImageState & {
+    scopeGeneration: number;
+  };
 
 export const initialState: ImageStoreState = {
   ...initialGenerationConfigState,
   ...initialGenerationTopicState,
   ...initialGenerationBatchState,
   ...initialCreateImageState,
+  scopeGeneration: 0,
 };

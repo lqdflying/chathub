@@ -10,13 +10,17 @@ import { Flexbox } from 'react-layout-kit';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { useClientDataSWR } from '@/libs/swr';
 import { messageService } from '@/services/message';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 const AiHeatmaps = memo<Omit<HeatmapsProps, 'data'> & { inShare?: boolean; mobile?: boolean }>(
   ({ inShare, mobile, ...rest }) => {
     const { t } = useTranslation('auth');
     const theme = useTheme();
-    const { data, isLoading } = useClientDataSWR('stats-heatmaps', async () =>
-      messageService.getHeatmaps(),
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+    const { data, isLoading } = useClientDataSWR(
+      requestedScope ? ['stats-heatmaps', requestedScope] : null,
+      async () => messageService.getHeatmaps(),
     );
 
     const days = data?.filter((item) => item.level > 0).length || '--';

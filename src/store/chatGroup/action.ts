@@ -11,6 +11,8 @@ import { chatGroupService } from '@/services/chatGroup';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import { useChatStore } from '@/store/chat/store';
 import { getSessionStoreState } from '@/store/session';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { setNamespace } from '@/utils/storeDebug';
 
 import {
@@ -73,23 +75,52 @@ export const chatGroupAction: StateCreator<
      */
     createGroup: async (newGroup, agentIds, silent = false) => {
       const { switchSession } = getSessionStoreState();
+      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+      const requestedGeneration = get().scopeGeneration;
+      if (!requestedScope) return '';
 
       const group = await chatGroupService.createGroup(newGroup);
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return '';
 
       if (agentIds && agentIds.length > 0) {
         await chatGroupService.addAgentsToGroup(group.id, agentIds);
+        if (
+          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+          get().scopeGeneration !== requestedGeneration
+        )
+          return '';
 
         // Wait a brief moment to ensure database transactions are committed
         // This prevents race condition where loadGroups() executes before member addition is fully persisted
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 100);
         });
+        if (
+          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+          get().scopeGeneration !== requestedGeneration
+        )
+          return '';
       }
 
       dispatch({ payload: group, type: 'addGroup' });
 
       await get().loadGroups();
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return '';
+
       await getSessionStoreState().refreshSessions();
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return '';
 
       if (!silent) {
         switchSession(group.id);
@@ -149,10 +180,25 @@ export const chatGroupAction: StateCreator<
     internal_dispatchChatGroup: dispatch,
 
     internal_refreshGroups: async () => {
+      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+      const requestedGeneration = get().scopeGeneration;
+      if (!requestedScope) return;
+
       await get().loadGroups();
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
 
       // Also rebuild and update groupMap to keep it in sync
       const groups = await chatGroupService.getGroups();
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
+
       const nextGroupMap = groups.reduce(
         (map, group) => {
           map[group.id] = group;
@@ -221,8 +267,18 @@ export const chatGroupAction: StateCreator<
     },
 
     loadGroups: async () => {
+      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+      const requestedGeneration = get().scopeGeneration;
+      if (!requestedScope) return;
+
       dispatch({ payload: true, type: 'setGroupsLoading' });
       const groups = await chatGroupService.getGroups();
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().scopeGeneration !== requestedGeneration
+      )
+        return;
+
       dispatch({ payload: groups, type: 'loadGroups' });
     },
 
@@ -233,11 +289,17 @@ export const chatGroupAction: StateCreator<
     },
 
     refreshGroupDetail: async (groupId: string) => {
-      await mutate([FETCH_GROUP_DETAIL_KEY, groupId]);
+      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+      if (!requestedScope) return;
+
+      await mutate([FETCH_GROUP_DETAIL_KEY, requestedScope, groupId]);
     },
 
     refreshGroups: async () => {
-      await mutate([FETCH_GROUPS_KEY, true]);
+      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+      if (!requestedScope) return;
+
+      await mutate([FETCH_GROUPS_KEY, requestedScope]);
     },
 
     removeAgentFromGroup: async (groupId, agentId) => {
@@ -322,16 +384,28 @@ export const chatGroupAction: StateCreator<
       await get().internal_refreshGroups();
     },
 
-    useFetchGroupDetail: (enabled, groupId) =>
-      useClientDataSWR<ChatGroupItem>(
-        enabled && groupId ? [FETCH_GROUP_DETAIL_KEY, groupId] : null,
-        async ([, id]) => {
-          const group = await chatGroupService.getGroup(id as string);
-          if (!group) throw new Error(`Group ${id} not found`);
+    useFetchGroupDetail: (enabled, groupId) => {
+      const requestedScope = useUserStore(authSelectors.currentUserScope);
+      const requestedGeneration = get().scopeGeneration;
+
+      return useClientDataSWR<ChatGroupItem>(
+        enabled && groupId && requestedScope
+          ? [FETCH_GROUP_DETAIL_KEY, requestedScope, groupId]
+          : null,
+        async (cacheKey) => {
+          const groupId = cacheKey[2] as string;
+          const group = await chatGroupService.getGroup(groupId);
+          if (!group) throw new Error(`Group ${groupId} not found`);
           return group;
         },
         {
           onSuccess: (group) => {
+            if (
+              authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+              get().scopeGeneration !== requestedGeneration
+            )
+              return;
+
             // Update groupMap with detailed group info
             const currentGroup = get().groupMap[group.id];
             if (isEqual(currentGroup, group)) return;
@@ -352,17 +426,29 @@ export const chatGroupAction: StateCreator<
             syncChatStoreGroupMap(nextGroupMap);
           },
         },
-      ),
+      );
+    },
 
     // SWR Hooks for data fetching
     // This is not used for now, as we are combining group in the session lambda's response
-    useFetchGroups: (enabled, isLogin) =>
-      useClientDataSWR<ChatGroupItem[]>(
-        enabled ? [FETCH_GROUPS_KEY, isLogin] : null,
+    useFetchGroups: (enabled, isLogin) => {
+      const requestedScope = useUserStore(authSelectors.currentUserScope);
+      const requestedGeneration = get().scopeGeneration;
+
+      return useClientDataSWR<ChatGroupItem[]>(
+        enabled && isLogin !== undefined && requestedScope
+          ? [FETCH_GROUPS_KEY, requestedScope]
+          : null,
         async () => chatGroupService.getGroups(),
         {
           fallbackData: [],
           onSuccess: (groups) => {
+            if (
+              authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+              get().scopeGeneration !== requestedGeneration
+            )
+              return;
+
             // Update both groups list and groupMap
             const incomingMap = groups.reduce(
               (map, group) => {
@@ -393,6 +479,7 @@ export const chatGroupAction: StateCreator<
           },
           suspense: true,
         },
-      ),
+      );
+    },
   };
 };

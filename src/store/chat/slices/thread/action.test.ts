@@ -3,8 +3,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { THREAD_DRAFT_ID } from '@/const/message';
+import { LOADING_FLAT, THREAD_DRAFT_ID } from '@/const/message';
 import { chatService } from '@/services/chat';
+import { messageService } from '@/services/message';
 import { threadService } from '@/services/thread';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
@@ -61,13 +62,27 @@ vi.mock('@/store/session', () => ({
   },
 }));
 
-vi.mock('@/store/user', () => ({
-  useUserStore: {
-    getState: vi.fn(() => ({})),
-  },
-}));
+vi.mock('@/store/user', () => {
+  const userState = {
+    authUserId: 'test-user',
+    isLoaded: true,
+    isSignedIn: true,
+    user: { id: 'test-user' },
+  };
+  const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
+    selector(userState)) as {
+    <Value>(selector: (state: typeof userState) => Value): Value;
+    getState: () => typeof userState;
+  };
+  useUserStore.getState = () => userState;
+
+  return { useUserStore };
+});
 
 vi.mock('@/store/user/selectors', () => ({
+  authSelectors: {
+    currentUserScope: () => 'user:test-user',
+  },
   systemAgentSelectors: {
     thread: vi.fn(() => ({})),
   },
@@ -76,12 +91,22 @@ vi.mock('@/store/user/selectors', () => ({
   },
 }));
 
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   useChatStore.setState(
     {
       activeId: 'test-session-id',
       activeTopicId: 'test-topic-id',
+      conversationClearGeneration: 0,
       isCreatingThread: false,
       isCreatingThreadMessage: false,
       messagesMap: {},
@@ -92,6 +117,7 @@ beforeEach(() => {
       threadLoadingIds: [],
       threadMaps: {},
       threadStartMessageId: undefined,
+      threadTitleSummaryOperations: {},
       threadsInit: false,
     },
     false,
@@ -254,6 +280,50 @@ describe('thread action', () => {
 
       expect(result.current.isCreatingThread).toBe(false);
     });
+
+    it('returns empty ids when an A-to-B-to-A reset completes during creation', async () => {
+      const createdThread = createDeferred<{
+        messageId: string;
+        threadId: string;
+      }>();
+      (threadService.createThreadWithMessage as Mock).mockReturnValue(createdThread.promise);
+      const { result } = renderHook(() => useChatStore());
+      let creationPromise!: ReturnType<typeof result.current.createThread>;
+
+      act(() => {
+        creationPromise = result.current.createThread({
+          message: { content: 'test', role: 'user', sessionId: 'account-a-session' },
+          sourceMessageId: 'account-a-source-message',
+          topicId: 'account-a-topic',
+          type: ThreadType.Continuation,
+        });
+      });
+
+      await waitFor(() => {
+        expect(threadService.createThreadWithMessage).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'account-a-returned-session',
+          activeTopicId: 'account-a-returned-topic',
+          conversationClearGeneration: 1,
+          isCreatingThread: false,
+        });
+      });
+      createdThread.resolve({
+        messageId: 'stale-account-a-message',
+        threadId: 'stale-account-a-thread',
+      });
+
+      let createResult!: Awaited<typeof creationPromise>;
+      await act(async () => {
+        createResult = await creationPromise;
+      });
+
+      expect(createResult).toEqual({ messageId: '', threadId: '' });
+      expect(useChatStore.getState().isCreatingThread).toBe(false);
+    });
   });
 
   describe('useFetchThreads', () => {
@@ -315,7 +385,11 @@ describe('thread action', () => {
         await result.current.refreshThreads();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['SWR_USE_FETCH_THREADS', 'test-topic-id']);
+      expect(mutate).toHaveBeenCalledWith([
+        'SWR_USE_FETCH_THREADS',
+        'user:test-user',
+        'test-topic-id',
+      ]);
     });
 
     it('should not mutate when activeTopicId is undefined', async () => {
@@ -447,18 +521,18 @@ describe('thread action', () => {
         },
       );
 
-      const internalUpdateSpy = vi
-        .spyOn(result.current, 'internal_updateThread')
-        .mockResolvedValue();
-
       await act(async () => {
         await result.current.summaryThreadTitle('thread-id', messages);
       });
 
       expect(chatService.fetchPresetTaskResult).toHaveBeenCalled();
-      expect(internalUpdateSpy).toHaveBeenCalledWith('thread-id', {
+      expect(threadService.updateThread).toHaveBeenCalledWith('thread-id', {
         title: 'New Generated Title',
       });
+      expect(useChatStore.getState().threadLoadingIds).not.toContain('thread-id');
+      expect(useChatStore.getState().threadMaps['test-topic-id'][0].title).toBe(
+        'New Generated Title',
+      );
     });
 
     it('should show loading indicator during generation', async () => {
@@ -494,13 +568,12 @@ describe('thread action', () => {
         },
       );
 
-      vi.spyOn(result.current, 'internal_updateThread').mockResolvedValue();
-
       await act(async () => {
         await result.current.summaryThreadTitle('thread-id', []);
       });
 
       expect(chatService.fetchPresetTaskResult).toHaveBeenCalled();
+      expect(useChatStore.getState().threadLoadingIds).not.toContain('thread-id');
     });
 
     it('should revert title on error', async () => {
@@ -532,14 +605,14 @@ describe('thread action', () => {
         await onError?.();
       });
 
-      vi.spyOn(result.current, 'internal_updateThread').mockResolvedValue();
-
       await act(async () => {
         await result.current.summaryThreadTitle('thread-id', []);
       });
 
-      // Should have called with LOADING_FLAT first, then reverted to old title on error
       expect(chatService.fetchPresetTaskResult).toHaveBeenCalled();
+      expect(threadService.updateThread).not.toHaveBeenCalled();
+      expect(useChatStore.getState().threadMaps['test-topic-id'][0].title).toBe('Old Title');
+      expect(useChatStore.getState().threadLoadingIds).not.toContain('thread-id');
     });
 
     it('should not run if no portal thread found', async () => {
@@ -556,6 +629,186 @@ describe('thread action', () => {
       });
 
       expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+    });
+
+    it('ignores stale title stream callbacks after switching portal thread', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const mockThread: ThreadItem = {
+        createdAt: new Date(),
+        id: 'account-a-thread',
+        lastActiveAt: new Date(),
+        sourceMessageId: 'account-a-source',
+        status: ThreadStatus.Active,
+        title: 'Account A Old Title',
+        topicId: 'account-a-topic',
+        type: ThreadType.Continuation,
+        updatedAt: new Date(),
+        userId: 'user-1',
+      };
+
+      act(() => {
+        useChatStore.setState({
+          activeTopicId: 'account-a-topic',
+          conversationClearGeneration: 0,
+          portalThreadId: 'account-a-thread',
+          threadMaps: {
+            'account-a-topic': [mockThread],
+          },
+        });
+      });
+
+      (chatService.fetchPresetTaskResult as Mock).mockImplementation(
+        async ({ onLoadingChange, onMessageHandle, onFinish }) => {
+          act(() => {
+            useChatStore.setState({
+              activeTopicId: 'account-a-other-topic',
+              portalThreadId: 'account-a-other-thread',
+            });
+          });
+
+          await onLoadingChange?.(true);
+          await onMessageHandle?.({ text: 'Stale', type: 'text' });
+          await onFinish?.('Stale Title');
+          await onLoadingChange?.(false);
+        },
+      );
+
+      await act(async () => {
+        await result.current.summaryThreadTitle('account-a-thread', []);
+      });
+
+      expect(threadService.updateThread).not.toHaveBeenCalled();
+      expect(useChatStore.getState().threadLoadingIds).not.toContain('account-a-thread');
+      expect(useChatStore.getState().threadTitleSummaryOperations).toEqual({});
+      expect(useChatStore.getState().threadMaps['account-a-topic'][0].title).toBe(
+        'Account A Old Title',
+      );
+    });
+
+    it('aborts and cleans its owned placeholder when the conversation is invalidated', async () => {
+      const threadId = 'thread-to-abort';
+      const { result } = renderHook(() => useChatStore());
+      let observedAbortController: AbortController | undefined;
+      const mockThread: ThreadItem = {
+        createdAt: new Date(),
+        id: threadId,
+        lastActiveAt: new Date(),
+        sourceMessageId: 'source-message',
+        status: ThreadStatus.Active,
+        title: 'Original Title',
+        topicId: 'test-topic-id',
+        type: ThreadType.Continuation,
+        updatedAt: new Date(),
+        userId: 'test-user',
+      };
+
+      act(() => {
+        useChatStore.setState({
+          portalThreadId: threadId,
+          threadMaps: { 'test-topic-id': [mockThread] },
+        });
+      });
+
+      (chatService.fetchPresetTaskResult as Mock).mockImplementation(
+        ({ abortController }) =>
+          new Promise((resolve) => {
+            observedAbortController = abortController;
+            abortController?.signal.addEventListener('abort', () => resolve(undefined), {
+              once: true,
+            });
+          }),
+      );
+
+      let summaryPromise!: ReturnType<typeof result.current.summaryThreadTitle>;
+      act(() => {
+        summaryPromise = result.current.summaryThreadTitle(threadId, []);
+      });
+
+      await waitFor(() => {
+        expect(observedAbortController).toBeDefined();
+        expect(useChatStore.getState().threadLoadingIds).toContain(threadId);
+        expect(useChatStore.getState().threadMaps['test-topic-id'][0].title).toBe(LOADING_FLAT);
+      });
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      await act(async () => {
+        await summaryPromise;
+      });
+
+      expect(observedAbortController?.signal.aborted).toBe(true);
+      expect(useChatStore.getState().threadLoadingIds).not.toContain(threadId);
+      expect(useChatStore.getState().threadTitleSummaryOperations).toEqual({});
+      expect(useChatStore.getState().threadMaps['test-topic-id'][0].title).toBe('Original Title');
+    });
+
+    it('persists the newest overlapping summary after an older write finishes', async () => {
+      const threadId = 'overlapping-thread';
+      const olderPersistence = createDeferred<void>();
+      const { result } = renderHook(() => useChatStore());
+      const updateThreadMock = threadService.updateThread as Mock;
+      updateThreadMock
+        .mockReturnValueOnce(olderPersistence.promise)
+        .mockResolvedValueOnce(undefined);
+      let summaryInvocation = 0;
+      const mockThread: ThreadItem = {
+        createdAt: new Date(),
+        id: threadId,
+        lastActiveAt: new Date(),
+        sourceMessageId: 'source-message',
+        status: ThreadStatus.Active,
+        title: 'Original Title',
+        topicId: 'test-topic-id',
+        type: ThreadType.Continuation,
+        updatedAt: new Date(),
+        userId: 'test-user',
+      };
+
+      act(() => {
+        useChatStore.setState({
+          portalThreadId: threadId,
+          threadMaps: { 'test-topic-id': [mockThread] },
+        });
+      });
+
+      (chatService.fetchPresetTaskResult as Mock).mockImplementation(async ({ onFinish }) => {
+        summaryInvocation += 1;
+        await onFinish?.(summaryInvocation === 1 ? 'Older Title' : 'Newest Title');
+      });
+
+      let olderSummaryPromise!: ReturnType<typeof result.current.summaryThreadTitle>;
+      act(() => {
+        olderSummaryPromise = result.current.summaryThreadTitle(threadId, []);
+      });
+
+      await waitFor(() => {
+        expect(updateThreadMock).toHaveBeenCalledWith(threadId, { title: 'Older Title' });
+      });
+
+      let newerSummaryPromise!: ReturnType<typeof result.current.summaryThreadTitle>;
+      act(() => {
+        newerSummaryPromise = result.current.summaryThreadTitle(threadId, []);
+      });
+
+      await waitFor(() => {
+        expect(useChatStore.getState().threadMaps['test-topic-id'][0].title).toBe('Newest Title');
+      });
+      expect(updateThreadMock).toHaveBeenCalledTimes(1);
+
+      olderPersistence.resolve();
+      await act(async () => {
+        await Promise.all([olderSummaryPromise, newerSummaryPromise]);
+      });
+
+      expect(updateThreadMock.mock.calls).toEqual([
+        [threadId, { title: 'Older Title' }],
+        [threadId, { title: 'Newest Title' }],
+      ]);
+      expect(useChatStore.getState().threadMaps['test-topic-id'][0].title).toBe('Newest Title');
+      expect(useChatStore.getState().threadLoadingIds).not.toContain(threadId);
+      expect(useChatStore.getState().threadTitleSummaryOperations).toEqual({});
     });
   });
 
@@ -601,6 +854,68 @@ describe('thread action', () => {
     });
 
     describe('new thread creation flow', () => {
+      it('does not reopen a stale thread after an A-to-B-to-A reset', async () => {
+        const createdThread = createDeferred<{
+          messageId: string;
+          threadId: string;
+        }>();
+        vi.spyOn(messageService, 'getConversationVersion').mockResolvedValue(7);
+        const { result } = renderHook(() => useChatStore());
+
+        act(() => {
+          useChatStore.setState({
+            newThreadMode: ThreadType.Continuation,
+            portalThreadId: undefined,
+            threadStartMessageId: 'account-a-source-message',
+          });
+        });
+
+        vi.spyOn(result.current, 'createThread').mockReturnValue(createdThread.promise);
+        const refreshThreadsSpy = vi.spyOn(result.current, 'refreshThreads').mockResolvedValue();
+        const refreshMessagesSpy = vi.spyOn(result.current, 'refreshMessages').mockResolvedValue();
+        const openThreadSpy = vi.spyOn(result.current, 'openThreadInPortal');
+        const coreProcessSpy = vi
+          .spyOn(result.current, 'internal_coreProcessMessage')
+          .mockResolvedValue();
+        vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('account-a-temp');
+        vi.spyOn(result.current, 'internal_toggleMessageLoading');
+        let sendPromise!: ReturnType<typeof result.current.sendThreadMessage>;
+
+        act(() => {
+          sendPromise = result.current.sendThreadMessage({ message: 'account A message' });
+        });
+
+        await waitFor(() => {
+          expect(result.current.createThread).toHaveBeenCalled();
+        });
+
+        act(() => {
+          useChatStore.setState({
+            activeId: 'account-a-returned-session',
+            activeTopicId: 'account-a-returned-topic',
+            conversationClearGeneration: 1,
+            isCreatingThreadMessage: false,
+            portalThreadId: undefined,
+            threadStartMessageId: undefined,
+          });
+        });
+        createdThread.resolve({
+          messageId: 'stale-account-a-message',
+          threadId: 'stale-account-a-thread',
+        });
+
+        await act(async () => {
+          await sendPromise;
+        });
+
+        expect(refreshThreadsSpy).not.toHaveBeenCalled();
+        expect(refreshMessagesSpy).not.toHaveBeenCalled();
+        expect(openThreadSpy).not.toHaveBeenCalled();
+        expect(coreProcessSpy).not.toHaveBeenCalled();
+        expect(useChatStore.getState().portalThreadId).toBeUndefined();
+        expect(useChatStore.getState().isCreatingThreadMessage).toBe(false);
+      });
+
       it('should create new thread and send first message', async () => {
         const { result } = renderHook(() => useChatStore());
 
@@ -727,7 +1042,6 @@ describe('thread action', () => {
         vi.spyOn(result.current, 'refreshThreads').mockImplementation(async () => {
           act(() => {
             useChatStore.setState({
-              portalThreadId: 'new-thread-id',
               threadMaps: { 'test-topic-id': [mockThread] },
             });
           });
@@ -753,6 +1067,69 @@ describe('thread action', () => {
     });
 
     describe('existing thread flow', () => {
+      it('stops before generation when the active conversation changes during persistence', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const createdMessage = createDeferred<string | undefined>();
+
+        act(() => {
+          useChatStore.setState({
+            activeId: 'account-a-session',
+            activeTopicId: 'account-a-topic',
+            conversationClearGeneration: 0,
+            portalThreadId: 'account-a-thread',
+            threadStartMessageId: 'account-a-source',
+          });
+        });
+
+        vi.spyOn(result.current, 'internal_createMessage').mockReturnValue(createdMessage.promise);
+        vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('account-a-temp');
+        const toggleMessageLoadingSpy = vi.spyOn(result.current, 'internal_toggleMessageLoading');
+        const coreProcessSpy = vi
+          .spyOn(result.current, 'internal_coreProcessMessage')
+          .mockResolvedValue();
+        const triggerSessionUpdateMock = vi.fn();
+        (useSessionStore.getState as Mock).mockReturnValue({
+          triggerSessionUpdate: triggerSessionUpdateMock,
+        });
+
+        let sendPromise!: ReturnType<typeof result.current.sendThreadMessage>;
+        act(() => {
+          sendPromise = result.current.sendThreadMessage({ message: 'account A portal message' });
+        });
+
+        await waitFor(() => {
+          expect(result.current.internal_createMessage).toHaveBeenCalled();
+        });
+
+        act(() => {
+          useChatStore.setState({
+            activeId: 'account-a-other-session',
+            activeTopicId: 'account-a-other-topic',
+            conversationClearGeneration: 0,
+            isCreatingThreadMessage: false,
+            portalThreadId: 'account-a-other-thread',
+            threadMessageSendingId: undefined,
+            threadStartMessageId: 'account-a-other-source',
+          });
+        });
+        createdMessage.resolve('stale-account-a-message');
+
+        await act(async () => {
+          await sendPromise;
+        });
+
+        expect(coreProcessSpy).not.toHaveBeenCalled();
+        expect(triggerSessionUpdateMock).not.toHaveBeenCalled();
+        expect(useChatStore.getState()).toMatchObject({
+          activeId: 'account-a-other-session',
+          activeTopicId: 'account-a-other-topic',
+          isCreatingThreadMessage: false,
+          portalThreadId: 'account-a-other-thread',
+          threadMessageSendingId: undefined,
+        });
+        expect(toggleMessageLoadingSpy).not.toHaveBeenCalledWith(false, 'account-a-temp');
+      });
+
       it('should append message to existing thread', async () => {
         const { result } = renderHook(() => useChatStore());
 

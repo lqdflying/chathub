@@ -10,6 +10,7 @@ import {
 import { LobeUser } from '@/types/user';
 
 export interface UserAuthState {
+  authUserId?: string;
   clerkOpenUserProfile?: (props?: UserProfileProps) => void;
 
   clerkSession?: SignedInSessionResource;

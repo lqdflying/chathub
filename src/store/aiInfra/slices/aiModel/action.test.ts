@@ -4,10 +4,16 @@ import { mutate } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { aiModelService } from '@/services/aiModel';
+import { modelsService } from '@/services/models';
+import { useUserStore } from '@/store/user';
 
 import { useAiInfraStore as useStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+vi.mock('@/const/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/const/auth')>()),
+  enableAuth: true,
+}));
 
 // Mock SWR
 vi.mock('swr', async () => {
@@ -18,17 +24,33 @@ vi.mock('swr', async () => {
   };
 });
 
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
 
   // Reset store to initial state
   act(() => {
+    useUserStore.setState({
+      authUserId: 'test-user',
+      isLoaded: true,
+      isSignedIn: true,
+      user: { id: 'test-user' },
+    });
     useStore.setState({
       activeAiProvider: 'test-provider',
       aiModelLoadingIds: [],
       aiProviderModelList: [],
       isAiModelListInit: false,
       refreshAiProviderRuntimeState: vi.fn(),
+      scopeGeneration: 0,
     });
   });
 });
@@ -71,6 +93,44 @@ describe('AiModelAction', () => {
       });
 
       expect(serviceSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not refresh another account after a pending update completes', async () => {
+      const updateFinished = createDeferred<void>();
+      const models = [
+        {
+          abilities: {},
+          displayName: 'Account A Model',
+          enabled: true,
+          id: 'account-a-model',
+          source: 'remote',
+          type: 'chat',
+        } as AiProviderModelListItem,
+      ];
+      vi.spyOn(aiModelService, 'batchUpdateAiModels').mockReturnValue(updateFinished.promise);
+
+      const { result } = renderHook(() => useStore());
+      const refreshSpy = vi.spyOn(result.current, 'refreshAiModelList').mockResolvedValue();
+      const updatePromise = result.current.batchUpdateAiModels(models, 'provider-x');
+
+      await waitFor(() => {
+        expect(aiModelService.batchUpdateAiModels).toHaveBeenCalledWith('provider-x', models);
+      });
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          user: { id: 'account-b' },
+        });
+        useStore.setState({
+          activeAiProvider: 'provider-y',
+          scopeGeneration: 1,
+        });
+      });
+      updateFinished.resolve();
+      await updatePromise;
+
+      expect(refreshSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -212,29 +272,19 @@ describe('AiModelAction', () => {
 
       const { result } = renderHook(() => useStore());
       const batchUpdateSpy = vi
-        .spyOn(result.current, 'batchUpdateAiModels')
+        .spyOn(aiModelService, 'batchUpdateAiModels')
         .mockResolvedValue(undefined);
       const refreshSpy = vi
         .spyOn(result.current, 'refreshAiModelList')
         .mockResolvedValue(undefined);
-
-      // Mock dynamic import
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockResolvedValue(mockRemoteModels),
-        },
-      }));
+      vi.spyOn(modelsService, 'getModels').mockResolvedValue(mockRemoteModels);
 
       await act(async () => {
         await result.current.fetchRemoteModelList('test-provider');
       });
 
-      // Wait for the dynamic import and batch update
-      await waitFor(() => {
-        expect(batchUpdateSpy).toHaveBeenCalled();
-      });
-
-      const batchUpdateArg = batchUpdateSpy.mock.calls[0][0];
+      expect(batchUpdateSpy).toHaveBeenCalledWith('test-provider', expect.any(Array));
+      const batchUpdateArg = batchUpdateSpy.mock.calls[0][1];
       expect(batchUpdateArg).toHaveLength(2);
       expect(batchUpdateArg[0]).toMatchObject({
         abilities: {
@@ -259,27 +309,61 @@ describe('AiModelAction', () => {
         type: 'image',
       });
 
-      expect(refreshSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledWith('test-provider');
     });
 
     it('should not update if remote service returns no data', async () => {
       const { result } = renderHook(() => useStore());
       const batchUpdateSpy = vi
-        .spyOn(result.current, 'batchUpdateAiModels')
+        .spyOn(aiModelService, 'batchUpdateAiModels')
         .mockResolvedValue(undefined);
-
-      // Mock dynamic import with null response
-      vi.doMock('@/services/models', () => ({
-        modelsService: {
-          getModels: vi.fn().mockResolvedValue(null),
-        },
-      }));
+      vi.spyOn(modelsService, 'getModels').mockResolvedValue(undefined);
 
       await act(async () => {
         await result.current.fetchRemoteModelList('test-provider');
       });
 
       expect(batchUpdateSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not persist remote models after the account changes', async () => {
+      const remoteModels = createDeferred<
+        Awaited<ReturnType<typeof modelsService.getModels>>
+      >();
+      vi.spyOn(modelsService, 'getModels').mockReturnValue(remoteModels.promise);
+      const batchUpdateSpy = vi
+        .spyOn(aiModelService, 'batchUpdateAiModels')
+        .mockResolvedValue(undefined);
+
+      const { result } = renderHook(() => useStore());
+      const refreshSpy = vi.spyOn(result.current, 'refreshAiModelList').mockResolvedValue();
+      const fetchPromise = result.current.fetchRemoteModelList('provider-x');
+
+      await waitFor(() => {
+        expect(modelsService.getModels).toHaveBeenCalledWith('provider-x');
+      });
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          user: { id: 'account-b' },
+        });
+        useStore.setState({
+          activeAiProvider: 'provider-y',
+          scopeGeneration: 1,
+        });
+      });
+      remoteModels.resolve([
+        {
+          displayName: 'Account A Model',
+          enabled: true,
+          id: 'account-a-model',
+        },
+      ]);
+      await fetchPromise;
+
+      expect(batchUpdateSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -338,8 +422,42 @@ describe('AiModelAction', () => {
         await result.current.refreshAiModelList();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['FETCH_AI_PROVIDER_MODELS', 'test-provider']);
+      expect(mutate).toHaveBeenCalledWith([
+        'FETCH_AI_PROVIDER_MODELS',
+        'user:test-user',
+        'test-provider',
+      ]);
       expect(refreshRuntimeSpy).toHaveBeenCalled();
+    });
+
+    it('does not refresh runtime state after the account epoch changes', async () => {
+      const refreshFinished = createDeferred<unknown>();
+      vi.mocked(mutate).mockReturnValue(refreshFinished.promise);
+      const { result } = renderHook(() => useStore());
+      const refreshRuntimeSpy = vi
+        .spyOn(result.current, 'refreshAiProviderRuntimeState')
+        .mockResolvedValue(undefined);
+      const refreshPromise = result.current.refreshAiModelList('provider-x');
+
+      await waitFor(() => {
+        expect(mutate).toHaveBeenCalledWith([
+          'FETCH_AI_PROVIDER_MODELS',
+          'user:test-user',
+          'provider-x',
+        ]);
+      });
+
+      act(() => {
+        useUserStore.setState({
+          authUserId: 'account-b',
+          user: { id: 'account-b' },
+        });
+        useStore.setState({ scopeGeneration: 1 });
+      });
+      refreshFinished.resolve(undefined);
+      await refreshPromise;
+
+      expect(refreshRuntimeSpy).not.toHaveBeenCalled();
     });
   });
 

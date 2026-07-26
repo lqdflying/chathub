@@ -45,6 +45,10 @@ export interface UserPreference {
   enableGroupChat?: boolean;
   guide?: UserGuide;
   hideSyncAlert?: boolean;
+  /**
+   * remembered image generation configuration, synced across devices
+   */
+  imageConfig?: UserImageGenerationConfig;
   telemetry: boolean | null;
   topicDisplayMode?: TopicDisplayMode;
   /**
@@ -53,7 +57,20 @@ export interface UserPreference {
   useCmdEnterToSend?: boolean;
 }
 
+export interface UserImageGenerationConfig {
+  imageNum?: number;
+  model?: string;
+  provider?: string;
+  size?: string | null;
+}
+
+export interface UserImageGenerationConfigMigrationResult {
+  imageConfig: UserImageGenerationConfig;
+  migrated: boolean;
+}
+
 export interface UserInitializationState {
+  authUserId?: string;
   avatar?: string;
   canEnablePWAGuide?: boolean;
   canEnableTrace?: boolean;

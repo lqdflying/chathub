@@ -3,6 +3,8 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { useClientDataSWR } from '@/libs/swr';
 import { fileService } from '@/services/file';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { FileItem } from '@/types/files';
 
 import { FileStore } from '../../store';
@@ -43,6 +45,12 @@ export const createTTSFileSlice: StateCreator<
 
     return res?.id;
   },
-  useFetchTTSFile: (id) =>
-    useClientDataSWR(!!id ? [FETCH_TTS_FILE, id] : null, () => fileService.getFile(id!)),
+  useFetchTTSFile: (id) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR(
+      id && requestedScope ? [FETCH_TTS_FILE, requestedScope, id] : null,
+      () => fileService.getFile(id!),
+    );
+  },
 });

@@ -45,10 +45,15 @@ export interface PluginStoreState {
 
 export const initialPluginStoreState: PluginStoreState = {
   // Plugin list state management initial values
+  activePluginIdentifier: undefined,
   currentPluginPage: 1,
   displayMode: 'grid',
+  isPluginListInit: false,
   listType: isDesktop ? PluginStoreTabs.MCP : PluginStoreTabs.Plugin,
   oldPluginItems: [],
   pluginInstallLoading: {},
   pluginInstallProgress: {},
+  pluginSearchKeywords: undefined,
+  pluginSearchLoading: false,
+  pluginTotalCount: 0,
 };

@@ -12,6 +12,7 @@ import type { StateCreator } from 'zustand/vanilla';
 
 import type { UserStore } from '@/store/user';
 
+import { authSelectors } from '../auth/selectors';
 import { settingsSelectors } from '../settings/selectors';
 import { CustomModelCardDispatch, customModelCardsReducer } from './reducers/customModelCard';
 import { modelProviderSelectors } from './selectors/modelProvider';
@@ -55,6 +56,7 @@ export interface ModelListAction {
   useFetchProviderModelList: (
     provider: GlobalLLMProviderKey,
     enabledAutoFetch: boolean,
+    requestedScope?: string,
   ) => SWRResponse;
 }
 
@@ -197,24 +199,30 @@ export const createModelListSlice: StateCreator<
     await get().setSettings({ keyVaults: { [provider]: config } });
   },
 
-  useFetchProviderModelList: (provider, enabledAutoFetch) =>
+  useFetchProviderModelList: (provider, enabledAutoFetch, requestedScope) =>
     useSWR<ChatModelCard[] | undefined>(
-      [provider, enabledAutoFetch],
-      async ([p]) => {
+      requestedScope
+        ? ['fetch-provider-model-list', requestedScope, provider, enabledAutoFetch]
+        : null,
+      async () => {
+        if (authSelectors.currentUserScope(get()) !== requestedScope) return;
+
         const { modelsService } = await import('@/services/models');
 
-        return modelsService.getModels(p);
+        return modelsService.getModels(provider);
       },
       {
         onSuccess: async (data) => {
-          if (data) {
-            await get().setModelProviderConfig(provider, {
-              latestFetchTime: Date.now(),
-              remoteModelCards: data,
-            });
+          if (!data) return;
+          if (authSelectors.currentUserScope(get()) !== requestedScope) return;
 
-            get().refreshDefaultModelProviderList();
-          }
+          await get().setModelProviderConfig(provider, {
+            latestFetchTime: Date.now(),
+            remoteModelCards: data,
+          });
+          if (authSelectors.currentUserScope(get()) !== requestedScope) return;
+
+          get().refreshDefaultModelProviderList();
         },
         revalidateOnFocus: false,
         revalidateOnMount: enabledAutoFetch,

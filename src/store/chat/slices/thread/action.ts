@@ -9,6 +9,7 @@ import {
   ThreadType,
   UIChatMessage,
 } from '@lobechat/types';
+import { nanoid } from '@lobechat/utils';
 import isEqual from 'fast-deep-equal';
 import { SWRResponse, mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
@@ -19,10 +20,11 @@ import { messageService } from '@/services/message';
 import { threadService } from '@/services/thread';
 import { threadSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
+import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
 import { useUserStore } from '@/store/user';
-import { systemAgentSelectors } from '@/store/user/selectors';
+import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -101,6 +103,10 @@ export const chatThreadMessage: StateCreator<
     get().togglePortal(false);
   },
   sendThreadMessage: async ({ message }) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    if (!requestedScope) return;
+
     const {
       internal_coreProcessMessage,
       activeTopicId,
@@ -110,12 +116,43 @@ export const chatThreadMessage: StateCreator<
       portalThreadId,
     } = get();
     if (!activeId || !activeTopicId) return;
+    const requestedSessionId = activeId;
+    const requestedTopicId = activeTopicId;
+    let expectedPortalThreadId = portalThreadId;
+    const requestedThreadStartMessageId = threadStartMessageId;
+    const threadMessageSendingId = `thread-send-${nanoid(8)}`;
+    let parentMessageId: string | undefined = undefined;
+    let tempMessageId: string | undefined = undefined;
+    const clearCurrentThreadMessageLoading = () => {
+      if (get().threadMessageSendingId !== threadMessageSendingId) return;
+
+      set(
+        { isCreatingThreadMessage: false, threadMessageSendingId: undefined },
+        false,
+        n('creatingThreadMessage/stop'),
+      );
+      get().internal_toggleMessageLoading(false, tempMessageId);
+    };
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      get().portalThreadId === expectedPortalThreadId &&
+      get().threadStartMessageId === requestedThreadStartMessageId;
 
     // if message is empty or no files, then stop
     if (!message) return;
+    if (!portalThreadId && !threadStartMessageId) return;
 
     const expectedConversationVersion = await messageService.getConversationVersion();
-    set({ isCreatingThreadMessage: true }, false, n('creatingThreadMessage/start'));
+    if (!isCurrentRequest()) return;
+
+    set(
+      { isCreatingThreadMessage: true, threadMessageSendingId },
+      false,
+      n('creatingThreadMessage/start'),
+    );
 
     const newMessage: CreateMessageParams = {
       content: message,
@@ -128,12 +165,8 @@ export const chatThreadMessage: StateCreator<
       threadId: portalThreadId,
     };
 
-    let parentMessageId: string | undefined = undefined;
-    let tempMessageId: string | undefined = undefined;
-
     // if there is no portalThreadId, then create a thread and then append message
     if (!portalThreadId) {
-      if (!threadStartMessageId) return;
       // we need to create a temp message for optimistic update
       tempMessageId = get().internal_createTmpMessage({
         ...newMessage,
@@ -148,13 +181,30 @@ export const chatThreadMessage: StateCreator<
         topicId: activeTopicId,
         type: newThreadMode,
       });
+      if (
+        !threadId ||
+        !isCurrentRequest()
+      ) {
+        clearCurrentThreadMessageLoading();
+        return;
+      }
 
       parentMessageId = messageId;
 
       // mark the portal in thread mode
       await get().refreshThreads();
-      await get().refreshMessages();
+      if (!isCurrentRequest()) {
+        clearCurrentThreadMessageLoading();
+        return;
+      }
 
+      await get().refreshMessages();
+      if (!isCurrentRequest()) {
+        clearCurrentThreadMessageLoading();
+        return;
+      }
+
+      expectedPortalThreadId = threadId;
       get().openThreadInPortal(threadId, threadStartMessageId);
     } else {
       // if there is a thread, just append message
@@ -166,16 +216,32 @@ export const chatThreadMessage: StateCreator<
         expectedConversationVersion,
         tempMessageId,
       });
+      if (!isCurrentRequest()) {
+        clearCurrentThreadMessageLoading();
+        return;
+      }
     }
 
-    get().internal_toggleMessageLoading(false, tempMessageId);
-
-    if (!parentMessageId) return;
+    if (!parentMessageId) {
+      clearCurrentThreadMessageLoading();
+      return;
+    }
     //  update assistant update to make it rerank
-    useSessionStore.getState().triggerSessionUpdate(get().activeId);
+    useSessionStore.getState().triggerSessionUpdate(requestedSessionId);
 
     // Get the current messages to generate AI response
-    const messages = threadSelectors.portalAIChats(get());
+    const activeThreadId = expectedPortalThreadId;
+    if (!activeThreadId) {
+      clearCurrentThreadMessageLoading();
+      return;
+    }
+    const messages = threadSelectors.portalAIChats({
+      ...get(),
+      activeId: requestedSessionId,
+      activeTopicId: requestedTopicId,
+      portalThreadId: activeThreadId,
+      threadStartMessageId: requestedThreadStartMessageId,
+    });
     const contextExportCaptureId = get().consumeContextExportArm();
 
     try {
@@ -183,22 +249,39 @@ export const chatThreadMessage: StateCreator<
         contextExportCaptureId,
         expectedConversationVersion,
         ragQuery: get().internal_shouldUseRAG() ? message : undefined,
-        threadId: get().portalThreadId,
+        threadId: activeThreadId,
         inPortalThread: true,
       });
     } finally {
-      if (contextExportCaptureId) get().completeContextExport(contextExportCaptureId);
+      if (contextExportCaptureId && isCurrentRequest()) {
+        get().completeContextExport(contextExportCaptureId);
+      }
+    }
+    if (!isCurrentRequest()) {
+      clearCurrentThreadMessageLoading();
+      return;
     }
 
-    set({ isCreatingThreadMessage: false }, false, n('creatingThreadMessage/stop'));
+    clearCurrentThreadMessageLoading();
 
     // 说明是在新建 thread，需要自动总结标题
     if (!portalThreadId) {
-      const portalThread = threadSelectors.currentPortalThread(get());
+      const portalThread = threadSelectors.currentPortalThread({
+        ...get(),
+        activeId: requestedSessionId,
+        activeTopicId: requestedTopicId,
+        portalThreadId: activeThreadId,
+      });
 
       if (!portalThread) return;
 
-      const chats = threadSelectors.portalAIChats(get());
+      const chats = threadSelectors.portalAIChats({
+        ...get(),
+        activeId: requestedSessionId,
+        activeTopicId: requestedTopicId,
+        portalThreadId: activeThreadId,
+        threadStartMessageId: requestedThreadStartMessageId,
+      });
       await get().summaryThreadTitle(portalThread.id, chats);
     }
   },
@@ -221,6 +304,10 @@ export const chatThreadMessage: StateCreator<
     topicId,
     type,
   }) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    if (!requestedScope) return { messageId: '', threadId: '' };
+
     set({ isCreatingThread: true }, false, n('creatingThread/start'));
 
     const createThreadPayload = {
@@ -235,17 +322,29 @@ export const chatThreadMessage: StateCreator<
         : await threadService.createThreadWithMessage(createThreadPayload, {
             expectedConversationVersion,
           });
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().conversationClearGeneration !== requestedGeneration
+    )
+      return { messageId: '', threadId: '' };
+
     set({ isCreatingThread: false }, false, n('creatingThread/end'));
 
     return data;
   },
 
-  useFetchThreads: (enable, topicId) =>
-    useClientDataSWR<ThreadItem[]>(
-      enable && !!topicId && !isDeprecatedEdition ? [SWR_USE_FETCH_THREADS, topicId] : null,
-      async ([, topicId]: [string, string]) => threadService.getThreads(topicId),
+  useFetchThreads: (enable, topicId) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<ThreadItem[]>(
+      enable && !!topicId && !isDeprecatedEdition && requestedScope
+        ? [SWR_USE_FETCH_THREADS, requestedScope, topicId]
+        : null,
+      async (cacheKey: [string, string, string]) => threadService.getThreads(cacheKey[2]),
       {
         onSuccess: (threads) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           const nextMap = { ...get().threadMaps, [topicId!]: threads };
 
           // no need to update map if the topics have been init and the map is the same
@@ -258,13 +357,16 @@ export const chatThreadMessage: StateCreator<
           );
         },
       },
-    ),
+    );
+  },
 
   refreshThreads: async () => {
     const topicId = get().activeTopicId;
     if (!topicId) return;
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
 
-    return mutate([SWR_USE_FETCH_THREADS, topicId]);
+    return mutate([SWR_USE_FETCH_THREADS, requestedScope, topicId]);
   },
   removeThread: async (id) => {
     await threadService.removeThread(id);
@@ -282,36 +384,161 @@ export const chatThreadMessage: StateCreator<
   },
 
   summaryThreadTitle: async (threadId, messages) => {
-    const { internal_updateThreadTitleInSummary, internal_updateThreadLoading } = get();
-    const portalThread = threadSelectors.currentPortalThread(get());
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const requestedPortalThreadId = get().portalThreadId;
+    if (
+      !requestedScope ||
+      !requestedSessionId ||
+      !requestedTopicId ||
+      requestedPortalThreadId !== threadId
+    ) {
+      return;
+    }
+
+    const portalThread = get().threadMaps[requestedTopicId]?.find((item) => item.id === threadId);
     if (!portalThread) return;
 
-    internal_updateThreadTitleInSummary(threadId, LOADING_FLAT);
+    const previousOperation = get().threadTitleSummaryOperations[threadId];
+    previousOperation?.abortController.abort();
+
+    const operationId = `thread-summary-${nanoid(8)}`;
+    const abortController = new AbortController();
+    const originalTitle = previousOperation?.originalTitle ?? portalThread.title;
+    const isCurrentThreadRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      get().portalThreadId === requestedPortalThreadId &&
+      get().threadTitleSummaryOperations[threadId]?.operationId === operationId;
+    const updateOwnedTitle = (title: string) => {
+      set(
+        (state) => {
+          const operation = state.threadTitleSummaryOperations[threadId];
+          if (operation?.operationId !== operationId) return state;
+
+          const threads = state.threadMaps[requestedTopicId] || [];
+          return {
+            threadMaps: {
+              ...state.threadMaps,
+              [requestedTopicId]: threads.map((item) =>
+                item.id === threadId ? { ...item, title } : item,
+              ),
+            },
+            threadTitleSummaryOperations: {
+              ...state.threadTitleSummaryOperations,
+              [threadId]: { ...operation, displayedTitle: title },
+            },
+          };
+        },
+        false,
+        n('summaryThreadTitle/update', { operationId, requestedTopicId, threadId }),
+      );
+    };
+    const finishOwnedOperation = (restoreOriginalTitle: boolean) => {
+      set(
+        (state) => {
+          const operation = state.threadTitleSummaryOperations[threadId];
+          if (operation?.operationId !== operationId) return state;
+
+          const nextOperations = { ...state.threadTitleSummaryOperations };
+          delete nextOperations[threadId];
+
+          const threads = state.threadMaps[requestedTopicId] || [];
+          const nextThreads = restoreOriginalTitle
+            ? threads.map((item) =>
+                item.id === threadId && item.title === operation.displayedTitle
+                  ? { ...item, title: operation.originalTitle }
+                  : item,
+              )
+            : threads;
+
+          return {
+            threadLoadingIds: state.threadLoadingIds.filter((id) => id !== threadId),
+            threadMaps:
+              nextThreads === threads
+                ? state.threadMaps
+                : { ...state.threadMaps, [requestedTopicId]: nextThreads },
+            threadTitleSummaryOperations: nextOperations,
+          };
+        },
+        false,
+        n('summaryThreadTitle/finish', { operationId, requestedTopicId, threadId }),
+      );
+    };
+
+    set(
+      (state) => ({
+        threadLoadingIds: state.threadLoadingIds.includes(threadId)
+          ? state.threadLoadingIds
+          : [...state.threadLoadingIds, threadId],
+        threadMaps: {
+          ...state.threadMaps,
+          [requestedTopicId]: (state.threadMaps[requestedTopicId] || []).map((item) =>
+            item.id === threadId ? { ...item, title: LOADING_FLAT } : item,
+          ),
+        },
+        threadTitleSummaryOperations: {
+          ...state.threadTitleSummaryOperations,
+          [threadId]: {
+            abortController,
+            containerId: requestedTopicId,
+            displayedTitle: LOADING_FLAT,
+            operationId,
+            originalTitle,
+          },
+        },
+      }),
+      false,
+      n('summaryThreadTitle/start', { operationId, requestedTopicId, threadId }),
+    );
 
     let output = '';
+    let didResolveTitle = false;
     const threadConfig = systemAgentSelectors.thread(useUserStore.getState());
 
-    await chatService.fetchPresetTaskResult({
-      onError: () => {
-        internal_updateThreadTitleInSummary(threadId, portalThread.title);
-      },
-      onFinish: async (text) => {
-        await get().internal_updateThread(threadId, { title: text });
-      },
-      onLoadingChange: (loading) => {
-        internal_updateThreadLoading(threadId, loading);
-      },
-      onMessageHandle: (chunk) => {
-        switch (chunk.type) {
-          case 'text': {
-            output += chunk.text;
-          }
-        }
+    try {
+      await chatService.fetchPresetTaskResult({
+        abortController,
+        onError: () => {
+          if (!isCurrentThreadRequest()) return;
 
-        internal_updateThreadTitleInSummary(threadId, output);
-      },
-      params: merge(threadConfig, chainSummaryTitle(messages, globalHelpers.getCurrentLanguage())),
-    });
+          didResolveTitle = true;
+          updateOwnedTitle(originalTitle);
+        },
+        onFinish: async (text) => {
+          if (!isCurrentThreadRequest()) return;
+
+          updateOwnedTitle(text);
+          await enqueueTitleSummaryPersistence(
+            `${requestedScope}:thread:${threadId}`,
+            async () => {
+              if (!isCurrentThreadRequest()) return;
+
+              await threadService.updateThread(threadId, { title: text });
+            },
+          );
+          if (isCurrentThreadRequest()) didResolveTitle = true;
+        },
+        onMessageHandle: (chunk) => {
+          if (!isCurrentThreadRequest()) return;
+
+          switch (chunk.type) {
+            case 'text': {
+              output += chunk.text;
+            }
+          }
+
+          updateOwnedTitle(output);
+        },
+        params: merge(threadConfig, chainSummaryTitle(messages, globalHelpers.getCurrentLanguage())),
+      });
+    } finally {
+      finishOwnedOperation(!didResolveTitle);
+    }
   },
 
   // Internal process method of the topics

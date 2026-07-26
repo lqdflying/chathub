@@ -1,30 +1,27 @@
+import { ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS, chainAssistantMemoryRollup } from '@lobechat/prompts';
+import { TraceNameMap } from '@lobechat/types';
 import isEqual from 'fast-deep-equal';
 import { produce } from 'immer';
+import { useEffect } from 'react';
 import { SWRResponse, mutate } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import { StateCreator } from 'zustand/vanilla';
-
-import {
-  ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
-  chainAssistantMemoryRollup,
-} from '@lobechat/prompts';
-import { TraceNameMap } from '@lobechat/types';
 
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { useClientDataSWR, useOnlyFetchOnceSWR } from '@/libs/swr';
-import { chatService } from '@/services/chat';
 import { agentService } from '@/services/agent';
+import { chatService } from '@/services/chat';
 import { sessionService } from '@/services/session';
 import { topicService } from '@/services/topic';
 import { AgentState } from '@/store/agent/slices/chat/initialState';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
+import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
 import { LobeAgentChatConfig, LobeAgentConfig } from '@/types/agent';
 import { KnowledgeItem } from '@/types/knowledgeBase';
 import { merge } from '@/utils/merge';
-import { useUserStore } from '@/store/user';
-import { systemAgentSelectors } from '@/store/user/selectors';
 
 import type { AgentStore } from '../../store';
 import { agentSelectors } from './selectors';
@@ -65,6 +62,7 @@ export interface AgentChatAction {
   useFetchFilesAndKnowledgeBases: () => SWRResponse<KnowledgeItem[]>;
   useInitInboxAgentStore: (
     isLogin: boolean | undefined,
+    userScope: string | undefined,
     defaultAgentConfig?: PartialDeep<LobeAgentConfig>,
   ) => SWRResponse<PartialDeep<LobeAgentConfig>>;
 }
@@ -116,18 +114,27 @@ export const createChatSlice: StateCreator<
     await get().togglePlugin(id, false);
   },
   rollupAssistantMemory: async () => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
     const activeAgentId = get().activeAgentId;
     const activeId = get().activeId;
-    if (!activeAgentId || !activeId) return { success: false };
+    if (!requestedScope || !activeAgentId || !activeId) return { success: false };
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration &&
+      get().activeAgentId === activeAgentId &&
+      get().activeId === activeId;
 
     const rows = await topicService.listTopicsForAgentMemoryRollup(
       activeAgentId,
       ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
     );
+    if (!isCurrentRequest()) return { success: false };
+
     const topics = rows.filter((r) => (r.historySummary ?? '').trim().length > 0);
     if (topics.length === 0) return { skipped: true, success: false };
 
-    const prior = agentSelectors.currentAgentConfig(get()).assistantMemory;
+    const prior = agentSelectors.getAgentConfigById(activeId)(get()).assistantMemory;
     const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
 
     let text = '';
@@ -153,11 +160,14 @@ export const createChatSlice: StateCreator<
         traceName: TraceNameMap.AssistantMemoryRollup,
       },
     });
+    if (!isCurrentRequest()) return { success: false };
 
     const next = normalizeAssistantMemoryText(text);
     if (!next) return { success: false };
 
-    await get().updateAgentConfig({ assistantMemory: next });
+    await get().internal_updateAgentConfig(activeId, { assistantMemory: next });
+    if (!isCurrentRequest()) return { success: false };
+
     return { success: true };
   },
   toggleFile: async (id, open) => {
@@ -207,7 +217,10 @@ export const createChatSlice: StateCreator<
 
     const nextConfig = { ...config };
 
-    if (nextConfig.reasoningEffort !== undefined && typeof nextConfig.reasoningEffort !== 'string') {
+    if (
+      nextConfig.reasoningEffort !== undefined &&
+      typeof nextConfig.reasoningEffort !== 'string'
+    ) {
       delete nextConfig.reasoningEffort;
     }
 
@@ -223,15 +236,19 @@ export const createChatSlice: StateCreator<
 
     await get().internal_updateAgentConfig(activeId, config, controller.signal);
   },
-  useFetchAgentConfig: (isLogin, sessionId) =>
-    useClientDataSWR<LobeAgentConfig>(
+  useFetchAgentConfig: (isLogin, sessionId) => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
+    return useClientDataSWR<LobeAgentConfig>(
       // Only fetch when login status is explicitly true (not null/undefined)
-      isLogin === true && !sessionId.startsWith('cg_')
-        ? ([FETCH_AGENT_CONFIG_KEY, sessionId] as const)
+      isLogin === true && !sessionId.startsWith('cg_') && requestedScope
+        ? ([FETCH_AGENT_CONFIG_KEY, requestedScope, sessionId] as const)
         : null,
-      ([, id]: readonly [string, string]) => sessionService.getSessionConfig(id),
+      (cacheKey: readonly [string, string, string]) => sessionService.getSessionConfig(cacheKey[2]),
       {
         onSuccess: (data) => {
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           get().internal_dispatchAgentMap(sessionId, data, 'fetch');
 
           set(
@@ -244,11 +261,14 @@ export const createChatSlice: StateCreator<
           );
         },
       },
-    ),
+    );
+  },
   useFetchFilesAndKnowledgeBases: () => {
+    const requestedScope = useUserStore(authSelectors.currentUserScope);
+
     return useClientDataSWR<KnowledgeItem[]>(
-      [FETCH_AGENT_KNOWLEDGE_KEY, get().activeAgentId],
-      ([, id]: string[]) => agentService.getFilesAndKnowledgeBases(id),
+      requestedScope ? [FETCH_AGENT_KNOWLEDGE_KEY, requestedScope, get().activeAgentId] : null,
+      (cacheKey: string[]) => agentService.getFilesAndKnowledgeBases(cacheKey[2]),
       {
         fallbackData: [],
         suspense: true,
@@ -256,16 +276,39 @@ export const createChatSlice: StateCreator<
     );
   },
 
-  useInitInboxAgentStore: (isLogin, defaultAgentConfig) =>
-    useOnlyFetchOnceSWR<PartialDeep<LobeAgentConfig>>(
+  useInitInboxAgentStore: (isLogin, userScope, defaultAgentConfig) => {
+    const requestedScope = isLogin === true ? userScope : isLogin === false ? 'guest' : undefined;
+    useEffect(() => {
+      if (get().inboxAgentRequestScope === requestedScope) return;
+
+      const nextAgentMap = { ...get().agentMap };
+      delete nextAgentMap[INBOX_SESSION_ID];
+      set(
+        {
+          activeAgentId: undefined,
+          agentMap: nextAgentMap,
+          inboxAgentRequestScope: requestedScope,
+          inboxAgentScope: undefined,
+          isInboxAgentConfigInit: false,
+        },
+        false,
+        'resetInboxAgentScope',
+      );
+    }, [requestedScope]);
+
+    return useOnlyFetchOnceSWR<PartialDeep<LobeAgentConfig>>(
       // Only fetch when login status is explicitly true (not null/undefined/false)
-      isLogin === true ? 'fetchInboxAgentConfig' : null,
+      isLogin === true && requestedScope ? ['fetchInboxAgentConfig', requestedScope] : null,
       () => sessionService.getSessionConfig(INBOX_SESSION_ID),
       {
         onSuccess: (data) => {
+          if (get().inboxAgentRequestScope !== requestedScope) return;
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
           set(
             {
               defaultAgentConfig: merge(get().defaultAgentConfig, defaultAgentConfig),
+              inboxAgentScope: requestedScope,
               isInboxAgentConfigInit: true,
             },
             false,
@@ -277,7 +320,8 @@ export const createChatSlice: StateCreator<
           }
         },
       },
-    ),
+    );
+  },
   /* eslint-disable sort-keys-fix/sort-keys-fix */
 
   internal_dispatchAgentMap: (id, config, actions) => {
@@ -295,23 +339,44 @@ export const createChatSlice: StateCreator<
   },
 
   internal_updateAgentConfig: async (id, data, signal) => {
-    const prevModel = agentSelectors.currentAgentModel(get());
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
+    const previousModel = agentSelectors.getAgentConfigById(id)(get()).model;
     // optimistic update at frontend
     get().internal_dispatchAgentMap(id, data, 'optimistic_updateAgentConfig');
 
     await sessionService.updateSessionConfig(id, data, signal);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().internal_refreshAgentConfig(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     // refresh sessions to update the agent config if the model has changed
-    if (prevModel !== data.model) await useSessionStore.getState().refreshSessions();
+    if (previousModel !== data.model) await useSessionStore.getState().refreshSessions();
   },
 
   internal_refreshAgentConfig: async (id) => {
-    await mutate([FETCH_AGENT_CONFIG_KEY, id]);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    await mutate([FETCH_AGENT_CONFIG_KEY, requestedScope, id]);
   },
 
   internal_refreshAgentKnowledge: async () => {
-    await mutate([FETCH_AGENT_KNOWLEDGE_KEY, get().activeAgentId]);
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
+
+    await mutate([FETCH_AGENT_KNOWLEDGE_KEY, requestedScope, get().activeAgentId]);
   },
   internal_createAbortController: (key) => {
     const abortController = get()[key] as AbortController;

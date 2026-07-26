@@ -9,6 +9,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import { useUserStore } from '@/store/user';
 import {
+  authSelectors,
   modelConfigSelectors,
   modelProviderSelectors,
   settingsSelectors,
@@ -42,8 +43,8 @@ const ModelFetcher = memo<ModelFetcherProps>(({ provider }) => {
   const [useFetchProviderModelList, clearObtainedModels] = useUserStore((s) => [
     s.useFetchProviderModelList,
     s.clearObtainedModels,
-    s.setModelProviderConfig,
   ]);
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
   const enabledAutoFetch = useUserStore(modelConfigSelectors.isAutoFetchModelsEnabled(provider));
   const latestFetchTime = useUserStore(
     (s) => settingsSelectors.providerConfig(provider)(s)?.latestFetchTime,
@@ -57,7 +58,11 @@ const ModelFetcher = memo<ModelFetcherProps>(({ provider }) => {
     isEqual,
   );
 
-  const { mutate, isValidating } = useFetchProviderModelList(provider, enabledAutoFetch);
+  const { mutate, isValidating } = useFetchProviderModelList(
+    provider,
+    enabledAutoFetch,
+    requestedScope,
+  );
 
   return (
     <Text style={{ fontSize: 12 }} type={'secondary'}>

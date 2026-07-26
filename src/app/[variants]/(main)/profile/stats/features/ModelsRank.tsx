@@ -10,12 +10,16 @@ import { Flexbox } from 'react-layout-kit';
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { useClientDataSWR } from '@/libs/swr';
 import { messageService } from '@/services/message';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 export const TopicsRank = memo(() => {
   const [open, setOpen] = useState(false);
   const { t } = useTranslation('auth');
-  const { data, isLoading } = useClientDataSWR('rank-models', async () =>
-    messageService.rankModels(),
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
+  const { data, isLoading } = useClientDataSWR(
+    requestedScope ? ['rank-models', requestedScope] : null,
+    async () => messageService.rankModels(),
   );
 
   const showExtra = Boolean(data && data?.length > 5);

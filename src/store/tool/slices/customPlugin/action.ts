@@ -8,6 +8,8 @@ import { mcpService } from '@/services/mcp';
 import { pluginService } from '@/services/plugin';
 import { toolService } from '@/services/tool';
 import { pluginHelpers } from '@/store/tool/helpers';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { LobeToolCustomPlugin, PluginInstallError } from '@/types/tool/plugin';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -32,12 +34,34 @@ export const createCustomPluginSlice: StateCreator<
   CustomPluginAction
 > = (set, get) => ({
   installCustomPlugin: async (value) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await pluginService.createCustomPlugin(value);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     await get().refreshPlugins();
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     set({ newCustomPlugin: defaultCustomPlugin }, false, n('saveToCustomPluginList'));
   },
   reinstallCustomPlugin: async (id, pluginOverride) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+    const isOperationCurrent = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration;
+
     const plugin = pluginOverride || pluginSelectors.getCustomPluginById(id)(get());
     if (!plugin) return;
 
@@ -65,6 +89,7 @@ export const createCustomPluginSlice: StateCreator<
               description: plugin.customParams.description,
             },
           );
+          if (!isOperationCurrent()) return;
         } else {
           const url = mcp.url;
           if (!url) return;
@@ -79,17 +104,23 @@ export const createCustomPluginSlice: StateCreator<
             },
             url,
           });
+          if (!isOperationCurrent()) return;
         }
       } else {
         manifest = await toolService.getToolManifest(
           plugin.customParams?.manifestUrl,
           plugin.customParams?.useProxy,
         );
+        if (!isOperationCurrent()) return;
       }
 
       await pluginService.updatePluginManifest(pluginId, manifest);
+      if (!isOperationCurrent()) return;
+
       await refreshPlugins();
     } catch (error) {
+      if (!isOperationCurrent()) return;
+
       console.error(error);
       const err = error as PluginInstallError;
 
@@ -101,18 +132,37 @@ export const createCustomPluginSlice: StateCreator<
         message: t('error.reinstallError', { name, ns: 'plugin' }),
       });
     } finally {
-      updateInstallLoadingState(pluginId, false);
+      if (isOperationCurrent()) updateInstallLoadingState(pluginId, false);
     }
   },
   uninstallCustomPlugin: async (id) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     await pluginService.uninstallPlugin(id);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
+
     await get().refreshPlugins();
   },
 
   updateCustomPlugin: async (id, value) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!requestedScope) return;
+
     const { reinstallCustomPlugin } = get();
     // 1. 更新 list 项信息
     await pluginService.updatePlugin(id, value);
+    if (
+      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+      get().scopeGeneration !== requestedGeneration
+    )
+      return;
 
     // 2. 重新安装插件
     await reinstallCustomPlugin(id, value);

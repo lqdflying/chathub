@@ -5,7 +5,7 @@ import { ragService } from '@/services/rag';
 
 import { useFileStore as useStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
 beforeEach(() => {
   vi.clearAllMocks();

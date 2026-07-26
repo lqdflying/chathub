@@ -204,6 +204,99 @@ describe('UserModel', () => {
       const updatedUser = await serverDB.query.users.findFirst({ where: eq(users.id, userId) });
       expect(updatedUser?.preference).toEqual({ ...preference, ...newPreference });
     });
+
+    it('should merge imageConfig into user preference', async () => {
+      const preference = {
+        guide: { topic: false },
+        imageConfig: { imageNum: 4, model: 'size-model', provider: 'custom-provider' },
+      } as UserPreference;
+      await serverDB.insert(users).values({ id: userId, preference });
+
+      await userModel.updateImageConfig({ imageNum: 8, size: '1536x1024' });
+
+      const updatedUser = await serverDB.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(updatedUser?.preference?.imageConfig).toEqual({
+        imageNum: 8,
+        model: 'size-model',
+        provider: 'custom-provider',
+        size: '1536x1024',
+      });
+      // existing preference keys are preserved
+      expect(updatedUser?.preference?.guide).toEqual({ topic: false });
+    });
+
+    it('should migrate imageConfig only while the stored config is empty', async () => {
+      await serverDB.insert(users).values({
+        id: userId,
+        preference: { guide: { topic: false }, imageConfig: {} },
+      });
+
+      const migration = await userModel.migrateImageConfig({
+        imageNum: 4,
+        model: 'legacy-model',
+        provider: 'legacy-provider',
+      });
+
+      expect(migration).toEqual({
+        imageConfig: {
+          imageNum: 4,
+          model: 'legacy-model',
+          provider: 'legacy-provider',
+        },
+        migrated: true,
+      });
+    });
+
+    it('should return a newer imageConfig without overwriting it during migration', async () => {
+      const newerImageConfig = {
+        imageNum: 8,
+        model: 'newer-model',
+        provider: 'newer-provider',
+        size: '1536x1024',
+      };
+      await serverDB.insert(users).values({
+        id: userId,
+        preference: { guide: { topic: false }, imageConfig: newerImageConfig },
+      });
+
+      const migration = await userModel.migrateImageConfig({
+        imageNum: 4,
+        model: 'legacy-model',
+        provider: 'legacy-provider',
+      });
+
+      expect(migration).toEqual({ imageConfig: newerImageConfig, migrated: false });
+      const updatedUser = await serverDB.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(updatedUser?.preference?.imageConfig).toEqual(newerImageConfig);
+    });
+
+    it('should preserve concurrent unrelated preference updates', async () => {
+      await serverDB.insert(users).values({
+        id: userId,
+        preference: {
+          guide: { topic: false },
+          imageConfig: { imageNum: 4, model: 'size-model', provider: 'custom-provider' },
+          telemetry: null,
+        },
+      });
+
+      await Promise.all([
+        userModel.updateImageConfig({ imageNum: 8, size: '1536x1024' }),
+        userModel.updatePreference({ hideSyncAlert: true }),
+      ]);
+
+      const updatedUser = await serverDB.query.users.findFirst({ where: eq(users.id, userId) });
+      expect(updatedUser?.preference).toMatchObject({
+        guide: { topic: false },
+        hideSyncAlert: true,
+        imageConfig: {
+          imageNum: 8,
+          model: 'size-model',
+          provider: 'custom-provider',
+          size: '1536x1024',
+        },
+      });
+    });
   });
 
   describe('updateGuide', () => {
@@ -324,10 +417,15 @@ describe('UserModel', () => {
         expect(updatedUser?.preference).toMatchObject(newPreference);
       });
 
-      it('should do nothing if user not found', async () => {
+      it('should return the database update result without creating a missing user', async () => {
         const nonExistentUserModel = new UserModel(serverDB, 'non-existent-id');
         const result = await nonExistentUserModel.updatePreference({ guide: { topic: true } });
-        expect(result).toBeUndefined();
+        const missingUser = await serverDB.query.users.findFirst({
+          where: eq(users.id, 'non-existent-id'),
+        });
+
+        expect(result).toBeDefined();
+        expect(missingUser).toBeUndefined();
       });
     });
 

@@ -13,14 +13,18 @@ import { DEFAULT_AVATAR } from '@/const/meta';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { useClientDataSWR } from '@/libs/swr';
 import { sessionService } from '@/services/session';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { SessionRankItem } from '@/types/session';
 
 export const AssistantsRank = memo<{ mobile?: boolean }>(({ mobile }) => {
   const [open, setOpen] = useState(false);
   const { t } = useTranslation(['auth', 'chat']);
   const router = useRouter();
-  const { data, isLoading } = useClientDataSWR('rank-sessions', async () =>
-    sessionService.rankSessions(),
+  const requestedScope = useUserStore(authSelectors.currentUserScope);
+  const { data, isLoading } = useClientDataSWR(
+    requestedScope ? ['rank-sessions', requestedScope] : null,
+    async () => sessionService.rankSessions(),
   );
 
   const showExtra = Boolean(data && data?.length > 5);

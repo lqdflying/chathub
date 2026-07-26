@@ -592,6 +592,105 @@ describe('createOpenAICompatibleImage', () => {
       expect(mockClient.images.edit).toHaveBeenCalled();
     });
 
+    it('should omit input_fidelity when editing with GPT Image 2', async () => {
+      const mockImageResponse = {
+        data: [{ b64_json: 'gptImage2EditResult' }],
+      };
+      const mockArrayBuffer = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer;
+      global.fetch = vi.fn().mockResolvedValue({
+        arrayBuffer: async () => mockArrayBuffer,
+        headers: {
+          get: (name: string) => (name === 'content-type' ? 'image/jpeg' : null),
+        },
+        ok: true,
+      } as any);
+      vi.mocked(mockClient.images.edit).mockResolvedValue(mockImageResponse as any);
+
+      const payload: CreateImagePayload = {
+        model: 'gpt-image-2',
+        params: {
+          imageUrls: ['https://example.com/reference.jpg'],
+          input_fidelity: 'high',
+          prompt: 'Preserve the subject and replace the background',
+        },
+      } as CreateImagePayload;
+
+      await createOpenAICompatibleImage(mockClient, payload, 'openaicompatible');
+
+      expect(mockClient.images.edit).toHaveBeenCalledWith({
+        image: expect.any(File),
+        model: 'gpt-image-2',
+        n: 1,
+        prompt: 'Preserve the subject and replace the background',
+      });
+    });
+
+    it('should default to high input fidelity when editing with GPT Image 1', async () => {
+      const mockImageResponse = {
+        data: [{ b64_json: 'gptImage1EditResult' }],
+      };
+      const mockArrayBuffer = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+      global.fetch = vi.fn().mockResolvedValue({
+        arrayBuffer: async () => mockArrayBuffer,
+        headers: {
+          get: (name: string) => (name === 'content-type' ? 'image/png' : null),
+        },
+        ok: true,
+      } as any);
+      vi.mocked(mockClient.images.edit).mockResolvedValue(mockImageResponse as any);
+
+      const payload: CreateImagePayload = {
+        model: 'gpt-image-1',
+        params: {
+          imageUrl: 'https://example.com/source.png',
+          prompt: 'Preserve the subject details',
+        },
+      };
+
+      await createOpenAICompatibleImage(mockClient, payload, 'openai');
+
+      expect(mockClient.images.edit).toHaveBeenCalledWith({
+        image: expect.any(File),
+        input_fidelity: 'high',
+        model: 'gpt-image-1',
+        n: 1,
+        prompt: 'Preserve the subject details',
+      });
+    });
+
+    it('should omit input_fidelity when editing with DALL-E 2', async () => {
+      const mockImageResponse = {
+        data: [{ b64_json: 'dallE2EditResult' }],
+      };
+      const mockArrayBuffer = new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer;
+      global.fetch = vi.fn().mockResolvedValue({
+        arrayBuffer: async () => mockArrayBuffer,
+        headers: {
+          get: (name: string) => (name === 'content-type' ? 'image/png' : null),
+        },
+        ok: true,
+      } as any);
+      vi.mocked(mockClient.images.edit).mockResolvedValue(mockImageResponse as any);
+
+      const payload: CreateImagePayload = {
+        model: 'dall-e-2',
+        params: {
+          imageUrl: 'https://example.com/source.png',
+          prompt: 'Add a rainbow',
+        },
+      };
+
+      await createOpenAICompatibleImage(mockClient, payload, 'openai');
+
+      expect(mockClient.images.edit).toHaveBeenCalledWith({
+        image: expect.any(File),
+        model: 'dall-e-2',
+        n: 1,
+        prompt: 'Add a rainbow',
+        response_format: 'b64_json',
+      });
+    });
+
     it('should handle imageUrl with empty string by not converting to array', async () => {
       const mockImageResponse = {
         data: [
@@ -646,6 +745,51 @@ describe('createOpenAICompatibleImage', () => {
   });
 
   describe('image mode - response format handling', () => {
+    it('should label base64 data using the requested output format', async () => {
+      const mockImageResponse = {
+        data: [{ b64_json: 'jpegImageData' }],
+      };
+      vi.mocked(mockClient.images.generate).mockResolvedValue(mockImageResponse as any);
+
+      const payload = {
+        model: 'gpt-image-2',
+        params: {
+          output_format: 'jpeg',
+          prompt: 'Generate a JPEG image',
+        },
+      } as CreateImagePayload;
+
+      const result = await createOpenAICompatibleImage(mockClient, payload, 'openaicompatible');
+
+      expect(mockClient.images.generate).toHaveBeenCalledWith({
+        model: 'gpt-image-2',
+        n: 1,
+        output_format: 'jpeg',
+        prompt: 'Generate a JPEG image',
+      });
+      expect(result.imageUrl).toBe('data:image/jpeg;base64,jpegImageData');
+    });
+
+    it('should prefer the response output format when labeling base64 data', async () => {
+      const mockImageResponse = {
+        data: [{ b64_json: 'webpImageData' }],
+        output_format: 'webp',
+      };
+      vi.mocked(mockClient.images.generate).mockResolvedValue(mockImageResponse as any);
+
+      const payload = {
+        model: 'gpt-image-2',
+        params: {
+          output_format: 'jpeg',
+          prompt: 'Generate an image',
+        },
+      } as CreateImagePayload;
+
+      const result = await createOpenAICompatibleImage(mockClient, payload, 'openaicompatible');
+
+      expect(result.imageUrl).toBe('data:image/webp;base64,webpImageData');
+    });
+
     it('should handle URL format response instead of base64', async () => {
       const mockImageUrl = 'https://oaidalleapiprodscus.blob.core.windows.net/generated/image.png';
       const mockImageResponse = {
