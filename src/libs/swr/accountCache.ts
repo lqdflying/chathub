@@ -40,6 +40,21 @@ export const isAccountCacheKey = (key: unknown): boolean => {
   );
 };
 
+export const isAccountCacheKeyForScopeAndGeneration = (
+  key: unknown,
+  accountScope: string,
+  ownershipInvalidationGeneration: number,
+): boolean => {
+  if (!Array.isArray(key) || getAccountScopeFromKey(key) !== accountScope) return false;
+
+  const epoch = key.at(-1);
+  return (
+    Array.isArray(epoch) &&
+    epoch[0] === ACCOUNT_CACHE_EPOCH_TAG &&
+    epoch[1] === ownershipInvalidationGeneration
+  );
+};
+
 export const clearAccountCache = async (): Promise<void> => {
   await mutate(isAccountCacheKey, undefined, { revalidate: false });
 };

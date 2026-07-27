@@ -93,8 +93,15 @@ global SWR cache without revalidation; focus or reconnect therefore cannot
 refill a cleared store with data returned under the mismatched server session.
 Imperative refreshes use `mutateAccountSWR`, which requires the requested scope
 to be current, targets the current epoch-tagged key, and does nothing while
-ownership is invalid. User-state bootstrap uses the same epoch key directly to
-avoid a store import cycle and remains disabled for a same-scope hard mismatch.
+ownership is invalid. Broad refreshes that intentionally cover several mounted
+keys use `mutateAccountSWRByPredicate`; the shared boundary first limits SWR's
+predicate scan to the current canonical scope and ownership epoch, then applies
+the operation-specific predicate. This preserves multi-list refresh behavior
+without revalidating stale account generations. SWR applies global mutation
+predicates to [all existing cache keys](https://swr.vercel.app/docs/mutation#mutate-multiple-items),
+so account-owned actions must not call raw predicate `mutate` directly.
+User-state bootstrap uses the same epoch key directly to avoid a store import
+cycle and remains disabled for a same-scope hard mismatch.
 
 User-owned mutations use the same fail-closed boundary. Settings, avatar,
 preference, image-config migration/update, model-provider configuration, and

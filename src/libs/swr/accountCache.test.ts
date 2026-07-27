@@ -7,8 +7,9 @@ import {
   createAccountCacheKey,
   getAccountScopeFromKey,
   isAccountCacheKey,
+  isAccountCacheKeyForScopeAndGeneration,
 } from './accountCache';
-import { useClientDataSWR } from './index';
+import { mutateAccountSWRByPredicate, useClientDataSWR } from './index';
 
 describe('account SWR cache ownership', () => {
   beforeEach(() => {
@@ -27,6 +28,9 @@ describe('account SWR cache ownership', () => {
     expect(getAccountScopeFromKey(['locale', 'en-US'])).toBeUndefined();
     expect(isAccountCacheKey(key)).toBe(true);
     expect(isAccountCacheKey(['sessions', 'local', 'filter'])).toBe(false);
+    expect(isAccountCacheKeyForScopeAndGeneration(key, 'local', 3)).toBe(true);
+    expect(isAccountCacheKeyForScopeAndGeneration(key, 'local', 2)).toBe(false);
+    expect(isAccountCacheKeyForScopeAndGeneration(key, 'user:account-a', 3)).toBe(false);
   });
 
   it('includes the ownership generation in account fetch keys', async () => {
@@ -111,5 +115,59 @@ describe('account SWR cache ownership', () => {
     });
 
     expect(onSuccess).not.toHaveBeenCalled();
+  });
+
+  it('revalidates predicate matches only in the current account epoch', async () => {
+    const matchingFetcher = vi.fn().mockResolvedValue('matching');
+    const nonMatchingFetcher = vi.fn().mockResolvedValue('non-matching');
+    useUserStore.setState({
+      ownershipInvalidationGeneration: 2,
+    });
+
+    const matchingHook = renderHook(() =>
+      useClientDataSWR(['RAG_LIST', 'local', 'current'], matchingFetcher),
+    );
+    const nonMatchingHook = renderHook(() =>
+      useClientDataSWR(['OTHER_LIST', 'local', 'current'], nonMatchingFetcher),
+    );
+    await waitFor(() => expect(matchingFetcher).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(nonMatchingFetcher).toHaveBeenCalledTimes(1));
+
+    await mutateAccountSWRByPredicate(
+      'local',
+      (key) => key[0] === 'RAG_LIST',
+    );
+
+    await waitFor(() => expect(matchingFetcher).toHaveBeenCalledTimes(2));
+    expect(nonMatchingFetcher).toHaveBeenCalledTimes(1);
+
+    matchingHook.unmount();
+    nonMatchingHook.unmount();
+  });
+
+  it('does not run predicate refreshes for stale scopes or owner mismatches', async () => {
+    const fetcher = vi.fn().mockResolvedValue('local');
+    useUserStore.setState({
+      ownershipInvalidationGeneration: 3,
+    });
+
+    const accountHook = renderHook(() =>
+      useClientDataSWR(['RAG_LIST', 'local'], fetcher),
+    );
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+
+    await mutateAccountSWRByPredicate('user:stale-account', () => true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    useUserStore.setState({
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'local',
+      },
+    });
+    await mutateAccountSWRByPredicate('local', () => true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    accountHook.unmount();
   });
 });

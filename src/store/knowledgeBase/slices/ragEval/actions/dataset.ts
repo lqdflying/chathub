@@ -4,11 +4,11 @@ import {
   RAGEvalDataSetItem,
   insertEvalDatasetRecordSchema,
 } from '@lobechat/types';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { notification } from '@/components/AntdStaticMethods';
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWRByPredicate, useClientDataSWR } from '@/libs/swr';
 import { ragEvalService } from '@/services/ragEval';
 import { KnowledgeBaseStore } from '@/store/knowledgeBase/store';
 import { useUserStore } from '@/store/user';
@@ -91,8 +91,9 @@ export const createRagEvalDatasetSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    await mutate(
-      (key) => Array.isArray(key) && key[0] === FETCH_DATASET_LIST_KEY && key[1] === requestedScope,
+    await mutateAccountSWRByPredicate(
+      requestedScope,
+      (key) => key[0] === FETCH_DATASET_LIST_KEY,
     );
   },
 

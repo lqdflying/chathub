@@ -4,7 +4,11 @@ import { isDesktop } from '@/const/version';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
-import { createAccountCacheKey, getAccountScopeFromKey } from './accountCache';
+import {
+  createAccountCacheKey,
+  getAccountScopeFromKey,
+  isAccountCacheKeyForScopeAndGeneration,
+} from './accountCache';
 import { useOnlyFetchOnceSWR as useOnlyFetchOnceSWRBase } from './useOnlyFetchOnceSWR';
 
 const clientDataSWRConfig: SWRConfiguration = {
@@ -170,6 +174,22 @@ export const mutateAccountSWR = async (key: Key): Promise<void> => {
 
   await mutate(
     createAccountCacheKey(key, userState.ownershipInvalidationGeneration),
+  );
+};
+
+export const mutateAccountSWRByPredicate = async (
+  requestedScope: string,
+  predicate: (key: readonly unknown[]) => boolean,
+): Promise<void> => {
+  const userState = useUserStore.getState();
+  if (authSelectors.currentUserScope(userState) !== requestedScope) return;
+  if (authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
+
+  const requestedGeneration = userState.ownershipInvalidationGeneration;
+  await mutate(
+    (key) =>
+      isAccountCacheKeyForScopeAndGeneration(key, requestedScope, requestedGeneration) &&
+      predicate(key as readonly unknown[]),
   );
 };
 
