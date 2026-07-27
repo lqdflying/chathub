@@ -1,14 +1,18 @@
 'use client';
 
-import { Text } from '@lobehub/ui';
+import { Alert, Button, Text } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
+import { RefreshCw } from 'lucide-react';
 import React, { ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Flexbox } from 'react-layout-kit';
+import { Center, Flexbox } from 'react-layout-kit';
 
+import { useAiInfraStore } from '@/store/aiInfra';
 import { imageGenerationConfigSelectors } from '@/store/image/selectors';
 import { useDimensionControl } from '@/store/image/slices/generationConfig/hooks';
 import { useImageStore } from '@/store/image/store';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import CfgSliderInput from './components/CfgSliderInput';
 import DimensionControlGroup from './components/DimensionControlGroup';
@@ -45,6 +49,7 @@ const ConfigPanel = memo(() => {
   // All hooks must be called before any early returns
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const isInit = useImageStore((s) => s.isInit);
   const isImageModelAvailable = useImageStore((s) => s.isImageModelAvailable);
@@ -56,7 +61,50 @@ const ConfigPanel = memo(() => {
   const isSupportCfg = useImageStore(isSupportedParamSelector('cfg'));
   const isSupportImageUrls = useImageStore(isSupportedParamSelector('imageUrls'));
 
+  const isAuthLoaded = useUserStore(authSelectors.isLoaded);
+  const isLogin = useUserStore(authSelectors.isLogin);
+  const currentUserScope = useUserStore(authSelectors.currentUserScope);
+  const userStateInitializationFailure = useUserStore(
+    (state) => state.userStateInitializationFailure,
+  );
+  const refreshUserState = useUserStore((state) => state.refreshUserState);
+  const runtimeStateInitializationFailure = useAiInfraStore(
+    (state) => state.runtimeStateInitializationFailure,
+  );
+  const refreshAiProviderRuntimeState = useAiInfraStore(
+    (state) => state.refreshAiProviderRuntimeState,
+  );
+
   const { showDimensionControl } = useDimensionControl();
+
+  const hasUserStateFailure =
+    !!currentUserScope && userStateInitializationFailure?.scope === currentUserScope;
+  const hasProviderRuntimeFailure =
+    !!currentUserScope && runtimeStateInitializationFailure?.scope === currentUserScope;
+  const hasUnresolvedAuthenticatedScope = isAuthLoaded && !!isLogin && !currentUserScope;
+  const hasBootstrapFailure =
+    hasUserStateFailure || hasProviderRuntimeFailure || hasUnresolvedAuthenticatedScope;
+
+  const handleRetry = useCallback(async () => {
+    if (!hasUserStateFailure && !hasProviderRuntimeFailure) return;
+
+    setIsRetrying(true);
+    const refreshRequests: Promise<void>[] = [];
+    if (hasUserStateFailure) {
+      refreshRequests.push(refreshUserState());
+    }
+    if (hasProviderRuntimeFailure) {
+      refreshRequests.push(refreshAiProviderRuntimeState());
+    }
+
+    await Promise.allSettled(refreshRequests);
+    setIsRetrying(false);
+  }, [
+    hasProviderRuntimeFailure,
+    hasUserStateFailure,
+    refreshAiProviderRuntimeState,
+    refreshUserState,
+  ]);
 
   // Check if content exceeds container height and needs scrolling
   const checkScrollable = useCallback(() => {
@@ -125,7 +173,34 @@ const ConfigPanel = memo(() => {
     [isScrollable, theme.colorBgContainer, theme.colorBorder],
   );
 
-  // Show loading state if not initialized
+  if (isRetrying) {
+    return <ImageConfigSkeleton />;
+  }
+
+  if (hasBootstrapFailure) {
+    return (
+      <Center height={'100%'} padding={16} width={'100%'}>
+        <Alert
+          action={
+            !hasUnresolvedAuthenticatedScope && (
+              <Button icon={RefreshCw} onClick={handleRetry} size={'small'} type={'primary'}>
+                {t('config.bootstrapFailure.retry')}
+              </Button>
+            )
+          }
+          description={t(
+            hasUnresolvedAuthenticatedScope
+              ? 'config.bootstrapFailure.accountDescription'
+              : 'config.bootstrapFailure.description',
+          )}
+          message={t('config.bootstrapFailure.title')}
+          showIcon
+          type={'error'}
+        />
+      </Center>
+    );
+  }
+
   if (!isInit) {
     return <ImageConfigSkeleton />;
   }

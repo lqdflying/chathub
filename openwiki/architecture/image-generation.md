@@ -44,6 +44,41 @@ instead of a loading skeleton, submission remains unavailable, and `imageNum`
 is set to the user's current default rather than retaining the store's
 hardcoded initial value.
 
+### Configuration bootstrap recovery
+
+`useFetchAiImageConfig` continues to wait for three prerequisites owned by the
+active canonical scope: browser system status, user state, and provider runtime
+state. `ImageWorkspace` remains the single owner of that initializer; the
+desktop panel and mobile drawer only render the resulting loading, failure, or
+settled state.
+
+User-state and provider-runtime request failures are stored as category-only
+records tagged with the requested scope. User hydration can report
+`request-failed` or `owner-mismatch`; provider runtime reports
+`request-failed`. The stores do not retain credentials, response bodies, raw
+server errors, or other request details. A scope reset, matching retry, or
+accepted success clears the matching failure. Late success and error callbacks
+whose request scope is no longer active are ignored, so an account transition
+cannot hydrate or report another account's state.
+
+Image Settings renders the skeleton only while prerequisites are genuinely
+pending or a retry is active. An active-scope prerequisite failure replaces the
+skeleton with compact guidance and **Retry**. Retry revalidates only the failed
+current-scope user/provider resources; success lets the existing initializer
+settle the image configuration, while another failure restores the guidance in
+the already-open mobile drawer. An authenticated state whose canonical scope
+cannot be resolved shows sign-in guidance without offering a request retry.
+The normal no-model guidance remains a settled image-configuration state and is
+not classified as a bootstrap failure.
+
+Browser system status is advisory preference data. If
+`LOBE_SYSTEM_STATUS` is missing, inaccessible, or contains malformed JSON,
+initialization treats it as empty preferences, retains `INITIAL_STATUS`, and
+marks status hydration complete. This follows the documented
+[`JSON.parse` failure contract](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse);
+the user/provider retries continue to use the existing
+[SWR mutation and error lifecycle](https://swr.vercel.app/docs/api).
+
 For signed-in users, the remembered provider/model, image count, and a
 model-supported `size` value are persisted to the DB-backed `users.preference`
 record under `preference.imageConfig`, so they roam across devices. Writes go

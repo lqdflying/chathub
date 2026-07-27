@@ -5,6 +5,12 @@
       "lock": "Lock Aspect Ratio",
       "unlock": "Unlock Aspect Ratio"
     },
+    "bootstrapFailure": {
+      "accountDescription": "Your account information is not ready. Sign in again, then retry.",
+      "description": "The account or model configuration required for Image Settings could not be loaded. Check your connection and retry.",
+      "retry": "Retry",
+      "title": "Unable to load Image Settings"
+    },
     "cfg": {
       "label": "Guidance Intensity"
     },

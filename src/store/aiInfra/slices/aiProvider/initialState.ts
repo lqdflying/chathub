@@ -8,6 +8,13 @@ import {
   EnabledProviderWithModels,
 } from '@/types/aiProvider';
 
+export type AiProviderRuntimeInitializationFailureReason = 'request-failed';
+
+export interface AiProviderRuntimeInitializationFailure {
+  reason: AiProviderRuntimeInitializationFailureReason;
+  scope: string;
+}
+
 export interface AIProviderState {
   activeAiProvider?: string;
   activeProviderModelList: any[];
@@ -24,6 +31,7 @@ export interface AIProviderState {
   initAiProviderList: boolean;
   isInitAiProviderRuntimeState: boolean;
   providerSearchKeyword: string;
+  runtimeStateInitializationFailure?: AiProviderRuntimeInitializationFailure;
   runtimeStateRequestScope?: string;
   runtimeStateScope?: string;
 }
@@ -37,6 +45,7 @@ export const initialAIProviderState: AIProviderState = {
   initAiProviderList: false,
   isInitAiProviderRuntimeState: false,
   providerSearchKeyword: '',
+  runtimeStateInitializationFailure: undefined,
   runtimeStateRequestScope: undefined,
   runtimeStateScope: undefined,
 };

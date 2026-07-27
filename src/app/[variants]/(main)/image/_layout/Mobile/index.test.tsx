@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import React, { useEffect } from 'react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React, { useEffect, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import Layout from './index';
@@ -111,4 +111,74 @@ describe('mobile Image layout', () => {
       'Image topics content',
     );
   });
+
+  it('keeps the settings drawer mounted through failure and retry recovery', async () => {
+    const retryFinished = createDeferred();
+    const onMenuMount = vi.fn();
+    let showFailure!: () => void;
+
+    const RecoveryMenu = () => {
+      const [state, setState] = useState<'failure' | 'loading' | 'settled'>('loading');
+
+      useEffect(onMenuMount, []);
+      showFailure = () => setState('failure');
+
+      if (state === 'loading') return <div>Image settings loading</div>;
+      if (state === 'settled') return <div>Image settings controls</div>;
+
+      return (
+        <div role="alert">
+          Image settings failed
+          <button
+            onClick={async () => {
+              setState('loading');
+              await retryFinished.promise;
+              setState('settled');
+            }}
+            type="button"
+          >
+            Retry image settings
+          </button>
+        </div>
+      );
+    };
+
+    render(
+      <Layout menu={<RecoveryMenu />} topic={<div>Image topics content</div>}>
+        <div>Generated images</div>
+      </Layout>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'config.header.title' }));
+    const settingsDialog = screen.getByRole('dialog', { name: 'config.header.title' });
+    expect(settingsDialog.textContent).toContain('Image settings loading');
+
+    act(() => {
+      showFailure();
+    });
+    expect(settingsDialog.textContent).toContain('Image settings failed');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry image settings' }));
+    expect(settingsDialog.textContent).toContain('Image settings loading');
+
+    await act(async () => {
+      retryFinished.resolve();
+      await retryFinished.promise;
+    });
+
+    await waitFor(() => {
+      expect(settingsDialog.textContent).toContain('Image settings controls');
+    });
+    expect(screen.getByRole('dialog', { name: 'config.header.title' })).toBe(settingsDialog);
+    expect(onMenuMount).toHaveBeenCalledTimes(1);
+  });
 });
+
+const createDeferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};

@@ -171,10 +171,18 @@ export const createAiProviderSlice: StateCreator<
     await get().refreshAiProviderRuntimeState();
   },
   refreshAiProviderRuntimeState: async () => {
-    const runtimeStateScope = get().runtimeStateScope;
-    if (!runtimeStateScope) return;
+    const userScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!userScope) return;
 
-    await mutate([AiProviderSwrKey.fetchAiProviderRuntimeState, runtimeStateScope]);
+    if (get().runtimeStateInitializationFailure?.scope === userScope) {
+      set(
+        { runtimeStateInitializationFailure: undefined },
+        false,
+        'refreshAiProviderRuntimeState/start',
+      );
+    }
+
+    await mutate([AiProviderSwrKey.fetchAiProviderRuntimeState, userScope]);
   },
   removeAiProvider: async (id) => {
     await aiProviderService.deleteAiProvider(id);
@@ -275,6 +283,7 @@ export const createAiProviderSlice: StateCreator<
           initAiProviderList: false,
           isAiModelListInit: false,
           isInitAiProviderRuntimeState: false,
+          runtimeStateInitializationFailure: undefined,
           runtimeStateRequestScope: requestedScope,
           runtimeStateScope: undefined,
         },
@@ -352,6 +361,21 @@ export const createAiProviderSlice: StateCreator<
       },
       {
         focusThrottleInterval: isDesktop || isUsePgliteDB ? 100 : undefined,
+        onError: () => {
+          if (get().runtimeStateRequestScope !== requestedScope) return;
+          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
+          set(
+            {
+              runtimeStateInitializationFailure: {
+                reason: 'request-failed',
+                scope: requestedScope,
+              },
+            },
+            false,
+            'useFetchAiProviderRuntimeState/error',
+          );
+        },
         onSuccess: (data) => {
           if (!data) return;
           if (get().runtimeStateRequestScope !== requestedScope) return;
@@ -366,6 +390,7 @@ export const createAiProviderSlice: StateCreator<
               enabledChatModelList: data.enabledChatModelList || [],
               enabledImageModelList: data.enabledImageModelList || [],
               isInitAiProviderRuntimeState: true,
+              runtimeStateInitializationFailure: undefined,
               runtimeStateScope: requestedScope,
             },
             false,

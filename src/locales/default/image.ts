@@ -5,6 +5,12 @@ export default {
       lock: '锁定宽高比',
       unlock: '解锁宽高比',
     },
+    bootstrapFailure: {
+      accountDescription: '当前账户信息尚未准备完成，请重新登录后再试。',
+      description: '加载图像设置所需的账户或模型配置失败。请检查网络连接后重试。',
+      retry: '重试',
+      title: '无法加载图像设置',
+    },
     cfg: {
       label: '引导强度',
     },

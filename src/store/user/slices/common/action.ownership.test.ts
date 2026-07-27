@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { mutate } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_PREFERENCE } from '@/const/user';
@@ -34,13 +35,18 @@ vi.mock('@/libs/swr', async () => {
     useOnlyFetchOnceSWR: (
       key: unknown,
       fetcher: () => Promise<UserInitializationState>,
-      options: { onSuccess?: (data: UserInitializationState) => void },
+      options: {
+        onError?: (error: Error) => void;
+        onSuccess?: (data: UserInitializationState) => void;
+      },
     ) => {
       React.useEffect(() => {
         if (!key) return;
 
         swrKeys.push(key);
-        void fetcher().then((data) => options.onSuccess?.(data));
+        void fetcher()
+          .then((data) => options.onSuccess?.(data))
+          .catch((error) => options.onError?.(error));
       }, [key]);
 
       return { data: undefined };
@@ -54,12 +60,14 @@ const serverConfig = {
 } as GlobalServerConfig;
 
 const createDeferred = <Value>() => {
+  let reject!: (reason?: unknown) => void;
   let resolve!: (value: Value) => void;
-  const promise = new Promise<Value>((promiseResolve) => {
+  const promise = new Promise<Value>((promiseResolve, promiseReject) => {
+    reject = promiseReject;
     resolve = promiseResolve;
   });
 
-  return { promise, resolve };
+  return { promise, reject, resolve };
 };
 
 describe('user state ownership', () => {
@@ -74,6 +82,7 @@ describe('user state ownership', () => {
       isUserStateInit: false,
       preference: DEFAULT_PREFERENCE,
       user: { id: 'account-a' },
+      userStateInitializationFailure: undefined,
       userStateOwnerId: undefined,
       userStateScope: undefined,
     });
@@ -203,7 +212,81 @@ describe('user state ownership', () => {
     expect(useUserStore.getState().isUserStateInit).toBe(false);
     expect(useUserStore.getState().preference).toEqual(DEFAULT_PREFERENCE);
     expect(useUserStore.getState().settings).toEqual({});
+    expect(useUserStore.getState().userStateInitializationFailure).toEqual({
+      reason: 'owner-mismatch',
+      scope: 'user:account-b',
+    });
     expect(useUserStore.getState().userStateOwnerId).toBeUndefined();
+  });
+
+  it('records active-scope request failures and retries before first hydration', async () => {
+    vi.spyOn(userService, 'getUserState').mockRejectedValue(new Error('request failed'));
+
+    renderHook(() =>
+      useUserStore.getState().useInitUserState(true, 'user:account-a', serverConfig),
+    );
+
+    await waitFor(() => {
+      expect(useUserStore.getState().userStateInitializationFailure).toEqual({
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      });
+    });
+
+    await act(async () => {
+      await useUserStore.getState().refreshUserState();
+    });
+
+    expect(mutate).toHaveBeenCalledWith(['initUserState', 'user:account-a']);
+    expect(useUserStore.getState().userStateInitializationFailure).toBeUndefined();
+  });
+
+  it('clears an active-scope failure after successful hydration', async () => {
+    vi.spyOn(userService, 'getUserState').mockResolvedValue({
+      authUserId: 'account-a',
+      isOnboard: true,
+      preference: DEFAULT_PREFERENCE,
+      settings: {},
+      userId: 'account-a',
+    });
+    useUserStore.setState({
+      userStateInitializationFailure: {
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      },
+    });
+
+    renderHook(() =>
+      useUserStore.getState().useInitUserState(true, 'user:account-a', serverConfig),
+    );
+
+    await waitFor(() => {
+      expect(useUserStore.getState().isUserStateInit).toBe(true);
+      expect(useUserStore.getState().userStateInitializationFailure).toBeUndefined();
+    });
+  });
+
+  it('ignores a request failure after the authenticated scope changes', async () => {
+    const accountAState = createDeferred<UserInitializationState>();
+    const accountBState = createDeferred<UserInitializationState>();
+    vi.spyOn(userService, 'getUserState')
+      .mockReturnValueOnce(accountAState.promise)
+      .mockReturnValueOnce(accountBState.promise);
+
+    const { rerender } = renderHook(
+      ({ scope }) => useUserStore.getState().useInitUserState(true, scope, serverConfig),
+      { initialProps: { scope: 'user:account-a' as string | undefined } },
+    );
+
+    act(() => {
+      useUserStore.setState({ authUserId: 'account-b', user: { id: 'account-b' } });
+    });
+    rerender({ scope: 'user:account-b' });
+    accountAState.reject(new Error('stale request failed'));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useUserStore.getState().userStateInitializationFailure).toBeUndefined();
   });
 
   it('accepts a mapped data owner when the raw auth identity matches the scope', async () => {
@@ -284,6 +367,7 @@ describe('user state ownership', () => {
       expect(userState.settings).toEqual({});
       expect(userState.subscriptionPlan).toBeUndefined();
       expect(userState.user).toBeUndefined();
+      expect(userState.userStateInitializationFailure).toBeUndefined();
       expect(userState.userStateOwnerId).toBeUndefined();
       expect(userState.userStateScope).toBeUndefined();
     });

@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { AiProviderModelListItem } from 'model-bank';
+import { mutate } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAiInfraStore } from '@/store/aiInfra';
@@ -14,6 +15,7 @@ const swrCalls = vi.hoisted(
   () =>
     [] as Array<{
       key: unknown;
+      onError?: (error: Error) => void;
       onSuccess?: (data: unknown) => void;
     }>,
 );
@@ -32,15 +34,20 @@ vi.mock('@/const/auth', async (importOriginal) => ({
   enableAuth: true,
 }));
 
+vi.mock('swr', () => ({
+  mutate: vi.fn(),
+}));
+
 vi.mock('@/libs/swr', () => ({
   useClientDataSWR: (
     key: unknown,
     _fetcher: unknown,
     options: {
+      onError?: (error: Error) => void;
       onSuccess?: (data: unknown) => void;
     },
   ) => {
-    swrCalls.push({ key, onSuccess: options.onSuccess });
+    swrCalls.push({ key, onError: options.onError, onSuccess: options.onSuccess });
     return { data: undefined };
   },
 }));
@@ -85,6 +92,7 @@ describe('AI provider runtime ownership', () => {
       initAiProviderList: false,
       isAiModelListInit: false,
       isInitAiProviderRuntimeState: false,
+      runtimeStateInitializationFailure: undefined,
       runtimeStateRequestScope: undefined,
       runtimeStateScope: undefined,
     });
@@ -193,5 +201,94 @@ describe('AI provider runtime ownership', () => {
     expect(useAiInfraStore.getState().aiProviderRuntimeConfig.openai.keyVaults.apiKey).toBe(
       'account-b-secret',
     );
+  });
+
+  it('records active-scope failures and retries before first hydration', async () => {
+    renderHook(() =>
+      useAiInfraStore
+        .getState()
+        .useFetchAiProviderRuntimeState(true, 'user:account-a'),
+    );
+
+    const runtimeCall = swrCalls.find(
+      ({ key }) =>
+        Array.isArray(key) &&
+        key[0] === 'FETCH_AI_PROVIDER_RUNTIME_STATE' &&
+        key[1] === 'user:account-a',
+    );
+
+    act(() => {
+      runtimeCall?.onError?.(new Error('request failed'));
+    });
+
+    expect(useAiInfraStore.getState().runtimeStateInitializationFailure).toEqual({
+      reason: 'request-failed',
+      scope: 'user:account-a',
+    });
+
+    await act(async () => {
+      await useAiInfraStore.getState().refreshAiProviderRuntimeState();
+    });
+
+    expect(mutate).toHaveBeenCalledWith([
+      'FETCH_AI_PROVIDER_RUNTIME_STATE',
+      'user:account-a',
+    ]);
+    expect(useAiInfraStore.getState().runtimeStateInitializationFailure).toBeUndefined();
+  });
+
+  it('clears an active-scope failure after successful hydration', () => {
+    useAiInfraStore.setState({
+      runtimeStateInitializationFailure: {
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      },
+    });
+
+    renderHook(() =>
+      useAiInfraStore
+        .getState()
+        .useFetchAiProviderRuntimeState(true, 'user:account-a'),
+    );
+
+    const runtimeCall = swrCalls.find(
+      ({ key }) =>
+        Array.isArray(key) &&
+        key[0] === 'FETCH_AI_PROVIDER_RUNTIME_STATE' &&
+        key[1] === 'user:account-a',
+    );
+
+    act(() => {
+      runtimeCall?.onSuccess?.(createRuntimeState('account-a-secret'));
+    });
+
+    expect(useAiInfraStore.getState().isInitAiProviderRuntimeState).toBe(true);
+    expect(useAiInfraStore.getState().runtimeStateInitializationFailure).toBeUndefined();
+  });
+
+  it('ignores runtime failures from a stale account request', async () => {
+    const { rerender } = renderHook(
+      ({ scope }) =>
+        useAiInfraStore.getState().useFetchAiProviderRuntimeState(true, scope),
+      { initialProps: { scope: 'user:account-a' as string | undefined } },
+    );
+
+    const accountACall = swrCalls.find(
+      ({ key }) =>
+        Array.isArray(key) &&
+        key[0] === 'FETCH_AI_PROVIDER_RUNTIME_STATE' &&
+        key[1] === 'user:account-a',
+    );
+
+    act(() => {
+      useUserStore.setState({ authUserId: 'account-b', user: { id: 'account-b' } });
+    });
+    rerender({ scope: 'user:account-b' });
+
+    act(() => {
+      accountACall?.onError?.(new Error('stale request failed'));
+    });
+
+    expect(useAiInfraStore.getState().runtimeStateInitializationFailure).toBeUndefined();
   });
 });

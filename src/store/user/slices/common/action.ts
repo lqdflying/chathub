@@ -47,8 +47,12 @@ export const createCommonSlice: StateCreator<
   CommonAction
 > = (set, get) => ({
   refreshUserState: async () => {
-    const userScope = get().userStateScope;
+    const userScope = authSelectors.currentUserScope(get());
     if (!userScope) return;
+
+    if (get().userStateInitializationFailure?.scope === userScope) {
+      set({ userStateInitializationFailure: undefined }, false, n('refreshUserState/start'));
+    }
 
     await mutate(getUserStateKey(userScope));
   },
@@ -98,6 +102,21 @@ export const createCommonSlice: StateCreator<
       isLogin && userScope ? getUserStateKey(userScope) : null,
       () => userService.getUserState(),
       {
+        onError: () => {
+          const currentUserScope = authSelectors.currentUserScope(get());
+          if (currentUserScope !== userScope) return;
+
+          set(
+            {
+              userStateInitializationFailure: {
+                reason: 'request-failed',
+                scope: userScope,
+              },
+            },
+            false,
+            n('initUserState/error'),
+          );
+        },
         onSuccess: (data) => {
           const currentUserScope = authSelectors.currentUserScope(get());
           if (currentUserScope !== userScope) return;
@@ -105,6 +124,16 @@ export const createCommonSlice: StateCreator<
             userScope !== 'local' &&
             (!data.authUserId || `user:${data.authUserId}` !== userScope)
           ) {
+            set(
+              {
+                userStateInitializationFailure: {
+                  reason: 'owner-mismatch',
+                  scope: userScope,
+                },
+              },
+              false,
+              n('initUserState/ownerMismatch'),
+            );
             return;
           }
 
@@ -152,6 +181,7 @@ export const createCommonSlice: StateCreator<
                 settings: data.settings || {},
                 subscriptionPlan: data.subscriptionPlan,
                 user,
+                userStateInitializationFailure: undefined,
                 userStateOwnerId: data.userId || get().user?.id,
                 userStateScope: userScope,
               },
