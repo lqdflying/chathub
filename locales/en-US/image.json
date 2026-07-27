@@ -8,7 +8,9 @@
     "bootstrapFailure": {
       "accountDescription": "Your account information is not ready. Sign in again, then retry.",
       "description": "The account or model configuration required for Image Settings could not be loaded. Check your connection and retry.",
+      "ownerMismatchDescription": "Your sign-in session does not match the returned account. Sign in again to protect your account data.",
       "retry": "Retry",
+      "signInAgain": "Sign in again",
       "title": "Unable to load Image Settings"
     },
     "cfg": {

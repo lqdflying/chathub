@@ -60,10 +60,15 @@ server errors, or other request details. These records represent bootstrap
 failure only: after the active scope has accepted user/provider runtime state,
 a later SWR focus, reconnect, or explicit refresh failure preserves that
 last-known-good state and does not replace working controls with bootstrap
-guidance. A scope reset, matching retry, or accepted success clears the matching
-failure. Late success and error callbacks whose request scope is no longer
-active are ignored, so an account transition cannot hydrate or report another
-account's state.
+guidance. An `owner-mismatch` is the exception because it proves that the
+authenticated scope and returned identity have diverged. It clears hydrated
+user preferences, settings, provider/model lists, subscription state, and
+mapped user data even after earlier successful hydration. Image creation and
+recreation reject while that active-scope failure exists. A scope reset,
+matching request-failure retry, or accepted success clears the matching
+recoverable failure. Late success and error callbacks whose request scope is no
+longer active are ignored, so an account transition cannot hydrate or report
+another account's state.
 
 Image Settings renders the skeleton only while prerequisites are genuinely
 pending or a retry is active. An active-scope prerequisite failure replaces the
@@ -74,15 +79,21 @@ the already-open mobile drawer. Retry loading is tagged with the canonical scope
 that initiated it, so an account transition immediately renders the new scope's
 loading, error, or settled state without waiting for the previous request. An
 authenticated state whose canonical scope cannot be resolved shows sign-in
-guidance without offering a request retry. The normal no-model guidance remains
-a settled image-configuration state and is not classified as a bootstrap
-failure.
+guidance without offering a request retry. An owner mismatch similarly never
+offers **Retry**: Image Settings shows identity-specific guidance and **Sign in
+again**, which uses the universal logout flow so the authentication provider can
+establish a new session. The normal no-model guidance remains a settled
+image-configuration state and is not classified as a bootstrap failure.
 
 Browser system status is advisory preference data. If
 `LOBE_SYSTEM_STATUS` is missing, inaccessible, or contains malformed JSON,
 initialization awaits the asynchronous storage read, treats a rejected read as
 empty preferences, retains `INITIAL_STATUS`, and marks status hydration
-complete. This follows the documented
+complete. The `AsyncLocalStorage` constructor also treats its legacy
+`LOBE_GLOBAL` migration as best-effort: denied `localStorage` access and
+malformed legacy JSON cannot throw during store-module import. Invalid legacy
+data is preserved rather than destructively removed; a valid legacy preference
+continues to migrate. This follows the documented
 [`JSON.parse` failure contract](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse);
 the user/provider retries continue to use the existing
 [SWR mutation and error lifecycle](https://swr.vercel.app/docs/api).

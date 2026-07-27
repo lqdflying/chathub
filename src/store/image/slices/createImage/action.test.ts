@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { imageService } from '@/services/image';
 import { useImageStore } from '@/store/image';
+import { useUserStore } from '@/store/user';
 
 // Mock external dependencies
 vi.mock('@/services/image', () => ({
@@ -63,6 +64,9 @@ describe('CreateImageAction', () => {
         ],
       },
     });
+    useUserStore.setState({
+      userStateInitializationFailure: undefined,
+    });
   });
 
   afterEach(() => {
@@ -70,6 +74,25 @@ describe('CreateImageAction', () => {
   });
 
   describe('createImage', () => {
+    it('rejects creation while the active account has an ownership failure', async () => {
+      const { result } = renderHook(() => useImageStore());
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'local',
+        },
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.createImage();
+        }),
+      ).rejects.toThrow('user state ownership is not initialized');
+
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+      expect(useImageStore.getState().isCreating).toBe(false);
+    });
+
     it('should reject creation until image configuration is initialized', async () => {
       const { result } = renderHook(() => useImageStore());
 
@@ -385,6 +408,28 @@ describe('CreateImageAction', () => {
   });
 
   describe('recreateImage', () => {
+    it('rejects recreation while the active account has an ownership failure', async () => {
+      const mockRemoveGenerationBatch = vi.fn();
+      const { result } = renderHook(() => useImageStore());
+      useImageStore.setState({ removeGenerationBatch: mockRemoveGenerationBatch });
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'local',
+        },
+      });
+
+      await expect(
+        act(async () => {
+          await result.current.recreateImage('batch-id');
+        }),
+      ).rejects.toThrow('user state ownership is not initialized');
+
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+      expect(mockRemoveGenerationBatch).not.toHaveBeenCalled();
+      expect(useImageStore.getState().isCreating).toBe(false);
+    });
+
     it('should recreate image successfully', async () => {
       const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
       const mockRemoveGenerationBatch = vi.fn().mockResolvedValue(undefined);

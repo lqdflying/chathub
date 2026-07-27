@@ -17,12 +17,20 @@ import { setNamespace } from '@/utils/storeDebug';
 import { authSelectors } from '../auth/selectors';
 import { initialModelListState } from '../modelList/initialState';
 import { preferenceSelectors } from '../preference/selectors';
+import { initialSettingsState } from '../settings/initialState';
 import { initialCommonState } from './initialState';
 
 const n = setNamespace('common');
 
 const GET_USER_STATE_KEY = 'initUserState';
 const getUserStateKey = (userScope: string) => [GET_USER_STATE_KEY, userScope] as const;
+const createResetUserState = () => ({
+  ...initialCommonState,
+  ...initialModelListState,
+  ...initialSettingsState,
+  preference: DEFAULT_PREFERENCE,
+  user: undefined,
+});
 /**
  * 设置操作
  */
@@ -50,7 +58,15 @@ export const createCommonSlice: StateCreator<
     const userScope = authSelectors.currentUserScope(get());
     if (!userScope) return;
 
-    if (get().userStateInitializationFailure?.scope === userScope) {
+    const initializationFailure = get().userStateInitializationFailure;
+    if (
+      initializationFailure?.scope === userScope &&
+      initializationFailure.reason === 'owner-mismatch'
+    ) {
+      return;
+    }
+
+    if (initializationFailure?.scope === userScope) {
       set({ userStateInitializationFailure: undefined }, false, n('refreshUserState/start'));
     }
 
@@ -86,13 +102,7 @@ export const createCommonSlice: StateCreator<
       if (!didUserScopeChange) return;
 
       set(
-        {
-          ...initialCommonState,
-          ...initialModelListState,
-          preference: DEFAULT_PREFERENCE,
-          settings: {},
-          user: undefined,
-        },
+        createResetUserState(),
         false,
         n('resetUserStateScope'),
       );
@@ -125,10 +135,9 @@ export const createCommonSlice: StateCreator<
             userScope !== 'local' &&
             (!data.authUserId || `user:${data.authUserId}` !== userScope)
           ) {
-            if (get().isUserStateInit && get().userStateScope === userScope) return;
-
             set(
               {
+                ...createResetUserState(),
                 userStateInitializationFailure: {
                   reason: 'owner-mismatch',
                   scope: userScope,

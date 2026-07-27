@@ -8,7 +8,9 @@ export default {
     bootstrapFailure: {
       accountDescription: '当前账户信息尚未准备完成，请重新登录后再试。',
       description: '加载图像设置所需的账户或模型配置失败。请检查网络连接后重试。',
+      ownerMismatchDescription: '当前登录会话与返回的账户不一致。为保护账户数据，请重新登录。',
       retry: '重试',
+      signInAgain: '重新登录',
       title: '无法加载图像设置',
     },
     cfg: {

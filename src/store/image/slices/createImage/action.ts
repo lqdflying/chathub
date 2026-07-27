@@ -31,13 +31,18 @@ export const createCreateImageSlice: StateCreator<
 > = (set, get) => ({
   async createImage() {
     const store = get();
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const userState = useUserStore.getState();
+    const requestedScope = authSelectors.currentUserScope(userState);
     const requestedGeneration = store.scopeGeneration;
     const isOperationCurrent = () =>
       authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
       get().scopeGeneration === requestedGeneration;
 
     if (!requestedScope) return;
+
+    if (userState.userStateInitializationFailure?.scope === requestedScope) {
+      throw new TypeError('user state ownership is not initialized');
+    }
 
     if (!store.isInit || !store.isImageModelAvailable) {
       throw new TypeError('image configuration is not initialized');
@@ -117,13 +122,18 @@ export const createCreateImageSlice: StateCreator<
 
   async recreateImage(generationBatchId: string) {
     const store = get();
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const userState = useUserStore.getState();
+    const requestedScope = authSelectors.currentUserScope(userState);
     const requestedGeneration = store.scopeGeneration;
     const isOperationCurrent = () =>
       authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
       get().scopeGeneration === requestedGeneration;
 
     if (!requestedScope) return;
+
+    if (userState.userStateInitializationFailure?.scope === requestedScope) {
+      throw new TypeError('user state ownership is not initialized');
+    }
 
     const activeGenerationTopicId = generationTopicSelectors.activeGenerationTopicId(store);
     if (!activeGenerationTopicId) {

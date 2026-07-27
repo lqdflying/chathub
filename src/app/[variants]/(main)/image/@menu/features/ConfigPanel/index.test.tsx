@@ -24,6 +24,7 @@ const { aiInfraListeners, aiInfraState, imageListeners, imageState, userListener
       authUserId: 'account-a' as string | undefined,
       isLoaded: true,
       isSignedIn: true as boolean | undefined,
+      logout: vi.fn(),
       refreshUserState: vi.fn(),
       user: { id: 'account-a' } as { id: string } | undefined,
       userStateInitializationFailure: undefined as
@@ -169,6 +170,7 @@ const resetStoreStates = () => {
     authUserId: 'account-a',
     isLoaded: true,
     isSignedIn: true,
+    logout: vi.fn(),
     refreshUserState: vi.fn(),
     user: { id: 'account-a' },
     userStateInitializationFailure: undefined,
@@ -298,6 +300,32 @@ describe('ConfigPanel', () => {
     });
     expect(aiInfraState.refreshAiProviderRuntimeState).toHaveBeenCalledTimes(1);
     expect(userState.refreshUserState).not.toHaveBeenCalled();
+  });
+
+  it('requires reauthentication without retrying an owner mismatch', async () => {
+    updateStoreState(imageState, imageListeners, { isInit: true });
+    updateStoreState(userState, userListeners, {
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      },
+    });
+
+    render(<ConfigPanel />);
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      'config.bootstrapFailure.ownerMismatchDescription',
+    );
+    expect(
+      screen.queryByRole('button', { name: 'config.bootstrapFailure.retry' }),
+    ).toBeNull();
+    expect(screen.queryByText('model-select')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'config.bootstrapFailure.signInAgain' }));
+
+    expect(userState.logout).toHaveBeenCalledTimes(1);
+    expect(userState.refreshUserState).not.toHaveBeenCalled();
+    expect(aiInfraState.refreshAiProviderRuntimeState).not.toHaveBeenCalled();
   });
 
   it('stops showing an earlier account retry after the active scope changes', async () => {

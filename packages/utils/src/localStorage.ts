@@ -20,16 +20,23 @@ export class AsyncLocalStorage<State> {
     // skip server side rendering
     if (typeof window === 'undefined') return;
 
-    // migrate old data
-    if (localStorage.getItem(PREV_KEY)) {
-      const data = JSON.parse(localStorage.getItem(PREV_KEY) || '{}');
+    this.migrateLegacyPreference();
+  }
 
-      const preference = data.state.preference;
+  private migrateLegacyPreference() {
+    try {
+      const legacyState = localStorage.getItem(PREV_KEY);
+      if (!legacyState) return;
 
-      if (data.state?.preference) {
+      const data = JSON.parse(legacyState);
+      const preference = data.state?.preference;
+
+      if (preference) {
         localStorage.setItem('LOBE_PREFERENCE', JSON.stringify(preference));
       }
       localStorage.removeItem(PREV_KEY);
+    } catch {
+      // Browser storage can be unavailable, and malformed legacy data should not block startup.
     }
   }
 

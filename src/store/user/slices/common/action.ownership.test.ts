@@ -6,6 +6,7 @@ import { DEFAULT_PREFERENCE } from '@/const/user';
 import { userService } from '@/services/user';
 import { useUserStore } from '@/store/user';
 import { initialModelListState } from '@/store/user/slices/modelList/initialState';
+import { initialSettingsState } from '@/store/user/slices/settings/initialState';
 import type { GlobalServerConfig } from '@/types/serverConfig';
 import { Plans } from '@/types/subscription';
 import type { UserInitializationState } from '@/types/user';
@@ -219,6 +220,96 @@ describe('user state ownership', () => {
     expect(useUserStore.getState().userStateOwnerId).toBeUndefined();
   });
 
+  it('clears settled account data when a refresh returns an owner mismatch', async () => {
+    const settledPreference = {
+      ...DEFAULT_PREFERENCE,
+      imageConfig: { model: 'account-a-model', provider: 'account-a-provider' },
+    };
+    useUserStore.setState({
+      defaultModelProviderList: [
+        {
+          id: 'account-a-provider',
+          models: [{ displayName: 'Account A Model', id: 'account-a-model' }],
+          name: 'Account A Provider',
+        },
+      ],
+      defaultSettings: {
+        ...initialSettingsState.defaultSettings,
+        image: { defaultImageNum: 8 },
+      },
+      isOnboard: true,
+      isUserStateInit: true,
+      modelProviderList: [
+        {
+          id: 'account-a-provider',
+          models: [{ displayName: 'Account A Model', id: 'account-a-model' }],
+          name: 'Account A Provider',
+        },
+      ],
+      preference: settledPreference,
+      settings: { image: { defaultImageNum: 8 } },
+      subscriptionPlan: Plans.Premium,
+      user: { id: 'account-a' },
+      userStateOwnerId: 'account-a',
+      userStateScope: 'user:account-a',
+    });
+    vi.spyOn(userService, 'getUserState').mockResolvedValue({
+      authUserId: 'account-b',
+      isOnboard: true,
+      preference: {
+        ...DEFAULT_PREFERENCE,
+        imageConfig: { model: 'account-b-model', provider: 'account-b-provider' },
+      },
+      settings: { image: { defaultImageNum: 4 } },
+      userId: 'account-b',
+    });
+
+    renderHook(() =>
+      useUserStore.getState().useInitUserState(true, 'user:account-a', serverConfig),
+    );
+
+    await waitFor(() => {
+      expect(useUserStore.getState().userStateInitializationFailure).toEqual({
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      });
+    });
+
+    const userState = useUserStore.getState();
+    expect(userState.isOnboard).toBe(false);
+    expect(userState.isUserStateInit).toBe(false);
+    expect(userState.defaultModelProviderList).toEqual(
+      initialModelListState.defaultModelProviderList,
+    );
+    expect(userState.defaultSettings).toEqual(initialSettingsState.defaultSettings);
+    expect(userState.modelProviderList).toEqual(initialModelListState.modelProviderList);
+    expect(userState.preference).toEqual(DEFAULT_PREFERENCE);
+    expect(userState.settings).toEqual({});
+    expect(userState.subscriptionPlan).toBeUndefined();
+    expect(userState.user).toBeUndefined();
+    expect(userState.userStateOwnerId).toBeUndefined();
+    expect(userState.userStateScope).toBeUndefined();
+  });
+
+  it('does not retry or clear an active owner mismatch', async () => {
+    useUserStore.setState({
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      },
+    });
+
+    await act(async () => {
+      await useUserStore.getState().refreshUserState();
+    });
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(useUserStore.getState().userStateInitializationFailure).toEqual({
+      reason: 'owner-mismatch',
+      scope: 'user:account-a',
+    });
+  });
+
   it('records active-scope request failures and retries before first hydration', async () => {
     vi.spyOn(userService, 'getUserState').mockRejectedValue(new Error('request failed'));
 
@@ -391,6 +482,7 @@ describe('user state ownership', () => {
       );
       expect(userState.editingCustomCardModel).toBeUndefined();
       expect(userState.modelProviderList).toEqual(initialModelListState.modelProviderList);
+      expect(userState.defaultSettings).toEqual(initialSettingsState.defaultSettings);
       expect(userState.preference).toEqual(DEFAULT_PREFERENCE);
       expect(userState.serverLanguageModel).toBeUndefined();
       expect(userState.settings).toEqual({});

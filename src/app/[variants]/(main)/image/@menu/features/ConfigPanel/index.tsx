@@ -2,7 +2,7 @@
 
 import { Alert, Button, Text } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
-import { RefreshCw } from 'lucide-react';
+import { LogIn, RefreshCw } from 'lucide-react';
 import React, { ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
@@ -67,6 +67,7 @@ const ConfigPanel = memo(() => {
   const userStateInitializationFailure = useUserStore(
     (state) => state.userStateInitializationFailure,
   );
+  const logout = useUserStore((state) => state.logout);
   const refreshUserState = useUserStore((state) => state.refreshUserState);
   const runtimeStateInitializationFailure = useAiInfraStore(
     (state) => state.runtimeStateInitializationFailure,
@@ -79,6 +80,8 @@ const ConfigPanel = memo(() => {
 
   const hasUserStateFailure =
     !!currentUserScope && userStateInitializationFailure?.scope === currentUserScope;
+  const hasOwnerMismatch =
+    hasUserStateFailure && userStateInitializationFailure?.reason === 'owner-mismatch';
   const hasProviderRuntimeFailure =
     !!currentUserScope && runtimeStateInitializationFailure?.scope === currentUserScope;
   const hasUnresolvedAuthenticatedScope = isAuthLoaded && !!isLogin && !currentUserScope;
@@ -90,6 +93,7 @@ const ConfigPanel = memo(() => {
   const handleRetry = useCallback(async () => {
     if (
       !currentUserScope ||
+      hasOwnerMismatch ||
       (!hasUserStateFailure && !hasProviderRuntimeFailure)
     ) {
       return;
@@ -111,11 +115,15 @@ const ConfigPanel = memo(() => {
     );
   }, [
     currentUserScope,
+    hasOwnerMismatch,
     hasProviderRuntimeFailure,
     hasUserStateFailure,
     refreshAiProviderRuntimeState,
     refreshUserState,
   ]);
+  const handleSignInAgain = useCallback(async () => {
+    await logout();
+  }, [logout]);
 
   // Check if content exceeds container height and needs scrolling
   const checkScrollable = useCallback(() => {
@@ -193,14 +201,22 @@ const ConfigPanel = memo(() => {
       <Center height={'100%'} padding={16} width={'100%'}>
         <Alert
           action={
-            !hasUnresolvedAuthenticatedScope && (
-              <Button icon={RefreshCw} onClick={handleRetry} size={'small'} type={'primary'}>
-                {t('config.bootstrapFailure.retry')}
+            hasOwnerMismatch ? (
+              <Button icon={LogIn} onClick={handleSignInAgain} size={'small'} type={'primary'}>
+                {t('config.bootstrapFailure.signInAgain')}
               </Button>
+            ) : (
+              !hasUnresolvedAuthenticatedScope && (
+                <Button icon={RefreshCw} onClick={handleRetry} size={'small'} type={'primary'}>
+                  {t('config.bootstrapFailure.retry')}
+                </Button>
+              )
             )
           }
           description={t(
-            hasUnresolvedAuthenticatedScope
+            hasOwnerMismatch
+              ? 'config.bootstrapFailure.ownerMismatchDescription'
+              : hasUnresolvedAuthenticatedScope
               ? 'config.bootstrapFailure.accountDescription'
               : 'config.bootstrapFailure.description',
           )}
