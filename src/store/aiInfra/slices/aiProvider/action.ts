@@ -364,6 +364,12 @@ export const createAiProviderSlice: StateCreator<
         onError: () => {
           if (get().runtimeStateRequestScope !== requestedScope) return;
           if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+          if (
+            get().isInitAiProviderRuntimeState &&
+            get().runtimeStateScope === requestedScope
+          ) {
+            return;
+          }
 
           set(
             {

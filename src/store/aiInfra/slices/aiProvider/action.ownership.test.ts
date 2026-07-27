@@ -266,6 +266,39 @@ describe('AI provider runtime ownership', () => {
     expect(useAiInfraStore.getState().runtimeStateInitializationFailure).toBeUndefined();
   });
 
+  it('preserves settled current-scope runtime state when a later refresh fails', () => {
+    const settledRuntimeState = createRuntimeState('account-a-secret');
+    useAiInfraStore.setState({
+      aiProviderRuntimeConfig: settledRuntimeState.runtimeConfig,
+      isInitAiProviderRuntimeState: true,
+      runtimeStateRequestScope: 'user:account-a',
+      runtimeStateScope: 'user:account-a',
+    });
+
+    renderHook(() =>
+      useAiInfraStore.getState().useFetchAiProviderRuntimeState(true, 'user:account-a'),
+    );
+
+    const runtimeCall = swrCalls.find(
+      ({ key }) =>
+        Array.isArray(key) &&
+        key[0] === 'FETCH_AI_PROVIDER_RUNTIME_STATE' &&
+        key[1] === 'user:account-a',
+    );
+
+    act(() => {
+      runtimeCall?.onError?.(new Error('refresh failed'));
+    });
+
+    const runtimeState = useAiInfraStore.getState();
+    expect(runtimeState.aiProviderRuntimeConfig.openai.keyVaults.apiKey).toBe(
+      'account-a-secret',
+    );
+    expect(runtimeState.isInitAiProviderRuntimeState).toBe(true);
+    expect(runtimeState.runtimeStateInitializationFailure).toBeUndefined();
+    expect(runtimeState.runtimeStateScope).toBe('user:account-a');
+  });
+
   it('ignores runtime failures from a stale account request', async () => {
     const { rerender } = renderHook(
       ({ scope }) =>

@@ -266,6 +266,35 @@ describe('user state ownership', () => {
     });
   });
 
+  it('preserves settled current-scope state when a later refresh fails', async () => {
+    const settledPreference = {
+      ...DEFAULT_PREFERENCE,
+      imageConfig: { model: 'account-a-model', provider: 'account-a-provider' },
+    };
+    useUserStore.setState({
+      isUserStateInit: true,
+      preference: settledPreference,
+      userStateOwnerId: 'account-a',
+      userStateScope: 'user:account-a',
+    });
+    vi.spyOn(userService, 'getUserState').mockRejectedValue(new Error('refresh failed'));
+
+    renderHook(() =>
+      useUserStore.getState().useInitUserState(true, 'user:account-a', serverConfig),
+    );
+
+    await waitFor(() => {
+      expect(userService.getUserState).toHaveBeenCalledTimes(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const userState = useUserStore.getState();
+    expect(userState.isUserStateInit).toBe(true);
+    expect(userState.preference).toEqual(settledPreference);
+    expect(userState.userStateInitializationFailure).toBeUndefined();
+    expect(userState.userStateScope).toBe('user:account-a');
+  });
+
   it('ignores a request failure after the authenticated scope changes', async () => {
     const accountAState = createDeferred<UserInitializationState>();
     const accountBState = createDeferred<UserInitializationState>();

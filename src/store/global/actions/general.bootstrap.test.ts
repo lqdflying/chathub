@@ -13,7 +13,7 @@ vi.mock('@/libs/swr', async () => {
   return {
     useOnlyFetchOnceSWR: (
       key: unknown,
-      fetcher: () => unknown,
+      fetcher: () => Promise<unknown>,
       options: { onSuccess?: (data: unknown) => void },
     ) => {
       const [data, setData] = React.useState<unknown>();
@@ -22,13 +22,12 @@ vi.mock('@/libs/swr', async () => {
       React.useEffect(() => {
         if (!key) return;
 
-        try {
-          const fetchedData = fetcher();
-          setData(fetchedData);
-          options.onSuccess?.(fetchedData);
-        } catch (fetchError) {
-          setError(fetchError);
-        }
+        void fetcher()
+          .then((fetchedData) => {
+            setData(fetchedData);
+            options.onSuccess?.(fetchedData);
+          })
+          .catch(setError);
       }, [key]);
 
       return { data, error };
@@ -42,10 +41,8 @@ describe('system status bootstrap', () => {
   });
 
   it('settles with defaults when browser storage cannot be read', async () => {
-    vi.spyOn(useGlobalStore.getState().statusStorage, 'getFromLocalStorage').mockImplementation(
-      () => {
-        throw new SyntaxError('Unexpected token');
-      },
+    vi.spyOn(useGlobalStore.getState().statusStorage, 'getFromLocalStorage').mockRejectedValue(
+      new SyntaxError('Unexpected token'),
     );
 
     const { result } = renderHook(() => useGlobalStore().useInitSystemStatus());
@@ -60,7 +57,7 @@ describe('system status bootstrap', () => {
   });
 
   it('hydrates readable browser status normally', async () => {
-    vi.spyOn(useGlobalStore.getState().statusStorage, 'getFromLocalStorage').mockReturnValue({
+    vi.spyOn(useGlobalStore.getState().statusStorage, 'getFromLocalStorage').mockResolvedValue({
       noWideScreen: false,
     });
 

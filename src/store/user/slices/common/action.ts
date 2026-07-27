@@ -105,6 +105,7 @@ export const createCommonSlice: StateCreator<
         onError: () => {
           const currentUserScope = authSelectors.currentUserScope(get());
           if (currentUserScope !== userScope) return;
+          if (get().isUserStateInit && get().userStateScope === userScope) return;
 
           set(
             {
@@ -124,6 +125,8 @@ export const createCommonSlice: StateCreator<
             userScope !== 'local' &&
             (!data.authUserId || `user:${data.authUserId}` !== userScope)
           ) {
+            if (get().isUserStateInit && get().userStateScope === userScope) return;
+
             set(
               {
                 userStateInitializationFailure: {

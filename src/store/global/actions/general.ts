@@ -150,9 +150,9 @@ export const generalActionSlice: StateCreator<
   useInitSystemStatus: () =>
     useOnlyFetchOnceSWR<SystemStatus>(
       'initSystemStatus',
-      () => {
+      async () => {
         try {
-          return get().statusStorage.getFromLocalStorage();
+          return await get().statusStorage.getFromLocalStorage();
         } catch {
           return {};
         }

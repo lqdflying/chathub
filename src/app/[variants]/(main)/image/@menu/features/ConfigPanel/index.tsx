@@ -49,7 +49,7 @@ const ConfigPanel = memo(() => {
   // All hooks must be called before any early returns
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [isScrollable, setIsScrollable] = useState(false);
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryingScope, setRetryingScope] = useState<string>();
 
   const isInit = useImageStore((s) => s.isInit);
   const isImageModelAvailable = useImageStore((s) => s.isImageModelAvailable);
@@ -84,11 +84,19 @@ const ConfigPanel = memo(() => {
   const hasUnresolvedAuthenticatedScope = isAuthLoaded && !!isLogin && !currentUserScope;
   const hasBootstrapFailure =
     hasUserStateFailure || hasProviderRuntimeFailure || hasUnresolvedAuthenticatedScope;
+  const isRetryingCurrentScope =
+    !!currentUserScope && retryingScope === currentUserScope;
 
   const handleRetry = useCallback(async () => {
-    if (!hasUserStateFailure && !hasProviderRuntimeFailure) return;
+    if (
+      !currentUserScope ||
+      (!hasUserStateFailure && !hasProviderRuntimeFailure)
+    ) {
+      return;
+    }
 
-    setIsRetrying(true);
+    const requestedScope = currentUserScope;
+    setRetryingScope(requestedScope);
     const refreshRequests: Promise<void>[] = [];
     if (hasUserStateFailure) {
       refreshRequests.push(refreshUserState());
@@ -98,8 +106,11 @@ const ConfigPanel = memo(() => {
     }
 
     await Promise.allSettled(refreshRequests);
-    setIsRetrying(false);
+    setRetryingScope((activeRetryScope) =>
+      activeRetryScope === requestedScope ? undefined : activeRetryScope,
+    );
   }, [
+    currentUserScope,
     hasProviderRuntimeFailure,
     hasUserStateFailure,
     refreshAiProviderRuntimeState,
@@ -173,7 +184,7 @@ const ConfigPanel = memo(() => {
     [isScrollable, theme.colorBgContainer, theme.colorBorder],
   );
 
-  if (isRetrying) {
+  if (isRetryingCurrentScope) {
     return <ImageConfigSkeleton />;
   }
 

@@ -300,6 +300,42 @@ describe('ConfigPanel', () => {
     expect(userState.refreshUserState).not.toHaveBeenCalled();
   });
 
+  it('stops showing an earlier account retry after the active scope changes', async () => {
+    const accountARetryFinished = createDeferred();
+    userState.refreshUserState = vi.fn(async () => {
+      updateStoreState(userState, userListeners, {
+        userStateInitializationFailure: undefined,
+      });
+      await accountARetryFinished.promise;
+    });
+    updateStoreState(userState, userListeners, {
+      userStateInitializationFailure: {
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      },
+    });
+
+    render(<ConfigPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'config.bootstrapFailure.retry' }));
+    expect(screen.getByText('image-config-skeleton')).not.toBeNull();
+
+    act(() => {
+      updateStoreState(userState, userListeners, {
+        authUserId: 'account-b',
+        user: { id: 'account-b' },
+      });
+      updateStoreState(imageState, imageListeners, { isInit: true });
+    });
+
+    expect(screen.getByText('model-select')).not.toBeNull();
+    expect(screen.queryByText('image-config-skeleton')).toBeNull();
+
+    await act(async () => {
+      accountARetryFinished.resolve();
+      await accountARetryFinished.promise;
+    });
+  });
+
   it('shows bounded guidance when an authenticated account scope cannot resolve', () => {
     updateStoreState(imageState, imageListeners, { isInit: true });
     updateStoreState(userState, userListeners, {
