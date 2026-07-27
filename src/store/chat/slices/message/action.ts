@@ -29,6 +29,10 @@ import { messageService } from '@/services/message';
 import { rpcDiagnosticsService } from '@/services/rpcDiagnostics';
 import { topicService } from '@/services/topic';
 import { traceService } from '@/services/trace';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -247,6 +251,16 @@ export const chatMessage: StateCreator<
   ChatMessageAction
 > = (set, get) => ({
   deleteMessage: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
     const message = chatSelectors.getMessageById(id)(get());
     if (!message) return;
 
@@ -266,10 +280,13 @@ export const chatMessage: StateCreator<
 
     get().internal_dispatchMessage({ type: 'deleteMessages', ids });
     await messageService.removeMessages(ids);
-    await get().refreshMessages();
+    if (isCurrentRequest()) await get().refreshMessages();
   },
 
   deleteToolMessage: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const message = chatSelectors.getMessageById(id)(get());
     if (!message || message.role !== 'tool') return;
 
@@ -287,6 +304,8 @@ export const chatMessage: StateCreator<
   },
 
   clearMessage: async () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
     const {
       activeId,
       activeTopicId,
@@ -295,6 +314,12 @@ export const chatMessage: StateCreator<
       switchTopic,
       activeSessionType,
     } = get();
+    if (!accountMutationSnapshot || !activeId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === activeId &&
+      get().activeTopicId === activeTopicId;
 
     // Check if this is a group session - use activeSessionType if available, otherwise check session store
     let isGroupSession = activeSessionType === 'group';
@@ -313,17 +338,25 @@ export const chatMessage: StateCreator<
       // For regular session, activeId is the sessionId
       await messageService.removeMessagesByAssistant(activeId, activeTopicId);
     }
+    if (!isCurrentRequest()) return;
 
     if (activeTopicId) {
       await topicService.removeTopic(activeTopicId);
+      if (!isCurrentRequest()) return;
     }
     await refreshTopic();
+    if (!isCurrentRequest()) return;
+
     await refreshMessages();
+    if (!isCurrentRequest()) return;
 
     // after remove topic , go back to default topic
     switchTopic();
   },
   clearAllTopicsHistory: async () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const {
       chatLoadingIdsAbortController,
       internal_cancelAllSupervisorDecisions,
@@ -456,17 +489,25 @@ export const chatMessage: StateCreator<
       n('clearAllTopicsHistory'),
     );
 
+    const requestedGeneration = get().conversationClearGeneration;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration;
+
     await messageService.removeAllTopicsHistory();
+    if (!isCurrentRequest()) return;
 
     await mutate(isConversationCacheKey, undefined, { revalidate: false });
-    await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+    if (isCurrentRequest()) await Promise.all([get().refreshMessages(), get().refreshTopic()]);
   },
   addAIMessage: async () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const { internal_createMessage, updateInputMessage, activeTopicId, activeId, inputMessage } =
       get();
-    if (!activeId) return;
+    if (!accountMutationSnapshot || !activeId) return;
     const requestedGeneration = get().conversationClearGeneration;
     const isCurrentConversation = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === activeId &&
       get().activeTopicId === activeTopicId;
@@ -482,11 +523,13 @@ export const chatMessage: StateCreator<
     if (isCurrentConversation()) updateInputMessage('');
   },
   addUserMessage: async ({ message, fileList, expectedConversationVersion }) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const { internal_createMessage, updateInputMessage, activeTopicId, activeId, activeThreadId } =
       get();
-    if (!activeId) return;
+    if (!accountMutationSnapshot || !activeId) return;
     const requestedGeneration = get().conversationClearGeneration;
     const isCurrentConversation = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === activeId &&
       get().activeTopicId === activeTopicId &&
@@ -529,6 +572,9 @@ export const chatMessage: StateCreator<
     set({ inputMessage: message }, false, n('updateInputMessage', message));
   },
   modifyMessageContent: async (id, content) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     // tracing the diff of update
     // due to message content will change, so we need send trace before update,or will get wrong data
     get().internal_traceMessage(id, {
@@ -583,21 +629,27 @@ export const chatMessage: StateCreator<
   // TODO: The mutate should only be called once, but since we haven't merge session and group,
   // we need to call it twice
   refreshMessages: async (context) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!requestedScope) return;
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+    const requestedGeneration = get().conversationClearGeneration;
     const sessionId = context?.sessionId ?? get().activeId;
     const topicId = context?.topicId ?? get().activeTopicId;
+    const isCurrentRefresh = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration;
 
     await mutateAccountSWR([
       SWR_USE_FETCH_MESSAGES,
-      requestedScope,
+      accountMutationSnapshot.scope,
       sessionId,
       topicId,
       'session',
     ]);
+    if (!isCurrentRefresh()) return;
+
     await mutateAccountSWR([
       SWR_USE_FETCH_MESSAGES,
-      requestedScope,
+      accountMutationSnapshot.scope,
       sessionId,
       topicId,
       'group',
@@ -617,10 +669,20 @@ export const chatMessage: StateCreator<
   },
 
   internal_updateMessageRAG: async (id, data) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
     const { refreshMessages } = get();
 
     await messageService.updateMessageRAG(id, data);
-    await refreshMessages();
+    if (isCurrentRequest()) await refreshMessages();
   },
 
   // the internal process method of the AI message
@@ -640,22 +702,58 @@ export const chatMessage: StateCreator<
   },
 
   internal_updateMessageError: async (id, error) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
+
     get().internal_dispatchMessage({ id, type: 'updateMessage', value: { error } });
     await messageService.updateMessage(id, { error });
-    await get().refreshMessages();
+    if (isCurrentRequest()) await get().refreshMessages();
   },
 
   internal_updateMessagePluginError: async (id, error) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
+
     await messageService.updateMessagePluginError(id, error);
-    await get().refreshMessages();
+    if (isCurrentRequest()) await get().refreshMessages();
   },
 
   internal_updateMessageContent: async (id, content, extra) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return { persistenceAmbiguous: false };
+
     const { internal_dispatchMessage, refreshMessages, internal_transformToolCalls } = get();
     const conversationContext = extra?.conversationContext;
     const dispatchContext = conversationContext
       ? { sessionId: conversationContext.sessionId, topicId: conversationContext.topicId }
       : undefined;
+    const requestedGeneration =
+      conversationContext?.generation ?? get().conversationClearGeneration;
+    const requestedSessionId = conversationContext?.sessionId ?? get().activeId;
+    const requestedTopicId = conversationContext?.topicId ?? get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      (conversationContext
+        ? true
+        : get().activeId === requestedSessionId && get().activeTopicId === requestedTopicId);
+    if (!isCurrentRequest()) return { persistenceAmbiguous: false };
 
     const tools = extra?.toolCalls ? internal_transformToolCalls(extra.toolCalls) : undefined;
     const update: UpdateMessageParams = {
@@ -680,6 +778,8 @@ export const chatMessage: StateCreator<
       const diagnosticId = extra.diagnosticId || `td_${nanoid(20)}`;
 
       for (let attempt = 1; attempt <= 2; attempt += 1) {
+        if (!isCurrentRequest()) return { persistenceAmbiguous: false };
+
         try {
           await messageService.updateMessage(id, update, {
             diagnosticId,
@@ -699,6 +799,7 @@ export const chatMessage: StateCreator<
             rpcEndpoint: 'lambda',
           });
 
+          if (!isCurrentRequest()) return { persistenceAmbiguous: false };
           if (attempt < 2) continue;
           if (!extra.skipRefresh) {
             try {
@@ -707,6 +808,7 @@ export const chatMessage: StateCreator<
               // The streamed content remains authoritative until a later refresh succeeds.
             }
           }
+          if (!isCurrentRequest()) return { persistenceAmbiguous: false };
           internal_dispatchMessage({ id, type: 'updateMessage', value: update }, dispatchContext);
           return { persistenceAmbiguous: true };
         }
@@ -731,11 +833,14 @@ export const chatMessage: StateCreator<
     } else {
       await messageService.updateMessage(id, update);
     }
-    if (!extra?.skipRefresh) await refreshMessages(conversationContext);
+    if (isCurrentRequest() && !extra?.skipRefresh) await refreshMessages(conversationContext);
     return { persistenceAmbiguous: false };
   },
 
   internal_createMessage: async (message, context) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const {
       internal_createTmpMessage,
       refreshMessages,
@@ -748,6 +853,18 @@ export const chatMessage: StateCreator<
     const dispatchContext = conversationContext
       ? { sessionId: conversationContext.sessionId, topicId: conversationContext.topicId }
       : { sessionId: message.sessionId, topicId: message.topicId };
+    const requestedSessionId = conversationContext?.sessionId ?? get().activeId;
+    const requestedTopicId = conversationContext?.topicId ?? get().activeTopicId;
+    const isCurrentAccount = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot);
+    const isCurrentConversation = () =>
+      isCurrentAccount() &&
+      get().conversationClearGeneration === conversationClearGeneration &&
+      (conversationContext
+        ? true
+        : get().activeId === requestedSessionId && get().activeTopicId === requestedTopicId);
+    if (!isCurrentConversation()) return;
+
     let tempId = context?.tempMessageId;
     if (!tempId) {
       // use optimistic update to avoid the slow waiting
@@ -765,7 +882,7 @@ export const chatMessage: StateCreator<
               expectedConversationVersion: context.expectedConversationVersion,
             });
     } catch (error) {
-      if (get().conversationClearGeneration !== conversationClearGeneration) return;
+      if (!isCurrentConversation()) return;
 
       internal_toggleMessageLoading(false, tempId);
       internal_dispatchMessage(
@@ -785,7 +902,8 @@ export const chatMessage: StateCreator<
       return;
     }
 
-    if (get().conversationClearGeneration !== conversationClearGeneration) {
+    if (!isCurrentAccount()) return;
+    if (!isCurrentConversation()) {
       await messageService.removeMessage(id);
       return;
     }
@@ -812,12 +930,25 @@ export const chatMessage: StateCreator<
       }
     }
 
-    internal_toggleMessageLoading(false, tempId);
+    if (isCurrentConversation()) internal_toggleMessageLoading(false, tempId);
     return id;
   },
 
   internal_fetchMessages: async () => {
-    const messages = await messageService.getMessages(get().activeId, get().activeTopicId);
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
+
+    const messages = await messageService.getMessages(requestedSessionId, requestedTopicId);
+    if (!isCurrentRequest()) return;
+
     const nextMap = { ...get().messagesMap, [chatSelectors.currentChatKey(get())]: messages };
     // no need to update map if the messages have been init and the map is the same
     if (get().messagesInit && isEqual(nextMap, get().messagesMap)) return;
@@ -838,11 +969,25 @@ export const chatMessage: StateCreator<
     return tempId;
   },
   internal_deleteMessage: async (id: string) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
+
     get().internal_dispatchMessage({ type: 'deleteMessage', id });
     await messageService.removeMessage(id);
-    await get().refreshMessages();
+    if (isCurrentRequest()) await get().refreshMessages();
   },
   internal_traceMessage: async (id, payload) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     // tracing the diff of update
     const message = chatSelectors.getMessageById(id)(get());
     if (!message) return;

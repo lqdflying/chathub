@@ -17,6 +17,11 @@ import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { CreateTopicParams } from '@/services/topic/type';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
+import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
@@ -40,10 +45,62 @@ const n = setNamespace('t');
 const SWR_USE_FETCH_TOPIC = 'SWR_USE_FETCH_TOPIC';
 const SWR_USE_SEARCH_TOPIC = 'SWR_USE_SEARCH_TOPIC';
 
+const topicLoadingOperations = new Map<string, Set<string>>();
+
+const getTopicLoadingOperationKey = (
+  scope: string,
+  ownershipInvalidationGeneration: number,
+  conversationGeneration: number,
+  containerId: string,
+  topicId: string,
+): string =>
+  `${scope}:${ownershipInvalidationGeneration}:${conversationGeneration}:${containerId}:${topicId}`;
+
+const acquireTopicLoadingOperation = (loadingOperationKey: string, operationId: string): void => {
+  const operations = topicLoadingOperations.get(loadingOperationKey) ?? new Set<string>();
+  operations.add(operationId);
+  topicLoadingOperations.set(loadingOperationKey, operations);
+};
+
+const releaseTopicLoadingOperation = (loadingOperationKey: string, operationId: string): void => {
+  const operations = topicLoadingOperations.get(loadingOperationKey);
+  if (!operations?.delete(operationId)) return;
+  if (operations.size > 0) return;
+
+  topicLoadingOperations.delete(loadingOperationKey);
+};
+
+const hasTopicLoadingOperation = (loadingOperationKey: string): boolean => {
+  return (topicLoadingOperations.get(loadingOperationKey)?.size ?? 0) > 0;
+};
+
+const hasCurrentTopicLoadingOperation = (
+  state: Pick<ChatStore, 'activeId' | 'conversationClearGeneration'>,
+  topicId: string,
+): boolean => {
+  const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+  if (!accountMutationSnapshot || !state.activeId) return true;
+
+  const loadingOperationKey = getTopicLoadingOperationKey(
+    accountMutationSnapshot.scope,
+    accountMutationSnapshot.ownershipInvalidationGeneration,
+    state.conversationClearGeneration,
+    state.activeId,
+    topicId,
+  );
+
+  return hasTopicLoadingOperation(loadingOperationKey);
+};
+
+interface TopicRefreshContext {
+  accountMutationSnapshot: AccountMutationSnapshot;
+  containerId: string;
+}
+
 export interface ChatTopicAction {
   favoriteTopic: (id: string, favState: boolean) => Promise<void>;
   openNewTopicOrSaveTopic: () => Promise<void>;
-  refreshTopic: () => Promise<void>;
+  refreshTopic: (context?: TopicRefreshContext) => Promise<void>;
   removeAllTopics: () => Promise<void>;
   removeSessionTopics: () => Promise<void>;
   removeGroupTopics: (groupId: string) => Promise<void>;
@@ -90,24 +147,29 @@ export const chatTopic: StateCreator<
 > = (set, get) => ({
   // create
   openNewTopicOrSaveTopic: async () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const { switchTopic, saveToTopic, refreshMessages, activeTopicId } = get();
     const hasTopic = !!activeTopicId;
 
     if (hasTopic) switchTopic();
     else {
       await saveToTopic();
-      refreshMessages();
+      if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
+        await refreshMessages();
+      }
     }
   },
 
   createTopic: async (sessionId, groupId, expectedConversationVersion) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
     const { activeId, activeSessionType, internal_createTopic } = get();
-    if (!requestedScope || !activeId) return;
+    if (!accountMutationSnapshot || !activeId) return;
     const creatingTopicId = `topic-create-${nanoid(8)}`;
     const isCurrentRequest = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === activeId;
     const clearCurrentTopicCreation = () => {
@@ -140,11 +202,19 @@ export const chatTopic: StateCreator<
   },
 
   saveToTopic: async (sessionId, groupId) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     // if there is no message, stop
     const messages = chatSelectors.activeBaseChats(get());
     if (messages.length === 0) return;
 
     const { activeId, activeSessionType, summaryTopicTitle, internal_createTopic } = get();
+    const requestedGeneration = get().conversationClearGeneration;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === activeId;
 
     // 1. create topic and bind these messages
     const topicId = await internal_createTopic({
@@ -154,7 +224,7 @@ export const chatTopic: StateCreator<
         ? { groupId: groupId || activeId }
         : { sessionId: sessionId || activeId }),
     });
-    if (!topicId) return;
+    if (!topicId || !isCurrentRequest()) return;
 
     get().internal_updateTopicLoading(topicId, true);
     // 2. auto summary topic Title
@@ -189,12 +259,12 @@ export const chatTopic: StateCreator<
   },
 
   duplicateTopic: async (id) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
     const requestedContainerId = get().activeId;
-    if (!requestedScope || !requestedContainerId) return;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
     const isCurrentRequest = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedContainerId;
 
@@ -219,7 +289,7 @@ export const chatTopic: StateCreator<
         expectedConversationVersion,
       });
     } finally {
-      message.destroy(loadingMessageKey);
+      if (isCurrentRequest()) message.destroy(loadingMessageKey);
     }
     if (!isCurrentRequest()) return;
 
@@ -232,22 +302,36 @@ export const chatTopic: StateCreator<
   },
   // update
   summaryTopicTitle: async (topicId, messages) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
     const requestedContainerId = get().activeId;
-    if (!requestedScope || !requestedContainerId) return;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
+    const requestedScope = accountMutationSnapshot.scope;
 
     const topic = get().topicMaps[requestedContainerId]?.find((item) => item.id === topicId);
     if (!topic) return;
 
     const previousOperation = get().topicTitleSummaryOperations[topicId];
     previousOperation?.abortController.abort();
+    if (previousOperation) {
+      releaseTopicLoadingOperation(
+        previousOperation.loadingOperationKey,
+        previousOperation.operationId,
+      );
+    }
 
     const operationId = `topic-summary-${nanoid(8)}`;
     const abortController = new AbortController();
     const originalTitle = previousOperation?.originalTitle ?? topic.title;
+    const loadingOperationKey = getTopicLoadingOperationKey(
+      accountMutationSnapshot.scope,
+      accountMutationSnapshot.ownershipInvalidationGeneration,
+      requestedGeneration,
+      requestedContainerId,
+      topicId,
+    );
     const isCurrentTopicRequest = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedContainerId &&
       get().topicTitleSummaryOperations[topicId]?.operationId === operationId;
@@ -276,10 +360,18 @@ export const chatTopic: StateCreator<
       );
     };
     const finishOwnedOperation = (restoreOriginalTitle: boolean) => {
+      releaseTopicLoadingOperation(loadingOperationKey, operationId);
+      const shouldClearLoading = !hasCurrentTopicLoadingOperation(get(), topicId);
       set(
         (state) => {
           const operation = state.topicTitleSummaryOperations[topicId];
-          if (operation?.operationId !== operationId) return state;
+          if (operation?.operationId !== operationId) {
+            if (!shouldClearLoading || !state.topicLoadingIds.includes(topicId)) return state;
+
+            return {
+              topicLoadingIds: state.topicLoadingIds.filter((id) => id !== topicId),
+            };
+          }
 
           const nextOperations = { ...state.topicTitleSummaryOperations };
           delete nextOperations[topicId];
@@ -294,7 +386,9 @@ export const chatTopic: StateCreator<
             : topics;
 
           return {
-            topicLoadingIds: state.topicLoadingIds.filter((id) => id !== topicId),
+            topicLoadingIds: shouldClearLoading
+              ? state.topicLoadingIds.filter((id) => id !== topicId)
+              : state.topicLoadingIds,
             topicMaps:
               nextTopics === topics
                 ? state.topicMaps
@@ -307,6 +401,7 @@ export const chatTopic: StateCreator<
       );
     };
 
+    acquireTopicLoadingOperation(loadingOperationKey, operationId);
     set(
       (state) => ({
         topicLoadingIds: state.topicLoadingIds.includes(topicId)
@@ -324,6 +419,7 @@ export const chatTopic: StateCreator<
             abortController,
             containerId: requestedContainerId,
             displayedTitle: LOADING_FLAT,
+            loadingOperationKey,
             operationId,
             originalTitle,
           },
@@ -382,10 +478,30 @@ export const chatTopic: StateCreator<
     }
   },
   favoriteTopic: async (id, favorite) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     await get().internal_updateTopic(id, { favorite });
   },
 
   updateTopicTitle: async (id, title) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
+    const operationId = `topic-title-update-${nanoid(8)}`;
+    const loadingOperationKey = getTopicLoadingOperationKey(
+      accountMutationSnapshot.scope,
+      accountMutationSnapshot.ownershipInvalidationGeneration,
+      requestedGeneration,
+      requestedContainerId,
+      id,
+    );
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId;
+
     const lastActivityAt = Date.now();
     get().internal_dispatchTopic({
       id,
@@ -393,20 +509,52 @@ export const chatTopic: StateCreator<
       type: 'updateTopic',
       value: { lastActivityAt, title },
     });
+    acquireTopicLoadingOperation(loadingOperationKey, operationId);
     get().internal_updateTopicLoading(id, true);
-    await topicService.updateTopic(id, { title }, { touchActivity: true });
-    await get().refreshTopic();
-    get().internal_updateTopicLoading(id, false);
+    try {
+      await topicService.updateTopic(id, { title }, { touchActivity: true });
+      if (!isCurrentRequest()) return;
+
+      await get().refreshTopic();
+    } finally {
+      releaseTopicLoadingOperation(loadingOperationKey, operationId);
+      if (!hasCurrentTopicLoadingOperation(get(), id)) {
+        get().internal_updateTopicLoading(id, false);
+      }
+    }
   },
 
   autoRenameTopicTitle: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
     const { activeId: sessionId, summaryTopicTitle, internal_updateTopicLoading } = get();
+    if (!accountMutationSnapshot || !sessionId) return;
+    const operationId = `topic-auto-rename-${nanoid(8)}`;
+    const loadingOperationKey = getTopicLoadingOperationKey(
+      accountMutationSnapshot.scope,
+      accountMutationSnapshot.ownershipInvalidationGeneration,
+      requestedGeneration,
+      sessionId,
+      id,
+    );
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === sessionId;
 
+    acquireTopicLoadingOperation(loadingOperationKey, operationId);
     internal_updateTopicLoading(id, true);
-    const messages = await messageService.getMessages(sessionId, id);
+    try {
+      const messages = await messageService.getMessages(sessionId, id);
+      if (!isCurrentRequest()) return;
 
-    await summaryTopicTitle(id, messages);
-    internal_updateTopicLoading(id, false);
+      await summaryTopicTitle(id, messages);
+    } finally {
+      releaseTopicLoadingOperation(loadingOperationKey, operationId);
+      if (!hasCurrentTopicLoadingOperation(get(), id)) {
+        internal_updateTopicLoading(id, false);
+      }
+    }
   },
 
   // query
@@ -510,16 +658,34 @@ export const chatTopic: StateCreator<
   },
   // delete
   removeSessionTopics: async () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
     const { switchTopic, activeId, refreshTopic } = get();
+    if (!accountMutationSnapshot || !activeId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === activeId;
 
     await topicService.removeTopics(activeId);
+    if (!isCurrentRequest()) return;
+
     await refreshTopic();
+    if (!isCurrentRequest()) return;
 
     // switch to default topic
     switchTopic();
   },
 
   removeGroupTopics: async (groupId: string) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId;
     const { switchTopic, refreshTopic } = get();
 
     // Get topics for this specific group from the topic map
@@ -528,39 +694,77 @@ export const chatTopic: StateCreator<
 
     if (topicIds.length > 0) {
       await topicService.batchRemoveTopics(topicIds);
+      if (!isCurrentRequest()) return;
     }
 
     await refreshTopic();
+    if (!isCurrentRequest()) return;
 
     // switch to default topic
     switchTopic();
   },
   removeAllTopics: async () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId;
     const { refreshTopic } = get();
 
     await topicService.removeAllTopic();
-    await refreshTopic();
+    if (isCurrentRequest()) await refreshTopic();
   },
   removeTopic: async (id) => {
-    const { activeId, activeTopicId, switchTopic, refreshTopic } = get();
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedContainerId = get().activeId;
+    const requestedActiveTopicId = get().activeTopicId;
+    const requestedTopicId = id;
+    const { switchTopic } = get();
+    if (!accountMutationSnapshot || !requestedContainerId || !requestedTopicId) return;
+    const isPersistenceCurrent = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot);
+    const isUiContinuationCurrent = () =>
+      isPersistenceCurrent() &&
+      get().activeId === requestedContainerId &&
+      get().activeTopicId === requestedActiveTopicId;
 
     // remove messages in the topic
     // TODO: Need to remove because server service don't need to call it
-    await messageService.removeMessagesByAssistant(activeId, id);
+    await messageService.removeMessagesByAssistant(requestedContainerId, requestedTopicId);
+    if (!isPersistenceCurrent()) return;
 
     // remove topic
-    await topicService.removeTopic(id);
-    await refreshTopic();
+    await topicService.removeTopic(requestedTopicId);
+    if (!isPersistenceCurrent()) return;
+
+    await get().refreshTopic({ accountMutationSnapshot, containerId: requestedContainerId });
+    if (!isUiContinuationCurrent()) return;
 
     // switch bach to default topic
-    if (activeTopicId === id) switchTopic();
+    if (requestedActiveTopicId === requestedTopicId) {
+      switchTopic();
+    }
   },
   removeUnstarredTopic: async () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId;
     const { refreshTopic, switchTopic } = get();
     const topics = topicSelectors.currentUnFavTopics(get());
 
     await topicService.batchRemoveTopics(topics.map((t) => t.id));
+    if (!isCurrentRequest()) return;
+
     await refreshTopic();
+    if (!isCurrentRequest()) return;
 
     // 切换到默认 topic
     switchTopic();
@@ -573,17 +777,28 @@ export const chatTopic: StateCreator<
       'updateTopicTitleInSummary',
     );
   },
-  refreshTopic: async () => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!requestedScope) return;
+  refreshTopic: async (context) => {
+    const accountMutationSnapshot =
+      context?.accountMutationSnapshot ??
+      captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+    const containerId = context?.containerId ?? get().activeId;
+    if (!containerId) return;
+    if (!isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) return;
 
-    return mutateAccountSWR([SWR_USE_FETCH_TOPIC, requestedScope, get().activeId]);
+    await mutateAccountSWR([SWR_USE_FETCH_TOPIC, accountMutationSnapshot.scope, containerId]);
+    if (!isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) return;
   },
 
   internal_updateTopicLoading: (id, loading) => {
     set(
       (state) => {
-        if (loading) return { topicLoadingIds: [...state.topicLoadingIds, id] };
+        if (loading) {
+          if (state.topicLoadingIds.includes(id)) return state;
+
+          return { topicLoadingIds: [...state.topicLoadingIds, id] };
+        }
+        if (!state.topicLoadingIds.includes(id)) return state;
 
         return { topicLoadingIds: state.topicLoadingIds.filter((i) => i !== id) };
       },
@@ -593,67 +808,101 @@ export const chatTopic: StateCreator<
   },
 
   internal_updateTopic: async (id, data) => {
-    get().internal_dispatchTopic({ type: 'updateTopic', id, value: data });
-
-    get().internal_updateTopicLoading(id, true);
-    await topicService.updateTopic(id, data);
-    await get().refreshTopic();
-    get().internal_updateTopicLoading(id, false);
-  },
-  internal_createTopic: async (params, expectedConversationVersion) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
     const requestedContainerId = get().activeId;
-    if (!requestedScope || !requestedContainerId) return;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
+    const operationId = `topic-update-${nanoid(8)}`;
+    const loadingOperationKey = getTopicLoadingOperationKey(
+      accountMutationSnapshot.scope,
+      accountMutationSnapshot.ownershipInvalidationGeneration,
+      requestedGeneration,
+      requestedContainerId,
+      id,
+    );
     const isCurrentRequest = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedContainerId;
 
-    const tmpId = Date.now().toString();
-    const clearTemporaryTopic = () => {
-      set(
-        (state) => ({
-          topicLoadingIds: state.topicLoadingIds.filter((id) => id !== tmpId),
-          topicMaps: {
-            ...state.topicMaps,
-            [requestedContainerId]: (state.topicMaps[requestedContainerId] || []).filter(
-              (topic) => topic.id !== tmpId,
-            ),
-          },
-        }),
-        false,
-        n('internal_createTopic/clearTemporaryTopic', { requestedContainerId, tmpId }),
-      );
-    };
+    get().internal_dispatchTopic({ type: 'updateTopic', id, value: data });
+
+    acquireTopicLoadingOperation(loadingOperationKey, operationId);
+    get().internal_updateTopicLoading(id, true);
+    try {
+      await topicService.updateTopic(id, data);
+      if (!isCurrentRequest()) return;
+
+      await get().refreshTopic();
+    } finally {
+      releaseTopicLoadingOperation(loadingOperationKey, operationId);
+      if (!hasCurrentTopicLoadingOperation(get(), id)) {
+        get().internal_updateTopicLoading(id, false);
+      }
+    }
+  },
+  internal_createTopic: async (params, expectedConversationVersion) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedContainerId = get().activeId;
+    if (!accountMutationSnapshot || !requestedContainerId) return;
+    const operationId = `topic-create-${nanoid(8)}`;
+    const loadingOperationKey = getTopicLoadingOperationKey(
+      accountMutationSnapshot.scope,
+      accountMutationSnapshot.ownershipInvalidationGeneration,
+      requestedGeneration,
+      requestedContainerId,
+      operationId,
+    );
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedContainerId;
+
+    const tmpId = `topic-temp-${nanoid(8)}`;
     get().internal_dispatchTopic(
       { type: 'addTopic', value: { ...params, id: tmpId } },
       'internal_createTopic',
     );
 
+    acquireTopicLoadingOperation(loadingOperationKey, operationId);
     get().internal_updateTopicLoading(tmpId, true);
-    const topicId = await topicService.createTopic(
-      params,
-      expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
-    );
-    if (!isCurrentRequest()) {
-      clearTemporaryTopic();
-      return;
+    try {
+      const topicId = await topicService.createTopic(
+        params,
+        expectedConversationVersion === undefined ? undefined : { expectedConversationVersion },
+      );
+      if (!isCurrentRequest()) return;
+
+      await get().refreshTopic();
+      if (!isCurrentRequest()) return;
+
+      return topicId;
+    } finally {
+      releaseTopicLoadingOperation(loadingOperationKey, operationId);
+      set(
+        (state) => {
+          const topics = state.topicMaps[requestedContainerId];
+          const hasTemporaryTopic = topics?.some((topic) => topic.id === tmpId) ?? false;
+          const hasTemporaryLoading = state.topicLoadingIds.includes(tmpId);
+          if (!hasTemporaryTopic && !hasTemporaryLoading) return state;
+
+          return {
+            topicLoadingIds: hasTemporaryLoading
+              ? state.topicLoadingIds.filter((topicId) => topicId !== tmpId)
+              : state.topicLoadingIds,
+            topicMaps: hasTemporaryTopic
+              ? {
+                  ...state.topicMaps,
+                  [requestedContainerId]: topics!.filter((topic) => topic.id !== tmpId),
+                }
+              : state.topicMaps,
+          };
+        },
+        false,
+        n('internal_createTopic/cleanup', { operationId, requestedContainerId, tmpId }),
+      );
     }
-
-    get().internal_updateTopicLoading(tmpId, false);
-
-    get().internal_updateTopicLoading(topicId, true);
-    await get().refreshTopic();
-    if (!isCurrentRequest()) {
-      clearTemporaryTopic();
-      get().internal_updateTopicLoading(topicId, false);
-      return;
-    }
-
-    get().internal_updateTopicLoading(topicId, false);
-
-    return topicId;
   },
 
   internal_dispatchTopic: (payload, action) => {

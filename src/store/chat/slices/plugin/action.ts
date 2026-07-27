@@ -27,9 +27,17 @@ import { mcpService } from '@/services/mcp';
 import { createMCPChatMessageError } from '@/services/mcpError';
 import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
+import type { AccountMutationSnapshot } from '@/store/accountMutation';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
+import type { ConversationContext } from '@/store/chat/types';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
+import { useUserStore } from '@/store/user';
 import { builtinTools } from '@/tools';
 import { merge } from '@/utils/merge';
 import { safeParseJSON } from '@/utils/safeParseJSON';
@@ -56,6 +64,122 @@ interface ToolInvocationResult {
   outcome?: ToolDiagnosticTerminalOutcome;
   shouldContinue?: boolean;
 }
+
+interface PluginMessageResource {
+  mapKey: string;
+  message: UIChatMessage;
+  messageId: string;
+  sessionId?: string;
+  topicId?: string | null;
+}
+
+const createPluginMessageResource = (
+  mapKey: string,
+  message: UIChatMessage,
+): PluginMessageResource => {
+  const keySeparatorIndex = mapKey.lastIndexOf('_');
+  const keySessionId =
+    keySeparatorIndex >= 0 ? mapKey.slice(0, keySeparatorIndex) : undefined;
+  const keyTopicId =
+    keySeparatorIndex >= 0 ? mapKey.slice(keySeparatorIndex + 1) : undefined;
+
+  return {
+    mapKey,
+    message,
+    messageId: message.id,
+    sessionId: message.sessionId ?? message.groupId ?? keySessionId,
+    topicId: message.topicId ?? (keyTopicId === 'null' ? null : keyTopicId),
+  };
+};
+
+const resolvePluginMessageResource = (
+  state: ChatStore,
+  messageId: string,
+): PluginMessageResource | undefined => {
+  for (const [mapKey, messages] of Object.entries(state.messagesMap)) {
+    const message = messages.find(({ id }) => id === messageId);
+    if (!message) continue;
+
+    return createPluginMessageResource(mapKey, message);
+  }
+};
+
+const isPluginMessageResourceCurrent = (
+  state: ChatStore,
+  resource: PluginMessageResource | undefined,
+): boolean => {
+  if (!resource) return true;
+
+  const currentMessage = state.messagesMap[resource.mapKey]?.find(
+    ({ id }) => id === resource.messageId,
+  );
+  if (!currentMessage) return false;
+  const currentResource = createPluginMessageResource(resource.mapKey, currentMessage);
+
+  if (resource.sessionId && currentResource.sessionId !== resource.sessionId) {
+    return false;
+  }
+
+  if (resource.topicId !== undefined && currentResource.topicId !== resource.topicId) {
+    return false;
+  }
+
+  return true;
+};
+
+const isPluginMutationCurrent = (
+  state: ChatStore,
+  accountMutationSnapshot: AccountMutationSnapshot,
+  resource: PluginMessageResource | undefined,
+): boolean =>
+  isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+  isPluginMessageResourceCurrent(state, resource);
+
+const createResourceConversationContext = (
+  resource: PluginMessageResource | undefined,
+  generation: number,
+): ConversationContext | undefined => {
+  if (!resource?.sessionId) return;
+
+  return {
+    generation,
+    sessionId: resource.sessionId,
+    topicId: resource.topicId,
+  };
+};
+
+const isPluginMessageResourceActive = (
+  state: ChatStore,
+  resource: PluginMessageResource | undefined,
+): boolean =>
+  !resource || resource.mapKey === messageMapKey(state.activeId, state.activeTopicId);
+
+const createResourceDispatchContext = (
+  state: ChatStore,
+  resource: PluginMessageResource | undefined,
+) => {
+  if (!resource?.sessionId || isPluginMessageResourceActive(state, resource)) return;
+
+  return { sessionId: resource.sessionId, topicId: resource.topicId };
+};
+
+const dispatchPluginMessage = (
+  state: ChatStore,
+  resource: PluginMessageResource | undefined,
+  payload: Parameters<ChatStore['internal_dispatchMessage']>[0],
+) => {
+  const dispatchContext = createResourceDispatchContext(state, resource);
+  if (dispatchContext) {
+    state.internal_dispatchMessage(payload, dispatchContext);
+  } else {
+    state.internal_dispatchMessage(payload);
+  }
+};
+
+const getPluginMessageById = (
+  state: ChatStore,
+  messageId: string,
+): UIChatMessage | undefined => resolvePluginMessageResource(state, messageId)?.message;
 
 const resolveToolDiagnosticRuntimeType = (
   payload: ExecutableChatToolPayload,
@@ -181,6 +305,17 @@ export const chatPlugin: StateCreator<
   ChatPluginAction
 > = (set, get) => ({
   createAssistantMessageByPlugin: async (content, parentId) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
     const newMessage: CreateMessageParams = {
       content,
       parentId,
@@ -190,19 +325,41 @@ export const chatPlugin: StateCreator<
     };
 
     await messageService.createMessage(newMessage);
-    await get().refreshMessages();
+    if (isCurrentRequest()) await get().refreshMessages();
   },
 
   fillPluginMessageContent: async (id, content, triggerAiMessage) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
+    const invocationIsCurrent = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
     const { triggerAIMessage, internal_updateMessageContent } = get();
 
-    await internal_updateMessageContent(id, content);
+    if (conversationContext && !isPluginMessageResourceActive(get(), messageResource)) {
+      await internal_updateMessageContent(id, content, { conversationContext });
+    } else {
+      await internal_updateMessageContent(id, content);
+    }
+    if (!invocationIsCurrent()) return;
 
-    if (triggerAiMessage) await triggerAIMessage({ parentId: id });
+    if (triggerAiMessage && isPluginMessageResourceActive(get(), messageResource)) {
+      await triggerAIMessage({ parentId: id });
+    }
   },
   invokeBuiltinTool: async (id, payload, diagnosticId) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) {
+      return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+    }
+
     const { internal_togglePluginApiCalling } = get();
-    const invocationGeneration = get().conversationClearGeneration;
+    const messageResource = resolvePluginMessageResource(get(), id);
     const params = JSON.parse(payload.arguments);
     const abortController = internal_togglePluginApiCalling(
       true,
@@ -210,7 +367,7 @@ export const chatPlugin: StateCreator<
       n('invokeBuiltinTool/start') as string,
     );
     const invocationIsCurrent = () =>
-      get().conversationClearGeneration === invocationGeneration &&
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource) &&
       !abortController?.signal.aborted;
 
     try {
@@ -302,7 +459,7 @@ export const chatPlugin: StateCreator<
         return actionResult as ToolInvocationResult;
       }
 
-      const updatedMessage = chatSelectors.getMessageById(id)(get());
+      const updatedMessage = getPluginMessageById(get(), id);
       const diagnosticError = updatedMessage?.error ?? updatedMessage?.pluginError;
 
       return {
@@ -311,28 +468,49 @@ export const chatPlugin: StateCreator<
         shouldContinue: actionResult === true,
       };
     } finally {
-      internal_togglePluginApiCalling(
-        false,
-        id,
-        n('invokeBuiltinTool/end') as string,
-        abortController,
-      );
+      if (invocationIsCurrent()) {
+        if (abortController) {
+          internal_togglePluginApiCalling(
+            false,
+            id,
+            n('invokeBuiltinTool/end') as string,
+            abortController,
+          );
+        } else {
+          internal_togglePluginApiCalling(false, id, n('invokeBuiltinTool/end') as string);
+        }
+      }
     }
   },
 
   invokeProviderBuiltinTool: async (id, payload) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const { internal_updateMessageContent } = get();
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
     // Kimi / Moonshot `$web_search`: submit `tool_call.function.arguments` verbatim as the
     // tool message content so the next completion can run search (see Moonshot docs).
     const content =
       typeof payload.arguments === 'string' && payload.arguments.trim().length > 0
         ? payload.arguments
         : '{}';
-    await internal_updateMessageContent(id, content);
+    if (conversationContext && !isPluginMessageResourceActive(get(), messageResource)) {
+      await internal_updateMessageContent(id, content, { conversationContext });
+    } else {
+      await internal_updateMessageContent(id, content);
+    }
     return content;
   },
 
   invokeDefaultTypePlugin: async (id, payload) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const { internal_callPluginApi } = get();
 
     const data = await internal_callPluginApi(id, payload);
@@ -343,14 +521,27 @@ export const chatPlugin: StateCreator<
   },
 
   invokeMarkdownTypePlugin: async (id, payload) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const { internal_callPluginApi } = get();
 
     await internal_callPluginApi(id, payload);
   },
 
   invokeStandaloneTypePlugin: async (id, payload) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
+    const invocationIsCurrent = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
     const result = await useToolStore.getState().validatePluginSettings(payload.identifier);
-    if (!result) return;
+    if (!result || !invocationIsCurrent()) return;
 
     // if the plugin settings is not valid, then set the message with error type
     if (!result.valid) {
@@ -363,13 +554,20 @@ export const chatPlugin: StateCreator<
         type: PluginErrorType.PluginSettingsInvalid as any,
       });
 
-      await get().refreshMessages();
+      if (invocationIsCurrent()) {
+        await get().refreshMessages(
+          isPluginMessageResourceActive(get(), messageResource) ? undefined : conversationContext,
+        );
+      }
       return;
     }
   },
 
   reInvokeToolMessage: async (id) => {
-    const message = chatSelectors.getMessageById(id)(get());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const message = getPluginMessageById(get(), id);
     if (!message || message.role !== 'tool' || !message.plugin) return;
 
     // if there is error content, then clear the error
@@ -392,6 +590,9 @@ export const chatPlugin: StateCreator<
     inSearchWorkflow,
     toolCacheDebug,
   }) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const { internal_coreProcessMessage } = get();
 
     // Pass the complete conversation to the shared context-engine truncation.
@@ -415,7 +616,13 @@ export const chatPlugin: StateCreator<
   },
 
   summaryPluginContent: async (id) => {
-    const message = chatSelectors.getMessageById(id)(get());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const message = isPluginMessageResourceActive(get(), messageResource)
+      ? chatSelectors.getMessageById(id)(get())
+      : messageResource?.message;
     if (!message || message.role !== 'tool') return;
 
     await get().internal_coreProcessMessage(
@@ -446,13 +653,21 @@ export const chatPlugin: StateCreator<
       inSearchWorkflow,
     } = {},
   ) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const invocationGeneration = get().conversationClearGeneration;
+    const assistantResource = resolvePluginMessageResource(get(), assistantId);
+    const invocationIsCurrent = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, assistantResource) &&
+      get().conversationClearGeneration === invocationGeneration &&
+      isPluginMessageResourceActive(get(), assistantResource);
+    if (!assistantResource || !invocationIsCurrent()) return;
+    const message = assistantResource.message;
+    if (!message.tools) return;
     const resolvedConversationVersion =
       expectedConversationVersion ?? (await messageService.getConversationVersion());
-    const invocationGeneration = get().conversationClearGeneration;
-    const invocationIsCurrent = () =>
-      get().conversationClearGeneration === invocationGeneration;
-    const message = chatSelectors.getMessageById(assistantId)(get());
-    if (!message || !message.tools) return;
+    if (!invocationIsCurrent()) return;
 
     const { cacheContinuationEnabled, toolLifecycleEnabled } =
       await toolTelemetryService.getCapabilities();
@@ -490,10 +705,10 @@ export const chatPlugin: StateCreator<
         parentId: assistantId,
         plugin: payload,
         role: 'tool',
-        sessionId: get().activeId,
+        sessionId: assistantResource.sessionId,
         tool_call_id: payload.id,
         threadId,
-        topicId: get().activeTopicId, // if there is activeTopicId，then add it to topicId
+        topicId: assistantResource.topicId,
         groupId: message.groupId, // Propagate groupId from parent message for group chat
       };
 
@@ -545,7 +760,7 @@ export const chatPlugin: StateCreator<
           'data' in rawInvocationResult
             ? rawInvocationResult
             : { data: rawInvocationResult };
-        const updatedMessage = chatSelectors.getMessageById(id)(get());
+        const updatedMessage = getPluginMessageById(get(), id);
         const outcome =
           invocationResult.outcome ??
           (updatedMessage?.error || updatedMessage?.pluginError ? 'failed' : 'completed');
@@ -665,21 +880,55 @@ export const chatPlugin: StateCreator<
     });
   },
   updatePluginState: async (id, value) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
+    const isCurrentRequest = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
+    if (!isCurrentRequest()) return;
     const { refreshMessages } = get();
 
     // optimistic update
-    get().internal_dispatchMessage({ id, type: 'updateMessage', value: { pluginState: value } });
+    dispatchPluginMessage(get(), messageResource, {
+      id,
+      type: 'updateMessage',
+      value: { pluginState: value },
+    });
 
     await messageService.updateMessagePluginState(id, value);
-    await refreshMessages();
+    if (isCurrentRequest()) {
+      if (isPluginMessageResourceActive(get(), messageResource)) {
+        await refreshMessages();
+      } else {
+        await refreshMessages(conversationContext);
+      }
+    }
   },
 
   updatePluginArguments: async (id, value, replace = false) => {
-    const { refreshMessages } = get();
-    const toolMessage = chatSelectors.getMessageById(id)(get());
-    if (!toolMessage || !toolMessage?.tool_call_id) return;
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
 
-    let assistantMessage = chatSelectors.getMessageById(toolMessage?.parentId || '')(get());
+    const toolMessageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      toolMessageResource,
+      get().conversationClearGeneration,
+    );
+    const isCurrentRequest = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, toolMessageResource);
+    const { refreshMessages } = get();
+    const toolMessage = toolMessageResource?.message;
+    if (!toolMessage || !toolMessage?.tool_call_id || !isCurrentRequest()) return;
+
+    const assistantResource = toolMessage.parentId
+      ? resolvePluginMessageResource(get(), toolMessage.parentId)
+      : undefined;
+    let assistantMessage = assistantResource?.message;
 
     const prevArguments = toolMessage?.plugin?.arguments;
     const prevJson = safeParseJSON(prevArguments || '');
@@ -687,7 +936,7 @@ export const chatPlugin: StateCreator<
     if (isEqual(prevJson, nextValue)) return;
 
     // optimistic update
-    get().internal_dispatchMessage({
+    dispatchPluginMessage(get(), toolMessageResource, {
       id,
       type: 'updateMessagePlugin',
       value: { arguments: JSON.stringify(nextValue) },
@@ -695,17 +944,18 @@ export const chatPlugin: StateCreator<
 
     // 同样需要更新 assistantMessage 的 pluginArguments
     if (assistantMessage) {
-      get().internal_dispatchMessage({
+      dispatchPluginMessage(get(), assistantResource, {
         id: assistantMessage.id,
         type: 'updateMessageTools',
         tool_call_id: toolMessage?.tool_call_id,
         value: { arguments: JSON.stringify(nextValue) },
       });
-      assistantMessage = chatSelectors.getMessageById(assistantMessage?.id)(get());
+      assistantMessage = getPluginMessageById(get(), assistantMessage.id);
     }
 
     const updateAssistantMessage = async () => {
       if (!assistantMessage) return;
+      if (!isCurrentRequest()) return;
       await messageService.updateMessage(assistantMessage!.id, {
         tools: assistantMessage?.tools,
       });
@@ -716,15 +966,25 @@ export const chatPlugin: StateCreator<
       updateAssistantMessage(),
     ]);
 
-    await refreshMessages();
+    if (isCurrentRequest()) {
+      if (isPluginMessageResourceActive(get(), toolMessageResource)) {
+        await refreshMessages();
+      } else {
+        await refreshMessages(conversationContext);
+      }
+    }
   },
 
   internal_addToolToAssistantMessage: async (id, tool) => {
-    const assistantMessage = chatSelectors.getMessageById(id)(get());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const assistantResource = resolvePluginMessageResource(get(), id);
+    const assistantMessage = assistantResource?.message;
     if (!assistantMessage) return;
 
-    const { internal_dispatchMessage, internal_refreshToUpdateMessageTools } = get();
-    internal_dispatchMessage({
+    const { internal_refreshToUpdateMessageTools } = get();
+    dispatchPluginMessage(get(), assistantResource, {
       type: 'addMessageTool',
       value: tool,
       id: assistantMessage.id,
@@ -734,77 +994,142 @@ export const chatPlugin: StateCreator<
   },
 
   internal_removeToolToAssistantMessage: async (id, tool_call_id) => {
-    const message = chatSelectors.getMessageById(id)(get());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const message = messageResource?.message;
     if (!message || !tool_call_id) return;
 
-    const { internal_dispatchMessage, internal_refreshToUpdateMessageTools } = get();
+    const { internal_refreshToUpdateMessageTools } = get();
 
     // optimistic update
-    internal_dispatchMessage({ type: 'deleteMessageTool', tool_call_id, id: message.id });
+    dispatchPluginMessage(get(), messageResource, {
+      type: 'deleteMessageTool',
+      tool_call_id,
+      id: message.id,
+    });
 
     // update the message tools
     await internal_refreshToUpdateMessageTools(id);
   },
   internal_refreshToUpdateMessageTools: async (id) => {
-    const message = chatSelectors.getMessageById(id)(get());
-    if (!message || !message.tools) return;
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
+    const isCurrentRequest = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
+    const message = messageResource?.message;
+    if (!message || !message.tools || !isCurrentRequest()) return;
 
     const { internal_toggleMessageLoading, refreshMessages } = get();
 
     internal_toggleMessageLoading(true, id);
     await messageService.updateMessage(id, { tools: message.tools });
+    if (!isCurrentRequest()) return;
     internal_toggleMessageLoading(false, id);
 
-    await refreshMessages();
+    if (isPluginMessageResourceActive(get(), messageResource)) {
+      await refreshMessages();
+    } else {
+      await refreshMessages(conversationContext);
+    }
   },
 
   internal_callPluginApi: async (id, payload) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
     const { internal_updateMessageContent, refreshMessages, internal_togglePluginApiCalling } =
       get();
     let data: string;
+    let abortController: AbortController | undefined;
+    const invocationIsCurrent = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource) &&
+      !abortController?.signal.aborted;
 
     try {
-      const abortController = internal_togglePluginApiCalling(
+      abortController = internal_togglePluginApiCalling(
         true,
         id,
         n('fetchPlugin/start') as string,
       );
 
-      const message = chatSelectors.getMessageById(id)(get());
+      const message = messageResource?.message;
 
       const res = await chatService.runPluginApi(payload, {
         signal: abortController?.signal,
         trace: { observationId: message?.observationId, traceId: message?.traceId },
       });
+      if (!invocationIsCurrent()) return;
       data = res.text;
 
       // save traceId
       if (res.traceId) {
         await messageService.updateMessage(id, { traceId: res.traceId });
+        if (!invocationIsCurrent()) return;
       }
     } catch (error) {
+      if (!invocationIsCurrent()) return;
       console.log(error);
       const err = error as Error;
 
       // ignore the aborted request error
       if (!err.message.includes('The user aborted a request.')) {
         await messageService.updateMessageError(id, error as any);
-        await refreshMessages();
+        if (invocationIsCurrent()) {
+          if (isPluginMessageResourceActive(get(), messageResource)) {
+            await refreshMessages();
+          } else {
+            await refreshMessages(conversationContext);
+          }
+        }
       }
 
       data = '';
+    } finally {
+      if (invocationIsCurrent()) {
+        if (abortController) {
+          internal_togglePluginApiCalling(
+            false,
+            id,
+            n('fetchPlugin/end') as string,
+            abortController,
+          );
+        } else {
+          internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
+        }
+      }
     }
 
-    internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
     // 如果报错则结束了
-    if (!data) return;
+    if (!data || !invocationIsCurrent()) return;
 
-    await internal_updateMessageContent(id, data);
+    if (conversationContext && !isPluginMessageResourceActive(get(), messageResource)) {
+      await internal_updateMessageContent(id, data, { conversationContext });
+    } else {
+      await internal_updateMessageContent(id, data);
+    }
 
     return data;
   },
 
   internal_invokeDifferentTypePlugin: async (id, payload, toolCacheDebug, diagnosticId) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) {
+      return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+    }
+
     if (payload.identifier === LOBE_PROVIDER_BUILTIN_IDENTIFIER) {
       const data = await get().invokeProviderBuiltinTool(id, payload);
       return { data, outcome: 'handed_off' };
@@ -832,7 +1157,7 @@ export const chatPlugin: StateCreator<
           return invocationResult;
         }
 
-        const updatedMessage = chatSelectors.getMessageById(id)(get());
+        const updatedMessage = getPluginMessageById(get(), id);
         const diagnosticError = updatedMessage?.error ?? updatedMessage?.pluginError;
 
         return {
@@ -857,8 +1182,17 @@ export const chatPlugin: StateCreator<
     }
   },
   invokeMCPTypePlugin: async (id, payload, toolCacheDebug, requestedDiagnosticId) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) {
+      return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+    }
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
     const {
-      internal_dispatchMessage,
       internal_updateMessageContent,
       internal_togglePluginApiCalling,
       internal_constructToolsCallingContext,
@@ -870,6 +1204,9 @@ export const chatPlugin: StateCreator<
       id,
       n('fetchPlugin/start') as string,
     );
+    const invocationIsCurrent = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource) &&
+      !abortController?.signal.aborted;
 
     const reportPersistenceFailure = (error: unknown, attempt: number) => {
       const responseError = findRPCResponseError(error);
@@ -895,7 +1232,7 @@ export const chatPlugin: StateCreator<
         topicId: context?.topicId,
       });
 
-      if (abortController?.signal.aborted) {
+      if (!invocationIsCurrent()) {
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
@@ -904,7 +1241,14 @@ export const chatPlugin: StateCreator<
       if (!data) return { data: undefined, outcome: 'skipped' };
 
       if (result?.persistence === 'persisted') {
-        internal_dispatchMessage({ id, type: 'updateMessage', value: { content: data } });
+        if (!invocationIsCurrent()) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
+        dispatchPluginMessage(get(), messageResource, {
+          id,
+          type: 'updateMessage',
+          value: { content: data },
+        });
         return { data };
       }
 
@@ -913,7 +1257,14 @@ export const chatPlugin: StateCreator<
       }
 
       if (result?.persistence === 'failed') {
-        internal_dispatchMessage({ id, type: 'updateMessage', value: { content: data } });
+        if (!invocationIsCurrent()) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
+        dispatchPluginMessage(get(), messageResource, {
+          id,
+          type: 'updateMessage',
+          value: { content: data },
+        });
         const { notification } = await import('@/components/AntdStaticMethods');
         notification.warning({
           description: t('mcpResultPersistence.description', { ns: 'error' }),
@@ -924,13 +1275,20 @@ export const chatPlugin: StateCreator<
 
       let persisted = false;
       for (let attempt = 1; attempt <= 2; attempt += 1) {
+        if (!invocationIsCurrent()) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
         try {
           await internal_updateMessageContent(id, data, {
             diagnosticId,
             diagnosticOperation: 'persist_tool_result',
             showNotification: false,
             skipRefresh: true,
+            conversationContext,
           });
+          if (!invocationIsCurrent()) {
+            return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+          }
           persisted = true;
           break;
         } catch (error) {
@@ -951,12 +1309,16 @@ export const chatPlugin: StateCreator<
       // ChatHub from confirming persistence. Continue the model turn in that case.
       return { data, outcome: persisted ? 'completed' : 'persistence_failed' };
     } catch (error) {
-      const wasCancelled = abortController?.signal.aborted || isAbortError(error);
+      const wasCancelled = !invocationIsCurrent() || isAbortError(error);
       if (!wasCancelled) {
         const messageError = createMCPChatMessageError(error, (type) =>
           t(`response.${type}`, { ns: 'error' }),
         );
-        internal_dispatchMessage({ id, type: 'updateMessage', value: { error: messageError } });
+        dispatchPluginMessage(get(), messageResource, {
+          id,
+          type: 'updateMessage',
+          value: { error: messageError },
+        });
 
         try {
           await messageService.updateMessage(
@@ -977,7 +1339,9 @@ export const chatPlugin: StateCreator<
         outcome: wasCancelled ? 'cancelled' : 'failed',
       };
     } finally {
-      internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string, abortController);
+      if (invocationIsCurrent()) {
+        internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string, abortController);
+      }
     }
   },
 
@@ -1050,19 +1414,40 @@ export const chatPlugin: StateCreator<
     return toolNameResolver.resolve(toolCalls, manifests);
   },
   internal_updatePluginError: async (id, error) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(
+      messageResource,
+      get().conversationClearGeneration,
+    );
+    const isCurrentRequest = () =>
+      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
+    if (!isCurrentRequest()) return;
     const { refreshMessages } = get();
 
-    get().internal_dispatchMessage({ id, type: 'updateMessage', value: { error } });
+    dispatchPluginMessage(get(), messageResource, {
+      id,
+      type: 'updateMessage',
+      value: { error },
+    });
     await messageService.updateMessage(id, { error });
-    await refreshMessages();
+    if (isCurrentRequest()) {
+      if (isPluginMessageResourceActive(get(), messageResource)) {
+        await refreshMessages();
+      } else {
+        await refreshMessages(conversationContext);
+      }
+    }
   },
 
   internal_constructToolsCallingContext: (id: string) => {
-    const message = chatSelectors.getMessageById(id)(get());
-    if (!message) return;
+    const messageResource = resolvePluginMessageResource(get(), id);
+    if (!messageResource) return;
 
     return {
-      topicId: message.topicId,
+      topicId: messageResource.topicId,
     };
   },
 });

@@ -1,8 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { AiProviderModelListItem } from 'model-bank';
 import { mutate } from 'swr';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { aiProviderService } from '@/services/aiProvider';
 import { useAiInfraStore } from '@/store/aiInfra';
 import { useUserStore } from '@/store/user';
 import type {
@@ -10,6 +11,15 @@ import type {
   AiProviderListItem,
   AiProviderRuntimeState,
 } from '@/types/aiProvider';
+
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 const swrCalls = vi.hoisted(
   () =>
@@ -71,19 +81,28 @@ const createRuntimeState = (
   },
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('AI provider runtime ownership', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     swrCalls.length = 0;
     useUserStore.setState({
       authUserId: 'account-a',
       isLoaded: true,
       isSignedIn: true,
+      ownershipInvalidationGeneration: 0,
       user: { id: 'account-a' },
+      userStateInitializationFailure: undefined,
     });
     useAiInfraStore.setState({
       activeAiProvider: undefined,
+      aiProviderConfigUpdatingIds: [],
       aiProviderDetail: undefined,
       aiProviderList: [],
+      aiProviderLoadingIds: [],
       aiProviderModelList: [],
       aiProviderRuntimeConfig: {},
       enabledAiModels: undefined,
@@ -96,6 +115,7 @@ describe('AI provider runtime ownership', () => {
       runtimeStateInitializationFailure: undefined,
       runtimeStateRequestScope: undefined,
       runtimeStateScope: undefined,
+      scopeGeneration: 0,
     });
   });
 
@@ -353,5 +373,146 @@ describe('AI provider runtime ownership', () => {
     });
 
     expect(useAiInfraStore.getState().runtimeStateInitializationFailure).toBeUndefined();
+  });
+});
+
+describe('AI provider mutation ownership', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useUserStore.setState({
+      authUserId: 'account-a',
+      isLoaded: true,
+      isSignedIn: true,
+      ownershipInvalidationGeneration: 0,
+      user: { id: 'account-a' },
+      userStateInitializationFailure: undefined,
+    });
+    useAiInfraStore.setState({
+      activeAiProvider: 'active-provider',
+      aiProviderConfigUpdatingIds: [],
+      aiProviderLoadingIds: [],
+      scopeGeneration: 0,
+    });
+  });
+
+  it('blocks every provider persistence action during an active owner mismatch', async () => {
+    const createProvider = vi.spyOn(aiProviderService, 'createAiProvider');
+    const deleteProvider = vi.spyOn(aiProviderService, 'deleteAiProvider');
+    const toggleProvider = vi.spyOn(aiProviderService, 'toggleProviderEnabled');
+    const updateProvider = vi.spyOn(aiProviderService, 'updateAiProvider');
+    const updateProviderConfig = vi.spyOn(aiProviderService, 'updateAiProviderConfig');
+    const updateProviderOrder = vi.spyOn(aiProviderService, 'updateAiProviderOrder');
+    useUserStore.setState({
+      ownershipInvalidationGeneration: 1,
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      },
+    });
+
+    const store = useAiInfraStore.getState();
+    await store.createNewAiProvider({
+      id: 'custom-provider',
+      name: 'Custom Provider',
+      source: 'custom',
+    });
+    await store.deleteAiProvider('provider-delete');
+    await store.removeAiProvider('provider-remove');
+    await store.toggleProviderEnabled('provider-toggle', true);
+    await store.updateAiProvider('provider-update', { name: 'Updated Provider' });
+    await store.updateAiProviderConfig('provider-config', { config: {} });
+    await store.updateAiProviderSort([{ id: 'provider-sort', sort: 1 }]);
+
+    expect(createProvider).not.toHaveBeenCalled();
+    expect(deleteProvider).not.toHaveBeenCalled();
+    expect(toggleProvider).not.toHaveBeenCalled();
+    expect(updateProvider).not.toHaveBeenCalled();
+    expect(updateProviderConfig).not.toHaveBeenCalled();
+    expect(updateProviderOrder).not.toHaveBeenCalled();
+    expect(useAiInfraStore.getState().aiProviderLoadingIds).toEqual([]);
+    expect(useAiInfraStore.getState().aiProviderConfigUpdatingIds).toEqual([]);
+  });
+
+  it('quarantines an A-B-A provider completion without stale loading cleanup', async () => {
+    const updateFinished = createDeferred<void>();
+    vi.spyOn(aiProviderService, 'updateAiProvider').mockReturnValue(updateFinished.promise);
+    const refreshList = vi
+      .spyOn(useAiInfraStore.getState(), 'refreshAiProviderList')
+      .mockResolvedValue();
+    const refreshDetail = vi
+      .spyOn(useAiInfraStore.getState(), 'refreshAiProviderDetail')
+      .mockResolvedValue();
+
+    const updatePromise = useAiInfraStore
+      .getState()
+      .updateAiProvider('provider-a', { name: 'Account A Provider' });
+    expect(useAiInfraStore.getState().aiProviderLoadingIds).toEqual(['provider-a']);
+
+    useUserStore.setState({
+      authUserId: 'account-b',
+      ownershipInvalidationGeneration: 1,
+      user: { id: 'account-b' },
+    });
+    useUserStore.setState({
+      authUserId: 'account-a',
+      user: { id: 'account-a' },
+    });
+    useAiInfraStore.setState({
+      aiProviderLoadingIds: ['new-account-provider'],
+      scopeGeneration: 1,
+    });
+    updateFinished.resolve();
+    await updatePromise;
+
+    expect(refreshList).not.toHaveBeenCalled();
+    expect(refreshDetail).not.toHaveBeenCalled();
+    expect(useAiInfraStore.getState().aiProviderLoadingIds).toEqual(['new-account-provider']);
+  });
+
+  it('keeps provider loading until every overlapping owned operation completes', async () => {
+    const firstToggleFinished = createDeferred<void>();
+    const secondToggleFinished = createDeferred<void>();
+    vi.spyOn(aiProviderService, 'toggleProviderEnabled')
+      .mockReturnValueOnce(firstToggleFinished.promise)
+      .mockReturnValueOnce(secondToggleFinished.promise);
+    vi.spyOn(useAiInfraStore.getState(), 'refreshAiProviderList').mockResolvedValue();
+
+    const firstToggle = useAiInfraStore
+      .getState()
+      .toggleProviderEnabled('provider-overlap', true);
+    const secondToggle = useAiInfraStore
+      .getState()
+      .toggleProviderEnabled('provider-overlap', false);
+    expect(useAiInfraStore.getState().aiProviderLoadingIds).toEqual(['provider-overlap']);
+
+    firstToggleFinished.resolve();
+    await firstToggle;
+    expect(useAiInfraStore.getState().aiProviderLoadingIds).toEqual(['provider-overlap']);
+
+    secondToggleFinished.resolve();
+    await secondToggle;
+    expect(useAiInfraStore.getState().aiProviderLoadingIds).toEqual([]);
+  });
+
+  it('keeps an explicit provider target valid when the active provider changes', async () => {
+    const updateFinished = createDeferred<void>();
+    vi.spyOn(aiProviderService, 'updateAiProvider').mockReturnValue(updateFinished.promise);
+    const refreshList = vi
+      .spyOn(useAiInfraStore.getState(), 'refreshAiProviderList')
+      .mockResolvedValue();
+    const refreshDetail = vi
+      .spyOn(useAiInfraStore.getState(), 'refreshAiProviderDetail')
+      .mockResolvedValue();
+
+    const updatePromise = useAiInfraStore
+      .getState()
+      .updateAiProvider('provider-explicit', { name: 'Explicit Provider' });
+    useAiInfraStore.setState({ activeAiProvider: 'provider-unrelated' });
+    updateFinished.resolve();
+    await updatePromise;
+
+    expect(refreshList).toHaveBeenCalledTimes(1);
+    expect(refreshDetail).toHaveBeenCalledWith('provider-explicit');
+    expect(useAiInfraStore.getState().aiProviderLoadingIds).toEqual([]);
   });
 });

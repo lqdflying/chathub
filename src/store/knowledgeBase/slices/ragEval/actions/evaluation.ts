@@ -4,6 +4,10 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { mutateAccountSWRByPredicate, useClientDataSWR } from '@/libs/swr';
 import { ragEvalService } from '@/services/ragEval';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { KnowledgeBaseStore } from '@/store/knowledgeBase/store';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -14,7 +18,7 @@ export interface RAGEvalEvaluationAction {
   checkEvaluationStatus: (id: number) => Promise<void>;
 
   createNewEvaluation: (params: CreateNewEvalEvaluation) => Promise<void>;
-  refreshEvaluationList: () => Promise<void>;
+  refreshEvaluationList: (knowledgeBaseId?: string) => Promise<void>;
 
   removeEvaluation: (id: number) => Promise<void>;
   runEvaluation: (id: number) => Promise<void>;
@@ -29,59 +33,68 @@ export const createRagEvalEvaluationSlice: StateCreator<
   RAGEvalEvaluationAction
 > = (set, get) => ({
   checkEvaluationStatus: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
+    if (!accountMutationSnapshot || !id) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().scopeGeneration === requestedGeneration;
+
     await ragEvalService.checkEvaluationStatus(id);
+    if (!isCurrentRequest()) return;
   },
 
   createNewEvaluation: async (params) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const requestedKnowledgeBaseId = params.knowledgeBaseId;
+    if (!accountMutationSnapshot || !requestedKnowledgeBaseId || !params.datasetId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().scopeGeneration === requestedGeneration;
 
     await ragEvalService.createEvaluation(params);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isCurrentRequest()) return;
 
-    await get().refreshEvaluationList();
+    await get().refreshEvaluationList(requestedKnowledgeBaseId);
+    if (!isCurrentRequest()) return;
   },
-  refreshEvaluationList: async () => {
+  refreshEvaluationList: async (knowledgeBaseId) => {
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
     await mutateAccountSWRByPredicate(
       requestedScope,
-      (key) => key[0] === FETCH_EVALUATION_LIST_KEY,
+      (key) =>
+        key[0] === FETCH_EVALUATION_LIST_KEY &&
+        (knowledgeBaseId === undefined || key[2] === knowledgeBaseId),
     );
   },
 
   removeEvaluation: async (id) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    if (!accountMutationSnapshot || !id) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().scopeGeneration === requestedGeneration;
 
     await ragEvalService.removeEvaluation(id);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isCurrentRequest()) return;
 
     // await get().refreshEvaluationList();
   },
 
   runEvaluation: async (id) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    if (!accountMutationSnapshot || !id) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().scopeGeneration === requestedGeneration;
 
     await ragEvalService.startEvaluationTask(id);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isCurrentRequest()) return;
   },
 
   useFetchEvaluationList: (knowledgeBaseId) => {

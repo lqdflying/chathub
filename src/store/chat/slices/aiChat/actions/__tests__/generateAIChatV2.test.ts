@@ -140,6 +140,19 @@ describe('generateAIChatV2 actions', () => {
   });
 
   describe('sendMessageInServer', () => {
+    it('does not send or change local state during an active owner mismatch', async () => {
+      vi.spyOn(authSelectors, 'hasActiveUserStateOwnerMismatch').mockReturnValue(true);
+      const messagesBefore = useChatStore.getState().messagesMap;
+
+      await useChatStore
+        .getState()
+        .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+
+      expect(aiChatService.sendMessageInServer).not.toHaveBeenCalled();
+      expect(useChatStore.getState().messagesMap).toBe(messagesBefore);
+      expect(useChatStore.getState().mainSendMessageOperations).toEqual({});
+    });
+
     it('ignores a persistence response after switching conversations', async () => {
       let resolveServerSend: (response: any) => void;
       const serverSendPromise = new Promise<any>((resolve) => {
@@ -442,6 +455,7 @@ describe('generateAIChatV2 actions', () => {
         await vi.waitFor(() => {
           expect(Object.keys(useChatStore.getState().serverGenerationOperations)).toHaveLength(1);
         });
+        const operationsBeforeInvalidation = useChatStore.getState().serverGenerationOperations;
 
         currentUserScope = 'user:account-b';
         runtimeDeferred.resolve(undefined);
@@ -450,7 +464,7 @@ describe('generateAIChatV2 actions', () => {
         });
 
         expect(addFilesToAgent).not.toHaveBeenCalled();
-        expect(useChatStore.getState().serverGenerationOperations).toEqual({});
+        expect(useChatStore.getState().serverGenerationOperations).toBe(operationsBeforeInvalidation);
       });
 
       it('does not attach files after switching away and back during runtime', async () => {
@@ -472,6 +486,7 @@ describe('generateAIChatV2 actions', () => {
         await vi.waitFor(() => {
           expect(Object.keys(useChatStore.getState().serverGenerationOperations)).toHaveLength(1);
         });
+        const operationsBeforeInvalidation = useChatStore.getState().serverGenerationOperations;
 
         act(() => {
           useChatStore.setState({
@@ -486,7 +501,7 @@ describe('generateAIChatV2 actions', () => {
         });
 
         expect(addFilesToAgent).not.toHaveBeenCalled();
-        expect(useChatStore.getState().serverGenerationOperations).toEqual({});
+        expect(useChatStore.getState().serverGenerationOperations).toBe(operationsBeforeInvalidation);
       });
 
       it('keeps a same-topic sibling operation when the older runtime completes first', async () => {

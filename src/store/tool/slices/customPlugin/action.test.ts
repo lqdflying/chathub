@@ -2,19 +2,38 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pluginService } from '@/services/plugin';
+import { toolService } from '@/services/tool';
+import { useUserStore } from '@/store/user';
+import { DiscoverPluginItem } from '@/types/discover';
 import { LobeToolCustomPlugin } from '@/types/tool/plugin';
 
 import { useToolStore } from '../../store';
 import { defaultCustomPlugin } from './initialState';
 
+const originalRefreshPlugins = useToolStore.getState().refreshPlugins;
+const originalUpdateInstallLoadingState = useToolStore.getState().updateInstallLoadingState;
+
 beforeEach(() => {
   vi.resetAllMocks();
+  useUserStore.setState({
+    ownershipInvalidationGeneration: 0,
+    userStateInitializationFailure: undefined,
+  });
+  useToolStore.setState({
+    newCustomPlugin: defaultCustomPlugin,
+    newCustomPluginRevision: 0,
+    pluginInstallLoading: {},
+    refreshPlugins: originalRefreshPlugins,
+    scopeGeneration: 0,
+    updateInstallLoadingState: originalUpdateInstallLoadingState,
+  });
 });
 vi.mock('@/services/plugin', () => ({
   pluginService: {
-    updatePlugin: vi.fn(),
     createCustomPlugin: vi.fn(),
+    installPlugin: vi.fn(),
     uninstallPlugin: vi.fn(),
+    updatePlugin: vi.fn(),
     updatePluginManifest: vi.fn(),
   },
 }));
@@ -61,10 +80,13 @@ describe('useToolStore:customPlugin', () => {
         useToolStore.setState({
           installedPlugins: [],
           newCustomPlugin: newPlugin,
+          newCustomPluginRevision: 0,
         });
       });
 
       const { result } = renderHook(() => useToolStore());
+      const refreshPlugins = vi.fn().mockResolvedValue(undefined);
+      useToolStore.setState({ refreshPlugins, scopeGeneration: 6 });
 
       await act(async () => {
         await result.current.installCustomPlugin(newPlugin);
@@ -72,6 +94,160 @@ describe('useToolStore:customPlugin', () => {
 
       expect(result.current.newCustomPlugin).toEqual(defaultCustomPlugin);
       expect(pluginService.createCustomPlugin).toBeCalledWith(newPlugin);
+      expect(refreshPlugins).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 6,
+        }),
+      );
+    });
+
+    it('preserves newer draft edits while an earlier submission completes', async () => {
+      let resolveCreate!: () => void;
+      vi.mocked(pluginService.createCustomPlugin).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveCreate = resolve;
+        }),
+      );
+      const submittedPlugin = {
+        identifier: 'plugin2',
+        manifest: {
+          identifier: 'plugin2',
+          meta: { title: 'Submitted Plugin' },
+        },
+        type: 'customPlugin',
+      } as LobeToolCustomPlugin;
+      const newerDraft = {
+        ...submittedPlugin,
+        manifest: {
+          ...submittedPlugin.manifest,
+          meta: { title: 'Newer Draft' },
+        },
+      } as LobeToolCustomPlugin;
+      useToolStore.setState({
+        newCustomPlugin: submittedPlugin,
+        newCustomPluginRevision: 0,
+        refreshPlugins: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const installPromise = useToolStore.getState().installCustomPlugin(submittedPlugin);
+
+      useToolStore.getState().updateNewCustomPlugin(newerDraft);
+      resolveCreate();
+      await installPromise;
+
+      expect(useToolStore.getState().newCustomPlugin).toEqual(newerDraft);
+      expect(useToolStore.getState().newCustomPluginRevision).toBe(1);
+    });
+
+    it('does nothing during an active same-scope owner mismatch', async () => {
+      const newPlugin = {
+        identifier: 'plugin2',
+        manifest: {
+          identifier: 'plugin2',
+          meta: { title: 'New Plugin' },
+        },
+        type: 'customPlugin',
+      } as LobeToolCustomPlugin;
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'local',
+        },
+      });
+
+      await useToolStore.getState().installCustomPlugin(newPlugin);
+
+      expect(pluginService.createCustomPlugin).not.toHaveBeenCalled();
+      expect(useToolStore.getState().newCustomPlugin).toEqual(defaultCustomPlugin);
+    });
+  });
+
+  describe('plugin install loading ownership', () => {
+    it('keeps the same-id marker until old-store and custom reinstall both finish', async () => {
+      let resolveOldManifest!: (manifest: any) => void;
+      let resolveCustomManifest!: (manifest: any) => void;
+      vi.mocked(toolService.getToolManifest)
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveOldManifest = resolve;
+          }),
+        )
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveCustomManifest = resolve;
+          }),
+        );
+      const customPlugin = {
+        customParams: { manifestUrl: 'https://example.com/custom.json' },
+        identifier: 'plugin1',
+        manifest: {
+          identifier: 'plugin1',
+          meta: { title: 'Custom Plugin' },
+        },
+        type: 'customPlugin',
+      } as LobeToolCustomPlugin;
+      useToolStore.setState({
+        oldPluginItems: [
+          {
+            identifier: 'plugin1',
+            manifest: 'https://example.com/old.json',
+            title: 'Old Plugin',
+          } as DiscoverPluginItem,
+        ],
+        refreshPlugins: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const oldInstallPromise = useToolStore.getState().installPlugin('plugin1');
+      const customReinstallPromise = useToolStore
+        .getState()
+        .reinstallCustomPlugin('plugin1', customPlugin);
+
+      expect(useToolStore.getState().pluginInstallLoading.plugin1).toBe(true);
+
+      resolveOldManifest(customPlugin.manifest);
+      await oldInstallPromise;
+
+      expect(useToolStore.getState().pluginInstallLoading.plugin1).toBe(true);
+
+      resolveCustomManifest(customPlugin.manifest);
+      await customReinstallPromise;
+
+      expect(useToolStore.getState().pluginInstallLoading.plugin1).toBeUndefined();
+    });
+
+    it('does not persist or clear loading after manifest fetch ownership invalidation', async () => {
+      let resolveManifest!: (manifest: any) => void;
+      vi.mocked(toolService.getToolManifest).mockReturnValue(
+        new Promise((resolve) => {
+          resolveManifest = resolve;
+        }),
+      );
+      const customPlugin = {
+        customParams: { manifestUrl: 'https://example.com/custom.json' },
+        identifier: 'plugin1',
+        manifest: {
+          identifier: 'plugin1',
+          meta: { title: 'Custom Plugin' },
+        },
+        type: 'customPlugin',
+      } as LobeToolCustomPlugin;
+
+      const reinstallPromise = useToolStore
+        .getState()
+        .reinstallCustomPlugin('plugin1', customPlugin);
+      expect(useToolStore.getState().pluginInstallLoading.plugin1).toBe(true);
+
+      useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      useToolStore.setState({
+        pluginInstallLoading: { plugin1: true },
+        scopeGeneration: 1,
+      });
+      resolveManifest(customPlugin.manifest);
+      await reinstallPromise;
+
+      expect(pluginService.updatePluginManifest).not.toHaveBeenCalled();
+      expect(useToolStore.getState().pluginInstallLoading.plugin1).toBe(true);
     });
   });
   describe('updateCustomPlugin', () => {

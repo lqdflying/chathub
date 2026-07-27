@@ -72,17 +72,55 @@ beforeEach(() => {
     inboxAgentScope: undefined,
     isInboxAgentConfigInit: false,
     scopeGeneration: 0,
+    updateAgentConfigSignal: undefined,
   } as any);
   useUserStore.setState({
     authUserId: 'user-id',
     isLoaded: true,
     isSignedIn: true,
+    ownershipInvalidationGeneration: 0,
     user: { id: 'user-id' },
+    userStateInitializationFailure: undefined,
   });
 });
 
 describe('AgentSlice', () => {
   describe('addFilesToAgent', () => {
+    it('passes the same originating checkpoint to config and knowledge refreshes', async () => {
+      vi.spyOn(agentService, 'createAgentFiles').mockResolvedValue(undefined);
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        scopeGeneration: 4,
+      });
+      const { result } = renderHook(() => useAgentStore());
+      const refreshAgentConfig = vi
+        .spyOn(result.current, 'internal_refreshAgentConfig')
+        .mockResolvedValue(undefined);
+      const refreshAgentKnowledge = vi
+        .spyOn(result.current, 'internal_refreshAgentKnowledge')
+        .mockResolvedValue(undefined);
+
+      await act(async () => {
+        await result.current.addFilesToAgent(['file-a'], false);
+      });
+
+      const originatingCheckpoint = refreshAgentConfig.mock.calls[0][1];
+      const isOriginatingMutationCurrent = refreshAgentConfig.mock.calls[0][2];
+      expect(originatingCheckpoint).toEqual({
+        accountSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'user:user-id',
+        },
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        scopeGeneration: 4,
+      });
+      expect(refreshAgentKnowledge.mock.calls[0][1]).toBe(originatingCheckpoint);
+      expect(refreshAgentKnowledge.mock.calls[0][2]).toBe(isOriginatingMutationCurrent);
+      expect(isOriginatingMutationCurrent?.()).toBe(true);
+    });
+
     it('does not refresh a newly active agent after stale persistence completes', async () => {
       const createAgentFilesDeferred = createDeferred<void>();
       vi.spyOn(agentService, 'createAgentFiles').mockReturnValue(createAgentFilesDeferred.promise);
@@ -134,7 +172,7 @@ describe('AgentSlice', () => {
         await result.current.removePlugin(pluginId);
       });
 
-      expect(togglePluginMock).toHaveBeenCalledWith(pluginId, false);
+      expect(togglePluginMock).toHaveBeenCalledWith(pluginId, false, expect.any(Object));
       togglePluginMock.mockRestore();
     });
   });
@@ -155,6 +193,7 @@ describe('AgentSlice', () => {
 
       expect(updateAgentConfigMock).toHaveBeenCalledWith(
         expect.objectContaining({ plugins: [pluginId] }),
+        expect.any(Object),
       );
       updateAgentConfigMock.mockRestore();
     });
@@ -174,7 +213,10 @@ describe('AgentSlice', () => {
         await result.current.togglePlugin(pluginId, false);
       });
 
-      expect(updateAgentConfigMock).toHaveBeenCalledWith(expect.objectContaining({ plugins: [] }));
+      expect(updateAgentConfigMock).toHaveBeenCalledWith(
+        expect.objectContaining({ plugins: [] }),
+        expect.any(Object),
+      );
       updateAgentConfigMock.mockRestore();
     });
 
@@ -192,7 +234,10 @@ describe('AgentSlice', () => {
         await result.current.togglePlugin(pluginId, false);
       });
 
-      expect(updateAgentConfigMock).toHaveBeenCalledWith(expect.objectContaining({ plugins: [] }));
+      expect(updateAgentConfigMock).toHaveBeenCalledWith(
+        expect.objectContaining({ plugins: [] }),
+        expect.any(Object),
+      );
       updateAgentConfigMock.mockRestore();
     });
   });
@@ -265,6 +310,75 @@ describe('AgentSlice', () => {
 
       expect(updateSessionConfigMock).not.toHaveBeenCalled();
       updateSessionConfigMock.mockRestore();
+    });
+
+    it('does not persist or optimistically update during a same-scope owner mismatch', async () => {
+      const originalConfig = { model: 'current-model' };
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': originalConfig },
+      } as any);
+      useUserStore.setState({
+        ownershipInvalidationGeneration: 1,
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:user-id',
+        },
+      });
+      const updateSessionConfig = vi.spyOn(sessionService, 'updateSessionConfig');
+      const { result } = renderHook(() => useAgentStore());
+
+      await act(async () => {
+        await result.current.updateAgentConfig({ model: 'blocked-model' });
+      });
+
+      expect(updateSessionConfig).not.toHaveBeenCalled();
+      expect(useAgentStore.getState().agentMap['session-a']).toEqual(originalConfig);
+      expect(useAgentStore.getState().updateAgentConfigSignal).toBeUndefined();
+    });
+
+    it('does not refresh or overwrite local config after pending ownership invalidation', async () => {
+      const persistedUpdate = createDeferred<void>();
+      vi.spyOn(sessionService, 'updateSessionConfig').mockReturnValue(persistedUpdate.promise);
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'session-a': { model: 'original-model' } },
+      } as any);
+      const { result } = renderHook(() => useAgentStore());
+      const refreshAgentConfig = vi
+        .spyOn(result.current, 'internal_refreshAgentConfig')
+        .mockResolvedValue(undefined);
+      let updatePromise!: Promise<void>;
+      act(() => {
+        updatePromise = result.current.updateAgentConfig({ model: 'pending-model' });
+      });
+      expect(useAgentStore.getState().agentMap['session-a']).toEqual({
+        model: 'pending-model',
+      });
+
+      const quarantinedConfig = { model: 'quarantined-current-model' };
+      act(() => {
+        useUserStore.setState({
+          ownershipInvalidationGeneration: 1,
+          userStateInitializationFailure: {
+            reason: 'owner-mismatch',
+            scope: 'user:user-id',
+          },
+        });
+        useAgentStore.setState({
+          agentMap: { 'session-a': quarantinedConfig },
+        } as any);
+      });
+      persistedUpdate.resolve();
+      await act(async () => {
+        await updatePromise;
+      });
+
+      expect(refreshAgentConfig).not.toHaveBeenCalled();
+      expect(mutate).not.toHaveBeenCalled();
+      expect(useAgentStore.getState().agentMap['session-a']).toEqual(quarantinedConfig);
     });
   });
 
@@ -360,6 +474,9 @@ describe('AgentSlice', () => {
       expect(updateMock).toHaveBeenCalledWith(
         'session-1',
         expect.objectContaining({ assistantMemory: expect.any(String) }),
+        undefined,
+        expect.any(Object),
+        expect.any(Function),
       );
       const savedMemory = updateMock.mock.calls[0][1].assistantMemory as string;
       expect(savedMemory).not.toContain('```');
@@ -686,22 +803,72 @@ describe('AgentSlice', () => {
         await result.current.internal_updateAgentConfig('test-session-id', {});
       });
 
-      expect(refreshMock).toHaveBeenCalledWith('test-session-id');
+      expect(refreshMock).toHaveBeenCalledWith(
+        'test-session-id',
+        expect.any(Object),
+        expect.any(Function),
+      );
     });
 
-    it('should trigger useSessionStore.refreshSessions when model changes', async () => {
+    it('refreshes its explicit target after unrelated active navigation changes', async () => {
+      const persistedUpdate = createDeferred<void>();
+      vi.spyOn(sessionService, 'updateSessionConfig').mockReturnValue(persistedUpdate.promise);
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        agentMap: { 'target-session': { model: 'original-model' } },
+        scopeGeneration: 4,
+      } as any);
+      const { result } = renderHook(() => useAgentStore());
+      const refreshAgentConfig = vi
+        .spyOn(result.current, 'internal_refreshAgentConfig')
+        .mockResolvedValue(undefined);
+
+      let updatePromise!: Promise<void>;
+      act(() => {
+        updatePromise = result.current.internal_updateAgentConfig('target-session', {
+          temperature: 0.4,
+        });
+      });
+      expect(sessionService.updateSessionConfig).toHaveBeenCalledWith(
+        'target-session',
+        { temperature: 0.4 },
+        undefined,
+      );
+
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: 'agent-b',
+          activeId: 'session-b',
+        });
+      });
+      persistedUpdate.resolve();
+      await act(async () => {
+        await updatePromise;
+      });
+
+      expect(refreshAgentConfig).toHaveBeenCalledWith(
+        'target-session',
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+
+    it('should refresh the session list with the originating account checkpoint', async () => {
       const { result } = renderHook(() => useAgentStore());
 
       vi.spyOn(sessionService, 'updateSessionConfig').mockResolvedValue(undefined);
       vi.spyOn(agentSelectors, 'currentAgentModel').mockReturnValueOnce('gpt-3.5-turbo');
 
-      const refreshSessionsMock = vi.spyOn(useSessionStore.getState(), 'refreshSessions');
-
       await act(async () => {
         await result.current.internal_updateAgentConfig('test-session-id', { model: 'gpt-4' });
       });
 
-      expect(refreshSessionsMock).toHaveBeenCalled();
+      expect(mutate).toHaveBeenCalledWith([
+        'fetchSessions',
+        'user:user-id',
+        ['account-cache-epoch', 0],
+      ]);
     });
   });
 

@@ -4,6 +4,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pluginService } from '@/services/plugin';
+import { useUserStore } from '@/store/user';
 import { DiscoverPluginItem } from '@/types/discover';
 import { merge } from '@/utils/merge';
 
@@ -19,6 +20,7 @@ vi.mock('@/services/plugin', () => ({
 beforeEach(() => {
   // Reset all mocks before each test
   vi.resetAllMocks();
+  useUserStore.setState({ userStateInitializationFailure: undefined });
 });
 
 describe('useToolStore:plugin', () => {
@@ -54,8 +56,55 @@ describe('useToolStore:plugin', () => {
         await result.current.checkPluginsIsInstalled(plugins);
       });
 
-      expect(loadPluginStoreMock).toHaveBeenCalled();
-      expect(installPluginsMock).toHaveBeenCalledWith(plugins);
+      expect(loadPluginStoreMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: expect.any(Number),
+        }),
+      );
+      expect(installPluginsMock).toHaveBeenCalledWith(
+        plugins,
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: expect.any(Number),
+        }),
+      );
+      expect(installPluginsMock.mock.calls[0][1]).toBe(loadPluginStoreMock.mock.calls[0][0]);
+    });
+
+    it('does not install plugins after a delayed store load is invalidated', async () => {
+      const plugins = ['plugin1'];
+      let resolvePluginStore!: () => void;
+      const loadPluginStoreMock = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            resolvePluginStore = resolve;
+          }),
+      );
+      const installPluginsMock = vi.fn();
+      useToolStore.setState({
+        installedPlugins: [],
+        loadPluginStore: loadPluginStoreMock,
+        installPlugins: installPluginsMock,
+        oldPluginItems: [],
+        scopeGeneration: 0,
+      });
+
+      const installCheckPromise = useToolStore.getState().checkPluginsIsInstalled(plugins);
+
+      expect(loadPluginStoreMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountMutationSnapshot: expect.any(Object),
+          scopeGeneration: 0,
+        }),
+      );
+
+      useToolStore.setState({ oldPluginItems: [], scopeGeneration: 1 });
+      resolvePluginStore();
+      await installCheckPromise;
+
+      expect(installPluginsMock).not.toHaveBeenCalled();
+      expect(useToolStore.getState().oldPluginItems).toEqual([]);
     });
 
     it('should not load the plugin store and install plugins', async () => {
@@ -76,7 +125,13 @@ describe('useToolStore:plugin', () => {
       });
 
       expect(loadPluginStoreMock).not.toHaveBeenCalled();
-      expect(installPluginsMock).toHaveBeenCalledWith(plugins);
+      expect(installPluginsMock).toHaveBeenCalledWith(
+        plugins,
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: expect.any(Number),
+        }),
+      );
     });
   });
 
@@ -84,6 +139,8 @@ describe('useToolStore:plugin', () => {
     it('should update settings for a given plugin', async () => {
       const pluginId = 'test-plugin';
       const newSettings = { setting1: 'new-value' };
+      const refreshPlugins = vi.fn().mockResolvedValue(undefined);
+      useToolStore.setState({ refreshPlugins, scopeGeneration: 7 });
 
       const { result } = renderHook(() => useToolStore());
 
@@ -95,6 +152,12 @@ describe('useToolStore:plugin', () => {
         pluginId,
         newSettings,
         expect.any(AbortSignal),
+      );
+      expect(refreshPlugins).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 7,
+        }),
       );
     });
 
@@ -119,6 +182,60 @@ describe('useToolStore:plugin', () => {
         expect.any(AbortSignal),
       );
     });
+
+    it('updates an explicit identifier independently of the active selection', async () => {
+      useToolStore.setState({ activePluginIdentifier: 'different-plugin' });
+
+      await useToolStore.getState().updatePluginSettings('target-plugin', { enabled: true });
+
+      expect(pluginService.updatePluginSettings).toHaveBeenCalledWith(
+        'target-plugin',
+        { enabled: true },
+        expect.any(AbortSignal),
+      );
+    });
+
+    it('does nothing on an active same-scope owner mismatch', async () => {
+      const existingController = new AbortController();
+      const abortSpy = vi.spyOn(existingController, 'abort');
+      useToolStore.setState({ updatePluginSettingsSignal: existingController });
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'local',
+        },
+      });
+
+      await useToolStore.getState().updatePluginSettings('target-plugin', { enabled: true });
+
+      expect(abortSpy).not.toHaveBeenCalled();
+      expect(pluginService.updatePluginSettings).not.toHaveBeenCalled();
+      expect(useToolStore.getState().updatePluginSettingsSignal).toBe(existingController);
+    });
+
+    it('does not clear newer account state after a stale settings completion', async () => {
+      let resolveUpdate!: () => void;
+      vi.mocked(pluginService.updatePluginSettings).mockReturnValue(
+        new Promise<void>((resolve) => {
+          resolveUpdate = resolve;
+        }),
+      );
+
+      const updatePromise = useToolStore
+        .getState()
+        .updatePluginSettings('target-plugin', { enabled: true });
+      const newerController = new AbortController();
+      useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      useToolStore.setState({
+        scopeGeneration: useToolStore.getState().scopeGeneration + 1,
+        updatePluginSettingsSignal: newerController,
+      });
+
+      resolveUpdate();
+      await updatePromise;
+
+      expect(useToolStore.getState().updatePluginSettingsSignal).toBe(newerController);
+    });
   });
 
   describe('removeAllPlugins', () => {
@@ -130,6 +247,19 @@ describe('useToolStore:plugin', () => {
       });
 
       expect(pluginService.removeAllPlugins).toBeCalled();
+    });
+
+    it('does not call the service during an active owner mismatch', async () => {
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'local',
+        },
+      });
+
+      await useToolStore.getState().removeAllPlugins();
+
+      expect(pluginService.removeAllPlugins).not.toHaveBeenCalled();
     });
   });
 

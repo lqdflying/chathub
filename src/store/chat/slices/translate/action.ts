@@ -6,6 +6,10 @@ import { StateCreator } from 'zustand/vanilla';
 import { supportLocales } from '@/locales/resources';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { useUserStore } from '@/store/user';
@@ -32,6 +36,9 @@ export const chatTranslate: StateCreator<
   ChatTranslateAction
 > = (set, get) => ({
   clearTranslate: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     await get().updateMessageTranslate(id, false);
   },
   getCurrentTracePayload: (data) => ({
@@ -41,16 +48,29 @@ export const chatTranslate: StateCreator<
   }),
 
   translateMessage: async (id, targetLang) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      !!chatSelectors.getMessageById(id)(get());
     const { internal_toggleChatLoading, updateMessageTranslate, internal_dispatchMessage } = get();
 
     const message = chatSelectors.getMessageById(id)(get());
-    if (!message) return;
+    if (!message || !isCurrentRequest()) return;
 
     // Get current agent for translation
     const translationSetting = systemAgentSelectors.translation(useUserStore.getState());
 
     // create translate extra
     await updateMessageTranslate(id, { content: '', from: '', to: targetLang });
+    if (!isCurrentRequest()) return;
 
     internal_toggleChatLoading(true, id, n('translateMessage(start)', { id }));
 
@@ -60,6 +80,7 @@ export const chatTranslate: StateCreator<
     // detect from language
     chatService.fetchPresetTaskResult({
       onFinish: async (data) => {
+        if (!isCurrentRequest()) return;
         if (data && supportLocales.includes(data)) from = data;
 
         await updateMessageTranslate(id, { content, from, to: targetLang });
@@ -71,10 +92,12 @@ export const chatTranslate: StateCreator<
     // translate to target language
     await chatService.fetchPresetTaskResult({
       onFinish: async (content) => {
+        if (!isCurrentRequest()) return;
         await updateMessageTranslate(id, { content, from, to: targetLang });
-        internal_toggleChatLoading(false, id);
+        if (isCurrentRequest()) internal_toggleChatLoading(false, id);
       },
       onMessageHandle: (chunk) => {
+        if (!isCurrentRequest()) return;
         switch (chunk.type) {
           case 'text': {
             internal_dispatchMessage({
@@ -96,8 +119,19 @@ export const chatTranslate: StateCreator<
   },
 
   updateMessageTranslate: async (id, data) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
     await messageService.updateMessageTranslate(id, data);
 
-    await get().refreshMessages();
+    if (isCurrentRequest()) await get().refreshMessages();
   },
 });

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_PREFERENCE } from '@/const/user';
 import { userService } from '@/services/user';
 import { resetAccountScopedStores } from '@/store/accountScopeReset';
+import { useChatStore } from '@/store/chat';
 import { useUserStore } from '@/store/user';
 import { initialState } from '@/store/user/initialState';
 
@@ -106,5 +107,47 @@ describe('user mutation ownership boundary', () => {
     expect(requestSignal?.aborted).toBe(true);
     expect(useUserStore.getState().updateSettingsSignal).toBeUndefined();
     expect(useUserStore.getState().userMutationAbortControllers).toEqual([]);
+  });
+
+  it('aborts and clears pending title summaries during account invalidation', () => {
+    const reason = 'User state owner mismatch';
+    const topicAbortController = new AbortController();
+    const threadAbortController = new AbortController();
+    const topicAbortSpy = vi.spyOn(topicAbortController, 'abort');
+    const threadAbortSpy = vi.spyOn(threadAbortController, 'abort');
+    const conversationClearGeneration = useChatStore.getState().conversationClearGeneration;
+
+    useChatStore.setState({
+      threadTitleSummaryOperations: {
+        'thread-id': {
+          abortController: threadAbortController,
+          containerId: 'topic-id',
+          displayedTitle: 'Summarizing thread',
+          loadingOperationKey: 'thread-loading-key',
+          operationId: 'thread-operation-id',
+          originalTitle: 'Thread title',
+        },
+      },
+      topicTitleSummaryOperations: {
+        'topic-id': {
+          abortController: topicAbortController,
+          containerId: 'session-id',
+          displayedTitle: 'Summarizing topic',
+          loadingOperationKey: 'topic-loading-key',
+          operationId: 'topic-operation-id',
+          originalTitle: 'Topic title',
+        },
+      },
+    });
+
+    resetAccountScopedStores(reason);
+
+    expect(topicAbortSpy).toHaveBeenCalledWith(reason);
+    expect(threadAbortSpy).toHaveBeenCalledWith(reason);
+    expect(useChatStore.getState().topicTitleSummaryOperations).toEqual({});
+    expect(useChatStore.getState().threadTitleSummaryOperations).toEqual({});
+    expect(useChatStore.getState().conversationClearGeneration).toBe(
+      conversationClearGeneration + 1,
+    );
   });
 });

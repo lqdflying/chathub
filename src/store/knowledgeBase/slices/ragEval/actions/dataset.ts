@@ -10,6 +10,10 @@ import { StateCreator } from 'zustand/vanilla';
 import { notification } from '@/components/AntdStaticMethods';
 import { mutateAccountSWRByPredicate, useClientDataSWR } from '@/libs/swr';
 import { ragEvalService } from '@/services/ragEval';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { KnowledgeBaseStore } from '@/store/knowledgeBase/store';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -21,7 +25,7 @@ export interface RAGEvalDatasetAction {
   createNewDataset: (params: CreateNewEvalDatasets) => Promise<void>;
 
   importDataset: (file: File, datasetId: number) => Promise<void>;
-  refreshDatasetList: () => Promise<void>;
+  refreshDatasetList: (knowledgeBaseId?: string) => Promise<void>;
   removeDataset: (id: number) => Promise<void>;
   useFetchDatasetRecords: (datasetId: number | null) => SWRResponse<EvalDatasetRecord[]>;
   useFetchDatasets: (knowledgeBaseId: string) => SWRResponse<RAGEvalDataSetItem[]>;
@@ -34,27 +38,27 @@ export const createRagEvalDatasetSlice: StateCreator<
   RAGEvalDatasetAction
 > = (set, get) => ({
   createNewDataset: async (params) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const requestedKnowledgeBaseId = params.knowledgeBaseId;
+    if (!accountMutationSnapshot || !requestedKnowledgeBaseId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().scopeGeneration === requestedGeneration;
 
     await ragEvalService.createDataset(params);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isCurrentRequest()) return;
 
-    await get().refreshDatasetList();
+    await get().refreshDatasetList(requestedKnowledgeBaseId);
+    if (!isCurrentRequest()) return;
   },
 
   importDataset: async (file, datasetId) => {
-    if (!datasetId) return;
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
-    const isOperationCurrent = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+    if (!accountMutationSnapshot || !datasetId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().scopeGeneration === requestedGeneration;
 
     const fileType = file.name.split('.').pop();
@@ -62,10 +66,10 @@ export const createRagEvalDatasetSlice: StateCreator<
     if (fileType === 'jsonl') {
       // jsonl 文件 需要拆分成单个条，然后逐一校验格式
       const jsonl = await file.text();
-      if (!isOperationCurrent()) return;
+      if (!isCurrentRequest()) return;
 
       const { default: JSONL } = await import('jsonl-parse-stringify');
-      if (!isOperationCurrent()) return;
+      if (!isCurrentRequest()) return;
 
       try {
         const items = JSONL.parse(jsonl);
@@ -74,42 +78,47 @@ export const createRagEvalDatasetSlice: StateCreator<
         insertEvalDatasetRecordSchema.array().parse(items);
 
         // if valid, send to backend
-        await ragEvalService.importDatasetRecords(datasetId, file);
-        if (!isOperationCurrent()) return;
+        await ragEvalService.importDatasetRecords(datasetId, file, {
+          isContinuationCurrent: isCurrentRequest,
+        });
+        if (!isCurrentRequest()) return;
       } catch (e) {
-        if (!isOperationCurrent()) return;
+        if (!isCurrentRequest()) return;
 
         notification.error({ description: (e as Error).message, message: '文件格式错误' });
       }
     }
 
-    if (!isOperationCurrent()) return;
+    if (!isCurrentRequest()) return;
 
-    await get().refreshDatasetList();
+    await mutateAccountSWRByPredicate(
+      accountMutationSnapshot.scope,
+      (key) => key[0] === FETCH_DATASET_RECORD_KEY && key[2] === datasetId,
+    );
+    if (!isCurrentRequest()) return;
   },
-  refreshDatasetList: async () => {
+  refreshDatasetList: async (knowledgeBaseId) => {
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
     await mutateAccountSWRByPredicate(
       requestedScope,
-      (key) => key[0] === FETCH_DATASET_LIST_KEY,
+      (key) =>
+        key[0] === FETCH_DATASET_LIST_KEY &&
+        (knowledgeBaseId === undefined || key[2] === knowledgeBaseId),
     );
   },
 
   removeDataset: async (id) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    if (!accountMutationSnapshot || !id) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().scopeGeneration === requestedGeneration;
 
     await ragEvalService.removeDataset(id);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
-
-    await get().refreshDatasetList();
+    if (!isCurrentRequest()) return;
   },
   useFetchDatasetRecords: (datasetId) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);

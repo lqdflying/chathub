@@ -13,6 +13,11 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { aiProviderService } from '@/services/aiProvider';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
+import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import { AiInfraStore } from '@/store/aiInfra/store';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -87,6 +92,110 @@ type AiProviderRuntimeStateWithBuiltinModels = AiProviderRuntimeState & {
   enabledImageModelList?: EnabledProviderWithModels[];
 };
 
+interface AiProviderMutationCheckpoint {
+  accountMutationSnapshot: AccountMutationSnapshot;
+  providerTarget: string;
+  scopeGeneration: number;
+}
+
+interface AiProviderLoadingOperations {
+  accountMutationSnapshot: AccountMutationSnapshot;
+  operationIds: Set<symbol>;
+  scopeGeneration: number;
+  wasLoading: boolean;
+}
+
+const aiProviderLoadingOperations = new Map<string, AiProviderLoadingOperations>();
+const aiProviderConfigLoadingOperations = new Map<string, AiProviderLoadingOperations>();
+
+const captureAiProviderMutationCheckpoint = (
+  get: () => AiInfraStore,
+  providerTarget: string,
+): AiProviderMutationCheckpoint | undefined => {
+  const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+  if (!accountMutationSnapshot || !providerTarget) return;
+
+  return {
+    accountMutationSnapshot,
+    providerTarget,
+    scopeGeneration: get().scopeGeneration,
+  };
+};
+
+const isAiProviderMutationCurrent = (
+  get: () => AiInfraStore,
+  checkpoint: AiProviderMutationCheckpoint,
+): boolean =>
+  isAccountMutationCurrent(useUserStore.getState(), checkpoint.accountMutationSnapshot) &&
+  get().scopeGeneration === checkpoint.scopeGeneration;
+
+const isSameAccountMutationSnapshot = (
+  firstSnapshot: AccountMutationSnapshot,
+  secondSnapshot: AccountMutationSnapshot,
+): boolean =>
+  firstSnapshot.scope === secondSnapshot.scope &&
+  firstSnapshot.ownershipInvalidationGeneration ===
+    secondSnapshot.ownershipInvalidationGeneration;
+
+const beginAiProviderLoading = (
+  get: () => AiInfraStore,
+  checkpoint: AiProviderMutationCheckpoint,
+  operationsByProvider: Map<string, AiProviderLoadingOperations>,
+  loadingIds: string[],
+  setLoading: (id: string, loading: boolean) => void,
+): symbol => {
+  const operationId = Symbol(checkpoint.providerTarget);
+  const existingOperations = operationsByProvider.get(checkpoint.providerTarget);
+
+  if (
+    existingOperations?.scopeGeneration === checkpoint.scopeGeneration &&
+    isSameAccountMutationSnapshot(
+      existingOperations.accountMutationSnapshot,
+      checkpoint.accountMutationSnapshot,
+    )
+  ) {
+    existingOperations.operationIds.add(operationId);
+    return operationId;
+  }
+
+  operationsByProvider.set(checkpoint.providerTarget, {
+    accountMutationSnapshot: checkpoint.accountMutationSnapshot,
+    operationIds: new Set([operationId]),
+    scopeGeneration: checkpoint.scopeGeneration,
+    wasLoading: loadingIds.includes(checkpoint.providerTarget),
+  });
+  setLoading(checkpoint.providerTarget, true);
+
+  return operationId;
+};
+
+const finalizeAiProviderLoading = (
+  get: () => AiInfraStore,
+  checkpoint: AiProviderMutationCheckpoint,
+  operationId: symbol,
+  operationsByProvider: Map<string, AiProviderLoadingOperations>,
+  setLoading: (id: string, loading: boolean) => void,
+): void => {
+  const operations = operationsByProvider.get(checkpoint.providerTarget);
+  if (
+    !operations ||
+    operations.scopeGeneration !== checkpoint.scopeGeneration ||
+    !isSameAccountMutationSnapshot(
+      operations.accountMutationSnapshot,
+      checkpoint.accountMutationSnapshot,
+    ) ||
+    !operations.operationIds.delete(operationId)
+  )
+    return;
+
+  if (operations.operationIds.size > 0) return;
+
+  operationsByProvider.delete(checkpoint.providerTarget);
+  if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
+  setLoading(checkpoint.providerTarget, operations.wasLoading);
+};
+
 const isRequestedScopeCurrent = (requestedScope: string | undefined): boolean => {
   const userState = useUserStore.getState();
 
@@ -101,7 +210,7 @@ export interface AiProviderAction {
   deleteAiProvider: (id: string) => Promise<void>;
   internal_toggleAiProviderConfigUpdating: (id: string, loading: boolean) => void;
   internal_toggleAiProviderLoading: (id: string, loading: boolean) => void;
-  refreshAiProviderDetail: () => Promise<void>;
+  refreshAiProviderDetail: (providerId?: string) => Promise<void>;
   refreshAiProviderList: () => Promise<void>;
   refreshAiProviderRuntimeState: () => Promise<void>;
   removeAiProvider: (id: string) => Promise<void>;
@@ -132,19 +241,33 @@ export const createAiProviderSlice: StateCreator<
   AiProviderAction
 > = (set, get) => ({
   createNewAiProvider: async (params) => {
+    const checkpoint = captureAiProviderMutationCheckpoint(get, params.id);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
+
     await aiProviderService.createAiProvider({ ...params, source: AiProviderSourceEnum.Custom });
-    await get().refreshAiProviderList();
-  },
-  deleteAiProvider: async (id: string) => {
-    await aiProviderService.deleteAiProvider(id);
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
 
     await get().refreshAiProviderList();
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+  },
+  deleteAiProvider: async (id: string) => {
+    const checkpoint = captureAiProviderMutationCheckpoint(get, id);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
+
+    await aiProviderService.deleteAiProvider(id);
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
+    await get().refreshAiProviderList();
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
   },
   internal_toggleAiProviderConfigUpdating: (id, loading) => {
     set(
       (state) => {
-        if (loading)
+        if (loading) {
+          if (state.aiProviderConfigUpdatingIds.includes(id)) return state;
+
           return { aiProviderConfigUpdatingIds: [...state.aiProviderConfigUpdatingIds, id] };
+        }
 
         return {
           aiProviderConfigUpdatingIds: state.aiProviderConfigUpdatingIds.filter((i) => i !== id),
@@ -157,7 +280,11 @@ export const createAiProviderSlice: StateCreator<
   internal_toggleAiProviderLoading: (id, loading) => {
     set(
       (state) => {
-        if (loading) return { aiProviderLoadingIds: [...state.aiProviderLoadingIds, id] };
+        if (loading) {
+          if (state.aiProviderLoadingIds.includes(id)) return state;
+
+          return { aiProviderLoadingIds: [...state.aiProviderLoadingIds, id] };
+        }
 
         return { aiProviderLoadingIds: state.aiProviderLoadingIds.filter((i) => i !== id) };
       },
@@ -165,25 +292,34 @@ export const createAiProviderSlice: StateCreator<
       'toggleAiProviderLoading',
     );
   },
-  refreshAiProviderDetail: async () => {
-    const userState = useUserStore.getState();
-    const userScope = authSelectors.currentUserScope(userState);
-    if (!userScope || authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
+  refreshAiProviderDetail: async (providerId) => {
+    const targetProviderId = providerId ?? get().activeAiProvider;
+    if (!targetProviderId) return;
+    const checkpoint = captureAiProviderMutationCheckpoint(get, targetProviderId);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
 
     await mutateAccountSWR([
       AiProviderSwrKey.fetchAiProviderItem,
-      userScope,
-      get().activeAiProvider,
+      checkpoint.accountMutationSnapshot.scope,
+      targetProviderId,
     ]);
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
     await get().refreshAiProviderRuntimeState();
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
   },
   refreshAiProviderList: async () => {
-    const userState = useUserStore.getState();
-    const userScope = authSelectors.currentUserScope(userState);
-    if (!userScope || authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
+    const checkpoint = captureAiProviderMutationCheckpoint(get, 'provider-list');
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
 
-    await mutateAccountSWR([AiProviderSwrKey.fetchAiProviderList, userScope]);
+    await mutateAccountSWR([
+      AiProviderSwrKey.fetchAiProviderList,
+      checkpoint.accountMutationSnapshot.scope,
+    ]);
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
     await get().refreshAiProviderRuntimeState();
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
   },
   refreshAiProviderRuntimeState: async () => {
     const userState = useUserStore.getState();
@@ -201,38 +337,116 @@ export const createAiProviderSlice: StateCreator<
     await mutateAccountSWR([AiProviderSwrKey.fetchAiProviderRuntimeState, userScope]);
   },
   removeAiProvider: async (id) => {
+    const checkpoint = captureAiProviderMutationCheckpoint(get, id);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
+
     await aiProviderService.deleteAiProvider(id);
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
     await get().refreshAiProviderList();
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
   },
 
   toggleProviderEnabled: async (id: string, enabled: boolean) => {
-    get().internal_toggleAiProviderLoading(id, true);
-    await aiProviderService.toggleProviderEnabled(id, enabled);
-    await get().refreshAiProviderList();
+    const checkpoint = captureAiProviderMutationCheckpoint(get, id);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
+    const loadingOperationId = beginAiProviderLoading(
+      get,
+      checkpoint,
+      aiProviderLoadingOperations,
+      get().aiProviderLoadingIds,
+      get().internal_toggleAiProviderLoading,
+    );
 
-    get().internal_toggleAiProviderLoading(id, false);
+    try {
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+      await aiProviderService.toggleProviderEnabled(id, enabled);
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
+      await get().refreshAiProviderList();
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+    } finally {
+      finalizeAiProviderLoading(
+        get,
+        checkpoint,
+        loadingOperationId,
+        aiProviderLoadingOperations,
+        get().internal_toggleAiProviderLoading,
+      );
+    }
   },
 
   updateAiProvider: async (id, value) => {
-    get().internal_toggleAiProviderLoading(id, true);
-    await aiProviderService.updateAiProvider(id, value);
-    await get().refreshAiProviderList();
-    await get().refreshAiProviderDetail();
+    const checkpoint = captureAiProviderMutationCheckpoint(get, id);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
+    const loadingOperationId = beginAiProviderLoading(
+      get,
+      checkpoint,
+      aiProviderLoadingOperations,
+      get().aiProviderLoadingIds,
+      get().internal_toggleAiProviderLoading,
+    );
 
-    get().internal_toggleAiProviderLoading(id, false);
+    try {
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+      await aiProviderService.updateAiProvider(id, value);
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
+      await get().refreshAiProviderList();
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
+      await get().refreshAiProviderDetail(id);
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+    } finally {
+      finalizeAiProviderLoading(
+        get,
+        checkpoint,
+        loadingOperationId,
+        aiProviderLoadingOperations,
+        get().internal_toggleAiProviderLoading,
+      );
+    }
   },
 
   updateAiProviderConfig: async (id, value) => {
-    get().internal_toggleAiProviderConfigUpdating(id, true);
-    await aiProviderService.updateAiProviderConfig(id, value);
-    await get().refreshAiProviderDetail();
+    const checkpoint = captureAiProviderMutationCheckpoint(get, id);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
+    const loadingOperationId = beginAiProviderLoading(
+      get,
+      checkpoint,
+      aiProviderConfigLoadingOperations,
+      get().aiProviderConfigUpdatingIds,
+      get().internal_toggleAiProviderConfigUpdating,
+    );
 
-    get().internal_toggleAiProviderConfigUpdating(id, false);
+    try {
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+      await aiProviderService.updateAiProviderConfig(id, value);
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
+      await get().refreshAiProviderDetail(id);
+      if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+    } finally {
+      finalizeAiProviderLoading(
+        get,
+        checkpoint,
+        loadingOperationId,
+        aiProviderConfigLoadingOperations,
+        get().internal_toggleAiProviderConfigUpdating,
+      );
+    }
   },
 
   updateAiProviderSort: async (items) => {
+    const providerTarget = items.map(({ id }) => id).join(',');
+    const checkpoint = captureAiProviderMutationCheckpoint(get, providerTarget);
+    if (!checkpoint || !isAiProviderMutationCurrent(get, checkpoint)) return;
+
     await aiProviderService.updateAiProviderOrder(items);
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
+
     await get().refreshAiProviderList();
+    if (!isAiProviderMutationCurrent(get, checkpoint)) return;
   },
   useFetchAiProviderItem: (id) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);

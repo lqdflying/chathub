@@ -18,6 +18,10 @@ import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { threadService } from '@/services/thread';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { threadSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
@@ -32,6 +36,55 @@ import { ThreadDispatch, threadReducer } from './reducer';
 
 const n = setNamespace('thd');
 const SWR_USE_FETCH_THREADS = 'SWR_USE_FETCH_THREADS';
+
+const threadLoadingOperations = new Map<string, Set<string>>();
+
+const getThreadLoadingOperationKey = (
+  scope: string,
+  ownershipInvalidationGeneration: number,
+  conversationGeneration: number,
+  sessionId: string,
+  topicId: string,
+  threadId: string,
+): string =>
+  `${scope}:${ownershipInvalidationGeneration}:${conversationGeneration}:${sessionId}:${topicId}:${threadId}`;
+
+const acquireThreadLoadingOperation = (loadingOperationKey: string, operationId: string): void => {
+  const operations = threadLoadingOperations.get(loadingOperationKey) ?? new Set<string>();
+  operations.add(operationId);
+  threadLoadingOperations.set(loadingOperationKey, operations);
+};
+
+const releaseThreadLoadingOperation = (loadingOperationKey: string, operationId: string): void => {
+  const operations = threadLoadingOperations.get(loadingOperationKey);
+  if (!operations?.delete(operationId)) return;
+  if (operations.size > 0) return;
+
+  threadLoadingOperations.delete(loadingOperationKey);
+};
+
+const hasThreadLoadingOperation = (loadingOperationKey: string): boolean => {
+  return (threadLoadingOperations.get(loadingOperationKey)?.size ?? 0) > 0;
+};
+
+const hasCurrentThreadLoadingOperation = (
+  state: Pick<ChatStore, 'activeId' | 'activeTopicId' | 'conversationClearGeneration'>,
+  threadId: string,
+): boolean => {
+  const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+  if (!accountMutationSnapshot || !state.activeId || !state.activeTopicId) return true;
+
+  const loadingOperationKey = getThreadLoadingOperationKey(
+    accountMutationSnapshot.scope,
+    accountMutationSnapshot.ownershipInvalidationGeneration,
+    state.conversationClearGeneration,
+    state.activeId,
+    state.activeTopicId,
+    threadId,
+  );
+
+  return hasThreadLoadingOperation(loadingOperationKey);
+};
 
 export interface ChatThreadAction {
   // update
@@ -103,9 +156,9 @@ export const chatThreadMessage: StateCreator<
     get().togglePortal(false);
   },
   sendThreadMessage: async ({ message }) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
-    if (!requestedScope) return;
+    if (!accountMutationSnapshot) return;
 
     const {
       internal_coreProcessMessage,
@@ -134,7 +187,7 @@ export const chatThreadMessage: StateCreator<
       get().internal_toggleMessageLoading(false, tempMessageId);
     };
     const isCurrentRequest = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedSessionId &&
       get().activeTopicId === requestedTopicId &&
@@ -283,15 +336,38 @@ export const chatThreadMessage: StateCreator<
     }
   },
   resendThreadMessage: async (messageId) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const requestedPortalThreadId = get().portalThreadId;
+    if (
+      !accountMutationSnapshot ||
+      !requestedSessionId ||
+      !requestedTopicId ||
+      !requestedPortalThreadId
+    ) {
+      return;
+    }
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      get().portalThreadId === requestedPortalThreadId;
     const chats = threadSelectors.portalAIChats(get());
+    if (!isCurrentRequest()) return;
 
     await get().internal_resendMessage(messageId, {
       messages: chats,
-      threadId: get().portalThreadId,
+      threadId: requestedPortalThreadId,
       inPortalThread: true,
     });
   },
   delAndResendThreadMessage: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     await get().resendThreadMessage(id);
   },
   createThread: async ({
@@ -301,10 +377,19 @@ export const chatThreadMessage: StateCreator<
     topicId,
     type,
   }) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
-    if (!requestedScope) return { messageId: '', threadId: '' };
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId || requestedTopicId !== topicId) {
+      return { messageId: '', threadId: '' };
+    }
     const creatingThreadId = `thread-create-${nanoid(8)}`;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
 
     set({ creatingThreadId, isCreatingThread: true }, false, n('creatingThread/start'));
 
@@ -321,16 +406,13 @@ export const chatThreadMessage: StateCreator<
           : await threadService.createThreadWithMessage(createThreadPayload, {
               expectedConversationVersion,
             });
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().conversationClearGeneration !== requestedGeneration
-      ) {
+      if (!isCurrentRequest()) {
         return { messageId: '', threadId: '' };
       }
 
       return data;
     } finally {
-      if (get().creatingThreadId === creatingThreadId) {
+      if (isCurrentRequest() && get().creatingThreadId === creatingThreadId) {
         set(
           { creatingThreadId: undefined, isCreatingThread: false },
           false,
@@ -370,16 +452,32 @@ export const chatThreadMessage: StateCreator<
   refreshThreads: async () => {
     const topicId = get().activeTopicId;
     if (!topicId) return;
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!requestedScope) return;
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
 
-    return mutateAccountSWR([SWR_USE_FETCH_THREADS, requestedScope, topicId]);
+    return mutateAccountSWR([SWR_USE_FETCH_THREADS, accountMutationSnapshot.scope, topicId]);
   },
   removeThread: async (id) => {
-    await threadService.removeThread(id);
-    await get().refreshThreads();
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const requestedThreadId = get().activeThreadId;
+    if (!accountMutationSnapshot || !requestedSessionId || !requestedTopicId) return;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      get().activeThreadId === requestedThreadId;
 
-    if (get().activeThreadId === id) {
+    await threadService.removeThread(id);
+    if (!isCurrentRequest()) return;
+
+    await get().refreshThreads();
+    if (!isCurrentRequest()) return;
+
+    if (requestedThreadId === id) {
       set({ activeThreadId: undefined });
     }
   },
@@ -387,35 +485,53 @@ export const chatThreadMessage: StateCreator<
     set({ activeThreadId: id }, false, n('toggleTopic'));
   },
   updateThreadTitle: async (id, title) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     await get().internal_updateThread(id, { title });
   },
 
   summaryThreadTitle: async (threadId, messages) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
     const requestedSessionId = get().activeId;
     const requestedTopicId = get().activeTopicId;
     const requestedPortalThreadId = get().portalThreadId;
     if (
-      !requestedScope ||
+      !accountMutationSnapshot ||
       !requestedSessionId ||
       !requestedTopicId ||
       requestedPortalThreadId !== threadId
     ) {
       return;
     }
+    const requestedScope = accountMutationSnapshot.scope;
 
     const portalThread = get().threadMaps[requestedTopicId]?.find((item) => item.id === threadId);
     if (!portalThread) return;
 
     const previousOperation = get().threadTitleSummaryOperations[threadId];
     previousOperation?.abortController.abort();
+    if (previousOperation) {
+      releaseThreadLoadingOperation(
+        previousOperation.loadingOperationKey,
+        previousOperation.operationId,
+      );
+    }
 
     const operationId = `thread-summary-${nanoid(8)}`;
     const abortController = new AbortController();
     const originalTitle = previousOperation?.originalTitle ?? portalThread.title;
+    const loadingOperationKey = getThreadLoadingOperationKey(
+      accountMutationSnapshot.scope,
+      accountMutationSnapshot.ownershipInvalidationGeneration,
+      requestedGeneration,
+      requestedSessionId,
+      requestedTopicId,
+      threadId,
+    );
     const isCurrentThreadRequest = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedSessionId &&
       get().activeTopicId === requestedTopicId &&
@@ -446,10 +562,18 @@ export const chatThreadMessage: StateCreator<
       );
     };
     const finishOwnedOperation = (restoreOriginalTitle: boolean) => {
+      releaseThreadLoadingOperation(loadingOperationKey, operationId);
+      const shouldClearLoading = !hasCurrentThreadLoadingOperation(get(), threadId);
       set(
         (state) => {
           const operation = state.threadTitleSummaryOperations[threadId];
-          if (operation?.operationId !== operationId) return state;
+          if (operation?.operationId !== operationId) {
+            if (!shouldClearLoading || !state.threadLoadingIds.includes(threadId)) return state;
+
+            return {
+              threadLoadingIds: state.threadLoadingIds.filter((id) => id !== threadId),
+            };
+          }
 
           const nextOperations = { ...state.threadTitleSummaryOperations };
           delete nextOperations[threadId];
@@ -464,7 +588,9 @@ export const chatThreadMessage: StateCreator<
             : threads;
 
           return {
-            threadLoadingIds: state.threadLoadingIds.filter((id) => id !== threadId),
+            threadLoadingIds: shouldClearLoading
+              ? state.threadLoadingIds.filter((id) => id !== threadId)
+              : state.threadLoadingIds,
             threadMaps:
               nextThreads === threads
                 ? state.threadMaps
@@ -477,6 +603,7 @@ export const chatThreadMessage: StateCreator<
       );
     };
 
+    acquireThreadLoadingOperation(loadingOperationKey, operationId);
     set(
       (state) => ({
         threadLoadingIds: state.threadLoadingIds.includes(threadId)
@@ -494,6 +621,7 @@ export const chatThreadMessage: StateCreator<
             abortController,
             containerId: requestedTopicId,
             displayedTitle: LOADING_FLAT,
+            loadingOperationKey,
             operationId,
             originalTitle,
           },
@@ -559,7 +687,12 @@ export const chatThreadMessage: StateCreator<
   internal_updateThreadLoading: (id, loading) => {
     set(
       (state) => {
-        if (loading) return { threadLoadingIds: [...state.threadLoadingIds, id] };
+        if (loading) {
+          if (state.threadLoadingIds.includes(id)) return state;
+
+          return { threadLoadingIds: [...state.threadLoadingIds, id] };
+        }
+        if (!state.threadLoadingIds.includes(id)) return state;
 
         return { threadLoadingIds: state.threadLoadingIds.filter((i) => i !== id) };
       },
@@ -569,12 +702,41 @@ export const chatThreadMessage: StateCreator<
   },
 
   internal_updateThread: async (id, data) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    if (!accountMutationSnapshot || !requestedSessionId || !requestedTopicId) return;
+    const operationId = `thread-update-${nanoid(8)}`;
+    const loadingOperationKey = getThreadLoadingOperationKey(
+      accountMutationSnapshot.scope,
+      accountMutationSnapshot.ownershipInvalidationGeneration,
+      requestedGeneration,
+      requestedSessionId,
+      requestedTopicId,
+      id,
+    );
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId;
+
     get().internal_dispatchThread({ type: 'updateThread', id, value: data });
 
+    acquireThreadLoadingOperation(loadingOperationKey, operationId);
     get().internal_updateThreadLoading(id, true);
-    await threadService.updateThread(id, data);
-    await get().refreshThreads();
-    get().internal_updateThreadLoading(id, false);
+    try {
+      await threadService.updateThread(id, data);
+      if (!isCurrentRequest()) return;
+
+      await get().refreshThreads();
+    } finally {
+      releaseThreadLoadingOperation(loadingOperationKey, operationId);
+      if (!hasCurrentThreadLoadingOperation(get(), id)) {
+        get().internal_updateThreadLoading(id, false);
+      }
+    }
   },
 
   internal_dispatchThread: (payload, action) => {

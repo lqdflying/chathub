@@ -20,6 +20,10 @@ import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { messageService } from '@/services/message';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
@@ -297,6 +301,9 @@ export const chatAiGroupChat: StateCreator<
 
   return {
     sendGroupMessage: async ({ groupId, message, files, onlyAddUserMessage, targetMemberId }) => {
+      const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
+      if (!accountMutationSnapshot) return;
+
       const {
         internal_createMessage,
         internal_routeGroupUserMessage,
@@ -304,10 +311,17 @@ export const chatAiGroupChat: StateCreator<
         activeTopicId,
       } = get();
       const conversationClearGeneration = get().conversationClearGeneration;
+      const requestedSessionId = useSessionStore.getState().activeId;
+      const isCurrentConversation = () =>
+        isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
+        get().conversationClearGeneration === conversationClearGeneration &&
+        useSessionStore.getState().activeId === requestedSessionId &&
+        get().activeTopicId === activeTopicId;
 
       if (!message.trim() && (!files || files.length === 0)) return;
 
       const expectedConversationVersion = await messageService.getConversationVersion();
+      if (!isCurrentConversation()) return;
       internal_setActiveGroup(groupId);
 
       set({ isCreatingMessage: true }, false, n('creatingGroupMessage/start'));
@@ -327,7 +341,7 @@ export const chatAiGroupChat: StateCreator<
         const messageId = await internal_createMessage(userMessage, {
           expectedConversationVersion,
         });
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         // if only add user message, then stop
         if (onlyAddUserMessage) {
@@ -353,11 +367,12 @@ export const chatAiGroupChat: StateCreator<
       } finally {
         if (
           contextExportCaptureId &&
+          isCurrentConversation() &&
           pendingSupervisorCaptureIds.get(groupId) !== contextExportCaptureId
         ) {
           get().completeContextExport(contextExportCaptureId);
         }
-        if (get().conversationClearGeneration === conversationClearGeneration) {
+        if (isCurrentConversation()) {
           set({ isCreatingMessage: false }, false, n('creatingGroupMessage/end'));
         }
       }
@@ -372,9 +387,20 @@ export const chatAiGroupChat: StateCreator<
       expectedConversationVersion,
       contextExportCaptureId,
     ) => {
+      const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
+      if (!accountMutationSnapshot) return;
+
+      const conversationClearGeneration = get().conversationClearGeneration;
+      const requestedSessionId = useSessionStore.getState().activeId;
+      const requestedTopicId = get().activeTopicId;
+      const isCurrentConversation = () =>
+        isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
+        get().conversationClearGeneration === conversationClearGeneration &&
+        useSessionStore.getState().activeId === requestedSessionId &&
+        get().activeTopicId === requestedTopicId;
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
-      const conversationClearGeneration = get().conversationClearGeneration;
+      if (!isCurrentConversation()) return;
 
       // Use the specific group's config rather than relying on whichever session is active later.
       const groupConfig = selectGroupConfig(groupId);
@@ -398,7 +424,7 @@ export const chatAiGroupChat: StateCreator<
             );
           }
         } else {
-          if (get().conversationClearGeneration !== conversationClearGeneration) return;
+          if (!isCurrentConversation()) return;
           get().internal_triggerSupervisorDecisionDebounced(
             groupId,
             resolvedConversationVersion,
@@ -426,7 +452,7 @@ export const chatAiGroupChat: StateCreator<
       );
       if (validAgentIds.length === 0) return;
 
-      if (get().conversationClearGeneration !== conversationClearGeneration) return;
+      if (!isCurrentConversation()) return;
       await get().internal_executeAgentResponses(
         groupId,
         validAgentIds.map((agentId) => ({
@@ -445,18 +471,26 @@ export const chatAiGroupChat: StateCreator<
       expectedConversationVersion?: number,
       contextExportCaptureId?: string,
     ) => {
+      const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
+      if (!accountMutationSnapshot) return;
+
+      const conversationClearGeneration = get().conversationClearGeneration;
+      const requestedSessionId = useSessionStore.getState().activeId;
+      const currentTopicId = typeof topicId === 'undefined' ? get().activeTopicId : topicId;
+      const isCurrentConversation = () =>
+        isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
+        get().conversationClearGeneration === conversationClearGeneration &&
+        useSessionStore.getState().activeId === requestedSessionId &&
+        get().activeTopicId === currentTopicId;
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
+      if (!isCurrentConversation()) return;
       const {
         messagesMap,
         internal_toggleSupervisorLoading,
         internal_createMessage,
         supervisorTodos,
       } = get();
-      const conversationClearGeneration = get().conversationClearGeneration;
-
-      // Capture topicId at invocation time to avoid leaking state after topic switches
-      const currentTopicId = typeof topicId === 'undefined' ? get().activeTopicId : topicId;
 
       // Always read config for the provided groupId early so it can be used in createSupervisorTodoMessage
       const groupConfig = selectGroupConfig(groupId);
@@ -480,6 +514,7 @@ export const chatAiGroupChat: StateCreator<
 
         console.log('Creating supervisor todo message:', supervisorMessage);
 
+        if (!isCurrentConversation()) return;
         await internal_createMessage(supervisorMessage, {
           expectedConversationVersion: resolvedConversationVersion,
         });
@@ -535,6 +570,7 @@ export const chatAiGroupChat: StateCreator<
           messages,
           model: groupConfig.orchestratorModel,
           onContextSnapshot: (snapshot) => {
+            if (!isCurrentConversation()) return;
             get().appendContextExportSnapshot(snapshot);
           },
           provider: groupConfig.orchestratorProvider,
@@ -548,7 +584,7 @@ export const chatAiGroupChat: StateCreator<
         internal_toggleSupervisorLoading(true, groupId);
 
         const { decisions, todos, todoUpdated } = await supervisor.makeDecision(context);
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         // Turn off supervisor thinking immediately after decision is made
         internal_toggleSupervisorLoading(false, groupId);
@@ -557,7 +593,7 @@ export const chatAiGroupChat: StateCreator<
 
         if (todoUpdated) {
           await createSupervisorTodoMessage(todos);
-          if (get().conversationClearGeneration !== conversationClearGeneration) return;
+          if (!isCurrentConversation()) return;
         }
 
         console.log('Supervisor decisions:', decisions);
@@ -571,7 +607,7 @@ export const chatAiGroupChat: StateCreator<
           );
         }
       } catch (error) {
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         // Turn off supervisor thinking on error
         internal_toggleSupervisorLoading(false, groupId);
@@ -591,16 +627,17 @@ export const chatAiGroupChat: StateCreator<
           );
         }
       } finally {
-        // Clean up AbortController from state
-        set(
-          produce((state: ChatStoreState) => {
-            if (state.supervisorDecisionAbortControllers[groupId] === abortController) {
-              delete state.supervisorDecisionAbortControllers[groupId];
-            }
-          }),
-          false,
-          n(`cleanupSupervisorAbortController/${groupId}`),
-        );
+        if (isCurrentConversation()) {
+          set(
+            produce((state: ChatStoreState) => {
+              if (state.supervisorDecisionAbortControllers[groupId] === abortController) {
+                delete state.supervisorDecisionAbortControllers[groupId];
+              }
+            }),
+            false,
+            n(`cleanupSupervisorAbortController/${groupId}`),
+          );
+        }
       }
     },
 
@@ -610,11 +647,22 @@ export const chatAiGroupChat: StateCreator<
       expectedConversationVersion?: number,
       contextExportCaptureId?: string,
     ) => {
+      const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
+      if (!accountMutationSnapshot) return;
+
+      const conversationClearGeneration = get().conversationClearGeneration;
+      const requestedSessionId = useSessionStore.getState().activeId;
+      const requestedTopicId = get().activeTopicId;
+      const isCurrentConversation = () =>
+        isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
+        get().conversationClearGeneration === conversationClearGeneration &&
+        useSessionStore.getState().activeId === requestedSessionId &&
+        get().activeTopicId === requestedTopicId;
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
+      if (!isCurrentConversation()) return;
       log('Executing agent responses with decisions:', decisions);
       const { internal_processAgentMessage, internal_triggerSupervisorDecisionDebounced } = get();
-      const conversationClearGeneration = get().conversationClearGeneration;
 
       // Read the target group's config to respect per-group settings
       const groupConfig = selectGroupConfig(groupId);
@@ -639,13 +687,14 @@ export const chatAiGroupChat: StateCreator<
         if (groupConfig?.responseOrder === 'sequential') {
           // Process agents sequentially with delay
           for (const [index, decision] of sortedDecisions.entries()) {
-            if (get().conversationClearGeneration !== conversationClearGeneration) return;
+            if (!isCurrentConversation()) return;
 
             // Add delay between agents (except for the first one)
             if (index > 0) {
               await new Promise((resolve) => {
                 setTimeout(resolve, SEQUENTIAL_RESPONSE_DELAY);
               });
+              if (!isCurrentConversation()) return;
             }
 
             await internal_processAgentMessage(
@@ -656,7 +705,7 @@ export const chatAiGroupChat: StateCreator<
               resolvedConversationVersion,
               contextExportCaptureId,
             );
-            if (get().conversationClearGeneration !== conversationClearGeneration) return;
+            if (!isCurrentConversation()) return;
           }
         } else {
           // Process agents in parallel for natural response order
@@ -671,7 +720,7 @@ export const chatAiGroupChat: StateCreator<
             ),
           );
           await Promise.all(responsePromises);
-          if (get().conversationClearGeneration !== conversationClearGeneration) return;
+          if (!isCurrentConversation()) return;
         }
 
         // Only trigger next supervisor decision after ALL agents have completed their responses
@@ -680,7 +729,7 @@ export const chatAiGroupChat: StateCreator<
           internal_triggerSupervisorDecisionDebounced(groupId, resolvedConversationVersion);
         }
       } catch (error) {
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         console.error('Failed to execute agent responses:', error);
         // Create supervisor error message to show the error to users
@@ -702,8 +751,20 @@ export const chatAiGroupChat: StateCreator<
       contextExportCaptureId?: string,
       isToolContinuation = false,
     ) => {
+      const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
+      if (!accountMutationSnapshot) return;
+
+      const conversationClearGeneration = get().conversationClearGeneration;
+      const requestedSessionId = useSessionStore.getState().activeId;
+      const requestedTopicId = get().activeTopicId;
+      const isCurrentConversation = () =>
+        isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
+        get().conversationClearGeneration === conversationClearGeneration &&
+        useSessionStore.getState().activeId === requestedSessionId &&
+        get().activeTopicId === requestedTopicId;
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
+      if (!isCurrentConversation()) return;
       log('internal_processAgentMessage called with:', {
         groupId,
         agentId,
@@ -720,10 +781,9 @@ export const chatAiGroupChat: StateCreator<
         internal_toggleChatLoading,
         triggerToolCalls,
       } = get();
-      const conversationClearGeneration = get().conversationClearGeneration;
 
       try {
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         const allMessages = messagesMap[messageMapKey(groupId, activeTopicId)] || [];
         if (allMessages.length === 0) return;
@@ -793,7 +853,7 @@ export const chatAiGroupChat: StateCreator<
         const assistantId = await internal_createMessage(agentMessage, {
           expectedConversationVersion: resolvedConversationVersion,
         });
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         const systemMessage: UIChatMessage = {
           id: 'group-system',
@@ -842,7 +902,7 @@ export const chatAiGroupChat: StateCreator<
               agentConfig: agentData,
             },
           });
-          if (get().conversationClearGeneration !== conversationClearGeneration) return;
+          if (!isCurrentConversation()) return;
 
           // Handle tool calling in group chat like single chat
           if (isFunctionCall) {
@@ -857,13 +917,15 @@ export const chatAiGroupChat: StateCreator<
 
             get().internal_toggleMessageInToolsCalling(true, assistantId);
             await refreshMessages();
+            if (!isCurrentConversation()) return;
+
             await triggerToolCalls(assistantId, {
               contextExportCaptureId,
               expectedConversationVersion: resolvedConversationVersion,
               threadId: undefined,
               inPortalThread: false,
             });
-            if (get().conversationClearGeneration !== conversationClearGeneration) return;
+            if (!isCurrentConversation()) return;
 
             // Change: if an agent message is a tool call, make the same agent speak again
             // instead of asking supervisor for a decision.
@@ -881,13 +943,13 @@ export const chatAiGroupChat: StateCreator<
         }
 
         await refreshMessages();
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         // Don't trigger supervisor decision after individual agent responses
         // This prevents infinite loops of agent responses
         // Supervisor decisions should only be triggered after user messages or when all agents complete
       } catch (error) {
-        if (get().conversationClearGeneration !== conversationClearGeneration) return;
+        if (!isCurrentConversation()) return;
 
         console.error('Failed to process message for agent:', agentId, error);
 
@@ -918,7 +980,7 @@ export const chatAiGroupChat: StateCreator<
           });
         }
       } finally {
-        if (get().conversationClearGeneration === conversationClearGeneration) {
+        if (isCurrentConversation()) {
           internal_toggleChatLoading(false, undefined, n('processAgentMessage(end)'));
         }
       }
@@ -948,6 +1010,9 @@ export const chatAiGroupChat: StateCreator<
       expectedConversationVersion?: number,
       contextExportCaptureId?: string,
     ) => {
+      const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
+      if (!accountMutationSnapshot) return;
+
       const { internal_cancelSupervisorDecision, internal_triggerSupervisorDecision } = get();
       const inheritedContextExportCaptureId = pendingSupervisorCaptureIds.get(groupId);
       const activeContextExportCaptureId =
@@ -967,21 +1032,17 @@ export const chatAiGroupChat: StateCreator<
       // Capture topicId at schedule time to decouple from future topic switches
       const scheduledTopicId = get().activeTopicId;
       const scheduledConversationClearGeneration = get().conversationClearGeneration;
+      const scheduledSessionId = useSessionStore.getState().activeId;
+      const isCurrentConversation = () =>
+        isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
+        get().conversationClearGeneration === scheduledConversationClearGeneration &&
+        useSessionStore.getState().activeId === scheduledSessionId &&
+        get().activeTopicId === scheduledTopicId;
 
       // Set a new timer with dynamic debounce based on group settings
       const timerId = setTimeout(async () => {
-        if (get().conversationClearGeneration !== scheduledConversationClearGeneration) {
+        if (!isCurrentConversation()) {
           pendingSupervisorCaptureIds.delete(groupId);
-          set(
-            produce((state: ChatStoreState) => {
-              delete state.supervisorDebounceTimers[groupId];
-            }),
-            false,
-            n(`discardSupervisorTimer/${groupId}`),
-          );
-          if (activeContextExportCaptureId) {
-            get().completeContextExport(activeContextExportCaptureId);
-          }
           return;
         }
 
@@ -1008,7 +1069,7 @@ export const chatAiGroupChat: StateCreator<
         } catch (error) {
           console.error('Failed to execute supervisor decision for group:', groupId, error);
         } finally {
-          if (activeContextExportCaptureId) {
+          if (activeContextExportCaptureId && isCurrentConversation()) {
             get().completeContextExport(activeContextExportCaptureId);
           }
         }
@@ -1130,6 +1191,9 @@ export const chatAiGroupChat: StateCreator<
     },
 
     internal_createSupervisorErrorMessage: async (groupId: string, error: Error | string) => {
+      const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
+      if (!accountMutationSnapshot) return;
+
       const { internal_createTmpMessage, activeTopicId } = get();
 
       try {

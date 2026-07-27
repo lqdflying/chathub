@@ -5,9 +5,18 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { notification } from '@/components/AntdStaticMethods';
 import { pluginService } from '@/services/plugin';
 import { toolService } from '@/services/tool';
+import { useUserStore } from '@/store/user';
+import { initialState as initialUserState } from '@/store/user/initialState';
 import { DiscoverPluginItem } from '@/types/discover';
 
 import { useToolStore } from '../../store';
+
+const initialToolState = useToolStore.getInitialState();
+
+vi.mock('@/const/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/const/auth')>()),
+  enableAuth: true,
+}));
 
 // Mock necessary modules and functions
 vi.mock('@/components/AntdStaticMethods', () => ({
@@ -73,8 +82,24 @@ const pluginManifestMock = {
 };
 
 const logError = console.error;
+const originalRefreshPlugins = useToolStore.getState().refreshPlugins;
+const originalUpdateInstallLoadingState = useToolStore.getState().updateInstallLoadingState;
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  useToolStore.setState(initialToolState, true);
+  useUserStore.setState(
+    {
+      ...initialUserState,
+      authUserId: 'account-a',
+      isLoaded: true,
+      isSignedIn: true,
+      ownershipInvalidationGeneration: 0,
+      user: { id: 'account-a' },
+      userStateInitializationFailure: undefined,
+    },
+    true,
+  );
   useToolStore.setState({
     oldPluginItems: [
       {
@@ -84,6 +109,11 @@ beforeEach(() => {
         manifest: 'https://abc.com/manifest.json',
       } as DiscoverPluginItem,
     ],
+    pluginInstallLoading: {},
+    pluginInstallProgress: {},
+    refreshPlugins: originalRefreshPlugins,
+    scopeGeneration: 0,
+    updateInstallLoadingState: originalUpdateInstallLoadingState,
   });
   console.error = () => {};
 });
@@ -133,6 +163,44 @@ describe('useToolStore:pluginStore', () => {
       // Ensure the state is not updated with an undefined value
       expect(useToolStore.getState().oldPluginItems).not.toBeUndefined();
     });
+
+    it('does not write delayed plugin items after the tool scope resets', async () => {
+      let resolvePluginList!: (value: { items: DiscoverPluginItem[] }) => void;
+      vi.mocked(toolService.getOldPluginList).mockReturnValue(
+        new Promise((resolve) => {
+          resolvePluginList = resolve;
+        }),
+      );
+      const staleItems = [{ identifier: 'stale-plugin' }] as DiscoverPluginItem[];
+      const currentItems = [{ identifier: 'current-plugin' }] as DiscoverPluginItem[];
+
+      const loadPromise = useToolStore.getState().loadPluginStore();
+
+      useToolStore.setState({
+        oldPluginItems: currentItems,
+        scopeGeneration: 1,
+      });
+      resolvePluginList({ items: staleItems });
+
+      await expect(loadPromise).resolves.toEqual(staleItems);
+      expect(useToolStore.getState().oldPluginItems).toEqual(currentItems);
+    });
+
+    it('keeps direct public marketplace loading available during owner mismatch', async () => {
+      const pluginListMock = [{ identifier: 'plugin1' }] as DiscoverPluginItem[];
+      vi.mocked(toolService.getOldPluginList).mockResolvedValue({ items: pluginListMock });
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:account-a',
+        },
+      });
+
+      await expect(useToolStore.getState().loadPluginStore()).resolves.toEqual(pluginListMock);
+
+      expect(toolService.getOldPluginList).toHaveBeenCalledTimes(1);
+      expect(useToolStore.getState().oldPluginItems).toEqual(pluginListMock);
+    });
   });
 
   describe('useFetchPluginStore', () => {
@@ -162,12 +230,21 @@ describe('useToolStore:pluginStore', () => {
   describe('installPlugin', () => {
     it('should install a plugin with valid manifest', async () => {
       const pluginIdentifier = 'plugin1';
+      const checkpoint = {
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'user:account-a',
+        },
+        scopeGeneration: 0,
+      };
 
       const originalUpdateInstallLoadingState = useToolStore.getState().updateInstallLoadingState;
       const updateInstallLoadingStateMock = vi.fn();
+      const refreshPluginsMock = vi.fn().mockResolvedValue(undefined);
 
       act(() => {
         useToolStore.setState({
+          refreshPlugins: refreshPluginsMock,
           updateInstallLoadingState: updateInstallLoadingStateMock,
         });
       });
@@ -210,7 +287,7 @@ describe('useToolStore:pluginStore', () => {
       (toolService.getToolManifest as Mock).mockResolvedValue(pluginManifestMock);
 
       await act(async () => {
-        await useToolStore.getState().installPlugin(pluginIdentifier);
+        await useToolStore.getState().installPlugin(pluginIdentifier, 'plugin', checkpoint);
       });
 
       // Then
@@ -222,9 +299,12 @@ describe('useToolStore:pluginStore', () => {
         type: 'plugin',
         manifest: pluginManifestMock,
       });
+      expect(refreshPluginsMock).toHaveBeenCalledWith(checkpoint);
+      expect(refreshPluginsMock.mock.calls[0][0]).toBe(checkpoint);
 
       act(() => {
         useToolStore.setState({
+          refreshPlugins: originalRefreshPlugins,
           updateInstallLoadingState: originalUpdateInstallLoadingState,
         });
       });
@@ -256,6 +336,104 @@ describe('useToolStore:pluginStore', () => {
         description: 'error.noManifest',
         message: 'error.installError',
       });
+    });
+
+    it('does nothing while the active account has a same-scope owner mismatch', async () => {
+      const updateInstallLoadingState = vi.fn();
+      useToolStore.setState({ updateInstallLoadingState });
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:account-a',
+        },
+      });
+
+      await useToolStore.getState().installPlugin('plugin1');
+
+      expect(updateInstallLoadingState).not.toHaveBeenCalled();
+      expect(toolService.getToolManifest).not.toHaveBeenCalled();
+      expect(pluginService.installPlugin).not.toHaveBeenCalled();
+    });
+
+    it('stops after manifest fetch when account ownership is invalidated', async () => {
+      let resolveManifest!: (manifest: typeof pluginManifestMock) => void;
+      vi.mocked(toolService.getToolManifest).mockReturnValue(
+        new Promise((resolve) => {
+          resolveManifest = resolve;
+        }),
+      );
+      const updateInstallLoadingState = vi.fn();
+      const refreshPlugins = vi.fn();
+      useToolStore.setState({ refreshPlugins, updateInstallLoadingState });
+
+      const installPromise = useToolStore.getState().installPlugin('plugin1');
+      expect(updateInstallLoadingState).toHaveBeenCalledWith('plugin1', true);
+
+      useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      resolveManifest(pluginManifestMock);
+      await installPromise;
+
+      expect(pluginService.installPlugin).not.toHaveBeenCalled();
+      expect(refreshPlugins).not.toHaveBeenCalled();
+      expect(updateInstallLoadingState).not.toHaveBeenCalledWith('plugin1', undefined);
+    });
+
+    it('rejects a stale install after an A-B-A account transition', async () => {
+      let resolveManifest!: (manifest: typeof pluginManifestMock) => void;
+      vi.mocked(toolService.getToolManifest).mockReturnValue(
+        new Promise((resolve) => {
+          resolveManifest = resolve;
+        }),
+      );
+
+      const installPromise = useToolStore.getState().installPlugin('plugin1');
+      useUserStore.setState({
+        authUserId: 'account-b',
+        ownershipInvalidationGeneration: 1,
+        user: { id: 'account-b' },
+      });
+      useUserStore.setState({
+        authUserId: 'account-a',
+        ownershipInvalidationGeneration: 2,
+        user: { id: 'account-a' },
+      });
+
+      resolveManifest(pluginManifestMock);
+      await installPromise;
+
+      expect(pluginService.installPlugin).not.toHaveBeenCalled();
+    });
+
+    it('does not let an overlapped install clear the newer operation', async () => {
+      let resolveFirstManifest!: (manifest: typeof pluginManifestMock) => void;
+      let resolveSecondManifest!: (manifest: typeof pluginManifestMock) => void;
+      vi.mocked(toolService.getToolManifest)
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveFirstManifest = resolve;
+          }),
+        )
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            resolveSecondManifest = resolve;
+          }),
+        );
+      const updateInstallLoadingState = vi.fn();
+      const refreshPlugins = vi.fn().mockResolvedValue(undefined);
+      useToolStore.setState({ refreshPlugins, updateInstallLoadingState });
+
+      const firstInstallPromise = useToolStore.getState().installPlugin('plugin1');
+      const secondInstallPromise = useToolStore.getState().installPlugin('plugin1');
+
+      resolveFirstManifest(pluginManifestMock);
+      await firstInstallPromise;
+      expect(updateInstallLoadingState).not.toHaveBeenCalledWith('plugin1', undefined);
+
+      resolveSecondManifest(pluginManifestMock);
+      await secondInstallPromise;
+
+      expect(pluginService.installPlugin).toHaveBeenCalledTimes(1);
+      expect(updateInstallLoadingState).toHaveBeenLastCalledWith('plugin1', undefined);
     });
   });
 

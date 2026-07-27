@@ -10,6 +10,16 @@ import { useImageStore } from '@/store/image';
 import { useUserStore } from '@/store/user';
 import { ImageGenerationTopic } from '@/types/generation';
 
+const mockedUserState = vi.hoisted(() => ({
+  authUserId: 'test-user',
+  isLoaded: true,
+  isSignedIn: true,
+  ownerMismatch: false,
+  ownershipInvalidationGeneration: 0,
+  scope: 'user:test-user',
+  user: { id: 'test-user' },
+}));
+
 // Mock services and dependencies
 vi.mock('@/services/generationTopic', () => ({
   generationTopicService: {
@@ -28,27 +38,20 @@ vi.mock('@/services/chat', () => ({
 }));
 
 vi.mock('@/store/user', () => {
-  const userState = {
-    authUserId: 'test-user',
-    isLoaded: true,
-    isSignedIn: true,
-    ownershipInvalidationGeneration: 0,
-    user: { id: 'test-user' },
+  const useUserStore = (<Value>(selector: (state: typeof mockedUserState) => Value) =>
+    selector(mockedUserState)) as {
+    <Value>(selector: (state: typeof mockedUserState) => Value): Value;
+    getState: () => typeof mockedUserState;
   };
-  const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
-    selector(userState)) as {
-    <Value>(selector: (state: typeof userState) => Value): Value;
-    getState: () => typeof userState;
-  };
-  useUserStore.getState = () => userState;
+  useUserStore.getState = () => mockedUserState;
 
   return { useUserStore };
 });
 
 vi.mock('@/store/user/selectors', () => ({
   authSelectors: {
-    currentUserScope: () => 'user:test-user',
-    hasActiveUserStateOwnerMismatch: () => false,
+    currentUserScope: (state: typeof mockedUserState) => state.scope,
+    hasActiveUserStateOwnerMismatch: (state: typeof mockedUserState) => state.ownerMismatch,
   },
   systemAgentSelectors: {
     generationTopic: vi.fn().mockReturnValue({
@@ -69,6 +72,9 @@ const createDeferred = <Value>() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedUserState.ownerMismatch = false;
+  mockedUserState.ownershipInvalidationGeneration = 0;
+  mockedUserState.scope = 'user:test-user';
   useImageStore.setState({
     generationTopics: [],
     activeGenerationTopicId: null,
@@ -98,6 +104,8 @@ describe('GenerationTopicAction', () => {
         },
       ] as ImageGenerationTopic[]);
 
+      const createTopicSpy = vi.spyOn(result.current, 'internal_createGenerationTopic');
+      const refreshTopicsSpy = vi.spyOn(result.current, 'refreshGenerationTopics');
       const summaryTopicTitleSpy = vi.spyOn(result.current, 'summaryGenerationTopicTitle');
 
       let createdTopicId;
@@ -107,7 +115,19 @@ describe('GenerationTopicAction', () => {
 
       expect(createdTopicId).toBe(newTopicId);
       expect(generationTopicService.createTopic).toHaveBeenCalled();
-      expect(summaryTopicTitleSpy).toHaveBeenCalledWith(newTopicId, prompts);
+      expect(refreshTopicsSpy.mock.calls[0][0]).toBe(createTopicSpy.mock.calls[0][0]);
+      expect(summaryTopicTitleSpy.mock.calls[0][2]).toBe(createTopicSpy.mock.calls[0][0]);
+      expect(summaryTopicTitleSpy).toHaveBeenCalledWith(
+        newTopicId,
+        prompts,
+        expect.objectContaining({
+          account: {
+            ownershipInvalidationGeneration: 0,
+            scope: 'user:test-user',
+          },
+          scopeGeneration: 0,
+        }),
+      );
     });
 
     it('returns no topic id after an A-to-B-to-A reset during creation', async () => {
@@ -146,6 +166,33 @@ describe('GenerationTopicAction', () => {
       expect(summaryTopicTitleSpy).not.toHaveBeenCalled();
       expect(useImageStore.getState().activeGenerationTopicId).toBe('account-a-returned-topic');
       expect(useImageStore.getState().generationTopics).toHaveLength(1);
+    });
+
+    it('returns no topic id after an account A-to-B-to-A epoch change', async () => {
+      const createdTopic = createDeferred<string>();
+      vi.mocked(generationTopicService.createTopic).mockReturnValue(createdTopic.promise);
+      const { result } = renderHook(() => useImageStore());
+      const summaryTopicTitleSpy = vi.spyOn(result.current, 'summaryGenerationTopicTitle');
+
+      let creationPromise!: ReturnType<typeof result.current.createGenerationTopic>;
+      act(() => {
+        creationPromise = result.current.createGenerationTopic(['Account A prompt']);
+      });
+
+      await waitFor(() => {
+        expect(generationTopicService.createTopic).toHaveBeenCalled();
+      });
+
+      mockedUserState.scope = 'user:account-b';
+      mockedUserState.scope = 'user:test-user';
+      mockedUserState.ownershipInvalidationGeneration = 1;
+      createdTopic.resolve('stale-account-a-topic');
+
+      await act(async () => {
+        await expect(creationPromise).resolves.toBe('');
+      });
+
+      expect(summaryTopicTitleSpy).not.toHaveBeenCalled();
     });
 
     it('should throw error when prompts are empty', async () => {
@@ -363,6 +410,58 @@ describe('GenerationTopicAction', () => {
       expect(updateTitleSpy).toHaveBeenCalledWith(topicId, 'Streaming');
       expect(updateTitleSpy).toHaveBeenCalledWith(topicId, 'Streaming Title');
     });
+
+    it('keeps the newer title and loading owner during overlapping summaries', async () => {
+      const firstSummary = createDeferred<void>();
+      const secondSummary = createDeferred<void>();
+      const summaryCallbacks: Parameters<typeof chatService.fetchPresetTaskResult>[0][] = [];
+      vi.mocked(chatService.fetchPresetTaskResult)
+        .mockImplementationOnce((params) => {
+          summaryCallbacks.push(params);
+          return firstSummary.promise;
+        })
+        .mockImplementationOnce((params) => {
+          summaryCallbacks.push(params);
+          return secondSummary.promise;
+        });
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          generationTopics: [{ id: 'shared-topic', title: 'Original' }] as ImageGenerationTopic[],
+        });
+      });
+
+      let firstPromise!: Promise<string>;
+      let secondPromise!: Promise<string>;
+      act(() => {
+        firstPromise = result.current.summaryGenerationTopicTitle('shared-topic', ['First']);
+      });
+      await waitFor(() => expect(summaryCallbacks).toHaveLength(1));
+      act(() => {
+        summaryCallbacks[0].onMessageHandle?.({ text: 'First title', type: 'text' });
+        secondPromise = result.current.summaryGenerationTopicTitle('shared-topic', ['Second']);
+      });
+      await waitFor(() => expect(summaryCallbacks).toHaveLength(2));
+      act(() => {
+        summaryCallbacks[1].onMessageHandle?.({ text: 'Second title', type: 'text' });
+        firstSummary.resolve();
+      });
+
+      await act(async () => {
+        await firstPromise;
+      });
+
+      expect(useImageStore.getState().generationTopics[0].title).toBe('Second title');
+      expect(useImageStore.getState().loadingGenerationTopicIds).toContain('shared-topic');
+
+      secondSummary.resolve();
+      await act(async () => {
+        await secondPromise;
+      });
+
+      expect(useImageStore.getState().loadingGenerationTopicIds).not.toContain('shared-topic');
+    });
   });
 
   describe('removeGenerationTopic', () => {
@@ -503,6 +602,26 @@ describe('GenerationTopicAction', () => {
       expect(useImageStore.getState().activeGenerationTopicId).toBe('account-a-returned-topic');
       expect(useImageStore.getState().loadingGenerationTopicIds).toEqual(['shared-topic']);
     });
+
+    it('does not start deletion during an active same-scope owner mismatch', async () => {
+      const { result } = renderHook(() => useImageStore());
+      act(() => {
+        useImageStore.setState({
+          activeGenerationTopicId: 'shared-topic',
+          generationTopics: [{ id: 'shared-topic', title: 'Current topic' }] as ImageGenerationTopic[],
+        });
+      });
+      mockedUserState.ownerMismatch = true;
+      const dispatchSpy = vi.spyOn(result.current, 'internal_dispatchGenerationTopic');
+
+      await act(async () => {
+        await result.current.removeGenerationTopic('shared-topic');
+      });
+
+      expect(generationTopicService.deleteTopic).not.toHaveBeenCalled();
+      expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(useImageStore.getState().loadingGenerationTopicIds).toEqual([]);
+    });
   });
 
   describe('useFetchGenerationTopics', () => {
@@ -590,6 +709,8 @@ describe('GenerationTopicAction', () => {
       });
 
       const dispatchSpy = vi.spyOn(result.current, 'internal_dispatchGenerationTopic');
+      const updateCoverSpy = vi.spyOn(result.current, 'internal_updateGenerationTopicCover');
+      const refreshSpy = vi.spyOn(result.current, 'refreshGenerationTopics');
 
       await act(async () => {
         await result.current.updateGenerationTopicCover(topicId, coverUrl);
@@ -600,6 +721,16 @@ describe('GenerationTopicAction', () => {
         'internal_updateGenerationTopicCover/optimistic',
       );
       expect(generationTopicService.updateTopicCover).toHaveBeenCalledWith(topicId, coverUrl);
+      expect(refreshSpy.mock.calls[0][0]).toBe(updateCoverSpy.mock.calls[0][2]);
+      expect(refreshSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          account: {
+            ownershipInvalidationGeneration: 0,
+            scope: 'user:test-user',
+          },
+          scopeGeneration: 0,
+        }),
+      );
     });
 
     it('preserves current cover and loading state after a stale update completes', async () => {
@@ -652,6 +783,47 @@ describe('GenerationTopicAction', () => {
       expect(refreshSpy).not.toHaveBeenCalled();
       expect(useImageStore.getState().generationTopics[0].coverUrl).toBe('current-cover');
       expect(useImageStore.getState().loadingGenerationTopicIds).toEqual(['shared-topic']);
+    });
+
+    it('does not let an older cover update clear the newer loading owner', async () => {
+      const firstCoverUpdate = createDeferred<void>();
+      const secondCoverUpdate = createDeferred<void>();
+      vi.mocked(generationTopicService.updateTopicCover)
+        .mockReturnValueOnce(firstCoverUpdate.promise)
+        .mockReturnValueOnce(secondCoverUpdate.promise);
+      const { result } = renderHook(() => useImageStore());
+      const refreshSpy = vi.spyOn(result.current, 'refreshGenerationTopics').mockResolvedValue();
+
+      act(() => {
+        useImageStore.setState({
+          generationTopics: [
+            { coverUrl: 'original-cover', id: 'shared-topic', title: 'Topic' },
+          ] as ImageGenerationTopic[],
+        });
+      });
+
+      let firstPromise!: Promise<void>;
+      let secondPromise!: Promise<void>;
+      act(() => {
+        firstPromise = result.current.updateGenerationTopicCover('shared-topic', 'first-cover');
+        secondPromise = result.current.updateGenerationTopicCover('shared-topic', 'second-cover');
+      });
+      firstCoverUpdate.resolve();
+      await act(async () => {
+        await firstPromise;
+      });
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(useImageStore.getState().generationTopics[0].coverUrl).toBe('second-cover');
+      expect(useImageStore.getState().loadingGenerationTopicIds).toContain('shared-topic');
+
+      secondCoverUpdate.resolve();
+      await act(async () => {
+        await secondPromise;
+      });
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(useImageStore.getState().loadingGenerationTopicIds).not.toContain('shared-topic');
     });
   });
 
@@ -783,9 +955,16 @@ describe('GenerationTopicAction', () => {
       const dispatchSpy = vi.spyOn(result.current, 'internal_dispatchGenerationTopic');
       const loadingSpy = vi.spyOn(result.current, 'internal_updateGenerationTopicLoading');
       const refreshSpy = vi.spyOn(result.current, 'refreshGenerationTopics');
+      const mutationContext = {
+        account: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'user:test-user',
+        },
+        scopeGeneration: 0,
+      };
 
       await act(async () => {
-        await result.current.internal_updateGenerationTopic(topicId, updateData);
+        await result.current.internal_updateGenerationTopic(topicId, updateData, mutationContext);
       });
 
       expect(dispatchSpy).toHaveBeenCalledWith({
@@ -795,7 +974,8 @@ describe('GenerationTopicAction', () => {
       });
       expect(loadingSpy).toHaveBeenCalledWith(topicId, true);
       expect(generationTopicService.updateTopic).toHaveBeenCalledWith(topicId, updateData);
-      expect(refreshSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledWith(mutationContext);
+      expect(refreshSpy.mock.calls[0][0]).toBe(mutationContext);
       expect(loadingSpy).toHaveBeenCalledWith(topicId, false);
     });
   });
@@ -826,14 +1006,22 @@ describe('GenerationTopicAction', () => {
 
       const loadingSpy = vi.spyOn(result.current, 'internal_updateGenerationTopicLoading');
       const refreshSpy = vi.spyOn(result.current, 'refreshGenerationTopics');
+      const mutationContext = {
+        account: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'user:test-user',
+        },
+        scopeGeneration: 0,
+      };
 
       await act(async () => {
-        await result.current.internal_removeGenerationTopic(topicId);
+        await result.current.internal_removeGenerationTopic(topicId, mutationContext);
       });
 
       expect(loadingSpy).toHaveBeenCalledWith(topicId, true);
       expect(generationTopicService.deleteTopic).toHaveBeenCalledWith(topicId);
-      expect(refreshSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledWith(mutationContext);
+      expect(refreshSpy.mock.calls[0][0]).toBe(mutationContext);
       expect(loadingSpy).toHaveBeenCalledWith(topicId, false);
     });
 

@@ -1,25 +1,37 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { mutate } from 'swr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { knowledgeBaseService } from '@/services/knowledgeBase';
+import { useUserStore } from '@/store/user';
 import { CreateKnowledgeBaseParams, KnowledgeBaseItem } from '@/types/knowledgeBase';
 
 import { useKnowledgeBaseStore } from '../../store';
 
+const mutateAccountSWR = vi.hoisted(() => vi.fn());
+
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+vi.mock('@/libs/swr', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/libs/swr')>()),
+  mutateAccountSWR,
+}));
 
 const createDeferred = <Value>() => {
   let resolve!: (value: Value) => void;
-  const promise = new Promise<Value>((promiseResolve) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<Value>((promiseResolve, promiseReject) => {
     resolve = promiseResolve;
+    reject = promiseReject;
   });
 
-  return { promise, resolve };
+  return { promise, reject, resolve };
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useUserStore.setState({
+    ownershipInvalidationGeneration: 0,
+    userStateInitializationFailure: undefined,
+  });
   useKnowledgeBaseStore.setState(
     {
       activeKnowledgeBaseId: null,
@@ -38,6 +50,122 @@ afterEach(() => {
 });
 
 describe('KnowledgeBaseCrudAction', () => {
+  describe('account mutation quarantine', () => {
+    it('blocks every CRUD mutation during a same-scope owner mismatch', async () => {
+      const createKnowledgeBase = vi
+        .spyOn(knowledgeBaseService, 'createKnowledgeBase')
+        .mockResolvedValue('unexpected-id');
+      const deleteKnowledgeBase = vi
+        .spyOn(knowledgeBaseService, 'deleteKnowledgeBase')
+        .mockResolvedValue(undefined as any);
+      const updateKnowledgeBase = vi
+        .spyOn(knowledgeBaseService, 'updateKnowledgeBaseList')
+        .mockResolvedValue(undefined as any);
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'local',
+        },
+      });
+
+      const store = useKnowledgeBaseStore.getState();
+      const createdId = await store.createNewKnowledgeBase({ name: 'Blocked KB' });
+      await store.removeKnowledgeBase('blocked-kb');
+      await store.updateKnowledgeBase('blocked-kb', { name: 'Blocked update' });
+
+      expect(createdId).toBe('');
+      expect(createKnowledgeBase).not.toHaveBeenCalled();
+      expect(deleteKnowledgeBase).not.toHaveBeenCalled();
+      expect(updateKnowledgeBase).not.toHaveBeenCalled();
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual([]);
+    });
+
+    it('continues an explicit update when the active knowledge base changes', async () => {
+      const updateFinished = createDeferred<void>();
+      vi.spyOn(knowledgeBaseService, 'updateKnowledgeBaseList').mockReturnValue(
+        updateFinished.promise,
+      );
+      useKnowledgeBaseStore.setState({ activeKnowledgeBaseId: 'kb-a' });
+
+      const { result } = renderHook(() => useKnowledgeBaseStore());
+      const refreshKnowledgeBaseList = vi
+        .spyOn(result.current, 'refreshKnowledgeBaseList')
+        .mockResolvedValue();
+      let updatePromise!: ReturnType<typeof result.current.updateKnowledgeBase>;
+
+      act(() => {
+        updatePromise = result.current.updateKnowledgeBase('kb-a', { name: 'Stale update' });
+      });
+      await waitFor(() => {
+        expect(knowledgeBaseService.updateKnowledgeBaseList).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useKnowledgeBaseStore.setState({ activeKnowledgeBaseId: 'kb-b' });
+      });
+      updateFinished.resolve();
+      await act(async () => {
+        await updatePromise;
+      });
+
+      expect(refreshKnowledgeBaseList).toHaveBeenCalledWith({
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'local',
+        },
+        scopeGeneration: 0,
+      });
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).not.toContain('kb-a');
+    });
+
+    it('stops every CRUD continuation after owner invalidation', async () => {
+      const creationFinished = createDeferred<string>();
+      const removalFinished = createDeferred<void>();
+      const updateFinished = createDeferred<void>();
+      vi.spyOn(knowledgeBaseService, 'createKnowledgeBase').mockReturnValue(
+        creationFinished.promise,
+      );
+      vi.spyOn(knowledgeBaseService, 'deleteKnowledgeBase').mockReturnValue(
+        removalFinished.promise,
+      );
+      vi.spyOn(knowledgeBaseService, 'updateKnowledgeBaseList').mockReturnValue(
+        updateFinished.promise,
+      );
+
+      const store = useKnowledgeBaseStore.getState();
+      const refreshKnowledgeBaseList = vi
+        .spyOn(store, 'refreshKnowledgeBaseList')
+        .mockResolvedValue();
+      const creationPromise = store.createNewKnowledgeBase({ name: 'Stale creation' });
+      const removalPromise = store.removeKnowledgeBase('stale-removal');
+      const updatePromise = store.updateKnowledgeBase('stale-update', {
+        name: 'Stale update',
+      });
+
+      await waitFor(() => {
+        expect(knowledgeBaseService.createKnowledgeBase).toHaveBeenCalled();
+        expect(knowledgeBaseService.deleteKnowledgeBase).toHaveBeenCalled();
+        expect(knowledgeBaseService.updateKnowledgeBaseList).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      });
+      creationFinished.resolve('stale-created-id');
+      removalFinished.resolve();
+      updateFinished.resolve();
+
+      await expect(creationPromise).resolves.toBe('');
+      await removalPromise;
+      await updatePromise;
+
+      expect(refreshKnowledgeBaseList).not.toHaveBeenCalled();
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).not.toContain(
+        'stale-update',
+      );
+    });
+  });
+
   describe('createNewKnowledgeBase', () => {
     it('should create knowledge base and refresh list', async () => {
       const params: CreateKnowledgeBaseParams = {
@@ -55,8 +183,45 @@ describe('KnowledgeBaseCrudAction', () => {
       });
 
       expect(knowledgeBaseService.createKnowledgeBase).toHaveBeenCalledWith(params);
-      expect(refreshSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledWith({
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'local',
+        },
+        scopeGeneration: 0,
+      });
       expect(id).toBe('new-kb-id');
+    });
+
+    it('returns the created id and refreshes when the active knowledge base changes', async () => {
+      const creationFinished = createDeferred<string>();
+      vi.spyOn(knowledgeBaseService, 'createKnowledgeBase').mockReturnValue(
+        creationFinished.promise,
+      );
+      useKnowledgeBaseStore.setState({ activeKnowledgeBaseId: 'kb-a' });
+
+      const store = useKnowledgeBaseStore.getState();
+      const refreshKnowledgeBaseList = vi
+        .spyOn(store, 'refreshKnowledgeBaseList')
+        .mockResolvedValue();
+      const creationPromise = store.createNewKnowledgeBase({ name: 'Created KB' });
+
+      await waitFor(() => {
+        expect(knowledgeBaseService.createKnowledgeBase).toHaveBeenCalled();
+      });
+      act(() => {
+        useKnowledgeBaseStore.setState({ activeKnowledgeBaseId: 'kb-b' });
+      });
+      creationFinished.resolve('created-kb-id');
+
+      await expect(creationPromise).resolves.toBe('created-kb-id');
+      expect(refreshKnowledgeBaseList).toHaveBeenCalledWith({
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'local',
+        },
+        scopeGeneration: 0,
+      });
     });
 
     it('returns no navigable id when the account scope generation changes', async () => {
@@ -185,15 +350,37 @@ describe('KnowledgeBaseCrudAction', () => {
   });
 
   describe('refreshKnowledgeBaseList', () => {
-    it('should execute refresh without errors', async () => {
+    it('refreshes the supplied checkpoint scope', async () => {
       const { result } = renderHook(() => useKnowledgeBaseStore());
 
-      // The action uses mutate internally - we just verify it doesn't throw
-      await expect(
-        act(async () => {
-          await result.current.refreshKnowledgeBaseList();
-        }),
-      ).resolves.not.toThrow();
+      await act(async () => {
+        await result.current.refreshKnowledgeBaseList({
+          accountMutationSnapshot: {
+            ownershipInvalidationGeneration: 0,
+            scope: 'local',
+          },
+          scopeGeneration: 0,
+        });
+      });
+
+      expect(mutateAccountSWR).toHaveBeenCalledWith(['FETCH_KNOWLEDGE_BASE', 'local']);
+    });
+
+    it('rejects a stale supplied checkpoint', async () => {
+      const { result } = renderHook(() => useKnowledgeBaseStore());
+      useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+
+      await act(async () => {
+        await result.current.refreshKnowledgeBaseList({
+          accountMutationSnapshot: {
+            ownershipInvalidationGeneration: 0,
+            scope: 'local',
+          },
+          scopeGeneration: 0,
+        });
+      });
+
+      expect(mutateAccountSWR).not.toHaveBeenCalled();
     });
   });
 
@@ -209,7 +396,44 @@ describe('KnowledgeBaseCrudAction', () => {
       });
 
       expect(knowledgeBaseService.deleteKnowledgeBase).toHaveBeenCalledWith('kb-to-delete');
-      expect(refreshSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledWith({
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'local',
+        },
+        scopeGeneration: 0,
+      });
+    });
+
+    it('refreshes after deletion when the active knowledge base changes', async () => {
+      const removalFinished = createDeferred<void>();
+      vi.spyOn(knowledgeBaseService, 'deleteKnowledgeBase').mockReturnValue(
+        removalFinished.promise,
+      );
+      useKnowledgeBaseStore.setState({ activeKnowledgeBaseId: 'kb-a' });
+
+      const store = useKnowledgeBaseStore.getState();
+      const refreshKnowledgeBaseList = vi
+        .spyOn(store, 'refreshKnowledgeBaseList')
+        .mockResolvedValue();
+      const removalPromise = store.removeKnowledgeBase('kb-to-delete');
+
+      await waitFor(() => {
+        expect(knowledgeBaseService.deleteKnowledgeBase).toHaveBeenCalledWith('kb-to-delete');
+      });
+      act(() => {
+        useKnowledgeBaseStore.setState({ activeKnowledgeBaseId: 'kb-b' });
+      });
+      removalFinished.resolve();
+      await removalPromise;
+
+      expect(refreshKnowledgeBaseList).toHaveBeenCalledWith({
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'local',
+        },
+        scopeGeneration: 0,
+      });
     });
 
     it('should handle errors during deletion', async () => {
@@ -248,7 +472,13 @@ describe('KnowledgeBaseCrudAction', () => {
         'kb-1',
         updateParams,
       );
-      expect(refreshSpy).toHaveBeenCalled();
+      expect(refreshSpy).toHaveBeenCalledWith({
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'local',
+        },
+        scopeGeneration: 0,
+      });
       expect(toggleLoadingSpy).toHaveBeenCalledWith('kb-1', false);
     });
 
@@ -266,7 +496,81 @@ describe('KnowledgeBaseCrudAction', () => {
       ).rejects.toThrow('Update failed');
 
       expect(toggleLoadingSpy).toHaveBeenCalledWith('kb-1', true);
-      // The false toggle won't be called because the error interrupts the flow
+      expect(toggleLoadingSpy).toHaveBeenCalledWith('kb-1', false);
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).not.toContain('kb-1');
+    });
+
+    it('keeps loading until every overlapping update completes', async () => {
+      const firstUpdate = createDeferred<void>();
+      const secondUpdate = createDeferred<void>();
+      vi.spyOn(knowledgeBaseService, 'updateKnowledgeBaseList')
+        .mockReturnValueOnce(firstUpdate.promise)
+        .mockReturnValueOnce(secondUpdate.promise);
+      vi.spyOn(useKnowledgeBaseStore.getState(), 'refreshKnowledgeBaseList').mockResolvedValue();
+
+      const firstUpdatePromise = useKnowledgeBaseStore
+        .getState()
+        .updateKnowledgeBase('kb-1', { name: 'First' });
+      const secondUpdatePromise = useKnowledgeBaseStore
+        .getState()
+        .updateKnowledgeBase('kb-1', { name: 'Second' });
+
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual(['kb-1']);
+
+      firstUpdate.resolve();
+      await firstUpdatePromise;
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual(['kb-1']);
+
+      secondUpdate.resolve();
+      await secondUpdatePromise;
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual([]);
+    });
+
+    it('keeps loading when a newer overlapping update rejects first', async () => {
+      const firstUpdate = createDeferred<void>();
+      const secondUpdate = createDeferred<void>();
+      vi.spyOn(knowledgeBaseService, 'updateKnowledgeBaseList')
+        .mockReturnValueOnce(firstUpdate.promise)
+        .mockReturnValueOnce(secondUpdate.promise);
+      vi.spyOn(useKnowledgeBaseStore.getState(), 'refreshKnowledgeBaseList').mockResolvedValue();
+
+      const firstUpdatePromise = useKnowledgeBaseStore
+        .getState()
+        .updateKnowledgeBase('kb-1', { name: 'First' });
+      const secondUpdatePromise = useKnowledgeBaseStore
+        .getState()
+        .updateKnowledgeBase('kb-1', { name: 'Second' });
+
+      secondUpdate.reject(new Error('Second failed'));
+      await expect(secondUpdatePromise).rejects.toThrow('Second failed');
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual(['kb-1']);
+
+      firstUpdate.resolve();
+      await firstUpdatePromise;
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual([]);
+    });
+
+    it('does not mutate reset loading state from a stale finalizer', async () => {
+      const staleUpdate = createDeferred<void>();
+      vi.spyOn(knowledgeBaseService, 'updateKnowledgeBaseList').mockReturnValue(
+        staleUpdate.promise,
+      );
+
+      const staleUpdatePromise = useKnowledgeBaseStore
+        .getState()
+        .updateKnowledgeBase('kb-1', { name: 'Stale' });
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual(['kb-1']);
+
+      useKnowledgeBaseStore.setState({
+        knowledgeBaseLoadingIds: ['new-account-kb'],
+        scopeGeneration: 1,
+      });
+      staleUpdate.resolve();
+      await staleUpdatePromise;
+
+      expect(useKnowledgeBaseStore.getState().knowledgeBaseLoadingIds).toEqual([
+        'new-account-kb',
+      ]);
     });
   });
 

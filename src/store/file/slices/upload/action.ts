@@ -6,12 +6,21 @@ import { message } from '@/components/AntdStaticMethods';
 import { LOBE_CHAT_CLOUD } from '@/const/branding';
 import { fileService } from '@/services/file';
 import { uploadService } from '@/services/upload';
+import type { AccountMutationSnapshot } from '@/store/accountMutation';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
 import { FileMetadata, UploadFileItem } from '@/types/files';
 import { getImageDimensions } from '@/utils/client/imageDimensions';
 
 import { FileStore } from '../../store';
+
+export interface FileMutationCheckpoint {
+  accountMutationSnapshot: AccountMutationSnapshot;
+  scopeGeneration: number;
+}
 
 type OnStatusUpdate = (
   data:
@@ -29,6 +38,7 @@ type OnStatusUpdate = (
 interface UploadWithProgressParams {
   file: File;
   knowledgeBaseId?: string;
+  mutationCheckpoint?: FileMutationCheckpoint;
   onStatusUpdate?: OnStatusUpdate;
   signal?: AbortSignal;
   /**
@@ -54,6 +64,7 @@ export interface FileUploadAction {
   uploadBase64FileWithProgress: (
     base64: string,
     params?: {
+      mutationCheckpoint?: FileMutationCheckpoint;
       onStatusUpdate?: OnStatusUpdate;
     },
   ) => Promise<UploadWithProgressResult | undefined>;
@@ -62,6 +73,22 @@ export interface FileUploadAction {
     params: UploadWithProgressParams,
   ) => Promise<UploadWithProgressResult | undefined>;
 }
+
+const captureFileMutationCheckpoint = (
+  scopeGeneration: number,
+): FileMutationCheckpoint | undefined => {
+  const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+  if (!accountMutationSnapshot) return;
+
+  return { accountMutationSnapshot, scopeGeneration };
+};
+
+const isFileMutationCurrent = (
+  checkpoint: FileMutationCheckpoint,
+  scopeGeneration: number,
+): boolean =>
+  isAccountMutationCurrent(useUserStore.getState(), checkpoint.accountMutationSnapshot) &&
+  scopeGeneration === checkpoint.scopeGeneration;
 
 export const createFileUploadSlice: StateCreator<
   FileStore,
@@ -73,12 +100,17 @@ export const createFileUploadSlice: StateCreator<
     get().fileUploadAbortControllers.forEach((controller) => controller.abort());
     set({ fileUploadAbortControllers: [] }, false, 'abortFileUploads');
   },
-  uploadBase64FileWithProgress: async (base64) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+  uploadBase64FileWithProgress: async (base64, params) => {
+    const mutationCheckpoint =
+      params?.mutationCheckpoint ?? captureFileMutationCheckpoint(get().scopeGeneration);
+    if (!mutationCheckpoint) return;
+
+    const isOperationCurrent = () =>
+      isFileMutationCurrent(mutationCheckpoint, get().scopeGeneration);
+    if (!isOperationCurrent()) return;
 
     const abortController = new AbortController();
+    if (!isOperationCurrent()) return;
     set(
       (state) => ({
         fileUploadAbortControllers: [...state.fileUploadAbortControllers, abortController],
@@ -91,17 +123,16 @@ export const createFileUploadSlice: StateCreator<
       // Extract image dimensions from base64 data
       const dimensions = await getImageDimensions(base64);
       abortController.signal.throwIfAborted();
+      if (!isOperationCurrent()) return;
 
+      if (!isOperationCurrent()) return;
       const { metadata, fileType, size, hash } = await uploadService.uploadBase64ToS3(base64, {
         signal: abortController.signal,
       });
       abortController.signal.throwIfAborted();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isOperationCurrent()) return;
 
+      if (!isOperationCurrent()) return;
       const res = await fileService.createFile(
         {
           fileType,
@@ -115,40 +146,44 @@ export const createFileUploadSlice: StateCreator<
         abortController.signal,
       );
       abortController.signal.throwIfAborted();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isOperationCurrent()) return;
 
       return { ...res, dimensions, filename: metadata.filename };
     } finally {
-      set(
-        (state) => ({
-          fileUploadAbortControllers: state.fileUploadAbortControllers.filter(
-            (controller) => controller !== abortController,
-          ),
-        }),
-        false,
-        'uploadBase64FileWithProgress/removeAbortController',
-      );
+      if (isOperationCurrent()) {
+        set(
+          (state) => ({
+            fileUploadAbortControllers: state.fileUploadAbortControllers.filter(
+              (controller) => controller !== abortController,
+            ),
+          }),
+          false,
+          'uploadBase64FileWithProgress/removeAbortController',
+        );
+      }
     }
   },
   uploadWithProgress: async ({
     file,
     onStatusUpdate,
     knowledgeBaseId,
+    mutationCheckpoint: requestedMutationCheckpoint,
     signal,
     skipCheckFileType,
   }) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const mutationCheckpoint =
+      requestedMutationCheckpoint ?? captureFileMutationCheckpoint(get().scopeGeneration);
+    if (!mutationCheckpoint) return;
+
+    const isOperationCurrent = () =>
+      isFileMutationCurrent(mutationCheckpoint, get().scopeGeneration);
+    if (!isOperationCurrent()) return;
 
     const abortController = new AbortController();
     const uploadSignal = signal
       ? AbortSignal.any([signal, abortController.signal])
       : abortController.signal;
+    if (!isOperationCurrent()) return;
     set(
       (state) => ({
         fileUploadAbortControllers: [...state.fileUploadAbortControllers, abortController],
@@ -160,26 +195,27 @@ export const createFileUploadSlice: StateCreator<
     try {
       const fileArrayBuffer = await file.arrayBuffer();
       uploadSignal?.throwIfAborted();
+      if (!isOperationCurrent()) return;
 
       // 1. extract image dimensions if applicable
+      if (!isOperationCurrent()) return;
       const dimensions = await getImageDimensions(file);
       uploadSignal?.throwIfAborted();
+      if (!isOperationCurrent()) return;
 
       // 2. check file hash
       const hash = sha256(fileArrayBuffer);
 
+      if (!isOperationCurrent()) return;
       const checkStatus = await fileService.checkFileHash(hash, uploadSignal);
       uploadSignal?.throwIfAborted();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isOperationCurrent()) return;
       let metadata: FileMetadata;
 
       // 3. if file exist, just skip upload
       if (checkStatus.isExist) {
         metadata = checkStatus.metadata as FileMetadata;
+        if (!isOperationCurrent()) return;
         onStatusUpdate?.({
           id: file.name,
           type: 'updateFile',
@@ -190,7 +226,11 @@ export const createFileUploadSlice: StateCreator<
       else {
         const { data, success } = await uploadService.uploadFileToS3(file, {
           onNotSupported: () => {
+            if (!isOperationCurrent()) return;
+
             onStatusUpdate?.({ id: file.name, type: 'removeFile' });
+            if (!isOperationCurrent()) return;
+
             message.info({
               content: t('upload.fileOnlySupportInServerMode', {
                 cloud: LOBE_CHAT_CLOUD,
@@ -202,11 +242,7 @@ export const createFileUploadSlice: StateCreator<
           },
           onProgress: (status, upload) => {
             if (uploadSignal?.aborted) return;
-            if (
-              authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-              get().scopeGeneration !== requestedGeneration
-            )
-              return;
+            if (!isOperationCurrent()) return;
 
             onStatusUpdate?.({
               id: file.name,
@@ -220,13 +256,9 @@ export const createFileUploadSlice: StateCreator<
           signal: uploadSignal,
           skipCheckFileType,
         });
-        if (!success) return;
         uploadSignal?.throwIfAborted();
-        if (
-          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-          get().scopeGeneration !== requestedGeneration
-        )
-          return;
+        if (!isOperationCurrent()) return;
+        if (!success) return;
 
         metadata = data;
       }
@@ -235,14 +267,20 @@ export const createFileUploadSlice: StateCreator<
       let fileType = file.type;
 
       if (!file.type) {
+        if (!isOperationCurrent()) return;
         const { fileTypeFromBuffer } = await import('file-type');
         uploadSignal?.throwIfAborted();
+        if (!isOperationCurrent()) return;
 
+        if (!isOperationCurrent()) return;
         const type = await fileTypeFromBuffer(fileArrayBuffer);
+        uploadSignal?.throwIfAborted();
+        if (!isOperationCurrent()) return;
         fileType = type?.mime || 'text/plain';
       }
 
       // 5. create file to db
+      if (!isOperationCurrent()) return;
       const data = await fileService.createFile(
         {
           fileType,
@@ -256,12 +294,9 @@ export const createFileUploadSlice: StateCreator<
         uploadSignal,
       );
       uploadSignal?.throwIfAborted();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isOperationCurrent()) return;
 
+      if (!isOperationCurrent()) return;
       onStatusUpdate?.({
         id: file.name,
         type: 'updateFile',
@@ -275,15 +310,17 @@ export const createFileUploadSlice: StateCreator<
 
       return { ...data, dimensions, filename: file.name };
     } finally {
-      set(
-        (state) => ({
-          fileUploadAbortControllers: state.fileUploadAbortControllers.filter(
-            (controller) => controller !== abortController,
-          ),
-        }),
-        false,
-        'uploadWithProgress/removeAbortController',
-      );
+      if (isOperationCurrent()) {
+        set(
+          (state) => ({
+            fileUploadAbortControllers: state.fileUploadAbortControllers.filter(
+              (controller) => controller !== abortController,
+            ),
+          }),
+          false,
+          'uploadWithProgress/removeAbortController',
+        );
+      }
     }
   },
 });

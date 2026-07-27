@@ -10,6 +10,10 @@ import {
 import { lambdaClient } from '@/libs/trpc/client';
 import { uploadService } from '@/services/upload';
 
+export interface ImportDatasetRecordsOptions {
+  isContinuationCurrent: () => boolean;
+}
+
 class RAGEvalService {
   // Dataset
   createDataset = async (params: CreateNewEvalDatasets): Promise<number | undefined> => {
@@ -40,8 +44,13 @@ class RAGEvalService {
     await lambdaClient.ragEval.removeDatasetRecords.mutate({ id });
   };
 
-  importDatasetRecords = async (datasetId: number, file: File): Promise<void> => {
+  importDatasetRecords = async (
+    datasetId: number,
+    file: File,
+    options: ImportDatasetRecordsOptions,
+  ): Promise<void> => {
     const { path } = await uploadService.uploadToServerS3(file, { directory: 'ragEval' });
+    if (!options.isContinuationCurrent()) return;
 
     await lambdaClient.ragEval.importDatasetRecords.mutate({ datasetId, pathname: path });
   };

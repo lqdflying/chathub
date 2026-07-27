@@ -1,15 +1,20 @@
 import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 import { t } from 'i18next';
-import { merge } from 'lodash-es';
+import { cloneDeep, isEqual, merge } from 'lodash-es';
 import { StateCreator } from 'zustand/vanilla';
 
 import { notification } from '@/components/AntdStaticMethods';
 import { mcpService } from '@/services/mcp';
 import { pluginService } from '@/services/plugin';
 import { toolService } from '@/services/tool';
+import {
+  acquirePluginInstallLoading,
+  captureToolMutationCheckpoint,
+  isToolMutationCurrent,
+  releasePluginInstallLoading,
+  ToolMutationCheckpoint,
+} from '@/store/tool/mutation';
 import { pluginHelpers } from '@/store/tool/helpers';
-import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
 import { LobeToolCustomPlugin, PluginInstallError } from '@/types/tool/plugin';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -19,9 +24,15 @@ import { defaultCustomPlugin } from './initialState';
 
 const n = setNamespace('customPlugin');
 
+const customPluginReinstallOperations = new Map<string, symbol>();
+
 export interface CustomPluginAction {
   installCustomPlugin: (value: LobeToolCustomPlugin) => Promise<void>;
-  reinstallCustomPlugin: (id: string, pluginOverride?: LobeToolCustomPlugin) => Promise<void>;
+  reinstallCustomPlugin: (
+    id: string,
+    pluginOverride?: LobeToolCustomPlugin,
+    checkpoint?: ToolMutationCheckpoint,
+  ) => Promise<void>;
   uninstallCustomPlugin: (id: string) => Promise<void>;
   updateCustomPlugin: (id: string, value: LobeToolCustomPlugin) => Promise<void>;
   updateNewCustomPlugin: (value: Partial<LobeToolCustomPlugin>) => void;
@@ -34,42 +45,54 @@ export const createCustomPluginSlice: StateCreator<
   CustomPluginAction
 > = (set, get) => ({
   installCustomPlugin: async (value) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
+    const submittedDraft = cloneDeep(value);
+    const submittedDraftRevision = get().newCustomPluginRevision;
 
     await pluginService.createCustomPlugin(value);
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
+
+    await get().refreshPlugins(checkpoint);
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
     if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
+      get().newCustomPluginRevision !== submittedDraftRevision ||
+      !isEqual(get().newCustomPlugin, submittedDraft)
     )
       return;
 
-    await get().refreshPlugins();
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
-
-    set({ newCustomPlugin: defaultCustomPlugin }, false, n('saveToCustomPluginList'));
+    set(
+      {
+        newCustomPlugin: defaultCustomPlugin,
+        newCustomPluginRevision: submittedDraftRevision + 1,
+      },
+      false,
+      n('saveToCustomPluginList'),
+    );
   },
-  reinstallCustomPlugin: async (id, pluginOverride) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
-    const isOperationCurrent = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
-      get().scopeGeneration === requestedGeneration;
+  reinstallCustomPlugin: async (id, pluginOverride, originatingCheckpoint) => {
+    const checkpoint =
+      originatingCheckpoint || captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     const plugin = pluginOverride || pluginSelectors.getCustomPluginById(id)(get());
     if (!plugin) return;
 
     const { refreshPlugins, updateInstallLoadingState } = get();
     const pluginId = plugin.identifier;
+    const loadingOperation = acquirePluginInstallLoading(
+      checkpoint,
+      pluginId,
+      updateInstallLoadingState,
+    );
+    customPluginReinstallOperations.set(loadingOperation.operationKey, loadingOperation.token);
+    const isOperationCurrent = () =>
+      customPluginReinstallOperations.get(loadingOperation.operationKey) ===
+        loadingOperation.token &&
+      isToolMutationCurrent(checkpoint, get().scopeGeneration);
 
     try {
-      updateInstallLoadingState(pluginId, true);
+      if (!isOperationCurrent()) return;
       let manifest: LobeChatPluginManifest;
       // mean this is a mcp plugin
       if (!!plugin.customParams?.mcp) {
@@ -77,6 +100,7 @@ export const createCustomPluginSlice: StateCreator<
         if (mcp.type === 'stdio') {
           if (!mcp.command) return;
 
+          if (!isOperationCurrent()) return;
           manifest = await mcpService.getStdioMcpServerManifest(
             {
               args: mcp.args,
@@ -94,6 +118,7 @@ export const createCustomPluginSlice: StateCreator<
           const url = mcp.url;
           if (!url) return;
 
+          if (!isOperationCurrent()) return;
           manifest = await mcpService.getStreamableMcpServerManifest({
             auth: mcp.auth,
             headers: mcp.headers,
@@ -107,6 +132,7 @@ export const createCustomPluginSlice: StateCreator<
           if (!isOperationCurrent()) return;
         }
       } else {
+        if (!isOperationCurrent()) return;
         manifest = await toolService.getToolManifest(
           plugin.customParams?.manifestUrl,
           plugin.customParams?.useProxy,
@@ -114,10 +140,11 @@ export const createCustomPluginSlice: StateCreator<
         if (!isOperationCurrent()) return;
       }
 
+      if (!isOperationCurrent()) return;
       await pluginService.updatePluginManifest(pluginId, manifest);
       if (!isOperationCurrent()) return;
 
-      await refreshPlugins();
+      await refreshPlugins(checkpoint);
     } catch (error) {
       if (!isOperationCurrent()) return;
 
@@ -132,44 +159,47 @@ export const createCustomPluginSlice: StateCreator<
         message: t('error.reinstallError', { name, ns: 'plugin' }),
       });
     } finally {
-      if (isOperationCurrent()) updateInstallLoadingState(pluginId, false);
+      releasePluginInstallLoading(
+        loadingOperation,
+        get().scopeGeneration,
+        updateInstallLoadingState,
+      );
+      if (
+        customPluginReinstallOperations.get(loadingOperation.operationKey) ===
+        loadingOperation.token
+      ) {
+        customPluginReinstallOperations.delete(loadingOperation.operationKey);
+      }
     }
   },
   uninstallCustomPlugin: async (id) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     await pluginService.uninstallPlugin(id);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
-    await get().refreshPlugins();
+    await get().refreshPlugins(checkpoint);
   },
 
   updateCustomPlugin: async (id, value) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     const { reinstallCustomPlugin } = get();
     // 1. 更新 list 项信息
     await pluginService.updatePlugin(id, value);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     // 2. 重新安装插件
-    await reinstallCustomPlugin(id, value);
+    await reinstallCustomPlugin(id, value, checkpoint);
   },
   updateNewCustomPlugin: (newCustomPlugin) => {
     set(
-      { newCustomPlugin: merge({}, get().newCustomPlugin, newCustomPlugin) },
+      {
+        newCustomPlugin: merge({}, get().newCustomPlugin, newCustomPlugin),
+        newCustomPluginRevision: get().newCustomPluginRevision + 1,
+      },
       false,
       n('updateNewDevPlugin'),
     );

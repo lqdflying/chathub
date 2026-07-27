@@ -5,6 +5,10 @@ import { chatService } from '@/services/chat';
 import { ragService } from '@/services/rag';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 import { toggleBooleanList } from '@/store/chat/utils';
@@ -43,9 +47,21 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
   get,
 ) => ({
   deleteUserMessageRagQuery: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      !!chatSelectors.getMessageById(id)(get());
     const message = chatSelectors.getMessageById(id)(get());
 
-    if (!message || !message.ragQueryId) return;
+    if (!message || !message.ragQueryId || !isCurrentRequest()) return;
 
     // optimistic update the message's ragQuery
     get().internal_dispatchMessage({
@@ -55,10 +71,24 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
     });
 
     await ragService.deleteMessageRagQuery(message.ragQueryId);
-    await get().refreshMessages();
+    if (isCurrentRequest()) await get().refreshMessages();
   },
 
   internal_retrieveChunks: async (id, userQuery, messages) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return { chunks: [] };
+
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      !!chatSelectors.getMessageById(id)(get());
+    if (!isCurrentRequest()) return { chunks: [] };
+
     get().internal_toggleMessageRAGLoading(true, id);
 
     const message = chatSelectors.getMessageById(id)(get());
@@ -70,6 +100,7 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
     // we need to rewrite the user message to get better results
     if (!message?.ragQuery && messages.length > 0) {
       rewriteQuery = await get().internal_rewriteQuery(id, userQuery, messages);
+      if (!isCurrentRequest()) return { chunks: [] };
     }
 
     // 2. retrieve chunks from semantic search
@@ -83,16 +114,31 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
         userQuery,
       });
 
-      get().internal_toggleMessageRAGLoading(false, id);
+      if (!isCurrentRequest()) return { chunks: [] };
 
+      get().internal_toggleMessageRAGLoading(false, id);
       return { chunks, queryId, rewriteQuery };
     } catch {
-      get().internal_toggleMessageRAGLoading(false, id);
+      if (isCurrentRequest()) get().internal_toggleMessageRAGLoading(false, id);
 
       return { chunks: [] };
     }
   },
   internal_rewriteQuery: async (id, content, messages) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return content;
+
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      !!chatSelectors.getMessageById(id)(get());
+    if (!isCurrentRequest()) return content;
+
     let rewriteQuery = content;
 
     const queryRewriteConfig = systemAgentSelectors.queryRewrite(useUserStore.getState());
@@ -111,10 +157,12 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
     let ragQuery = '';
     await chatService.fetchPresetTaskResult({
       onFinish: async (text) => {
+        if (!isCurrentRequest()) return;
         rewriteQuery = text;
       },
 
       onMessageHandle: (chunk) => {
+        if (!isCurrentRequest()) return;
         if (chunk.type !== 'text') return;
         ragQuery += chunk.text;
 
@@ -127,7 +175,7 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
       params: rewriteQueryParams,
     });
 
-    return rewriteQuery;
+    return isCurrentRequest() ? rewriteQuery : content;
   },
   internal_shouldUseRAG: () => {
     //  if there is enabled knowledge, try with ragQuery
@@ -145,11 +193,24 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
   },
 
   rewriteQuery: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const requestedTopicId = get().activeTopicId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === requestedTopicId &&
+      !!chatSelectors.getMessageById(id)(get());
     const message = chatSelectors.getMessageById(id)(get());
-    if (!message) return;
+    if (!message || !isCurrentRequest()) return;
 
     // delete the current ragQuery
     await get().deleteUserMessageRagQuery(id);
+    if (!isCurrentRequest()) return;
 
     const chats = chatSelectors.mainAIChatsWithHistoryConfig(get());
 

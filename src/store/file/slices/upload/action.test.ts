@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { message } from '@/components/AntdStaticMethods';
 import { fileService } from '@/services/file';
 import { uploadService } from '@/services/upload';
+import { useUserStore } from '@/store/user';
 import { getImageDimensions } from '@/utils/client/imageDimensions';
 
 import { useFileStore as useStore } from '../../store';
@@ -42,8 +43,29 @@ beforeAll(() => {
   });
 });
 
+const createDeferred = <Value,>() => {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  useUserStore.setState({
+    authUserId: undefined,
+    isLoaded: true,
+    isSignedIn: false,
+    ownershipInvalidationGeneration: 0,
+    user: undefined,
+    userStateInitializationFailure: undefined,
+  });
+  useStore.setState({
+    fileUploadAbortControllers: [],
+    scopeGeneration: 0,
+  });
 });
 
 afterEach(() => {
@@ -51,6 +73,164 @@ afterEach(() => {
 });
 
 describe('FileUploadAction', () => {
+  describe('account mutation quarantine', () => {
+    it('does not start base64 or file uploads during an active owner mismatch', async () => {
+      const { result } = renderHook(() => useStore());
+      const file = new File(['content'], 'blocked.txt', { type: 'text/plain' });
+      const arrayBufferSpy = vi.spyOn(file, 'arrayBuffer');
+      const uploadBase64Spy = vi.spyOn(uploadService, 'uploadBase64ToS3');
+      const uploadFileSpy = vi.spyOn(uploadService, 'uploadFileToS3');
+      const checkFileHashSpy = vi.spyOn(fileService, 'checkFileHash');
+      const createFileSpy = vi.spyOn(fileService, 'createFile');
+      useUserStore.setState({
+        userStateInitializationFailure: { reason: 'owner-mismatch', scope: 'local' },
+      });
+
+      const base64Result = await result.current.uploadBase64FileWithProgress(
+        'data:text/plain;base64,dGVzdA==',
+      );
+      const uploadResult = await result.current.uploadWithProgress({ file });
+
+      expect(base64Result).toBeUndefined();
+      expect(uploadResult).toBeUndefined();
+      expect(arrayBufferSpy).not.toHaveBeenCalled();
+      expect(getImageDimensions).not.toHaveBeenCalled();
+      expect(uploadBase64Spy).not.toHaveBeenCalled();
+      expect(uploadFileSpy).not.toHaveBeenCalled();
+      expect(checkFileHashSpy).not.toHaveBeenCalled();
+      expect(createFileSpy).not.toHaveBeenCalled();
+      expect(result.current.fileUploadAbortControllers).toEqual([]);
+    });
+
+    it('does not create a DB record after storage upload invalidation', async () => {
+      const { result } = renderHook(() => useStore());
+      const file = new File(['content'], 'staged.txt', { type: 'text/plain' });
+      const storageUploadFinished = createDeferred<{
+        data: {
+          date: string;
+          dirname: string;
+          filename: string;
+          path: string;
+        };
+        success: boolean;
+      }>();
+      vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+      vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+      vi.spyOn(uploadService, 'uploadFileToS3').mockReturnValue(storageUploadFinished.promise);
+      const createFileSpy = vi.spyOn(fileService, 'createFile');
+      const onStatusUpdate = vi.fn();
+
+      const uploadPromise = result.current.uploadWithProgress({ file, onStatusUpdate });
+      await vi.waitFor(() => {
+        expect(uploadService.uploadFileToS3).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({ scopeGeneration: 1 });
+      });
+      storageUploadFinished.resolve({
+        data: {
+          date: '12345',
+          dirname: '/uploads',
+          filename: file.name,
+          path: `/uploads/${file.name}`,
+        },
+        success: true,
+      });
+      await uploadPromise;
+
+      expect(createFileSpy).not.toHaveBeenCalled();
+      expect(onStatusUpdate).not.toHaveBeenCalled();
+    });
+
+    it('does not publish or finalize after DB creation invalidation', async () => {
+      const { result } = renderHook(() => useStore());
+      const file = new File(['content'], 'pending-record.txt', { type: 'text/plain' });
+      const recordCreationFinished = createDeferred<{ id: string; url: string }>();
+      const accountBController = new AbortController();
+      vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+      vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+      vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+        data: {
+          date: '12345',
+          dirname: '/uploads',
+          filename: file.name,
+          path: `/uploads/${file.name}`,
+        },
+        success: true,
+      });
+      vi.spyOn(fileService, 'createFile').mockReturnValue(recordCreationFinished.promise);
+      const onStatusUpdate = vi.fn();
+
+      const uploadPromise = result.current.uploadWithProgress({ file, onStatusUpdate });
+      await vi.waitFor(() => {
+        expect(fileService.createFile).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({
+          fileUploadAbortControllers: [accountBController],
+          scopeGeneration: 1,
+        });
+      });
+      recordCreationFinished.resolve({
+        id: 'stale-record',
+        url: 'https://example.com/stale-record',
+      });
+      const uploadResult = await uploadPromise;
+
+      expect(uploadResult).toBeUndefined();
+      expect(onStatusUpdate).not.toHaveBeenCalled();
+      expect(useStore.getState().fileUploadAbortControllers).toEqual([accountBController]);
+    });
+
+    it('does not create a base64 DB record after storage invalidation', async () => {
+      const { result } = renderHook(() => useStore());
+      const storageUploadFinished = createDeferred<{
+        fileType: string;
+        hash: string;
+        metadata: {
+          date: string;
+          dirname: string;
+          filename: string;
+          path: string;
+        };
+        size: number;
+      }>();
+      vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+      vi.spyOn(uploadService, 'uploadBase64ToS3').mockReturnValue(storageUploadFinished.promise);
+      const createFileSpy = vi.spyOn(fileService, 'createFile');
+
+      const uploadPromise = result.current.uploadBase64FileWithProgress(
+        'data:text/plain;base64,dGVzdA==',
+      );
+      await vi.waitFor(() => {
+        expect(uploadService.uploadBase64ToS3).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({ scopeGeneration: 1 });
+      });
+      storageUploadFinished.resolve({
+        fileType: 'text/plain',
+        hash: 'stale-hash',
+        metadata: {
+          date: '12345',
+          dirname: '/uploads',
+          filename: 'stale.txt',
+          path: '/uploads/stale.txt',
+        },
+        size: 4,
+      });
+      await uploadPromise;
+
+      expect(createFileSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('uploadBase64FileWithProgress', () => {
     it('should upload base64 image and return result with dimensions', async () => {
       const { result } = renderHook(() => useStore());

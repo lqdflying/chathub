@@ -7,6 +7,11 @@ import { chatService } from '@/services/chat';
 import { topicService } from '@/services/topic';
 import { getAgentStoreState } from '@/store/agent/store';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import {
+  AccountMutationSnapshot,
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat/store';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import { useUserStore } from '@/store/user';
@@ -24,6 +29,55 @@ export interface ChatMemoryAction {
   triggerTokenThresholdMemoryCompaction: () => Promise<void>;
 }
 
+async function runCompactionFromStore(
+  get: () => ChatStore,
+  trigger: 'manual' | 'scheduled' | 'token_threshold',
+  accountMutationSnapshot: AccountMutationSnapshot,
+) {
+  const state = get();
+  const requestedGeneration = state.conversationClearGeneration;
+  const requestedSessionId = state.activeId;
+  const requestedTopicId = state.activeTopicId;
+  const isCurrentRequest = () =>
+    isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+    get().conversationClearGeneration === requestedGeneration &&
+    get().activeId === requestedSessionId &&
+    get().activeTopicId === requestedTopicId;
+  if (!isCurrentRequest()) return;
+
+  const agentState = getAgentStoreState();
+  const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
+  const historyCount = agentChatConfigSelectors.historyCount(agentState);
+
+  if (!state.activeTopicId) return;
+  if (!chatConfig.enableHistoryCount || !chatConfig.enableCompressHistory) return;
+
+  const originalMessages = chatSelectors.mainAIChatsWithHistoryConfig(state);
+  if (originalMessages.length <= 1) return;
+
+  let historyMessages: UIChatMessage[];
+  if (originalMessages.length > historyCount) {
+    historyMessages = originalMessages.slice(0, -historyCount + 1);
+  } else if (originalMessages.length > 2) {
+    historyMessages = originalMessages.slice(0, -2);
+  } else {
+    return;
+  }
+
+  if (historyMessages.length <= 1) return;
+
+  const est = await estimateContextUsageAsync({
+    agentState,
+    chatState: state,
+  });
+  if (!isCurrentRequest()) return;
+
+  await get().internal_summaryHistory(historyMessages, {
+    estimatedTokensBefore: est.totalToken,
+    trigger,
+  });
+}
+
 export const chatMemory: StateCreator<
   ChatStore,
   [['zustand/devtools', never]],
@@ -31,8 +85,18 @@ export const chatMemory: StateCreator<
   ChatMemoryAction
 > = (set, get) => ({
   internal_summaryHistory: async (messages, options) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const topicId = get().activeTopicId;
     if (messages.length <= 1 || !topicId) return;
+    const requestedGeneration = get().conversationClearGeneration;
+    const requestedSessionId = get().activeId;
+    const isCurrentRequest = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === requestedSessionId &&
+      get().activeTopicId === topicId;
 
     const trigger = options?.trigger ?? 'message_count';
 
@@ -45,11 +109,13 @@ export const chatMemory: StateCreator<
         chatState: get(),
       });
       estimatedTokensBefore = est.totalToken;
+      if (!isCurrentRequest()) return;
     }
 
     let historySummary = '';
     await chatService.fetchPresetTaskResult({
       onFinish: async (text) => {
+        if (!isCurrentRequest()) return;
         historySummary = text;
       },
       params: { ...chainSummaryHistory(messages), model, provider, stream: false },
@@ -59,6 +125,7 @@ export const chatMemory: StateCreator<
         traceName: TraceNameMap.SummaryHistoryMessages,
       },
     });
+    if (!isCurrentRequest()) return;
 
     const prevTopic = topicSelectors.currentActiveTopic(get());
     const prevMeta = prevTopic?.metadata ?? {};
@@ -71,13 +138,17 @@ export const chatMemory: StateCreator<
         provider,
       },
     });
+    if (!isCurrentRequest()) return;
     await get().refreshTopic();
+    if (!isCurrentRequest()) return;
     await get().refreshMessages();
+    if (!isCurrentRequest()) return;
 
     const afterEst = await estimateContextUsageAsync({
       agentState: getAgentStoreState(),
       chatState: get(),
     });
+    if (!isCurrentRequest()) return;
 
     const metaAfterRefresh = topicSelectors.currentActiveTopic(get())?.metadata ?? prevMeta;
 
@@ -115,55 +186,27 @@ export const chatMemory: StateCreator<
         provider,
       },
     });
-    await get().refreshTopic();
+    if (isCurrentRequest()) await get().refreshTopic();
   },
 
   triggerManualMemoryCompaction: async () => {
-    await runCompactionFromStore(get, 'manual');
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    await runCompactionFromStore(get, 'manual', accountMutationSnapshot);
   },
 
   triggerScheduledMemoryCompaction: async () => {
-    await runCompactionFromStore(get, 'scheduled');
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    await runCompactionFromStore(get, 'scheduled', accountMutationSnapshot);
   },
 
   triggerTokenThresholdMemoryCompaction: async () => {
-    await runCompactionFromStore(get, 'token_threshold');
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
+    await runCompactionFromStore(get, 'token_threshold', accountMutationSnapshot);
   },
 });
-
-const runCompactionFromStore = async (
-  get: () => ChatStore,
-  trigger: 'manual' | 'scheduled' | 'token_threshold',
-) => {
-  const state = get();
-  const agentState = getAgentStoreState();
-  const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
-  const historyCount = agentChatConfigSelectors.historyCount(agentState);
-
-  if (!state.activeTopicId) return;
-  if (!chatConfig.enableHistoryCount || !chatConfig.enableCompressHistory) return;
-
-  const originalMessages = chatSelectors.mainAIChatsWithHistoryConfig(state);
-  if (originalMessages.length <= 1) return;
-
-  let historyMessages: UIChatMessage[];
-  if (originalMessages.length > historyCount) {
-    historyMessages = originalMessages.slice(0, -historyCount + 1);
-  } else if (originalMessages.length > 2) {
-    historyMessages = originalMessages.slice(0, -2);
-  } else {
-    return;
-  }
-
-  if (historyMessages.length <= 1) return;
-
-  const est = await estimateContextUsageAsync({
-    agentState,
-    chatState: state,
-  });
-
-  await get().internal_summaryHistory(historyMessages, {
-    estimatedTokensBefore: est.totalToken,
-    trigger,
-  });
-};

@@ -1,6 +1,7 @@
 import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
 import isEqual from 'fast-deep-equal';
 import { t } from 'i18next';
+import { nanoid } from 'nanoid';
 import { SWRResponse } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import { StateCreator } from 'zustand/vanilla';
@@ -12,6 +13,11 @@ import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatGroupService } from '@/services/chatGroup';
 import { sessionService } from '@/services/session';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+  type AccountMutationSnapshot,
+} from '@/store/accountMutation';
 import { getChatGroupStoreState } from '@/store/chatGroup';
 import { SessionStore } from '@/store/session';
 import { getUserStoreState, useUserStore } from '@/store/user';
@@ -37,6 +43,30 @@ const n = setNamespace('session');
 const FETCH_SESSIONS_KEY = 'fetchSessions';
 const SEARCH_SESSIONS_KEY = 'searchSessions';
 
+interface SessionMutationSnapshot {
+  account: AccountMutationSnapshot;
+  scopeGeneration: number;
+}
+
+const captureSessionMutationSnapshot = (
+  state: SessionStore,
+): SessionMutationSnapshot | undefined => {
+  const account = captureAccountMutationSnapshot(useUserStore.getState());
+  if (!account) return undefined;
+
+  return {
+    account,
+    scopeGeneration: state.scopeGeneration,
+  };
+};
+
+const isSessionMutationCurrent = (
+  state: SessionStore,
+  snapshot: SessionMutationSnapshot,
+): boolean =>
+  isAccountMutationCurrent(useUserStore.getState(), snapshot.account) &&
+  state.scopeGeneration === snapshot.scopeGeneration;
+
 /* eslint-disable typescript-sort-keys/interface */
 export interface SessionAction {
   /**
@@ -60,7 +90,12 @@ export interface SessionAction {
   duplicateSession: (id: string) => Promise<void>;
   triggerSessionUpdate: (id: string) => Promise<void>;
   updateSessionGroupId: (sessionId: string, groupId: string) => Promise<void>;
-  updateSessionMeta: (meta: Partial<MetaData>) => void;
+  updateSessionMeta: (meta: Partial<MetaData>) => Promise<void>;
+  updateSessionMetaById: (
+    id: string,
+    meta: Partial<MetaData>,
+    requiredActiveId?: string,
+  ) => Promise<void>;
 
   /**
    * Pins or unpins a session.
@@ -101,15 +136,18 @@ export const createSessionSlice: StateCreator<
   SessionAction
 > = (set, get) => ({
   clearSessions: async () => {
+    const mutationSnapshot = captureSessionMutationSnapshot(get());
+    if (!mutationSnapshot) return;
+
     await sessionService.removeAllSessions();
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return;
+
     await get().refreshSessions();
   },
 
   createSession: async (agent, isSwitchSession = true) => {
-    const { switchSession, refreshSessions } = get();
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return '';
+    const mutationSnapshot = captureSessionMutationSnapshot(get());
+    if (!mutationSnapshot) return '';
 
     const newSession = prepareAgentSession(
       agent,
@@ -117,18 +155,10 @@ export const createSessionSlice: StateCreator<
     );
 
     const id = await sessionService.createSession(LobeSessionType.Agent, newSession);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return '';
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return '';
 
-    await refreshSessions();
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return '';
+    await get().refreshSessions();
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return '';
 
     // Track new agent creation analytics
     const analytics = getSingletonAnalyticsOptional();
@@ -148,18 +178,14 @@ export const createSessionSlice: StateCreator<
     }
 
     // Whether to goto  to the new session after creation, the default is to switch to
-    if (isSwitchSession) switchSession(id);
+    if (isSwitchSession) get().switchSession(id);
 
     return id;
   },
 
   duplicateSession: async (id) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
-    const isCurrentRequest = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
-      get().scopeGeneration === requestedGeneration;
+    const mutationSnapshot = captureSessionMutationSnapshot(get());
+    if (!mutationSnapshot) return;
 
     const session = sessionSelectors.getSessionById(id)(get());
 
@@ -168,7 +194,7 @@ export const createSessionSlice: StateCreator<
 
     const newTitle = t('duplicateSession.title', { ns: 'chat', title: title });
 
-    const messageLoadingKey = 'duplicateSession.loading';
+    const messageLoadingKey = `duplicateSession.loading-${nanoid(8)}`;
 
     message.loading({
       content: t('duplicateSession.loading', { ns: 'chat' }),
@@ -182,7 +208,7 @@ export const createSessionSlice: StateCreator<
     } finally {
       message.destroy(messageLoadingKey);
     }
-    if (!isCurrentRequest()) return;
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return;
 
     // duplicate Session Error
     if (!newId) {
@@ -191,7 +217,7 @@ export const createSessionSlice: StateCreator<
     }
 
     await get().refreshSessions();
-    if (!isCurrentRequest()) return;
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return;
 
     message.success(t('duplicateSession.success', { ns: 'chat' }));
 
@@ -201,8 +227,14 @@ export const createSessionSlice: StateCreator<
     await get().internal_updateSession(id, { pinned });
   },
   removeSession: async (sessionId) => {
+    const mutationSnapshot = captureSessionMutationSnapshot(get());
+    if (!mutationSnapshot) return;
+
     await sessionService.removeSession(sessionId);
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return;
+
     await get().refreshSessions();
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return;
 
     // If the active session deleted, switch to the inbox session
     if (sessionId === get().activeId) {
@@ -228,6 +260,9 @@ export const createSessionSlice: StateCreator<
     );
   },
   updateSessionGroupId: async (sessionId, group) => {
+    const mutationSnapshot = captureSessionMutationSnapshot(get());
+    if (!mutationSnapshot) return;
+
     const session = sessionSelectors.getSessionById(sessionId)(get());
 
     if (session?.type === 'group') {
@@ -235,6 +270,8 @@ export const createSessionSlice: StateCreator<
       await chatGroupService.updateGroup(sessionId, {
         groupId: group === 'default' ? null : group,
       });
+      if (!isSessionMutationCurrent(get(), mutationSnapshot)) return;
+
       await get().refreshSessions();
     } else {
       // For regular agent sessions, use the existing session service
@@ -246,15 +283,29 @@ export const createSessionSlice: StateCreator<
     const session = sessionSelectors.currentSession(get());
     if (!session) return;
 
-    const { activeId, refreshSessions } = get();
+    await get().updateSessionMetaById(session.id, meta, session.id);
+  },
 
-    const abortController = get().signalSessionMeta as AbortController;
-    if (abortController) abortController.abort(MESSAGE_CANCEL_FLAT);
+  updateSessionMetaById: async (id, meta, requiredActiveId) => {
+    const mutationSnapshot = captureSessionMutationSnapshot(get());
+    if (!mutationSnapshot || !get().sessions.some((session) => session.id === id)) return;
+
+    const previousController = get().signalSessionMeta;
+    if (previousController) previousController.abort(MESSAGE_CANCEL_FLAT);
+
     const controller = new AbortController();
     set({ signalSessionMeta: controller }, false, 'updateSessionMetaSignal');
 
-    await sessionService.updateSessionMeta(activeId, meta, controller.signal);
-    await refreshSessions();
+    await sessionService.updateSessionMeta(id, meta, controller.signal);
+    if (
+      !isSessionMutationCurrent(get(), mutationSnapshot) ||
+      get().signalSessionMeta !== controller ||
+      !get().sessions.some((session) => session.id === id) ||
+      (requiredActiveId !== undefined && get().activeId !== requiredActiveId)
+    )
+      return;
+
+    await get().refreshSessions();
   },
 
   useFetchSessions: (enabled, isLogin) => {
@@ -348,9 +399,14 @@ export const createSessionSlice: StateCreator<
     get().internal_processSessions(nextSessions, get().sessionGroups);
   },
   internal_updateSession: async (id, data) => {
+    const mutationSnapshot = captureSessionMutationSnapshot(get());
+    if (!mutationSnapshot) return;
+
     get().internal_dispatchSessions({ type: 'updateSession', id, value: data });
 
     await sessionService.updateSession(id, data);
+    if (!isSessionMutationCurrent(get(), mutationSnapshot)) return;
+
     await get().refreshSessions();
   },
   internal_processSessions: (sessions, sessionGroups) => {

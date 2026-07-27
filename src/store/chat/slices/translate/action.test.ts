@@ -1,11 +1,13 @@
 import { chainLangDetect } from '@lobechat/prompts';
 import { chainTranslate } from '@lobechat/prompts';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import { useChatStore } from '../../store';
 
@@ -36,6 +38,15 @@ vi.mock('@/chains/translate', () => ({
 vi.mock('@/locales/options', () => ({
   supportLocales: ['en-US', 'zh-CN'],
 }));
+
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -108,6 +119,47 @@ describe('ChatEnhanceAction', () => {
       });
 
       expect(messageService.updateMessageTranslate).toHaveBeenCalledWith(messageId, false);
+    });
+  });
+
+  describe('updateMessageTranslate', () => {
+    it('does not persist translation during an active owner mismatch', async () => {
+      vi.spyOn(authSelectors, 'hasActiveUserStateOwnerMismatch').mockReturnValue(true);
+
+      await useChatStore
+        .getState()
+        .updateMessageTranslate('message-id', { content: 'translated', from: 'en-US', to: 'zh-CN' });
+
+      expect(messageService.updateMessageTranslate).not.toHaveBeenCalled();
+    });
+
+    it('does not refresh after ownership invalidates during translation persistence', async () => {
+      const persistedTranslation = createDeferred<void>();
+      (messageService.updateMessageTranslate as Mock).mockReturnValue(persistedTranslation.promise);
+      const refreshMessages = vi.fn();
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        refreshMessages,
+      });
+
+      const updatePromise = useChatStore
+        .getState()
+        .updateMessageTranslate('message-id', { content: 'translated', from: 'en-US', to: 'zh-CN' });
+      await waitFor(() => {
+        expect(messageService.updateMessageTranslate).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({
+          ownershipInvalidationGeneration:
+            useUserStore.getState().ownershipInvalidationGeneration + 1,
+        });
+      });
+      persistedTranslation.resolve(undefined);
+      await updatePromise;
+
+      expect(refreshMessages).not.toHaveBeenCalled();
     });
   });
 });

@@ -69,9 +69,9 @@ immediate account-scope invalidation event. `StoreInitialization` consumes that
 event through `resetAccountScopedStores`, which synchronously clears the
 session, chat, image, agent, group, provider runtime, file, knowledge-base, and
 tool stores; increments their account or conversation generations; and aborts
-registered chat, image, upload, agent-update, and plugin operations. The
-generation change provides the same reset when the event subscriber has not
-mounted yet.
+registered chat, topic/thread title-summary, image, upload, agent-update, and
+plugin operations before their controller references are cleared. The generation
+change provides the same reset when the event subscriber has not mounted yet.
 
 Provider and model SWR callbacks check both their originating scope and the
 active owner-mismatch state before writing. Authentication payload and header
@@ -200,6 +200,26 @@ store's generation before its first await, then re-reads both after every await
 before continuing. Resource identity is captured at the same boundary: remote
 model discovery carries its original provider ID through persistence and
 targeted refresh instead of consulting the provider that is active later.
+
+Imperative account mutations share the fail-closed boundary in
+`src/store/accountMutation.ts`. `captureAccountMutationSnapshot` returns no
+snapshot while the canonical scope is unresolved or an active
+`owner-mismatch` exists, so a newly invoked action must stop before
+preprocessing, optimistic state, loading markers, network requests, or
+persistence. `isAccountMutationCurrent` rechecks the same scope, ownership
+generation, and mismatch state for every asynchronous continuation. Domain
+stores layer their own scope or conversation generation, resource identity,
+and operation/controller ownership over that shared predicate.
+
+Nested and staged workflows propagate the originating snapshot or checkpoint;
+they never capture a fresh snapshot after an await. This applies to
+upload-to-record flows, file parse/embedding launches, RAG dataset imports,
+remote-model fetch-and-persist operations, topic/title workflows, and
+plugin/MCP discovery-check-install-report sequences. Each stage rechecks the
+originating checkpoint before the next irreversible call, and operation-owned
+finalizers release only their own loading marker or controller. Recapturing
+inside a nested stage would incorrectly legitimize a parent operation that was
+invalidated during an account reset.
 
 This rule covers remote-model discovery, assistant-memory rollups,
 session/group/thread creation and duplication, chat-topic creation and

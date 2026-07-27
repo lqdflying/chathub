@@ -8,6 +8,7 @@ import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import type { ChatGroupItem } from '@/database/schemas/chatGroup';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatGroupService } from '@/services/chatGroup';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import { useChatStore } from '@/store/chat/store';
 import { getSessionStoreState } from '@/store/session';
@@ -61,12 +62,31 @@ export const chatGroupAction: StateCreator<
       payload,
     );
   };
+  const captureMutationContext = () => {
+    const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountSnapshot) return;
+
+    return {
+      accountSnapshot,
+      scopeGeneration: get().scopeGeneration,
+    };
+  };
+  const isMutationContextCurrent = (
+    context: NonNullable<ReturnType<typeof captureMutationContext>>,
+  ) =>
+    isAccountMutationCurrent(useUserStore.getState(), context.accountSnapshot) &&
+    get().scopeGeneration === context.scopeGeneration;
 
   return {
     ...initialChatGroupState,
 
     addAgentsToGroup: async (groupId, agentIds) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
       await chatGroupService.addAgentsToGroup(groupId, agentIds);
+      if (!isMutationContextCurrent(mutationContext)) return;
+
       await get().internal_refreshGroups();
     },
 
@@ -74,21 +94,28 @@ export const chatGroupAction: StateCreator<
      * @param silent - if true, do not switch to the new group session
      */
     createGroup: async (newGroup, agentIds, silent = false, virtualSessions) => {
-      const { switchSession } = getSessionStoreState();
-      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-      const requestedGeneration = get().scopeGeneration;
-      if (!requestedScope) return '';
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return '';
+
+      const sessionState = getSessionStoreState();
+      const requestedSessionId = sessionState.activeId;
+      const requestedSessionGeneration = sessionState.scopeGeneration;
+      const isSessionContextCurrent = () => {
+        const currentSessionState = getSessionStoreState();
+
+        return (
+          isMutationContextCurrent(mutationContext) &&
+          currentSessionState.scopeGeneration === requestedSessionGeneration &&
+          currentSessionState.activeId === requestedSessionId
+        );
+      };
 
       const { group, virtualMembers } = await chatGroupService.createGroup({
         agentIds,
         group: newGroup,
         virtualSessions,
       });
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return '';
+      if (!isMutationContextCurrent(mutationContext)) return '';
 
       const analytics = getSingletonAnalyticsOptional();
       if (analytics && virtualSessions) {
@@ -110,31 +137,31 @@ export const chatGroupAction: StateCreator<
       dispatch({ payload: group, type: 'addGroup' });
 
       await get().loadGroups();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return '';
+      if (!isMutationContextCurrent(mutationContext)) return '';
 
       await getSessionStoreState().refreshSessions();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return '';
+      if (!isMutationContextCurrent(mutationContext)) return '';
 
-      if (!silent) {
-        switchSession(group.id);
+      if (!silent && isSessionContextCurrent()) {
+        getSessionStoreState().switchSession(group.id);
       }
 
       return group.id;
     },
     deleteGroup: async (id) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
+      const requestedSessionGeneration = getSessionStoreState().scopeGeneration;
+
       // First, get all group members to identify virtual members
       const groupAgents = await chatGroupService.getGroupAgents(id);
+      if (!isMutationContextCurrent(mutationContext)) return;
 
       // Delete the group first (this will cascade delete the chat_groups_agents entries)
       await chatGroupService.deleteGroup(id);
+      if (!isMutationContextCurrent(mutationContext)) return;
+
       dispatch({ payload: id, type: 'deleteGroup' });
 
       // Now delete virtual members (agents with virtual: true)
@@ -163,37 +190,36 @@ export const chatGroupAction: StateCreator<
 
       // Wait for all virtual member deletions to complete
       await Promise.all(virtualMemberDeletions);
+      if (!isMutationContextCurrent(mutationContext)) return;
 
       await get().loadGroups();
+      if (!isMutationContextCurrent(mutationContext)) return;
+
       await getSessionStoreState().refreshSessions();
+      if (!isMutationContextCurrent(mutationContext)) return;
 
       // If the active session is the deleted group, switch to the inbox session
-      if (sessionStore.activeId === id) {
-        sessionStore.switchSession(INBOX_SESSION_ID);
+      const currentSessionState = getSessionStoreState();
+      if (
+        currentSessionState.scopeGeneration === requestedSessionGeneration &&
+        currentSessionState.activeId === id
+      ) {
+        currentSessionState.switchSession(INBOX_SESSION_ID);
       }
     },
 
     internal_dispatchChatGroup: dispatch,
 
     internal_refreshGroups: async () => {
-      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-      const requestedGeneration = get().scopeGeneration;
-      if (!requestedScope) return;
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
 
       await get().loadGroups();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isMutationContextCurrent(mutationContext)) return;
 
       // Also rebuild and update groupMap to keep it in sync
       const groups = await chatGroupService.getGroups();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isMutationContextCurrent(mutationContext)) return;
 
       const nextGroupMap = groups.reduce(
         (map, group) => {
@@ -263,25 +289,21 @@ export const chatGroupAction: StateCreator<
     },
 
     loadGroups: async () => {
-      const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-      const requestedGeneration = get().scopeGeneration;
-      if (!requestedScope) return;
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
 
       dispatch({ payload: true, type: 'setGroupsLoading' });
       const groups = await chatGroupService.getGroups();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isMutationContextCurrent(mutationContext)) return;
 
       dispatch({ payload: groups, type: 'loadGroups' });
     },
 
     pinGroup: async (id, pinned) => {
-      await chatGroupService.updateGroup(id, { pinned });
-      dispatch({ payload: { id, pinned }, type: 'updateGroup' });
-      await get().internal_refreshGroups();
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
+      await get().updateGroup(id, { pinned });
     },
 
     refreshGroupDetail: async (groupId: string) => {
@@ -299,11 +321,19 @@ export const chatGroupAction: StateCreator<
     },
 
     removeAgentFromGroup: async (groupId, agentId) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
       await chatGroupService.removeAgentsFromGroup(groupId, [agentId]);
+      if (!isMutationContextCurrent(mutationContext)) return;
+
       await get().internal_refreshGroups();
     },
 
     reorderGroupMembers: async (groupId, orderedAgentIds) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
       console.log('REORDER GROUP MEMBERS', groupId, orderedAgentIds);
 
       await Promise.all(
@@ -311,6 +341,7 @@ export const chatGroupAction: StateCreator<
           chatGroupService.updateAgentInGroup(groupId, agentId, { order: index }),
         ),
       );
+      if (!isMutationContextCurrent(mutationContext)) return;
 
       await get().internal_refreshGroups();
     },
@@ -324,14 +355,23 @@ export const chatGroupAction: StateCreator<
     },
 
     updateGroup: async (id, value) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
       await chatGroupService.updateGroup(id, value);
+      if (!isMutationContextCurrent(mutationContext)) return;
+
       dispatch({ payload: { id, value }, type: 'updateGroup' });
       await get().internal_refreshGroups();
     },
 
     updateGroupConfig: async (config) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
       const group = chatGroupSelectors.currentGroup(get());
       if (!group) return;
+      const groupId = group.id;
 
       const mergedConfig = {
         ...DEFAULT_CHAT_GROUP_CHAT_CONFIG,
@@ -339,22 +379,19 @@ export const chatGroupAction: StateCreator<
         ...config,
       };
 
-      // Update the database first
-      await chatGroupService.updateGroup(group.id, { config: mergedConfig });
-
-      // Immediately update the local store to ensure configuration is available
-      // Note: reducer expects payload: { id, value }
-      dispatch({
-        payload: { id: group.id, value: { config: mergedConfig } },
-        type: 'updateGroup',
-      });
+      await get().updateGroup(groupId, { config: mergedConfig });
+      if (
+        !isMutationContextCurrent(mutationContext) ||
+        chatGroupSelectors.currentGroup(get())?.id !== groupId
+      )
+        return;
 
       // Also update the chat store's groupMaps to keep it in sync
       useChatStore.setState(
         produce((draft: ChatStoreState) => {
-          const existing = draft.groupMaps[group.id];
+          const existing = draft.groupMaps[groupId];
           if (existing) {
-            draft.groupMaps[group.id] = {
+            draft.groupMaps[groupId] = {
               ...existing,
               config: mergedConfig,
             } as ChatGroupItem;
@@ -363,21 +400,16 @@ export const chatGroupAction: StateCreator<
         false,
         n('updateGroupConfig/syncChatStore'),
       );
-
-      // Refresh groups to ensure consistency
-      await get().internal_refreshGroups();
     },
 
     updateGroupMeta: async (meta) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
       const group = chatGroupSelectors.currentGroup(get());
       if (!group) return;
 
-      const id = group.id;
-
-      await chatGroupService.updateGroup(id, meta);
-      // Keep local store in sync immediately
-      dispatch({ payload: { id, value: meta }, type: 'updateGroup' });
-      await get().internal_refreshGroups();
+      await get().updateGroup(group.id, meta);
     },
 
     useFetchGroupDetail: (enabled, groupId) => {

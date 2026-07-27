@@ -7,6 +7,7 @@ import { FILE_UPLOAD_BLACKLIST, MAX_UPLOAD_FILE_COUNT } from '@/const/file';
 import { lambdaClient } from '@/libs/trpc/client';
 import { fileService } from '@/services/file';
 import { ragService } from '@/services/rag';
+import { useUserStore } from '@/store/user';
 import { FileListItem } from '@/types/files';
 import { UploadFileItem } from '@/types/files/upload';
 import { unzipFile } from '@/utils/unzipFile';
@@ -66,8 +67,25 @@ vi.mock('@/libs/trpc/client', () => ({
   },
 }));
 
+const createDeferred = <Value,>() => {
+  let resolve!: (value: Value | PromiseLike<Value>) => void;
+  const promise = new Promise<Value>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  useUserStore.setState({
+    authUserId: undefined,
+    isLoaded: true,
+    isSignedIn: false,
+    ownershipInvalidationGeneration: 0,
+    user: undefined,
+    userStateInitializationFailure: undefined,
+  });
   useStore.setState(
     {
       creatingChunkingTaskIds: [],
@@ -75,6 +93,7 @@ beforeEach(() => {
       dockUploadFileList: [],
       fileList: [],
       queryListParams: undefined,
+      scopeGeneration: 0,
     },
     false,
   );
@@ -85,6 +104,124 @@ afterEach(() => {
 });
 
 describe('FileManagerActions', () => {
+  describe('account mutation quarantine', () => {
+    it('blocks task, removal, refresh, and local loading work during an owner mismatch', async () => {
+      const { result } = renderHook(() => useStore());
+      useUserStore.setState({
+        userStateInitializationFailure: { reason: 'owner-mismatch', scope: 'local' },
+      });
+      const embeddingTaskSpy = vi.spyOn(ragService, 'createEmbeddingChunksTask');
+      const parseTaskSpy = vi.spyOn(ragService, 'createParseFileTask');
+      const retryParseSpy = vi.spyOn(ragService, 'retryParseFile');
+      const removeAllSpy = vi.spyOn(fileService, 'removeAllFiles');
+      const removeFileSpy = vi.spyOn(fileService, 'removeFile');
+      const removeFilesSpy = vi.spyOn(fileService, 'removeFiles');
+      const toggleEmbeddingSpy = vi.spyOn(result.current, 'toggleEmbeddingIds');
+      const toggleParsingSpy = vi.spyOn(result.current, 'toggleParsingIds');
+
+      await result.current.embeddingChunks(['file-1']);
+      await result.current.parseFilesToChunks(['file-1']);
+      await result.current.reEmbeddingChunks('file-1');
+      await result.current.reParseFile('file-1');
+      await result.current.removeAllFiles();
+      await result.current.removeFileItem('file-1');
+      await result.current.removeFiles(['file-1']);
+      await result.current.refreshFileList();
+
+      expect(embeddingTaskSpy).not.toHaveBeenCalled();
+      expect(parseTaskSpy).not.toHaveBeenCalled();
+      expect(retryParseSpy).not.toHaveBeenCalled();
+      expect(lambdaClient.file.removeFileAsyncTask.mutate).not.toHaveBeenCalled();
+      expect(removeAllSpy).not.toHaveBeenCalled();
+      expect(removeFileSpy).not.toHaveBeenCalled();
+      expect(removeFilesSpy).not.toHaveBeenCalled();
+      expect(mutate).not.toHaveBeenCalled();
+      expect(toggleEmbeddingSpy).not.toHaveBeenCalled();
+      expect(toggleParsingSpy).not.toHaveBeenCalled();
+      expect(result.current.creatingEmbeddingTaskIds).toEqual([]);
+      expect(result.current.creatingChunkingTaskIds).toEqual([]);
+    });
+
+    it('does not refresh or finalize a parse task after pending service invalidation', async () => {
+      const { result } = renderHook(() => useStore());
+      const parseFinished = createDeferred<void>();
+      vi.spyOn(ragService, 'createParseFileTask').mockReturnValue(parseFinished.promise as any);
+      const refreshSpy = vi.spyOn(result.current, 'refreshFileList');
+      const toggleSpy = vi.spyOn(result.current, 'toggleParsingIds');
+
+      const parsePromise = result.current.parseFilesToChunks(['file-1']);
+      await vi.waitFor(() => {
+        expect(ragService.createParseFileTask).toHaveBeenCalledWith('file-1', undefined);
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({
+          creatingChunkingTaskIds: ['account-b-task'],
+          scopeGeneration: 1,
+        });
+      });
+      parseFinished.resolve();
+      await parsePromise;
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(toggleSpy).not.toHaveBeenCalledWith(['file-1'], false);
+      expect(useStore.getState().creatingChunkingTaskIds).toEqual(['account-b-task']);
+    });
+
+    it('does not continue an embedding retry after its cancellation is invalidated', async () => {
+      const { result } = renderHook(() => useStore());
+      const cancellationFinished = createDeferred<void>();
+      vi.mocked(lambdaClient.file.removeFileAsyncTask.mutate).mockReturnValue(
+        cancellationFinished.promise as any,
+      );
+      const createTaskSpy = vi.spyOn(ragService, 'createEmbeddingChunksTask');
+      const refreshSpy = vi.spyOn(result.current, 'refreshFileList');
+      const toggleSpy = vi.spyOn(result.current, 'toggleEmbeddingIds');
+
+      const retryPromise = result.current.reEmbeddingChunks('file-1');
+      await vi.waitFor(() => {
+        expect(lambdaClient.file.removeFileAsyncTask.mutate).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({
+          creatingEmbeddingTaskIds: ['account-b-task'],
+          scopeGeneration: 1,
+        });
+      });
+      cancellationFinished.resolve();
+      await retryPromise;
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(createTaskSpy).not.toHaveBeenCalled();
+      expect(toggleSpy).not.toHaveBeenCalledWith(['file-1'], false);
+      expect(useStore.getState().creatingEmbeddingTaskIds).toEqual(['account-b-task']);
+    });
+
+    it('does not refresh after a pending removal is invalidated', async () => {
+      const { result } = renderHook(() => useStore());
+      const removalFinished = createDeferred<void>();
+      vi.spyOn(fileService, 'removeFile').mockReturnValue(removalFinished.promise);
+      const refreshSpy = vi.spyOn(result.current, 'refreshFileList');
+
+      const removalPromise = result.current.removeFileItem('file-1');
+      await vi.waitFor(() => {
+        expect(fileService.removeFile).toHaveBeenCalledWith('file-1');
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({ scopeGeneration: 1 });
+      });
+      removalFinished.resolve();
+      await removalPromise;
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('dispatchDockFileList', () => {
     it('should update dockUploadFileList with new value', () => {
       const { result } = renderHook(() => useStore());
@@ -196,6 +333,38 @@ describe('FileManagerActions', () => {
       expect(refreshSpy).toHaveBeenCalled();
       expect(toggleSpy).toHaveBeenCalledWith(['file-1'], false);
     });
+
+    it('keeps a same-file loading indicator until all overlapping operations complete', async () => {
+      const { result } = renderHook(() => useStore());
+      const olderEmbeddingFinished = createDeferred<void>();
+      const newerEmbeddingFinished = createDeferred<void>();
+      vi.spyOn(ragService, 'createEmbeddingChunksTask')
+        .mockReturnValueOnce(olderEmbeddingFinished.promise as any)
+        .mockReturnValueOnce(newerEmbeddingFinished.promise as any);
+      vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+
+      const olderOperation = result.current.embeddingChunks(['file-1']);
+      await vi.waitFor(() => {
+        expect(ragService.createEmbeddingChunksTask).toHaveBeenCalledTimes(1);
+      });
+
+      const newerOperation = result.current.embeddingChunks(['file-1']);
+      await vi.waitFor(() => {
+        expect(ragService.createEmbeddingChunksTask).toHaveBeenCalledTimes(2);
+      });
+
+      expect(useStore.getState().creatingEmbeddingTaskIds).toEqual(['file-1']);
+
+      olderEmbeddingFinished.resolve();
+      await olderOperation;
+
+      expect(useStore.getState().creatingEmbeddingTaskIds).toEqual(['file-1']);
+
+      newerEmbeddingFinished.resolve();
+      await newerOperation;
+
+      expect(useStore.getState().creatingEmbeddingTaskIds).toEqual([]);
+    });
   });
 
   describe('parseFilesToChunks', () => {
@@ -251,6 +420,38 @@ describe('FileManagerActions', () => {
       expect(refreshSpy).toHaveBeenCalled();
       expect(toggleSpy).toHaveBeenCalledWith(['file-1'], false);
     });
+
+    it('keeps a same-file loading indicator until all overlapping operations complete', async () => {
+      const { result } = renderHook(() => useStore());
+      const olderParseFinished = createDeferred<void>();
+      const newerParseFinished = createDeferred<void>();
+      vi.spyOn(ragService, 'createParseFileTask')
+        .mockReturnValueOnce(olderParseFinished.promise as any)
+        .mockReturnValueOnce(newerParseFinished.promise as any);
+      vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+
+      const olderOperation = result.current.parseFilesToChunks(['file-1']);
+      await vi.waitFor(() => {
+        expect(ragService.createParseFileTask).toHaveBeenCalledTimes(1);
+      });
+
+      const newerOperation = result.current.parseFilesToChunks(['file-1']);
+      await vi.waitFor(() => {
+        expect(ragService.createParseFileTask).toHaveBeenCalledTimes(2);
+      });
+
+      expect(useStore.getState().creatingChunkingTaskIds).toEqual(['file-1']);
+
+      olderParseFinished.resolve();
+      await olderOperation;
+
+      expect(useStore.getState().creatingChunkingTaskIds).toEqual(['file-1']);
+
+      newerParseFinished.resolve();
+      await newerOperation;
+
+      expect(useStore.getState().creatingChunkingTaskIds).toEqual([]);
+    });
   });
 
   describe('pushDockFileList', () => {
@@ -276,18 +477,29 @@ describe('FileManagerActions', () => {
       // Should only dispatch for the valid file
       expect(dispatchSpy).toHaveBeenCalledWith({
         atStart: true,
-        files: [{ file: validFile, id: validFile.name, status: 'pending' }],
+        files: [{ file: validFile, id: expect.any(String), status: 'pending' }],
         type: 'addFiles',
       });
       expect(uploadSpy).toHaveBeenCalledTimes(1);
       expect(uploadSpy).toHaveBeenCalledWith({
         file: validFile,
         knowledgeBaseId: undefined,
+        mutationCheckpoint: expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 0,
+        }),
         onStatusUpdate: expect.any(Function),
       });
       expect(refreshSpy).toHaveBeenCalled();
       // Should auto-parse text files
-      expect(parseSpy).toHaveBeenCalledWith(['file-1'], { skipExist: false });
+      expect(parseSpy).toHaveBeenCalledWith(
+        ['file-1'],
+        { skipExist: false },
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 0,
+        }),
+      );
     });
 
     it('should upload files with knowledgeBaseId', async () => {
@@ -308,6 +520,10 @@ describe('FileManagerActions', () => {
       expect(uploadSpy).toHaveBeenCalledWith({
         file,
         knowledgeBaseId: 'kb-123',
+        mutationCheckpoint: expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 0,
+        }),
         onStatusUpdate: expect.any(Function),
       });
     });
@@ -368,7 +584,14 @@ describe('FileManagerActions', () => {
       });
 
       // Should auto-parse both files that support chunking
-      expect(parseSpy).toHaveBeenCalledWith(['file-1', 'file-2'], { skipExist: false });
+      expect(parseSpy).toHaveBeenCalledWith(
+        ['file-1', 'file-2'],
+        { skipExist: false },
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 0,
+        }),
+      );
     });
 
     it('should skip auto-embed for unsupported file types (images/videos/audio)', async () => {
@@ -412,7 +635,14 @@ describe('FileManagerActions', () => {
       });
 
       // Should only auto-parse text and pdf files, skip image
-      expect(parseSpy).toHaveBeenCalledWith(['file-1', 'file-3'], { skipExist: false });
+      expect(parseSpy).toHaveBeenCalledWith(
+        ['file-1', 'file-3'],
+        { skipExist: false },
+        expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 0,
+        }),
+      );
     });
 
     it('should skip auto-embed when upload fails', async () => {
@@ -499,9 +729,68 @@ describe('FileManagerActions', () => {
       // Should upload extracted files
       expect(dispatchSpy).toHaveBeenCalledWith({
         atStart: true,
-        files: extractedFiles.map((file) => ({ file, id: file.name, status: 'pending' })),
+        files: extractedFiles.map((file) => ({ file, id: expect.any(String), status: 'pending' })),
         type: 'addFiles',
       });
+    });
+
+    it('uploads ZIP-extracted same-name files and updates their own optimistic rows', async () => {
+      const { result } = renderHook(() => useStore());
+      const zipFile = new File(['zip content'], 'archive.zip', { type: 'application/zip' });
+      const firstExtractedFile = new File(['first'], 'duplicate.txt', { type: 'text/plain' });
+      const secondExtractedFile = new File(['second'], 'duplicate.txt', { type: 'text/plain' });
+
+      vi.mocked(unzipFile).mockResolvedValue([firstExtractedFile, secondExtractedFile]);
+      const uploadSpy = vi
+        .spyOn(result.current, 'uploadWithProgress')
+        .mockImplementation(async ({ file, onStatusUpdate }) => {
+          const isFirstFile = file === firstExtractedFile;
+          const serverFileId = isFirstFile ? 'server-file-1' : 'server-file-2';
+          const fileUrl = `https://example.com/${serverFileId}`;
+
+          onStatusUpdate?.({
+            id: file.name,
+            type: 'updateFile',
+            value: {
+              fileUrl,
+              id: serverFileId,
+              status: 'success',
+            },
+          });
+
+          return { id: serverFileId, url: fileUrl };
+        });
+      vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+      vi.spyOn(result.current, 'parseFilesToChunks').mockResolvedValue();
+
+      await act(async () => {
+        await result.current.pushDockFileList([zipFile]);
+      });
+
+      expect(uploadSpy).toHaveBeenCalledTimes(2);
+      expect(uploadSpy.mock.calls.map(([params]) => params.file)).toEqual([
+        firstExtractedFile,
+        secondExtractedFile,
+      ]);
+
+      const firstEntry = useStore
+        .getState()
+        .dockUploadFileList.find((fileItem) => fileItem.file === firstExtractedFile);
+      const secondEntry = useStore
+        .getState()
+        .dockUploadFileList.find((fileItem) => fileItem.file === secondExtractedFile);
+
+      expect(firstEntry).toMatchObject({
+        fileUrl: 'https://example.com/server-file-1',
+        status: 'success',
+      });
+      expect(secondEntry).toMatchObject({
+        fileUrl: 'https://example.com/server-file-2',
+        status: 'success',
+      });
+      expect(firstEntry?.id).not.toBe(secondEntry?.id);
+      expect(firstEntry?.id).not.toBe(firstExtractedFile.name);
+      expect(secondEntry?.id).not.toBe(secondExtractedFile.name);
     });
 
     it('should handle ZIP extraction errors gracefully', async () => {
@@ -529,9 +818,130 @@ describe('FileManagerActions', () => {
       // Should fallback to uploading the ZIP file itself
       expect(dispatchSpy).toHaveBeenCalledWith({
         atStart: true,
-        files: [{ file: zipFile, id: zipFile.name, status: 'pending' }],
+        files: [{ file: zipFile, id: expect.any(String), status: 'pending' }],
         type: 'addFiles',
       });
+    });
+
+    it('does not preprocess, dispatch, or upload during an active owner mismatch', async () => {
+      const { result } = renderHook(() => useStore());
+      const zipFile = new File(['zip content'], 'archive.zip', { type: 'application/zip' });
+      useUserStore.setState({
+        userStateInitializationFailure: { reason: 'owner-mismatch', scope: 'local' },
+      });
+      const dispatchSpy = vi.spyOn(result.current, 'dispatchDockFileList');
+      const uploadSpy = vi.spyOn(result.current, 'uploadWithProgress');
+
+      await act(async () => {
+        await result.current.pushDockFileList([zipFile]);
+      });
+
+      expect(unzipFile).not.toHaveBeenCalled();
+      expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(uploadSpy).not.toHaveBeenCalled();
+      expect(result.current.dockUploadFileList).toEqual([]);
+    });
+
+    it('stops after ZIP preprocessing is invalidated', async () => {
+      const { result } = renderHook(() => useStore());
+      const zipFile = new File(['zip content'], 'archive.zip', { type: 'application/zip' });
+      const extractionFinished = createDeferred<File[]>();
+      vi.mocked(unzipFile).mockReturnValue(extractionFinished.promise);
+      const dispatchSpy = vi.spyOn(result.current, 'dispatchDockFileList');
+      const uploadSpy = vi.spyOn(result.current, 'uploadWithProgress');
+
+      const pushPromise = result.current.pushDockFileList([zipFile]);
+      await vi.waitFor(() => {
+        expect(unzipFile).toHaveBeenCalledWith(zipFile);
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({ scopeGeneration: 1 });
+      });
+      extractionFinished.resolve([new File(['text'], 'extracted.txt', { type: 'text/plain' })]);
+      await pushPromise;
+
+      expect(dispatchSpy).not.toHaveBeenCalled();
+      expect(uploadSpy).not.toHaveBeenCalled();
+      expect(result.current.dockUploadFileList).toEqual([]);
+    });
+
+    it('does not refresh or parse after upload invalidation', async () => {
+      const { result } = renderHook(() => useStore());
+      const file = new File(['content'], 'document.txt', { type: 'text/plain' });
+      const uploadFinished = createDeferred<{ id: string; url: string } | undefined>();
+      vi.spyOn(result.current, 'uploadWithProgress').mockReturnValue(uploadFinished.promise);
+      const refreshSpy = vi.spyOn(result.current, 'refreshFileList');
+      const parseSpy = vi.spyOn(result.current, 'parseFilesToChunks');
+
+      const pushPromise = result.current.pushDockFileList([file]);
+      await vi.waitFor(() => {
+        expect(result.current.uploadWithProgress).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        useStore.setState({ scopeGeneration: 1 });
+      });
+      uploadFinished.resolve({ id: 'stale-file', url: 'https://example.com/stale-file' });
+      await pushPromise;
+
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(parseSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps stale callbacks from mutating a newer same-name upload entry', async () => {
+      const { result } = renderHook(() => useStore());
+      const olderFile = new File(['older'], 'same-name.txt', { type: 'text/plain' });
+      const newerFile = new File(['newer'], 'same-name.txt', { type: 'text/plain' });
+      const uploadFinished = createDeferred<{ id: string; url: string } | undefined>();
+      let olderStatusUpdate:
+        | ((payload: {
+            id: string;
+            type: 'updateFile';
+            value: Partial<UploadFileItem>;
+          }) => void)
+        | undefined;
+      vi.spyOn(result.current, 'uploadWithProgress')
+        .mockImplementationOnce(({ onStatusUpdate }) => {
+          olderStatusUpdate = onStatusUpdate as typeof olderStatusUpdate;
+          return uploadFinished.promise;
+        })
+        .mockImplementationOnce(async ({ onStatusUpdate }) => {
+          onStatusUpdate?.({
+            id: newerFile.name,
+            type: 'updateFile',
+            value: { status: 'uploading' },
+          });
+          return undefined;
+        });
+      vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+
+      const olderPush = result.current.pushDockFileList([olderFile]);
+      await vi.waitFor(() => {
+        expect(olderStatusUpdate).toBeDefined();
+      });
+      await result.current.pushDockFileList([newerFile]);
+      const newerEntry = useStore
+        .getState()
+        .dockUploadFileList.find((fileItem) => fileItem.file === newerFile);
+      expect(newerEntry?.status).toBe('uploading');
+
+      act(() => {
+        olderStatusUpdate?.({
+          id: olderFile.name,
+          type: 'updateFile',
+          value: { status: 'success' },
+        });
+      });
+      uploadFinished.resolve(undefined);
+      await olderPush;
+
+      expect(
+        useStore.getState().dockUploadFileList.find((fileItem) => fileItem.file === newerFile)
+          ?.status,
+      ).toBe('uploading');
     });
   });
 

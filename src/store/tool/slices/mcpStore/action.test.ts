@@ -8,9 +8,19 @@ import { discoverService } from '@/services/discover';
 import { mcpService } from '@/services/mcp';
 import { pluginService } from '@/services/plugin';
 import { globalHelpers } from '@/store/global/helpers';
+import { useUserStore } from '@/store/user';
 import { CheckMcpInstallResult, MCPInstallStep } from '@/types/plugins';
 
 import { useToolStore } from '../../store';
+
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
@@ -21,6 +31,10 @@ vi.mock('@/utils/sleep', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useUserStore.setState({
+    ownershipInvalidationGeneration: 0,
+    userStateInitializationFailure: undefined,
+  });
 
   // Reset store state
   act(() => {
@@ -32,6 +46,7 @@ beforeEach(() => {
         mcpTestAbortControllers: {},
         mcpTestLoading: {},
         mcpTestErrors: {},
+        pluginInstallLoading: {},
         currentPage: 1,
         totalCount: 0,
         categories: [],
@@ -620,13 +635,198 @@ describe('mcpStore actions', () => {
       vi.spyOn(discoverService, 'getMcpDetail').mockResolvedValue(mockPlugin as any);
     });
 
+    const setInstalledMarketplacePlugin = () => {
+      useToolStore.setState({ mcpPluginItems: [mockPlugin] });
+    };
+
+    const invalidateInstallWithNewerState = () => {
+      const newerController = new AbortController();
+      const newerProgress = {
+        progress: 50,
+        step: MCPInstallStep.CONFIGURATION_REQUIRED,
+      };
+
+      useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      useToolStore.setState({
+        mcpInstallAbortControllers: { 'test-plugin': newerController },
+        mcpInstallProgress: { 'test-plugin': newerProgress },
+        pluginInstallLoading: { 'test-plugin': true },
+        scopeGeneration: 1,
+      });
+
+      return { newerController, newerProgress };
+    };
+
     describe('normal installation flow', () => {
+      it('does nothing during an active same-scope owner mismatch', async () => {
+        const existingController = new AbortController();
+        const abortSpy = vi.spyOn(existingController, 'abort');
+        useToolStore.setState({
+          mcpInstallAbortControllers: { 'test-plugin': existingController },
+          mcpPluginItems: [mockPlugin],
+        });
+        useUserStore.setState({
+          userStateInitializationFailure: {
+            reason: 'owner-mismatch',
+            scope: 'local',
+          },
+        });
+
+        await useToolStore.getState().installMCPPlugin('test-plugin');
+
+        expect(abortSpy).not.toHaveBeenCalled();
+        expect(discoverService.getMCPPluginManifest).not.toHaveBeenCalled();
+        expect(mcpService.checkInstallation).not.toHaveBeenCalled();
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallAbortControllers['test-plugin']).toBe(
+          existingController,
+        );
+      });
+
+      it('stops after manifest fetch when account ownership is invalidated', async () => {
+        const manifestDeferred = createDeferred<typeof mockManifest>();
+        vi.mocked(discoverService.getMCPPluginManifest).mockReturnValue(
+          manifestDeferred.promise as any,
+        );
+        setInstalledMarketplacePlugin();
+
+        const installPromise = useToolStore.getState().installMCPPlugin('test-plugin');
+        await waitFor(() => {
+          expect(discoverService.getMCPPluginManifest).toHaveBeenCalledTimes(1);
+        });
+        const { newerController, newerProgress } = invalidateInstallWithNewerState();
+        manifestDeferred.resolve(mockManifest);
+        await installPromise;
+
+        expect(mcpService.checkInstallation).not.toHaveBeenCalled();
+        expect(discoverService.reportMcpInstallResult).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallAbortControllers['test-plugin']).toBe(
+          newerController,
+        );
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toEqual(newerProgress);
+        expect(useToolStore.getState().pluginInstallLoading['test-plugin']).toBe(true);
+      });
+
+      it('stops after installation check when account ownership is invalidated', async () => {
+        const checkDeferred = createDeferred<CheckMcpInstallResult>();
+        vi.mocked(mcpService.checkInstallation).mockReturnValue(checkDeferred.promise);
+        setInstalledMarketplacePlugin();
+
+        const installPromise = useToolStore.getState().installMCPPlugin('test-plugin');
+        await waitFor(() => {
+          expect(mcpService.checkInstallation).toHaveBeenCalledTimes(1);
+        });
+        const { newerController, newerProgress } = invalidateInstallWithNewerState();
+        checkDeferred.resolve(mockCheckResult);
+        await installPromise;
+
+        expect(mcpService.getStdioMcpServerManifest).not.toHaveBeenCalled();
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(discoverService.reportMcpInstallResult).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallAbortControllers['test-plugin']).toBe(
+          newerController,
+        );
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toEqual(newerProgress);
+      });
+
+      it('stops after server manifest fetch when account ownership is invalidated', async () => {
+        const serverManifestDeferred = createDeferred<LobeChatPluginManifest>();
+        vi.mocked(mcpService.getStdioMcpServerManifest).mockReturnValue(
+          serverManifestDeferred.promise,
+        );
+        setInstalledMarketplacePlugin();
+
+        const installPromise = useToolStore.getState().installMCPPlugin('test-plugin');
+        await waitFor(() => {
+          expect(mcpService.getStdioMcpServerManifest).toHaveBeenCalledTimes(1);
+        });
+        const { newerController, newerProgress } = invalidateInstallWithNewerState();
+        serverManifestDeferred.resolve(mockServerManifest);
+        await installPromise;
+
+        expect(pluginService.installPlugin).not.toHaveBeenCalled();
+        expect(discoverService.reportMcpInstallResult).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallAbortControllers['test-plugin']).toBe(
+          newerController,
+        );
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toEqual(newerProgress);
+      });
+
+      it('does not refresh or report after stale persistence completes', async () => {
+        const installDeferred = createDeferred<void>();
+        vi.mocked(pluginService.installPlugin).mockReturnValue(installDeferred.promise);
+        setInstalledMarketplacePlugin();
+
+        const installPromise = useToolStore.getState().installMCPPlugin('test-plugin');
+        await waitFor(() => {
+          expect(pluginService.installPlugin).toHaveBeenCalledTimes(1);
+        });
+        const { newerController, newerProgress } = invalidateInstallWithNewerState();
+        installDeferred.resolve(undefined);
+        await installPromise;
+
+        expect(useToolStore.getState().refreshPlugins).not.toHaveBeenCalled();
+        expect(discoverService.reportMcpInstallResult).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallAbortControllers['test-plugin']).toBe(
+          newerController,
+        );
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toEqual(newerProgress);
+      });
+
+      it('does not report telemetry after stale refresh completes', async () => {
+        const refreshDeferred = createDeferred<void>();
+        const refreshPlugins = vi.fn(() => refreshDeferred.promise);
+        useToolStore.setState({
+          mcpPluginItems: [mockPlugin],
+          refreshPlugins,
+        });
+
+        const installPromise = useToolStore.getState().installMCPPlugin('test-plugin');
+        await waitFor(() => {
+          expect(refreshPlugins).toHaveBeenCalledTimes(1);
+        });
+        const { newerController, newerProgress } = invalidateInstallWithNewerState();
+        refreshDeferred.resolve(undefined);
+        await installPromise;
+
+        expect(discoverService.reportMcpInstallResult).not.toHaveBeenCalled();
+        expect(useToolStore.getState().mcpInstallAbortControllers['test-plugin']).toBe(
+          newerController,
+        );
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toEqual(newerProgress);
+      });
+
+      it('does not clear newer progress after stale telemetry completes', async () => {
+        const telemetryDeferred = createDeferred<void>();
+        vi.mocked(discoverService.reportMcpInstallResult).mockReturnValue(
+          telemetryDeferred.promise as any,
+        );
+        setInstalledMarketplacePlugin();
+
+        const installPromise = useToolStore.getState().installMCPPlugin('test-plugin');
+        await waitFor(() => {
+          expect(discoverService.reportMcpInstallResult).toHaveBeenCalledTimes(1);
+        });
+        const { newerController, newerProgress } = invalidateInstallWithNewerState();
+        telemetryDeferred.resolve(undefined);
+        await installPromise;
+
+        expect(useToolStore.getState().mcpInstallAbortControllers['test-plugin']).toBe(
+          newerController,
+        );
+        expect(useToolStore.getState().mcpInstallProgress['test-plugin']).toEqual(newerProgress);
+        expect(useToolStore.getState().pluginInstallLoading['test-plugin']).toBe(true);
+      });
+
       it('should successfully install MCP plugin', async () => {
         const { result } = renderHook(() => useToolStore());
+        const refreshPlugins = vi.fn().mockResolvedValue(undefined);
 
         act(() => {
           useToolStore.setState({
             mcpPluginItems: [mockPlugin],
+            refreshPlugins,
+            scopeGeneration: 5,
           });
         });
 
@@ -642,7 +842,12 @@ describe('mcpStore actions', () => {
         expect(mcpService.checkInstallation).toHaveBeenCalled();
         expect(mcpService.getStdioMcpServerManifest).toHaveBeenCalled();
         expect(pluginService.installPlugin).toHaveBeenCalled();
-        expect(result.current.refreshPlugins).toHaveBeenCalled();
+        expect(refreshPlugins).toHaveBeenCalledWith(
+          expect.objectContaining({
+            accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+            scopeGeneration: 5,
+          }),
+        );
       });
 
       it('should update progress through installation steps', async () => {
@@ -1192,6 +1397,10 @@ describe('mcpStore actions', () => {
             errorMessage: 'Installation failed',
             identifier: 'test-plugin',
           }),
+          expect.objectContaining({
+            isCurrent: expect.any(Function),
+            signal: expect.any(AbortSignal),
+          }),
         );
       });
     });
@@ -1217,6 +1426,45 @@ describe('mcpStore actions', () => {
             platform: 'darwin',
             version: '1.0.0',
           }),
+          expect.objectContaining({
+            isCurrent: expect.any(Function),
+            signal: expect.any(AbortSignal),
+          }),
+        );
+      });
+
+      it('keeps a persisted installation successful when success telemetry rejects', async () => {
+        const { result } = renderHook(() => useToolStore());
+        vi.mocked(discoverService.reportMcpInstallResult).mockRejectedValue(
+          new Error('Telemetry unavailable'),
+        );
+        act(() => {
+          useToolStore.setState({
+            mcpPluginItems: [mockPlugin],
+          });
+        });
+
+        let installResult;
+        await act(async () => {
+          installResult = await result.current.installMCPPlugin('test-plugin');
+        });
+
+        expect(installResult).toBe(true);
+        expect(pluginService.installPlugin).toHaveBeenCalledOnce();
+        expect(discoverService.reportMcpInstallResult).toHaveBeenCalledOnce();
+        expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
+          expect.objectContaining({
+            identifier: 'test-plugin',
+            success: true,
+          }),
+          expect.objectContaining({
+            isCurrent: expect.any(Function),
+            signal: expect.any(AbortSignal),
+          }),
+        );
+        expect(discoverService.reportMcpInstallResult).not.toHaveBeenCalledWith(
+          expect.objectContaining({ success: false }),
+          expect.anything(),
         );
       });
     });

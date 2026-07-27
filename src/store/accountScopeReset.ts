@@ -60,6 +60,12 @@ export const resetAccountScopedStores = (reason: string): void => {
       ),
       ...Object.values(chatState.pluginApiAbortControllers),
       ...Object.values(chatState.supervisorDecisionAbortControllers),
+      ...Object.values(chatState.threadTitleSummaryOperations).map(
+        (operation) => operation.abortController,
+      ),
+      ...Object.values(chatState.topicTitleSummaryOperations).map(
+        (operation) => operation.abortController,
+      ),
     ],
     reason,
   );

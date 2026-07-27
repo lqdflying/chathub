@@ -42,7 +42,9 @@ beforeEach(() => {
       authUserId: 'test-user',
       isLoaded: true,
       isSignedIn: true,
+      ownershipInvalidationGeneration: 0,
       user: { id: 'test-user' },
+      userStateInitializationFailure: undefined,
     });
     useStore.setState({
       activeAiProvider: 'test-provider',
@@ -60,6 +62,106 @@ afterEach(() => {
 });
 
 describe('AiModelAction', () => {
+  describe('account mutation ownership', () => {
+    it('blocks every model persistence action during an active owner mismatch', async () => {
+      const batchToggleModels = vi.spyOn(aiModelService, 'batchToggleAiModels');
+      const batchUpdateModels = vi.spyOn(aiModelService, 'batchUpdateAiModels');
+      const clearModels = vi.spyOn(aiModelService, 'clearModelsByProvider');
+      const clearRemoteModels = vi.spyOn(aiModelService, 'clearRemoteModels');
+      const createModel = vi.spyOn(aiModelService, 'createAiModel');
+      const deleteModel = vi.spyOn(aiModelService, 'deleteAiModel');
+      const fetchRemoteModels = vi.spyOn(modelsService, 'getModels');
+      const toggleModel = vi.spyOn(aiModelService, 'toggleModelEnabled');
+      const updateModel = vi.spyOn(aiModelService, 'updateAiModel');
+      const updateModelOrder = vi.spyOn(aiModelService, 'updateAiModelOrder');
+      useUserStore.setState({
+        ownershipInvalidationGeneration: 1,
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:test-user',
+        },
+      });
+      const model = {
+        abilities: {},
+        displayName: 'Model',
+        enabled: true,
+        id: 'model-1',
+        source: 'remote',
+        type: 'chat',
+      } as AiProviderModelListItem;
+
+      const store = useStore.getState();
+      await store.batchToggleAiModels(['model-1'], true);
+      await store.batchUpdateAiModels([model]);
+      await store.clearModelsByProvider('provider-explicit');
+      await store.clearRemoteModels('provider-explicit');
+      await store.createNewAiModel({
+        displayName: 'Model',
+        enabled: true,
+        id: 'model-1',
+        providerId: 'provider-explicit',
+      });
+      await store.fetchRemoteModelList('provider-explicit');
+      await store.removeAiModel('model-1', 'provider-explicit');
+      await store.toggleModelEnabled({ enabled: true, id: 'model-1' });
+      await store.updateAiModelsConfig('model-1', 'provider-explicit', { enabled: false });
+      await store.updateAiModelsSort('provider-explicit', [{ id: 'model-1', sort: 1 }]);
+
+      expect(batchToggleModels).not.toHaveBeenCalled();
+      expect(batchUpdateModels).not.toHaveBeenCalled();
+      expect(clearModels).not.toHaveBeenCalled();
+      expect(clearRemoteModels).not.toHaveBeenCalled();
+      expect(createModel).not.toHaveBeenCalled();
+      expect(deleteModel).not.toHaveBeenCalled();
+      expect(fetchRemoteModels).not.toHaveBeenCalled();
+      expect(toggleModel).not.toHaveBeenCalled();
+      expect(updateModel).not.toHaveBeenCalled();
+      expect(updateModelOrder).not.toHaveBeenCalled();
+      expect(useStore.getState().aiModelLoadingIds).toEqual([]);
+    });
+
+    it('keeps an explicit model provider valid when the active provider changes', async () => {
+      const updateFinished = createDeferred<void>();
+      const model = {
+        abilities: {},
+        displayName: 'Explicit Model',
+        enabled: true,
+        id: 'model-explicit',
+        source: 'remote',
+        type: 'chat',
+      } as AiProviderModelListItem;
+      vi.spyOn(aiModelService, 'batchUpdateAiModels').mockReturnValue(updateFinished.promise);
+      const refreshModels = vi.spyOn(useStore.getState(), 'refreshAiModelList').mockResolvedValue();
+
+      const updatePromise = useStore
+        .getState()
+        .batchUpdateAiModels([model], 'provider-explicit');
+      useStore.setState({ activeAiProvider: 'provider-unrelated' });
+      updateFinished.resolve();
+      await updatePromise;
+
+      expect(refreshModels).toHaveBeenCalledWith('provider-explicit');
+    });
+
+    it('binds an active-derived provider before awaiting the model service', async () => {
+      const toggleFinished = createDeferred<void>();
+      vi.spyOn(aiModelService, 'batchToggleAiModels').mockReturnValue(toggleFinished.promise);
+      const refreshModels = vi.spyOn(useStore.getState(), 'refreshAiModelList').mockResolvedValue();
+
+      const togglePromise = useStore.getState().batchToggleAiModels(['model-1'], true);
+      useStore.setState({ activeAiProvider: 'provider-later' });
+      toggleFinished.resolve();
+      await togglePromise;
+
+      expect(aiModelService.batchToggleAiModels).toHaveBeenCalledWith(
+        'test-provider',
+        ['model-1'],
+        true,
+      );
+      expect(refreshModels).toHaveBeenCalledWith('test-provider');
+    });
+  });
+
   describe('batchToggleAiModels', () => {
     it('should toggle multiple models and refresh list', async () => {
       const { result } = renderHook(() => useStore());
@@ -365,6 +467,41 @@ describe('AiModelAction', () => {
       expect(batchUpdateSpy).not.toHaveBeenCalled();
       expect(refreshSpy).not.toHaveBeenCalled();
     });
+
+    it('suppresses persistence after same-scope ownership invalidation', async () => {
+      const remoteModels = createDeferred<
+        Awaited<ReturnType<typeof modelsService.getModels>>
+      >();
+      vi.spyOn(modelsService, 'getModels').mockReturnValue(remoteModels.promise);
+      const batchUpdateSpy = vi
+        .spyOn(aiModelService, 'batchUpdateAiModels')
+        .mockResolvedValue(undefined);
+      const refreshSpy = vi.spyOn(useStore.getState(), 'refreshAiModelList').mockResolvedValue();
+
+      const fetchPromise = useStore.getState().fetchRemoteModelList('provider-x');
+      await waitFor(() => {
+        expect(modelsService.getModels).toHaveBeenCalledWith('provider-x');
+      });
+
+      useUserStore.setState({
+        ownershipInvalidationGeneration: 1,
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:test-user',
+        },
+      });
+      remoteModels.resolve([
+        {
+          displayName: 'Stale Remote Model',
+          enabled: true,
+          id: 'stale-model',
+        },
+      ]);
+      await fetchPromise;
+
+      expect(batchUpdateSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('internal_toggleAiModelLoading', () => {
@@ -524,7 +661,7 @@ describe('AiModelAction', () => {
       expect(serviceSpy).not.toHaveBeenCalled();
     });
 
-    it('should handle service errors and throw without clearing loading state', async () => {
+    it('should handle service errors and clear loading owned by the failed operation', async () => {
       const { result } = renderHook(() => useStore());
       const toggleLoadingSpy = vi
         .spyOn(result.current, 'internal_toggleAiModelLoading')
@@ -539,8 +676,134 @@ describe('AiModelAction', () => {
       }).rejects.toThrow('Service error');
 
       expect(toggleLoadingSpy).toHaveBeenCalledWith('model-1', true);
-      // Loading state is not cleared when error occurs since there's no try-finally
-      expect(toggleLoadingSpy).toHaveBeenCalledTimes(1);
+      expect(toggleLoadingSpy).toHaveBeenCalledWith('model-1', false);
+    });
+
+    it('keeps model loading until every overlapping owned operation completes', async () => {
+      const firstToggleFinished = createDeferred<void>();
+      const secondToggleFinished = createDeferred<void>();
+      vi.spyOn(aiModelService, 'toggleModelEnabled')
+        .mockReturnValueOnce(firstToggleFinished.promise)
+        .mockReturnValueOnce(secondToggleFinished.promise);
+      vi.spyOn(useStore.getState(), 'refreshAiModelList').mockResolvedValue();
+
+      const firstToggle = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: true, id: 'model-overlap' });
+      const secondToggle = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: false, id: 'model-overlap' });
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['model-overlap']);
+
+      firstToggleFinished.resolve();
+      await firstToggle;
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['model-overlap']);
+
+      secondToggleFinished.resolve();
+      await secondToggle;
+      expect(useStore.getState().aiModelLoadingIds).toEqual([]);
+    });
+
+    it('shares one visible marker across providers with the same model id', async () => {
+      const providerAToggleFinished = createDeferred<void>();
+      const providerBToggleFinished = createDeferred<void>();
+      vi.spyOn(aiModelService, 'toggleModelEnabled')
+        .mockReturnValueOnce(providerAToggleFinished.promise)
+        .mockReturnValueOnce(providerBToggleFinished.promise);
+      vi.spyOn(useStore.getState(), 'refreshAiModelList').mockResolvedValue();
+
+      useStore.setState({ activeAiProvider: 'provider-a' });
+      const providerAToggle = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: true, id: 'shared-model' });
+      useStore.setState({ activeAiProvider: 'provider-b' });
+      const providerBToggle = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: false, id: 'shared-model' });
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['shared-model']);
+
+      providerBToggleFinished.resolve();
+      await providerBToggle;
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['shared-model']);
+
+      providerAToggleFinished.resolve();
+      await providerAToggle;
+      expect(useStore.getState().aiModelLoadingIds).toEqual([]);
+    });
+
+    it('does not let stale provider buckets mutate same-id loading after account reset', async () => {
+      const staleProviderAToggleFinished = createDeferred<void>();
+      const staleProviderBToggleFinished = createDeferred<void>();
+      const currentAccountToggleFinished = createDeferred<void>();
+      vi.spyOn(aiModelService, 'toggleModelEnabled')
+        .mockReturnValueOnce(staleProviderAToggleFinished.promise)
+        .mockReturnValueOnce(staleProviderBToggleFinished.promise)
+        .mockReturnValueOnce(currentAccountToggleFinished.promise);
+      vi.spyOn(useStore.getState(), 'refreshAiModelList').mockResolvedValue();
+
+      useStore.setState({ activeAiProvider: 'provider-a' });
+      const staleProviderAToggle = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: true, id: 'shared-model' });
+      useStore.setState({ activeAiProvider: 'provider-b' });
+      const staleProviderBToggle = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: false, id: 'shared-model' });
+
+      useUserStore.setState({
+        authUserId: 'account-b',
+        ownershipInvalidationGeneration: 1,
+        user: { id: 'account-b' },
+      });
+      useStore.setState({
+        activeAiProvider: 'provider-c',
+        aiModelLoadingIds: [],
+        scopeGeneration: 1,
+      });
+      const currentAccountToggle = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: true, id: 'shared-model' });
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['shared-model']);
+
+      staleProviderBToggleFinished.resolve();
+      await staleProviderBToggle;
+      staleProviderAToggleFinished.resolve();
+      await staleProviderAToggle;
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['shared-model']);
+
+      currentAccountToggleFinished.resolve();
+      await currentAccountToggle;
+      expect(useStore.getState().aiModelLoadingIds).toEqual([]);
+    });
+
+    it('does not clear newer loading state after an A-B-A completion', async () => {
+      const toggleFinished = createDeferred<void>();
+      vi.spyOn(aiModelService, 'toggleModelEnabled').mockReturnValue(toggleFinished.promise);
+      const refreshModels = vi.spyOn(useStore.getState(), 'refreshAiModelList').mockResolvedValue();
+
+      const togglePromise = useStore
+        .getState()
+        .toggleModelEnabled({ enabled: true, id: 'model-a' });
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['model-a']);
+
+      useUserStore.setState({
+        authUserId: 'account-b',
+        ownershipInvalidationGeneration: 1,
+        user: { id: 'account-b' },
+      });
+      useUserStore.setState({
+        authUserId: 'test-user',
+        user: { id: 'test-user' },
+      });
+      useStore.setState({
+        aiModelLoadingIds: ['new-account-model'],
+        scopeGeneration: 1,
+      });
+      toggleFinished.resolve();
+      await togglePromise;
+
+      expect(refreshModels).not.toHaveBeenCalled();
+      expect(useStore.getState().aiModelLoadingIds).toEqual(['new-account-model']);
     });
   });
 

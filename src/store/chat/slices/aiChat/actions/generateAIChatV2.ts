@@ -25,13 +25,16 @@ import { messageService } from '@/services/message';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/slices/chat';
 import { aiModelSelectors, aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { getFileStoreState } from '@/store/file/store';
 import { getSessionStoreState } from '@/store/session';
 import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { normalizeTopic } from '@/utils/client/topic';
 import { setNamespace } from '@/utils/storeDebug';
@@ -112,18 +115,18 @@ export const generateAIChatV2: StateCreator<
     message,
     onlyAddUserMessage,
   }) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const { activeTopicId, activeId, activeThreadId, internal_execAgentRuntime, mainInputEditor } =
       get();
-    if (!activeId) return;
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!requestedScope) return;
+    if (!accountMutationSnapshot || !activeId) return;
+    const requestedScope = accountMutationSnapshot.scope;
     let conversationContext: ConversationContext = {
       generation: get().conversationClearGeneration,
       sessionId: activeId,
       topicId: activeTopicId,
     };
     const isCurrentConversation = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
@@ -277,7 +280,7 @@ export const generateAIChatV2: StateCreator<
         get().internal_toggleSendMessageOperation(operationKey, false);
       }
 
-      if (contextExportCaptureId && (!data || !isCurrentConversation())) {
+      if (contextExportCaptureId && isCurrentConversation() && !data) {
         get().completeContextExport(contextExportCaptureId);
       }
     }
@@ -377,10 +380,10 @@ export const generateAIChatV2: StateCreator<
     } catch (e) {
       console.error(e);
     } finally {
-      if (activeContextExportCaptureId) {
+      if (activeContextExportCaptureId && isCurrentConversation()) {
         get().completeContextExport(activeContextExportCaptureId);
       }
-      if (generationOperationKey) {
+      if (generationOperationKey && isCurrentConversation()) {
         set(
           (state) => {
             const currentOperations = state.serverGenerationOperations[generationOperationKey];
@@ -459,6 +462,9 @@ export const generateAIChatV2: StateCreator<
   },
 
   internal_execAgentRuntime: async (params) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const conversationContext = params.conversationContext ?? {
       generation: get().conversationClearGeneration,
       sessionId: get().activeId,
@@ -469,6 +475,7 @@ export const generateAIChatV2: StateCreator<
       topicId: conversationContext.topicId,
     };
     const isCurrentConversation = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
@@ -618,7 +625,7 @@ export const generateAIChatV2: StateCreator<
           if (!isCurrentConversation()) return;
           isError = true;
           await messageService.updateMessageError(assistantId, error);
-          await refreshMessages(conversationContext);
+          if (isCurrentConversation()) await refreshMessages(conversationContext);
         },
       });
 

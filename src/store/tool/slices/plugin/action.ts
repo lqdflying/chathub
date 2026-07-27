@@ -5,6 +5,10 @@ import { StateCreator } from 'zustand/vanilla';
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { useClientDataSWR } from '@/libs/swr';
 import { pluginService } from '@/services/plugin';
+import {
+  captureToolMutationCheckpoint,
+  isToolMutationCurrent,
+} from '@/store/tool/mutation';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { merge } from '@/utils/merge';
@@ -36,9 +40,8 @@ export const createPluginSlice: StateCreator<
   PluginAction
 > = (set, get) => ({
   checkPluginsIsInstalled: async (plugins) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     // if there is no plugins, just skip.
     if (plugins.length === 0) return;
@@ -48,62 +51,43 @@ export const createPluginSlice: StateCreator<
     // check if the store is empty
     // if it is, we need to load the plugin store
     if (pluginStoreSelectors.onlinePluginStore(get()).length === 0) {
-      await loadPluginStore();
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
+      await loadPluginStore(checkpoint);
+      if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
     }
 
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
-
-    await installPlugins(plugins);
+    await installPlugins(plugins, checkpoint);
   },
   removeAllPlugins: async () => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     await pluginService.removeAllPlugins();
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
-    await get().refreshPlugins();
+    await get().refreshPlugins(checkpoint);
   },
 
   updateInstallMcpPlugin: async (id, value) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     const installedPlugin = pluginSelectors.getInstalledPluginById(id)(get());
 
     if (!installedPlugin) return;
 
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
     await pluginService.updatePlugin(id, {
       customParams: { mcp: merge(installedPlugin.customParams?.mcp, value) },
     });
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
-    await get().refreshPlugins();
+    await get().refreshPlugins(checkpoint);
   },
 
   updatePluginSettings: async (id, settings, { override } = {}) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     const signal = get().updatePluginSettingsSignal;
     if (signal) signal.abort(MESSAGE_CANCEL_FLAT);
@@ -113,19 +97,25 @@ export const createPluginSlice: StateCreator<
     const previousSettings = pluginSelectors.getPluginSettingsById(id)(get());
     const nextSettings = override ? settings : merge(previousSettings, settings);
 
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
     set({ updatePluginSettingsSignal: newSignal }, false, 'create new Signal');
     try {
-      await pluginService.updatePluginSettings(id, nextSettings, newSignal.signal);
-      if (newSignal.signal.aborted) return;
       if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
+        newSignal.signal.aborted ||
+        !isToolMutationCurrent(checkpoint, get().scopeGeneration)
       )
         return;
 
-      await get().refreshPlugins();
+      await pluginService.updatePluginSettings(id, nextSettings, newSignal.signal);
+      if (newSignal.signal.aborted) return;
+      if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
+
+      await get().refreshPlugins(checkpoint);
     } finally {
-      if (get().updatePluginSettingsSignal === newSignal) {
+      if (
+        get().updatePluginSettingsSignal === newSignal &&
+        isToolMutationCurrent(checkpoint, get().scopeGeneration)
+      ) {
         set({ updatePluginSettingsSignal: undefined }, false, 'clear update settings Signal');
       }
     }

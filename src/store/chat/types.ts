@@ -8,6 +8,7 @@ export interface TitleSummaryOperation {
   abortController: AbortController;
   containerId: string;
   displayedTitle: string;
+  loadingOperationKey: string;
   operationId: string;
   originalTitle: string;
 }

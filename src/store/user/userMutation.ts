@@ -1,23 +1,23 @@
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+  type AccountMutationSnapshot,
+} from '@/store/accountMutation';
 import type { UserStore } from '@/store/user';
 
-import { authSelectors } from './slices/auth/selectors';
-
-export interface UserMutationSnapshot {
+export interface UserMutationSnapshot extends AccountMutationSnapshot {
   ownerId?: string;
-  ownershipInvalidationGeneration: number;
-  scope: string;
 }
 
 export const captureUserMutationSnapshot = (state: UserStore): UserMutationSnapshot => {
-  const scope = authSelectors.currentUserScope(state);
-  if (!scope || authSelectors.hasActiveUserStateOwnerMismatch(state)) {
+  const accountSnapshot = captureAccountMutationSnapshot(state);
+  if (!accountSnapshot) {
     throw new TypeError('User state ownership is not active');
   }
 
   return {
+    ...accountSnapshot,
     ownerId: state.user?.id,
-    ownershipInvalidationGeneration: state.ownershipInvalidationGeneration,
-    scope,
   };
 };
 
@@ -25,7 +25,4 @@ export const isUserMutationCurrent = (
   state: UserStore,
   snapshot: UserMutationSnapshot,
 ): boolean =>
-  authSelectors.currentUserScope(state) === snapshot.scope &&
-  state.user?.id === snapshot.ownerId &&
-  state.ownershipInvalidationGeneration === snapshot.ownershipInvalidationGeneration &&
-  !authSelectors.hasActiveUserStateOwnerMismatch(state);
+  isAccountMutationCurrent(state, snapshot) && state.user?.id === snapshot.ownerId;

@@ -17,6 +17,11 @@ import {
 import { MCPPluginListParams } from '@/types/plugins';
 import { cleanObject } from '@/utils/object';
 
+interface TelemetryContinuation {
+  isCurrent?: () => boolean;
+  signal?: AbortSignal;
+}
+
 class DiscoverService {
   private _isRetrying = false;
 
@@ -92,17 +97,23 @@ class DiscoverService {
     return lambdaClient.market.registerClientInMarketplace.mutate({});
   };
 
-  reportMcpInstallResult = async ({
-    success,
-    manifest,
-    errorMessage,
-    errorCode,
-    ...params
-  }: InstallReportRequest) => {
+  reportMcpInstallResult = async (
+    { success, manifest, errorMessage, errorCode, ...params }: InstallReportRequest,
+    continuation: TelemetryContinuation = {},
+  ) => {
+    const canContinue = () =>
+      !continuation.signal?.aborted && (continuation.isCurrent?.() ?? true);
+    if (!canContinue()) return;
+
     const allow = preferenceSelectors.userAllowTrace(useUserStore.getState());
 
     if (!allow) return;
-    await this.injectMPToken();
+    try {
+      await this.injectMPToken();
+    } catch (tokenError) {
+      console.warn('Failed to prepare MCP installation telemetry:', tokenError);
+      return;
+    }
 
     const reportData = {
       errorCode: success ? undefined : errorCode,
@@ -112,11 +123,12 @@ class DiscoverService {
       ...params,
     };
 
-    lambdaClient.market.reportMcpInstallResult
-      .mutate(cleanObject(reportData))
-      .catch((reportError) => {
-        console.warn('Failed to report MCP installation result:', reportError);
-      });
+    try {
+      if (!canContinue()) return;
+      await lambdaClient.market.reportMcpInstallResult.mutate(cleanObject(reportData));
+    } catch (reportError) {
+      console.warn('Failed to report MCP installation result:', reportError);
+    }
   };
 
   reportPluginCall = async (reportData: CallReportRequest) => {

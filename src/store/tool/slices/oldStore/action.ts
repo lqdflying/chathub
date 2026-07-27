@@ -9,6 +9,13 @@ import { notification } from '@/components/AntdStaticMethods';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { pluginService } from '@/services/plugin';
 import { toolService } from '@/services/tool';
+import {
+  acquirePluginInstallLoading,
+  captureToolMutationCheckpoint,
+  isToolMutationCurrent,
+  releasePluginInstallLoading,
+  ToolMutationCheckpoint,
+} from '@/store/tool/mutation';
 import { globalHelpers } from '@/store/global/helpers';
 import { pluginStoreSelectors } from '@/store/tool/selectors';
 import { useUserStore } from '@/store/user';
@@ -25,13 +32,23 @@ const n = setNamespace('pluginStore');
 
 const INSTALLED_PLUGINS = 'loadInstalledPlugins';
 
+const pluginInstallOperations = new Map<string, symbol>();
+
 export interface PluginStoreAction {
-  installOldPlugin: (identifier: string, source?: 'plugin' | 'customPlugin') => Promise<void>;
-  installPlugin: (identifier: string, source?: 'plugin' | 'customPlugin') => Promise<void>;
-  installPlugins: (plugins: string[]) => Promise<void>;
+  installOldPlugin: (
+    identifier: string,
+    source?: 'plugin' | 'customPlugin',
+    checkpoint?: ToolMutationCheckpoint,
+  ) => Promise<void>;
+  installPlugin: (
+    identifier: string,
+    source?: 'plugin' | 'customPlugin',
+    checkpoint?: ToolMutationCheckpoint,
+  ) => Promise<void>;
+  installPlugins: (plugins: string[], checkpoint?: ToolMutationCheckpoint) => Promise<void>;
   loadMorePlugins: () => void;
-  loadPluginStore: () => Promise<DiscoverPluginItem[]>;
-  refreshPlugins: () => Promise<void>;
+  loadPluginStore: (checkpoint?: ToolMutationCheckpoint) => Promise<DiscoverPluginItem[]>;
+  refreshPlugins: (checkpoint?: ToolMutationCheckpoint) => Promise<void>;
 
   resetPluginList: (keywords?: string) => void;
   uninstallPlugin: (identifier: string) => Promise<void>;
@@ -52,24 +69,27 @@ export const createPluginStoreSlice: StateCreator<
   [],
   PluginStoreAction
 > = (set, get) => ({
-  installOldPlugin: async (name, type = 'plugin') => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
-    const isOperationCurrent = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
-      get().scopeGeneration === requestedGeneration;
+  installOldPlugin: async (name, type = 'plugin', originatingCheckpoint) => {
+    const checkpoint =
+      originatingCheckpoint || captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     const plugin = pluginStoreSelectors.getPluginById(name)(get());
     if (!plugin) return;
 
     const { updateInstallLoadingState, refreshPlugins, updatePluginInstallProgress } = get();
+    const loadingOperation = acquirePluginInstallLoading(
+      checkpoint,
+      name,
+      updateInstallLoadingState,
+    );
+    pluginInstallOperations.set(loadingOperation.operationKey, loadingOperation.token);
+    const isOperationCurrent = () =>
+      pluginInstallOperations.get(loadingOperation.operationKey) === loadingOperation.token &&
+      isToolMutationCurrent(checkpoint, get().scopeGeneration);
 
     try {
-      // 开始安装流程
-      updateInstallLoadingState(name, true);
-
-      // 步骤 1: 获取插件清单
+      if (!isOperationCurrent()) return;
       updatePluginInstallProgress(name, {
         progress: 25,
         step: PluginInstallStep.FETCHING_MANIFEST,
@@ -78,7 +98,6 @@ export const createPluginStoreSlice: StateCreator<
       const data = await toolService.getToolManifest(plugin.manifest);
       if (!isOperationCurrent()) return;
 
-      // 步骤 2: 安装插件
       updatePluginInstallProgress(name, {
         progress: 60,
         step: PluginInstallStep.INSTALLING_PLUGIN,
@@ -92,21 +111,18 @@ export const createPluginStoreSlice: StateCreator<
         step: PluginInstallStep.INSTALLING_PLUGIN,
       });
 
-      await refreshPlugins();
+      await refreshPlugins(checkpoint);
       if (!isOperationCurrent()) return;
 
-      // 步骤 4: 完成安装
       updatePluginInstallProgress(name, {
         progress: 100,
         step: PluginInstallStep.COMPLETED,
       });
 
-      // 短暂显示完成状态后清除进度
       await sleep(1000);
       if (!isOperationCurrent()) return;
 
       updatePluginInstallProgress(name, undefined);
-      updateInstallLoadingState(name, undefined);
     } catch (error) {
       if (!isOperationCurrent()) return;
 
@@ -114,45 +130,58 @@ export const createPluginStoreSlice: StateCreator<
 
       const err = error as PluginInstallError;
 
-      // 设置错误状态
       updatePluginInstallProgress(name, {
         error: err.message,
         progress: 0,
         step: PluginInstallStep.ERROR,
       });
 
-      updateInstallLoadingState(name, undefined);
-
       notification.error({
         description: t(`error.${err.message}`, { ns: 'plugin' }),
         message: t('error.installError', { name: plugin.title, ns: 'plugin' }),
       });
+    } finally {
+      releasePluginInstallLoading(
+        loadingOperation,
+        get().scopeGeneration,
+        updateInstallLoadingState,
+      );
+      if (
+        pluginInstallOperations.get(loadingOperation.operationKey) === loadingOperation.token
+      ) {
+        pluginInstallOperations.delete(loadingOperation.operationKey);
+      }
     }
   },
-  installPlugin: async (name, type = 'plugin') => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
-    const isOperationCurrent = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
-      get().scopeGeneration === requestedGeneration;
+  installPlugin: async (name, type = 'plugin', originatingCheckpoint) => {
+    const checkpoint =
+      originatingCheckpoint || captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     const plugin = pluginStoreSelectors.getPluginById(name)(get());
     if (!plugin) return;
 
     const { updateInstallLoadingState, refreshPlugins } = get();
+    const loadingOperation = acquirePluginInstallLoading(
+      checkpoint,
+      name,
+      updateInstallLoadingState,
+    );
+    pluginInstallOperations.set(loadingOperation.operationKey, loadingOperation.token);
+    const isOperationCurrent = () =>
+      pluginInstallOperations.get(loadingOperation.operationKey) === loadingOperation.token &&
+      isToolMutationCurrent(checkpoint, get().scopeGeneration);
+
     try {
-      updateInstallLoadingState(name, true);
+      if (!isOperationCurrent()) return;
       const data = await toolService.getToolManifest(plugin.manifest);
       if (!isOperationCurrent()) return;
 
       await pluginService.installPlugin({ identifier: plugin.identifier, manifest: data, type });
       if (!isOperationCurrent()) return;
 
-      await refreshPlugins();
+      await refreshPlugins(checkpoint);
       if (!isOperationCurrent()) return;
-
-      updateInstallLoadingState(name, undefined);
     } catch (error) {
       if (!isOperationCurrent()) return;
 
@@ -160,18 +189,33 @@ export const createPluginStoreSlice: StateCreator<
 
       const err = error as PluginInstallError;
 
-      updateInstallLoadingState(name, undefined);
-
       notification.error({
         description: t(`error.${err.message}`, { ns: 'plugin' }),
         message: t('error.installError', { name: plugin.title, ns: 'plugin' }),
       });
+    } finally {
+      releasePluginInstallLoading(
+        loadingOperation,
+        get().scopeGeneration,
+        updateInstallLoadingState,
+      );
+      if (
+        pluginInstallOperations.get(loadingOperation.operationKey) === loadingOperation.token
+      ) {
+        pluginInstallOperations.delete(loadingOperation.operationKey);
+      }
     }
   },
-  installPlugins: async (plugins) => {
+  installPlugins: async (plugins, originatingCheckpoint) => {
+    const checkpoint =
+      originatingCheckpoint || captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
+
     const { installPlugin } = get();
 
-    await Promise.all(plugins.map((identifier) => installPlugin(identifier)));
+    await Promise.all(
+      plugins.map((identifier) => installPlugin(identifier, 'plugin', checkpoint)),
+    );
   },
   loadMorePlugins: () => {
     const { oldPluginItems, pluginTotalCount, currentPluginPage } = get();
@@ -187,24 +231,50 @@ export const createPluginStoreSlice: StateCreator<
       );
     }
   },
-  loadPluginStore: async () => {
+  loadPluginStore: async (originatingCheckpoint) => {
+    if (
+      originatingCheckpoint &&
+      !isToolMutationCurrent(originatingCheckpoint, get().scopeGeneration)
+    ) {
+      return [];
+    }
+    const requestedScopeGeneration = get().scopeGeneration;
+
     const locale = globalHelpers.getCurrentLanguage();
 
+    if (
+      originatingCheckpoint &&
+      !isToolMutationCurrent(originatingCheckpoint, get().scopeGeneration)
+    ) {
+      return [];
+    }
     const data = await toolService.getOldPluginList({
       locale,
       page: 1,
       pageSize: 50,
     });
 
+    if (requestedScopeGeneration !== get().scopeGeneration) return data.items;
+    if (
+      originatingCheckpoint &&
+      !isToolMutationCurrent(originatingCheckpoint, get().scopeGeneration)
+    ) {
+      return data.items;
+    }
     set({ oldPluginItems: data.items }, false, n('loadPluginList'));
 
     return data.items;
   },
-  refreshPlugins: async () => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!requestedScope) return;
+  refreshPlugins: async (originatingCheckpoint) => {
+    const checkpoint =
+      originatingCheckpoint ?? captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
-    await mutateAccountSWR([INSTALLED_PLUGINS, requestedScope]);
+    await mutateAccountSWR([
+      INSTALLED_PLUGINS,
+      checkpoint.accountMutationSnapshot.scope,
+    ]);
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
   },
   resetPluginList: (keywords) => {
     set(
@@ -218,18 +288,13 @@ export const createPluginStoreSlice: StateCreator<
     );
   },
   uninstallPlugin: async (identifier) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     await pluginService.uninstallPlugin(identifier);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
-    await get().refreshPlugins();
+    await get().refreshPlugins(checkpoint);
   },
   updateInstallLoadingState: (key, value) => {
     set(
@@ -312,7 +377,7 @@ export const createPluginStoreSlice: StateCreator<
     );
   },
   useFetchPluginStore: () =>
-    useSWR<DiscoverPluginItem[]>('loadPluginStore', get().loadPluginStore, {
+    useSWR<DiscoverPluginItem[]>('loadPluginStore', () => get().loadPluginStore(), {
       revalidateOnFocus: false,
     }),
 });

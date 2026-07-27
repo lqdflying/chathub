@@ -1,15 +1,34 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { knowledgeBaseService } from '@/services/knowledgeBase';
 import { useFileStore } from '@/store/file';
+import { useUserStore } from '@/store/user';
 
 import { useKnowledgeBaseStore as useStore } from '../../store';
 
-vi.mock('zustand/traditional');
+vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useUserStore.setState({
+    ownershipInvalidationGeneration: 0,
+    userStateInitializationFailure: undefined,
+  });
+  useStore.setState({
+    activeKnowledgeBaseId: 'kb-1',
+    scopeGeneration: 0,
+  });
+  useFileStore.setState({ scopeGeneration: 0 });
 });
 
 afterEach(() => {
@@ -17,7 +36,91 @@ afterEach(() => {
 });
 
 describe('KnowledgeBaseContentActions', () => {
+  describe('account mutation quarantine', () => {
+    it('blocks relationship mutations during a same-scope owner mismatch', async () => {
+      const addFiles = vi.spyOn(knowledgeBaseService, 'addFilesToKnowledgeBase');
+      const removeFiles = vi.spyOn(knowledgeBaseService, 'removeFilesFromKnowledgeBase');
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'local',
+        },
+      });
+
+      const store = useStore.getState();
+      await store.addFilesToKnowledgeBase('kb-1', ['file-1']);
+      await store.removeFilesFromKnowledgeBase('kb-1', ['file-1']);
+
+      expect(addFiles).not.toHaveBeenCalled();
+      expect(removeFiles).not.toHaveBeenCalled();
+    });
+
+    it('continues an explicit relationship refresh when the active knowledge base changes', async () => {
+      const relationshipFinished = createDeferred<unknown>();
+      vi.spyOn(knowledgeBaseService, 'addFilesToKnowledgeBase').mockReturnValue(
+        relationshipFinished.promise as any,
+      );
+      const refreshFileList = vi.fn().mockResolvedValue(undefined);
+      vi.spyOn(useFileStore, 'getState').mockReturnValue({
+        refreshFileList,
+        scopeGeneration: 7,
+      } as any);
+
+      let relationshipPromise!: Promise<void>;
+      act(() => {
+        relationshipPromise = useStore
+          .getState()
+          .addFilesToKnowledgeBase('kb-1', ['file-1']);
+      });
+      await waitFor(() => {
+        expect(knowledgeBaseService.addFilesToKnowledgeBase).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useStore.setState({ activeKnowledgeBaseId: 'kb-2' });
+      });
+      relationshipFinished.resolve([]);
+      await act(async () => {
+        await relationshipPromise;
+      });
+
+      expect(refreshFileList).toHaveBeenCalledWith({
+        accountMutationSnapshot: {
+          ownershipInvalidationGeneration: 0,
+          scope: 'local',
+        },
+        scopeGeneration: 7,
+      });
+    });
+  });
+
   describe('addFilesToKnowledgeBase', () => {
+    it.each([null, 'other-kb'])(
+      'adds files to an explicit non-active knowledge base when active is %s',
+      async (activeKnowledgeBaseId) => {
+        useStore.setState({ activeKnowledgeBaseId });
+        const addFiles = vi
+          .spyOn(knowledgeBaseService, 'addFilesToKnowledgeBase')
+          .mockResolvedValue([]);
+        const refreshFileList = vi.fn().mockResolvedValue(undefined);
+        vi.spyOn(useFileStore, 'getState').mockReturnValue({
+          refreshFileList,
+          scopeGeneration: 7,
+        } as any);
+
+        await useStore.getState().addFilesToKnowledgeBase('target-kb', ['file-1']);
+
+        expect(addFiles).toHaveBeenCalledWith('target-kb', ['file-1']);
+        expect(refreshFileList).toHaveBeenCalledWith({
+          accountMutationSnapshot: {
+            ownershipInvalidationGeneration: 0,
+            scope: 'local',
+          },
+          scopeGeneration: 7,
+        });
+      },
+    );
+
     it('should add files to knowledge base and refresh file list', async () => {
       const { result } = renderHook(() => useStore());
 
@@ -170,6 +273,32 @@ describe('KnowledgeBaseContentActions', () => {
   });
 
   describe('removeFilesFromKnowledgeBase', () => {
+    it.each([null, 'other-kb'])(
+      'removes files from an explicit non-active knowledge base when active is %s',
+      async (activeKnowledgeBaseId) => {
+        useStore.setState({ activeKnowledgeBaseId });
+        const removeFiles = vi
+          .spyOn(knowledgeBaseService, 'removeFilesFromKnowledgeBase')
+          .mockResolvedValue({} as any);
+        const refreshFileList = vi.fn().mockResolvedValue(undefined);
+        vi.spyOn(useFileStore, 'getState').mockReturnValue({
+          refreshFileList,
+          scopeGeneration: 7,
+        } as any);
+
+        await useStore.getState().removeFilesFromKnowledgeBase('target-kb', ['file-1']);
+
+        expect(removeFiles).toHaveBeenCalledWith('target-kb', ['file-1']);
+        expect(refreshFileList).toHaveBeenCalledWith({
+          accountMutationSnapshot: {
+            ownershipInvalidationGeneration: 0,
+            scope: 'local',
+          },
+          scopeGeneration: 7,
+        });
+      },
+    );
+
     it('should remove files from knowledge base and refresh file list', async () => {
       const { result } = renderHook(() => useStore());
 

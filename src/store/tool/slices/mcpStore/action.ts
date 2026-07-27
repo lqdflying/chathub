@@ -12,10 +12,15 @@ import { MCPErrorData } from '@/libs/mcp/types';
 import { discoverService } from '@/services/discover';
 import { mcpService } from '@/services/mcp';
 import { pluginService } from '@/services/plugin';
+import {
+  acquirePluginInstallLoading,
+  captureToolMutationCheckpoint,
+  isToolMutationCurrent,
+  PluginInstallLoadingOperation,
+  releasePluginInstallLoading,
+} from '@/store/tool/mutation';
 import { globalHelpers } from '@/store/global/helpers';
 import { mcpStoreSelectors } from '@/store/tool/selectors';
-import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
 import {
   CheckMcpInstallResult,
   MCPErrorInfo,
@@ -62,6 +67,9 @@ export const createMCPPluginStoreSlice: StateCreator<
   PluginMCPStoreAction
 > = (set, get) => ({
   cancelInstallMCPPlugin: async (identifier) => {
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
+
     // 获取并取消AbortController
     const abortController = get().mcpInstallAbortControllers[identifier];
     if (abortController) {
@@ -79,11 +87,13 @@ export const createMCPPluginStoreSlice: StateCreator<
 
     // 清理安装进度和加载状态
     get().updateMCPInstallProgress(identifier, undefined);
-    get().updateInstallLoadingState(identifier, undefined);
   },
 
   // 取消 MCP 连接测试
   cancelMcpConnectionTest: (identifier) => {
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
+
     const abortController = get().mcpTestAbortControllers[identifier];
     if (abortController) {
       abortController.abort();
@@ -103,14 +113,14 @@ export const createMCPPluginStoreSlice: StateCreator<
 
   installMCPPlugin: async (identifier, options = {}) => {
     const { resume = false, config, skipDepsCheck } = options;
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     const previousAbortController = get().mcpInstallAbortControllers[identifier];
     previousAbortController?.abort();
 
     const abortController = new AbortController();
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
     set(
       produce((draft: MCPStoreState) => {
         draft.mcpInstallAbortControllers[identifier] = abortController;
@@ -121,10 +131,10 @@ export const createMCPPluginStoreSlice: StateCreator<
 
     const isOperationCurrent = () =>
       !abortController.signal.aborted &&
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
-      get().scopeGeneration === requestedGeneration &&
+      isToolMutationCurrent(checkpoint, get().scopeGeneration) &&
       get().mcpInstallAbortControllers[identifier] === abortController;
     const clearAbortController = () => {
+      if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
       if (get().mcpInstallAbortControllers[identifier] !== abortController) return;
 
       set(
@@ -135,12 +145,31 @@ export const createMCPPluginStoreSlice: StateCreator<
         n('installMCPPlugin/clearController'),
       );
     };
+    const { updateInstallLoadingState, refreshPlugins, updateMCPInstallProgress } = get();
+    let loadingOperation: PluginInstallLoadingOperation | undefined;
+    const acquireLoadingOperation = () => {
+      loadingOperation ||= acquirePluginInstallLoading(
+        checkpoint,
+        identifier,
+        updateInstallLoadingState,
+      );
+    };
+    const releaseLoadingOperation = () => {
+      if (!loadingOperation) return;
+
+      releasePluginInstallLoading(
+        loadingOperation,
+        get().scopeGeneration,
+        updateInstallLoadingState,
+      );
+    };
 
     let plugin = mcpStoreSelectors.getPluginById(identifier)(get());
 
     if (!plugin || !plugin.manifestUrl) {
       let pluginDetail: unknown;
       try {
+        if (!isOperationCurrent()) return;
         pluginDetail = await discoverService.getMcpDetail({ identifier });
       } catch (error) {
         const shouldHandleError = isOperationCurrent();
@@ -164,8 +193,6 @@ export const createMCPPluginStoreSlice: StateCreator<
       clearAbortController();
       return;
     }
-
-    const { updateInstallLoadingState, refreshPlugins, updateMCPInstallProgress } = get();
 
     // 记录安装开始时间
     const installStartTime = Date.now();
@@ -200,38 +227,33 @@ export const createMCPPluginStoreSlice: StateCreator<
         // 正常模式：从头开始安装
 
         // 步骤 1: 获取插件清单
+        if (!isOperationCurrent()) return;
         updateMCPInstallProgress(identifier, {
           progress: 15,
           step: MCPInstallStep.FETCHING_MANIFEST,
         });
 
-        updateInstallLoadingState(identifier, true);
-
-        // 检查是否已被取消
-        if (abortController.signal.aborted) {
-          return;
-        }
-
+        if (!isOperationCurrent()) return;
+        acquireLoadingOperation();
+        if (!isOperationCurrent()) return;
         data = await discoverService.getMCPPluginManifest(plugin.identifier, {
           install: true,
         });
         if (!isOperationCurrent()) return;
 
         // 步骤 2: 检查安装环境
+        if (!isOperationCurrent()) return;
         updateMCPInstallProgress(identifier, {
           progress: 30,
           step: MCPInstallStep.CHECKING_INSTALLATION,
         });
 
-        // 检查是否已被取消
-        if (abortController.signal.aborted) {
-          return;
-        }
-
+        if (!isOperationCurrent()) return;
         result = await mcpService.checkInstallation(data, abortController.signal);
         if (!isOperationCurrent()) return;
 
         if (!result.success) {
+          if (!isOperationCurrent()) return;
           updateMCPInstallProgress(identifier, undefined);
           return;
         }
@@ -239,6 +261,7 @@ export const createMCPPluginStoreSlice: StateCreator<
         // 步骤 3: 检查系统依赖是否满足
         if (!skipDepsCheck && !result.allDependenciesMet) {
           // 依赖不满足，暂停安装流程并显示依赖安装引导
+          if (!isOperationCurrent()) return;
           updateMCPInstallProgress(identifier, {
             connection: result.connection,
             manifest: data,
@@ -248,13 +271,14 @@ export const createMCPPluginStoreSlice: StateCreator<
           });
 
           // 暂停安装流程，等待用户安装依赖
-          updateInstallLoadingState(identifier, undefined);
+          if (!isOperationCurrent()) return;
           return false; // 返回 false 表示需要安装依赖
         }
 
         // 步骤 4: 检查是否需要配置
         if (result.needsConfig) {
           // 需要配置，暂停安装流程
+          if (!isOperationCurrent()) return;
           updateMCPInstallProgress(identifier, {
             checkResult: result,
             configSchema: result.configSchema,
@@ -266,7 +290,7 @@ export const createMCPPluginStoreSlice: StateCreator<
           });
 
           // 暂停安装流程，等待用户配置
-          updateInstallLoadingState(identifier, undefined);
+          if (!isOperationCurrent()) return;
           return false; // 返回 false 表示需要配置
         }
 
@@ -274,22 +298,20 @@ export const createMCPPluginStoreSlice: StateCreator<
       }
 
       // 获取服务器清单逻辑
-      updateInstallLoadingState(identifier, true);
+      if (!isOperationCurrent()) return;
+      acquireLoadingOperation();
 
       // 步骤 5: 获取服务器清单
+      if (!isOperationCurrent()) return;
       updateMCPInstallProgress(identifier, {
         progress: 70,
         step: MCPInstallStep.GETTING_SERVER_MANIFEST,
       });
 
-      // 检查是否已被取消
-      if (abortController.signal.aborted) {
-        return;
-      }
-
       let manifest: LobeChatPluginManifest | undefined;
 
       if (connection?.type === 'stdio') {
+        if (!isOperationCurrent()) return;
         manifest = await mcpService.getStdioMcpServerManifest(
           {
             args: connection.args,
@@ -303,6 +325,7 @@ export const createMCPPluginStoreSlice: StateCreator<
         if (!isOperationCurrent()) return;
       }
       if (connection?.type === 'http') {
+        if (!isOperationCurrent()) return;
         manifest = await mcpService.getStreamableMcpServerManifest(
           {
             identifier,
@@ -337,27 +360,22 @@ export const createMCPPluginStoreSlice: StateCreator<
         }
       }
 
-      // 检查是否已被取消
-      if (abortController.signal.aborted) {
-        return;
-      }
+      if (!isOperationCurrent()) return;
 
       if (!manifest) {
+        if (!isOperationCurrent()) return;
         updateMCPInstallProgress(identifier, undefined);
         return;
       }
 
       // 步骤 6: 安装插件
+      if (!isOperationCurrent()) return;
       updateMCPInstallProgress(identifier, {
         progress: 90,
         step: MCPInstallStep.INSTALLING_PLUGIN,
       });
 
-      // 检查是否已被取消
-      if (abortController.signal.aborted) {
-        return;
-      }
-
+      if (!isOperationCurrent()) return;
       await pluginService.installPlugin({
         // 针对 mcp 先将 connection 信息存到 customParams 字段里
         customParams: { mcp: connection },
@@ -372,10 +390,11 @@ export const createMCPPluginStoreSlice: StateCreator<
         return;
       }
 
-      await refreshPlugins();
+      await refreshPlugins(checkpoint);
       if (!isOperationCurrent()) return;
 
       // 步骤 7: 完成安装
+      if (!isOperationCurrent()) return;
       updateMCPInstallProgress(identifier, {
         progress: 100,
         step: MCPInstallStep.COMPLETED,
@@ -384,35 +403,43 @@ export const createMCPPluginStoreSlice: StateCreator<
       // 计算安装持续时间
       const installDurationMs = Date.now() - installStartTime;
 
-      discoverService.reportMcpInstallResult({
-        identifier: plugin.identifier,
-        installDurationMs,
-        installParams: connection,
-        manifest: {
-          prompts: (manifest as any).prompts,
-          resources: (manifest as any).resources,
-          tools: (manifest as any).tools,
-        },
-        platform: result?.platform ?? 'unknown',
-        success: true,
-        userAgent,
-        version: manifest.version || data.version,
-      });
+      if (!isOperationCurrent()) return;
+      try {
+        await discoverService.reportMcpInstallResult(
+          {
+            identifier: plugin.identifier,
+            installDurationMs,
+            installParams: connection,
+            manifest: {
+              prompts: (manifest as any).prompts,
+              resources: (manifest as any).resources,
+              tools: (manifest as any).tools,
+            },
+            platform: result?.platform ?? 'unknown',
+            success: true,
+            userAgent,
+            version: manifest.version || data.version,
+          },
+          {
+            isCurrent: isOperationCurrent,
+            signal: abortController.signal,
+          },
+        );
+      } catch (reportError) {
+        console.warn('Failed to report successful MCP installation:', reportError);
+      }
+      if (!isOperationCurrent()) return;
 
       // 短暂显示完成状态后清除进度
       await sleep(1000);
       if (!isOperationCurrent()) return;
 
       updateMCPInstallProgress(identifier, undefined);
-      updateInstallLoadingState(identifier, undefined);
 
       return true;
     } catch (e) {
       // 如果是因为取消导致的错误，静默处理
-      if (!isOperationCurrent()) {
-        console.log('MCP plugin installation cancelled for:', identifier);
-        return;
-      }
+      if (!isOperationCurrent()) return;
 
       const error = e as TRPCClientError<any>;
 
@@ -447,6 +474,7 @@ export const createMCPPluginStoreSlice: StateCreator<
       }
 
       // 设置错误状态，显示结构化错误信息
+      if (!isOperationCurrent()) return;
       updateMCPInstallProgress(identifier, {
         errorInfo,
         progress: 0,
@@ -454,22 +482,33 @@ export const createMCPPluginStoreSlice: StateCreator<
       });
 
       // 上报安装失败结果
-      discoverService.reportMcpInstallResult({
-        errorCode: errorInfo.type,
-        errorMessage: errorInfo.message,
-        identifier: plugin.identifier,
-        installDurationMs,
-        installParams: connection,
-        metadata: errorInfo.metadata,
-        platform: result?.platform ?? 'unknown',
-        success: false,
-        userAgent,
-        version: data?.version,
-      });
-
-      updateInstallLoadingState(identifier, undefined);
+      if (!isOperationCurrent()) return;
+      try {
+        await discoverService.reportMcpInstallResult(
+          {
+            errorCode: errorInfo.type,
+            errorMessage: errorInfo.message,
+            identifier: plugin.identifier,
+            installDurationMs,
+            installParams: connection,
+            metadata: errorInfo.metadata,
+            platform: result?.platform ?? 'unknown',
+            success: false,
+            userAgent,
+            version: data?.version,
+          },
+          {
+            isCurrent: isOperationCurrent,
+            signal: abortController.signal,
+          },
+        );
+      } catch (reportError) {
+        console.warn('Failed to report failed MCP installation:', reportError);
+      }
+      if (!isOperationCurrent()) return;
     } finally {
       clearAbortController();
+      releaseLoadingOperation();
     }
   },
 
@@ -503,19 +542,22 @@ export const createMCPPluginStoreSlice: StateCreator<
   // 测试 MCP 连接
   testMcpConnection: async (params) => {
     const { identifier, connection, metadata } = params;
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return { error: 'User scope is unavailable', success: false };
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) {
+      return { error: 'User scope is unavailable', success: false };
+    }
 
     get().mcpTestAbortControllers[identifier]?.abort();
     const abortController = new AbortController();
     const isOperationCurrent = () =>
       !abortController.signal.aborted &&
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
-      get().scopeGeneration === requestedGeneration &&
+      isToolMutationCurrent(checkpoint, get().scopeGeneration) &&
       get().mcpTestAbortControllers[identifier] === abortController;
 
     // 存储 AbortController 并设置加载状态
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) {
+      return { error: 'User scope is unavailable', success: false };
+    }
     set(
       produce((draft: MCPStoreState) => {
         draft.mcpTestAbortControllers[identifier] = abortController;
@@ -534,6 +576,7 @@ export const createMCPPluginStoreSlice: StateCreator<
           throw new Error('URL is required for HTTP connection');
         }
 
+        if (!isOperationCurrent()) return { error: 'Test cancelled', success: false };
         manifest = await mcpService.getStreamableMcpServerManifest(
           {
             auth: connection.auth,
@@ -549,6 +592,7 @@ export const createMCPPluginStoreSlice: StateCreator<
           throw new Error('Command is required for STDIO connection');
         }
 
+        if (!isOperationCurrent()) return { error: 'Test cancelled', success: false };
         manifest = await mcpService.getStdioMcpServerManifest(
           {
             args: connection.args,
@@ -604,18 +648,13 @@ export const createMCPPluginStoreSlice: StateCreator<
   },
 
   uninstallMCPPlugin: async (identifier) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
+    if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
     await pluginService.uninstallPlugin(identifier);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
-    await get().refreshPlugins();
+    await get().refreshPlugins(checkpoint);
   },
 
   updateMCPInstallProgress: (identifier, progress) => {

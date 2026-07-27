@@ -1,13 +1,19 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { notification } from '@/components/AntdStaticMethods';
 import { fileService } from '@/services/file';
+import { ragService } from '@/services/rag';
 import { uploadService } from '@/services/upload';
+import { useUserStore } from '@/store/user';
 
 import { useFileStore as useStore } from '../../store';
 
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+vi.mock('@/const/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/const/auth')>()),
+  enableAuth: true,
+}));
 
 // Mock necessary modules and functions
 vi.mock('@/components/AntdStaticMethods', () => ({
@@ -34,8 +40,33 @@ beforeAll(() => {
 
 beforeEach(() => {
   // Reset all mocks before each test
-  vi.resetAllMocks();
+  vi.clearAllMocks();
+  useUserStore.setState({
+    authUserId: 'account-a',
+    isLoaded: true,
+    isSignedIn: true,
+    ownershipInvalidationGeneration: 0,
+    user: { id: 'account-a' },
+    userStateInitializationFailure: undefined,
+  });
+  useStore.setState({
+    chatUploadFileList: [],
+    scopeGeneration: 0,
+  });
 });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 describe('useFileStore:chat', () => {
   it('clearChatUploadFileList should clear the inputFilesList', () => {
@@ -53,6 +84,104 @@ describe('useFileStore:chat', () => {
     });
 
     expect(result.current.chatUploadFileList).toEqual([]);
+  });
+
+  describe('account mutation ownership', () => {
+    it('blocks upload and removal during a same-scope owner mismatch', async () => {
+      const existingFiles = [{ id: 'account-a-file', status: 'success' }] as any;
+      useStore.setState({ chatUploadFileList: existingFiles });
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:account-a',
+        },
+      });
+      const removeFile = vi.spyOn(fileService, 'removeFile').mockResolvedValue(undefined);
+      const uploadWithProgress = vi.spyOn(useStore.getState(), 'uploadWithProgress');
+      const file = new File(['content'], 'blocked.txt', { type: 'text/plain' });
+
+      await act(async () => {
+        await useStore.getState().removeChatUploadFile('account-a-file');
+        await useStore.getState().uploadChatFiles([file]);
+      });
+
+      expect(removeFile).not.toHaveBeenCalled();
+      expect(uploadWithProgress).not.toHaveBeenCalled();
+      expect(notification.error).not.toHaveBeenCalled();
+      expect(useStore.getState().chatUploadFileList).toBe(existingFiles);
+    });
+
+    it('suppresses upload callbacks and RAG continuation after account invalidation', async () => {
+      const uploadResult = createDeferred<{ id: string; url: string } | undefined>();
+      let uploadSignal: AbortSignal | undefined;
+      let statusUpdate: ((payload: any) => void) | undefined;
+      vi.spyOn(useStore.getState(), 'uploadWithProgress').mockImplementation(
+        async ({ onStatusUpdate, signal }) => {
+          statusUpdate = onStatusUpdate;
+          uploadSignal = signal;
+          return uploadResult.promise;
+        },
+      );
+      const parseFileContent = vi.spyOn(ragService, 'parseFileContent').mockResolvedValue(undefined);
+      const file = new File(['content'], 'account-a.txt', { type: 'text/plain' });
+
+      const uploadPromise = useStore.getState().uploadChatFiles([file]);
+      await waitFor(() => {
+        expect(useStore.getState().uploadWithProgress).toHaveBeenCalled();
+      });
+
+      const currentAccountFiles = [{ id: 'current-account-file', status: 'success' }] as any;
+      act(() => {
+        useUserStore.setState((state) => ({
+          ownershipInvalidationGeneration: state.ownershipInvalidationGeneration + 1,
+        }));
+        useStore.setState({ chatUploadFileList: currentAccountFiles });
+        statusUpdate?.({
+          id: file.name,
+          type: 'updateFile',
+          value: { status: 'uploading' },
+        });
+        uploadResult.resolve({ id: 'stale-file-id', url: 'https://example.com/stale-file' });
+      });
+      await act(async () => {
+        await uploadPromise;
+      });
+
+      expect(uploadSignal?.aborted).toBe(true);
+      expect(parseFileContent).not.toHaveBeenCalled();
+      expect(notification.error).not.toHaveBeenCalled();
+      expect(useStore.getState().chatUploadFileList).toBe(currentAccountFiles);
+    });
+
+    it('does not touch the current file list when removal settles after invalidation', async () => {
+      const removalFinished = createDeferred<void>();
+      vi.spyOn(fileService, 'removeFile').mockReturnValue(removalFinished.promise);
+      useStore.setState({
+        chatUploadFileList: [
+          { id: 'remove-file', status: 'success' },
+          { id: 'preserve-file', status: 'success' },
+        ] as any,
+      });
+
+      const removalPromise = useStore.getState().removeChatUploadFile('remove-file');
+      await waitFor(() => {
+        expect(fileService.removeFile).toHaveBeenCalledWith('remove-file');
+      });
+
+      const currentAccountFiles = [{ id: 'current-account-file', status: 'success' }] as any;
+      act(() => {
+        useUserStore.setState((state) => ({
+          ownershipInvalidationGeneration: state.ownershipInvalidationGeneration + 1,
+        }));
+        useStore.setState({ chatUploadFileList: currentAccountFiles });
+        removalFinished.resolve();
+      });
+      await act(async () => {
+        await removalPromise;
+      });
+
+      expect(useStore.getState().chatUploadFileList).toBe(currentAccountFiles);
+    });
   });
 
   // it('removeFile should call fileService.removeFile and update the store', async () => {

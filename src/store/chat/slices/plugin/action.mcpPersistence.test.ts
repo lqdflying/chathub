@@ -48,6 +48,15 @@ describe('MCP tool-result persistence recovery', () => {
 
   beforeEach(() => {
     useChatStore.setState(initialState, true);
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [
+          { content: '', id: 'message-id', role: 'tool' } as UIChatMessage,
+        ],
+      },
+    });
     vi.spyOn(toolTelemetryService, 'getCapabilities').mockResolvedValue({
       cacheContinuationEnabled: true,
       toolLifecycleEnabled: true,
@@ -425,6 +434,8 @@ describe('MCP tool-result persistence recovery', () => {
     expect(toggleToolsCalling).toHaveBeenCalledWith(false, assistantId);
     expect(triggerAIMessage).toHaveBeenCalledTimes(1);
     expect(triggerAIMessage).toHaveBeenCalledWith({
+      contextExportCaptureId: undefined,
+      expectedConversationVersion: undefined,
       inPortalThread: undefined,
       inSearchWorkflow: undefined,
       threadId: undefined,
@@ -572,6 +583,7 @@ describe('MCP tool-result persistence recovery', () => {
 
     useChatStore.setState({
       activeId: 'session-id',
+      activeTopicId: undefined,
       internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
       internal_invokeDifferentTypePlugin: vi.fn().mockResolvedValue({
         data: toolMessage.content,
@@ -588,6 +600,8 @@ describe('MCP tool-result persistence recovery', () => {
     await useChatStore.getState().triggerToolCalls(assistantId);
 
     expect(triggerAIMessage).toHaveBeenCalledWith({
+      contextExportCaptureId: undefined,
+      expectedConversationVersion: undefined,
       inPortalThread: undefined,
       inSearchWorkflow: undefined,
       threadId: undefined,
@@ -677,6 +691,8 @@ describe('MCP tool-result persistence recovery', () => {
     expect(reportToolBatch).not.toHaveBeenCalled();
     expect(reportToolCompletion).not.toHaveBeenCalled();
     expect(triggerAIMessage).toHaveBeenCalledWith({
+      contextExportCaptureId: undefined,
+      expectedConversationVersion: undefined,
       inPortalThread: undefined,
       inSearchWorkflow: undefined,
       threadId: undefined,
@@ -763,6 +779,8 @@ describe('MCP tool-result persistence recovery', () => {
     expect(reportToolBatch).not.toHaveBeenCalled();
     expect(reportToolCompletion).not.toHaveBeenCalled();
     expect(triggerAIMessage).toHaveBeenCalledWith({
+      contextExportCaptureId: undefined,
+      expectedConversationVersion: undefined,
       inPortalThread: undefined,
       inSearchWorkflow: undefined,
       threadId: undefined,

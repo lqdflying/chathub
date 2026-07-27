@@ -9,6 +9,7 @@ import { chatSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
+import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
 
@@ -33,6 +34,7 @@ const realProcessAgentMessage = useChatStore.getState().internal_processAgentMes
 beforeEach(() => {
   resetTestEnvironment();
   setupMockSelectors();
+  useUserStore.setState({ ownershipInvalidationGeneration: 0 });
 
   // Setup default spies that most tests need
   spyOnMessageService();
@@ -243,6 +245,48 @@ describe('chatMessage actions', () => {
 
         expect(createTopicMock).toHaveBeenCalled();
         expect(switchTopicMock).toHaveBeenCalledWith(TEST_IDS.NEW_TOPIC_ID, true);
+      });
+
+      it('does not continue auto-topic creation after ownership invalidates', async () => {
+        let resolveTopicCreation!: (topicId: string) => void;
+        const topicCreationPromise = new Promise<string>((resolve) => {
+          resolveTopicCreation = resolve;
+        });
+        const createTopicMock = vi.fn(() => topicCreationPromise);
+        const switchTopicMock = vi.fn();
+
+        act(() => {
+          setupMockSelectors({
+            agentConfig: {
+              autoCreateTopicThreshold: TOPIC_THRESHOLD,
+              enableAutoCreateTopic: true,
+            },
+          });
+          useChatStore.setState({
+            activeTopicId: undefined,
+            createTopic: createTopicMock,
+            messagesMap: {
+              [messageMapKey(TEST_IDS.SESSION_ID)]: createMockMessages(TOPIC_THRESHOLD),
+            },
+            switchTopic: switchTopicMock,
+          });
+        });
+
+        const sendPromise = useChatStore
+          .getState()
+          .sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        await vi.waitFor(() => {
+          expect(createTopicMock).toHaveBeenCalled();
+        });
+
+        act(() => {
+          useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+        });
+        resolveTopicCreation(TEST_IDS.NEW_TOPIC_ID);
+        await sendPromise;
+
+        expect(messageService.createMessage).not.toHaveBeenCalled();
+        expect(switchTopicMock).not.toHaveBeenCalled();
       });
     });
 
@@ -636,6 +680,65 @@ describe('chatMessage actions', () => {
         contextExportCaptureId,
         true,
       );
+    });
+
+    it('does not execute group tools after ownership invalidates during refresh', async () => {
+      const groupId = TEST_IDS.SESSION_ID;
+      const agentId = 'group-agent';
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        groupId,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+      const chatKey = messageMapKey(groupId, TEST_IDS.TOPIC_ID);
+      const state = useChatStore.getState();
+      let resolveRefresh!: () => void;
+      const refreshPromise = new Promise<void>((resolve) => {
+        resolveRefresh = resolve;
+      });
+
+      vi.spyOn(sessionSelectors, 'currentGroupAgents').mockReturnValue([
+        {
+          id: agentId,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+          systemRole: 'Group member role',
+          title: 'Group Agent',
+        } as any,
+      ]);
+      vi.spyOn(userProfileSelectors, 'nickName').mockReturnValue('Test User');
+      vi.spyOn(userGeneralSettingsSelectors, 'generalInstruction').mockReturnValue('');
+      vi.spyOn(state, 'internal_createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      vi.spyOn(state, 'internal_fetchAIChatMessage').mockResolvedValue({
+        content: '',
+        isFunctionCall: true,
+        persistenceAmbiguous: false,
+      });
+      vi.spyOn(state, 'refreshMessages').mockReturnValue(refreshPromise);
+      const triggerToolCalls = vi.spyOn(state, 'triggerToolCalls').mockResolvedValue(undefined);
+
+      act(() => {
+        useChatStore.setState({
+          internal_processAgentMessage: realProcessAgentMessage,
+          messagesMap: { [chatKey]: [userMessage] },
+        });
+      });
+
+      const processPromise = useChatStore
+        .getState()
+        .internal_processAgentMessage(groupId, agentId, undefined, undefined, 7);
+      await vi.waitFor(() => {
+        expect(state.refreshMessages).toHaveBeenCalled();
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      });
+      resolveRefresh();
+      await processPromise;
+
+      expect(triggerToolCalls).not.toHaveBeenCalled();
     });
   });
 

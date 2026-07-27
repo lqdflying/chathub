@@ -30,7 +30,9 @@ describe('chat group action ownership', () => {
       authUserId: 'account-a',
       isLoaded: true,
       isSignedIn: true,
+      ownershipInvalidationGeneration: 0,
       user: { id: 'account-a' },
+      userStateInitializationFailure: undefined,
     });
     useSessionStore.setState({
       activeId: 'account-a-session',
@@ -213,5 +215,67 @@ describe('chat group action ownership', () => {
       'account-a-current-group': currentAccountGroups[0],
     });
     expect(useSessionStore.getState().refreshSessions).not.toHaveBeenCalled();
+  });
+
+  it('does not load groups or set loading while a same-scope owner mismatch is active', async () => {
+    const getGroups = vi.spyOn(chatGroupService, 'getGroups');
+    useChatGroupStore.setState({ isGroupsLoading: false });
+    useUserStore.setState({
+      ownershipInvalidationGeneration: 1,
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      },
+    });
+
+    await act(async () => {
+      await useChatGroupStore.getState().loadGroups();
+    });
+
+    expect(getGroups).not.toHaveBeenCalled();
+    expect(useChatGroupStore.getState().isGroupsLoading).toBe(false);
+  });
+
+  it('does not refresh or overwrite local groups after pending update ownership invalidation', async () => {
+    const persistedUpdate = createDeferred<void>();
+    const updateGroup = vi
+      .spyOn(chatGroupService, 'updateGroup')
+      .mockReturnValue(persistedUpdate.promise);
+    const currentGroup = {
+      id: 'account-a-group',
+      title: 'Current title',
+    } as ChatGroupItem;
+    useChatGroupStore.setState({
+      groupMap: { [currentGroup.id]: currentGroup },
+      groups: [currentGroup],
+    });
+    const { result } = renderHook(() => useChatGroupStore());
+    const refreshGroups = vi
+      .spyOn(result.current, 'internal_refreshGroups')
+      .mockResolvedValue(undefined);
+
+    let updatePromise!: Promise<void>;
+    act(() => {
+      updatePromise = result.current.updateGroup(currentGroup.id, { title: 'Stale title' });
+    });
+    expect(updateGroup).toHaveBeenCalledWith(currentGroup.id, { title: 'Stale title' });
+
+    act(() => {
+      useUserStore.setState({
+        ownershipInvalidationGeneration: 1,
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:account-a',
+        },
+      });
+    });
+    persistedUpdate.resolve();
+    await act(async () => {
+      await updatePromise;
+    });
+
+    expect(refreshGroups).not.toHaveBeenCalled();
+    expect(useChatGroupStore.getState().groupMap[currentGroup.id]).toEqual(currentGroup);
+    expect(useChatGroupStore.getState().groups).toEqual([currentGroup]);
   });
 });

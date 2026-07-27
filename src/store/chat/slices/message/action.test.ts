@@ -9,6 +9,8 @@ import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import { useChatStore } from '../../store';
 
@@ -69,6 +71,7 @@ const mockState = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useUserStore.setState({ ownershipInvalidationGeneration: 0 });
   useChatStore.setState(mockState, false);
 });
 
@@ -348,6 +351,22 @@ describe('chatMessage actions', () => {
   });
 
   describe('deleteMessage', () => {
+    it('does not delete or change local messages during an active owner mismatch', async () => {
+      vi.spyOn(authSelectors, 'hasActiveUserStateOwnerMismatch').mockReturnValue(true);
+      const messageId = 'message-id';
+      const messages = [{ id: messageId } as UIChatMessage];
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: undefined,
+        messagesMap: { [messageMapKey('session-id')]: messages },
+      });
+
+      await useChatStore.getState().deleteMessage(messageId);
+
+      expect(messageService.removeMessages).not.toHaveBeenCalled();
+      expect(useChatStore.getState().messagesMap[messageMapKey('session-id')]).toEqual(messages);
+    });
+
     it('deleteMessage should remove a message by id', async () => {
       const { result } = renderHook(() => useChatStore());
       const messageId = 'message-id';
@@ -368,6 +387,37 @@ describe('chatMessage actions', () => {
 
       expect(deleteSpy).toHaveBeenCalledWith(messageId);
       expect(result.current.refreshMessages).toHaveBeenCalled();
+    });
+
+    it('does not refresh messages after ownership invalidates during deletion', async () => {
+      const removedMessages = createDeferred<void>();
+      vi.mocked(messageService.removeMessages).mockReturnValue(removedMessages.promise);
+      const refreshMessages = vi.fn();
+      const messageId = 'message-id';
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: undefined,
+        messagesMap: {
+          [messageMapKey('session-id')]: [{ id: messageId } as UIChatMessage],
+        },
+        refreshMessages,
+      });
+
+      const deletePromise = useChatStore.getState().deleteMessage(messageId);
+      await waitFor(() => {
+        expect(messageService.removeMessages).toHaveBeenCalledWith([messageId]);
+      });
+
+      act(() => {
+        useUserStore.setState({
+          ownershipInvalidationGeneration:
+            useUserStore.getState().ownershipInvalidationGeneration + 1,
+        });
+      });
+      removedMessages.resolve(undefined);
+      await deletePromise;
+
+      expect(refreshMessages).not.toHaveBeenCalled();
     });
 
     it('deleteMessage should remove messages with tools', async () => {
@@ -937,6 +987,26 @@ describe('chatMessage actions', () => {
       ]);
       expect(mutate).toHaveBeenCalledTimes(2);
     });
+
+    it('does not start the group refresh after ownership invalidates', async () => {
+      const firstMutation = createDeferred<void>();
+      vi.mocked(mutate).mockReturnValueOnce(firstMutation.promise);
+      useChatStore.setState({ refreshMessages: realRefreshMessages });
+
+      const refreshPromise = useChatStore.getState().refreshMessages();
+      await waitFor(() => {
+        expect(mutate).toHaveBeenCalledTimes(1);
+      });
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      });
+      firstMutation.resolve(undefined);
+      await refreshPromise;
+
+      expect(mutate).toHaveBeenCalledTimes(1);
+    });
+
     it('should handle errors during refreshing messages', async () => {
       useChatStore.setState({ refreshMessages: realRefreshMessages });
       const { result } = renderHook(() => useChatStore());

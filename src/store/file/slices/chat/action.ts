@@ -11,8 +11,11 @@ import {
   UploadFileListDispatch,
   uploadFileListReducer,
 } from '@/store/file/reducers/uploadFileList';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
 import { FileListItem } from '@/types/files';
 import { UploadFileItem } from '@/types/files/upload';
 import { isChunkingUnsupported } from '@/utils/isChunkingUnsupported';
@@ -24,6 +27,23 @@ import { FileStore } from '../../store';
 const n = setNamespace('chat');
 
 const serverFileService = new ServerService();
+
+const captureFileMutationSnapshot = (state: FileStore) => {
+  const account = captureAccountMutationSnapshot(useUserStore.getState());
+  if (!account) return;
+
+  return {
+    account,
+    scopeGeneration: state.scopeGeneration,
+  };
+};
+
+const isFileMutationCurrent = (
+  state: FileStore,
+  snapshot: NonNullable<ReturnType<typeof captureFileMutationSnapshot>>,
+) =>
+  isAccountMutationCurrent(useUserStore.getState(), snapshot.account) &&
+  state.scopeGeneration === snapshot.scopeGeneration;
 
 export interface FileAction {
   clearChatUploadFileList: () => void;
@@ -55,55 +75,45 @@ export const createFileSlice: StateCreator<
     set({ chatUploadFileList: nextValue }, false, `dispatchChatFileList/${payload.type}`);
   },
   removeChatUploadFile: async (id) => {
+    const mutationSnapshot = captureFileMutationSnapshot(get());
+    if (!mutationSnapshot) return;
+
     const { dispatchChatUploadFileList } = get();
 
+    if (!isFileMutationCurrent(get(), mutationSnapshot)) return;
     dispatchChatUploadFileList({ id, type: 'removeFile' });
+    if (!isFileMutationCurrent(get(), mutationSnapshot)) return;
+
     await fileService.removeFile(id);
   },
 
   startAsyncTask: async (id, runner, onFileItemUpdate) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const mutationSnapshot = captureFileMutationSnapshot(get());
+    if (!mutationSnapshot) return;
 
+    if (!isFileMutationCurrent(get(), mutationSnapshot)) return;
     await runner(id);
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().scopeGeneration !== requestedGeneration
-    )
-      return;
+    if (!isFileMutationCurrent(get(), mutationSnapshot)) return;
 
     let isFinished = false;
 
     while (!isFinished) {
       // 每间隔 2s 查询一次任务状态
       await sleep(2000);
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isFileMutationCurrent(get(), mutationSnapshot)) return;
 
       let fileItem: FileListItem | undefined = undefined;
 
       try {
         fileItem = await serverFileService.getFileItem(id);
       } catch (e) {
-        if (
-          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-          get().scopeGeneration !== requestedGeneration
-        )
-          return;
+        if (!isFileMutationCurrent(get(), mutationSnapshot)) return;
 
         console.error('getFileItem Error:', e);
         continue;
       }
 
-      if (
-        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-        get().scopeGeneration !== requestedGeneration
-      )
-        return;
+      if (!isFileMutationCurrent(get(), mutationSnapshot)) return;
       if (!fileItem) return;
 
       onFileItemUpdate(fileItem);
@@ -120,86 +130,105 @@ export const createFileSlice: StateCreator<
   },
 
   uploadChatFiles: async (rawFiles) => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
-    const requestedGeneration = get().scopeGeneration;
-    if (!requestedScope) return;
+    const mutationSnapshot = captureFileMutationSnapshot(get());
+    if (!mutationSnapshot) return;
 
-    const isOperationCurrent = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
-      get().scopeGeneration === requestedGeneration;
+    const isOperationCurrent = () => isFileMutationCurrent(get(), mutationSnapshot);
+    const accountInvalidationController = new AbortController();
+    const unsubscribeFromAccountInvalidation = useUserStore.subscribe((state) => {
+      if (!isAccountMutationCurrent(state, mutationSnapshot.account)) {
+        accountInvalidationController.abort();
+      }
+    });
     const { dispatchChatUploadFileList } = get();
     // 0. skip file in blacklist
     const files = rawFiles.filter((file) => !FILE_UPLOAD_BLACKLIST.includes(file.name));
-    // 1. add files with base64
-    const uploadFiles: UploadFileItem[] = await Promise.all(
-      files.map(async (file) => {
-        let previewUrl: string | undefined = undefined;
-        let base64Url: string | undefined = undefined;
 
-        // only image and video can be previewed, we create a previewUrl and base64Url for them
-        if (file.type.startsWith('image') || file.type.startsWith('video')) {
-          const data = await file.arrayBuffer();
-          if (!isOperationCurrent()) {
-            return { file, id: file.name, status: 'pending' } as UploadFileItem;
+    try {
+      // 1. add files with base64
+      const uploadFiles: UploadFileItem[] = await Promise.all(
+        files.map(async (file) => {
+          let previewUrl: string | undefined = undefined;
+          let base64Url: string | undefined = undefined;
+
+          // only image and video can be previewed, we create a previewUrl and base64Url for them
+          if (file.type.startsWith('image') || file.type.startsWith('video')) {
+            const data = await file.arrayBuffer();
+            if (!isOperationCurrent()) {
+              return { file, id: file.name, status: 'pending' } as UploadFileItem;
+            }
+
+            previewUrl = URL.createObjectURL(new Blob([data!], { type: file.type }));
+
+            const base64 = Buffer.from(data!).toString('base64');
+            base64Url = `data:${file.type};base64,${base64}`;
           }
 
-          previewUrl = URL.createObjectURL(new Blob([data!], { type: file.type }));
+          return { base64Url, file, id: file.name, previewUrl, status: 'pending' } as UploadFileItem;
+        }),
+      );
 
-          const base64 = Buffer.from(data!).toString('base64');
-          base64Url = `data:${file.type};base64,${base64}`;
-        }
-
-        return { base64Url, file, id: file.name, previewUrl, status: 'pending' } as UploadFileItem;
-      }),
-    );
-
-    if (!isOperationCurrent()) {
-      uploadFiles.forEach((fileItem) => {
-        if (fileItem?.previewUrl) URL.revokeObjectURL(fileItem.previewUrl);
-      });
-      return;
-    }
-
-    dispatchChatUploadFileList({ files: uploadFiles, type: 'addFiles' });
-
-    // upload files and process it
-    const pools = files.map(async (file) => {
-      let fileResult: { id: string; url: string } | undefined;
-
-      try {
-        fileResult = await get().uploadWithProgress({
-          file,
-          onStatusUpdate: dispatchChatUploadFileList,
+      if (!isOperationCurrent()) {
+        uploadFiles.forEach((fileItem) => {
+          if (fileItem?.previewUrl) URL.revokeObjectURL(fileItem.previewUrl);
         });
-      } catch (error) {
-        if (!isOperationCurrent()) return;
-
-        // skip `UNAUTHORIZED` error
-        if ((error as any)?.message !== 'UNAUTHORIZED')
-          notification.error({
-            description:
-              // it may be a network error or the cors error
-              error === UPLOAD_NETWORK_ERROR
-                ? t('upload.networkError', { ns: 'error' })
-                : // or the error from the server
-                  typeof error === 'string'
-                  ? error
-                  : t('upload.unknownError', { ns: 'error', reason: (error as Error).message }),
-            message: t('upload.uploadFailed', { ns: 'error' }),
-          });
-
-        dispatchChatUploadFileList({ id: file.name, type: 'removeFile' });
+        return;
       }
 
-      if (!isOperationCurrent()) return;
-      if (!fileResult) return;
+      dispatchChatUploadFileList({ files: uploadFiles, type: 'addFiles' });
 
-      // image don't need to be chunked and embedding
-      if (isChunkingUnsupported(file.type)) return;
+      // upload files and process it
+      const pools = files.map(async (file) => {
+        let fileResult: { id: string; url: string } | undefined;
+        const isFileOperationCurrent = () =>
+          isOperationCurrent() &&
+          get().chatUploadFileList.some((fileItem) => fileItem.file === file);
+        const dispatchFileStatusUpdate = (payload: UploadFileListDispatch) => {
+          if (!isFileOperationCurrent()) return;
 
-      await ragService.parseFileContent(fileResult.id);
-    });
+          dispatchChatUploadFileList(payload);
+        };
 
-    await Promise.all(pools);
+        try {
+          fileResult = await get().uploadWithProgress({
+            file,
+            onStatusUpdate: dispatchFileStatusUpdate,
+            signal: accountInvalidationController.signal,
+          });
+        } catch (error) {
+          if (!isFileOperationCurrent()) return;
+
+          // skip `UNAUTHORIZED` error
+          if ((error as any)?.message !== 'UNAUTHORIZED')
+            notification.error({
+              description:
+                // it may be a network error or the cors error
+                error === UPLOAD_NETWORK_ERROR
+                  ? t('upload.networkError', { ns: 'error' })
+                  : // or the error from the server
+                    typeof error === 'string'
+                    ? error
+                    : t('upload.unknownError', { ns: 'error', reason: (error as Error).message }),
+              message: t('upload.uploadFailed', { ns: 'error' }),
+            });
+
+          if (!isFileOperationCurrent()) return;
+          dispatchChatUploadFileList({ id: file.name, type: 'removeFile' });
+        }
+
+        if (!isFileOperationCurrent()) return;
+        if (!fileResult) return;
+
+        // image don't need to be chunked and embedding
+        if (isChunkingUnsupported(file.type)) return;
+
+        if (!isFileOperationCurrent()) return;
+        await ragService.parseFileContent(fileResult.id);
+      });
+
+      await Promise.all(pools);
+    } finally {
+      unsubscribeFromAccountInvalidation();
+    }
   },
 });

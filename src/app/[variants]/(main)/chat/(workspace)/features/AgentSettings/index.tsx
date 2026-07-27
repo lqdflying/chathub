@@ -104,11 +104,7 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
       );
 
       if (agentSession) {
-        // Use the session service directly with the specific session ID
-        const { sessionService } = await import('@/services/session');
-        await sessionService.updateSessionMeta(agentSession.id, meta);
-        // Refresh sessions to update the UI
-        await useSessionStore.getState().refreshSessions();
+        await useSessionStore.getState().updateSessionMetaById(agentSession.id, meta);
       }
     } else {
       // Use the global update function for current session

@@ -16,6 +16,7 @@ import { useChatStore } from '../../store';
 
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 let currentUserScope = 'local';
+let hasActiveUserStateOwnerMismatch = false;
 vi.mock('@/store/user', () => {
   const userState = { ownershipInvalidationGeneration: 0 };
   const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
@@ -30,7 +31,7 @@ vi.mock('@/store/user', () => {
 vi.mock('@/store/user/selectors', () => ({
   authSelectors: {
     currentUserScope: () => currentUserScope,
-    hasActiveUserStateOwnerMismatch: () => false,
+    hasActiveUserStateOwnerMismatch: () => hasActiveUserStateOwnerMismatch,
   },
   systemAgentSelectors: {
     topic: () => ({}),
@@ -76,18 +77,21 @@ vi.mock('i18next', () => ({
 }));
 
 const createDeferred = <Value>() => {
+  let reject!: (reason?: unknown) => void;
   let resolve!: (value: Value) => void;
-  const promise = new Promise<Value>((promiseResolve) => {
+  const promise = new Promise<Value>((promiseResolve, promiseReject) => {
+    reject = promiseReject;
     resolve = promiseResolve;
   });
 
-  return { promise, resolve };
+  return { promise, reject, resolve };
 };
 
 beforeEach(() => {
   // Setup initial state and mocks before each test
   vi.clearAllMocks();
   currentUserScope = 'local';
+  hasActiveUserStateOwnerMismatch = false;
   useChatStore.setState(
     {
       activeId: undefined,
@@ -150,6 +154,19 @@ describe('topic action', () => {
       });
 
       expect(saveToTopicSpy).toHaveBeenCalled();
+    });
+
+    it('does not delegate topic persistence during an active owner mismatch', async () => {
+      hasActiveUserStateOwnerMismatch = true;
+      useChatStore.setState({ activeTopicId: '' });
+      const { result } = renderHook(() => useChatStore());
+      const saveToTopicSpy = vi.spyOn(result.current, 'saveToTopic');
+      const refreshMessagesSpy = vi.spyOn(result.current, 'refreshMessages');
+
+      await result.current.openNewTopicOrSaveTopic();
+
+      expect(saveToTopicSpy).not.toHaveBeenCalled();
+      expect(refreshMessagesSpy).not.toHaveBeenCalled();
     });
   });
   describe('saveToTopic', () => {
@@ -293,6 +310,7 @@ describe('topic action', () => {
   });
   describe('favoriteTopic', () => {
     it('should update the favorite state of a topic and refresh topics', async () => {
+      useChatStore.setState({ activeId: 'test-session-id' });
       const { result } = renderHook(() => useChatStore());
       const topicId = 'topic-id';
       const favState = true;
@@ -355,6 +373,7 @@ describe('topic action', () => {
   });
   describe('updateTopicTitle', () => {
     it('should call topicService.updateTitle with correct parameters and refresh the topic', async () => {
+      useChatStore.setState({ activeId: 'test-session-id' });
       const topicId = 'topic-id';
       const newTitle = 'Updated Topic Title';
       // Mock the topicService.updateTitle to resolve immediately
@@ -383,6 +402,45 @@ describe('topic action', () => {
 
       // Verify that the refreshTopic was called to update the state
       expect(refreshTopicSpy).toHaveBeenCalled();
+    });
+
+    it('keeps one loading marker until overlapping title updates settle', async () => {
+      const firstUpdate = createDeferred<void>();
+      const secondUpdate = createDeferred<void>();
+      const topicId = 'overlapping-title-topic';
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({ activeId: 'test-session-id' });
+      vi.spyOn(topicService, 'updateTopic')
+        .mockReturnValueOnce(firstUpdate.promise)
+        .mockReturnValueOnce(secondUpdate.promise);
+      vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
+
+      const firstPromise = result.current.updateTopicTitle(topicId, 'First Title');
+      const secondPromise = result.current.updateTopicTitle(topicId, 'Second Title');
+
+      expect(useChatStore.getState().topicLoadingIds).toEqual([topicId]);
+
+      firstUpdate.resolve();
+      await firstPromise;
+      expect(useChatStore.getState().topicLoadingIds).toEqual([topicId]);
+
+      secondUpdate.resolve();
+      await secondPromise;
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+    });
+
+    it('releases its loading marker when title persistence rejects', async () => {
+      const topicId = 'rejected-title-topic';
+      const persistenceError = new Error('title update failed');
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({ activeId: 'test-session-id' });
+      vi.spyOn(topicService, 'updateTopic').mockRejectedValueOnce(persistenceError);
+
+      await expect(result.current.updateTopicTitle(topicId, 'Rejected Title')).rejects.toThrow(
+        persistenceError,
+      );
+
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
     });
   });
   describe('switchTopic', () => {
@@ -498,6 +556,7 @@ describe('topic action', () => {
 
       await act(async () => {
         useChatStore.setState({
+          activeId: groupId,
           topicMaps: {
             [groupId]: topics,
           },
@@ -520,6 +579,7 @@ describe('topic action', () => {
   });
   describe('removeAllTopics', () => {
     it('should remove all topics and refresh the topic list', async () => {
+      useChatStore.setState({ activeId: 'test-session-id' });
       const { result } = renderHook(() => useChatStore());
 
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
@@ -575,6 +635,65 @@ describe('topic action', () => {
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).not.toHaveBeenCalled();
     });
+
+    it('finishes explicit deletion after topic selection changes without navigating', async () => {
+      const removedMessages = createDeferred<void>();
+      const topicId = 'topic-being-removed';
+      const activeId = 'test-session-id';
+      const { result } = renderHook(() => useChatStore());
+      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(removedMessages.promise);
+      vi.spyOn(topicService, 'removeTopic').mockResolvedValue(undefined);
+      const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
+      const switchTopicSpy = vi.spyOn(result.current, 'switchTopic');
+
+      act(() => {
+        useChatStore.setState({ activeId, activeTopicId: topicId });
+      });
+      const removalPromise = result.current.removeTopic(topicId);
+
+      await waitFor(() => {
+        expect(messageService.removeMessagesByAssistant).toHaveBeenCalledWith(activeId, topicId);
+      });
+
+      act(() => {
+        useChatStore.setState({ activeTopicId: 'newly-selected-topic' });
+      });
+      removedMessages.resolve();
+      await removalPromise;
+
+      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId);
+      expect(refreshTopicSpy).toHaveBeenCalled();
+      expect(switchTopicSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().activeTopicId).toBe('newly-selected-topic');
+    });
+
+    it('finishes explicit deletion after switchTopic invalidates the conversation', async () => {
+      const removedMessages = createDeferred<void>();
+      const topicId = 'topic-being-removed';
+      const activeId = 'test-session-id';
+      const { result } = renderHook(() => useChatStore());
+      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(removedMessages.promise);
+      vi.spyOn(topicService, 'removeTopic').mockResolvedValue(undefined);
+      vi.spyOn(result.current, 'refreshMessages').mockResolvedValue(undefined);
+
+      act(() => {
+        useChatStore.setState({ activeId, activeTopicId: topicId });
+      });
+      const removalPromise = result.current.removeTopic(topicId);
+
+      await waitFor(() => {
+        expect(messageService.removeMessagesByAssistant).toHaveBeenCalledWith(activeId, topicId);
+      });
+
+      await act(async () => {
+        await result.current.switchTopic('newly-selected-topic');
+      });
+      removedMessages.resolve();
+      await removalPromise;
+
+      expect(topicService.removeTopic).toHaveBeenCalledWith(topicId);
+      expect(useChatStore.getState().activeTopicId).toBe('newly-selected-topic');
+    });
   });
   describe('removeUnstarredTopic', () => {
     it('should remove unstarred topics and refresh the topic list', async () => {
@@ -619,6 +738,112 @@ describe('topic action', () => {
       });
 
       expect(result.current.topicLoadingIds).toEqual(['loading-id']);
+    });
+
+    it('keeps loading ids deduplicated', () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_updateTopicLoading('loading-id', true);
+        result.current.internal_updateTopicLoading('loading-id', true);
+      });
+
+      expect(result.current.topicLoadingIds).toEqual(['loading-id']);
+    });
+  });
+  describe('internal_updateTopic', () => {
+    it('keeps a sibling loading marker when an older update finishes', async () => {
+      const firstUpdate = createDeferred<void>();
+      const secondUpdate = createDeferred<void>();
+      const topicId = 'overlapping-topic-update';
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({ activeId: 'test-session-id' });
+      vi.spyOn(topicService, 'updateTopic')
+        .mockReturnValueOnce(firstUpdate.promise)
+        .mockReturnValueOnce(secondUpdate.promise);
+      vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
+
+      const firstPromise = result.current.internal_updateTopic(topicId, { favorite: true });
+      const secondPromise = result.current.internal_updateTopic(topicId, { favorite: false });
+
+      expect(useChatStore.getState().topicLoadingIds).toEqual([topicId]);
+
+      firstUpdate.resolve();
+      await firstPromise;
+      expect(useChatStore.getState().topicLoadingIds).toEqual([topicId]);
+
+      secondUpdate.resolve();
+      await secondPromise;
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+    });
+
+    it('does not let an invalidated finalizer clear a newer same-topic update', async () => {
+      const staleUpdate = createDeferred<void>();
+      const currentUpdate = createDeferred<void>();
+      const topicId = 'reset-overlap-topic';
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({ activeId: 'test-session-id' });
+      vi.spyOn(topicService, 'updateTopic')
+        .mockReturnValueOnce(staleUpdate.promise)
+        .mockReturnValueOnce(currentUpdate.promise);
+      vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
+
+      const stalePromise = result.current.internal_updateTopic(topicId, { favorite: true });
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+      const currentPromise = result.current.internal_updateTopic(topicId, { favorite: false });
+
+      staleUpdate.resolve();
+      await stalePromise;
+      expect(useChatStore.getState().topicLoadingIds).toEqual([topicId]);
+
+      currentUpdate.resolve();
+      await currentPromise;
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+    });
+
+    it('clears current loading before a stale same-topic update settles', async () => {
+      const staleUpdate = createDeferred<void>();
+      const currentUpdate = createDeferred<void>();
+      const topicId = 'reverse-reset-overlap-topic';
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({ activeId: 'test-session-id' });
+      vi.spyOn(topicService, 'updateTopic')
+        .mockReturnValueOnce(staleUpdate.promise)
+        .mockReturnValueOnce(currentUpdate.promise);
+      vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
+
+      const stalePromise = result.current.internal_updateTopic(topicId, { favorite: true });
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+      const currentPromise = result.current.internal_updateTopic(topicId, { favorite: false });
+
+      currentUpdate.resolve();
+      await currentPromise;
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+
+      staleUpdate.resolve();
+      await stalePromise;
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+    });
+
+    it('releases loading after rejection even when the active container changed', async () => {
+      const rejectedUpdate = createDeferred<void>();
+      const topicId = 'navigated-rejected-topic';
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({ activeId: 'test-session-id' });
+      vi.spyOn(topicService, 'updateTopic').mockReturnValueOnce(rejectedUpdate.promise);
+
+      const updatePromise = result.current.internal_updateTopic(topicId, { favorite: true });
+      act(() => {
+        useChatStore.setState({ activeId: 'other-session' });
+      });
+      rejectedUpdate.reject(new Error('update failed'));
+
+      await expect(updatePromise).rejects.toThrow('update failed');
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
     });
   });
   describe('summaryTopicTitle', () => {
@@ -698,7 +923,7 @@ describe('topic action', () => {
 
       expect(updateTopicSpy).not.toHaveBeenCalled();
       expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
-      expect(useChatStore.getState().topicTitleSummaryOperations).toEqual({});
+      expect(useChatStore.getState().topicTitleSummaryOperations[topicId]).toBeUndefined();
       expect(useChatStore.getState().topicMaps['account-a-session']?.[0]?.title).toBe(
         'Newer Title',
       );
@@ -815,6 +1040,29 @@ describe('topic action', () => {
     });
   });
   describe('createTopic', () => {
+    it('does not start topic creation during an active owner mismatch', async () => {
+      hasActiveUserStateOwnerMismatch = true;
+      useChatStore.setState({
+        activeId: 'test-session-id',
+        messagesMap: {
+          [messageMapKey('test-session-id')]: [{ id: 'message-1' }] as UIChatMessage[],
+        },
+      });
+      const { result } = renderHook(() => useChatStore());
+      const createTopicSpy = vi.spyOn(topicService, 'createTopic');
+
+      const topicId = await result.current.createTopic();
+
+      expect(topicId).toBeUndefined();
+      expect(createTopicSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState()).toMatchObject({
+        creatingTopic: false,
+        creatingTopicId: undefined,
+        topicLoadingIds: [],
+      });
+      expect(useChatStore.getState().topicMaps['test-session-id']).toBeUndefined();
+    });
+
     it('should create a new topic and update the store', async () => {
       const { result } = renderHook(() => useChatStore());
       const activeId = 'test-session-id';
@@ -847,6 +1095,32 @@ describe('topic action', () => {
         undefined,
       );
       expect(refreshTopicSpy).toHaveBeenCalled();
+    });
+
+    it('does not continue topic creation after ownership becomes invalid mid-flight', async () => {
+      const createdTopic = createDeferred<string>();
+      const activeId = 'test-session-id';
+      useChatStore.setState({
+        activeId,
+        messagesMap: {
+          [messageMapKey(activeId)]: [{ id: 'message-1' }] as UIChatMessage[],
+        },
+      });
+      vi.spyOn(topicService, 'createTopic').mockReturnValue(createdTopic.promise);
+      const refreshTopic = vi.fn();
+      useChatStore.setState({ refreshTopic });
+
+      const creationPromise = useChatStore.getState().createTopic();
+      await waitFor(() => {
+        expect(topicService.createTopic).toHaveBeenCalled();
+      });
+
+      hasActiveUserStateOwnerMismatch = true;
+      createdTopic.resolve('stale-topic-id');
+      const topicId = await creationPromise;
+
+      expect(topicId).toBeUndefined();
+      expect(refreshTopic).not.toHaveBeenCalled();
     });
 
     it('clears its creation state and optimistic topic after switching sessions', async () => {
@@ -957,6 +1231,7 @@ describe('topic action', () => {
       expect(useChatStore.getState().creatingTopic).toBe(true);
       expect(useChatStore.getState().creatingTopicId).toBe('topic-create-account-b');
       expect(useChatStore.getState().topicLoadingIds).toEqual(['account-b-topic']);
+      expect(useChatStore.getState().topicMaps[activeId]).toEqual([]);
     });
   });
   describe('duplicateTopic', () => {

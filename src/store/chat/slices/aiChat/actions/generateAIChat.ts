@@ -25,11 +25,16 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selector
 import { getAgentStoreState } from '@/store/agent/store';
 import { aiModelSelectors, aiProviderSelectors } from '@/store/aiInfra';
 import { getAiInfraStoreState } from '@/store/aiInfra/store';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { Action, setNamespace } from '@/utils/storeDebug';
 
@@ -218,12 +223,18 @@ export const generateAIChat: StateCreator<
   AIGenerateAction
 > = (set, get) => ({
   delAndRegenerateMessage: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const traceId = chatSelectors.getTraceIdByMessageId(id)(get());
     // trace the delete and regenerate message
     get().internal_traceMessage(id, { eventType: TraceEventType.DeleteAndRegenerateMessage });
     await get().internal_resendMessage(id, { traceId });
   },
   regenerateMessage: async (id) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const traceId = chatSelectors.getTraceIdByMessageId(id)(get());
     // trace the delete and regenerate message
     get().internal_traceMessage(id, { eventType: TraceEventType.RegenerateMessage });
@@ -231,6 +242,7 @@ export const generateAIChat: StateCreator<
   },
 
   sendMessage: async ({ message, files, onlyAddUserMessage, isWelcomeQuestion }) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const {
       internal_coreProcessMessage,
       activeTopicId,
@@ -238,13 +250,14 @@ export const generateAIChat: StateCreator<
       activeThreadId,
       sendMessageInServer,
     } = get();
-    if (!activeId) return;
+    if (!accountMutationSnapshot || !activeId) return;
     let conversationContext: ConversationContext = {
       generation: get().conversationClearGeneration,
       sessionId: activeId,
       topicId: activeTopicId,
     };
     const isCurrentConversation = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
@@ -305,6 +318,7 @@ export const generateAIChat: StateCreator<
 
         const topicId = await get().createTopic(undefined, undefined, expectedConversationVersion);
         const requestStillOwnsSourceConversation =
+          isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
           get().conversationClearGeneration === conversationContext.generation &&
           get().activeId === activeId &&
           (get().activeTopicId ?? null) === (activeTopicId ?? null);
@@ -354,6 +368,7 @@ export const generateAIChat: StateCreator<
     if (!!newTopicId) {
       conversationContext = messageConversationContext;
       await get().switchTopic(newTopicId, true);
+      if (!isCurrentConversation()) return;
 
       // delete previous messages
       // remove the temp message map
@@ -385,7 +400,9 @@ export const generateAIChat: StateCreator<
         threadId: activeThreadId,
       });
     } finally {
-      if (contextExportCaptureId) get().completeContextExport(contextExportCaptureId);
+      if (contextExportCaptureId && isCurrentConversation()) {
+        get().completeContextExport(contextExportCaptureId);
+      }
     }
 
     if (!isCurrentConversation()) return;
@@ -433,6 +450,9 @@ export const generateAIChat: StateCreator<
 
   // the internal process method of the AI message
   internal_coreProcessMessage: async (originalMessages, userMessageId, params) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const { internal_fetchAIChatMessage, triggerToolCalls, refreshMessages } = get();
     const conversationContext = params?.conversationContext ?? {
       generation: get().conversationClearGeneration,
@@ -444,6 +464,7 @@ export const generateAIChat: StateCreator<
       topicId: conversationContext.topicId,
     };
     const isCurrentConversation = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
@@ -599,7 +620,7 @@ export const generateAIChat: StateCreator<
           if (!isCurrentConversation()) return;
           isError = true;
           await messageService.updateMessageError(assistantId, error);
-          await refreshMessages(conversationContext);
+          if (isCurrentConversation()) await refreshMessages(conversationContext);
         },
       });
 
@@ -711,6 +732,9 @@ export const generateAIChat: StateCreator<
     provider,
     model,
   }) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return { content: '', isFunctionCall: false };
+
     const {
       internal_toggleChatLoading,
       refreshMessages,
@@ -731,6 +755,7 @@ export const generateAIChat: StateCreator<
       topicId: conversationContext.topicId,
     };
     const isCurrentConversation = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
@@ -853,7 +878,7 @@ export const generateAIChat: StateCreator<
             });
           }
           await messageService.updateMessageError(messageId, error);
-          await refreshMessages(conversationContext);
+          if (isCurrentConversation()) await refreshMessages(conversationContext);
         },
         onFinish: async (
           content,
@@ -876,6 +901,7 @@ export const generateAIChat: StateCreator<
               console.error('Error waiting for image uploads:', error);
             }
           }
+          if (!isCurrentConversation()) return;
 
           let parsedToolCalls = toolCalls;
           if (parsedToolCalls && parsedToolCalls.length > 0) {
@@ -904,6 +930,7 @@ export const generateAIChat: StateCreator<
             traceId,
             conversationContext,
           });
+          if (!isCurrentConversation()) return;
           persistenceAmbiguous = finalization.persistenceAmbiguous;
         },
         onMessageHandle: async (chunk) => {
@@ -1046,16 +1073,26 @@ export const generateAIChat: StateCreator<
     messageId,
     { traceId, messages: outChats, threadId: outThreadId, inPortalThread } = {},
   ) => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (!accountMutationSnapshot) return;
+
     const chats = outChats ?? chatSelectors.mainAIChats(get());
     const anchor = resolveRetryAnchor(chats, messageId);
     if (!anchor || get().messageRetryingIds.length > 0) return;
 
-    const expectedConversationVersion = await messageService.getConversationVersion();
-    const contextMessages = chats.slice(0, anchor.index + 1);
-    const tailMessages = chats.slice(anchor.index + 1);
     const state = get();
     const activeId = state.activeId;
     const activeTopicId = state.activeTopicId;
+    const requestedGeneration = state.conversationClearGeneration;
+    const isCurrentConversation = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().conversationClearGeneration === requestedGeneration &&
+      get().activeId === activeId &&
+      get().activeTopicId === activeTopicId;
+    const expectedConversationVersion = await messageService.getConversationVersion();
+    if (!isCurrentConversation()) return;
+    const contextMessages = chats.slice(0, anchor.index + 1);
+    const tailMessages = chats.slice(anchor.index + 1);
     const chatKey = messageMapKey(activeId, activeTopicId);
     const currentMessages = state.messagesMap[chatKey] || [];
     const currentThreads = activeTopicId ? state.threadMaps[activeTopicId] || [] : [];
@@ -1168,6 +1205,7 @@ export const generateAIChat: StateCreator<
           ? await messageService.rewindMessages(persistentTailIds)
           : { messageIds: [], threadIds: [] };
       rewindPersisted = true;
+      if (!isCurrentConversation()) return;
 
       // The database is authoritative and may discover dependent threads not present in this tab.
       if (persisted.messageIds.length > 0 || persisted.threadIds.length > 0) {
@@ -1210,11 +1248,11 @@ export const generateAIChat: StateCreator<
       }
 
       // Do not refresh or write into whichever chat the user navigated to mid-rewind.
-      if (get().activeId !== activeId || get().activeTopicId !== activeTopicId) return;
+      if (!isCurrentConversation()) return;
 
       await Promise.all([get().refreshMessages(), get().refreshThreads()]);
 
-      if (get().activeId !== activeId || get().activeTopicId !== activeTopicId) return;
+      if (!isCurrentConversation()) return;
 
       if (isGroupChat) {
         await get().internal_routeGroupUserMessage(
@@ -1236,6 +1274,8 @@ export const generateAIChat: StateCreator<
         inPortalThread: inPortalThread && !!threadId,
       });
     } catch (error) {
+      if (!isCurrentConversation()) return;
+
       if (!rewindPersisted) {
         const isOriginalChatActive =
           get().activeId === activeId && get().activeTopicId === activeTopicId;
@@ -1262,7 +1302,7 @@ export const generateAIChat: StateCreator<
           n('retryMessage/rollback'),
         );
       }
-      if (get().activeId === activeId && get().activeTopicId === activeTopicId) {
+      if (isCurrentConversation()) {
         await Promise.allSettled([get().refreshMessages(), get().refreshThreads()]);
       }
       console.error(
@@ -1272,11 +1312,13 @@ export const generateAIChat: StateCreator<
         error,
       );
     } finally {
-      set(
-        { messageRetryingIds: get().messageRetryingIds.filter((id) => id !== anchor.message.id) },
-        false,
-        n('retryMessage/end'),
-      );
+      if (isCurrentConversation()) {
+        set(
+          { messageRetryingIds: get().messageRetryingIds.filter((id) => id !== anchor.message.id) },
+          false,
+          n('retryMessage/end'),
+        );
+      }
     }
   },
 

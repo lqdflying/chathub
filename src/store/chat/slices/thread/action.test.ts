@@ -62,6 +62,7 @@ vi.mock('@/store/session', () => ({
   },
 }));
 
+let hasActiveUserStateOwnerMismatch = false;
 vi.mock('@/store/user', () => {
   const userState = {
     authUserId: 'test-user',
@@ -83,7 +84,7 @@ vi.mock('@/store/user', () => {
 vi.mock('@/store/user/selectors', () => ({
   authSelectors: {
     currentUserScope: () => 'user:test-user',
-    hasActiveUserStateOwnerMismatch: () => false,
+    hasActiveUserStateOwnerMismatch: () => hasActiveUserStateOwnerMismatch,
   },
   systemAgentSelectors: {
     thread: vi.fn(() => ({})),
@@ -94,16 +95,19 @@ vi.mock('@/store/user/selectors', () => ({
 }));
 
 const createDeferred = <Value>() => {
+  let reject!: (reason?: unknown) => void;
   let resolve!: (value: Value) => void;
-  const promise = new Promise<Value>((promiseResolve) => {
+  const promise = new Promise<Value>((promiseResolve, promiseReject) => {
+    reject = promiseReject;
     resolve = promiseResolve;
   });
 
-  return { promise, resolve };
+  return { promise, reject, resolve };
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  hasActiveUserStateOwnerMismatch = false;
   useChatStore.setState(
     {
       activeId: 'test-session-id',
@@ -230,6 +234,25 @@ describe('thread action', () => {
   });
 
   describe('createThread', () => {
+    it('does not start thread creation during an active owner mismatch', async () => {
+      hasActiveUserStateOwnerMismatch = true;
+      const { result } = renderHook(() => useChatStore());
+
+      const createResult = await result.current.createThread({
+        message: { content: 'test', role: 'user', sessionId: 'test-session-id' },
+        sourceMessageId: 'source-msg-id',
+        topicId: 'test-topic-id',
+        type: ThreadType.Continuation,
+      });
+
+      expect(createResult).toEqual({ messageId: '', threadId: '' });
+      expect(threadService.createThreadWithMessage).not.toHaveBeenCalled();
+      expect(useChatStore.getState()).toMatchObject({
+        creatingThreadId: undefined,
+        isCreatingThread: false,
+      });
+    });
+
     it('should create thread with message and return ids', async () => {
       const { result } = renderHook(() => useChatStore());
 
@@ -264,6 +287,26 @@ describe('thread action', () => {
       expect(result.current.isCreatingThread).toBe(false);
     });
 
+    it('does not continue thread creation after ownership becomes invalid mid-flight', async () => {
+      const createdThread = createDeferred<{ messageId: string; threadId: string }>();
+      (threadService.createThreadWithMessage as Mock).mockReturnValue(createdThread.promise);
+      const creationPromise = useChatStore.getState().createThread({
+        message: { content: 'test', role: 'user', sessionId: 'test-session-id' },
+        sourceMessageId: 'source-msg-id',
+        topicId: 'test-topic-id',
+        type: ThreadType.Continuation,
+      });
+      await waitFor(() => {
+        expect(threadService.createThreadWithMessage).toHaveBeenCalled();
+      });
+
+      hasActiveUserStateOwnerMismatch = true;
+      createdThread.resolve({ messageId: 'stale-message', threadId: 'stale-thread' });
+      const createResult = await creationPromise;
+
+      expect(createResult).toEqual({ messageId: '', threadId: '' });
+    });
+
     it('should set isCreatingThread during creation', async () => {
       const { result } = renderHook(() => useChatStore());
 
@@ -294,6 +337,10 @@ describe('thread action', () => {
       let creationPromise!: ReturnType<typeof result.current.createThread>;
 
       act(() => {
+        useChatStore.setState({
+          activeId: 'account-a-session',
+          activeTopicId: 'account-a-topic',
+        });
         creationPromise = result.current.createThread({
           message: { content: 'test', role: 'user', sessionId: 'account-a-session' },
           sourceMessageId: 'account-a-source-message',
@@ -542,6 +589,16 @@ describe('thread action', () => {
 
       expect(internalUpdateSpy).toHaveBeenCalledWith('thread-id', { title: 'New Title' });
     });
+
+    it('does not delegate title persistence during an active owner mismatch', async () => {
+      hasActiveUserStateOwnerMismatch = true;
+      const { result } = renderHook(() => useChatStore());
+      const internalUpdateSpy = vi.spyOn(result.current, 'internal_updateThread');
+
+      await result.current.updateThreadTitle('thread-id', 'New Title');
+
+      expect(internalUpdateSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('summaryThreadTitle', () => {
@@ -749,7 +806,9 @@ describe('thread action', () => {
 
       expect(threadService.updateThread).not.toHaveBeenCalled();
       expect(useChatStore.getState().threadLoadingIds).not.toContain('account-a-thread');
-      expect(useChatStore.getState().threadTitleSummaryOperations).toEqual({});
+      expect(
+        useChatStore.getState().threadTitleSummaryOperations['account-a-thread'],
+      ).toBeUndefined();
       expect(useChatStore.getState().threadMaps['account-a-topic'][0].title).toBe(
         'Account A Old Title',
       );
@@ -1421,6 +1480,16 @@ describe('thread action', () => {
 
       expect(resendSpy).toHaveBeenCalledWith('message-id');
     });
+
+    it('does not delegate resend during an active owner mismatch', async () => {
+      hasActiveUserStateOwnerMismatch = true;
+      const { result } = renderHook(() => useChatStore());
+      const resendSpy = vi.spyOn(result.current, 'resendThreadMessage');
+
+      await result.current.delAndResendThreadMessage('message-id');
+
+      expect(resendSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('internal_updateThreadTitleInSummary', () => {
@@ -1486,6 +1555,17 @@ describe('thread action', () => {
 
       expect(result.current.threadLoadingIds).not.toContain('thread-id');
     });
+
+    it('keeps loading ids deduplicated', () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_updateThreadLoading('thread-id', true);
+        result.current.internal_updateThreadLoading('thread-id', true);
+      });
+
+      expect(result.current.threadLoadingIds).toEqual(['thread-id']);
+    });
   });
 
   describe('internal_updateThread', () => {
@@ -1513,6 +1593,96 @@ describe('thread action', () => {
       expect(refreshSpy).toHaveBeenCalled();
       expect(loadingSpy).toHaveBeenCalledWith('thread-id', true);
       expect(loadingSpy).toHaveBeenCalledWith('thread-id', false);
+    });
+
+    it('keeps a sibling loading marker when an older update finishes', async () => {
+      const firstUpdate = createDeferred<void>();
+      const secondUpdate = createDeferred<void>();
+      const threadId = 'overlapping-thread-update';
+      const { result } = renderHook(() => useChatStore());
+      (threadService.updateThread as Mock)
+        .mockReturnValueOnce(firstUpdate.promise)
+        .mockReturnValueOnce(secondUpdate.promise);
+      vi.spyOn(result.current, 'refreshThreads').mockResolvedValue(undefined);
+
+      const firstPromise = result.current.internal_updateThread(threadId, { title: 'First' });
+      const secondPromise = result.current.internal_updateThread(threadId, { title: 'Second' });
+
+      expect(useChatStore.getState().threadLoadingIds).toEqual([threadId]);
+
+      firstUpdate.resolve();
+      await firstPromise;
+      expect(useChatStore.getState().threadLoadingIds).toEqual([threadId]);
+
+      secondUpdate.resolve();
+      await secondPromise;
+      expect(useChatStore.getState().threadLoadingIds).not.toContain(threadId);
+    });
+
+    it('does not let an invalidated finalizer clear a newer same-thread update', async () => {
+      const staleUpdate = createDeferred<void>();
+      const currentUpdate = createDeferred<void>();
+      const threadId = 'reset-overlap-thread';
+      const { result } = renderHook(() => useChatStore());
+      (threadService.updateThread as Mock)
+        .mockReturnValueOnce(staleUpdate.promise)
+        .mockReturnValueOnce(currentUpdate.promise);
+      vi.spyOn(result.current, 'refreshThreads').mockResolvedValue(undefined);
+
+      const stalePromise = result.current.internal_updateThread(threadId, { title: 'Stale' });
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+      const currentPromise = result.current.internal_updateThread(threadId, { title: 'Current' });
+
+      staleUpdate.resolve();
+      await stalePromise;
+      expect(useChatStore.getState().threadLoadingIds).toEqual([threadId]);
+
+      currentUpdate.resolve();
+      await currentPromise;
+      expect(useChatStore.getState().threadLoadingIds).not.toContain(threadId);
+    });
+
+    it('clears current loading before a stale same-thread update settles', async () => {
+      const staleUpdate = createDeferred<void>();
+      const currentUpdate = createDeferred<void>();
+      const threadId = 'reverse-reset-overlap-thread';
+      const { result } = renderHook(() => useChatStore());
+      (threadService.updateThread as Mock)
+        .mockReturnValueOnce(staleUpdate.promise)
+        .mockReturnValueOnce(currentUpdate.promise);
+      vi.spyOn(result.current, 'refreshThreads').mockResolvedValue(undefined);
+
+      const stalePromise = result.current.internal_updateThread(threadId, { title: 'Stale' });
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+      const currentPromise = result.current.internal_updateThread(threadId, { title: 'Current' });
+
+      currentUpdate.resolve();
+      await currentPromise;
+      expect(useChatStore.getState().threadLoadingIds).not.toContain(threadId);
+
+      staleUpdate.resolve();
+      await stalePromise;
+      expect(useChatStore.getState().threadLoadingIds).not.toContain(threadId);
+    });
+
+    it('releases loading after rejection even when the active topic changed', async () => {
+      const rejectedUpdate = createDeferred<void>();
+      const threadId = 'navigated-rejected-thread';
+      const { result } = renderHook(() => useChatStore());
+      (threadService.updateThread as Mock).mockReturnValueOnce(rejectedUpdate.promise);
+
+      const updatePromise = result.current.internal_updateThread(threadId, { title: 'Rejected' });
+      act(() => {
+        useChatStore.setState({ activeTopicId: 'other-topic' });
+      });
+      rejectedUpdate.reject(new Error('thread update failed'));
+
+      await expect(updatePromise).rejects.toThrow('thread update failed');
+      expect(useChatStore.getState().threadLoadingIds).not.toContain(threadId);
     });
   });
 
