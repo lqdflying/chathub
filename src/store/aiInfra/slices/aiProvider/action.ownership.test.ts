@@ -266,6 +266,35 @@ describe('AI provider runtime ownership', () => {
     expect(useAiInfraStore.getState().runtimeStateInitializationFailure).toBeUndefined();
   });
 
+  it('ignores a captured runtime response after active-scope ownership is invalidated', () => {
+    renderHook(() =>
+      useAiInfraStore
+        .getState()
+        .useFetchAiProviderRuntimeState(true, 'user:account-a'),
+    );
+
+    const runtimeCall = swrCalls.find(
+      ({ key }) =>
+        Array.isArray(key) &&
+        key[0] === 'FETCH_AI_PROVIDER_RUNTIME_STATE' &&
+        key[1] === 'user:account-a',
+    );
+
+    act(() => {
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:account-a',
+        },
+      });
+      runtimeCall?.onSuccess?.(createRuntimeState('mismatched-account-secret'));
+    });
+
+    expect(useAiInfraStore.getState().aiProviderRuntimeConfig).toEqual({});
+    expect(useAiInfraStore.getState().isInitAiProviderRuntimeState).toBe(false);
+    expect(useAiInfraStore.getState().runtimeStateScope).toBeUndefined();
+  });
+
   it('preserves settled current-scope runtime state when a later refresh fails', () => {
     const settledRuntimeState = createRuntimeState('account-a-secret');
     useAiInfraStore.setState({

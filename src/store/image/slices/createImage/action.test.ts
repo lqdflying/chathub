@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { imageService } from '@/services/image';
+import { resetAccountScopedStores } from '@/store/accountScopeReset';
 import { useImageStore } from '@/store/image';
 import { useUserStore } from '@/store/user';
 
@@ -43,6 +44,7 @@ describe('CreateImageAction', () => {
       ...initialState,
       isCreating: false,
       isCreatingWithNewTopic: false,
+      imageGenerationAbortControllers: [],
       isImageModelAvailable: true,
       isInit: true,
       activeGenerationTopicId: 'active-topic-id',
@@ -147,13 +149,16 @@ describe('CreateImageAction', () => {
       expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
 
       // Verify service calls
-      expect(mockImageService.createImage).toHaveBeenCalledWith({
-        generationTopicId: 'active-topic-id',
-        provider: 'test-provider',
-        model: 'test-model',
-        imageNum: 4,
-        params: { prompt: 'test prompt', width: 1024, height: 1024 },
-      });
+      expect(mockImageService.createImage).toHaveBeenCalledWith(
+        {
+          generationTopicId: 'active-topic-id',
+          provider: 'test-provider',
+          model: 'test-model',
+          imageNum: 4,
+          params: { prompt: 'test prompt', width: 1024, height: 1024 },
+        },
+        expect.any(AbortSignal),
+      );
 
       // Verify refresh was called
       expect(mockRefreshGenerationBatches).toHaveBeenCalled();
@@ -192,13 +197,16 @@ describe('CreateImageAction', () => {
       expect(mockSwitchGenerationTopic).toHaveBeenCalledWith('new-topic-id');
 
       // Verify service call with new topic id
-      expect(mockImageService.createImage).toHaveBeenCalledWith({
-        generationTopicId: 'new-topic-id',
-        provider: 'test-provider',
-        model: 'test-model',
-        imageNum: 4,
-        params: { prompt: 'test prompt', width: 1024, height: 1024 },
-      });
+      expect(mockImageService.createImage).toHaveBeenCalledWith(
+        {
+          generationTopicId: 'new-topic-id',
+          provider: 'test-provider',
+          model: 'test-model',
+          imageNum: 4,
+          params: { prompt: 'test prompt', width: 1024, height: 1024 },
+        },
+        expect.any(AbortSignal),
+      );
 
       // Verify prompt is cleared after successful image creation
       expect(result.current.parameters?.prompt).toBe('');
@@ -266,7 +274,54 @@ describe('CreateImageAction', () => {
         expect.objectContaining({
           params: { prompt: 'test prompt', width: 1024, height: 1024 },
         }),
+        expect.any(AbortSignal),
       );
+    });
+
+    it('aborts a pending request and suppresses stale completion after account invalidation', async () => {
+      let rejectRequest: ((reason?: unknown) => void) | undefined;
+      const pendingRequest = new Promise((_, reject) => {
+        rejectRequest = reject;
+      });
+      const mockRefreshGenerationBatches = vi.fn();
+      mockImageService.createImage.mockImplementationOnce(async (_payload, signal) => {
+        signal?.addEventListener(
+          'abort',
+          () => {
+            rejectRequest?.(signal.reason);
+          },
+          { once: true },
+        );
+
+        return pendingRequest as never;
+      });
+      const { result } = renderHook(() => useImageStore());
+      useImageStore.setState({ refreshGenerationBatches: mockRefreshGenerationBatches });
+
+      let createPromise!: Promise<void>;
+      await act(async () => {
+        createPromise = result.current.createImage();
+        await Promise.resolve();
+      });
+
+      const requestSignal = mockImageService.createImage.mock.calls[0]?.[1];
+      expect(requestSignal?.aborted).toBe(false);
+      expect(useImageStore.getState().imageGenerationAbortControllers).toHaveLength(1);
+
+      act(() => {
+        resetAccountScopedStores('User state owner mismatch');
+      });
+
+      await act(async () => {
+        await expect(createPromise).resolves.toBeUndefined();
+      });
+
+      expect(requestSignal?.aborted).toBe(true);
+      expect(requestSignal?.reason).toBe('User state owner mismatch');
+      expect(mockRefreshGenerationBatches).not.toHaveBeenCalled();
+      expect(useImageStore.getState().imageGenerationAbortControllers).toEqual([]);
+      expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().parameters?.prompt).toBe('');
     });
 
     it('should reject a whitespace-only prompt without entering a busy state', async () => {
@@ -458,13 +513,16 @@ describe('CreateImageAction', () => {
       expect(mockRemoveGenerationBatch).toHaveBeenCalledWith('batch-id', 'active-topic-id');
 
       // Verify service call uses batch.generations.length for imageNum
-      expect(mockImageService.createImage).toHaveBeenCalledWith({
-        generationTopicId: 'active-topic-id',
-        provider: 'batch-provider',
-        model: 'batch-model',
-        imageNum: expectedImageNum,
-        params: { prompt: 'batch prompt' },
-      });
+      expect(mockImageService.createImage).toHaveBeenCalledWith(
+        {
+          generationTopicId: 'active-topic-id',
+          provider: 'batch-provider',
+          model: 'batch-model',
+          imageNum: expectedImageNum,
+          params: { prompt: 'batch prompt' },
+        },
+        expect.any(AbortSignal),
+      );
 
       // Verify refresh was called
       expect(mockRefreshGenerationBatches).toHaveBeenCalled();

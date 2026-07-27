@@ -13,6 +13,7 @@ export interface CommonState {
   isUserCanEnableTrace: boolean;
   isUserHasConversation: boolean;
   isUserStateInit: boolean;
+  ownershipInvalidationGeneration: number;
   subscriptionPlan?: Plans;
   userStateInitializationFailure?: UserStateInitializationFailure;
   userStateOwnerId?: string;
@@ -25,6 +26,7 @@ export const initialCommonState: CommonState = {
   isUserCanEnableTrace: false,
   isUserHasConversation: false,
   isUserStateInit: false,
+  ownershipInvalidationGeneration: 0,
   subscriptionPlan: undefined,
   userStateInitializationFailure: undefined,
   userStateOwnerId: undefined,

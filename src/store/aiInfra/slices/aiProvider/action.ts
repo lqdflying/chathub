@@ -87,6 +87,15 @@ type AiProviderRuntimeStateWithBuiltinModels = AiProviderRuntimeState & {
   enabledImageModelList?: EnabledProviderWithModels[];
 };
 
+const isRequestedScopeCurrent = (requestedScope: string | undefined): boolean => {
+  const userState = useUserStore.getState();
+
+  return (
+    authSelectors.currentUserScope(userState) === requestedScope &&
+    !authSelectors.hasActiveUserStateOwnerMismatch(userState)
+  );
+};
+
 export interface AiProviderAction {
   createNewAiProvider: (params: CreateAiProviderParams) => Promise<void>;
   deleteAiProvider: (id: string) => Promise<void>;
@@ -157,22 +166,25 @@ export const createAiProviderSlice: StateCreator<
     );
   },
   refreshAiProviderDetail: async () => {
-    const userScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!userScope) return;
+    const userState = useUserStore.getState();
+    const userScope = authSelectors.currentUserScope(userState);
+    if (!userScope || authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
 
     await mutate([AiProviderSwrKey.fetchAiProviderItem, userScope, get().activeAiProvider]);
     await get().refreshAiProviderRuntimeState();
   },
   refreshAiProviderList: async () => {
-    const userScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!userScope) return;
+    const userState = useUserStore.getState();
+    const userScope = authSelectors.currentUserScope(userState);
+    if (!userScope || authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
 
     await mutate([AiProviderSwrKey.fetchAiProviderList, userScope]);
     await get().refreshAiProviderRuntimeState();
   },
   refreshAiProviderRuntimeState: async () => {
-    const userScope = authSelectors.currentUserScope(useUserStore.getState());
-    if (!userScope) return;
+    const userState = useUserStore.getState();
+    const userScope = authSelectors.currentUserScope(userState);
+    if (!userScope || authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
 
     if (get().runtimeStateInitializationFailure?.scope === userScope) {
       set(
@@ -220,14 +232,17 @@ export const createAiProviderSlice: StateCreator<
   },
   useFetchAiProviderItem: (id) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
+    const hasOwnerMismatch = useUserStore(authSelectors.hasActiveUserStateOwnerMismatch);
 
     return useClientDataSWR<AiProviderDetailItem | undefined>(
-      requestedScope ? [AiProviderSwrKey.fetchAiProviderItem, requestedScope, id] : null,
+      requestedScope && !hasOwnerMismatch
+        ? [AiProviderSwrKey.fetchAiProviderItem, requestedScope, id]
+        : null,
       () => aiProviderService.getAiProviderById(id),
       {
         onSuccess: (data) => {
           if (!data) return;
-          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+          if (!isRequestedScopeCurrent(requestedScope)) return;
 
           set({ activeAiProvider: id, aiProviderDetail: data }, false, 'useFetchAiProviderItem');
         },
@@ -236,16 +251,17 @@ export const createAiProviderSlice: StateCreator<
   },
   useFetchAiProviderList: (opts) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
+    const hasOwnerMismatch = useUserStore(authSelectors.hasActiveUserStateOwnerMismatch);
 
     return useClientDataSWR<AiProviderListItem[]>(
-      opts?.enabled === false || !requestedScope
+      opts?.enabled === false || !requestedScope || hasOwnerMismatch
         ? null
         : [AiProviderSwrKey.fetchAiProviderList, requestedScope],
       () => aiProviderService.getAiProviderList(),
       {
         fallbackData: [],
         onSuccess: (data) => {
-          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+          if (!isRequestedScopeCurrent(requestedScope)) return;
 
           if (!get().initAiProviderList) {
             set(
@@ -264,6 +280,7 @@ export const createAiProviderSlice: StateCreator<
 
   useFetchAiProviderRuntimeState: (isLogin, userScope) => {
     const isAuthLoaded = authSelectors.isLoaded(useUserStore.getState());
+    const hasOwnerMismatch = useUserStore(authSelectors.hasActiveUserStateOwnerMismatch);
     const requestedScope = isLogin ? userScope : 'guest';
     useEffect(() => {
       if (get().runtimeStateRequestScope === requestedScope) return;
@@ -299,6 +316,7 @@ export const createAiProviderSlice: StateCreator<
       !isDeprecatedEdition &&
       isLogin !== null &&
       isLogin !== undefined &&
+      !hasOwnerMismatch &&
       !!requestedScope;
     return useClientDataSWR<AiProviderRuntimeStateWithBuiltinModels | undefined>(
       shouldFetch ? [AiProviderSwrKey.fetchAiProviderRuntimeState, requestedScope] : null,
@@ -363,7 +381,7 @@ export const createAiProviderSlice: StateCreator<
         focusThrottleInterval: isDesktop || isUsePgliteDB ? 100 : undefined,
         onError: () => {
           if (get().runtimeStateRequestScope !== requestedScope) return;
-          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+          if (!isRequestedScopeCurrent(requestedScope)) return;
           if (
             get().isInitAiProviderRuntimeState &&
             get().runtimeStateScope === requestedScope
@@ -385,7 +403,7 @@ export const createAiProviderSlice: StateCreator<
         onSuccess: (data) => {
           if (!data) return;
           if (get().runtimeStateRequestScope !== requestedScope) return;
-          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+          if (!isRequestedScopeCurrent(requestedScope)) return;
 
           set(
             {

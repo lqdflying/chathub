@@ -64,8 +64,20 @@ const currentUserScope = (s: UserStore): string | undefined => {
   return authenticatedUserId ? `user:${authenticatedUserId}` : undefined;
 };
 
+const hasActiveUserStateOwnerMismatch = (s: UserStore): boolean => {
+  const userScope = currentUserScope(s);
+  const initializationFailure = s.userStateInitializationFailure;
+
+  return (
+    !!userScope &&
+    initializationFailure?.scope === userScope &&
+    initializationFailure.reason === 'owner-mismatch'
+  );
+};
+
 export const authSelectors = {
   currentUserScope,
+  hasActiveUserStateOwnerMismatch,
   isLoaded: (s: UserStore) => s.isLoaded,
   isLogin,
   isLoginWithAuth: (s: UserStore) => s.isSignedIn,

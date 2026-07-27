@@ -180,13 +180,18 @@ export const createAiModelSlice: StateCreator<
 
   useFetchAiProviderModels: (id) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
+    const hasOwnerMismatch = useUserStore(authSelectors.hasActiveUserStateOwnerMismatch);
 
     return useClientDataSWR<AiProviderModelListItem[]>(
-      requestedScope ? [FETCH_AI_PROVIDER_MODEL_LIST_KEY, requestedScope, id] : null,
+      requestedScope && !hasOwnerMismatch
+        ? [FETCH_AI_PROVIDER_MODEL_LIST_KEY, requestedScope, id]
+        : null,
       () => aiModelService.getAiProviderModelList(id),
       {
         onSuccess: (data) => {
-          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+          const userState = useUserStore.getState();
+          if (authSelectors.currentUserScope(userState) !== requestedScope) return;
+          if (authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
 
           // no need to update list if the list have been init and data is the same
           if (get().isAiModelListInit && isEqual(data, get().aiProviderModelList)) return;

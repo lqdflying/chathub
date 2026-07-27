@@ -63,12 +63,31 @@ last-known-good state and does not replace working controls with bootstrap
 guidance. An `owner-mismatch` is the exception because it proves that the
 authenticated scope and returned identity have diverged. It clears hydrated
 user preferences, settings, provider/model lists, subscription state, and
-mapped user data even after earlier successful hydration. Image creation and
-recreation reject while that active-scope failure exists. A scope reset,
-matching request-failure retry, or accepted success clears the matching
-recoverable failure. Late success and error callbacks whose request scope is no
-longer active are ignored, so an account transition cannot hydrate or report
-another account's state.
+mapped user data even after earlier successful hydration. The mismatch also
+increments a monotonic ownership-invalidation generation and publishes an
+immediate account-scope invalidation event. `StoreInitialization` consumes that
+event through `resetAccountScopedStores`, which synchronously clears the
+session, chat, image, agent, group, provider runtime, file, knowledge-base, and
+tool stores; increments their account or conversation generations; and aborts
+registered chat, image, upload, agent-update, and plugin operations. The
+generation change provides the same reset when the event subscriber has not
+mounted yet.
+
+Provider and model SWR callbacks check both their originating scope and the
+active owner-mismatch state before writing. Authentication payload and header
+construction also fails closed during the mismatch, so cleared or late runtime
+credentials cannot be serialized into a request. Image creation and recreation
+register an `AbortController` with the image store, pass its signal to the tRPC
+mutation, and include ownership validity in every continuation check. A
+mismatch therefore cancels the request and suppresses stale batch refresh,
+removal, prompt clearing, and finalizer writes.
+
+A scope reset, matching request-failure retry, or accepted success clears the
+matching recoverable failure. An owner mismatch remains active until the
+authentication session changes; it is not recoverable by revalidating the same
+resource. Late success and error callbacks whose request scope is no longer
+active are ignored, so an account transition cannot hydrate or report another
+account's state.
 
 Image Settings renders the skeleton only while prerequisites are genuinely
 pending or a retry is active. An active-scope prerequisite failure replaces the

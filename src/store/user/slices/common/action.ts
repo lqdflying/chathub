@@ -7,6 +7,7 @@ import type { StateCreator } from 'zustand/vanilla';
 import { DEFAULT_PREFERENCE } from '@/const/user';
 import { useOnlyFetchOnceSWR } from '@/libs/swr';
 import { userService } from '@/services/user';
+import { publishAccountScopeInvalidation } from '@/store/accountScopeInvalidation';
 import type { UserStore } from '@/store/user';
 import type { GlobalServerConfig } from '@/types/serverConfig';
 import { LobeUser, UserInitializationState } from '@/types/user';
@@ -24,10 +25,11 @@ const n = setNamespace('common');
 
 const GET_USER_STATE_KEY = 'initUserState';
 const getUserStateKey = (userScope: string) => [GET_USER_STATE_KEY, userScope] as const;
-const createResetUserState = () => ({
+const createResetUserState = (ownershipInvalidationGeneration: number) => ({
   ...initialCommonState,
   ...initialModelListState,
   ...initialSettingsState,
+  ownershipInvalidationGeneration,
   preference: DEFAULT_PREFERENCE,
   user: undefined,
 });
@@ -102,7 +104,7 @@ export const createCommonSlice: StateCreator<
       if (!didUserScopeChange) return;
 
       set(
-        createResetUserState(),
+        createResetUserState(get().ownershipInvalidationGeneration),
         false,
         n('resetUserStateScope'),
       );
@@ -115,6 +117,7 @@ export const createCommonSlice: StateCreator<
         onError: () => {
           const currentUserScope = authSelectors.currentUserScope(get());
           if (currentUserScope !== userScope) return;
+          if (authSelectors.hasActiveUserStateOwnerMismatch(get())) return;
           if (get().isUserStateInit && get().userStateScope === userScope) return;
 
           set(
@@ -131,13 +134,15 @@ export const createCommonSlice: StateCreator<
         onSuccess: (data) => {
           const currentUserScope = authSelectors.currentUserScope(get());
           if (currentUserScope !== userScope) return;
+          if (authSelectors.hasActiveUserStateOwnerMismatch(get())) return;
           if (
             userScope !== 'local' &&
             (!data.authUserId || `user:${data.authUserId}` !== userScope)
           ) {
+            const ownershipInvalidationGeneration = get().ownershipInvalidationGeneration + 1;
             set(
               {
-                ...createResetUserState(),
+                ...createResetUserState(ownershipInvalidationGeneration),
                 userStateInitializationFailure: {
                   reason: 'owner-mismatch',
                   scope: userScope,
@@ -146,6 +151,10 @@ export const createCommonSlice: StateCreator<
               false,
               n('initUserState/ownerMismatch'),
             );
+            publishAccountScopeInvalidation({
+              generation: ownershipInvalidationGeneration,
+              scope: userScope,
+            });
             return;
           }
 

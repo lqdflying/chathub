@@ -21,6 +21,15 @@ export interface CreateImageAction {
 
 // ====== helper functions ====== //
 
+const isRequestedScopeOwned = (requestedScope: string): boolean => {
+  const userState = useUserStore.getState();
+
+  return (
+    authSelectors.currentUserScope(userState) === requestedScope &&
+    !authSelectors.hasActiveUserStateOwnerMismatch(userState)
+  );
+};
+
 // ====== action implementation ====== //
 
 export const createCreateImageSlice: StateCreator<
@@ -35,12 +44,13 @@ export const createCreateImageSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(userState);
     const requestedGeneration = store.scopeGeneration;
     const isOperationCurrent = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      !!requestedScope &&
+      isRequestedScopeOwned(requestedScope) &&
       get().scopeGeneration === requestedGeneration;
 
     if (!requestedScope) return;
 
-    if (userState.userStateInitializationFailure?.scope === requestedScope) {
+    if (authSelectors.hasActiveUserStateOwnerMismatch(userState)) {
       throw new TypeError('user state ownership is not initialized');
     }
 
@@ -65,8 +75,16 @@ export const createCreateImageSlice: StateCreator<
     }
 
     const isNewTopic = !activeGenerationTopicId;
+    const abortController = new AbortController();
     set(
-      { isCreating: true, isCreatingWithNewTopic: isNewTopic },
+      (state) => ({
+        imageGenerationAbortControllers: [
+          ...state.imageGenerationAbortControllers,
+          abortController,
+        ],
+        isCreating: true,
+        isCreatingWithNewTopic: isNewTopic,
+      }),
       false,
       'createImage/startCreateImage',
     );
@@ -84,13 +102,16 @@ export const createCreateImageSlice: StateCreator<
 
       if (!isOperationCurrent()) return;
 
-      await imageService.createImage({
-        generationTopicId,
-        imageNum,
-        model,
-        params: { ...parameters, prompt } as any,
-        provider,
-      });
+      await imageService.createImage(
+        {
+          generationTopicId,
+          imageNum,
+          model,
+          params: { ...parameters, prompt } as any,
+          provider,
+        },
+        abortController.signal,
+      );
 
       if (!isOperationCurrent()) return;
 
@@ -109,10 +130,25 @@ export const createCreateImageSlice: StateCreator<
         false,
         'createImage/clearPrompt',
       );
+    } catch (error) {
+      if (!isOperationCurrent()) return;
+
+      throw error;
     } finally {
       if (isOperationCurrent()) {
         set(
-          { isCreating: false, isCreatingWithNewTopic: false },
+          (state) => {
+            const remainingAbortControllers = state.imageGenerationAbortControllers.filter(
+              (controller) => controller !== abortController,
+            );
+
+            return {
+              imageGenerationAbortControllers: remainingAbortControllers,
+              isCreating: remainingAbortControllers.length > 0,
+              isCreatingWithNewTopic:
+                remainingAbortControllers.length > 0 && state.isCreatingWithNewTopic,
+            };
+          },
           false,
           'createImage/endCreateImage',
         );
@@ -126,12 +162,13 @@ export const createCreateImageSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(userState);
     const requestedGeneration = store.scopeGeneration;
     const isOperationCurrent = () =>
-      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      !!requestedScope &&
+      isRequestedScopeOwned(requestedScope) &&
       get().scopeGeneration === requestedGeneration;
 
     if (!requestedScope) return;
 
-    if (userState.userStateInitializationFailure?.scope === requestedScope) {
+    if (authSelectors.hasActiveUserStateOwnerMismatch(userState)) {
       throw new TypeError('user state ownership is not initialized');
     }
 
@@ -146,19 +183,33 @@ export const createCreateImageSlice: StateCreator<
     }
 
     const imageNum = batch.generations.length;
-    set({ isCreating: true }, false, 'recreateImage/startCreateImage');
+    const abortController = new AbortController();
+    set(
+      (state) => ({
+        imageGenerationAbortControllers: [
+          ...state.imageGenerationAbortControllers,
+          abortController,
+        ],
+        isCreating: true,
+      }),
+      false,
+      'recreateImage/startCreateImage',
+    );
 
     let operationError: unknown;
     try {
       if (!isOperationCurrent()) return;
 
-      await imageService.createImage({
-        generationTopicId: activeGenerationTopicId,
-        imageNum,
-        model: batch.model,
-        params: batch.config as any,
-        provider: batch.provider,
-      });
+      await imageService.createImage(
+        {
+          generationTopicId: activeGenerationTopicId,
+          imageNum,
+          model: batch.model,
+          params: batch.config as any,
+          provider: batch.provider,
+        },
+        abortController.signal,
+      );
 
       if (!isOperationCurrent()) return;
 
@@ -183,9 +234,22 @@ export const createCreateImageSlice: StateCreator<
     }
 
     if (isOperationCurrent()) {
-      set({ isCreating: false }, false, 'recreateImage/endCreateImage');
+      set(
+        (state) => {
+          const remainingAbortControllers = state.imageGenerationAbortControllers.filter(
+            (controller) => controller !== abortController,
+          );
+
+          return {
+            imageGenerationAbortControllers: remainingAbortControllers,
+            isCreating: remainingAbortControllers.length > 0,
+          };
+        },
+        false,
+        'recreateImage/endCreateImage',
+      );
     }
 
-    if (operationError) throw operationError;
+    if (operationError && isOperationCurrent()) throw operationError;
   },
 });

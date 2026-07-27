@@ -63,7 +63,14 @@ interface AuthParams {
   provider?: string;
 }
 
+const assertActiveUserStateOwnership = (): void => {
+  if (authSelectors.hasActiveUserStateOwnerMismatch(useUserStore.getState())) {
+    throw new TypeError('user state ownership is not initialized');
+  }
+};
+
 export const createPayloadWithKeyVaults = (provider: string) => {
+  assertActiveUserStateOwnership();
   let keyVaults = {};
 
   // TODO: remove this condition in V2.0
@@ -100,6 +107,7 @@ export const createXorKeyVaultsPayload = (provider: string) => {
 
 // eslint-disable-next-line no-undef
 export const createHeaderWithAuth = async (params?: AuthParams): Promise<HeadersInit> => {
+  assertActiveUserStateOwnership();
   let payload = params?.payload || {};
 
   if (params?.provider) {

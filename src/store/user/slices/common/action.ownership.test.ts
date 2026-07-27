@@ -310,6 +310,53 @@ describe('user state ownership', () => {
     });
   });
 
+  it('preserves an active owner mismatch against late same-scope callbacks', async () => {
+    const lateSuccess = createDeferred<UserInitializationState>();
+    const lateError = createDeferred<UserInitializationState>();
+    vi.spyOn(userService, 'getUserState')
+      .mockReturnValueOnce(lateSuccess.promise)
+      .mockReturnValueOnce(lateError.promise);
+
+    const firstHook = renderHook(() =>
+      useUserStore.getState().useInitUserState(true, 'user:account-a', serverConfig),
+    );
+    const secondHook = renderHook(() =>
+      useUserStore.getState().useInitUserState(true, 'user:account-a', serverConfig),
+    );
+
+    await waitFor(() => expect(userService.getUserState).toHaveBeenCalledTimes(2));
+    act(() => {
+      useUserStore.setState({
+        userStateInitializationFailure: {
+          reason: 'owner-mismatch',
+          scope: 'user:account-a',
+        },
+      });
+    });
+
+    lateSuccess.resolve({
+      authUserId: 'account-a',
+      isOnboard: true,
+      preference: DEFAULT_PREFERENCE,
+      settings: {},
+      userId: 'account-a',
+    });
+    lateError.reject(new Error('late request failure'));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const userState = useUserStore.getState();
+    expect(userState.isUserStateInit).toBe(false);
+    expect(userState.userStateInitializationFailure).toEqual({
+      reason: 'owner-mismatch',
+      scope: 'user:account-a',
+    });
+    expect(userState.userStateScope).toBeUndefined();
+
+    firstHook.unmount();
+    secondHook.unmount();
+  });
+
   it('records active-scope request failures and retries before first hydration', async () => {
     vi.spyOn(userService, 'getUserState').mockRejectedValue(new Error('request failed'));
 
