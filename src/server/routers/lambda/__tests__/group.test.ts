@@ -17,12 +17,139 @@ vi.mock('@/database/core/db-adaptor', () => ({
 vi.mock('@/database/models/chatGroup');
 
 describe('groupRouter', () => {
+  const createWithMembers = vi.fn();
+  const removeAgentsFromGroup = vi.fn();
   const update = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getServerDB).mockResolvedValue({} as never);
-    vi.mocked(ChatGroupModel).mockImplementation(() => ({ update }) as never);
+    vi.mocked(ChatGroupModel).mockImplementation(
+      () => ({ createWithMembers, removeAgentsFromGroup, update }) as never,
+    );
+  });
+
+  it('creates an ordinary group through one authenticated atomic model call', async () => {
+    createWithMembers.mockResolvedValue({
+      group: {
+        id: 'created-group',
+        title: 'Created Group',
+        userId: 'account-a',
+      },
+      virtualMembers: [],
+    });
+    const caller = groupRouter.createCaller({
+      clerkAuth: { userId: 'account-a' },
+      userId: 'account-a',
+    } as never);
+
+    await expect(
+      caller.createGroup({
+        agentIds: ['agent-one', 'agent-two'],
+        group: {
+          config: { enableSupervisor: false },
+          title: 'Created Group',
+        },
+      }),
+    ).resolves.toMatchObject({
+      group: { id: 'created-group' },
+      virtualMembers: [],
+    });
+
+    expect(ChatGroupModel).toHaveBeenCalledWith({}, 'account-a');
+    expect(createWithMembers).toHaveBeenCalledTimes(1);
+    expect(createWithMembers).toHaveBeenCalledWith({
+      agentIds: ['agent-one', 'agent-two'],
+      group: {
+        config: expect.objectContaining({ enableSupervisor: false }),
+        title: 'Created Group',
+      },
+    });
+  });
+
+  it('passes normalized virtual sessions through one atomic model call', async () => {
+    createWithMembers.mockResolvedValue({
+      group: {
+        id: 'template-group',
+        title: 'Template Group',
+        userId: 'account-a',
+      },
+      virtualMembers: [{ agentId: 'virtual-agent', sessionId: 'virtual-session' }],
+    });
+    const caller = groupRouter.createCaller({
+      clerkAuth: { userId: 'account-a' },
+      userId: 'account-a',
+    } as never);
+
+    await caller.createGroup({
+      group: { title: 'Template Group' },
+      virtualSessions: [
+        {
+          config: {
+            plugins: ['template-plugin'],
+            systemRole: 'Template role',
+            virtual: true,
+          },
+          session: {
+            avatar: 'template-avatar',
+            title: 'Template Member',
+          },
+        },
+      ],
+    });
+
+    expect(createWithMembers).toHaveBeenCalledTimes(1);
+    expect(createWithMembers).toHaveBeenCalledWith({
+      group: { config: undefined, title: 'Template Group' },
+      virtualSessions: [
+        {
+          config: {
+            plugins: ['template-plugin'],
+            systemRole: 'Template role',
+            virtual: true,
+          },
+          session: {
+            avatar: 'template-avatar',
+            title: 'Template Member',
+          },
+        },
+      ],
+    });
+  });
+
+  it('rejects ownership fields in atomic group creation input', async () => {
+    const caller = groupRouter.createCaller({
+      clerkAuth: { userId: 'account-a' },
+      userId: 'account-a',
+    } as never);
+
+    await expect(
+      caller.createGroup({
+        group: {
+          title: 'Injected Group',
+          userId: 'account-b',
+        },
+      } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(createWithMembers).not.toHaveBeenCalled();
+  });
+
+  it('removes multiple members through one atomic model call', async () => {
+    removeAgentsFromGroup.mockResolvedValue(undefined);
+    const caller = groupRouter.createCaller({
+      clerkAuth: { userId: 'account-a' },
+      userId: 'account-a',
+    } as never);
+
+    await expect(
+      caller.removeAgentsFromGroup({
+        agentIds: ['agent-one', 'agent-two'],
+        groupId: 'owned-group',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(removeAgentsFromGroup).toHaveBeenCalledTimes(1);
+    expect(removeAgentsFromGroup).toHaveBeenCalledWith('owned-group', ['agent-one', 'agent-two']);
   });
 
   it('rejects attempts to reassign group ownership', async () => {

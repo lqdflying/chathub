@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { lambdaClient } from '@/libs/trpc/client';
 
+import { normalizeAgentSession } from './normalizeSession';
 import { ISessionService } from './type';
 
 export class ServerService implements ISessionService {
@@ -10,10 +11,8 @@ export class ServerService implements ISessionService {
   };
 
   createSession: ISessionService['createSession'] = async (type, data) => {
-    const { config, group, meta, ...session } = data;
     return lambdaClient.session.createSession.mutate({
-      config: { ...config, ...meta } as any,
-      session: { ...session, groupId: group },
+      ...normalizeAgentSession(data),
       type,
     });
   };

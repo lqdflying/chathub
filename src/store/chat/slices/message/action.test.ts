@@ -80,24 +80,35 @@ afterEach(() => {
 
 describe('chatMessage actions', () => {
   describe('internal_invalidateConversation', () => {
-    it('clears only the invalidated conversation generation marker', () => {
+    it('clears every invalidated conversation operation and preserves other conversations', () => {
       useChatStore.setState({
         activeId: 'session-id',
         activeTopicId: 'topic-id',
         serverGenerationOperations: {
           'other-session_other-topic': {
-            generation: 1,
-            operationId: 'other-operation',
-            sessionId: 'other-session',
-            topicId: 'other-topic',
-            userScope: 'user:account-a',
+            'other-operation': {
+              generation: 1,
+              operationId: 'other-operation',
+              sessionId: 'other-session',
+              topicId: 'other-topic',
+              userScope: 'user:account-a',
+            },
           },
           'session-id_topic-id': {
-            generation: 1,
-            operationId: 'current-operation',
-            sessionId: 'session-id',
-            topicId: 'topic-id',
-            userScope: 'user:account-a',
+            'current-operation-one': {
+              generation: 1,
+              operationId: 'current-operation-one',
+              sessionId: 'session-id',
+              topicId: 'topic-id',
+              userScope: 'user:account-a',
+            },
+            'current-operation-two': {
+              generation: 1,
+              operationId: 'current-operation-two',
+              sessionId: 'session-id',
+              topicId: 'topic-id',
+              userScope: 'user:account-a',
+            },
           },
         },
       });
@@ -109,11 +120,13 @@ describe('chatMessage actions', () => {
 
       expect(useChatStore.getState().serverGenerationOperations).toEqual({
         'other-session_other-topic': {
-          generation: 1,
-          operationId: 'other-operation',
-          sessionId: 'other-session',
-          topicId: 'other-topic',
-          userScope: 'user:account-a',
+          'other-operation': {
+            generation: 1,
+            operationId: 'other-operation',
+            sessionId: 'other-session',
+            topicId: 'other-topic',
+            userScope: 'user:account-a',
+          },
         },
       });
     });
@@ -486,11 +499,13 @@ describe('chatMessage actions', () => {
         searchTopics: [{ id: 'search-topic', title: 'Search result' }],
         serverGenerationOperations: {
           'session-id_topic-id': {
-            generation: 1,
-            operationId: 'generation-operation',
-            sessionId: 'session-id',
-            topicId: 'topic-id',
-            userScope: 'user:account-a',
+            'generation-operation': {
+              generation: 1,
+              operationId: 'generation-operation',
+              sessionId: 'session-id',
+              topicId: 'topic-id',
+              userScope: 'user:account-a',
+            },
           },
         },
         showPortal: true,

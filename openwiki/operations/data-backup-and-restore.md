@@ -73,17 +73,23 @@ The chat-group membership migration repairs legacy `chat_groups_agents` rows
 before installing composite ownership constraints:
 
 1. If the referenced group and agent have the same owner but the junction
-   `userId` is stale, normalize the junction owner.
-2. If the group and agent have different owners, delete the invalid
-   cross-account membership.
-3. Create the composite `(id, userId)` parent indexes and foreign keys that
-   prevent future mismatches.
+   `userId` is stale, normalize the junction owner using null-safe comparison.
+2. Delete every remaining membership without a matching user, group owner, or
+   agent owner. This covers missing parents as well as cross-account links.
+3. Create the composite `(id, userId)` parent indexes.
+4. Inspect all five membership foreign keys through PostgreSQL catalogs and
+   replace missing, unvalidated, or semantically incorrect definitions.
+5. Validate every constraint with `ON DELETE CASCADE` and `ON UPDATE NO ACTION`.
 
 Docker startup runs the same logic through
 `ensureChatGroupMembershipOwnership.cjs` after Drizzle migrations. The helper
 is transactional and idempotent, checks that all three tables exist, and is safe
-to rerun after a restored database or migration-journal drift. Back up
-PostgreSQL before upgrading; a true cross-owner link cannot be assigned safely
+to rerun after a restored database or migration-journal drift. The normal server
+migration command runs the same convergence after Drizzle as well, including
+databases that already recorded an earlier variant of the migration. Cascading
+foreign keys ensure deleting a user, group, or agent cannot leave a membership
+or block parent deletion because of a stale junction row. Back up PostgreSQL
+before upgrading; an orphaned or true cross-owner link cannot be assigned safely
 and is deliberately removed rather than guessed.
 
 ## Compatibility and security

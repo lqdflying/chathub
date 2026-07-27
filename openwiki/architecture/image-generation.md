@@ -120,13 +120,18 @@ Server-mode chat generation also captures the canonical account scope before
 message persistence. After the agent runtime settles, it revalidates that scope,
 the conversation epoch, the session, and the topic before reading user-file
 state or attaching files to an agent. Generation loading is tracked separately
-from title and topic-update loading in an operation registry keyed by the
-captured session and topic. Each entry carries a unique owner token; invalidation
-removes only the invalidated conversation's entry, and finalization uses
-compare-and-delete so an older same-topic operation cannot remove a newer
-operation's marker. Agent-file persistence similarly captures the account
-generation, session, and agent before its first await and skips refreshes when
-any owner changes.
+from title and topic-update loading in a two-level operation registry. The outer
+key is the captured session/topic conversation key; its value is a bucket keyed
+by unique generation operation IDs. Concurrent runtimes for the same topic
+therefore remain independently owned, and the topic stays loading until the
+last operation in its bucket settles. Each finalizer removes only its own
+operation ID and deletes the outer bucket only when no siblings remain.
+Conversation invalidation drops the complete active bucket while preserving
+other session/topic buckets. A stale finalizer whose operation was already
+invalidated cannot remove a newer operation created under the same outer key.
+Global history and account resets clear the complete registry. Agent-file
+persistence similarly captures the account generation, session, and agent
+before its first await and skips refreshes when any owner changes.
 
 Topic and thread title summaries have resource-specific operation tokens and
 abort controllers. Their optimistic title and loading state are written to the

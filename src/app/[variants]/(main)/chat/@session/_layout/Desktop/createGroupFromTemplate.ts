@@ -1,8 +1,11 @@
 import type { PartialDeep } from 'type-fest';
 
 import type { GroupTemplate } from '@/components/ChatGroupWizard/templates';
+import type { CreateChatGroupMemberSession } from '@/database/models/chatGroup';
 import type { NewChatGroup } from '@/database/schemas/chatGroup';
-import type { LobeAgentSession, LobeSession } from '@/types/session';
+import { normalizeAgentSession } from '@/services/session/normalizeSession';
+import { prepareAgentSession } from '@/store/session/slices/session/prepareAgentSession';
+import type { LobeAgentSession } from '@/types/session';
 
 interface TemplateCreationScope {
   chatGroupGeneration: number;
@@ -11,28 +14,26 @@ interface TemplateCreationScope {
 }
 
 interface CreateGroupFromTemplateParams {
-  createGroup: (group: Omit<NewChatGroup, 'userId'>, agentIds?: string[]) => Promise<string>;
-  createSession: (
-    session?: PartialDeep<LobeAgentSession>,
-    switchToSession?: boolean,
+  createGroup: (
+    group: Omit<NewChatGroup, 'userId'>,
+    agentIds?: string[],
+    silent?: boolean,
+    virtualSessions?: CreateChatGroupMemberSession[],
   ) => Promise<string>;
+  defaultAgentSettings?: PartialDeep<LobeAgentSession>;
   getCurrentScope: () => TemplateCreationScope | undefined;
-  getSessionById: (sessionId: string) => LobeSession | undefined;
   group: Omit<NewChatGroup, 'userId'>;
   groupDescription: string;
   members: GroupTemplate['members'];
-  refreshSessions: () => Promise<void>;
 }
 
 export const createGroupFromTemplate = async ({
   createGroup,
-  createSession,
+  defaultAgentSettings,
   getCurrentScope,
-  getSessionById,
   group,
   groupDescription,
   members,
-  refreshSessions,
 }: CreateGroupFromTemplateParams): Promise<string> => {
   const requestedScope = getCurrentScope();
   if (!requestedScope) return '';
@@ -47,11 +48,8 @@ export const createGroupFromTemplate = async ({
     );
   };
 
-  const memberAgentIds: string[] = [];
-  for (const member of members) {
-    if (!isCurrentTemplateCreation()) return '';
-
-    const sessionId = await createSession(
+  const virtualSessions = members.map((member) => {
+    const preparedSession = prepareAgentSession(
       {
         config: {
           plugins: member.plugins,
@@ -65,25 +63,15 @@ export const createGroupFromTemplate = async ({
           title: member.title,
         },
       },
-      false,
+      defaultAgentSettings,
     );
-    if (!sessionId || !isCurrentTemplateCreation()) return '';
 
-    await refreshSessions();
-    if (!isCurrentTemplateCreation()) return '';
-
-    const session = getSessionById(sessionId);
-    if (!session || session.type !== 'agent') return '';
-
-    const agentId = (session as LobeAgentSession).config?.id;
-    if (!agentId || !isCurrentTemplateCreation()) return '';
-
-    memberAgentIds.push(agentId);
-  }
+    return normalizeAgentSession(preparedSession);
+  });
 
   if (!isCurrentTemplateCreation()) return '';
 
-  const groupId = await createGroup(group, memberAgentIds);
+  const groupId = await createGroup(group, undefined, false, virtualSessions);
   if (!groupId || !isCurrentTemplateCreation()) return '';
 
   return groupId;

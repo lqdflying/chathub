@@ -1,3 +1,4 @@
+import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
 import isEqual from 'fast-deep-equal';
 import { produce } from 'immer';
 import { mutate } from 'swr';
@@ -12,7 +13,7 @@ import type { ChatStoreState } from '@/store/chat/initialState';
 import { useChatStore } from '@/store/chat/store';
 import { getSessionStoreState } from '@/store/session';
 import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
+import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { setNamespace } from '@/utils/storeDebug';
 
 import {
@@ -73,37 +74,38 @@ export const chatGroupAction: StateCreator<
     /**
      * @param silent - if true, do not switch to the new group session
      */
-    createGroup: async (newGroup, agentIds, silent = false) => {
+    createGroup: async (newGroup, agentIds, silent = false, virtualSessions) => {
       const { switchSession } = getSessionStoreState();
       const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
       const requestedGeneration = get().scopeGeneration;
       if (!requestedScope) return '';
 
-      const group = await chatGroupService.createGroup(newGroup);
+      const { group, virtualMembers } = await chatGroupService.createGroup({
+        agentIds,
+        group: newGroup,
+        virtualSessions,
+      });
       if (
         authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
         get().scopeGeneration !== requestedGeneration
       )
         return '';
 
-      if (agentIds && agentIds.length > 0) {
-        await chatGroupService.addAgentsToGroup(group.id, agentIds);
-        if (
-          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-          get().scopeGeneration !== requestedGeneration
-        )
-          return '';
-
-        // Wait a brief moment to ensure database transactions are committed
-        // This prevents race condition where loadGroups() executes before member addition is fully persisted
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 100);
-        });
-        if (
-          authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-          get().scopeGeneration !== requestedGeneration
-        )
-          return '';
+      const analytics = getSingletonAnalyticsOptional();
+      if (analytics && virtualSessions) {
+        const userId = userProfileSelectors.userId(useUserStore.getState());
+        for (const [index, virtualMember] of virtualMembers.entries()) {
+          const virtualSession = virtualSessions[index];
+          analytics.track({
+            name: 'new_agent_created',
+            properties: {
+              assistant_name: virtualSession?.config.title || 'Untitled Agent',
+              assistant_tags: virtualSession?.config.tags || [],
+              session_id: virtualMember.sessionId,
+              user_id: userId || 'anonymous',
+            },
+          });
+        }
       }
 
       dispatch({ payload: group, type: 'addGroup' });

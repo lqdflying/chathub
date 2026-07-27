@@ -1,20 +1,18 @@
-import {
-  ChatGroupAgentItem,
-  ChatGroupItem,
-  NewChatGroup,
-  NewChatGroupAgent,
-} from '@/database/schemas';
+import { ChatGroupAgentItem, ChatGroupItem, NewChatGroupAgent } from '@/database/schemas';
 import { lambdaClient } from '@/libs/trpc/client';
 
 import { IChatGroupService } from './type';
 
 export class ServerService implements IChatGroupService {
-  createGroup(params: Omit<NewChatGroup, 'userId'>): Promise<ChatGroupItem> {
+  createGroup: IChatGroupService['createGroup'] = (params) => {
     return lambdaClient.group.createGroup.mutate({
       ...params,
-      config: params.config as any,
+      group: {
+        ...params.group,
+        config: params.group.config as any,
+      },
     });
-  }
+  };
 
   updateGroup(id: string, value: Partial<ChatGroupItem>): Promise<ChatGroupItem> {
     return lambdaClient.group.updateGroup.mutate({
@@ -42,8 +40,8 @@ export class ServerService implements IChatGroupService {
     return lambdaClient.group.addAgentsToGroup.mutate({ agentIds, groupId });
   }
 
-  removeAgentsFromGroup(groupId: string, agentIds: string[]): Promise<any> {
-    return lambdaClient.group.removeAgentsFromGroup.mutate({ agentIds, groupId });
+  async removeAgentsFromGroup(groupId: string, agentIds: string[]): Promise<void> {
+    await lambdaClient.group.removeAgentsFromGroup.mutate({ agentIds, groupId });
   }
 
   updateAgentInGroup(

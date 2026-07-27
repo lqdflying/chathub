@@ -80,8 +80,11 @@ describe('chat group action ownership', () => {
       });
     });
     createdGroup.resolve({
-      id: 'account-a-group',
-      title: 'Account A Group',
+      group: {
+        id: 'account-a-group',
+        title: 'Account A Group',
+      },
+      virtualMembers: [],
     } as Awaited<ReturnType<typeof chatGroupService.createGroup>>);
 
     let createdGroupId!: string;
@@ -96,6 +99,59 @@ describe('chat group action ownership', () => {
     expect(useSessionStore.getState().switchSession).not.toHaveBeenCalled();
     expect(useSessionStore.getState().activeId).toBe('account-b-session');
     expect(useChatGroupStore.getState().groups).toEqual([]);
+  });
+
+  it('creates members in one request and refreshes groups and sessions once after commit', async () => {
+    vi.spyOn(chatGroupService, 'createGroup').mockResolvedValue({
+      group: {
+        id: 'atomic-group',
+        title: 'Atomic Group',
+      },
+      virtualMembers: [
+        {
+          agentId: 'virtual-agent',
+          sessionId: 'virtual-session',
+        },
+      ],
+    } as Awaited<ReturnType<typeof chatGroupService.createGroup>>);
+    const addAgentsSpy = vi.spyOn(chatGroupService, 'addAgentsToGroup');
+
+    const { result } = renderHook(() => useChatGroupStore());
+    const loadGroupsSpy = vi.spyOn(result.current, 'loadGroups').mockResolvedValue();
+    const refreshSessionsSpy = vi
+      .spyOn(useSessionStore.getState(), 'refreshSessions')
+      .mockResolvedValue();
+
+    let createdGroupId!: string;
+    await act(async () => {
+      createdGroupId = await result.current.createGroup(
+        { title: 'Atomic Group' },
+        ['existing-agent'],
+        false,
+        [
+          {
+            config: { title: 'Virtual Agent', virtual: true },
+            session: { title: 'Virtual Session' },
+          },
+        ],
+      );
+    });
+
+    expect(createdGroupId).toBe('atomic-group');
+    expect(chatGroupService.createGroup).toHaveBeenCalledTimes(1);
+    expect(chatGroupService.createGroup).toHaveBeenCalledWith({
+      agentIds: ['existing-agent'],
+      group: { title: 'Atomic Group' },
+      virtualSessions: [
+        {
+          config: { title: 'Virtual Agent', virtual: true },
+          session: { title: 'Virtual Session' },
+        },
+      ],
+    });
+    expect(addAgentsSpy).not.toHaveBeenCalled();
+    expect(loadGroupsSpy).toHaveBeenCalledTimes(1);
+    expect(refreshSessionsSpy).toHaveBeenCalledTimes(1);
   });
 
   it('ignores an earlier group refresh after an A-to-B-to-A reset', async () => {

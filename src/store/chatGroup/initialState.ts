@@ -1,3 +1,4 @@
+import type { CreateChatGroupMemberSession } from '@/database/models/chatGroup';
 import type { ChatGroupItem, NewChatGroup } from '@/database/schemas/chatGroup';
 import type { LobeChatGroupConfig } from '@/types/chatGroup';
 
@@ -14,7 +15,12 @@ export interface ChatGroupState {
 // Forward declaration for actions to avoid circular dependency
 export interface ChatGroupAction {
   addAgentsToGroup: (groupId: string, agentIds: string[]) => Promise<void>;
-  createGroup: (group: Omit<NewChatGroup, 'userId'>, agentIds?: string[]) => Promise<string>;
+  createGroup: (
+    group: Omit<NewChatGroup, 'userId'>,
+    agentIds?: string[],
+    silent?: boolean,
+    virtualSessions?: CreateChatGroupMemberSession[],
+  ) => Promise<string>;
   deleteGroup: (id: string) => Promise<void>;
   internal_dispatchChatGroup: (
     payload:

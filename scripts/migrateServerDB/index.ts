@@ -5,13 +5,17 @@ import { migrate as nodeMigrate } from 'drizzle-orm/node-postgres/migrator';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
+// @ts-ignore tsgo handle esm import cjs and compatibility issues
+import { DB_FAIL_INIT_HINT, PGVECTOR_HINT } from './errorHint';
+
 const require = createRequire(import.meta.url);
 const { AGENT_ASSISTANT_MEMORY_SQL } = require('./ensureAgentAssistantMemory.cjs') as {
   AGENT_ASSISTANT_MEMORY_SQL: string;
 };
-
-// @ts-ignore tsgo handle esm import cjs and compatibility issues
-import { DB_FAIL_INIT_HINT, PGVECTOR_HINT } from './errorHint';
+const { CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL } =
+  require('./ensureChatGroupMembershipOwnership.cjs') as {
+    CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL: string;
+  };
 
 // Read the `.env` file if it exists, or a file specified by the
 // dotenv_config_path parameter that's passed to Node.js
@@ -31,6 +35,7 @@ const runMigrations = async () => {
   }
 
   await serverDB.execute(sql.raw(AGENT_ASSISTANT_MEMORY_SQL));
+  await serverDB.execute(sql.raw(CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL));
 
   console.log('✅ database migration pass.');
   // eslint-disable-next-line unicorn/no-process-exit

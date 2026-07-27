@@ -7,8 +7,10 @@ import { LobeChatDatabase } from '@/database/type';
 import {
   NewChatGroup,
   agents as agentsTable,
+  agentsToSessions,
   chatGroups,
   chatGroupsAgents,
+  sessions,
   users,
 } from '../../schemas';
 import { ChatGroupModel } from '../chatGroup';
@@ -352,6 +354,149 @@ describe('ChatGroupModel', () => {
     });
   });
 
+  describe('createWithMembers', () => {
+    it('should create a template group and virtual members across all tables', async () => {
+      const result = await chatGroupModel.createWithMembers({
+        group: {
+          description: 'Atomic template group',
+          id: 'atomic-template-group',
+          title: 'Atomic Template Group',
+        },
+        virtualSessions: [
+          {
+            config: {
+              plugins: ['template-plugin'],
+              systemRole: 'Research the request',
+              title: 'Researcher',
+              virtual: true,
+            },
+            session: {
+              avatar: 'researcher-avatar',
+              description: 'Researcher - Atomic template group',
+              title: 'Researcher',
+            },
+          },
+          {
+            config: {
+              systemRole: 'Review the result',
+              title: 'Reviewer',
+              virtual: true,
+            },
+            session: {
+              title: 'Reviewer',
+            },
+          },
+        ],
+      });
+
+      expect(result.group.id).toBe('atomic-template-group');
+      expect(result.virtualMembers).toHaveLength(2);
+
+      const createdAgents = await serverDB
+        .select()
+        .from(agentsTable)
+        .where(eq(agentsTable.userId, userId));
+      expect(createdAgents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            plugins: ['template-plugin'],
+            systemRole: 'Research the request',
+            title: 'Researcher',
+            virtual: true,
+          }),
+          expect.objectContaining({
+            systemRole: 'Review the result',
+            title: 'Reviewer',
+            virtual: true,
+          }),
+        ]),
+      );
+
+      const createdSessions = await serverDB
+        .select()
+        .from(sessions)
+        .where(eq(sessions.userId, userId));
+      expect(createdSessions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            avatar: 'researcher-avatar',
+            description: 'Researcher - Atomic template group',
+            title: 'Researcher',
+          }),
+          expect.objectContaining({ title: 'Reviewer' }),
+        ]),
+      );
+
+      const createdLinks = await serverDB
+        .select()
+        .from(agentsToSessions)
+        .where(eq(agentsToSessions.userId, userId));
+      expect(createdLinks).toHaveLength(2);
+
+      const memberships = await serverDB
+        .select()
+        .from(chatGroupsAgents)
+        .where(eq(chatGroupsAgents.chatGroupId, result.group.id));
+      expect(memberships).toHaveLength(2);
+      expect(memberships).toEqual(
+        expect.arrayContaining(
+          result.virtualMembers.map(({ agentId }) =>
+            expect.objectContaining({
+              agentId,
+              enabled: true,
+              order: 0,
+              role: 'participant',
+              userId,
+            }),
+          ),
+        ),
+      );
+    });
+
+    it('should roll back all group and virtual member tables after a late failure', async () => {
+      await expect(
+        chatGroupModel.createWithMembers({
+          group: {
+            id: 'late-failure-group',
+            title: 'Late Failure Group',
+          },
+          virtualSessions: [
+            {
+              config: {
+                slug: 'duplicate-virtual-agent',
+                title: 'First Virtual Agent',
+                virtual: true,
+              },
+              session: { title: 'First Virtual Session' },
+            },
+            {
+              config: {
+                slug: 'duplicate-virtual-agent',
+                title: 'Second Virtual Agent',
+                virtual: true,
+              },
+              session: { title: 'Second Virtual Session' },
+            },
+          ],
+        }),
+      ).rejects.toThrow();
+
+      expect(
+        await serverDB.select().from(chatGroups).where(eq(chatGroups.id, 'late-failure-group')),
+      ).toEqual([]);
+      expect(
+        await serverDB.select().from(agentsTable).where(eq(agentsTable.userId, userId)),
+      ).toEqual([]);
+      expect(await serverDB.select().from(sessions).where(eq(sessions.userId, userId))).toEqual([]);
+      expect(
+        await serverDB.select().from(agentsToSessions).where(eq(agentsToSessions.userId, userId)),
+      ).toEqual([]);
+      expect(
+        await serverDB.select().from(chatGroupsAgents).where(eq(chatGroupsAgents.userId, userId)),
+      ).toEqual([]);
+    });
+  });
+
   describe('update', () => {
     it('should update chat group', async () => {
       // Create test group
@@ -645,6 +790,127 @@ describe('ChatGroupModel', () => {
         .from(chatGroupsAgents)
         .where(eq(chatGroupsAgents.chatGroupId, 'foreign-remove-group'));
       expect(membership).toHaveLength(1);
+    });
+  });
+
+  describe('removeAgentsFromGroup', () => {
+    const ownedGroupId = 'plural-remove-owned-group';
+    const otherOwnedGroupId = 'plural-remove-other-owned-group';
+    const foreignGroupId = 'plural-remove-foreign-group';
+    const ownedAgentIds = ['plural-remove-agent-one', 'plural-remove-agent-two'];
+    const otherGroupAgentId = 'plural-remove-other-group-agent';
+    const foreignAgentId = 'plural-remove-foreign-agent';
+
+    const createRemovalFixture = async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction.insert(chatGroups).values([
+          { id: ownedGroupId, title: 'Owned Group', userId },
+          { id: otherOwnedGroupId, title: 'Other Owned Group', userId },
+          { id: foreignGroupId, title: 'Foreign Group', userId: otherUserId },
+        ]);
+        await transaction
+          .insert(agentsTable)
+          .values([
+            ...ownedAgentIds.map((id) => ({ id, title: id, userId })),
+            { id: otherGroupAgentId, title: 'Other Group Agent', userId },
+            { id: foreignAgentId, title: 'Foreign Agent', userId: otherUserId },
+          ]);
+        await transaction.insert(chatGroupsAgents).values([
+          ...ownedAgentIds.map((agentId) => ({
+            agentId,
+            chatGroupId: ownedGroupId,
+            userId,
+          })),
+          {
+            agentId: otherGroupAgentId,
+            chatGroupId: otherOwnedGroupId,
+            userId,
+          },
+          {
+            agentId: foreignAgentId,
+            chatGroupId: foreignGroupId,
+            userId: otherUserId,
+          },
+        ]);
+      });
+    };
+
+    const getMembershipIds = async () => {
+      const memberships = await serverDB
+        .select({
+          agentId: chatGroupsAgents.agentId,
+          chatGroupId: chatGroupsAgents.chatGroupId,
+          userId: chatGroupsAgents.userId,
+        })
+        .from(chatGroupsAgents);
+
+      return memberships
+        .map(({ agentId, chatGroupId, userId: membershipUserId }) =>
+          [membershipUserId, chatGroupId, agentId].join(':'),
+        )
+        .sort();
+    };
+
+    it('should remove multiple owned memberships in one request', async () => {
+      await createRemovalFixture();
+
+      await chatGroupModel.removeAgentsFromGroup(ownedGroupId, ownedAgentIds);
+
+      expect(await chatGroupModel.getGroupAgents(ownedGroupId)).toEqual([]);
+      expect(await chatGroupModel.getGroupAgents(otherOwnedGroupId)).toHaveLength(1);
+      expect(
+        await serverDB
+          .select()
+          .from(chatGroupsAgents)
+          .where(eq(chatGroupsAgents.chatGroupId, foreignGroupId)),
+      ).toHaveLength(1);
+    });
+
+    it.each([
+      {
+        agentIds: [ownedAgentIds[0], 'missing-agent'],
+        groupId: ownedGroupId,
+        name: 'valid and missing memberships',
+      },
+      {
+        agentIds: [ownedAgentIds[0], foreignAgentId],
+        groupId: ownedGroupId,
+        name: 'valid and foreign memberships',
+      },
+      {
+        agentIds: [otherGroupAgentId],
+        groupId: ownedGroupId,
+        name: 'membership from a different owned group',
+      },
+      {
+        agentIds: [ownedAgentIds[0], ownedAgentIds[0]],
+        groupId: ownedGroupId,
+        name: 'duplicate membership IDs',
+      },
+      {
+        agentIds: [],
+        groupId: ownedGroupId,
+        name: 'an empty membership set',
+      },
+      {
+        agentIds: [ownedAgentIds[0]],
+        groupId: 'missing-group',
+        name: 'a missing group',
+      },
+      {
+        agentIds: [foreignAgentId],
+        groupId: foreignGroupId,
+        name: 'a foreign group',
+      },
+    ])('should preserve all memberships when rejecting $name', async ({ agentIds, groupId }) => {
+      await createRemovalFixture();
+      const membershipsBefore = await getMembershipIds();
+
+      await expect(chatGroupModel.removeAgentsFromGroup(groupId, agentIds)).rejects.toThrow(
+        'Group membership not found or access denied',
+      );
+
+      expect(await getMembershipIds()).toEqual(membershipsBefore);
     });
   });
 

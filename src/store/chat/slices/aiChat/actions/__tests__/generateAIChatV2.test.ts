@@ -68,12 +68,14 @@ vi.mock('@/services/aiChat', () => ({
 
 const realExecAgentRuntime = useChatStore.getState().internal_execAgentRuntime;
 const createDeferred = <Value>() => {
+  let reject!: (reason?: unknown) => void;
   let resolve!: (value: Value) => void;
-  const promise = new Promise<Value>((promiseResolve) => {
+  const promise = new Promise<Value>((promiseResolve, promiseReject) => {
+    reject = promiseReject;
     resolve = promiseResolve;
   });
 
-  return { promise, resolve };
+  return { promise, reject, resolve };
 };
 
 beforeEach(() => {
@@ -487,7 +489,7 @@ describe('generateAIChatV2 actions', () => {
         expect(useChatStore.getState().serverGenerationOperations).toEqual({});
       });
 
-      it('keeps a newer same-topic generation marker when an older runtime completes', async () => {
+      it('keeps a same-topic sibling operation when the older runtime completes first', async () => {
         const olderRuntime = createDeferred<void>();
         const newerRuntime = createDeferred<void>();
         const internal_execAgentRuntime = vi
@@ -503,10 +505,13 @@ describe('generateAIChatV2 actions', () => {
           olderPromise = result.current.sendMessage({ message: 'Older request' });
         });
         await vi.waitFor(() => {
-          expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeDefined();
+          expect(
+            Object.keys(useChatStore.getState().serverGenerationOperations[operationKey] || {}),
+          ).toHaveLength(1);
         });
-        const olderOperationId =
-          useChatStore.getState().serverGenerationOperations[operationKey]?.operationId;
+        const [olderOperationId] = Object.keys(
+          useChatStore.getState().serverGenerationOperations[operationKey],
+        );
 
         let newerPromise!: Promise<void>;
         act(() => {
@@ -514,24 +519,170 @@ describe('generateAIChatV2 actions', () => {
         });
         await vi.waitFor(() => {
           expect(
-            useChatStore.getState().serverGenerationOperations[operationKey]?.operationId,
-          ).not.toBe(olderOperationId);
+            Object.keys(useChatStore.getState().serverGenerationOperations[operationKey] || {}),
+          ).toHaveLength(2);
         });
-        const newerOperationId =
-          useChatStore.getState().serverGenerationOperations[operationKey]?.operationId;
+        const newerOperationId = Object.keys(
+          useChatStore.getState().serverGenerationOperations[operationKey],
+        ).find((operationId) => operationId !== olderOperationId);
 
         olderRuntime.resolve(undefined);
         await act(async () => {
           await olderPromise;
         });
 
-        expect(useChatStore.getState().serverGenerationOperations[operationKey]?.operationId).toBe(
-          newerOperationId,
+        expect(
+          Object.keys(useChatStore.getState().serverGenerationOperations[operationKey]),
+        ).toEqual([newerOperationId]);
+
+        newerRuntime.resolve(undefined);
+        await act(async () => {
+          await newerPromise;
+        });
+
+        expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeUndefined();
+      });
+
+      it('keeps a same-topic sibling operation when the newer runtime completes first', async () => {
+        const olderRuntime = createDeferred<void>();
+        const newerRuntime = createDeferred<void>();
+        useChatStore.setState({
+          internal_execAgentRuntime: vi
+            .fn()
+            .mockReturnValueOnce(olderRuntime.promise)
+            .mockReturnValueOnce(newerRuntime.promise),
+        });
+        const { result } = renderHook(() => useChatStore());
+        const operationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+        let olderPromise!: Promise<void>;
+        let newerPromise!: Promise<void>;
+        act(() => {
+          olderPromise = result.current.sendMessage({ message: 'Older request' });
+          newerPromise = result.current.sendMessage({ message: 'Newer request' });
+        });
+        await vi.waitFor(() => {
+          expect(
+            Object.keys(useChatStore.getState().serverGenerationOperations[operationKey] || {}),
+          ).toHaveLength(2);
+        });
+        const operationIds = Object.keys(
+          useChatStore.getState().serverGenerationOperations[operationKey],
         );
 
         newerRuntime.resolve(undefined);
         await act(async () => {
           await newerPromise;
+        });
+
+        expect(
+          Object.keys(useChatStore.getState().serverGenerationOperations[operationKey]),
+        ).toEqual([operationIds[0]]);
+
+        olderRuntime.resolve(undefined);
+        await act(async () => {
+          await olderPromise;
+        });
+
+        expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeUndefined();
+      });
+
+      it('removes only a rejected same-topic runtime operation', async () => {
+        const rejectedRuntime = createDeferred<void>();
+        const activeRuntime = createDeferred<void>();
+        useChatStore.setState({
+          internal_execAgentRuntime: vi
+            .fn()
+            .mockReturnValueOnce(rejectedRuntime.promise)
+            .mockReturnValueOnce(activeRuntime.promise),
+        });
+        const { result } = renderHook(() => useChatStore());
+        const operationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+        let rejectedPromise!: Promise<void>;
+        let activePromise!: Promise<void>;
+        act(() => {
+          rejectedPromise = result.current.sendMessage({ message: 'Rejected request' });
+          activePromise = result.current.sendMessage({ message: 'Active request' });
+        });
+        await vi.waitFor(() => {
+          expect(
+            Object.keys(useChatStore.getState().serverGenerationOperations[operationKey] || {}),
+          ).toHaveLength(2);
+        });
+        const operationIds = Object.keys(
+          useChatStore.getState().serverGenerationOperations[operationKey],
+        );
+
+        rejectedRuntime.reject(new Error('runtime failed'));
+        await act(async () => {
+          await rejectedPromise;
+        });
+
+        expect(
+          Object.keys(useChatStore.getState().serverGenerationOperations[operationKey]),
+        ).toEqual([operationIds[1]]);
+
+        activeRuntime.resolve(undefined);
+        await act(async () => {
+          await activePromise;
+        });
+
+        expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeUndefined();
+      });
+
+      it('does not remove a new same-key operation after invalidation', async () => {
+        const staleRuntime = createDeferred<void>();
+        const currentRuntime = createDeferred<void>();
+        useChatStore.setState({
+          internal_execAgentRuntime: vi
+            .fn()
+            .mockReturnValueOnce(staleRuntime.promise)
+            .mockReturnValueOnce(currentRuntime.promise),
+        });
+        const { result } = renderHook(() => useChatStore());
+        const operationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+        let stalePromise!: Promise<void>;
+        act(() => {
+          stalePromise = result.current.sendMessage({ message: 'Stale request' });
+        });
+        await vi.waitFor(() => {
+          expect(
+            Object.keys(useChatStore.getState().serverGenerationOperations[operationKey] || {}),
+          ).toHaveLength(1);
+        });
+
+        act(() => {
+          result.current.internal_invalidateConversation();
+        });
+        expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeUndefined();
+
+        let currentPromise!: Promise<void>;
+        act(() => {
+          currentPromise = result.current.sendMessage({ message: 'Current request' });
+        });
+        await vi.waitFor(() => {
+          expect(
+            Object.keys(useChatStore.getState().serverGenerationOperations[operationKey] || {}),
+          ).toHaveLength(1);
+        });
+        const [currentOperationId] = Object.keys(
+          useChatStore.getState().serverGenerationOperations[operationKey],
+        );
+
+        staleRuntime.resolve(undefined);
+        await act(async () => {
+          await stalePromise;
+        });
+
+        expect(
+          Object.keys(useChatStore.getState().serverGenerationOperations[operationKey]),
+        ).toEqual([currentOperationId]);
+
+        currentRuntime.resolve(undefined);
+        await act(async () => {
+          await currentPromise;
         });
 
         expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeUndefined();

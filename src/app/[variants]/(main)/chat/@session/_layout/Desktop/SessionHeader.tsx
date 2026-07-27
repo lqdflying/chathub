@@ -16,9 +16,8 @@ import { useActionSWR } from '@/libs/swr';
 import { useChatGroupStore } from '@/store/chatGroup';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSessionStore } from '@/store/session';
-import { sessionSelectors } from '@/store/session/slices/session/selectors';
 import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
+import { authSelectors, settingsSelectors } from '@/store/user/selectors';
 
 import TogglePanelButton from '../../../features/TogglePanelButton';
 import SessionSearchBar from '../../features/SessionSearchBar';
@@ -45,10 +44,7 @@ const Header = memo(() => {
   const { styles } = useStyles();
   const { t } = useTranslation('chat');
   const groupTemplates = useGroupTemplates();
-  const [createSession, refreshSessions] = useSessionStore((s) => [
-    s.createSession,
-    s.refreshSessions,
-  ]);
+  const [createSession] = useSessionStore((s) => [s.createSession]);
   const [createGroup] = useChatGroupStore((s) => [s.createGroup]);
   const { showCreateSession, enableGroupChat } = useServerConfigStore(featureFlagsSelectors);
   const [isGroupWizardOpen, setIsGroupWizardOpen] = useState(false);
@@ -85,7 +81,7 @@ const Header = memo(() => {
 
       const groupId = await createGroupFromTemplate({
         createGroup,
-        createSession,
+        defaultAgentSettings: settingsSelectors.defaultAgent(useUserStore.getState()),
         getCurrentScope: () => {
           const userScope = authSelectors.currentUserScope(useUserStore.getState());
           if (!userScope) return;
@@ -96,8 +92,6 @@ const Header = memo(() => {
             userScope,
           };
         },
-        getSessionById: (sessionId) =>
-          sessionSelectors.getSessionById(sessionId)(useSessionStore.getState()),
         group: {
           config: {
             ...(hostConfig
@@ -113,7 +107,6 @@ const Header = memo(() => {
         },
         groupDescription: template.description,
         members: membersToCreate,
-        refreshSessions,
       });
       if (!groupId) return;
 

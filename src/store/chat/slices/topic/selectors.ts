@@ -56,9 +56,11 @@ const isInSearchMode = (s: ChatStoreState) => s.inSearchingMode;
 const isSearchingTopic = (s: ChatStoreState) => s.isSearchingTopic;
 const isTopicLoading =
   (topicId: string) =>
-  (s: ChatStoreState): boolean =>
-    s.topicLoadingIds.includes(topicId) ||
-    !!s.serverGenerationOperations[messageMapKey(s.activeId, topicId)];
+  (s: ChatStoreState): boolean => {
+    const operations = s.serverGenerationOperations[messageMapKey(s.activeId, topicId)];
+
+    return s.topicLoadingIds.includes(topicId) || Object.keys(operations || {}).length > 0;
+  };
 
 const groupedTopicsSelector = (s: ChatStoreState): GroupedTopic[] => {
   const topics = displayTopics(s);

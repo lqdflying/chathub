@@ -3,13 +3,35 @@ import { and, desc, eq, getTableColumns, inArray } from 'drizzle-orm';
 import {
   ChatGroupAgentItem,
   ChatGroupItem,
+  NewAgent,
   NewChatGroup,
   NewChatGroupAgent,
+  NewSession,
   agents,
   chatGroups,
   chatGroupsAgents,
 } from '../schemas';
 import { LobeChatDatabase } from '../type';
+import { SessionModel } from './session';
+
+export interface CreateChatGroupMemberSession {
+  config: Partial<NewAgent>;
+  session: Partial<NewSession>;
+}
+
+export interface CreateChatGroupParams {
+  agentIds?: string[];
+  group: Omit<NewChatGroup, 'userId'>;
+  virtualSessions?: CreateChatGroupMemberSession[];
+}
+
+export interface CreateChatGroupResult {
+  group: ChatGroupItem;
+  virtualMembers: Array<{
+    agentId: string;
+    sessionId: string;
+  }>;
+}
 
 export class ChatGroupModel {
   private userId: string;
@@ -105,10 +127,11 @@ export class ChatGroupModel {
     return result;
   }
 
-  async createWithAgents(
-    groupParams: Omit<NewChatGroup, 'userId'>,
-    agentIds: string[],
-  ): Promise<{ agents: NewChatGroupAgent[]; group: ChatGroupItem }> {
+  async createWithMembers({
+    agentIds = [],
+    group: groupParams,
+    virtualSessions = [],
+  }: CreateChatGroupParams): Promise<CreateChatGroupResult> {
     return this.db.transaction(async (transaction) => {
       const uniqueAgentIds = [...new Set(agentIds)];
       if (uniqueAgentIds.length !== agentIds.length) {
@@ -131,25 +154,51 @@ export class ChatGroupModel {
         .values({ ...groupParams, userId: this.userId })
         .returning();
 
-      if (uniqueAgentIds.length === 0) {
-        return { agents: [], group };
+      const sessionModel = new SessionModel(this.db, this.userId);
+      const virtualMembers: CreateChatGroupResult['virtualMembers'] = [];
+      for (const virtualSession of virtualSessions) {
+        const createdSession = await sessionModel.createInTransaction(transaction, {
+          config: virtualSession.config,
+          session: virtualSession.session,
+          type: 'agent',
+        });
+        if (!createdSession.agentId) {
+          throw new Error('Virtual group member creation failed');
+        }
+
+        uniqueAgentIds.push(createdSession.agentId);
+        virtualMembers.push({
+          agentId: createdSession.agentId,
+          sessionId: createdSession.session.id,
+        });
       }
 
-      const agentParams: NewChatGroupAgent[] = uniqueAgentIds.map((agentId, index) => ({
-        agentId,
-        chatGroupId: group.id,
-        order: index,
-        role: 'assistant',
-        userId: this.userId,
-      }));
+      if (uniqueAgentIds.length > 0) {
+        const memberships: NewChatGroupAgent[] = uniqueAgentIds.map((agentId) => ({
+          agentId,
+          chatGroupId: group.id,
+          enabled: true,
+          order: 0,
+          role: 'participant',
+          userId: this.userId,
+        }));
 
-      const createdAgents = await transaction
-        .insert(chatGroupsAgents)
-        .values(agentParams)
-        .returning();
+        await transaction.insert(chatGroupsAgents).values(memberships);
+      }
 
-      return { agents: createdAgents, group };
+      return { group, virtualMembers };
     });
+  }
+
+  async createWithAgents(
+    groupParams: Omit<NewChatGroup, 'userId'>,
+    agentIds: string[],
+  ): Promise<{ agents: NewChatGroupAgent[]; group: ChatGroupItem }> {
+    const result = await this.createWithMembers({ agentIds, group: groupParams });
+    return {
+      agents: await this.getGroupAgents(result.group.id),
+      group: result.group,
+    };
   }
 
   // ******* Update Methods ******* //
@@ -251,8 +300,27 @@ export class ChatGroupModel {
   }
 
   async removeAgentFromGroup(groupId: string, agentId: string): Promise<void> {
+    await this.removeAgentsFromGroup(groupId, [agentId]);
+  }
+
+  async removeAgentsFromGroup(groupId: string, agentIds: string[]): Promise<void> {
+    const uniqueAgentIds = [...new Set(agentIds)];
+    if (uniqueAgentIds.length === 0 || uniqueAgentIds.length !== agentIds.length) {
+      throw new Error('Group membership not found or access denied');
+    }
+
     await this.db.transaction(async (transaction) => {
-      const [ownedMembership] = await transaction
+      const [ownedGroup] = await transaction
+        .select({ id: chatGroups.id })
+        .from(chatGroups)
+        .where(and(eq(chatGroups.id, groupId), eq(chatGroups.userId, this.userId)))
+        .limit(1);
+
+      if (!ownedGroup) {
+        throw new Error('Group membership not found or access denied');
+      }
+
+      const ownedMemberships = await transaction
         .select({ agentId: chatGroupsAgents.agentId })
         .from(chatGroupsAgents)
         .innerJoin(
@@ -269,27 +337,31 @@ export class ChatGroupModel {
         .where(
           and(
             eq(chatGroupsAgents.chatGroupId, groupId),
-            eq(chatGroupsAgents.agentId, agentId),
+            inArray(chatGroupsAgents.agentId, uniqueAgentIds),
             eq(chatGroupsAgents.userId, this.userId),
             eq(chatGroups.userId, this.userId),
             eq(agents.userId, this.userId),
           ),
-        )
-        .limit(1);
+        );
 
-      if (!ownedMembership) {
+      if (ownedMemberships.length !== uniqueAgentIds.length) {
         throw new Error('Group membership not found or access denied');
       }
 
-      await transaction
+      const deletedMemberships = await transaction
         .delete(chatGroupsAgents)
         .where(
           and(
             eq(chatGroupsAgents.chatGroupId, groupId),
-            eq(chatGroupsAgents.agentId, agentId),
+            inArray(chatGroupsAgents.agentId, uniqueAgentIds),
             eq(chatGroupsAgents.userId, this.userId),
           ),
-        );
+        )
+        .returning({ agentId: chatGroupsAgents.agentId });
+
+      if (deletedMemberships.length !== uniqueAgentIds.length) {
+        throw new Error('Group membership not found or access denied');
+      }
     });
   }
 

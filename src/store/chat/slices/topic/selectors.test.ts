@@ -64,11 +64,20 @@ describe('topicSelectors', () => {
         activeId: 'test',
         serverGenerationOperations: {
           test_topic1: {
-            generation: 2,
-            operationId: 'generation-operation',
-            sessionId: 'test',
-            topicId: 'topic1',
-            userScope: 'user:account-a',
+            'generation-operation-one': {
+              generation: 2,
+              operationId: 'generation-operation-one',
+              sessionId: 'test',
+              topicId: 'topic1',
+              userScope: 'user:account-a',
+            },
+            'generation-operation-two': {
+              generation: 2,
+              operationId: 'generation-operation-two',
+              sessionId: 'test',
+              topicId: 'topic1',
+              userScope: 'user:account-a',
+            },
           },
         },
       });
@@ -82,12 +91,25 @@ describe('topicSelectors', () => {
         activeId: 'test',
         serverGenerationOperations: {
           another_topic1: {
-            generation: 2,
-            operationId: 'generation-operation',
-            sessionId: 'another',
-            topicId: 'topic1',
-            userScope: 'user:account-a',
+            'generation-operation': {
+              generation: 2,
+              operationId: 'generation-operation',
+              sessionId: 'another',
+              topicId: 'topic1',
+              userScope: 'user:account-a',
+            },
           },
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(false);
+    });
+
+    it('returns false for an empty active conversation operation bucket', () => {
+      const state = merge(initialStore, {
+        activeId: 'test',
+        serverGenerationOperations: {
+          test_topic1: {},
         },
       });
 

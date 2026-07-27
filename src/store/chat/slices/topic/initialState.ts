@@ -18,7 +18,7 @@ export interface ChatTopicState {
   inSearchingMode?: boolean;
   isSearchingTopic: boolean;
   searchTopics: ChatTopic[];
-  serverGenerationOperations: Record<string, ServerGenerationOperation>;
+  serverGenerationOperations: Record<string, Record<string, ServerGenerationOperation>>;
   topicLoadingIds: string[];
   topicMaps: Record<string, ChatTopic[]>;
   topicRenamingId?: string;

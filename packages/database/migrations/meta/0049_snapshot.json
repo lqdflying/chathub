@@ -6,7 +6,7 @@
   },
   "dialect": "postgresql",
   "enums": {},
-  "id": "efbb881a-9183-448f-b036-fdc1076bc129",
+  "id": "2fc03766-e5f7-4394-89c3-452f45bbfcf5",
   "policies": {},
   "prevId": "48c57172-9230-432c-81e5-04fb36a26a48",
   "roles": {},
@@ -1167,7 +1167,7 @@
           "tableTo": "agents",
           "columnsFrom": ["agent_id", "user_id"],
           "columnsTo": ["id", "user_id"],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk": {
@@ -1176,7 +1176,7 @@
           "tableTo": "chat_groups",
           "columnsFrom": ["chat_group_id", "user_id"],
           "columnsTo": ["id", "user_id"],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },

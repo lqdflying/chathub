@@ -96,12 +96,16 @@ export const chatGroupsAgents = pgTable(
       columns: [t.agentId, t.userId],
       foreignColumns: [agents.id, agents.userId],
       name: 'chat_groups_agents_agent_id_user_id_agents_id_user_id_fk',
-    }),
+    })
+      .onDelete('cascade')
+      .onUpdate('no action'),
     groupOwnerReference: foreignKey({
       columns: [t.chatGroupId, t.userId],
       foreignColumns: [chatGroups.id, chatGroups.userId],
       name: 'chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk',
-    }),
+    })
+      .onDelete('cascade')
+      .onUpdate('no action'),
     pk: primaryKey({ columns: [t.chatGroupId, t.agentId] }),
   }),
 );

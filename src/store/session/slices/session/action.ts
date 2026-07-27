@@ -7,7 +7,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { message } from '@/components/AntdStaticMethods';
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
-import { DEFAULT_AGENT_LOBE_SESSION, INBOX_SESSION_ID } from '@/const/session';
+import { INBOX_SESSION_ID } from '@/const/session';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import { useClientDataSWR } from '@/libs/swr';
 import { chatGroupService } from '@/services/chatGroup';
@@ -25,9 +25,9 @@ import {
   LobeSessions,
   UpdateSessionParams,
 } from '@/types/session';
-import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
 
+import { prepareAgentSession } from './prepareAgentSession';
 import { SessionDispatch, sessionsReducer } from './reducers';
 import { sessionSelectors } from './selectors';
 import { sessionMetaSelectors } from './selectors/meta';
@@ -111,13 +111,10 @@ export const createSessionSlice: StateCreator<
     const requestedGeneration = get().scopeGeneration;
     if (!requestedScope) return '';
 
-    // merge the defaultAgent in settings
-    const defaultAgent = merge(
-      DEFAULT_AGENT_LOBE_SESSION,
+    const newSession = prepareAgentSession(
+      agent,
       settingsSelectors.defaultAgent(useUserStore.getState()),
     );
-
-    const newSession: LobeAgentSession = merge(defaultAgent, agent);
 
     const id = await sessionService.createSession(LobeSessionType.Agent, newSession);
     if (

@@ -230,7 +230,7 @@ describe('client migration upgrades', () => {
     expect(nextMessageOrder.rows[0]?.next_order).toBe(3);
   });
 
-  it('repairs legacy group membership owners and enforces matching parent owners', async () => {
+  it('converges drifted group memberships and cascading ownership constraints', async () => {
     client = new PGlite();
     await client.exec(`
       CREATE TABLE "users" (
@@ -238,16 +238,16 @@ describe('client migration upgrades', () => {
       );
       CREATE TABLE "agents" (
         "id" text PRIMARY KEY NOT NULL,
-        "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE
+        "user_id" text NOT NULL
       );
       CREATE TABLE "chat_groups" (
         "id" text PRIMARY KEY NOT NULL,
-        "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE
+        "user_id" text NOT NULL
       );
       CREATE TABLE "chat_groups_agents" (
-        "chat_group_id" text NOT NULL REFERENCES "chat_groups"("id") ON DELETE CASCADE,
-        "agent_id" text NOT NULL REFERENCES "agents"("id") ON DELETE CASCADE,
-        "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+        "chat_group_id" text NOT NULL,
+        "agent_id" text NOT NULL,
+        "user_id" text NOT NULL,
         PRIMARY KEY ("chat_group_id", "agent_id")
       );
 
@@ -256,15 +256,69 @@ describe('client migration upgrades', () => {
       INSERT INTO "agents" ("id", "user_id")
       VALUES
         ('owner-a-agent', 'owner-a'),
-        ('owner-b-agent', 'owner-b');
+        ('owner-b-agent', 'owner-b'),
+        ('ghost-agent', 'ghost-owner'),
+        ('agent-delete-agent', 'owner-a'),
+        ('group-delete-agent', 'owner-a'),
+        ('user-delete-agent', 'owner-b');
       INSERT INTO "chat_groups" ("id", "user_id")
       VALUES
         ('same-owner-group', 'owner-a'),
-        ('cross-owner-group', 'owner-a');
+        ('cross-owner-group', 'owner-a'),
+        ('ghost-group', 'ghost-owner'),
+        ('agent-delete-group', 'owner-a'),
+        ('group-delete-group', 'owner-a'),
+        ('user-delete-group', 'owner-b');
       INSERT INTO "chat_groups_agents" ("chat_group_id", "agent_id", "user_id")
       VALUES
         ('same-owner-group', 'owner-a-agent', 'stale-owner'),
-        ('cross-owner-group', 'owner-b-agent', 'owner-a');
+        ('cross-owner-group', 'owner-b-agent', 'owner-a'),
+        ('missing-group', 'owner-a-agent', 'owner-a'),
+        ('same-owner-group', 'missing-agent', 'owner-a'),
+        ('ghost-group', 'ghost-agent', 'ghost-owner'),
+        ('agent-delete-group', 'agent-delete-agent', 'owner-a'),
+        ('group-delete-group', 'group-delete-agent', 'owner-a'),
+        ('user-delete-group', 'user-delete-agent', 'owner-b');
+
+      CREATE UNIQUE INDEX "agents_owner_reference_unique"
+        ON "agents" ("id", "user_id");
+      CREATE UNIQUE INDEX "chat_groups_owner_reference_unique"
+        ON "chat_groups" ("id", "user_id");
+      CREATE UNIQUE INDEX "agents_id_user_id_unique"
+        ON "agents" ("user_id", "id");
+      CREATE UNIQUE INDEX "chat_groups_id_user_id_unique"
+        ON "chat_groups" ("user_id", "id");
+
+      ALTER TABLE "chat_groups_agents"
+        ADD CONSTRAINT "chat_groups_agents_chat_group_id_chat_groups_id_fk"
+        FOREIGN KEY ("chat_group_id")
+        REFERENCES "chat_groups"("id")
+        ON DELETE NO ACTION
+        NOT VALID;
+      ALTER TABLE "chat_groups_agents"
+        ADD CONSTRAINT "chat_groups_agents_agent_id_agents_id_fk"
+        FOREIGN KEY ("agent_id")
+        REFERENCES "agents"("id")
+        ON DELETE NO ACTION
+        NOT VALID;
+      ALTER TABLE "chat_groups_agents"
+        ADD CONSTRAINT "chat_groups_agents_user_id_users_id_fk"
+        FOREIGN KEY ("user_id")
+        REFERENCES "users"("id")
+        ON DELETE NO ACTION
+        NOT VALID;
+      ALTER TABLE "chat_groups_agents"
+        ADD CONSTRAINT "chat_groups_agents_agent_id_user_id_agents_id_user_id_fk"
+        FOREIGN KEY ("agent_id", "user_id")
+        REFERENCES "agents"("id", "user_id")
+        ON DELETE NO ACTION
+        NOT VALID;
+      ALTER TABLE "chat_groups_agents"
+        ADD CONSTRAINT "chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk"
+        FOREIGN KEY ("chat_group_id", "user_id")
+        REFERENCES "chat_groups"("id", "user_id")
+        ON DELETE NO ACTION
+        NOT VALID;
     `);
 
     await client.exec(CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL);
@@ -281,17 +335,44 @@ describe('client migration upgrades', () => {
     `);
     expect(repairedMemberships.rows).toEqual([
       {
+        agent_id: 'agent-delete-agent',
+        chat_group_id: 'agent-delete-group',
+        user_id: 'owner-a',
+      },
+      {
+        agent_id: 'group-delete-agent',
+        chat_group_id: 'group-delete-group',
+        user_id: 'owner-a',
+      },
+      {
         agent_id: 'owner-a-agent',
         chat_group_id: 'same-owner-group',
         user_id: 'owner-a',
       },
+      {
+        agent_id: 'user-delete-agent',
+        chat_group_id: 'user-delete-group',
+        user_id: 'owner-b',
+      },
     ]);
 
-    const ownershipConstraints = await client.query<{ constraint_name: string }>(`
-      SELECT conname AS constraint_name
+    const ownershipConstraints = await client.query<{
+      constraint_name: string;
+      delete_action: string;
+      is_validated: boolean;
+      update_action: string;
+    }>(`
+      SELECT
+        conname AS constraint_name,
+        confdeltype AS delete_action,
+        confupdtype AS update_action,
+        convalidated AS is_validated
       FROM pg_constraint
       WHERE conrelid = 'public.chat_groups_agents'::regclass
         AND conname IN (
+          'chat_groups_agents_chat_group_id_chat_groups_id_fk',
+          'chat_groups_agents_agent_id_agents_id_fk',
+          'chat_groups_agents_user_id_users_id_fk',
           'chat_groups_agents_agent_id_user_id_agents_id_user_id_fk',
           'chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk'
         )
@@ -299,10 +380,70 @@ describe('client migration upgrades', () => {
     `);
     expect(ownershipConstraints.rows).toEqual([
       {
+        constraint_name: 'chat_groups_agents_agent_id_agents_id_fk',
+        delete_action: 'c',
+        is_validated: true,
+        update_action: 'a',
+      },
+      {
         constraint_name: 'chat_groups_agents_agent_id_user_id_agents_id_user_id_fk',
+        delete_action: 'c',
+        is_validated: true,
+        update_action: 'a',
+      },
+      {
+        constraint_name: 'chat_groups_agents_chat_group_id_chat_groups_id_fk',
+        delete_action: 'c',
+        is_validated: true,
+        update_action: 'a',
       },
       {
         constraint_name: 'chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk',
+        delete_action: 'c',
+        is_validated: true,
+        update_action: 'a',
+      },
+      {
+        constraint_name: 'chat_groups_agents_user_id_users_id_fk',
+        delete_action: 'c',
+        is_validated: true,
+        update_action: 'a',
+      },
+    ]);
+
+    const ownershipIndexes = await client.query<{
+      column_names: string;
+      index_name: string;
+      is_unique: boolean;
+    }>(`
+      SELECT
+        index_class.relname AS index_name,
+        index_definition.indisunique AS is_unique,
+        string_agg(column_definition.attname, ',' ORDER BY key_columns.ordinality) AS column_names
+      FROM pg_index AS index_definition
+      JOIN pg_class AS index_class ON index_class.oid = index_definition.indexrelid
+      CROSS JOIN LATERAL unnest(index_definition.indkey)
+        WITH ORDINALITY AS key_columns(attribute_number, ordinality)
+      JOIN pg_attribute AS column_definition
+        ON column_definition.attrelid = index_definition.indrelid
+        AND column_definition.attnum = key_columns.attribute_number
+      WHERE index_class.relname IN (
+        'agents_id_user_id_unique',
+        'chat_groups_id_user_id_unique'
+      )
+      GROUP BY index_class.relname, index_definition.indisunique
+      ORDER BY index_class.relname;
+    `);
+    expect(ownershipIndexes.rows).toEqual([
+      {
+        column_names: 'id,user_id',
+        index_name: 'agents_id_user_id_unique',
+        is_unique: true,
+      },
+      {
+        column_names: 'id,user_id',
+        index_name: 'chat_groups_id_user_id_unique',
+        is_unique: true,
       },
     ]);
 
@@ -318,5 +459,26 @@ describe('client migration upgrades', () => {
         VALUES ('same-owner-group', 'owner-b-agent', 'owner-b');
       `),
     ).rejects.toThrow();
+
+    await client.exec(`
+      DELETE FROM "agents" WHERE "id" = 'agent-delete-agent';
+      DELETE FROM "chat_groups" WHERE "id" = 'group-delete-group';
+      DELETE FROM "users" WHERE "id" = 'owner-b';
+    `);
+
+    const membershipsAfterParentDeletes = await client.query<{
+      agent_id: string;
+      chat_group_id: string;
+    }>(`
+      SELECT "chat_group_id", "agent_id"
+      FROM "chat_groups_agents"
+      ORDER BY "chat_group_id", "agent_id";
+    `);
+    expect(membershipsAfterParentDeletes.rows).toEqual([
+      {
+        agent_id: 'owner-a-agent',
+        chat_group_id: 'same-owner-group',
+      },
+    ]);
   });
 });

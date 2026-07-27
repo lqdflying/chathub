@@ -315,11 +315,14 @@ export const generateAIChatV2: StateCreator<
           serverGenerationOperations: {
             ...state.serverGenerationOperations,
             [generationOperationKey]: {
-              generation: conversationContext.generation,
-              operationId: generationOperationId,
-              sessionId: conversationContext.sessionId,
-              topicId: data.topicId!,
-              userScope: requestedScope,
+              ...state.serverGenerationOperations[generationOperationKey],
+              [generationOperationId]: {
+                generation: conversationContext.generation,
+                operationId: generationOperationId,
+                sessionId: conversationContext.sessionId,
+                topicId: data.topicId!,
+                userScope: requestedScope,
+              },
             },
           },
         }),
@@ -380,11 +383,18 @@ export const generateAIChatV2: StateCreator<
       if (generationOperationKey) {
         set(
           (state) => {
-            const currentOperation = state.serverGenerationOperations[generationOperationKey];
-            if (currentOperation?.operationId !== generationOperationId) return state;
+            const currentOperations = state.serverGenerationOperations[generationOperationKey];
+            if (!currentOperations?.[generationOperationId]) return state;
 
             const serverGenerationOperations = { ...state.serverGenerationOperations };
-            delete serverGenerationOperations[generationOperationKey];
+            const remainingOperations = { ...currentOperations };
+            delete remainingOperations[generationOperationId];
+
+            if (Object.keys(remainingOperations).length === 0) {
+              delete serverGenerationOperations[generationOperationKey];
+            } else {
+              serverGenerationOperations[generationOperationKey] = remainingOperations;
+            }
 
             return { serverGenerationOperations };
           },

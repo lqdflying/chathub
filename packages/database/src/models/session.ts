@@ -36,9 +36,22 @@ import {
   sessions,
   topics,
 } from '../schemas';
-import { LobeChatDatabase } from '../type';
+import { LobeChatDatabase, Transaction } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
+
+export interface CreateSessionParams {
+  config?: Partial<NewAgent>;
+  id?: string;
+  session?: Partial<NewSession>;
+  slug?: string;
+  type: 'agent' | 'group';
+}
+
+export interface CreatedSession {
+  agentId?: string;
+  session: SessionItem;
+}
 
 export class SessionModel {
   private userId: string;
@@ -190,77 +203,82 @@ export class SessionModel {
 
   // **************** Create *************** //
 
-  create = async ({
-    id = idGenerator('sessions'),
-    type = 'agent',
-    session = {},
-    config = {},
-    slug,
-  }: {
-    config?: Partial<NewAgent>;
-    id?: string;
-    session?: Partial<NewSession>;
-    slug?: string;
-    type: 'agent' | 'group';
-  }): Promise<SessionItem> => {
-    return this.db.transaction(async (trx) => {
-      if (slug) {
-        const existResult = await trx.query.sessions.findFirst({
-          where: and(eq(sessions.slug, slug), eq(sessions.userId, this.userId)),
-        });
+  create = async (params: CreateSessionParams): Promise<SessionItem> => {
+    const result = await this.db.transaction((transaction) =>
+      this.createInTransaction(transaction, params),
+    );
 
-        if (existResult) return existResult;
-      }
+    return result.session;
+  };
 
-      if (type === 'group') {
-        const result = await trx
-          .insert(sessions)
-          .values({
-            ...session,
-            createdAt: new Date(),
-            id,
-            slug,
-            type,
-            updatedAt: new Date(),
-            userId: this.userId,
-          })
-          .returning();
+  createInTransaction = async (
+    transaction: Transaction,
+    {
+      id = idGenerator('sessions'),
+      type = 'agent',
+      session = {},
+      config = {},
+      slug,
+    }: CreateSessionParams,
+  ): Promise<CreatedSession> => {
+    if (slug) {
+      const existingSession = await transaction.query.sessions.findFirst({
+        where: and(eq(sessions.slug, slug), eq(sessions.userId, this.userId)),
+      });
 
-        return result[0];
-      }
+      if (existingSession) return { session: existingSession };
+    }
 
-      const newAgents = await trx
-        .insert(agents)
-        .values({
-          ...config,
-          createdAt: new Date(),
-          id: idGenerator('agents'),
-          updatedAt: new Date(),
-          userId: this.userId,
-        })
-        .returning();
-
-      const result = await trx
+    const now = new Date();
+    if (type === 'group') {
+      const [createdSession] = await transaction
         .insert(sessions)
         .values({
           ...session,
-          createdAt: new Date(),
+          createdAt: now,
           id,
           slug,
           type,
-          updatedAt: new Date(),
+          updatedAt: now,
           userId: this.userId,
         })
         .returning();
 
-      await trx.insert(agentsToSessions).values({
-        agentId: newAgents[0].id,
-        sessionId: id,
-        userId: this.userId,
-      });
+      return { session: createdSession };
+    }
 
-      return result[0];
+    const agentId = idGenerator('agents');
+    const [createdAgent] = await transaction
+      .insert(agents)
+      .values({
+        ...config,
+        createdAt: now,
+        id: agentId,
+        updatedAt: now,
+        userId: this.userId,
+      })
+      .returning();
+
+    const [createdSession] = await transaction
+      .insert(sessions)
+      .values({
+        ...session,
+        createdAt: now,
+        id,
+        slug,
+        type,
+        updatedAt: now,
+        userId: this.userId,
+      })
+      .returning();
+
+    await transaction.insert(agentsToSessions).values({
+      agentId: createdAgent.id,
+      sessionId: createdSession.id,
+      userId: this.userId,
     });
+
+    return { agentId: createdAgent.id, session: createdSession };
   };
 
   createInbox = async (defaultAgentConfig: PartialDeep<LobeAgentConfig>) => {
@@ -494,8 +512,7 @@ export class SessionModel {
     type,
     ...res
   }: SessionItem & { agentsToSessions?: { agent: AgentItem }[] }):
-    | LobeAgentSession
-    | LobeGroupSession => {
+    LobeAgentSession | LobeGroupSession => {
     const meta = {
       avatar: avatar ?? undefined,
       backgroundColor: backgroundColor ?? undefined,

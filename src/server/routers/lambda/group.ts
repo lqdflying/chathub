@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import { ChatGroupModel } from '@/database/models/chatGroup';
+import { insertAgentSchema, insertSessionSchema } from '@/database/schemas';
 import { insertChatGroupSchema } from '@/database/schemas/chatGroup';
 import { ChatGroupConfig } from '@/database/types/chatGroup';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
@@ -36,6 +37,33 @@ const updateChatGroupSchema = insertChatGroupSchema
   .partial()
   .strict();
 
+const createGroupSchema = z
+  .object({
+    agentIds: z.array(z.string()).optional(),
+    group: insertChatGroupSchema.omit({ userId: true }).strict(),
+    virtualSessions: z
+      .array(
+        z
+          .object({
+            config: insertAgentSchema
+              .omit({
+                chatConfig: true,
+                openingMessage: true,
+                openingQuestions: true,
+                plugins: true,
+                tags: true,
+                tts: true,
+              })
+              .passthrough()
+              .partial(),
+            session: insertSessionSchema.omit({ createdAt: true, updatedAt: true }).partial(),
+          })
+          .strict(),
+      )
+      .optional(),
+  })
+  .strict();
+
 export const groupRouter = router({
   addAgentsToGroup: groupProcedure
     .input(
@@ -48,14 +76,15 @@ export const groupRouter = router({
       return ctx.chatGroupModel.addAgentsToGroup(input.groupId, input.agentIds);
     }),
 
-  createGroup: groupProcedure
-    .input(insertChatGroupSchema.omit({ userId: true }))
-    .mutation(async ({ input, ctx }) => {
-      return ctx.chatGroupModel.create({
-        ...input,
-        config: normalizeGroupConfig(input.config as ChatGroupConfig | null),
-      });
-    }),
+  createGroup: groupProcedure.input(createGroupSchema).mutation(async ({ input, ctx }) => {
+    return ctx.chatGroupModel.createWithMembers({
+      ...input,
+      group: {
+        ...input.group,
+        config: normalizeGroupConfig(input.group.config as ChatGroupConfig | null),
+      },
+    });
+  }),
 
   deleteGroup: groupProcedure
     .input(z.object({ id: z.string() }))
@@ -85,9 +114,7 @@ export const groupRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      for (const agentId of input.agentIds) {
-        await ctx.chatGroupModel.removeAgentFromGroup(input.groupId, agentId);
-      }
+      await ctx.chatGroupModel.removeAgentsFromGroup(input.groupId, input.agentIds);
     }),
 
   updateAgentInGroup: groupProcedure

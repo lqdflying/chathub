@@ -1,11 +1,6 @@
 import { clientDB } from '@/database/client/db';
 import { ChatGroupModel } from '@/database/models/chatGroup';
-import {
-  ChatGroupAgentItem,
-  ChatGroupItem,
-  NewChatGroup,
-  NewChatGroupAgent,
-} from '@/database/schemas/chatGroup';
+import { ChatGroupAgentItem, ChatGroupItem, NewChatGroupAgent } from '@/database/schemas/chatGroup';
 import { BaseClientService } from '@/services/baseClientService';
 
 import { IChatGroupService } from './type';
@@ -15,9 +10,8 @@ export class ClientService extends BaseClientService implements IChatGroupServic
     return new ChatGroupModel(clientDB as any, this.userId);
   }
 
-  async createGroup(params: Omit<NewChatGroup, 'userId'>): Promise<ChatGroupItem> {
-    return this.chatGroupModel.create(params);
-  }
+  createGroup: IChatGroupService['createGroup'] = (params) =>
+    this.chatGroupModel.createWithMembers(params);
 
   async updateGroup(id: string, value: Partial<ChatGroupItem>): Promise<ChatGroupItem> {
     return this.chatGroupModel.update(id, value);
@@ -43,10 +37,8 @@ export class ClientService extends BaseClientService implements IChatGroupServic
     return this.chatGroupModel.addAgentsToGroup(groupId, agentIds);
   }
 
-  async removeAgentsFromGroup(groupId: string, agentIds: string[]): Promise<any> {
-    for (const agentId of agentIds) {
-      await this.chatGroupModel.removeAgentFromGroup(groupId, agentId);
-    }
+  async removeAgentsFromGroup(groupId: string, agentIds: string[]): Promise<void> {
+    await this.chatGroupModel.removeAgentsFromGroup(groupId, agentIds);
   }
 
   async updateAgentInGroup(

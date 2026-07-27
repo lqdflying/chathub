@@ -46,11 +46,26 @@ owned agent, while writes validate every referenced agent and group in one
 transaction. Mixed-owner or missing identifier sets fail atomically rather than
 being partially inserted or silently filtered.
 
-Template-based group creation also captures canonical account scope plus the
-session and chat-group store generations before creating members. It checks all
-three values around every asynchronous boundary and never submits a partially
-accumulated member list after invalidation. These client checks limit stale
-work, but the model and PostgreSQL constraints remain authoritative.
+Ordinary and template-based creation both use one authenticated
+`ChatGroupModel.createWithMembers` transaction. Existing member IDs are
+deduplicated and validated before the group is inserted. Template virtual
+members then create their agent, session, and `agents_to_sessions` link inside
+that same transaction, followed by all `chat_groups_agents` memberships. A
+failure in any of these five tables rolls back the entire group. The client
+prepares complete virtual-session payloads in memory, merges the initiating
+account's default-agent settings, and sends one request.
+
+Plural member removal follows the same set-level rule. The model rejects empty
+or duplicate input, verifies the owned group and every requested owned
+membership, performs one scoped `DELETE ... RETURNING`, and compares the
+deleted count before commit. A missing, foreign, or wrong-group identifier
+therefore leaves every requested membership unchanged.
+
+Template creation still captures canonical account scope plus the session and
+chat-group store generations. It revalidates them before post-commit refresh,
+analytics, or navigation, so an account or generation change suppresses stale
+UI effects. These client checks limit stale work, but the transaction and
+PostgreSQL constraints remain authoritative.
 
 ## Change guidance
 
