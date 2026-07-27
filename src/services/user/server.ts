@@ -17,39 +17,55 @@ export class ServerService implements IUserService {
   unlinkSSOProvider: IUserService['unlinkSSOProvider'] = async (
     provider: string,
     providerAccountId: string,
+    signal,
   ) => {
-    return lambdaClient.user.unlinkSSOProvider.mutate({ provider, providerAccountId });
+    const input = { provider, providerAccountId };
+    if (!signal) return lambdaClient.user.unlinkSSOProvider.mutate(input);
+
+    return lambdaClient.user.unlinkSSOProvider.mutate(input, { signal });
   };
 
   makeUserOnboarded = async () => {
     return lambdaClient.user.makeUserOnboarded.mutate();
   };
 
-  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig) => {
-    return lambdaClient.user.migrateImageConfig.mutate(imageConfig);
+  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig, signal) => {
+    if (!signal) return lambdaClient.user.migrateImageConfig.mutate(imageConfig);
+
+    return lambdaClient.user.migrateImageConfig.mutate(imageConfig, { signal });
   };
 
-  updateAvatar: IUserService['updateAvatar'] = async (avatar) => {
-    return lambdaClient.user.updateAvatar.mutate(avatar);
+  updateAvatar: IUserService['updateAvatar'] = async (avatar, signal) => {
+    if (!signal) return lambdaClient.user.updateAvatar.mutate(avatar);
+
+    return lambdaClient.user.updateAvatar.mutate(avatar, { signal });
   };
 
-  updatePreference: IUserService['updatePreference'] = async (preference) => {
-    return lambdaClient.user.updatePreference.mutate(preference);
+  updatePreference: IUserService['updatePreference'] = async (preference, signal) => {
+    if (!signal) return lambdaClient.user.updatePreference.mutate(preference);
+
+    return lambdaClient.user.updatePreference.mutate(preference, { signal });
   };
 
-  updateGuide: IUserService['updateGuide'] = async (guide) => {
-    return lambdaClient.user.updateGuide.mutate(guide);
+  updateGuide: IUserService['updateGuide'] = async (guide, signal) => {
+    if (!signal) return lambdaClient.user.updateGuide.mutate(guide);
+
+    return lambdaClient.user.updateGuide.mutate(guide, { signal });
   };
 
-  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig) => {
-    return lambdaClient.user.updateImageConfig.mutate(imageConfig);
+  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig, signal) => {
+    if (!signal) return lambdaClient.user.updateImageConfig.mutate(imageConfig);
+
+    return lambdaClient.user.updateImageConfig.mutate(imageConfig, { signal });
   };
 
   updateUserSettings: IUserService['updateUserSettings'] = async (value, signal) => {
     return lambdaClient.user.updateSettings.mutate(value, { signal });
   };
 
-  resetUserSettings: IUserService['resetUserSettings'] = async () => {
-    return lambdaClient.user.resetSettings.mutate();
+  resetUserSettings: IUserService['resetUserSettings'] = async (signal) => {
+    if (!signal) return lambdaClient.user.resetSettings.mutate();
+
+    return lambdaClient.user.resetSettings.mutate(undefined, { signal });
   };
 }

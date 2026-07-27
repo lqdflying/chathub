@@ -20,12 +20,20 @@ export interface IUserService {
   getUserState: () => Promise<UserInitializationState>;
   migrateImageConfig: (
     imageConfig: UserImageGenerationConfig,
+    signal?: AbortSignal,
   ) => Promise<UserImageGenerationConfigMigrationResult>;
-  resetUserSettings: () => Promise<any>;
-  unlinkSSOProvider: (provider: string, providerAccountId: string) => Promise<any>;
-  updateAvatar: (avatar: string) => Promise<any>;
-  updateGuide: (guide: Partial<UserGuide>) => Promise<any>;
-  updateImageConfig: (imageConfig: Partial<UserImageGenerationConfig>) => Promise<any>;
-  updatePreference: (preference: Partial<UserPreference>) => Promise<any>;
+  resetUserSettings: (signal?: AbortSignal) => Promise<any>;
+  unlinkSSOProvider: (
+    provider: string,
+    providerAccountId: string,
+    signal?: AbortSignal,
+  ) => Promise<any>;
+  updateAvatar: (avatar: string, signal?: AbortSignal) => Promise<any>;
+  updateGuide: (guide: Partial<UserGuide>, signal?: AbortSignal) => Promise<any>;
+  updateImageConfig: (
+    imageConfig: Partial<UserImageGenerationConfig>,
+    signal?: AbortSignal,
+  ) => Promise<any>;
+  updatePreference: (preference: Partial<UserPreference>, signal?: AbortSignal) => Promise<any>;
   updateUserSettings: (value: PartialDeep<UserSettings>, signal?: AbortSignal) => Promise<any>;
 }

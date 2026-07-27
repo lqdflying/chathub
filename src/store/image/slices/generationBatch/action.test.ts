@@ -403,7 +403,12 @@ describe('GenerationBatchAction', () => {
         await result.current.refreshGenerationBatches();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['SWR_USE_FETCH_GENERATION_BATCHES', 'local', topicId]);
+      expect(mutate).toHaveBeenCalledWith([
+        'SWR_USE_FETCH_GENERATION_BATCHES',
+        'local',
+        topicId,
+        ['account-cache-epoch', 0],
+      ]);
     });
 
     it('should not call mutate when no active topic', async () => {

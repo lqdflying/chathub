@@ -1,13 +1,15 @@
-import type { PartialDeep } from 'type-fest';
-
 import { MessageModel } from '@/database/_deprecated/models/message';
 import { SessionModel } from '@/database/_deprecated/models/session';
 import { UserModel } from '@/database/_deprecated/models/user';
-import { UserGuide, UserInitializationState, UserPreference } from '@/types/user';
+import { UserInitializationState, UserPreference } from '@/types/user';
 import { UserSettings } from '@/types/user/settings';
 import { AsyncLocalStorage } from '@/utils/localStorage';
 
 import { IUserService } from './type';
+
+const throwIfAborted = (signal?: AbortSignal): void => {
+  signal?.throwIfAborted();
+};
 
 export class ClientService implements IUserService {
   private preferenceStorage: AsyncLocalStorage<UserPreference>;
@@ -47,23 +49,34 @@ export class ClientService implements IUserService {
   };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  updateUserSettings = async (patch: PartialDeep<UserSettings>, _?: any) => {
-    return UserModel.updateSettings(patch);
+  updateUserSettings: IUserService['updateUserSettings'] = async (patch, signal) => {
+    throwIfAborted(signal);
+    const result = await UserModel.updateSettings(patch);
+    throwIfAborted(signal);
+
+    return result;
   };
 
-  resetUserSettings = async () => {
-    return UserModel.resetSettings();
+  resetUserSettings: IUserService['resetUserSettings'] = async (signal) => {
+    throwIfAborted(signal);
+    const result = await UserModel.resetSettings();
+    throwIfAborted(signal);
+
+    return result;
   };
 
-  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig) => {
+  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig, signal) => {
+    throwIfAborted(signal);
     const migrationResult = await this.preferenceStorage.updateLocalStorageAtomically(
       (currentPreference) => {
+        throwIfAborted(signal);
         const existingImageConfig = currentPreference.imageConfig || {};
         if (Object.keys(existingImageConfig).length > 0) return;
 
         return { imageConfig };
       },
     );
+    throwIfAborted(signal);
 
     return {
       imageConfig: migrationResult.state.imageConfig || {},
@@ -71,22 +84,32 @@ export class ClientService implements IUserService {
     };
   };
 
-  async updateAvatar(avatar: string) {
+  updateAvatar: IUserService['updateAvatar'] = async (avatar, signal) => {
+    throwIfAborted(signal);
     await UserModel.updateAvatar(avatar);
-  }
-
-  async updatePreference(preference: Partial<UserPreference>) {
-    await this.preferenceStorage.saveToLocalStorage(preference);
-  }
-
-  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig) => {
-    await this.preferenceStorage.updateLocalStorage((preference) => ({
-      imageConfig: { ...preference.imageConfig, ...imageConfig },
-    }));
+    throwIfAborted(signal);
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars,unused-imports/no-unused-vars
-  async updateGuide(guide: Partial<UserGuide>) {
+  updatePreference: IUserService['updatePreference'] = async (preference, signal) => {
+    throwIfAborted(signal);
+    await this.preferenceStorage.saveToLocalStorage(preference);
+    throwIfAborted(signal);
+  };
+
+  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig, signal) => {
+    throwIfAborted(signal);
+    await this.preferenceStorage.updateLocalStorage((preference) => {
+      throwIfAborted(signal);
+
+      return {
+        imageConfig: { ...preference.imageConfig, ...imageConfig },
+      };
+    });
+    throwIfAborted(signal);
+  };
+
+  updateGuide: IUserService['updateGuide'] = async (_guide, signal) => {
+    throwIfAborted(signal);
     throw new Error('Method not implemented.');
-  }
+  };
 }

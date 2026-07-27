@@ -925,6 +925,7 @@ describe('chatMessage actions', () => {
         activeId,
         activeTopicId,
         'session',
+        ['account-cache-epoch', 0],
       ]);
       expect(mutate).toHaveBeenCalledWith([
         'SWR_USE_FETCH_MESSAGES',
@@ -932,6 +933,7 @@ describe('chatMessage actions', () => {
         activeId,
         activeTopicId,
         'group',
+        ['account-cache-epoch', 0],
       ]);
       expect(mutate).toHaveBeenCalledTimes(2);
     });

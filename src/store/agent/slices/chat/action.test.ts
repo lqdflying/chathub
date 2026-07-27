@@ -717,6 +717,7 @@ describe('AgentSlice', () => {
         'FETCH_AGENT_CONFIG',
         'user:user-id',
         'test-session-id',
+        ['account-cache-epoch', 0],
       ]);
     });
   });

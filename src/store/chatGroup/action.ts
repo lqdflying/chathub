@@ -1,13 +1,12 @@
 import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
 import isEqual from 'fast-deep-equal';
 import { produce } from 'immer';
-import { mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { INBOX_SESSION_ID } from '@/const/session';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import type { ChatGroupItem } from '@/database/schemas/chatGroup';
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatGroupService } from '@/services/chatGroup';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import { useChatStore } from '@/store/chat/store';
@@ -289,14 +288,14 @@ export const chatGroupAction: StateCreator<
       const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
       if (!requestedScope) return;
 
-      await mutate([FETCH_GROUP_DETAIL_KEY, requestedScope, groupId]);
+      await mutateAccountSWR([FETCH_GROUP_DETAIL_KEY, requestedScope, groupId]);
     },
 
     refreshGroups: async () => {
       const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
       if (!requestedScope) return;
 
-      await mutate([FETCH_GROUPS_KEY, requestedScope]);
+      await mutateAccountSWR([FETCH_GROUPS_KEY, requestedScope]);
     },
 
     removeAgentFromGroup: async (groupId, agentId) => {

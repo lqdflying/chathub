@@ -5,10 +5,10 @@ import {
   CreateAiModelParams,
   ToggleAiModelEnableParams,
 } from 'model-bank';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { aiModelService } from '@/services/aiModel';
 import { AiInfraStore } from '@/store/aiInfra/store';
 import { useUserStore } from '@/store/user';
@@ -143,7 +143,11 @@ export const createAiModelSlice: StateCreator<
     const targetProviderId = providerId ?? get().activeAiProvider;
     if (!requestedScope || !targetProviderId) return;
 
-    await mutate([FETCH_AI_PROVIDER_MODEL_LIST_KEY, requestedScope, targetProviderId]);
+    await mutateAccountSWR([
+      FETCH_AI_PROVIDER_MODEL_LIST_KEY,
+      requestedScope,
+      targetProviderId,
+    ]);
     if (
       authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
       get().scopeGeneration !== requestedGeneration

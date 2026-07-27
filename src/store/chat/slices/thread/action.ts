@@ -11,10 +11,10 @@ import {
 } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
 import isEqual from 'fast-deep-equal';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { threadService } from '@/services/thread';
@@ -373,7 +373,7 @@ export const chatThreadMessage: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    return mutate([SWR_USE_FETCH_THREADS, requestedScope, topicId]);
+    return mutateAccountSWR([SWR_USE_FETCH_THREADS, requestedScope, topicId]);
   },
   removeThread: async (id) => {
     await threadService.removeThread(id);

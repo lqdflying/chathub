@@ -8,10 +8,10 @@ import {
   ModelAbilities,
 } from 'model-bank';
 import { useEffect } from 'react';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { aiProviderService } from '@/services/aiProvider';
 import { AiInfraStore } from '@/store/aiInfra/store';
 import { useUserStore } from '@/store/user';
@@ -170,7 +170,11 @@ export const createAiProviderSlice: StateCreator<
     const userScope = authSelectors.currentUserScope(userState);
     if (!userScope || authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
 
-    await mutate([AiProviderSwrKey.fetchAiProviderItem, userScope, get().activeAiProvider]);
+    await mutateAccountSWR([
+      AiProviderSwrKey.fetchAiProviderItem,
+      userScope,
+      get().activeAiProvider,
+    ]);
     await get().refreshAiProviderRuntimeState();
   },
   refreshAiProviderList: async () => {
@@ -178,7 +182,7 @@ export const createAiProviderSlice: StateCreator<
     const userScope = authSelectors.currentUserScope(userState);
     if (!userScope || authSelectors.hasActiveUserStateOwnerMismatch(userState)) return;
 
-    await mutate([AiProviderSwrKey.fetchAiProviderList, userScope]);
+    await mutateAccountSWR([AiProviderSwrKey.fetchAiProviderList, userScope]);
     await get().refreshAiProviderRuntimeState();
   },
   refreshAiProviderRuntimeState: async () => {
@@ -194,7 +198,7 @@ export const createAiProviderSlice: StateCreator<
       );
     }
 
-    await mutate([AiProviderSwrKey.fetchAiProviderRuntimeState, userScope]);
+    await mutateAccountSWR([AiProviderSwrKey.fetchAiProviderRuntimeState, userScope]);
   },
   removeAiProvider: async (id) => {
     await aiProviderService.deleteAiProvider(id);

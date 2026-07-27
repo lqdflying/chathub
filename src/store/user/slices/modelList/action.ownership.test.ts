@@ -21,26 +21,28 @@ const swrKeys: unknown[] = [];
 vi.mock('swr', async () => {
   const React = await import('react');
 
-  return {
-    default: (
-      key: unknown,
-      fetcher: (key: unknown) => Promise<unknown>,
-      options: {
-        onSuccess?: (data: unknown) => void;
-        revalidateOnMount?: boolean;
-      },
-    ) => {
-      const serializedKey = JSON.stringify(key);
-
-      React.useEffect(() => {
-        if (!key || !options.revalidateOnMount) return;
-
-        swrKeys.push(key);
-        void fetcher(key).then((data) => options.onSuccess?.(data));
-      }, [serializedKey, options.revalidateOnMount]);
-
-      return { data: undefined, isValidating: false, mutate: vi.fn() };
+  const useMockSWR = (
+    key: unknown,
+    fetcher: (key: unknown) => Promise<unknown>,
+    options: {
+      onSuccess?: (data: unknown) => void;
+      revalidateOnMount?: boolean;
     },
+  ) => {
+    const serializedKey = JSON.stringify(key);
+
+    React.useEffect(() => {
+      if (!key || !options.revalidateOnMount) return;
+
+      swrKeys.push(key);
+      void fetcher(key).then((data) => options.onSuccess?.(data));
+    }, [serializedKey, options.revalidateOnMount]);
+
+    return { data: undefined, isValidating: false, mutate: vi.fn() };
+  };
+
+  return {
+    default: useMockSWR,
   };
 });
 
@@ -61,8 +63,10 @@ describe('provider model-list ownership', () => {
       authUserId: 'account-a',
       isLoaded: true,
       isSignedIn: true,
+      ownershipInvalidationGeneration: 0,
       settings: {},
       user: { id: 'account-a' },
+      userStateInitializationFailure: undefined,
     });
   });
 
@@ -107,10 +111,34 @@ describe('provider model-list ownership', () => {
       'user:account-a',
       'openai',
       true,
+      ['account-cache-epoch', 0],
     ]);
     expect(userService.updateUserSettings).not.toHaveBeenCalled();
     expect(useUserStore.getState().settings).toEqual({
       languageModel: { openai: { enabled: true } },
     });
+  });
+
+  it('does not fetch models while an owner mismatch is active', async () => {
+    const getModels = vi.spyOn(modelsService, 'getModels');
+    useUserStore.setState({
+      ownershipInvalidationGeneration: 1,
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      },
+    });
+
+    renderHook(() =>
+      useUserStore
+        .getState()
+        .useFetchProviderModelList('openai', true, 'user:account-a'),
+    );
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(getModels).not.toHaveBeenCalled();
+    expect(swrKeys).toEqual([]);
   });
 });

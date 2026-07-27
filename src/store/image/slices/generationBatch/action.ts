@@ -1,9 +1,9 @@
 import { isEqual } from 'lodash-es';
 import { useRef } from 'react';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand';
 
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { GetGenerationStatusResult } from '@/server/routers/lambda/generation';
 import { generationService } from '@/services/generation';
 import { generationBatchService } from '@/services/generationBatch';
@@ -170,7 +170,11 @@ export const createGenerationBatchSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!activeGenerationTopicId || !requestedScope) return;
 
-    await mutate([SWR_USE_FETCH_GENERATION_BATCHES, requestedScope, activeGenerationTopicId]);
+    await mutateAccountSWR([
+      SWR_USE_FETCH_GENERATION_BATCHES,
+      requestedScope,
+      activeGenerationTopicId,
+    ]);
   },
 
   useFetchGenerationBatches: (topicId) => {

@@ -10,6 +10,10 @@ import { useOnlyFetchOnceSWR } from '@/libs/swr';
 import { userService } from '@/services/user';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
+import {
+  captureUserMutationSnapshot,
+  isUserMutationCurrent,
+} from '@/store/user/userMutation';
 
 const { Item } = List;
 
@@ -55,8 +59,32 @@ export const SSOProvidersList = memo(() => {
         danger: true,
       },
       onOk: async () => {
-        await userService.unlinkSSOProvider(provider, providerAccountId);
-        mutate();
+        const mutationSnapshot = captureUserMutationSnapshot(useUserStore.getState());
+        const abortController = new AbortController();
+        useUserStore.setState((state) => ({
+          userMutationAbortControllers: [
+            ...state.userMutationAbortControllers,
+            abortController,
+          ],
+        }));
+
+        try {
+          await userService.unlinkSSOProvider(
+            provider,
+            providerAccountId,
+            abortController.signal,
+          );
+          if (abortController.signal.aborted) return;
+          if (!isUserMutationCurrent(useUserStore.getState(), mutationSnapshot)) return;
+
+          await mutate();
+        } finally {
+          useUserStore.setState((state) => ({
+            userMutationAbortControllers: state.userMutationAbortControllers.filter(
+              (controller) => controller !== abortController,
+            ),
+          }));
+        }
       },
       title: <span style={providerNameStyle}>{t('profile.sso.unlink.title', { provider })}</span>,
     });

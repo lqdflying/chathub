@@ -29,7 +29,7 @@ vi.mock('swr', () => ({
   mutate: vi.fn(),
 }));
 
-vi.mock('@/libs/swr', async () => {
+vi.mock('@/libs/swr/useOnlyFetchOnceSWR', async () => {
   const React = await import('react');
 
   return {
@@ -81,6 +81,7 @@ describe('user state ownership', () => {
       isLoaded: true,
       isSignedIn: true,
       isUserStateInit: false,
+      ownershipInvalidationGeneration: 0,
       preference: DEFAULT_PREFERENCE,
       user: { id: 'account-a' },
       userStateInitializationFailure: undefined,
@@ -107,7 +108,11 @@ describe('user state ownership', () => {
     );
 
     await waitFor(() => {
-      expect(swrKeys).toContainEqual(['initUserState', 'user:account-a']);
+      expect(swrKeys).toContainEqual([
+        'initUserState',
+        'user:account-a',
+        ['account-cache-epoch', 0],
+      ]);
       expect(useUserStore.getState().userStateOwnerId).toBe('account-a');
     });
   });
@@ -179,8 +184,8 @@ describe('user state ownership', () => {
     });
 
     expect(swrKeys).toEqual([
-      ['initUserState', 'user:account-a'],
-      ['initUserState', 'user:account-b'],
+      ['initUserState', 'user:account-a', ['account-cache-epoch', 0]],
+      ['initUserState', 'user:account-b', ['account-cache-epoch', 0]],
     ]);
   });
 
@@ -207,7 +212,9 @@ describe('user state ownership', () => {
     );
 
     await waitFor(() => expect(userService.getUserState).toHaveBeenCalledTimes(1));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     expect(onSuccess).not.toHaveBeenCalled();
     expect(useUserStore.getState().isUserStateInit).toBe(false);
@@ -310,6 +317,31 @@ describe('user state ownership', () => {
     });
   });
 
+  it('does not remount user-state bootstrap for the mismatched scope', async () => {
+    const getUserState = vi.spyOn(userService, 'getUserState');
+    useUserStore.setState({
+      ownershipInvalidationGeneration: 1,
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      },
+    });
+
+    renderHook(() =>
+      useUserStore.getState().useInitUserState(true, 'user:account-a', serverConfig),
+    );
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+    expect(getUserState).not.toHaveBeenCalled();
+    expect(swrKeys).toEqual([]);
+    expect(useUserStore.getState().userStateInitializationFailure).toEqual({
+      reason: 'owner-mismatch',
+      scope: 'user:account-a',
+    });
+  });
+
   it('preserves an active owner mismatch against late same-scope callbacks', async () => {
     const lateSuccess = createDeferred<UserInitializationState>();
     const lateError = createDeferred<UserInitializationState>();
@@ -343,7 +375,9 @@ describe('user state ownership', () => {
     });
     lateError.reject(new Error('late request failure'));
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     const userState = useUserStore.getState();
     expect(userState.isUserStateInit).toBe(false);
@@ -375,7 +409,11 @@ describe('user state ownership', () => {
       await useUserStore.getState().refreshUserState();
     });
 
-    expect(mutate).toHaveBeenCalledWith(['initUserState', 'user:account-a']);
+    expect(mutate).toHaveBeenCalledWith([
+      'initUserState',
+      'user:account-a',
+      ['account-cache-epoch', 0],
+    ]);
     expect(useUserStore.getState().userStateInitializationFailure).toBeUndefined();
   });
 
@@ -424,7 +462,9 @@ describe('user state ownership', () => {
     await waitFor(() => {
       expect(userService.getUserState).toHaveBeenCalledTimes(1);
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     const userState = useUserStore.getState();
     expect(userState.isUserStateInit).toBe(true);
@@ -451,7 +491,9 @@ describe('user state ownership', () => {
     rerender({ scope: 'user:account-b' });
     accountAState.reject(new Error('stale request failed'));
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
 
     expect(useUserStore.getState().userStateInitializationFailure).toBeUndefined();
   });

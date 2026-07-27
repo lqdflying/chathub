@@ -1,10 +1,10 @@
 import { chainSummaryGenerationTitle } from '@lobechat/prompts';
 import isEqual from 'fast-deep-equal';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { LOADING_FLAT } from '@/const/message';
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { UpdateTopicValue } from '@/server/routers/lambda/generationTopic';
 import { chatService } from '@/services/chat';
 import { generationTopicService } from '@/services/generationTopic';
@@ -296,7 +296,7 @@ export const createGenerationTopicSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    await mutate([FETCH_GENERATION_TOPICS_KEY, requestedScope]);
+    await mutateAccountSWR([FETCH_GENERATION_TOPICS_KEY, requestedScope]);
   },
 
   removeGenerationTopic: async (id: string) => {

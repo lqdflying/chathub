@@ -426,6 +426,7 @@ describe('AiModelAction', () => {
         'FETCH_AI_PROVIDER_MODELS',
         'user:test-user',
         'test-provider',
+        ['account-cache-epoch', 0],
       ]);
       expect(refreshRuntimeSpy).toHaveBeenCalled();
     });
@@ -444,6 +445,7 @@ describe('AiModelAction', () => {
           'FETCH_AI_PROVIDER_MODELS',
           'user:test-user',
           'provider-x',
+          ['account-cache-epoch', 0],
         ]);
       });
 

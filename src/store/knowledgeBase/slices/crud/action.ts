@@ -1,7 +1,7 @@
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { knowledgeBaseService } from '@/services/knowledgeBase';
 import { KnowledgeBaseStore } from '@/store/knowledgeBase/store';
 import { useUserStore } from '@/store/user';
@@ -62,10 +62,11 @@ export const createCrudSlice: StateCreator<
     );
   },
   refreshKnowledgeBaseList: async () => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const userState = useUserStore.getState();
+    const requestedScope = authSelectors.currentUserScope(userState);
     if (!requestedScope) return;
 
-    await mutate([FETCH_KNOWLEDGE_BASE_LIST_KEY, requestedScope]);
+    await mutateAccountSWR([FETCH_KNOWLEDGE_BASE_LIST_KEY, requestedScope]);
   },
   removeKnowledgeBase: async (id) => {
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());

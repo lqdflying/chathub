@@ -82,6 +82,33 @@ mutation, and include ownership validity in every continuation check. A
 mismatch therefore cancels the request and suppresses stale batch refresh,
 removal, prompt clearing, and finalizer writes.
 
+The shared account-aware SWR wrappers recognize canonical `guest`, `local`, and
+`user:<raw-auth-id>` scopes in account keys, then append the user store's
+`ownershipInvalidationGeneration` without changing existing key positions
+consumed by fetchers. They set the effective key to `null` when the requested
+scope is no longer current or an owner mismatch is active, and suppress
+success/error callbacks when the captured scope or generation is stale.
+`resetAccountScopedStores` removes all epoch-tagged account entries from the
+global SWR cache without revalidation; focus or reconnect therefore cannot
+refill a cleared store with data returned under the mismatched server session.
+Imperative refreshes use `mutateAccountSWR`, which requires the requested scope
+to be current, targets the current epoch-tagged key, and does nothing while
+ownership is invalid. User-state bootstrap uses the same epoch key directly to
+avoid a store import cycle and remains disabled for a same-scope hard mismatch.
+
+User-owned mutations use the same fail-closed boundary. Settings, avatar,
+preference, image-config migration/update, model-provider configuration, and
+SSO unlink actions capture canonical scope, ownership generation, and current
+data owner before their first local write. Each direct persistence operation
+registers an `AbortController` in the user store and passes its signal through
+the user service to the tRPC mutation. Account invalidation aborts both the
+legacy debounced settings controller and the shared controller pool before
+clearing their references. Queued image-config writes re-check ownership when
+they reach the front of the queue, and every post-await continuation checks
+both the captured identity and the signal. A mismatch can therefore neither
+start a new optimistic user mutation nor let an in-flight or queued mutation
+refresh or overwrite the next account's state.
+
 A scope reset, matching request-failure retry, or accepted success clears the
 matching recoverable failure. An owner mismatch remains active until the
 authentication session changes; it is not recoverable by revalidating the same
@@ -148,10 +175,11 @@ All account-owned data requests use the canonical auth scope: `guest`, `local`,
 or `user:<raw-auth-id>`. User-state, provider-runtime, provider/model,
 session/message/topic/thread, image history, chat-group, agent, file,
 knowledge-base, installed-plugin, profile-statistics, and profile-ranking SWR
-keys include that scope. Remote provider-model fetches re-check the originating
-scope before writing model cards into persisted settings. Code Interpreter and
-DALL-E file metadata keys also include the scope, and their callbacks compare
-the chat reset generation before repopulating cleared maps.
+keys include that scope and the ownership-invalidation epoch. Remote
+provider-model fetches re-check the originating scope before writing model cards
+into persisted settings. Code Interpreter and DALL-E file metadata keys also
+include the scope, and their callbacks compare the chat reset generation before
+repopulating cleared maps.
 Mounted components with account-owned local state use the same scope as a React
 identity key or reset dependency. This includes profile API-key tables and
 modals, SSO unlink state, and Picbed pagination and gallery state; a Zustand

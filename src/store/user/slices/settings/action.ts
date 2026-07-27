@@ -6,6 +6,14 @@ import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { shareService } from '@/services/share';
 import { userService } from '@/services/user';
 import type { UserStore } from '@/store/user';
+import {
+  createTrackedUserMutationController,
+  releaseTrackedUserMutationController,
+} from '@/store/user/userMutationController';
+import {
+  captureUserMutationSnapshot,
+  isUserMutationCurrent,
+} from '@/store/user/userMutation';
 import { LobeAgentSettings } from '@/types/session';
 import {
   SystemAgentItem,
@@ -68,7 +76,10 @@ export const createSettingsSlice: StateCreator<
     if (abortController && !abortController.signal.aborted)
       abortController.abort(MESSAGE_CANCEL_FLAT);
 
-    const newSignal = new AbortController();
+    const newSignal = createTrackedUserMutationController(
+      set,
+      'internal_createSignal',
+    );
 
     set({ updateSettingsSignal: newSignal }, false, 'signalForUpdateSettings');
 
@@ -76,10 +87,24 @@ export const createSettingsSlice: StateCreator<
   },
 
   resetSettings: async () => {
-    await userService.resetUserSettings();
-    await get().refreshUserState();
+    const mutationSnapshot = captureUserMutationSnapshot(get());
+    const abortController = createTrackedUserMutationController(
+      set,
+      'resetSettings',
+    );
+
+    try {
+      await userService.resetUserSettings(abortController.signal);
+      if (abortController.signal.aborted) return;
+      if (!isUserMutationCurrent(get(), mutationSnapshot)) return;
+
+      await get().refreshUserState();
+    } finally {
+      releaseTrackedUserMutationController(set, abortController, 'resetSettings');
+    }
   },
   setSettings: async (settings, options) => {
+    const mutationSnapshot = captureUserMutationSnapshot(get());
     const { settings: prevSetting, defaultSettings } = get();
 
     const nextSettings = merge(prevSetting, settings);
@@ -90,8 +115,18 @@ export const createSettingsSlice: StateCreator<
     set({ settings: diffs }, false, 'optimistic_updateSettings');
 
     const abortController = get().internal_createSignal();
-    await userService.updateUserSettings(diffs, abortController.signal);
-    if (!options?.skipRefresh) await get().refreshUserState();
+    try {
+      await userService.updateUserSettings(diffs, abortController.signal);
+      if (abortController.signal.aborted) return;
+      if (!isUserMutationCurrent(get(), mutationSnapshot)) return;
+
+      if (!options?.skipRefresh) await get().refreshUserState();
+    } finally {
+      releaseTrackedUserMutationController(set, abortController, 'setSettings');
+      if (get().updateSettingsSignal === abortController) {
+        set({ updateSettingsSignal: undefined }, false, 'setSettings/clearSignal');
+      }
+    }
   },
   updateDefaultAgent: async (defaultAgent) => {
     await get().setSettings({ defaultAgent });

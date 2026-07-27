@@ -1,14 +1,23 @@
 import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
-import { useLayoutEffect } from 'react';
+import { useLayoutEffect, useSyncExternalStore } from 'react';
 import useSWR, { SWRResponse, mutate } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import type { StateCreator } from 'zustand/vanilla';
 
 import { DEFAULT_PREFERENCE } from '@/const/user';
-import { useOnlyFetchOnceSWR } from '@/libs/swr';
+import { createAccountCacheKey } from '@/libs/swr/accountCache';
+import { useOnlyFetchOnceSWR } from '@/libs/swr/useOnlyFetchOnceSWR';
 import { userService } from '@/services/user';
 import { publishAccountScopeInvalidation } from '@/store/accountScopeInvalidation';
 import type { UserStore } from '@/store/user';
+import {
+  captureUserMutationSnapshot,
+  isUserMutationCurrent,
+} from '@/store/user/userMutation';
+import {
+  createTrackedUserMutationController,
+  releaseTrackedUserMutationController,
+} from '@/store/user/userMutationController';
 import type { GlobalServerConfig } from '@/types/serverConfig';
 import { LobeUser, UserInitializationState } from '@/types/user';
 import type { UserSettings } from '@/types/user/settings';
@@ -24,14 +33,23 @@ import { initialCommonState } from './initialState';
 const n = setNamespace('common');
 
 const GET_USER_STATE_KEY = 'initUserState';
-const getUserStateKey = (userScope: string) => [GET_USER_STATE_KEY, userScope] as const;
-const createResetUserState = (ownershipInvalidationGeneration: number) => ({
+const getUserStateKey = (userScope: string, ownershipInvalidationGeneration: number) =>
+  createAccountCacheKey(
+    [GET_USER_STATE_KEY, userScope],
+    ownershipInvalidationGeneration,
+  );
+const createResetUserState = (
+  ownershipInvalidationGeneration: number,
+  currentState: UserStore,
+) => ({
   ...initialCommonState,
   ...initialModelListState,
   ...initialSettingsState,
   ownershipInvalidationGeneration,
   preference: DEFAULT_PREFERENCE,
+  updateSettingsSignal: currentState.updateSettingsSignal,
   user: undefined,
+  userMutationAbortControllers: currentState.userMutationAbortControllers,
 });
 /**
  * 设置操作
@@ -55,7 +73,7 @@ export const createCommonSlice: StateCreator<
   [['zustand/devtools', never]],
   [],
   CommonAction
-> = (set, get) => ({
+> = (set, get, store) => ({
   refreshUserState: async () => {
     const userScope = authSelectors.currentUserScope(get());
     if (!userScope) return;
@@ -72,13 +90,24 @@ export const createCommonSlice: StateCreator<
       set({ userStateInitializationFailure: undefined }, false, n('refreshUserState/start'));
     }
 
-    await mutate(getUserStateKey(userScope));
+    await mutate(getUserStateKey(userScope, get().ownershipInvalidationGeneration));
   },
   updateAvatar: async (avatar) => {
-    // 1. 更新服务端/数据库中的头像
-    await userService.updateAvatar(avatar);
+    const mutationSnapshot = captureUserMutationSnapshot(get());
+    const abortController = createTrackedUserMutationController(
+      set,
+      'updateAvatar',
+    );
 
-    await get().refreshUserState();
+    try {
+      await userService.updateAvatar(avatar, abortController.signal);
+      if (abortController.signal.aborted) return;
+      if (!isUserMutationCurrent(get(), mutationSnapshot)) return;
+
+      await get().refreshUserState();
+    } finally {
+      releaseTrackedUserMutationController(set, abortController, 'updateAvatar');
+    }
   },
 
   useCheckTrace: (shouldFetch, userScope) =>
@@ -98,25 +127,56 @@ export const createCommonSlice: StateCreator<
     ),
 
   useInitUserState: (isLogin, userScope, serverConfig, options) => {
+    const currentUserScope = useSyncExternalStore(
+      store.subscribe,
+      () => authSelectors.currentUserScope(get()),
+      () => authSelectors.currentUserScope(get()),
+    );
+    const hasOwnerMismatch = useSyncExternalStore(
+      store.subscribe,
+      () => authSelectors.hasActiveUserStateOwnerMismatch(get()),
+      () => authSelectors.hasActiveUserStateOwnerMismatch(get()),
+    );
+    const ownershipInvalidationGeneration = useSyncExternalStore(
+      store.subscribe,
+      () => get().ownershipInvalidationGeneration,
+      () => get().ownershipInvalidationGeneration,
+    );
+    const requestedGeneration = ownershipInvalidationGeneration;
+
     useLayoutEffect(() => {
       const currentScope = get().userStateScope;
       const didUserScopeChange = currentScope !== userScope;
       if (!didUserScopeChange) return;
 
+      const initializationFailure = get().userStateInitializationFailure;
+      if (
+        initializationFailure?.scope === userScope &&
+        initializationFailure?.reason === 'owner-mismatch'
+      ) {
+        return;
+      }
+
       set(
-        createResetUserState(get().ownershipInvalidationGeneration),
+        createResetUserState(get().ownershipInvalidationGeneration, get()),
         false,
         n('resetUserStateScope'),
       );
     }, [isLogin, userScope]);
 
     return useOnlyFetchOnceSWR<UserInitializationState>(
-      isLogin && userScope ? getUserStateKey(userScope) : null,
+      isLogin &&
+        userScope &&
+        currentUserScope === userScope &&
+        !hasOwnerMismatch
+        ? getUserStateKey(userScope, ownershipInvalidationGeneration)
+        : null,
       () => userService.getUserState(),
       {
         onError: () => {
           const currentUserScope = authSelectors.currentUserScope(get());
           if (currentUserScope !== userScope) return;
+          if (get().ownershipInvalidationGeneration !== requestedGeneration) return;
           if (authSelectors.hasActiveUserStateOwnerMismatch(get())) return;
           if (get().isUserStateInit && get().userStateScope === userScope) return;
 
@@ -134,6 +194,7 @@ export const createCommonSlice: StateCreator<
         onSuccess: (data) => {
           const currentUserScope = authSelectors.currentUserScope(get());
           if (currentUserScope !== userScope) return;
+          if (get().ownershipInvalidationGeneration !== requestedGeneration) return;
           if (authSelectors.hasActiveUserStateOwnerMismatch(get())) return;
           if (
             userScope !== 'local' &&
@@ -142,7 +203,7 @@ export const createCommonSlice: StateCreator<
             const ownershipInvalidationGeneration = get().ownershipInvalidationGeneration + 1;
             set(
               {
-                ...createResetUserState(ownershipInvalidationGeneration),
+                ...createResetUserState(ownershipInvalidationGeneration, get()),
                 userStateInitializationFailure: {
                   reason: 'owner-mismatch',
                   scope: userScope,

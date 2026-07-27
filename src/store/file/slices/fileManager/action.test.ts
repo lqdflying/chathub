@@ -610,7 +610,12 @@ describe('FileManagerActions', () => {
         await result.current.refreshFileList();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['useFetchFileManage', 'local', params]);
+      expect(mutate).toHaveBeenCalledWith([
+        'useFetchFileManage',
+        'local',
+        params,
+        ['account-cache-epoch', 0],
+      ]);
     });
 
     it('should call mutate with undefined params', async () => {
@@ -620,7 +625,12 @@ describe('FileManagerActions', () => {
         await result.current.refreshFileList();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['useFetchFileManage', 'local', undefined]);
+      expect(mutate).toHaveBeenCalledWith([
+        'useFetchFileManage',
+        'local',
+        undefined,
+        ['account-cache-epoch', 0],
+      ]);
     });
   });
 

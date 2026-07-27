@@ -1,9 +1,9 @@
 import pMap from 'p-map';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { FILE_UPLOAD_BLACKLIST, MAX_UPLOAD_FILE_COUNT } from '@/const/file';
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { fileService } from '@/services/file';
 import { ServerService } from '@/services/file/server';
 import { ragService } from '@/services/rag';
@@ -274,10 +274,11 @@ export const createFileManageSlice: StateCreator<
     get().toggleParsingIds([id], false);
   },
   refreshFileList: async () => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const userState = useUserStore.getState();
+    const requestedScope = authSelectors.currentUserScope(userState);
     if (!requestedScope) return;
 
-    await mutate([FETCH_FILE_LIST_KEY, requestedScope, get().queryListParams]);
+    await mutateAccountSWR([FETCH_FILE_LIST_KEY, requestedScope, get().queryListParams]);
   },
   removeAllFiles: async () => {
     await fileService.removeAllFiles();

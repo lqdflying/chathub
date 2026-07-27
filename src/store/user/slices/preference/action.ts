@@ -2,6 +2,15 @@ import type { StateCreator } from 'zustand/vanilla';
 
 import { userService } from '@/services/user';
 import type { UserStore } from '@/store/user';
+import {
+  captureUserMutationSnapshot,
+  isUserMutationCurrent,
+  type UserMutationSnapshot,
+} from '@/store/user/userMutation';
+import {
+  createTrackedUserMutationController,
+  releaseTrackedUserMutationController,
+} from '@/store/user/userMutationController';
 import { UserGuide, UserImageGenerationConfig, UserPreference } from '@/types/user';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
@@ -22,24 +31,41 @@ export const createPreferenceSlice: StateCreator<
   [],
   PreferenceAction
 > = (set, get) => {
-  const imageConfigUpdateQueues = new Map<string | undefined, Promise<unknown>>();
+  const imageConfigUpdateQueues = new Map<string, Promise<unknown>>();
 
   const enqueueImageConfigUpdate = <Result>(
-    userId: string | undefined,
-    persistImageConfig: () => Promise<Result>,
+    mutationSnapshot: UserMutationSnapshot,
+    persistImageConfig: (signal: AbortSignal) => Promise<Result>,
   ) => {
-    const previousUpdate = imageConfigUpdateQueues.get(userId) || Promise.resolve();
+    const previousUpdate =
+      imageConfigUpdateQueues.get(mutationSnapshot.scope) || Promise.resolve();
     const persistenceRequest = previousUpdate
       .catch(() => undefined)
       .then(async () => {
-        if (get().user?.id !== userId) return;
-        return persistImageConfig();
+        if (!isUserMutationCurrent(get(), mutationSnapshot)) return;
+
+        const abortController = createTrackedUserMutationController(
+          set,
+          'persistImageConfig',
+        );
+        try {
+          const result = await persistImageConfig(abortController.signal);
+          if (abortController.signal.aborted) return;
+
+          return result;
+        } finally {
+          releaseTrackedUserMutationController(
+            set,
+            abortController,
+            'persistImageConfig',
+          );
+        }
       });
-    imageConfigUpdateQueues.set(userId, persistenceRequest);
+    imageConfigUpdateQueues.set(mutationSnapshot.scope, persistenceRequest);
     persistenceRequest
       .finally(() => {
-        if (imageConfigUpdateQueues.get(userId) === persistenceRequest) {
-          imageConfigUpdateQueues.delete(userId);
+        if (imageConfigUpdateQueues.get(mutationSnapshot.scope) === persistenceRequest) {
+          imageConfigUpdateQueues.delete(mutationSnapshot.scope);
         }
       })
       .catch(() => undefined);
@@ -59,20 +85,20 @@ export const createPreferenceSlice: StateCreator<
       );
     },
 
-    migrateImageConfigState: (imageConfig) => {
-      const userId = get().user?.id;
-      return enqueueImageConfigUpdate(userId, () => userService.migrateImageConfig(imageConfig)).then(
-        (result) => {
-          if (!result || get().user?.id !== userId) return;
+    migrateImageConfigState: async (imageConfig) => {
+      const mutationSnapshot = captureUserMutationSnapshot(get());
+      return enqueueImageConfigUpdate(mutationSnapshot, (signal) =>
+        userService.migrateImageConfig(imageConfig, signal),
+      ).then((result) => {
+        if (!result || !isUserMutationCurrent(get(), mutationSnapshot)) return;
 
-          const currentPreference = get().preference;
-          set(
-            { preference: { ...currentPreference, imageConfig: result.imageConfig } },
-            false,
-            n('migrateImageConfigState'),
-          );
-        },
-      );
+        const currentPreference = get().preference;
+        set(
+          { preference: { ...currentPreference, imageConfig: result.imageConfig } },
+          false,
+          n('migrateImageConfigState'),
+        );
+      });
     },
 
     updateGuideState: async (guide) => {
@@ -81,22 +107,37 @@ export const createPreferenceSlice: StateCreator<
       await updatePreference({ guide: nextGuide });
     },
 
-    updateImageConfigState: (imageConfig) => {
+    updateImageConfigState: async (imageConfig) => {
+      const mutationSnapshot = captureUserMutationSnapshot(get());
       get().hydrateImageConfigState(imageConfig);
       const nextImageConfig = get().preference.imageConfig || {};
-      const userId = get().user?.id;
 
-      return enqueueImageConfigUpdate(userId, () =>
-        userService.updateImageConfig(nextImageConfig),
+      return enqueueImageConfigUpdate(mutationSnapshot, (signal) =>
+        userService.updateImageConfig(nextImageConfig, signal),
       ).then(() => undefined);
     },
 
     updatePreference: async (preference, action) => {
+      const mutationSnapshot = captureUserMutationSnapshot(get());
       const nextPreference = merge(get().preference, preference);
 
       set({ preference: nextPreference }, false, action || n('updatePreference'));
 
-      await userService.updatePreference(preference);
+      const abortController = createTrackedUserMutationController(
+        set,
+        'updatePreference',
+      );
+      try {
+        await userService.updatePreference(preference, abortController.signal);
+        if (abortController.signal.aborted) return;
+        if (!isUserMutationCurrent(get(), mutationSnapshot)) return;
+      } finally {
+        releaseTrackedUserMutationController(
+          set,
+          abortController,
+          'updatePreference',
+        );
+      }
     },
   };
 };

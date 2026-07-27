@@ -9,6 +9,10 @@ import { AsyncLocalStorage } from '@/utils/localStorage';
 
 import { IUserService } from './type';
 
+const throwIfAborted = (signal?: AbortSignal): void => {
+  signal?.throwIfAborted();
+};
+
 export class ClientService extends BaseClientService implements IUserService {
   private preferenceStorage: AsyncLocalStorage<UserPreference>;
 
@@ -66,25 +70,39 @@ export class ClientService extends BaseClientService implements IUserService {
     // Account not exist on next-auth in client mode, no need to implement this method
   };
 
-  updateUserSettings: IUserService['updateUserSettings'] = async (value) => {
+  updateUserSettings: IUserService['updateUserSettings'] = async (value, signal) => {
+    throwIfAborted(signal);
     const { keyVaults, ...res } = value;
 
-    return this.userModel.updateSetting({ ...res, keyVaults: JSON.stringify(keyVaults) });
+    const result = await this.userModel.updateSetting({
+      ...res,
+      keyVaults: JSON.stringify(keyVaults),
+    });
+    throwIfAborted(signal);
+
+    return result;
   };
 
-  resetUserSettings: IUserService['resetUserSettings'] = async () => {
-    return this.userModel.deleteSetting();
+  resetUserSettings: IUserService['resetUserSettings'] = async (signal) => {
+    throwIfAborted(signal);
+    const result = await this.userModel.deleteSetting();
+    throwIfAborted(signal);
+
+    return result;
   };
 
-  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig) => {
+  migrateImageConfig: IUserService['migrateImageConfig'] = async (imageConfig, signal) => {
+    throwIfAborted(signal);
     const migrationResult = await this.preferenceStorage.updateLocalStorageAtomically(
       (currentPreference) => {
+        throwIfAborted(signal);
         const existingImageConfig = currentPreference.imageConfig || {};
         if (Object.keys(existingImageConfig).length > 0) return;
 
         return { imageConfig };
       },
     );
+    throwIfAborted(signal);
 
     return {
       imageConfig: migrationResult.state.imageConfig || {},
@@ -92,21 +110,32 @@ export class ClientService extends BaseClientService implements IUserService {
     };
   };
 
-  updateAvatar = async (avatar: string) => {
+  updateAvatar: IUserService['updateAvatar'] = async (avatar, signal) => {
+    throwIfAborted(signal);
     await this.userModel.updateUser({ avatar });
+    throwIfAborted(signal);
   };
 
-  updatePreference: IUserService['updatePreference'] = async (preference) => {
+  updatePreference: IUserService['updatePreference'] = async (preference, signal) => {
+    throwIfAborted(signal);
     await this.preferenceStorage.saveToLocalStorage(preference);
+    throwIfAborted(signal);
   };
 
-  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig) => {
-    await this.preferenceStorage.updateLocalStorage((preference) => ({
-      imageConfig: { ...preference.imageConfig, ...imageConfig },
-    }));
+  updateImageConfig: IUserService['updateImageConfig'] = async (imageConfig, signal) => {
+    throwIfAborted(signal);
+    await this.preferenceStorage.updateLocalStorage((preference) => {
+      throwIfAborted(signal);
+
+      return {
+        imageConfig: { ...preference.imageConfig, ...imageConfig },
+      };
+    });
+    throwIfAborted(signal);
   };
 
-  updateGuide: IUserService['updateGuide'] = async () => {
+  updateGuide: IUserService['updateGuide'] = async (_guide, signal) => {
+    throwIfAborted(signal);
     throw new Error('Method not implemented.');
   };
 

@@ -1,7 +1,7 @@
 import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
 import isEqual from 'fast-deep-equal';
 import { t } from 'i18next';
-import useSWR, { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -9,7 +9,7 @@ import { message } from '@/components/AntdStaticMethods';
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatGroupService } from '@/services/chatGroup';
 import { sessionService } from '@/services/session';
 import { getChatGroupStoreState } from '@/store/chatGroup';
@@ -331,7 +331,7 @@ export const createSessionSlice: StateCreator<
   useSearchSessions: (keyword) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-    return useSWR<LobeSessions>(
+    return useClientDataSWR<LobeSessions>(
       requestedScope ? [SEARCH_SESSIONS_KEY, requestedScope, keyword] : null,
       async () => {
         if (!keyword) return [];
@@ -377,9 +377,10 @@ export const createSessionSlice: StateCreator<
     );
   },
   refreshSessions: async () => {
-    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const userState = useUserStore.getState();
+    const requestedScope = authSelectors.currentUserScope(userState);
     if (!requestedScope) return;
 
-    await mutate([FETCH_SESSIONS_KEY, requestedScope]);
+    await mutateAccountSWR([FETCH_SESSIONS_KEY, requestedScope]);
   },
 });

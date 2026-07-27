@@ -3,14 +3,14 @@ import { TraceNameMap } from '@lobechat/types';
 import isEqual from 'fast-deep-equal';
 import { produce } from 'immer';
 import { useEffect } from 'react';
-import { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import { StateCreator } from 'zustand/vanilla';
 
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
-import { useClientDataSWR, useOnlyFetchOnceSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR, useOnlyFetchOnceSWR } from '@/libs/swr';
 import { agentService } from '@/services/agent';
 import { chatService } from '@/services/chat';
 import { sessionService } from '@/services/session';
@@ -381,14 +381,18 @@ export const createChatSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    await mutate([FETCH_AGENT_CONFIG_KEY, requestedScope, id]);
+    await mutateAccountSWR([FETCH_AGENT_CONFIG_KEY, requestedScope, id]);
   },
 
   internal_refreshAgentKnowledge: async (agentId) => {
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    await mutate([FETCH_AGENT_KNOWLEDGE_KEY, requestedScope, agentId ?? get().activeAgentId]);
+    await mutateAccountSWR([
+      FETCH_AGENT_KNOWLEDGE_KEY,
+      requestedScope,
+      agentId ?? get().activeAgentId,
+    ]);
   },
   internal_createAbortController: (key) => {
     const abortController = get()[key] as AbortController;

@@ -7,12 +7,12 @@ import { nanoid } from '@lobechat/utils';
 import isEqual from 'fast-deep-equal';
 import { t } from 'i18next';
 import { produce } from 'immer';
-import useSWR, { SWRResponse, mutate } from 'swr';
+import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { message } from '@/components/AntdStaticMethods';
 import { LOADING_FLAT } from '@/const/message';
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
@@ -442,7 +442,7 @@ export const chatTopic: StateCreator<
   useSearchTopics: (keywords, sessionId, groupId) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-    return useSWR<ChatTopic[]>(
+    return useClientDataSWR<ChatTopic[]>(
       requestedScope ? [SWR_USE_SEARCH_TOPIC, requestedScope, keywords, sessionId, groupId] : null,
       (cacheKey: [string, string, string, string | undefined, string | undefined]) => {
         const keywords = cacheKey[2];
@@ -577,7 +577,7 @@ export const chatTopic: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    return mutate([SWR_USE_FETCH_TOPIC, requestedScope, get().activeId]);
+    return mutateAccountSWR([SWR_USE_FETCH_TOPIC, requestedScope, get().activeId]);
   },
 
   internal_updateTopicLoading: (id, loading) => {

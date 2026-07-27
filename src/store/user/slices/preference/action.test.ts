@@ -66,7 +66,10 @@ describe('createPreferenceSlice', () => {
         model: 'size-model',
         provider: 'custom-provider',
       });
-      expect(userService.updatePreference).toHaveBeenCalledWith({ hideSyncAlert: true });
+      expect(userService.updatePreference).toHaveBeenCalledWith(
+        { hideSyncAlert: true },
+        expect.any(AbortSignal),
+      );
     });
   });
 
@@ -97,11 +100,14 @@ describe('createPreferenceSlice', () => {
         provider: 'newer-provider',
         size: '1536x1024',
       });
-      expect(userService.migrateImageConfig).toHaveBeenCalledWith({
-        imageNum: 4,
-        model: 'legacy-model',
-        provider: 'legacy-provider',
-      });
+      expect(userService.migrateImageConfig).toHaveBeenCalledWith(
+        {
+          imageNum: 4,
+          model: 'legacy-model',
+          provider: 'legacy-provider',
+        },
+        expect.any(AbortSignal),
+      );
     });
 
     it('updates hydrated state optimistically and serializes persistence calls', async () => {
@@ -130,11 +136,14 @@ describe('createPreferenceSlice', () => {
 
       firstWrite.resolve();
       await waitFor(() => expect(userService.updateImageConfig).toHaveBeenCalledTimes(2));
-      expect(userService.updateImageConfig).toHaveBeenLastCalledWith({
-        imageNum: 8,
-        model: 'size-model',
-        provider: 'custom-provider',
-      });
+      expect(userService.updateImageConfig).toHaveBeenLastCalledWith(
+        {
+          imageNum: 8,
+          model: 'size-model',
+          provider: 'custom-provider',
+        },
+        expect.any(AbortSignal),
+      );
       await Promise.all([firstUpdate, secondUpdate]);
     });
 
@@ -153,7 +162,10 @@ describe('createPreferenceSlice', () => {
 
       await expect(firstUpdate).rejects.toThrow('sync failed');
       await expect(secondUpdate).resolves.toBeUndefined();
-      expect(userService.updateImageConfig).toHaveBeenLastCalledWith({ imageNum: 8 });
+      expect(userService.updateImageConfig).toHaveBeenLastCalledWith(
+        { imageNum: 8 },
+        expect.any(AbortSignal),
+      );
     });
 
     it('skips a queued persistence request after the active user changes', async () => {

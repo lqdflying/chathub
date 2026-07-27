@@ -17,7 +17,7 @@ import { useChatStore } from '../../store';
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 let currentUserScope = 'local';
 vi.mock('@/store/user', () => {
-  const userState = {};
+  const userState = { ownershipInvalidationGeneration: 0 };
   const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
     selector(userState)) as {
     <Value>(selector: (state: typeof userState) => Value): Value;
@@ -30,6 +30,7 @@ vi.mock('@/store/user', () => {
 vi.mock('@/store/user/selectors', () => ({
   authSelectors: {
     currentUserScope: () => currentUserScope,
+    hasActiveUserStateOwnerMismatch: () => false,
   },
   systemAgentSelectors: {
     topic: () => ({}),
@@ -259,7 +260,12 @@ describe('topic action', () => {
       });
 
       // Check if mutate has been called with the active session ID
-      expect(mutate).toHaveBeenCalledWith(['SWR_USE_FETCH_TOPIC', 'local', activeId]);
+      expect(mutate).toHaveBeenCalledWith([
+        'SWR_USE_FETCH_TOPIC',
+        'local',
+        activeId,
+        ['account-cache-epoch', 0],
+      ]);
     });
 
     it('should handle errors during refreshing topics', async () => {

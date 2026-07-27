@@ -15,8 +15,8 @@ const swrCalls = vi.hoisted(
   () =>
     [] as Array<{
       key: unknown;
-      onError?: (error: Error) => void;
-      onSuccess?: (data: unknown) => void;
+      onError?: (_error: Error) => void;
+      onSuccess?: (_data: unknown) => void;
     }>,
 );
 
@@ -39,12 +39,13 @@ vi.mock('swr', () => ({
 }));
 
 vi.mock('@/libs/swr', () => ({
+  mutateAccountSWR: (key: unknown) => mutate(key),
   useClientDataSWR: (
     key: unknown,
     _fetcher: unknown,
     options: {
-      onError?: (error: Error) => void;
-      onSuccess?: (data: unknown) => void;
+      onError?: (_error: Error) => void;
+      onSuccess?: (_data: unknown) => void;
     },
   ) => {
     swrCalls.push({ key, onError: options.onError, onSuccess: options.onSuccess });

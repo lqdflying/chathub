@@ -23,7 +23,7 @@ import isEqual from 'fast-deep-equal';
 import { SWRResponse, mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { messageService } from '@/services/message';
 import { rpcDiagnosticsService } from '@/services/rpcDiagnostics';
@@ -588,8 +588,20 @@ export const chatMessage: StateCreator<
     const sessionId = context?.sessionId ?? get().activeId;
     const topicId = context?.topicId ?? get().activeTopicId;
 
-    await mutate([SWR_USE_FETCH_MESSAGES, requestedScope, sessionId, topicId, 'session']);
-    await mutate([SWR_USE_FETCH_MESSAGES, requestedScope, sessionId, topicId, 'group']);
+    await mutateAccountSWR([
+      SWR_USE_FETCH_MESSAGES,
+      requestedScope,
+      sessionId,
+      topicId,
+      'session',
+    ]);
+    await mutateAccountSWR([
+      SWR_USE_FETCH_MESSAGES,
+      requestedScope,
+      sessionId,
+      topicId,
+      'group',
+    ]);
   },
   replaceMessages: (messages) => {
     set(

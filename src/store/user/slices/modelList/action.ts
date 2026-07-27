@@ -7,9 +7,11 @@ import type {
 } from '@lobechat/types';
 import { produce } from 'immer';
 import { ModelProvider } from 'model-bank';
+import { useSyncExternalStore } from 'react';
 import useSWR, { SWRResponse } from 'swr';
 import type { StateCreator } from 'zustand/vanilla';
 
+import { createAccountCacheKey } from '@/libs/swr/accountCache';
 import type { UserStore } from '@/store/user';
 
 import { authSelectors } from '../auth/selectors';
@@ -65,7 +67,7 @@ export const createModelListSlice: StateCreator<
   [['zustand/devtools', never]],
   [],
   ModelListAction
-> = (set, get) => ({
+> = (set, get, store) => ({
   clearObtainedModels: async (provider: GlobalLLMProviderKey) => {
     await get().setModelProviderConfig(provider, {
       remoteModelCards: [],
@@ -199,13 +201,39 @@ export const createModelListSlice: StateCreator<
     await get().setSettings({ keyVaults: { [provider]: config } });
   },
 
-  useFetchProviderModelList: (provider, enabledAutoFetch, requestedScope) =>
-    useSWR<ChatModelCard[] | undefined>(
-      requestedScope
-        ? ['fetch-provider-model-list', requestedScope, provider, enabledAutoFetch]
+  useFetchProviderModelList: (provider, enabledAutoFetch, requestedScope) => {
+    const currentUserScope = useSyncExternalStore(
+      store.subscribe,
+      () => authSelectors.currentUserScope(get()),
+      () => authSelectors.currentUserScope(get()),
+    );
+    const hasOwnerMismatch = useSyncExternalStore(
+      store.subscribe,
+      () => authSelectors.hasActiveUserStateOwnerMismatch(get()),
+      () => authSelectors.hasActiveUserStateOwnerMismatch(get()),
+    );
+    const ownershipInvalidationGeneration = useSyncExternalStore(
+      store.subscribe,
+      () => get().ownershipInvalidationGeneration,
+      () => get().ownershipInvalidationGeneration,
+    );
+    const requestedGeneration = ownershipInvalidationGeneration;
+    const isRequestCurrent = (): boolean =>
+      authSelectors.currentUserScope(get()) === requestedScope &&
+      !authSelectors.hasActiveUserStateOwnerMismatch(get()) &&
+      get().ownershipInvalidationGeneration === requestedGeneration;
+
+    return useSWR<ChatModelCard[] | undefined>(
+      requestedScope &&
+        currentUserScope === requestedScope &&
+        !hasOwnerMismatch
+        ? createAccountCacheKey(
+            ['fetch-provider-model-list', requestedScope, provider, enabledAutoFetch],
+            ownershipInvalidationGeneration,
+          )
         : null,
       async () => {
-        if (authSelectors.currentUserScope(get()) !== requestedScope) return;
+        if (!isRequestCurrent()) return;
 
         const { modelsService } = await import('@/services/models');
 
@@ -214,18 +242,19 @@ export const createModelListSlice: StateCreator<
       {
         onSuccess: async (data) => {
           if (!data) return;
-          if (authSelectors.currentUserScope(get()) !== requestedScope) return;
+          if (!isRequestCurrent()) return;
 
           await get().setModelProviderConfig(provider, {
             latestFetchTime: Date.now(),
             remoteModelCards: data,
           });
-          if (authSelectors.currentUserScope(get()) !== requestedScope) return;
+          if (!isRequestCurrent()) return;
 
           get().refreshDefaultModelProviderList();
         },
         revalidateOnFocus: false,
         revalidateOnMount: enabledAutoFetch,
       },
-    ),
+    );
+  },
 });

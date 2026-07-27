@@ -2,10 +2,11 @@ import { LobeTool } from '@lobechat/types';
 import { t } from 'i18next';
 import { produce } from 'immer';
 import { uniqBy } from 'lodash-es';
-import useSWR, { SWRResponse, mutate } from 'swr';
+import useSWR, { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { notification } from '@/components/AntdStaticMethods';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { pluginService } from '@/services/plugin';
 import { toolService } from '@/services/tool';
 import { globalHelpers } from '@/store/global/helpers';
@@ -203,7 +204,7 @@ export const createPluginStoreSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    await mutate([INSTALLED_PLUGINS, requestedScope]);
+    await mutateAccountSWR([INSTALLED_PLUGINS, requestedScope]);
   },
   resetPluginList: (keywords) => {
     set(
@@ -252,7 +253,7 @@ export const createPluginStoreSlice: StateCreator<
   useFetchInstalledPlugins: (enabled: boolean) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
 
-    return useSWR<LobeTool[]>(
+    return useClientDataSWR<LobeTool[]>(
       enabled && requestedScope ? [INSTALLED_PLUGINS, requestedScope] : null,
       pluginService.getInstalledPlugins,
       {

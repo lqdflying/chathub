@@ -1,3 +1,4 @@
+import { clearAccountCache } from '@/libs/swr/accountCache';
 import { useAgentStore } from '@/store/agent';
 import { initialState as initialAgentState } from '@/store/agent/initialState';
 import { useAiInfraStore } from '@/store/aiInfra';
@@ -16,6 +17,7 @@ import { useSessionStore } from '@/store/session';
 import { initialState as initialSessionState } from '@/store/session/initialState';
 import { useToolStore } from '@/store/tool';
 import { initialState as initialToolState } from '@/store/tool/initialState';
+import { useUserStore } from '@/store/user';
 
 const abortControllers = (
   abortControllerList: Array<AbortController | null | undefined>,
@@ -27,6 +29,18 @@ const abortControllers = (
 };
 
 export const resetAccountScopedStores = (reason: string): void => {
+  void clearAccountCache();
+
+  const userState = useUserStore.getState();
+  abortControllers(
+    [userState.updateSettingsSignal, ...userState.userMutationAbortControllers],
+    reason,
+  );
+  useUserStore.setState({
+    updateSettingsSignal: undefined,
+    userMutationAbortControllers: [],
+  });
+
   const sessionState = useSessionStore.getState();
   sessionState.signalSessionMeta?.abort(reason);
   useSessionStore.setState({

@@ -67,6 +67,7 @@ vi.mock('@/store/user', () => {
     authUserId: 'test-user',
     isLoaded: true,
     isSignedIn: true,
+    ownershipInvalidationGeneration: 0,
     user: { id: 'test-user' },
   };
   const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
@@ -82,6 +83,7 @@ vi.mock('@/store/user', () => {
 vi.mock('@/store/user/selectors', () => ({
   authSelectors: {
     currentUserScope: () => 'user:test-user',
+    hasActiveUserStateOwnerMismatch: () => false,
   },
   systemAgentSelectors: {
     thread: vi.fn(() => ({})),
@@ -456,6 +458,7 @@ describe('thread action', () => {
         'SWR_USE_FETCH_THREADS',
         'user:test-user',
         'test-topic-id',
+        ['account-cache-epoch', 0],
       ]);
     });
 

@@ -136,6 +136,28 @@ describe('ServerService', () => {
     expect(lambdaClient.user.updatePreference.mutate).toHaveBeenCalledWith(preference);
   });
 
+  it('should forward cancellation signals to user mutations', async () => {
+    const signal = new AbortController().signal;
+    const preference: Partial<UserPreference> = {
+      telemetry: true,
+    };
+
+    await service.updatePreference(preference, signal);
+    await service.updateImageConfig({ imageNum: 4 }, signal);
+    await service.resetUserSettings(signal);
+
+    expect(lambdaClient.user.updatePreference.mutate).toHaveBeenCalledWith(preference, {
+      signal,
+    });
+    expect(lambdaClient.user.updateImageConfig.mutate).toHaveBeenCalledWith(
+      { imageNum: 4 },
+      { signal },
+    );
+    expect(lambdaClient.user.resetSettings.mutate).toHaveBeenCalledWith(undefined, {
+      signal,
+    });
+  });
+
   it('should update user guide', async () => {
     const guide = {
       moveSettingsToAvatar: true,
