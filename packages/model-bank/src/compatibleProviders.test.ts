@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import anthropicChatModels from './aiModels/anthropic';
 import anthropiccompatible from './aiModels/anthropiccompatible';
-import openaiChatModels from './aiModels/openai';
-import openaicompatible from './aiModels/openaicompatible';
+import openaiChatModels, { gptImage1ParamsSchema } from './aiModels/openai';
+import openaicompatible, {
+  GPT_IMAGE_2_SIZE_PRESETS,
+  gptImage2CompatibleParamsSchema,
+} from './aiModels/openaicompatible';
 
 describe('compatible provider fixed model lists', () => {
   it('locks OpenAI Compatible to GPT-5.6 Sol, GPT-5.5, and GPT Image 2', () => {
@@ -59,9 +62,29 @@ describe('compatible provider fixed model lists', () => {
 
     expect(openaicompatible.find((model) => model.id === 'gpt-image-2')).toMatchObject({
       enabled: true,
-      parameters: expect.any(Object),
+      parameters: gptImage2CompatibleParamsSchema,
+      resolutions: [...GPT_IMAGE_2_SIZE_PRESETS],
       type: 'image',
     });
+    expect(gptImage2CompatibleParamsSchema.size).toEqual({
+      custom: {
+        experimentalPixelThreshold: 3_686_400,
+        maxAspectRatio: 3,
+        maxEdge: 3840,
+        maxPixels: 8_294_400,
+        minPixels: 655_360,
+        step: 16,
+      },
+      default: 'auto',
+      enum: [...GPT_IMAGE_2_SIZE_PRESETS],
+      groups: [
+        { key: 'standard', values: ['1024x1024', '1536x1024', '1024x1536'] },
+        { key: '2k', values: ['2560x1440', '1440x2560'] },
+        { key: '4k', values: ['3840x2160', '2160x3840'] },
+      ],
+    });
+    expect(gptImage2CompatibleParamsSchema).not.toBe(gptImage1ParamsSchema);
+    expect(gptImage2CompatibleParamsSchema.size).not.toEqual(gptImage1ParamsSchema.size);
   });
 
   it('locks Anthropic Compatible to Claude 4.6 models', () => {

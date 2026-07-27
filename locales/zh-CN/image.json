@@ -42,7 +42,35 @@
       "random": "随机种子"
     },
     "size": {
-      "label": "尺寸"
+      "auto": "自动",
+      "cancel": "取消自定义尺寸",
+      "confirm": "确认自定义尺寸",
+      "custom": "自定义",
+      "customDescription": "宽度 × 高度",
+      "errors": {
+        "aspectRatio": "长边与短边的比例不能超过 {{maxAspectRatio}}:1",
+        "format": "请输入有效的宽度和高度",
+        "maxEdge": "宽度和高度均不能超过 {{maxEdge}} 像素",
+        "maxPixels": "总像素不能超过 {{maxPixels}}",
+        "minPixels": "总像素不能少于 {{minPixels}}",
+        "multiple": "宽度和高度必须是 {{step}} 的倍数",
+        "required": "请输入宽度和高度",
+        "unsupported": "当前模型不支持该尺寸"
+      },
+      "experimentalWarning": "此分辨率属于实验范围，生成速度、稳定性或输出质量可能有所波动。",
+      "label": "尺寸",
+      "orientation": {
+        "landscape": "横向",
+        "portrait": "纵向",
+        "square": "方形"
+      },
+      "tiers": {
+        "2k": "2K / QHD",
+        "4k": "4K / UHD",
+        "auto": "自动",
+        "custom": "自定义",
+        "standard": "标准"
+      }
     },
     "steps": {
       "label": "步数"

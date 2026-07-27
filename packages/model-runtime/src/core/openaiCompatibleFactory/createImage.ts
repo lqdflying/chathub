@@ -1,7 +1,11 @@
 import { imageUrlToBase64 } from '@lobechat/utils';
 import { cleanObject } from '@lobechat/utils/object';
 import createDebug from 'debug';
-import { RuntimeImageGenParamsValue } from 'model-bank';
+import {
+  RuntimeImageGenParamsValue,
+  gptImage2CompatibleParamsSchema,
+  validateImageSize,
+} from 'model-bank';
 import OpenAI from 'openai';
 
 import { CreateImagePayload, CreateImageResponse } from '../../types/image';
@@ -46,6 +50,20 @@ async function generateByImageMode(
   const { model, params } = payload;
 
   log('Creating image with model: %s and params: %O', model, params);
+
+  if (
+    provider === 'openaicompatible' &&
+    model === 'gpt-image-2' &&
+    params.size !== undefined
+  ) {
+    const validationResult = validateImageSize(
+      gptImage2CompatibleParamsSchema.size,
+      params.size,
+    );
+    if (!validationResult.valid) {
+      throw new Error(`Invalid GPT Image 2 size: ${validationResult.error}`);
+    }
+  }
 
   // Map parameter names, mapping imageUrls to image
   const paramsMap = new Map<RuntimeImageGenParamsValue, string>([

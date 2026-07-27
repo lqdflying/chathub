@@ -57,6 +57,12 @@ const validInput = {
   provider: 'openai',
 };
 
+const gptImage2CompatibleInput = {
+  ...validInput,
+  model: 'gpt-image-2',
+  provider: 'openaicompatible',
+};
+
 describe('imageRouter', () => {
   it('rejects image creation when the topic belongs to another user', async () => {
     const topicOwnershipQuery = {
@@ -129,6 +135,60 @@ describe('imageRouter', () => {
         params: { prompt: 'Generate an image' },
         provider: 'openai',
       });
+    });
+
+    it.each(['auto', '1024x1024', '2560x1440', '3840x2160', '2048x2048'])(
+      'accepts GPT Image 2 compatible size %s',
+      (size) => {
+        const result = createImageInputSchema.parse({
+          ...gptImage2CompatibleInput,
+          params: { ...gptImage2CompatibleInput.params, size },
+        });
+
+        expect(result.params.size).toBe(size);
+      },
+    );
+
+    it('accepts an omitted GPT Image 2 size for provider-default requests', () => {
+      expect(createImageInputSchema.parse(gptImage2CompatibleInput).params.size).toBeUndefined();
+    });
+
+    it.each([
+      ['invalid', 'format'],
+      ['1025x1024', 'multiple'],
+      ['4096x2048', 'maxEdge'],
+      ['3088x1024', 'aspectRatio'],
+      ['640x640', 'minPixels'],
+      ['3840x2176', 'maxPixels'],
+    ])('rejects forged GPT Image 2 compatible size %s', (size, expectedError) => {
+      const result = createImageInputSchema.safeParse({
+        ...gptImage2CompatibleInput,
+        params: { ...gptImage2CompatibleInput.params, size },
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          message: `Invalid GPT Image 2 size: ${expectedError}`,
+          path: ['params', 'size'],
+        }),
+      );
+    });
+
+    it.each([
+      ['openai', 'gpt-image-2'],
+      ['openaicompatible', 'gpt-image-1'],
+    ])('does not apply the custom contract to %s/%s', (provider, model) => {
+      const result = createImageInputSchema.parse({
+        ...validInput,
+        model,
+        params: { ...validInput.params, size: 'vendor-defined-size' },
+        provider,
+      });
+
+      expect(result.params.size).toBe('vendor-defined-size');
     });
   });
 

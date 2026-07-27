@@ -52,6 +52,40 @@ export const CHAT_MODEL_IMAGE_GENERATION_PARAMS: ModelParamsSchema = {
   prompt: { default: '' },
 };
 
+export const ImageSizeCustomConstraintsSchema = z.object({
+  experimentalPixelThreshold: z.number().int().positive(),
+  maxAspectRatio: z.number().positive(),
+  maxEdge: z.number().int().positive(),
+  maxPixels: z.number().int().positive(),
+  minPixels: z.number().int().positive(),
+  step: z.number().int().positive(),
+});
+
+export type ImageSizeCustomConstraints = z.infer<typeof ImageSizeCustomConstraintsSchema>;
+
+export type ImageSizeValidationError =
+  | 'aspectRatio'
+  | 'format'
+  | 'maxEdge'
+  | 'maxPixels'
+  | 'minPixels'
+  | 'multiple'
+  | 'required'
+  | 'unsupported';
+
+export type ImageSizeValidationResult =
+  | {
+      experimental: boolean;
+      height?: number;
+      source: 'auto' | 'custom' | 'preset';
+      valid: true;
+      width?: number;
+    }
+  | {
+      error: ImageSizeValidationError;
+      valid: false;
+    };
+
 // 定义顶层的元规范 - 平铺结构
 export const ModelParamsMetaSchema = z.object({
   /**
@@ -133,9 +167,18 @@ export const ModelParamsMetaSchema = z.object({
 
   size: z
     .object({
+      custom: ImageSizeCustomConstraintsSchema.optional(),
       default: z.string(),
       description: z.string().optional(),
       enum: z.array(z.string()),
+      groups: z
+        .array(
+          z.object({
+            key: z.string(),
+            values: z.array(z.string()).min(1),
+          }),
+        )
+        .optional(),
       type: z.literal('string').optional(),
     })
     .optional(),
@@ -238,6 +281,84 @@ export type RuntimeImageGenParamsValue = RuntimeImageGenParams[RuntimeImageGenPa
 // 验证函数
 export function validateModelParamsSchema(paramsSchema: unknown): ModelParamsOutputSchema {
   return ModelParamsMetaSchema.parse(paramsSchema);
+}
+
+const parseImageSize = (imageSize: string): { height: number; width: number } | undefined => {
+  const sizeMatch = /^(\d+)x(\d+)$/.exec(imageSize);
+  if (!sizeMatch) return;
+
+  const width = Number(sizeMatch[1]);
+  const height = Number(sizeMatch[2]);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
+    return;
+  }
+
+  return { height, width };
+};
+
+export function validateImageSize(
+  sizeSchema: ModelParamsSchema['size'],
+  imageSize: string | null | undefined,
+): ImageSizeValidationResult {
+  if (!imageSize) return { error: 'required', valid: false };
+
+  const isPreset = sizeSchema?.enum.includes(imageSize) ?? false;
+  if (imageSize === 'auto') {
+    return isPreset
+      ? { experimental: false, source: 'auto', valid: true }
+      : { error: 'unsupported', valid: false };
+  }
+
+  const customConstraints = sizeSchema?.custom;
+  if (!customConstraints) {
+    return isPreset
+      ? { experimental: false, source: 'preset', valid: true }
+      : { error: 'unsupported', valid: false };
+  }
+
+  const dimensions = parseImageSize(imageSize);
+  if (!dimensions) return { error: 'format', valid: false };
+
+  const { width, height } = dimensions;
+  const longestEdge = Math.max(width, height);
+  const shortestEdge = Math.min(width, height);
+  const totalPixels = width * height;
+
+  if (longestEdge > customConstraints.maxEdge) {
+    return { error: 'maxEdge', valid: false };
+  }
+
+  if (width % customConstraints.step !== 0 || height % customConstraints.step !== 0) {
+    return { error: 'multiple', valid: false };
+  }
+
+  if (longestEdge / shortestEdge > customConstraints.maxAspectRatio) {
+    return { error: 'aspectRatio', valid: false };
+  }
+
+  if (totalPixels < customConstraints.minPixels) {
+    return { error: 'minPixels', valid: false };
+  }
+
+  if (totalPixels > customConstraints.maxPixels) {
+    return { error: 'maxPixels', valid: false };
+  }
+
+  return {
+    experimental: totalPixels > customConstraints.experimentalPixelThreshold,
+    height,
+    source: isPreset ? 'preset' : 'custom',
+    valid: true,
+    width,
+  };
+}
+
+export function isExperimentalImageSize(
+  sizeSchema: ModelParamsSchema['size'],
+  imageSize: string | null | undefined,
+): boolean {
+  const validationResult = validateImageSize(sizeSchema, imageSize);
+  return validationResult.valid && validationResult.experimental;
 }
 
 /**

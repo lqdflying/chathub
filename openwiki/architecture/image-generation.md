@@ -188,6 +188,52 @@ Only these preference fields are restored; prompts, seeds, reference images,
 width/height, aspect-ratio edits, and other runtime parameters remain transient.
 Restore validates the count against the request range of 1 through 50 and
 validates size against the active model schema.
+
+### GPT Image 2 size contract
+
+The `openaicompatible` `gpt-image-2` card has a dedicated size schema. It keeps
+`auto` and the standard `1024x1024`, `1536x1024`, and `1024x1536` presets, and
+adds `2560x1440` / `1440x2560` QHD presets plus `3840x2160` / `2160x3840` UHD
+presets. Other providers and image models retain their existing fixed-enum,
+width/height, or aspect-ratio controls.
+
+`packages/model-bank/src/standard-parameters/index.ts` defines the optional
+custom-size metadata and the shared `validateImageSize` helper. A valid custom
+value remains a canonical `WIDTHxHEIGHT` string and must meet all of these
+conditions:
+
+- both edges are positive multiples of 16
+- neither edge exceeds 3840 pixels
+- the long-edge to short-edge ratio is no greater than 3:1
+- total pixels are between 655,360 and 8,294,400 inclusive
+
+The size control reads the model metadata to render Standard, 2K, and 4K groups
+plus a Custom editor. Custom width and height remain local draft state until
+confirmation succeeds, so a synthetic `custom` value is never persisted or
+sent to a provider. The 2K presets contain 3,686,400 pixels and remain within
+the reliable range. Any preset or custom value above that threshold is valid
+but displays the experimental warning.
+
+Generation configuration persistence uses the same validator for both
+DB-backed account preferences and guest browser state. Valid custom strings
+therefore persist and restore like presets; malformed, stale, or out-of-range
+values fall back to the model's `auto` default.
+
+The public `image.createImage` input schema applies the contract only when
+`provider === 'openaicompatible'` and `model === 'gpt-image-2'`. Omitting
+`params.size` remains valid and uses the provider default. The OpenAI-compatible
+runtime repeats the same scoped validation before invoking the client, removes
+`auto` from the upstream request, forwards valid preset and custom strings
+unchanged to both generation and edit calls, and rejects invalid values before
+any provider request or reference-image download. The database schema is
+unchanged because image preferences and generation configurations already
+store `size` as a string.
+
+The limits and curated presets follow the OpenAI
+[Image generation guide](https://developers.openai.com/api/docs/guides/image-generation),
+[GPT Image 2 model page](https://developers.openai.com/api/docs/models/gpt-image-2),
+and [GPT Image 2 size guide](https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide#gpt-image-2-size-options).
+
 For models without a discrete `size` parameter, persisted `null` and missing
 size are equivalent and do not trigger a rebuild that would discard transient
 width, height, or aspect-ratio edits. For models with a discrete `size`

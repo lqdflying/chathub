@@ -1,5 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { ModelParamsSchema, RuntimeImageGenParams, extractDefaultValues } from 'model-bank';
+import {
+  ModelParamsSchema,
+  RuntimeImageGenParams,
+  extractDefaultValues,
+  gptImage2CompatibleParamsSchema,
+} from 'model-bank';
 import { AIImageModelCard } from 'model-bank';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -67,6 +72,13 @@ const testImageModels: AIImageModelCard[] = [
     parameters: sizeCapableModelSchema,
     releasedAt: '2024-01-01',
   },
+  {
+    id: 'gpt-image-2',
+    displayName: 'GPT Image 2',
+    type: 'image',
+    parameters: gptImage2CompatibleParamsSchema,
+    releasedAt: '2026-01-01',
+  },
 ];
 
 const mockProviders = [
@@ -79,6 +91,11 @@ const mockProviders = [
     id: 'custom-provider',
     name: 'Custom Provider',
     children: [testImageModels[1], testImageModels[2]],
+  },
+  {
+    id: 'openaicompatible',
+    name: 'OpenAI Compatible',
+    children: [testImageModels[3]],
   },
 ];
 
@@ -119,6 +136,7 @@ beforeEach(() => {
   currentImageSettingsMock.mockReturnValue({ defaultImageNum: 4 });
   mockProviders[0].children = [testImageModels[0]];
   mockProviders[1].children = [testImageModels[1], testImageModels[2]];
+  mockProviders[2].children = [testImageModels[3]];
   useGlobalStore.setState({
     isStatusInit: true,
     status: { ...INITIAL_STATUS },
@@ -309,6 +327,51 @@ describe('GenerationConfigAction', () => {
       });
 
       expect(result.current.imageNum).toBe(8);
+      expect(useGlobalStore.getState().status.lastSelectedImageSize).toBeNull();
+    });
+
+    it('should persist a valid custom GPT Image 2 size for guests', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        result.current.setModelAndProviderOnSelect('gpt-image-2', 'openaicompatible');
+        result.current.setParamOnInput('size', '2048x2048');
+      });
+
+      expect(useGlobalStore.getState().status).toMatchObject({
+        lastSelectedImageModel: 'gpt-image-2',
+        lastSelectedImageProvider: 'openaicompatible',
+        lastSelectedImageSize: '2048x2048',
+      });
+    });
+
+    it('should persist a valid custom GPT Image 2 size for signed-in users', async () => {
+      vi.mocked(authSelectors.isLogin).mockReturnValue(true);
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        result.current.setModelAndProviderOnSelect('gpt-image-2', 'openaicompatible');
+        result.current.setParamOnInput('size', '2048x2048');
+      });
+
+      await waitFor(() => {
+        expect(updateImageConfigMock).toHaveBeenLastCalledWith({
+          imageNum: 1,
+          model: 'gpt-image-2',
+          provider: 'openaicompatible',
+          size: '2048x2048',
+        });
+      });
+    });
+
+    it('should not persist an invalid GPT Image 2 custom size', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        result.current.setModelAndProviderOnSelect('gpt-image-2', 'openaicompatible');
+        result.current.setParamOnInput('size', '1025x1024');
+      });
+
       expect(useGlobalStore.getState().status.lastSelectedImageSize).toBeNull();
     });
   });
@@ -643,6 +706,56 @@ describe('GenerationConfigAction', () => {
       expect(result.current.isInit).toBe(true);
     });
 
+    it('should restore a valid remembered GPT Image 2 custom size', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      useImageStore.setState({
+        isInit: false,
+        model: '',
+        provider: '',
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(
+          'gpt-image-2',
+          'openaicompatible',
+          8,
+          '2048x2048',
+        );
+      });
+
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.parameters).toMatchObject({
+        prompt: 'initial prompt',
+        size: '2048x2048',
+      });
+    });
+
+    it('should fall back to auto for an invalid remembered GPT Image 2 custom size', () => {
+      const { result } = renderHook(() => useImageStore());
+
+      useImageStore.setState({
+        isInit: false,
+        model: '',
+        provider: '',
+      });
+
+      act(() => {
+        result.current.initializeImageConfig(
+          'gpt-image-2',
+          'openaicompatible',
+          8,
+          '1025x1024',
+        );
+      });
+
+      expect(result.current.imageNum).toBe(8);
+      expect(result.current.parameters).toMatchObject({
+        prompt: 'initial prompt',
+        size: 'auto',
+      });
+    });
+
     it('should fall back to current defaults for invalid remembered count and size', () => {
       currentImageSettingsMock.mockReturnValueOnce({ defaultImageNum: 6 });
       const { result } = renderHook(() => useImageStore());
@@ -770,6 +883,7 @@ describe('GenerationConfigAction', () => {
 
       mockProviders[0].children = [];
       mockProviders[1].children = [];
+      mockProviders[2].children = [];
       useImageStore.setState({ isInit: false });
 
       act(() => {
@@ -1006,6 +1120,7 @@ describe('GenerationConfigAction', () => {
 
       mockProviders[0].children = [];
       mockProviders[1].children = [];
+      mockProviders[2].children = [];
       useImageStore.setState({
         isImageModelAvailable: false,
         isInit: true,
@@ -1034,6 +1149,7 @@ describe('GenerationConfigAction', () => {
       act(() => {
         mockProviders[0].children = [];
         mockProviders[1].children = [];
+        mockProviders[2].children = [];
         useImageStore.setState({
           imageNum: 4,
           parameters: {

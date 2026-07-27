@@ -5,6 +5,8 @@ import {
   ModelParamsSchema,
   type RuntimeImageGenParams,
   extractDefaultValues,
+  isExperimentalImageSize,
+  validateImageSize,
   validateModelParamsSchema,
 } from './index';
 
@@ -98,6 +100,70 @@ describe('meta-schema', () => {
 
       // Should not throw since schema uses passthrough
       expect(() => validateModelParamsSchema(schemaWithExtra)).not.toThrow();
+    });
+  });
+
+  describe('validateImageSize', () => {
+    const customSizeSchema: ModelParamsSchema['size'] = {
+      custom: {
+        experimentalPixelThreshold: 3_686_400,
+        maxAspectRatio: 3,
+        maxEdge: 3840,
+        maxPixels: 8_294_400,
+        minPixels: 655_360,
+        step: 16,
+      },
+      default: 'auto',
+      enum: ['auto', '1024x1024', '2560x1440', '3840x2160'],
+    };
+
+    it.each([
+      ['auto', 'auto', false],
+      ['1024x1024', 'preset', false],
+      ['2560x1440', 'preset', false],
+      ['3840x2160', 'preset', true],
+      ['2048x2048', 'custom', true],
+    ] as const)('accepts %s as a %s value', (imageSize, source, experimental) => {
+      expect(validateImageSize(customSizeSchema, imageSize)).toMatchObject({
+        experimental,
+        source,
+        valid: true,
+      });
+    });
+
+    it.each([
+      [undefined, 'required'],
+      ['custom', 'format'],
+      ['1024X1024', 'format'],
+      ['3856x2160', 'maxEdge'],
+      ['1025x1024', 'multiple'],
+      ['3088x1024', 'aspectRatio'],
+      ['800x800', 'minPixels'],
+      ['3840x2176', 'maxPixels'],
+    ] as const)('rejects %s with %s', (imageSize, error) => {
+      expect(validateImageSize(customSizeSchema, imageSize)).toEqual({ error, valid: false });
+    });
+
+    it('preserves fixed-enum behavior when custom metadata is absent', () => {
+      const fixedSizeSchema: ModelParamsSchema['size'] = {
+        default: '1024x1024',
+        enum: ['1024x1024'],
+      };
+
+      expect(validateImageSize(fixedSizeSchema, '1024x1024')).toMatchObject({
+        source: 'preset',
+        valid: true,
+      });
+      expect(validateImageSize(fixedSizeSchema, '1536x1024')).toEqual({
+        error: 'unsupported',
+        valid: false,
+      });
+    });
+
+    it('checks the experimental threshold only for valid dimensions', () => {
+      expect(isExperimentalImageSize(customSizeSchema, '2560x1440')).toBe(false);
+      expect(isExperimentalImageSize(customSizeSchema, '3840x2160')).toBe(true);
+      expect(isExperimentalImageSize(customSizeSchema, 'invalid')).toBe(false);
     });
   });
 

@@ -42,7 +42,35 @@
       "random": "Random Seed"
     },
     "size": {
-      "label": "Size"
+      "auto": "Auto",
+      "cancel": "Cancel custom size",
+      "confirm": "Confirm custom size",
+      "custom": "Custom",
+      "customDescription": "Width × height",
+      "errors": {
+        "aspectRatio": "The long-to-short edge ratio cannot exceed {{maxAspectRatio}}:1",
+        "format": "Enter a valid width and height",
+        "maxEdge": "Width and height must not exceed {{maxEdge}} pixels",
+        "maxPixels": "Total pixels must not exceed {{maxPixels}}",
+        "minPixels": "Total pixels must be at least {{minPixels}}",
+        "multiple": "Width and height must be multiples of {{step}}",
+        "required": "Enter a width and height",
+        "unsupported": "This size is not supported by the current model"
+      },
+      "experimentalWarning": "This resolution is experimental. Generation speed, reliability, or output quality may vary.",
+      "label": "Size",
+      "orientation": {
+        "landscape": "Landscape",
+        "portrait": "Portrait",
+        "square": "Square"
+      },
+      "tiers": {
+        "2k": "2K / QHD",
+        "4k": "4K / UHD",
+        "auto": "Auto",
+        "custom": "Custom",
+        "standard": "Standard"
+      }
     },
     "steps": {
       "label": "Steps"

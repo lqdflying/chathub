@@ -557,6 +557,139 @@ describe('createOpenAICompatibleImage', () => {
   });
 
   describe('image mode - parameter mapping', () => {
+    it.each([
+      ['auto', undefined],
+      ['2560x1440', '2560x1440'],
+      ['2048x2048', '2048x2048'],
+    ] as const)('maps GPT Image 2 generation size %s to %s', async (size, expectedSize) => {
+      vi.mocked(mockClient.images.generate).mockResolvedValue({
+        data: [{ b64_json: 'gptImage2Result' }],
+      } as any);
+
+      await createOpenAICompatibleImage(
+        mockClient,
+        {
+          model: 'gpt-image-2',
+          params: {
+            prompt: 'Generate an image',
+            size,
+          },
+        },
+        'openaicompatible',
+      );
+
+      expect(mockClient.images.generate).toHaveBeenCalledWith({
+        model: 'gpt-image-2',
+        n: 1,
+        prompt: 'Generate an image',
+        ...(expectedSize ? { size: expectedSize } : {}),
+      });
+    });
+
+    it('allows GPT Image 2 to use the provider default when size is omitted', async () => {
+      vi.mocked(mockClient.images.generate).mockResolvedValue({
+        data: [{ b64_json: 'gptImage2Result' }],
+      } as any);
+
+      await createOpenAICompatibleImage(
+        mockClient,
+        {
+          model: 'gpt-image-2',
+          params: { prompt: 'Generate an image' },
+        },
+        'openaicompatible',
+      );
+
+      expect(mockClient.images.generate).toHaveBeenCalledWith({
+        model: 'gpt-image-2',
+        n: 1,
+        prompt: 'Generate an image',
+      });
+    });
+
+    it('forwards a valid custom GPT Image 2 size to edit requests', async () => {
+      vi.mocked(mockClient.images.edit).mockResolvedValue({
+        data: [{ b64_json: 'gptImage2EditResult' }],
+      } as any);
+      global.fetch = vi.fn().mockResolvedValue({
+        arrayBuffer: async () => new Uint8Array([0xff, 0xd8, 0xff, 0xe0]).buffer,
+        headers: {
+          get: (name: string) => (name === 'content-type' ? 'image/jpeg' : null),
+        },
+        ok: true,
+      } as any);
+
+      await createOpenAICompatibleImage(
+        mockClient,
+        {
+          model: 'gpt-image-2',
+          params: {
+            imageUrls: ['https://example.com/reference.jpg'],
+            prompt: 'Edit the image',
+            size: '2048x2048',
+          },
+        },
+        'openaicompatible',
+      );
+
+      expect(mockClient.images.edit).toHaveBeenCalledWith({
+        image: expect.any(File),
+        model: 'gpt-image-2',
+        n: 1,
+        prompt: 'Edit the image',
+        size: '2048x2048',
+      });
+    });
+
+    it.each(['invalid', '1025x1024', '4096x2048'])(
+      'rejects invalid GPT Image 2 size %s before invoking the client',
+      async (size) => {
+        await expect(
+          createOpenAICompatibleImage(
+            mockClient,
+            {
+              model: 'gpt-image-2',
+              params: {
+                imageUrls: ['https://example.com/reference.jpg'],
+                prompt: 'Generate an image',
+                size,
+              },
+            },
+            'openaicompatible',
+          ),
+        ).rejects.toThrow('Invalid GPT Image 2 size');
+
+        expect(mockClient.images.generate).not.toHaveBeenCalled();
+        expect(mockClient.images.edit).not.toHaveBeenCalled();
+        expect(global.fetch).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      ['openai', 'gpt-image-2'],
+      ['openaicompatible', 'gpt-image-1'],
+    ])('does not validate size for %s/%s', async (provider, model) => {
+      vi.mocked(mockClient.images.generate).mockResolvedValue({
+        data: [{ b64_json: 'nonTargetResult' }],
+      } as any);
+
+      await createOpenAICompatibleImage(
+        mockClient,
+        {
+          model,
+          params: {
+            prompt: 'Generate an image',
+            size: 'vendor-defined-size',
+          },
+        } as CreateImagePayload,
+        provider,
+      );
+
+      expect(mockClient.images.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ size: 'vendor-defined-size' }),
+      );
+    });
+
     it('should map single imageUrl string parameter to image array', async () => {
       const mockImageResponse = {
         data: [

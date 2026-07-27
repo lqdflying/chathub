@@ -7,6 +7,7 @@ import {
   RuntimeImageGenParamsKeys,
   RuntimeImageGenParamsValue,
   extractDefaultValues,
+  validateImageSize,
 } from 'model-bank';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -102,7 +103,7 @@ function isSupportedImageSize(
   parametersSchema: ModelParamsSchema,
   imageSize: string | null | undefined,
 ): imageSize is string {
-  return !!imageSize && parametersSchema.size?.enum?.includes(imageSize);
+  return validateImageSize(parametersSchema.size, imageSize).valid;
 }
 
 function prepareInitializedImageConfig(

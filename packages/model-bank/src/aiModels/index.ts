@@ -53,3 +53,7 @@ export { default as moonshot } from './moonshot';
 export { default as openai } from './openai';
 export { default as openaicompatible } from './openaicompatible';
 export { gptImage1ParamsSchema, openaiChatModels } from './openai';
+export {
+  GPT_IMAGE_2_SIZE_PRESETS,
+  gptImage2CompatibleParamsSchema,
+} from './openaicompatible';
