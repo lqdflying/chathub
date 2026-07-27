@@ -52,7 +52,7 @@ export class ClientService extends BaseClientService implements IChatGroupServic
   async updateAgentInGroup(
     groupId: string,
     agentId: string,
-    updates: Partial<Pick<NewChatGroupAgent, 'order' | 'role'>>,
+    updates: Partial<Pick<NewChatGroupAgent, 'enabled' | 'order' | 'role'>>,
   ): Promise<ChatGroupAgentItem> {
     return this.chatGroupModel.updateAgentInGroup(groupId, agentId, updates);
   }

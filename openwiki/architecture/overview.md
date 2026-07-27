@@ -5,6 +5,7 @@ ChatHub is structured as a Next.js application plus a set of workspace packages 
 ## Main layers
 
 ### App layer (`src/`)
+
 The `src/` tree contains the user-facing app, server modules, services, stores, and UI features. High-signal areas include:
 
 - `src/server/modules/ModelRuntime/index.ts` — resolves per-provider credentials and initializes the runtime
@@ -13,6 +14,7 @@ The `src/` tree contains the user-facing app, server modules, services, stores, 
 - `src/envs/llm.ts` — provider environment configuration schema
 
 ### Shared packages (`packages/`)
+
 The monorepo packages hold reusable logic. The main ones for understanding chat behavior are:
 
 - `packages/model-runtime` — provider adapters, OpenAI-compatible streaming, and model/runtime abstractions
@@ -32,6 +34,23 @@ The root README frames ChatHub as a self-hosted alternative to upstream LobeChat
 - extended tools and memory behavior for long conversations
 
 These priorities explain why the codebase has both UI features and a substantial server/runtime surface.
+
+## Account-owned chat-group membership
+
+A row in `chat_groups_agents` is valid only when its `userId` matches both the
+referenced `chat_groups.userId` and `agents.userId`. The database enforces this
+with composite parent keys on `(id, userId)` and composite foreign keys from the
+junction table. `ChatGroupModel` repeats the invariant at the authorization
+boundary: membership reads join through an owned group, owned junction row, and
+owned agent, while writes validate every referenced agent and group in one
+transaction. Mixed-owner or missing identifier sets fail atomically rather than
+being partially inserted or silently filtered.
+
+Template-based group creation also captures canonical account scope plus the
+session and chat-group store generations before creating members. It checks all
+three values around every asynchronous boundary and never submits a partially
+accumulated member list after invalidation. These client checks limit stale
+work, but the model and PostgreSQL constraints remain authoritative.
 
 ## Change guidance
 

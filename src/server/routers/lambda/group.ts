@@ -25,6 +25,17 @@ const normalizeGroupConfig = (config?: ChatGroupConfig | null): ChatGroupConfig 
       }
     : undefined;
 
+const updateChatGroupSchema = insertChatGroupSchema
+  .pick({
+    config: true,
+    description: true,
+    groupId: true,
+    pinned: true,
+    title: true,
+  })
+  .partial()
+  .strict();
+
 export const groupRouter = router({
   addAgentsToGroup: groupProcedure
     .input(
@@ -99,7 +110,7 @@ export const groupRouter = router({
     .input(
       z.object({
         id: z.string(),
-        value: insertChatGroupSchema.partial(),
+        value: updateChatGroupSchema,
       }),
     )
     .mutation(async ({ input, ctx }) => {

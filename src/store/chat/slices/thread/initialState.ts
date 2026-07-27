@@ -4,6 +4,7 @@ import type { TitleSummaryOperation } from '../../types';
 
 export interface ChatThreadState {
   activeThreadId?: string;
+  creatingThreadId?: string;
   /**
    * is creating thread with service call
    */

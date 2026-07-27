@@ -16,7 +16,7 @@ export interface IChatGroupService {
   updateAgentInGroup(
     groupId: string,
     agentId: string,
-    updates: Partial<Pick<NewChatGroupAgent, 'order' | 'role'>>,
+    updates: Partial<Pick<NewChatGroupAgent, 'enabled' | 'order' | 'role'>>,
   ): Promise<ChatGroupAgentItem>;
   updateGroup(id: string, value: Partial<ChatGroupItem>): Promise<ChatGroupItem>;
 }

@@ -4,6 +4,7 @@ const { drizzle } = require('drizzle-orm/node-postgres');
 const migrator = require('drizzle-orm/node-postgres/migrator');
 const { PGVECTOR_HINT } = require('./errorHint');
 const { ensureAgentAssistantMemoryColumn } = require('./ensureAgentAssistantMemory.cjs');
+const { ensureChatGroupMembershipOwnership } = require('./ensureChatGroupMembershipOwnership.cjs');
 const { ensureConversationVersionColumn } = require('./ensureConversationVersion.cjs');
 const { ensureMessageOrderColumn } = require('./ensureMessageOrder.cjs');
 const { ensureMcpOAuthTokensTable } = require('./ensureMcpOAuthTokens.cjs');
@@ -33,6 +34,7 @@ const runMigrations = async () => {
   });
 
   await ensureAgentAssistantMemoryColumn(client);
+  await ensureChatGroupMembershipOwnership(client);
   await ensureConversationVersionColumn(client);
   await ensureMcpOAuthTokensTable(client);
   await ensurePicbedImagesTable(client);

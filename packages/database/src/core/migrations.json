@@ -826,5 +826,13 @@
     "bps": true,
     "folderMillis": 1784687753515,
     "hash": "55e50be9d71709b813571b0c145d5b944822ff3f2b33d14043e9783fe5ca3c0b"
+  },
+  {
+    "sql": [
+      "DO $$ BEGIN\n\tIF to_regclass('public.chat_groups_agents') IS NULL\n\t\tOR to_regclass('public.chat_groups') IS NULL\n\t\tOR to_regclass('public.agents') IS NULL THEN\n\t\tRETURN;\n\tEND IF;\n\n\tUPDATE \"chat_groups_agents\" AS membership\n\tSET \"user_id\" = chat_group.\"user_id\"\n\tFROM \"chat_groups\" AS chat_group, \"agents\" AS agent\n\tWHERE membership.\"chat_group_id\" = chat_group.\"id\"\n\t\tAND membership.\"agent_id\" = agent.\"id\"\n\t\tAND chat_group.\"user_id\" = agent.\"user_id\"\n\t\tAND membership.\"user_id\" <> chat_group.\"user_id\";\n\n\tDELETE FROM \"chat_groups_agents\" AS membership\n\tUSING \"chat_groups\" AS chat_group, \"agents\" AS agent\n\tWHERE membership.\"chat_group_id\" = chat_group.\"id\"\n\t\tAND membership.\"agent_id\" = agent.\"id\"\n\t\tAND chat_group.\"user_id\" <> agent.\"user_id\";\n\n\tCREATE UNIQUE INDEX IF NOT EXISTS \"agents_id_user_id_unique\"\n\t\tON \"agents\" USING btree (\"id\", \"user_id\");\n\tCREATE UNIQUE INDEX IF NOT EXISTS \"chat_groups_id_user_id_unique\"\n\t\tON \"chat_groups\" USING btree (\"id\", \"user_id\");\n\n\tIF NOT EXISTS (\n\t\tSELECT 1\n\t\tFROM pg_constraint\n\t\tWHERE conname = 'chat_groups_agents_agent_id_user_id_agents_id_user_id_fk'\n\t\t\tAND conrelid = 'public.chat_groups_agents'::regclass\n\t) THEN\n\t\tALTER TABLE \"chat_groups_agents\"\n\t\t\tADD CONSTRAINT \"chat_groups_agents_agent_id_user_id_agents_id_user_id_fk\"\n\t\t\tFOREIGN KEY (\"agent_id\", \"user_id\")\n\t\t\tREFERENCES \"public\".\"agents\"(\"id\", \"user_id\")\n\t\t\tON DELETE no action\n\t\t\tON UPDATE no action;\n\tEND IF;\n\n\tIF NOT EXISTS (\n\t\tSELECT 1\n\t\tFROM pg_constraint\n\t\tWHERE conname = 'chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk'\n\t\t\tAND conrelid = 'public.chat_groups_agents'::regclass\n\t) THEN\n\t\tALTER TABLE \"chat_groups_agents\"\n\t\t\tADD CONSTRAINT \"chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk\"\n\t\t\tFOREIGN KEY (\"chat_group_id\", \"user_id\")\n\t\t\tREFERENCES \"public\".\"chat_groups\"(\"id\", \"user_id\")\n\t\t\tON DELETE no action\n\t\t\tON UPDATE no action;\n\tEND IF;\nEND $$;"
+    ],
+    "bps": true,
+    "folderMillis": 1785110363655,
+    "hash": "8cd7591ca9adfa9777e55afa02a2ff45ed0520128ed1a043ab1b38b006af2670"
   }
 ]

@@ -49,12 +49,13 @@ export class ServerService implements IChatGroupService {
   updateAgentInGroup(
     groupId: string,
     agentId: string,
-    updates: Partial<Pick<NewChatGroupAgent, 'order' | 'role'>>,
+    updates: Partial<Pick<NewChatGroupAgent, 'enabled' | 'order' | 'role'>>,
   ): Promise<ChatGroupAgentItem> {
     return lambdaClient.group.updateAgentInGroup.mutate({
       agentId,
       groupId,
       updates: {
+        enabled: updates.enabled ?? undefined,
         order: updates.order === null ? undefined : updates.order,
         role: updates.role === null ? undefined : updates.role,
       },

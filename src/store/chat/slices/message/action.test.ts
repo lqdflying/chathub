@@ -79,6 +79,46 @@ afterEach(() => {
 });
 
 describe('chatMessage actions', () => {
+  describe('internal_invalidateConversation', () => {
+    it('clears only the invalidated conversation generation marker', () => {
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        serverGenerationOperations: {
+          'other-session_other-topic': {
+            generation: 1,
+            operationId: 'other-operation',
+            sessionId: 'other-session',
+            topicId: 'other-topic',
+            userScope: 'user:account-a',
+          },
+          'session-id_topic-id': {
+            generation: 1,
+            operationId: 'current-operation',
+            sessionId: 'session-id',
+            topicId: 'topic-id',
+            userScope: 'user:account-a',
+          },
+        },
+      });
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      expect(useChatStore.getState().serverGenerationOperations).toEqual({
+        'other-session_other-topic': {
+          generation: 1,
+          operationId: 'other-operation',
+          sessionId: 'other-session',
+          topicId: 'other-topic',
+          userScope: 'user:account-a',
+        },
+      });
+    });
+  });
+
   describe('addAIMessage', () => {
     it('should return early if activeId is undefined', async () => {
       useChatStore.setState({ activeId: undefined });
@@ -426,6 +466,7 @@ describe('chatMessage actions', () => {
         codeInterpreterImageMap: {
           'image-id': { id: 'image-id' } as any,
         },
+        creatingThreadId: 'thread-create-operation',
         creatingTopic: true,
         dalleImageLoading: { 'tool-message-prompt': true },
         dalleImageMap: {
@@ -443,6 +484,15 @@ describe('chatMessage actions', () => {
         portalToolMessage: { id: 'tool-message', identifier: 'tool' },
         searchLoading: { 'tool-message': true },
         searchTopics: [{ id: 'search-topic', title: 'Search result' }],
+        serverGenerationOperations: {
+          'session-id_topic-id': {
+            generation: 1,
+            operationId: 'generation-operation',
+            sessionId: 'session-id',
+            topicId: 'topic-id',
+            userScope: 'user:account-a',
+          },
+        },
         showPortal: true,
         startToForkThread: true,
         supervisorTodos: { cached: [] },
@@ -467,6 +517,7 @@ describe('chatMessage actions', () => {
         activeTopicId: null,
         codeInterpreterExecuting: {},
         codeInterpreterImageMap: {},
+        creatingThreadId: undefined,
         creatingTopic: false,
         dalleImageLoading: {},
         dalleImageMap: {},
@@ -482,6 +533,7 @@ describe('chatMessage actions', () => {
         portalToolMessage: undefined,
         searchLoading: {},
         searchTopics: [],
+        serverGenerationOperations: {},
         showPortal: false,
         startToForkThread: undefined,
         supervisorTodos: {},

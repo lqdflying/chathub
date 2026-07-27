@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { LobeChatDatabase } from '@/database/type';
@@ -179,6 +179,44 @@ describe('ChatGroupModel', () => {
       const result = await chatGroupModel.queryWithMemberDetails();
       expect(result).toEqual([]);
     });
+
+    it('should omit a legacy membership whose owner does not match the group and agent', async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction.execute(sql`
+          ALTER TABLE "chat_groups_agents"
+          DROP CONSTRAINT "chat_groups_agents_agent_id_user_id_agents_id_user_id_fk"
+        `);
+        await transaction
+          .insert(chatGroups)
+          .values({ id: 'owned-group-with-corrupt-member', title: 'Owned Group', userId });
+        await transaction
+          .insert(agentsTable)
+          .values({ id: 'other-user-agent', title: 'Other Agent', userId: otherUserId });
+        await transaction.insert(chatGroupsAgents).values({
+          agentId: 'other-user-agent',
+          chatGroupId: 'owned-group-with-corrupt-member',
+          userId,
+        });
+
+        const transactionModel = new ChatGroupModel(transaction as LobeChatDatabase, userId);
+        const result = await transactionModel.queryWithMemberDetails();
+
+        expect(result).toHaveLength(1);
+        expect(result[0].members).toEqual([]);
+
+        await transaction
+          .delete(chatGroupsAgents)
+          .where(eq(chatGroupsAgents.chatGroupId, 'owned-group-with-corrupt-member'));
+        await transaction.execute(sql`
+          ALTER TABLE "chat_groups_agents"
+          ADD CONSTRAINT "chat_groups_agents_agent_id_user_id_agents_id_user_id_fk"
+          FOREIGN KEY ("agent_id", "user_id")
+          REFERENCES "public"."agents"("id", "user_id")
+          ON DELETE no action
+          ON UPDATE no action
+        `);
+      });
+    });
   });
 
   describe('findGroupWithAgents', () => {
@@ -292,6 +330,26 @@ describe('ChatGroupModel', () => {
       expect(result.group).toBeDefined();
       expect(result.agents).toEqual([]);
     });
+
+    it('should reject a mixed-owner agent set without creating the group', async () => {
+      await serverDB.insert(agentsTable).values([
+        { id: 'owned-create-agent', title: 'Owned Agent', userId },
+        { id: 'foreign-create-agent', title: 'Foreign Agent', userId: otherUserId },
+      ]);
+
+      await expect(
+        chatGroupModel.createWithAgents(
+          { id: 'group-that-must-rollback', title: 'Rejected Group' },
+          ['owned-create-agent', 'foreign-create-agent'],
+        ),
+      ).rejects.toThrow('One or more agents were not found or access was denied');
+
+      const createdGroup = await serverDB
+        .select()
+        .from(chatGroups)
+        .where(eq(chatGroups.id, 'group-that-must-rollback'));
+      expect(createdGroup).toEqual([]);
+    });
   });
 
   describe('update', () => {
@@ -384,6 +442,23 @@ describe('ChatGroupModel', () => {
 
       expect(result.order).toBe(0);
       expect(result.role).toBe('assistant');
+    });
+
+    it('should reject an agent owned by another user', async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction
+          .insert(chatGroups)
+          .values({ id: 'owned-single-add-group', title: 'Owned Group', userId });
+        await transaction
+          .insert(agentsTable)
+          .values({ id: 'foreign-single-add-agent', title: 'Foreign Agent', userId: otherUserId });
+      });
+
+      await expect(
+        chatGroupModel.addAgentToGroup('owned-single-add-group', 'foreign-single-add-agent'),
+      ).rejects.toThrow('Group or agent not found or access denied');
+
+      expect(await chatGroupModel.getGroupAgents('owned-single-add-group')).toEqual([]);
     });
   });
 
@@ -479,7 +554,28 @@ describe('ChatGroupModel', () => {
     it('should throw error for non-existent group', async () => {
       await expect(
         chatGroupModel.addAgentsToGroup('non-existent-group', ['agent-1']),
-      ).rejects.toThrow('Group not found');
+      ).rejects.toThrow('Group not found or access denied');
+    });
+
+    it('should reject mixed-owner IDs atomically', async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction
+          .insert(chatGroups)
+          .values({ id: 'mixed-owner-group', title: 'Owned Group', userId });
+        await transaction.insert(agentsTable).values([
+          { id: 'mixed-owned-agent', title: 'Owned Agent', userId },
+          { id: 'mixed-foreign-agent', title: 'Foreign Agent', userId: otherUserId },
+        ]);
+      });
+
+      await expect(
+        chatGroupModel.addAgentsToGroup('mixed-owner-group', [
+          'mixed-owned-agent',
+          'mixed-foreign-agent',
+        ]),
+      ).rejects.toThrow('One or more agents were not found or access was denied');
+
+      expect(await chatGroupModel.getGroupAgents('mixed-owner-group')).toEqual([]);
     });
   });
 
@@ -513,17 +609,42 @@ describe('ChatGroupModel', () => {
       expect(groupAgents).toHaveLength(0);
     });
 
-    it('should handle removing non-existent agent gracefully', async () => {
+    it('should reject removing a missing membership', async () => {
       await serverDB.insert(chatGroups).values({
         id: 'empty-group',
         userId,
         title: 'Empty Group',
       });
 
-      // Should not throw error
       await expect(
         chatGroupModel.removeAgentFromGroup('empty-group', 'non-existent-agent'),
-      ).resolves.not.toThrow();
+      ).rejects.toThrow('Group membership not found or access denied');
+    });
+
+    it('should not remove a foreign-owned membership', async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction
+          .insert(chatGroups)
+          .values({ id: 'foreign-remove-group', title: 'Foreign Group', userId: otherUserId });
+        await transaction
+          .insert(agentsTable)
+          .values({ id: 'foreign-remove-agent', title: 'Foreign Agent', userId: otherUserId });
+        await transaction.insert(chatGroupsAgents).values({
+          agentId: 'foreign-remove-agent',
+          chatGroupId: 'foreign-remove-group',
+          userId: otherUserId,
+        });
+      });
+
+      await expect(
+        chatGroupModel.removeAgentFromGroup('foreign-remove-group', 'foreign-remove-agent'),
+      ).rejects.toThrow('Group membership not found or access denied');
+
+      const membership = await serverDB
+        .select()
+        .from(chatGroupsAgents)
+        .where(eq(chatGroupsAgents.chatGroupId, 'foreign-remove-group'));
+      expect(membership).toHaveLength(1);
     });
   });
 
@@ -561,6 +682,35 @@ describe('ChatGroupModel', () => {
       expect(result.order).toBe(5);
       expect(result.role).toBe('moderator');
       expect(result.updatedAt).toBeInstanceOf(Date);
+    });
+
+    it('should not update a foreign-owned membership', async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction
+          .insert(chatGroups)
+          .values({ id: 'foreign-update-group', title: 'Foreign Group', userId: otherUserId });
+        await transaction
+          .insert(agentsTable)
+          .values({ id: 'foreign-update-agent', title: 'Foreign Agent', userId: otherUserId });
+        await transaction.insert(chatGroupsAgents).values({
+          agentId: 'foreign-update-agent',
+          chatGroupId: 'foreign-update-group',
+          role: 'participant',
+          userId: otherUserId,
+        });
+      });
+
+      await expect(
+        chatGroupModel.updateAgentInGroup('foreign-update-group', 'foreign-update-agent', {
+          role: 'moderator',
+        }),
+      ).rejects.toThrow('Group membership not found or access denied');
+
+      const [membership] = await serverDB
+        .select()
+        .from(chatGroupsAgents)
+        .where(eq(chatGroupsAgents.chatGroupId, 'foreign-update-group'));
+      expect(membership.role).toBe('participant');
     });
   });
 
@@ -711,6 +861,24 @@ describe('ChatGroupModel', () => {
       expect(result[0]?.agentId).toBe('agent-order-1'); // order: 1
       expect(result[1]?.agentId).toBe('agent-order-2'); // order: 2
       expect(result[2]?.agentId).toBe('agent-order-10'); // order: 10
+    });
+
+    it('should not enumerate another user group', async () => {
+      await serverDB.transaction(async (transaction) => {
+        await transaction
+          .insert(chatGroups)
+          .values({ id: 'foreign-read-group', title: 'Foreign Group', userId: otherUserId });
+        await transaction
+          .insert(agentsTable)
+          .values({ id: 'foreign-read-agent', title: 'Foreign Agent', userId: otherUserId });
+        await transaction.insert(chatGroupsAgents).values({
+          agentId: 'foreign-read-agent',
+          chatGroupId: 'foreign-read-group',
+          userId: otherUserId,
+        });
+      });
+
+      expect(await chatGroupModel.getGroupAgents('foreign-read-group')).toEqual([]);
     });
   });
 

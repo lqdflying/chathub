@@ -107,6 +107,7 @@ beforeEach(() => {
       activeId: 'test-session-id',
       activeTopicId: 'test-topic-id',
       conversationClearGeneration: 0,
+      creatingThreadId: undefined,
       isCreatingThread: false,
       isCreatingThreadMessage: false,
       messagesMap: {},
@@ -304,12 +305,15 @@ describe('thread action', () => {
       });
 
       act(() => {
+        result.current.internal_invalidateConversation();
         useChatStore.setState({
           activeId: 'account-a-returned-session',
           activeTopicId: 'account-a-returned-topic',
-          conversationClearGeneration: 1,
-          isCreatingThread: false,
         });
+      });
+      expect(useChatStore.getState()).toMatchObject({
+        creatingThreadId: undefined,
+        isCreatingThread: false,
       });
       createdThread.resolve({
         messageId: 'stale-account-a-message',
@@ -323,6 +327,69 @@ describe('thread action', () => {
 
       expect(createResult).toEqual({ messageId: '', threadId: '' });
       expect(useChatStore.getState().isCreatingThread).toBe(false);
+    });
+
+    it('clears owned loading state when the service rejects', async () => {
+      const serviceError = new Error('thread creation failed');
+      (threadService.createThreadWithMessage as Mock).mockRejectedValue(serviceError);
+      const { result } = renderHook(() => useChatStore());
+
+      await expect(
+        result.current.createThread({
+          message: { content: 'test', role: 'user', sessionId: 'test-session-id' },
+          sourceMessageId: 'source-msg-id',
+          topicId: 'test-topic-id',
+          type: ThreadType.Continuation,
+        }),
+      ).rejects.toBe(serviceError);
+
+      expect(useChatStore.getState()).toMatchObject({
+        creatingThreadId: undefined,
+        isCreatingThread: false,
+      });
+    });
+
+    it('does not let an older completion clear a newer creation', async () => {
+      const olderCreation = createDeferred<{ messageId: string; threadId: string }>();
+      const newerCreation = createDeferred<{ messageId: string; threadId: string }>();
+      (threadService.createThreadWithMessage as Mock)
+        .mockReturnValueOnce(olderCreation.promise)
+        .mockReturnValueOnce(newerCreation.promise);
+      const { result } = renderHook(() => useChatStore());
+
+      const olderPromise = result.current.createThread({
+        message: { content: 'older', role: 'user', sessionId: 'test-session-id' },
+        sourceMessageId: 'older-source',
+        topicId: 'test-topic-id',
+        type: ThreadType.Continuation,
+      });
+      const olderOperationId = useChatStore.getState().creatingThreadId;
+      const newerPromise = result.current.createThread({
+        message: { content: 'newer', role: 'user', sessionId: 'test-session-id' },
+        sourceMessageId: 'newer-source',
+        topicId: 'test-topic-id',
+        type: ThreadType.Continuation,
+      });
+      const newerOperationId = useChatStore.getState().creatingThreadId;
+
+      expect(newerOperationId).toBeDefined();
+      expect(newerOperationId).not.toBe(olderOperationId);
+
+      olderCreation.resolve({ messageId: 'older-message', threadId: 'older-thread' });
+      await olderPromise;
+
+      expect(useChatStore.getState()).toMatchObject({
+        creatingThreadId: newerOperationId,
+        isCreatingThread: true,
+      });
+
+      newerCreation.resolve({ messageId: 'newer-message', threadId: 'newer-thread' });
+      await newerPromise;
+
+      expect(useChatStore.getState()).toMatchObject({
+        creatingThreadId: undefined,
+        isCreatingThread: false,
+      });
     });
   });
 

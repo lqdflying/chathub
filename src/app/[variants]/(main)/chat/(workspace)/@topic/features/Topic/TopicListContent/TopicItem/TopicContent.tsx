@@ -20,6 +20,7 @@ import { LOADING_FLAT } from '@/const/message';
 import { isDesktop } from '@/const/version';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useChatStore } from '@/store/chat';
+import { topicSelectors } from '@/store/chat/selectors';
 import { useGlobalStore } from '@/store/global';
 import { globalGeneralSelectors } from '@/store/global/selectors';
 import { formatTopicRelativeTime } from '@/utils/client/topic';
@@ -71,7 +72,7 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
     s.removeTopic,
     s.autoRenameTopicTitle,
     s.duplicateTopic,
-    s.topicLoadingIds.includes(id),
+    topicSelectors.isTopicLoading(id)(s),
     s.activeId,
   ]);
   const { styles, theme } = useStyles();

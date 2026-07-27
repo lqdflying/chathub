@@ -400,6 +400,7 @@ export const chatMessage: StateCreator<
         codeInterpreterExecuting: {},
         codeInterpreterImageMap: {},
         conversationClearGeneration: get().conversationClearGeneration,
+        creatingThreadId: undefined,
         creatingTopic: false,
         creatingTopicId: undefined,
         dalleImageLoading: {},
@@ -430,6 +431,7 @@ export const chatMessage: StateCreator<
         searchLoading: {},
         searchWorkflowLoadingIds: [],
         searchWorkflowLoadingIdsAbortController: undefined,
+        serverGenerationOperations: {},
         topicLoadingIds: [],
         topicMaps: {},
         topicSearchKeywords: '',
@@ -586,13 +588,7 @@ export const chatMessage: StateCreator<
     const sessionId = context?.sessionId ?? get().activeId;
     const topicId = context?.topicId ?? get().activeTopicId;
 
-    await mutate([
-      SWR_USE_FETCH_MESSAGES,
-      requestedScope,
-      sessionId,
-      topicId,
-      'session',
-    ]);
+    await mutate([SWR_USE_FETCH_MESSAGES, requestedScope, sessionId, topicId, 'session']);
     await mutate([SWR_USE_FETCH_MESSAGES, requestedScope, sessionId, topicId, 'group']);
   },
   replaceMessages: (messages) => {
@@ -782,10 +778,7 @@ export const chatMessage: StateCreator<
       return;
     }
 
-    internal_dispatchMessage(
-      { id: tempId, type: 'updateMessage', value: { id } },
-      dispatchContext,
-    );
+    internal_dispatchMessage({ id: tempId, type: 'updateMessage', value: { id } }, dispatchContext);
 
     if (message.topicId) {
       get().internal_dispatchTopic({
@@ -934,13 +927,17 @@ export const chatMessage: StateCreator<
 
     get().internal_cancelAllSupervisorDecisions();
     useToolStore.setState({ builtinToolLoading: {} });
+    const invalidatedGenerationOperationKey = messageMapKey(get().activeId, get().activeTopicId);
     set(
       (state) => ({
         ...clearTitleSummaryOperations(state),
         chatLoadingIds: [],
         chatLoadingIdsAbortController: undefined,
         conversationClearGeneration: state.conversationClearGeneration + 1,
+        creatingThreadId: undefined,
         isCreatingMessage: false,
+        isCreatingThread: false,
+        isCreatingThreadMessage: false,
         mainSendMessageOperations: {},
         messageLoadingIds: [],
         messageInToolsCallingIds: [],
@@ -951,6 +948,12 @@ export const chatMessage: StateCreator<
         reasoningLoadingIdsAbortController: undefined,
         searchWorkflowLoadingIds: [],
         searchWorkflowLoadingIdsAbortController: undefined,
+        serverGenerationOperations: Object.fromEntries(
+          Object.entries(state.serverGenerationOperations).filter(
+            ([operationKey]) => operationKey !== invalidatedGenerationOperationKey,
+          ),
+        ),
+        threadMessageSendingId: undefined,
         toolCallingStreamIds: {},
       }),
       false,

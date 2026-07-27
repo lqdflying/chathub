@@ -67,6 +67,25 @@ messages, message-group parents, group references, agent targets, and memory
 references. Dangling optional parent pointers in legacy backups become `null`;
 required missing dependencies fail the transaction.
 
+## Startup repair for chat-group membership ownership
+
+The chat-group membership migration repairs legacy `chat_groups_agents` rows
+before installing composite ownership constraints:
+
+1. If the referenced group and agent have the same owner but the junction
+   `userId` is stale, normalize the junction owner.
+2. If the group and agent have different owners, delete the invalid
+   cross-account membership.
+3. Create the composite `(id, userId)` parent indexes and foreign keys that
+   prevent future mismatches.
+
+Docker startup runs the same logic through
+`ensureChatGroupMembershipOwnership.cjs` after Drizzle migrations. The helper
+is transactional and idempotent, checks that all three tables exist, and is safe
+to rerun after a restored database or migration-journal drift. Back up
+PostgreSQL before upgrading; a true cross-owner link cannot be assigned safely
+and is deliberately removed rather than guessed.
+
 ## Compatibility and security
 
 - Version 2 rejects unknown tables and future formats.

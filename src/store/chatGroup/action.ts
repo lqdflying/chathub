@@ -130,12 +130,7 @@ export const chatGroupAction: StateCreator<
     },
     deleteGroup: async (id) => {
       // First, get all group members to identify virtual members
-      // Note: ChatGroupAgentItem type is incorrectly defined in schema as agents table type
-      // but getGroupAgents actually returns chatGroupsAgents junction table entries
-      const groupAgents = (await chatGroupService.getGroupAgents(id)) as unknown as Array<{
-        agentId: string;
-        chatGroupId: string;
-      }>;
+      const groupAgents = await chatGroupService.getGroupAgents(id);
 
       // Delete the group first (this will cascade delete the chat_groups_agents entries)
       await chatGroupService.deleteGroup(id);

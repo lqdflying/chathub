@@ -12,6 +12,7 @@ import {
   TraceNameMap,
   UIChatMessage,
 } from '@lobechat/types';
+import { nanoid } from '@lobechat/utils';
 import { TRPCClientError } from '@trpc/client';
 import { t } from 'i18next';
 import { produce } from 'immer';
@@ -29,6 +30,8 @@ import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { getFileStoreState } from '@/store/file/store';
 import { getSessionStoreState } from '@/store/session';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { normalizeTopic } from '@/utils/client/topic';
 import { setNamespace } from '@/utils/storeDebug';
@@ -112,12 +115,15 @@ export const generateAIChatV2: StateCreator<
     const { activeTopicId, activeId, activeThreadId, internal_execAgentRuntime, mainInputEditor } =
       get();
     if (!activeId) return;
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    if (!requestedScope) return;
     let conversationContext: ConversationContext = {
       generation: get().conversationClearGeneration,
       sessionId: activeId,
       topicId: activeTopicId,
     };
     const isCurrentConversation = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
       get().conversationClearGeneration === conversationContext.generation &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
@@ -248,8 +254,7 @@ export const generateAIChatV2: StateCreator<
         // Check if error is due to cancellation
         const currentOperation = get().mainSendMessageOperations[operationKey];
         const isCurrentOperation =
-          isCurrentConversation() &&
-          currentOperation?.abortController === abortController;
+          isCurrentConversation() && currentOperation?.abortController === abortController;
 
         if (!isAbort && isCurrentOperation) {
           get().internal_updateSendMessageOperation(operationKey, { inputSendErrorMsg: e.message });
@@ -260,8 +265,7 @@ export const generateAIChatV2: StateCreator<
       // Stop tracking sendMessageInServer operation
       const currentOperation = get().mainSendMessageOperations[operationKey];
       const isCurrentOperation =
-        isCurrentConversation() &&
-        currentOperation?.abortController === abortController;
+        isCurrentConversation() && currentOperation?.abortController === abortController;
 
       if (isCurrentOperation) {
         operationWasCurrent = true;
@@ -273,20 +277,13 @@ export const generateAIChatV2: StateCreator<
         get().internal_toggleSendMessageOperation(operationKey, false);
       }
 
-      if (
-        contextExportCaptureId &&
-        (!data || !isCurrentConversation())
-      ) {
+      if (contextExportCaptureId && (!data || !isCurrentConversation())) {
         get().completeContextExport(contextExportCaptureId);
       }
     }
 
     // remove temporally message
-    if (
-      data?.isCreateNewTopic &&
-      operationWasCurrent &&
-      isCurrentConversation()
-    ) {
+    if (data?.isCreateNewTopic && operationWasCurrent && isCurrentConversation()) {
       get().internal_dispatchMessage(
         { type: 'deleteMessage', id: tempId },
         { topicId: activeTopicId, sessionId: activeId },
@@ -308,7 +305,32 @@ export const generateAIChatV2: StateCreator<
     const activeContextExportCaptureId =
       contextExportCaptureId ?? (!isWelcomeQuestion ? get().consumeContextExportArm() : undefined);
 
-    if (data.topicId) get().internal_updateTopicLoading(data.topicId, true);
+    const generationOperationKey = data.topicId
+      ? messageMapKey(conversationContext.sessionId, data.topicId)
+      : undefined;
+    const generationOperationId = `server-generation-${nanoid(8)}`;
+    if (generationOperationKey && data.topicId) {
+      set(
+        (state) => ({
+          serverGenerationOperations: {
+            ...state.serverGenerationOperations,
+            [generationOperationKey]: {
+              generation: conversationContext.generation,
+              operationId: generationOperationId,
+              sessionId: conversationContext.sessionId,
+              topicId: data.topicId!,
+              userScope: requestedScope,
+            },
+          },
+        }),
+        false,
+        n('serverGeneration/start', {
+          operationId: generationOperationId,
+          sessionId: conversationContext.sessionId,
+          topicId: data.topicId,
+        }),
+      );
+    }
 
     const summaryTitle = async () => {
       // check activeTopic and then auto update topic title
@@ -341,6 +363,7 @@ export const generateAIChatV2: StateCreator<
         ragQuery: get().internal_shouldUseRAG() ? message : undefined,
         threadId: activeThreadId,
       });
+      if (!isCurrentConversation()) return;
 
       //
       // // if there is relative files, then add files to agent
@@ -354,7 +377,25 @@ export const generateAIChatV2: StateCreator<
       if (activeContextExportCaptureId) {
         get().completeContextExport(activeContextExportCaptureId);
       }
-      if (data.topicId) get().internal_updateTopicLoading(data.topicId, false);
+      if (generationOperationKey) {
+        set(
+          (state) => {
+            const currentOperation = state.serverGenerationOperations[generationOperationKey];
+            if (currentOperation?.operationId !== generationOperationId) return state;
+
+            const serverGenerationOperations = { ...state.serverGenerationOperations };
+            delete serverGenerationOperations[generationOperationKey];
+
+            return { serverGenerationOperations };
+          },
+          false,
+          n('serverGeneration/end', {
+            operationId: generationOperationId,
+            sessionId: conversationContext.sessionId,
+            topicId: data.topicId,
+          }),
+        );
+      }
     }
   },
 

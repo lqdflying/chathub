@@ -17,10 +17,12 @@ import { useChatGroupStore } from '@/store/chatGroup';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/slices/session/selectors';
-import { LobeAgentSession } from '@/types/session';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import TogglePanelButton from '../../../features/TogglePanelButton';
 import SessionSearchBar from '../../features/SessionSearchBar';
+import { createGroupFromTemplate } from './createGroupFromTemplate';
 
 export const useStyles = createStyles(({ css, token }) => ({
   logo: css`
@@ -81,58 +83,22 @@ const Header = memo(() => {
           ? template.members
           : template.members.filter((m) => selectedMemberTitles.includes(m.title));
 
-      // Create assistants for each selected member and get their agent IDs
-      const memberAgentIds: string[] = [];
-      for (const member of membersToCreate) {
-        const sessionId = await createSession(
-          {
-            config: {
-              plugins: member.plugins,
-              systemRole: member.systemRole,
-              virtual: true,
-            },
-            meta: {
-              avatar: member.avatar,
-              backgroundColor: member.backgroundColor,
-              description: `${member.title} - ${template.description}`,
-              title: member.title,
-            },
-          },
-          false, // Don't switch to each session
-        );
+      const groupId = await createGroupFromTemplate({
+        createGroup,
+        createSession,
+        getCurrentScope: () => {
+          const userScope = authSelectors.currentUserScope(useUserStore.getState());
+          if (!userScope) return;
 
-        // Refresh sessions to ensure we get the latest data
-        await refreshSessions();
-
-        // Get the agent ID from the created session
-        const session = sessionSelectors.getSessionById(sessionId)(useSessionStore.getState());
-        if (session && session.type === 'agent') {
-          const agentSession = session as LobeAgentSession;
-          if (agentSession.config?.id) {
-            memberAgentIds.push(agentSession.config.id);
-          }
-        }
-      }
-
-      // Wait 1 second delay between member creation and group creation
-      await new Promise<void>((resolve) => {
-        setTimeout(() => resolve(), 1000);
-      });
-
-      // Create the group with the agent IDs and host configuration
-      console.log('Creating group with hostConfig:', hostConfig);
-      console.log(
-        'Mapped config:',
-        hostConfig
-          ? {
-              orchestratorModel: hostConfig.model,
-              orchestratorProvider: hostConfig.provider,
-            }
-          : undefined,
-      );
-
-      await createGroup(
-        {
+          return {
+            chatGroupGeneration: useChatGroupStore.getState().scopeGeneration,
+            sessionGeneration: useSessionStore.getState().scopeGeneration,
+            userScope,
+          };
+        },
+        getSessionById: (sessionId) =>
+          sessionSelectors.getSessionById(sessionId)(useSessionStore.getState()),
+        group: {
           config: {
             ...(hostConfig
               ? {
@@ -145,8 +111,11 @@ const Header = memo(() => {
           },
           title: template.title,
         },
-        memberAgentIds,
-      );
+        groupDescription: template.description,
+        members: membersToCreate,
+        refreshSessions,
+      });
+      if (!groupId) return;
 
       // Close the modal only after all requests are finished successfully
       setIsGroupWizardOpen(false);

@@ -116,6 +116,18 @@ change instead of refreshing or reopening another conversation. A stale
 finalizer cannot clear a controller or loading marker owned by a newer
 conversation.
 
+Server-mode chat generation also captures the canonical account scope before
+message persistence. After the agent runtime settles, it revalidates that scope,
+the conversation epoch, the session, and the topic before reading user-file
+state or attaching files to an agent. Generation loading is tracked separately
+from title and topic-update loading in an operation registry keyed by the
+captured session and topic. Each entry carries a unique owner token; invalidation
+removes only the invalidated conversation's entry, and finalization uses
+compare-and-delete so an older same-topic operation cannot remove a newer
+operation's marker. Agent-file persistence similarly captures the account
+generation, session, and agent before its first await and skips refreshes when
+any owner changes.
+
 Topic and thread title summaries have resource-specific operation tokens and
 abort controllers. Their optimistic title and loading state are written to the
 captured session/topic map instead of whichever map is active when a callback

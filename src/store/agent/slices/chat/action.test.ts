@@ -4,6 +4,7 @@ import { mutate } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { INBOX_SESSION_ID } from '@/const/session';
+import { agentService } from '@/services/agent';
 import { chatService } from '@/services/chat';
 import { globalService } from '@/services/global';
 import { sessionService } from '@/services/session';
@@ -81,6 +82,46 @@ beforeEach(() => {
 });
 
 describe('AgentSlice', () => {
+  describe('addFilesToAgent', () => {
+    it('does not refresh a newly active agent after stale persistence completes', async () => {
+      const createAgentFilesDeferred = createDeferred<void>();
+      vi.spyOn(agentService, 'createAgentFiles').mockReturnValue(createAgentFilesDeferred.promise);
+      useAgentStore.setState({
+        activeAgentId: 'agent-a',
+        activeId: 'session-a',
+        scopeGeneration: 4,
+      });
+      const { result } = renderHook(() => useAgentStore());
+      const refreshAgentConfig = vi
+        .spyOn(result.current, 'internal_refreshAgentConfig')
+        .mockResolvedValue(undefined);
+      const refreshAgentKnowledge = vi
+        .spyOn(result.current, 'internal_refreshAgentKnowledge')
+        .mockResolvedValue(undefined);
+
+      let addFilesPromise!: Promise<void>;
+      act(() => {
+        addFilesPromise = result.current.addFilesToAgent(['file-a'], false);
+      });
+      expect(agentService.createAgentFiles).toHaveBeenCalledWith('agent-a', ['file-a'], false);
+
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: 'agent-b',
+          activeId: 'session-b',
+          scopeGeneration: 5,
+        });
+      });
+      createAgentFilesDeferred.resolve(undefined);
+      await act(async () => {
+        await addFilesPromise;
+      });
+
+      expect(refreshAgentConfig).not.toHaveBeenCalled();
+      expect(refreshAgentKnowledge).not.toHaveBeenCalled();
+    });
+  });
+
   describe('removePlugin', () => {
     it('should call togglePlugin with the provided id and false', async () => {
       const { result } = renderHook(() => useAgentStore());

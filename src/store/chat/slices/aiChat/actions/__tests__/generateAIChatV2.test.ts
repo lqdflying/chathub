@@ -8,8 +8,10 @@ import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@/co
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useSessionStore } from '@/store/session';
+import { authSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
 
 import { useChatStore } from '../../../../store';
@@ -65,6 +67,14 @@ vi.mock('@/services/aiChat', () => ({
 }));
 
 const realExecAgentRuntime = useChatStore.getState().internal_execAgentRuntime;
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 beforeEach(() => {
   resetTestEnvironment();
@@ -407,6 +417,124 @@ describe('generateAIChatV2 actions', () => {
         expect(result.current.contextExportCaptureStatus).toBe('armed');
         expect(result.current.contextExportBatch).toBeUndefined();
         expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+      });
+
+      it('does not attach files after account scope changes during runtime', async () => {
+        const runtimeDeferred = createDeferred<void>();
+        const addFilesToAgent = vi.fn().mockResolvedValue(undefined);
+        let currentUserScope = 'user:account-a';
+        vi.spyOn(authSelectors, 'currentUserScope').mockImplementation(() => currentUserScope);
+        vi.spyOn(useAgentStore.getState(), 'addFilesToAgent').mockImplementation(addFilesToAgent);
+        useChatStore.setState({
+          internal_execAgentRuntime: vi.fn().mockReturnValue(runtimeDeferred.promise),
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        let sendPromise!: Promise<void>;
+        act(() => {
+          sendPromise = result.current.sendMessage({
+            files: [{ id: TEST_IDS.FILE_ID } as UploadFileItem],
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+        await vi.waitFor(() => {
+          expect(Object.keys(useChatStore.getState().serverGenerationOperations)).toHaveLength(1);
+        });
+
+        currentUserScope = 'user:account-b';
+        runtimeDeferred.resolve(undefined);
+        await act(async () => {
+          await sendPromise;
+        });
+
+        expect(addFilesToAgent).not.toHaveBeenCalled();
+        expect(useChatStore.getState().serverGenerationOperations).toEqual({});
+      });
+
+      it('does not attach files after switching away and back during runtime', async () => {
+        const runtimeDeferred = createDeferred<void>();
+        const addFilesToAgent = vi.fn().mockResolvedValue(undefined);
+        vi.spyOn(useAgentStore.getState(), 'addFilesToAgent').mockImplementation(addFilesToAgent);
+        useChatStore.setState({
+          internal_execAgentRuntime: vi.fn().mockReturnValue(runtimeDeferred.promise),
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        let sendPromise!: Promise<void>;
+        act(() => {
+          sendPromise = result.current.sendMessage({
+            files: [{ id: TEST_IDS.FILE_ID } as UploadFileItem],
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+        await vi.waitFor(() => {
+          expect(Object.keys(useChatStore.getState().serverGenerationOperations)).toHaveLength(1);
+        });
+
+        act(() => {
+          useChatStore.setState({
+            activeId: 'other-session',
+            conversationClearGeneration: 1,
+          });
+          useChatStore.setState({ activeId: TEST_IDS.SESSION_ID });
+        });
+        runtimeDeferred.resolve(undefined);
+        await act(async () => {
+          await sendPromise;
+        });
+
+        expect(addFilesToAgent).not.toHaveBeenCalled();
+        expect(useChatStore.getState().serverGenerationOperations).toEqual({});
+      });
+
+      it('keeps a newer same-topic generation marker when an older runtime completes', async () => {
+        const olderRuntime = createDeferred<void>();
+        const newerRuntime = createDeferred<void>();
+        const internal_execAgentRuntime = vi
+          .fn()
+          .mockReturnValueOnce(olderRuntime.promise)
+          .mockReturnValueOnce(newerRuntime.promise);
+        useChatStore.setState({ internal_execAgentRuntime });
+        const { result } = renderHook(() => useChatStore());
+        const operationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+        let olderPromise!: Promise<void>;
+        act(() => {
+          olderPromise = result.current.sendMessage({ message: 'Older request' });
+        });
+        await vi.waitFor(() => {
+          expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeDefined();
+        });
+        const olderOperationId =
+          useChatStore.getState().serverGenerationOperations[operationKey]?.operationId;
+
+        let newerPromise!: Promise<void>;
+        act(() => {
+          newerPromise = result.current.sendMessage({ message: 'Newer request' });
+        });
+        await vi.waitFor(() => {
+          expect(
+            useChatStore.getState().serverGenerationOperations[operationKey]?.operationId,
+          ).not.toBe(olderOperationId);
+        });
+        const newerOperationId =
+          useChatStore.getState().serverGenerationOperations[operationKey]?.operationId;
+
+        olderRuntime.resolve(undefined);
+        await act(async () => {
+          await olderPromise;
+        });
+
+        expect(useChatStore.getState().serverGenerationOperations[operationKey]?.operationId).toBe(
+          newerOperationId,
+        );
+
+        newerRuntime.resolve(undefined);
+        await act(async () => {
+          await newerPromise;
+        });
+
+        expect(useChatStore.getState().serverGenerationOperations[operationKey]).toBeUndefined();
       });
     });
 

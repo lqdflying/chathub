@@ -40,7 +40,7 @@ export interface AgentChatAction {
     actions?: string,
   ) => void;
   internal_refreshAgentConfig: (id: string) => Promise<void>;
-  internal_refreshAgentKnowledge: () => Promise<void>;
+  internal_refreshAgentKnowledge: (agentId?: string) => Promise<void>;
   internal_updateAgentConfig: (
     id: string,
     data: PartialDeep<LobeAgentConfig>,
@@ -77,13 +77,25 @@ export const createChatSlice: StateCreator<
   AgentChatAction
 > = (set, get) => ({
   addFilesToAgent: async (fileIds, enabled) => {
+    const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
+    const requestedGeneration = get().scopeGeneration;
     const { activeAgentId, internal_refreshAgentConfig, internal_refreshAgentKnowledge } = get();
-    if (!activeAgentId) return;
+    const activeId = get().activeId;
+    if (!requestedScope || !activeAgentId) return;
     if (fileIds.length === 0) return;
+    const isCurrentRequest = () =>
+      authSelectors.currentUserScope(useUserStore.getState()) === requestedScope &&
+      get().scopeGeneration === requestedGeneration &&
+      get().activeAgentId === activeAgentId &&
+      get().activeId === activeId;
 
     await agentService.createAgentFiles(activeAgentId, fileIds, enabled);
-    await internal_refreshAgentConfig(get().activeId);
-    await internal_refreshAgentKnowledge();
+    if (!isCurrentRequest()) return;
+
+    await internal_refreshAgentConfig(activeId);
+    if (!isCurrentRequest()) return;
+
+    await internal_refreshAgentKnowledge(activeAgentId);
   },
   addKnowledgeBaseToAgent: async (knowledgeBaseId) => {
     const { activeAgentId, internal_refreshAgentConfig, internal_refreshAgentKnowledge } = get();
@@ -372,11 +384,11 @@ export const createChatSlice: StateCreator<
     await mutate([FETCH_AGENT_CONFIG_KEY, requestedScope, id]);
   },
 
-  internal_refreshAgentKnowledge: async () => {
+  internal_refreshAgentKnowledge: async (agentId) => {
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) return;
 
-    await mutate([FETCH_AGENT_KNOWLEDGE_KEY, requestedScope, get().activeAgentId]);
+    await mutate([FETCH_AGENT_KNOWLEDGE_KEY, requestedScope, agentId ?? get().activeAgentId]);
   },
   internal_createAbortController: (key) => {
     const abortController = get()[key] as AbortController;

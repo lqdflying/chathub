@@ -1,6 +1,7 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix  */
 import {
   boolean,
+  foreignKey,
   integer,
   jsonb,
   pgTable,
@@ -45,7 +46,10 @@ export const chatGroups = pgTable(
 
     ...timestamps,
   },
-  (t) => [uniqueIndex('chat_groups_client_id_user_id_unique').on(t.clientId, t.userId)],
+  (t) => [
+    uniqueIndex('chat_groups_id_user_id_unique').on(t.id, t.userId),
+    uniqueIndex('chat_groups_client_id_user_id_unique').on(t.clientId, t.userId),
+  ],
 );
 
 export const insertChatGroupSchema = createInsertSchema(chatGroups);
@@ -88,9 +92,19 @@ export const chatGroupsAgents = pgTable(
     ...timestamps,
   },
   (t) => ({
+    agentOwnerReference: foreignKey({
+      columns: [t.agentId, t.userId],
+      foreignColumns: [agents.id, agents.userId],
+      name: 'chat_groups_agents_agent_id_user_id_agents_id_user_id_fk',
+    }),
+    groupOwnerReference: foreignKey({
+      columns: [t.chatGroupId, t.userId],
+      foreignColumns: [chatGroups.id, chatGroups.userId],
+      name: 'chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk',
+    }),
     pk: primaryKey({ columns: [t.chatGroupId, t.agentId] }),
   }),
 );
 
 export type NewChatGroupAgent = typeof chatGroupsAgents.$inferInsert;
-export type ChatGroupAgentItem = typeof agents.$inferInsert;
+export type ChatGroupAgentItem = typeof chatGroupsAgents.$inferSelect;

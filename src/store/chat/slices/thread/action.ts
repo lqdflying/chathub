@@ -181,10 +181,7 @@ export const chatThreadMessage: StateCreator<
         topicId: activeTopicId,
         type: newThreadMode,
       });
-      if (
-        !threadId ||
-        !isCurrentRequest()
-      ) {
+      if (!threadId || !isCurrentRequest()) {
         clearCurrentThreadMessageLoading();
         return;
       }
@@ -307,8 +304,9 @@ export const chatThreadMessage: StateCreator<
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
     if (!requestedScope) return { messageId: '', threadId: '' };
+    const creatingThreadId = `thread-create-${nanoid(8)}`;
 
-    set({ isCreatingThread: true }, false, n('creatingThread/start'));
+    set({ creatingThreadId, isCreatingThread: true }, false, n('creatingThread/start'));
 
     const createThreadPayload = {
       topicId,
@@ -316,21 +314,30 @@ export const chatThreadMessage: StateCreator<
       type,
       message,
     };
-    const data =
-      expectedConversationVersion === undefined
-        ? await threadService.createThreadWithMessage(createThreadPayload)
-        : await threadService.createThreadWithMessage(createThreadPayload, {
-            expectedConversationVersion,
-          });
-    if (
-      authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
-      get().conversationClearGeneration !== requestedGeneration
-    )
-      return { messageId: '', threadId: '' };
+    try {
+      const data =
+        expectedConversationVersion === undefined
+          ? await threadService.createThreadWithMessage(createThreadPayload)
+          : await threadService.createThreadWithMessage(createThreadPayload, {
+              expectedConversationVersion,
+            });
+      if (
+        authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope ||
+        get().conversationClearGeneration !== requestedGeneration
+      ) {
+        return { messageId: '', threadId: '' };
+      }
 
-    set({ isCreatingThread: false }, false, n('creatingThread/end'));
-
-    return data;
+      return data;
+    } finally {
+      if (get().creatingThreadId === creatingThreadId) {
+        set(
+          { creatingThreadId: undefined, isCreatingThread: false },
+          false,
+          n('creatingThread/end'),
+        );
+      }
+    }
   },
 
   useFetchThreads: (enable, topicId) => {
@@ -513,14 +520,11 @@ export const chatThreadMessage: StateCreator<
           if (!isCurrentThreadRequest()) return;
 
           updateOwnedTitle(text);
-          await enqueueTitleSummaryPersistence(
-            `${requestedScope}:thread:${threadId}`,
-            async () => {
-              if (!isCurrentThreadRequest()) return;
+          await enqueueTitleSummaryPersistence(`${requestedScope}:thread:${threadId}`, async () => {
+            if (!isCurrentThreadRequest()) return;
 
-              await threadService.updateThread(threadId, { title: text });
-            },
-          );
+            await threadService.updateThread(threadId, { title: text });
+          });
           if (isCurrentThreadRequest()) didResolveTitle = true;
         },
         onMessageHandle: (chunk) => {
@@ -534,7 +538,10 @@ export const chatThreadMessage: StateCreator<
 
           updateOwnedTitle(output);
         },
-        params: merge(threadConfig, chainSummaryTitle(messages, globalHelpers.getCurrentLanguage())),
+        params: merge(
+          threadConfig,
+          chainSummaryTitle(messages, globalHelpers.getCurrentLanguage()),
+        ),
       });
     } finally {
       finishOwnedOperation(!didResolveTitle);

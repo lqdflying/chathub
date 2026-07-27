@@ -4,6 +4,7 @@ import { ChatTopic, ChatTopicSummary, GroupedTopic } from '@/types/topic';
 import { getTopicActivityTimestamp, groupTopicsByTime } from '@/utils/client/topic';
 
 import { ChatStoreState } from '../../initialState';
+import { messageMapKey } from '../../utils/messageMapKey';
 
 const sortTopicsByActivity = (topics: ChatTopic[]): ChatTopic[] =>
   topics.slice().sort((firstTopic, secondTopic) => {
@@ -53,6 +54,11 @@ const isCreatingTopic = (s: ChatStoreState) => s.creatingTopic;
 const isUndefinedTopics = (s: ChatStoreState) => !currentTopics(s);
 const isInSearchMode = (s: ChatStoreState) => s.inSearchingMode;
 const isSearchingTopic = (s: ChatStoreState) => s.isSearchingTopic;
+const isTopicLoading =
+  (topicId: string) =>
+  (s: ChatStoreState): boolean =>
+    s.topicLoadingIds.includes(topicId) ||
+    !!s.serverGenerationOperations[messageMapKey(s.activeId, topicId)];
 
 const groupedTopicsSelector = (s: ChatStoreState): GroupedTopic[] => {
   const topics = displayTopics(s);
@@ -85,6 +91,7 @@ export const topicSelectors = {
   isCreatingTopic,
   isInSearchMode,
   isSearchingTopic,
+  isTopicLoading,
   isUndefinedTopics,
   searchTopics,
 };

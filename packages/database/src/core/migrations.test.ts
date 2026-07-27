@@ -10,6 +10,9 @@ const {
   MESSAGE_ORDER_FINALIZE_SQL,
   MESSAGE_ORDER_SCHEMA_SQL,
 } = require('../../../../scripts/migrateServerDB/ensureMessageOrder.cjs');
+const {
+  CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL,
+} = require('../../../../scripts/migrateServerDB/ensureChatGroupMembershipOwnership.cjs');
 
 const MIGRATION_0040_TIMESTAMP = 1_761_563_458_595;
 const MIGRATION_0041_TIMESTAMP = 1_741_622_400_000;
@@ -225,5 +228,95 @@ describe('client migration upgrades', () => {
     `);
 
     expect(nextMessageOrder.rows[0]?.next_order).toBe(3);
+  });
+
+  it('repairs legacy group membership owners and enforces matching parent owners', async () => {
+    client = new PGlite();
+    await client.exec(`
+      CREATE TABLE "users" (
+        "id" text PRIMARY KEY NOT NULL
+      );
+      CREATE TABLE "agents" (
+        "id" text PRIMARY KEY NOT NULL,
+        "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE
+      );
+      CREATE TABLE "chat_groups" (
+        "id" text PRIMARY KEY NOT NULL,
+        "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE
+      );
+      CREATE TABLE "chat_groups_agents" (
+        "chat_group_id" text NOT NULL REFERENCES "chat_groups"("id") ON DELETE CASCADE,
+        "agent_id" text NOT NULL REFERENCES "agents"("id") ON DELETE CASCADE,
+        "user_id" text NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+        PRIMARY KEY ("chat_group_id", "agent_id")
+      );
+
+      INSERT INTO "users" ("id")
+      VALUES ('owner-a'), ('owner-b'), ('stale-owner');
+      INSERT INTO "agents" ("id", "user_id")
+      VALUES
+        ('owner-a-agent', 'owner-a'),
+        ('owner-b-agent', 'owner-b');
+      INSERT INTO "chat_groups" ("id", "user_id")
+      VALUES
+        ('same-owner-group', 'owner-a'),
+        ('cross-owner-group', 'owner-a');
+      INSERT INTO "chat_groups_agents" ("chat_group_id", "agent_id", "user_id")
+      VALUES
+        ('same-owner-group', 'owner-a-agent', 'stale-owner'),
+        ('cross-owner-group', 'owner-b-agent', 'owner-a');
+    `);
+
+    await client.exec(CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL);
+    await client.exec(CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL);
+
+    const repairedMemberships = await client.query<{
+      agent_id: string;
+      chat_group_id: string;
+      user_id: string;
+    }>(`
+      SELECT "chat_group_id", "agent_id", "user_id"
+      FROM "chat_groups_agents"
+      ORDER BY "chat_group_id", "agent_id";
+    `);
+    expect(repairedMemberships.rows).toEqual([
+      {
+        agent_id: 'owner-a-agent',
+        chat_group_id: 'same-owner-group',
+        user_id: 'owner-a',
+      },
+    ]);
+
+    const ownershipConstraints = await client.query<{ constraint_name: string }>(`
+      SELECT conname AS constraint_name
+      FROM pg_constraint
+      WHERE conrelid = 'public.chat_groups_agents'::regclass
+        AND conname IN (
+          'chat_groups_agents_agent_id_user_id_agents_id_user_id_fk',
+          'chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk'
+        )
+      ORDER BY conname;
+    `);
+    expect(ownershipConstraints.rows).toEqual([
+      {
+        constraint_name: 'chat_groups_agents_agent_id_user_id_agents_id_user_id_fk',
+      },
+      {
+        constraint_name: 'chat_groups_agents_group_id_user_id_chat_groups_id_user_id_fk',
+      },
+    ]);
+
+    await expect(
+      client.exec(`
+        INSERT INTO "chat_groups_agents" ("chat_group_id", "agent_id", "user_id")
+        VALUES ('same-owner-group', 'owner-b-agent', 'owner-a');
+      `),
+    ).rejects.toThrow();
+    await expect(
+      client.exec(`
+        INSERT INTO "chat_groups_agents" ("chat_group_id", "agent_id", "user_id")
+        VALUES ('same-owner-group', 'owner-b-agent', 'owner-b');
+      `),
+    ).rejects.toThrow();
   });
 });

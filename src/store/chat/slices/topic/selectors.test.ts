@@ -49,6 +49,52 @@ describe('topicSelectors', () => {
     });
   });
 
+  describe('isTopicLoading', () => {
+    it('returns true for generic topic work', () => {
+      const state = merge(initialStore, {
+        activeId: 'test',
+        topicLoadingIds: ['topic1'],
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
+    });
+
+    it('returns true for an active session generation operation', () => {
+      const state = merge(initialStore, {
+        activeId: 'test',
+        serverGenerationOperations: {
+          test_topic1: {
+            generation: 2,
+            operationId: 'generation-operation',
+            sessionId: 'test',
+            topicId: 'topic1',
+            userScope: 'user:account-a',
+          },
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
+      expect(topicSelectors.isTopicLoading('topic2')(state)).toBe(false);
+    });
+
+    it('ignores another session generation operation', () => {
+      const state = merge(initialStore, {
+        activeId: 'test',
+        serverGenerationOperations: {
+          another_topic1: {
+            generation: 2,
+            operationId: 'generation-operation',
+            sessionId: 'another',
+            topicId: 'topic1',
+            userScope: 'user:account-a',
+          },
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(false);
+    });
+  });
+
   describe('currentActiveTopic', () => {
     it('should return undefined if there is no active topic', () => {
       const topic = topicSelectors.currentActiveTopic(initialStore);

@@ -343,6 +343,13 @@
       "when": 1784687753515,
       "tag": "0048_vengeful_wolfpack",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1785110363655,
+      "tag": "0049_lumpy_black_cat",
+      "breakpoints": true
     }
   ],
   "version": "6"

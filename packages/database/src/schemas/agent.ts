@@ -66,6 +66,7 @@ export const agents = pgTable(
     ...timestamps,
   },
   (t) => ({
+    agentIdUserIdUnique: uniqueIndex('agents_id_user_id_unique').on(t.id, t.userId),
     clientIdUnique: uniqueIndex('client_id_user_id_unique').on(t.clientId, t.userId),
     titleIndex: index('agents_title_idx').on(t.title),
     descriptionIndex: index('agents_description_idx').on(t.description),

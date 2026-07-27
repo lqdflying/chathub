@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, inArray } from 'drizzle-orm';
 
 import {
   ChatGroupAgentItem,
   ChatGroupItem,
   NewChatGroup,
   NewChatGroupAgent,
+  agents,
   chatGroups,
   chatGroupsAgents,
 } from '../schemas';
@@ -41,16 +42,35 @@ export class ChatGroupModel {
 
     const groupIds = groups.map((g) => g.id);
 
-    const groupAgents = await this.db.query.chatGroupsAgents.findMany({
-      where: inArray(chatGroupsAgents.chatGroupId, groupIds),
-      with: { agent: true },
-    });
+    const groupAgents = await this.db
+      .select({
+        agent: agents,
+        chatGroupId: chatGroupsAgents.chatGroupId,
+      })
+      .from(chatGroupsAgents)
+      .innerJoin(
+        chatGroups,
+        and(
+          eq(chatGroups.id, chatGroupsAgents.chatGroupId),
+          eq(chatGroups.userId, chatGroupsAgents.userId),
+        ),
+      )
+      .innerJoin(
+        agents,
+        and(eq(agents.id, chatGroupsAgents.agentId), eq(agents.userId, chatGroupsAgents.userId)),
+      )
+      .where(
+        and(
+          inArray(chatGroupsAgents.chatGroupId, groupIds),
+          eq(chatGroupsAgents.userId, this.userId),
+          eq(chatGroups.userId, this.userId),
+          eq(agents.userId, this.userId),
+        ),
+      );
 
     const groupAgentMap = new Map<string, any[]>();
 
     for (const groupAgent of groupAgents) {
-      if (!groupAgent.agent) continue;
-
       const groupList = groupAgentMap.get(groupAgent.chatGroupId) || [];
       groupList.push(groupAgent.agent);
       groupAgentMap.set(groupAgent.chatGroupId, groupList);
@@ -69,10 +89,7 @@ export class ChatGroupModel {
     const group = await this.findById(groupId);
     if (!group) return null;
 
-    const agents = await this.db.query.chatGroupsAgents.findMany({
-      orderBy: [chatGroupsAgents.order],
-      where: eq(chatGroupsAgents.chatGroupId, groupId),
-    });
+    const agents = await this.getGroupAgents(groupId);
 
     return { agents, group };
   }
@@ -92,23 +109,47 @@ export class ChatGroupModel {
     groupParams: Omit<NewChatGroup, 'userId'>,
     agentIds: string[],
   ): Promise<{ agents: NewChatGroupAgent[]; group: ChatGroupItem }> {
-    const group = await this.create(groupParams);
+    return this.db.transaction(async (transaction) => {
+      const uniqueAgentIds = [...new Set(agentIds)];
+      if (uniqueAgentIds.length !== agentIds.length) {
+        throw new Error('One or more agents were not found or access was denied');
+      }
 
-    if (agentIds.length === 0) {
-      return { agents: [], group };
-    }
+      if (uniqueAgentIds.length > 0) {
+        const ownedAgents = await transaction
+          .select({ id: agents.id })
+          .from(agents)
+          .where(and(inArray(agents.id, uniqueAgentIds), eq(agents.userId, this.userId)));
 
-    const agentParams: NewChatGroupAgent[] = agentIds.map((agentId, index) => ({
-      agentId,
-      chatGroupId: group.id,
-      order: index,
-      role: 'assistant',
-      userId: this.userId,
-    }));
+        if (ownedAgents.length !== uniqueAgentIds.length) {
+          throw new Error('One or more agents were not found or access was denied');
+        }
+      }
 
-    const agents = await this.db.insert(chatGroupsAgents).values(agentParams).returning();
+      const [group] = await transaction
+        .insert(chatGroups)
+        .values({ ...groupParams, userId: this.userId })
+        .returning();
 
-    return { agents, group };
+      if (uniqueAgentIds.length === 0) {
+        return { agents: [], group };
+      }
+
+      const agentParams: NewChatGroupAgent[] = uniqueAgentIds.map((agentId, index) => ({
+        agentId,
+        chatGroupId: group.id,
+        order: index,
+        role: 'assistant',
+        userId: this.userId,
+      }));
+
+      const createdAgents = await transaction
+        .insert(chatGroupsAgents)
+        .values(agentParams)
+        .returning();
+
+      return { agents: createdAgents, group };
+    });
   }
 
   // ******* Update Methods ******* //
@@ -132,59 +173,175 @@ export class ChatGroupModel {
     agentId: string,
     options?: { order?: number; role?: string },
   ): Promise<NewChatGroupAgent> {
-    const params: NewChatGroupAgent = {
-      agentId,
-      chatGroupId: groupId,
-      order: options?.order || 0,
-      role: options?.role || 'assistant',
-      userId: this.userId,
-    };
+    return this.db.transaction(async (transaction) => {
+      const [ownedGroup] = await transaction
+        .select({ id: chatGroups.id })
+        .from(chatGroups)
+        .where(and(eq(chatGroups.id, groupId), eq(chatGroups.userId, this.userId)))
+        .limit(1);
+      const [ownedAgent] = await transaction
+        .select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.id, agentId), eq(agents.userId, this.userId)))
+        .limit(1);
 
-    const [result] = await this.db.insert(chatGroupsAgents).values(params).returning();
-    return result;
+      if (!ownedGroup || !ownedAgent) {
+        throw new Error('Group or agent not found or access denied');
+      }
+
+      const params: NewChatGroupAgent = {
+        agentId,
+        chatGroupId: groupId,
+        order: options?.order ?? 0,
+        role: options?.role ?? 'assistant',
+        userId: this.userId,
+      };
+
+      const [result] = await transaction.insert(chatGroupsAgents).values(params).returning();
+      return result;
+    });
   }
 
   async addAgentsToGroup(groupId: string, agentIds: string[]): Promise<ChatGroupAgentItem[]> {
-    const group = await this.findById(groupId);
-    if (!group) throw new Error('Group not found');
+    return this.db.transaction(async (transaction) => {
+      const uniqueAgentIds = [...new Set(agentIds)];
+      if (uniqueAgentIds.length !== agentIds.length) {
+        throw new Error('One or more agents already belong to this group');
+      }
 
-    const existingAgents = await this.getGroupAgents(groupId);
-    const existingAgentIds = new Set(existingAgents.map((a) => a.id));
+      const [ownedGroup] = await transaction
+        .select({ id: chatGroups.id })
+        .from(chatGroups)
+        .where(and(eq(chatGroups.id, groupId), eq(chatGroups.userId, this.userId)))
+        .limit(1);
+      if (!ownedGroup) throw new Error('Group not found or access denied');
+      if (uniqueAgentIds.length === 0) return [];
 
-    const newAgentIds = agentIds.filter((id) => !existingAgentIds.has(id));
+      const ownedAgents = await transaction
+        .select({ id: agents.id })
+        .from(agents)
+        .where(and(inArray(agents.id, uniqueAgentIds), eq(agents.userId, this.userId)));
+      if (ownedAgents.length !== uniqueAgentIds.length) {
+        throw new Error('One or more agents were not found or access was denied');
+      }
 
-    if (newAgentIds.length === 0) {
-      return [];
-    }
+      const existingAgents = await transaction
+        .select({ agentId: chatGroupsAgents.agentId })
+        .from(chatGroupsAgents)
+        .where(
+          and(
+            eq(chatGroupsAgents.chatGroupId, groupId),
+            eq(chatGroupsAgents.userId, this.userId),
+            inArray(chatGroupsAgents.agentId, uniqueAgentIds),
+          ),
+        );
+      if (existingAgents.length > 0) {
+        throw new Error('One or more agents already belong to this group');
+      }
 
-    const newAgents: NewChatGroupAgent[] = newAgentIds.map((agentId) => ({
-      agentId,
-      chatGroupId: groupId,
-      enabled: true,
-      userId: this.userId,
-    }));
+      const newAgents: NewChatGroupAgent[] = uniqueAgentIds.map((agentId) => ({
+        agentId,
+        chatGroupId: groupId,
+        enabled: true,
+        userId: this.userId,
+      }));
 
-    return this.db.insert(chatGroupsAgents).values(newAgents).returning();
+      return transaction.insert(chatGroupsAgents).values(newAgents).returning();
+    });
   }
 
   async removeAgentFromGroup(groupId: string, agentId: string): Promise<void> {
-    await this.db
-      .delete(chatGroupsAgents)
-      .where(and(eq(chatGroupsAgents.chatGroupId, groupId), eq(chatGroupsAgents.agentId, agentId)));
+    await this.db.transaction(async (transaction) => {
+      const [ownedMembership] = await transaction
+        .select({ agentId: chatGroupsAgents.agentId })
+        .from(chatGroupsAgents)
+        .innerJoin(
+          chatGroups,
+          and(
+            eq(chatGroups.id, chatGroupsAgents.chatGroupId),
+            eq(chatGroups.userId, chatGroupsAgents.userId),
+          ),
+        )
+        .innerJoin(
+          agents,
+          and(eq(agents.id, chatGroupsAgents.agentId), eq(agents.userId, chatGroupsAgents.userId)),
+        )
+        .where(
+          and(
+            eq(chatGroupsAgents.chatGroupId, groupId),
+            eq(chatGroupsAgents.agentId, agentId),
+            eq(chatGroupsAgents.userId, this.userId),
+            eq(chatGroups.userId, this.userId),
+            eq(agents.userId, this.userId),
+          ),
+        )
+        .limit(1);
+
+      if (!ownedMembership) {
+        throw new Error('Group membership not found or access denied');
+      }
+
+      await transaction
+        .delete(chatGroupsAgents)
+        .where(
+          and(
+            eq(chatGroupsAgents.chatGroupId, groupId),
+            eq(chatGroupsAgents.agentId, agentId),
+            eq(chatGroupsAgents.userId, this.userId),
+          ),
+        );
+    });
   }
 
   async updateAgentInGroup(
     groupId: string,
     agentId: string,
-    updates: Partial<Pick<NewChatGroupAgent, 'order' | 'role'>>,
+    updates: Partial<Pick<NewChatGroupAgent, 'enabled' | 'order' | 'role'>>,
   ): Promise<NewChatGroupAgent> {
-    const [result] = await this.db
-      .update(chatGroupsAgents)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(and(eq(chatGroupsAgents.chatGroupId, groupId), eq(chatGroupsAgents.agentId, agentId)))
-      .returning();
+    return this.db.transaction(async (transaction) => {
+      const [ownedMembership] = await transaction
+        .select({ agentId: chatGroupsAgents.agentId })
+        .from(chatGroupsAgents)
+        .innerJoin(
+          chatGroups,
+          and(
+            eq(chatGroups.id, chatGroupsAgents.chatGroupId),
+            eq(chatGroups.userId, chatGroupsAgents.userId),
+          ),
+        )
+        .innerJoin(
+          agents,
+          and(eq(agents.id, chatGroupsAgents.agentId), eq(agents.userId, chatGroupsAgents.userId)),
+        )
+        .where(
+          and(
+            eq(chatGroupsAgents.chatGroupId, groupId),
+            eq(chatGroupsAgents.agentId, agentId),
+            eq(chatGroupsAgents.userId, this.userId),
+            eq(chatGroups.userId, this.userId),
+            eq(agents.userId, this.userId),
+          ),
+        )
+        .limit(1);
 
-    return result;
+      if (!ownedMembership) {
+        throw new Error('Group membership not found or access denied');
+      }
+
+      const [result] = await transaction
+        .update(chatGroupsAgents)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(
+          and(
+            eq(chatGroupsAgents.chatGroupId, groupId),
+            eq(chatGroupsAgents.agentId, agentId),
+            eq(chatGroupsAgents.userId, this.userId),
+          ),
+        )
+        .returning();
+
+      return result;
+    });
   }
 
   // ******* Delete Methods ******* //
@@ -210,17 +367,56 @@ export class ChatGroupModel {
   // ******* Agent Query Methods ******* //
 
   async getGroupAgents(groupId: string): Promise<ChatGroupAgentItem[]> {
-    return this.db.query.chatGroupsAgents.findMany({
-      orderBy: [chatGroupsAgents.order],
-      where: eq(chatGroupsAgents.chatGroupId, groupId),
-    });
+    return this.db
+      .select(getTableColumns(chatGroupsAgents))
+      .from(chatGroupsAgents)
+      .innerJoin(
+        chatGroups,
+        and(
+          eq(chatGroups.id, chatGroupsAgents.chatGroupId),
+          eq(chatGroups.userId, chatGroupsAgents.userId),
+        ),
+      )
+      .innerJoin(
+        agents,
+        and(eq(agents.id, chatGroupsAgents.agentId), eq(agents.userId, chatGroupsAgents.userId)),
+      )
+      .where(
+        and(
+          eq(chatGroupsAgents.chatGroupId, groupId),
+          eq(chatGroupsAgents.userId, this.userId),
+          eq(chatGroups.userId, this.userId),
+          eq(agents.userId, this.userId),
+        ),
+      )
+      .orderBy(chatGroupsAgents.order);
   }
 
   async getEnabledGroupAgents(groupId: string): Promise<ChatGroupAgentItem[]> {
-    return this.db.query.chatGroupsAgents.findMany({
-      orderBy: [chatGroupsAgents.order],
-      where: and(eq(chatGroupsAgents.chatGroupId, groupId), eq(chatGroupsAgents.enabled, true)),
-    });
+    return this.db
+      .select(getTableColumns(chatGroupsAgents))
+      .from(chatGroupsAgents)
+      .innerJoin(
+        chatGroups,
+        and(
+          eq(chatGroups.id, chatGroupsAgents.chatGroupId),
+          eq(chatGroups.userId, chatGroupsAgents.userId),
+        ),
+      )
+      .innerJoin(
+        agents,
+        and(eq(agents.id, chatGroupsAgents.agentId), eq(agents.userId, chatGroupsAgents.userId)),
+      )
+      .where(
+        and(
+          eq(chatGroupsAgents.chatGroupId, groupId),
+          eq(chatGroupsAgents.enabled, true),
+          eq(chatGroupsAgents.userId, this.userId),
+          eq(chatGroups.userId, this.userId),
+          eq(agents.userId, this.userId),
+        ),
+      )
+      .orderBy(chatGroupsAgents.order);
   }
 
   async getGroupsWithAgents(agentIds?: string[]): Promise<ChatGroupItem[]> {
@@ -232,8 +428,24 @@ export class ChatGroupModel {
     const groupIds = await this.db
       .selectDistinct({ chatGroupId: chatGroupsAgents.chatGroupId })
       .from(chatGroupsAgents)
+      .innerJoin(
+        chatGroups,
+        and(
+          eq(chatGroups.id, chatGroupsAgents.chatGroupId),
+          eq(chatGroups.userId, chatGroupsAgents.userId),
+        ),
+      )
+      .innerJoin(
+        agents,
+        and(eq(agents.id, chatGroupsAgents.agentId), eq(agents.userId, chatGroupsAgents.userId)),
+      )
       .where(
-        and(eq(chatGroupsAgents.userId, this.userId), inArray(chatGroupsAgents.agentId, agentIds)),
+        and(
+          eq(chatGroupsAgents.userId, this.userId),
+          eq(chatGroups.userId, this.userId),
+          eq(agents.userId, this.userId),
+          inArray(chatGroupsAgents.agentId, agentIds),
+        ),
       );
 
     if (groupIds.length === 0) return [];
