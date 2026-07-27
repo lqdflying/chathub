@@ -203,13 +203,17 @@ targeted refresh instead of consulting the provider that is active later.
 
 Imperative account mutations share the fail-closed boundary in
 `src/store/accountMutation.ts`. `captureAccountMutationSnapshot` returns no
-snapshot while the canonical scope is unresolved or an active
-`owner-mismatch` exists, so a newly invoked action must stop before
-preprocessing, optimistic state, loading markers, network requests, or
-persistence. `isAccountMutationCurrent` rechecks the same scope, ownership
-generation, and mismatch state for every asynchronous continuation. Domain
-stores layer their own scope or conversation generation, resource identity,
-and operation/controller ownership over that shared predicate.
+snapshot while the canonical scope is unresolved, an active `owner-mismatch`
+exists, or an authenticated `user:*` scope has not completed user-state
+hydration for that exact scope. The last condition requires both
+`isUserStateInit` and `userStateScope === scope`; a raw authentication scope is
+not proof that the browser state and server session agree. A newly invoked
+action must therefore stop before preprocessing, optimistic state, loading
+markers, network requests, or persistence. `isAccountMutationCurrent`
+rechecks the same verified scope, ownership generation, and mismatch state for
+every asynchronous continuation. Domain stores layer their own scope or
+conversation generation, resource identity, and operation/controller
+ownership over that shared predicate.
 
 Nested and staged workflows propagate the originating snapshot or checkpoint;
 they never capture a fresh snapshot after an await. This applies to
@@ -220,6 +224,25 @@ originating checkpoint before the next irreversible call, and operation-owned
 finalizers release only their own loading marker or controller. Recapturing
 inside a nested stage would incorrectly legitimize a parent operation that was
 invalidated during an account reset.
+
+Direct account-sensitive Lambda callers use the same contract at the transport
+boundary. The Lambda client routes `apiKey.*` and `picbed.*` through an
+isolated verified-account link that rejects before authentication headers or
+network fetch when no current account snapshot can be captured. User-state
+bootstrap remains outside that gate so `user.getUserState` can establish the
+verification without deadlocking. Picbed upload additionally captures the
+snapshot before its separate S3 stage and rechecks it before record creation.
+
+Server-side authorization remains authoritative. `ChunkModel.semanticSearch`
+and `semanticSearchForChat` constrain the root chunk, embedding, file-chunk
+edge, and file metadata joins to the authenticated database owner. Optional or
+client-supplied file IDs are applied only to that owner-qualified file join, so
+omitting the filter, passing a foreign ID, or mixing owned and foreign IDs
+cannot return another account's chunk text or filename. This follows OWASP's
+[deny-by-default authorization guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#deny-by-default)
+and its requirement to enforce
+[object-level authorization](https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/)
+where records are accessed.
 
 This rule covers remote-model discovery, assistant-memory rollups,
 session/group/thread creation and duplication, chat-topic creation and

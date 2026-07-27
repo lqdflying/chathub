@@ -6,11 +6,18 @@ export interface AccountMutationSnapshot {
   scope: string;
 }
 
+export const hasVerifiedAccountOwnership = (state: UserStore, scope: string): boolean => {
+  if (authSelectors.hasActiveUserStateOwnerMismatch(state)) return false;
+  if (!scope.startsWith('user:')) return true;
+
+  return state.isUserStateInit && state.userStateScope === scope;
+};
+
 export const captureAccountMutationSnapshot = (
   state: UserStore,
 ): AccountMutationSnapshot | undefined => {
   const scope = authSelectors.currentUserScope(state);
-  if (!scope || authSelectors.hasActiveUserStateOwnerMismatch(state)) return undefined;
+  if (!scope || !hasVerifiedAccountOwnership(state, scope)) return undefined;
 
   return {
     ownershipInvalidationGeneration: state.ownershipInvalidationGeneration,
@@ -24,4 +31,4 @@ export const isAccountMutationCurrent = (
 ): boolean =>
   authSelectors.currentUserScope(state) === snapshot.scope &&
   state.ownershipInvalidationGeneration === snapshot.ownershipInvalidationGeneration &&
-  !authSelectors.hasActiveUserStateOwnerMismatch(state);
+  hasVerifiedAccountOwnership(state, snapshot.scope);

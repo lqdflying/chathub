@@ -24,10 +24,13 @@ type FetchInit = Parameters<typeof fetch>[1];
 type HeadersInput = ConstructorParameters<typeof Headers>[0];
 
 type LambdaClientOptions = {
+  assertAccountOwnership?: () => Promise<void> | void;
   desktop?: boolean;
   fetch?: typeof fetch;
   getAuthHeaders?: () => Promise<HeadersInput>;
 };
+
+const VERIFIED_ACCOUNT_RPC_NAMESPACES = ['apiKey.', 'picbed.'] as const;
 
 // 401 error debouncing: prevent showing multiple login notifications in short time
 let last401Time = 0;
@@ -137,7 +140,22 @@ const defaultGetAuthHeaders = async (): Promise<HeadersInput> => {
   return headers;
 };
 
+const defaultAssertAccountOwnership = async (): Promise<void> => {
+  const [{ captureAccountMutationSnapshot }, { useUserStore }] = await Promise.all([
+    import('@/store/accountMutation'),
+    import('@/store/user'),
+  ]);
+
+  if (!captureAccountMutationSnapshot(useUserStore.getState())) {
+    throw new DOMException('user state ownership is not initialized', 'AbortError');
+  }
+};
+
+const requiresVerifiedAccountOwnership = (path: string): boolean =>
+  VERIFIED_ACCOUNT_RPC_NAMESPACES.some((namespace) => path.startsWith(namespace));
+
 const createLambdaLinks = ({
+  assertAccountOwnership = defaultAssertAccountOwnership,
   desktop = isDesktop,
   fetch: customFetch,
   getAuthHeaders = defaultGetAuthHeaders,
@@ -178,6 +196,20 @@ const createLambdaLinks = ({
     url: '/trpc/lambda',
   });
 
+  const verifiedAccountLink = httpLink<LambdaRouter>({
+    fetch: guardedFetch,
+    headers: async ({ op }) => {
+      await assertAccountOwnership();
+
+      return headersForDiagnostics(
+        diagnosticIdFromContext(op.context),
+        diagnosticOperationFromContext(op.context),
+      );
+    },
+    transformer: superjson,
+    url: '/trpc/lambda',
+  });
+
   const batchedLink = httpBatchLink<LambdaRouter>({
     fetch: guardedFetch,
     headers: ({ opList }) =>
@@ -193,9 +225,13 @@ const createLambdaLinks = ({
   return [
     errorHandlingLink,
     splitLink({
-      condition: (op) => !!diagnosticIdFromContext(op.context),
-      false: batchedLink,
-      true: isolatedLink,
+      condition: (op) => requiresVerifiedAccountOwnership(op.path),
+      false: splitLink({
+        condition: (op) => !!diagnosticIdFromContext(op.context),
+        false: batchedLink,
+        true: isolatedLink,
+      }),
+      true: verifiedAccountLink,
     }),
   ];
 };

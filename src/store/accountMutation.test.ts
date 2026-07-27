@@ -19,9 +19,12 @@ const setActiveAccount = (accountId: string, generation = 0): void => {
     authUserId: accountId,
     isLoaded: true,
     isSignedIn: true,
+    isUserStateInit: true,
     ownershipInvalidationGeneration: generation,
     user: { id: accountId },
     userStateInitializationFailure: undefined,
+    userStateOwnerId: accountId,
+    userStateScope: `user:${accountId}`,
   });
 };
 
@@ -42,6 +45,26 @@ describe('account mutation ownership boundary', () => {
       ...initialState,
       isLoaded: false,
       isSignedIn: undefined,
+    });
+
+    expect(captureAccountMutationSnapshot(useUserStore.getState())).toBeUndefined();
+  });
+
+  it('does not capture authenticated ownership before user state verifies the scope', () => {
+    useUserStore.setState({
+      isUserStateInit: false,
+      userStateOwnerId: undefined,
+      userStateScope: undefined,
+    });
+
+    expect(captureAccountMutationSnapshot(useUserStore.getState())).toBeUndefined();
+  });
+
+  it('does not capture authenticated ownership verified for another scope', () => {
+    useUserStore.setState({
+      isUserStateInit: true,
+      userStateOwnerId: 'account-b',
+      userStateScope: 'user:account-b',
     });
 
     expect(captureAccountMutationSnapshot(useUserStore.getState())).toBeUndefined();
@@ -82,6 +105,18 @@ describe('account mutation ownership boundary', () => {
         reason: 'owner-mismatch',
         scope: 'user:account-a',
       },
+    });
+
+    expect(isAccountMutationCurrent(useUserStore.getState(), snapshot)).toBe(false);
+  });
+
+  it('invalidates a snapshot when authenticated ownership verification is cleared', () => {
+    const snapshot = captureAccountMutationSnapshot(useUserStore.getState())!;
+
+    useUserStore.setState({
+      isUserStateInit: false,
+      userStateOwnerId: undefined,
+      userStateScope: undefined,
     });
 
     expect(isAccountMutationCurrent(useUserStore.getState(), snapshot)).toBe(false);

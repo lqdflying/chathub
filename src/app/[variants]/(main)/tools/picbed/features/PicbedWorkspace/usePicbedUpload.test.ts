@@ -39,7 +39,10 @@ describe('usePicbedUpload', () => {
       authUserId: 'account-a',
       isLoaded: true,
       isSignedIn: true,
+      isUserStateInit: true,
       user: { id: 'account-a' },
+      userStateOwnerId: 'account-a',
+      userStateScope: 'user:account-a',
     });
   });
 

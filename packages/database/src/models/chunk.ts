@@ -165,10 +165,24 @@ export class ChunkModel {
         type: chunks.type,
       })
       .from(chunks)
-      .leftJoin(embeddings, eq(chunks.id, embeddings.chunkId))
-      .leftJoin(fileChunks, eq(chunks.id, fileChunks.chunkId))
-      .leftJoin(files, eq(fileChunks.fileId, files.id))
-      .where(fileIds ? inArray(fileChunks.fileId, fileIds) : undefined)
+      .leftJoin(
+        embeddings,
+        and(eq(chunks.id, embeddings.chunkId), eq(embeddings.userId, this.userId)),
+      )
+      .leftJoin(
+        fileChunks,
+        and(eq(chunks.id, fileChunks.chunkId), eq(fileChunks.userId, this.userId)),
+      )
+      .leftJoin(
+        files,
+        and(eq(fileChunks.fileId, files.id), eq(files.userId, this.userId)),
+      )
+      .where(
+        and(
+          eq(chunks.userId, this.userId),
+          fileIds ? inArray(files.id, fileIds) : undefined,
+        ),
+      )
       .orderBy((t) => desc(t.similarity))
       .limit(30);
 
@@ -204,10 +218,19 @@ export class ChunkModel {
         type: chunks.type,
       })
       .from(chunks)
-      .leftJoin(embeddings, eq(chunks.id, embeddings.chunkId))
-      .leftJoin(fileChunks, eq(chunks.id, fileChunks.chunkId))
-      .leftJoin(files, eq(files.id, fileChunks.fileId))
-      .where(inArray(fileChunks.fileId, fileIds))
+      .leftJoin(
+        embeddings,
+        and(eq(chunks.id, embeddings.chunkId), eq(embeddings.userId, this.userId)),
+      )
+      .leftJoin(
+        fileChunks,
+        and(eq(chunks.id, fileChunks.chunkId), eq(fileChunks.userId, this.userId)),
+      )
+      .leftJoin(
+        files,
+        and(eq(files.id, fileChunks.fileId), eq(files.userId, this.userId)),
+      )
+      .where(and(eq(chunks.userId, this.userId), inArray(files.id, fileIds)))
       .orderBy((t) => desc(t.similarity))
       // 先放宽到 15
       .limit(15);

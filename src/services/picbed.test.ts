@@ -28,8 +28,28 @@ describe('PicbedService', () => {
       authUserId: 'account-a',
       isLoaded: true,
       isSignedIn: true,
+      isUserStateInit: true,
       user: { id: 'account-a' },
+      userStateOwnerId: 'account-a',
+      userStateScope: 'user:account-a',
     });
+  });
+
+  it('stops before storage upload when authenticated ownership is not verified', async () => {
+    const file = new File(['image'], 'image.png', { type: 'image/png' });
+    const uploadFileToS3Spy = vi.spyOn(uploadService, 'uploadFileToS3');
+    useUserStore.setState({
+      isUserStateInit: false,
+      userStateOwnerId: undefined,
+      userStateScope: undefined,
+    });
+
+    await expect(
+      picbedService.uploadImage(file, 'user:account-a', new AbortController().signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(uploadFileToS3Spy).not.toHaveBeenCalled();
+    expect(lambdaClient.picbed.create.mutate).not.toHaveBeenCalled();
   });
 
   it('stops before record creation when the account changes during storage upload', async () => {

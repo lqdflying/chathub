@@ -1,7 +1,10 @@
 import { lambdaClient } from '@/libs/trpc/client';
 import { uploadService } from '@/services/upload';
+import {
+  captureAccountMutationSnapshot,
+  isAccountMutationCurrent,
+} from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
 
 export interface PicbedUploadResult {
   fileType: string;
@@ -17,20 +20,26 @@ class PicbedService {
     requestedScope: string,
     signal?: AbortSignal,
   ): Promise<PicbedUploadResult> => {
-    const assertCurrentScope = () => {
+    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const assertCurrentOwnership = () => {
       signal?.throwIfAborted();
-      if (authSelectors.currentUserScope(useUserStore.getState()) === requestedScope) return;
+      if (
+        accountMutationSnapshot?.scope === requestedScope &&
+        isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)
+      ) {
+        return;
+      }
 
       throw new DOMException('Picbed upload account changed', 'AbortError');
     };
 
-    assertCurrentScope();
+    assertCurrentOwnership();
     const { data: metadata, success } = await uploadService.uploadFileToS3(file, {
       signal,
       skipCheckFileType: true,
     });
 
-    assertCurrentScope();
+    assertCurrentOwnership();
     if (!success) throw new Error('Upload failed');
 
     // Store the S3 key path; the tRPC router resolves it to a full public URL
@@ -44,7 +53,7 @@ class PicbedService {
       },
       { signal },
     );
-    assertCurrentScope();
+    assertCurrentOwnership();
 
     return {
       fileType: record.fileType,

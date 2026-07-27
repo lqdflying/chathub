@@ -12,6 +12,51 @@ import { findRPCResponseError } from './toolsResponse';
 const trpcResult = (value: unknown) => ({ result: { data: { json: value } } });
 
 describe('lambda tRPC client links', () => {
+  it('blocks account-sensitive RPCs before fetch when ownership is unverified', async () => {
+    const ownershipError = new DOMException(
+      'user state ownership is not initialized',
+      'AbortError',
+    );
+    const fetchMock = vi.fn() as typeof fetch;
+    const client = createLambdaClient({
+      assertAccountOwnership: () => {
+        throw ownershipError;
+      },
+      desktop: false,
+      fetch: fetchMock,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await expect(client.apiKey.getApiKeys.query()).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
+    await expect(client.picbed.list.query()).rejects.toMatchObject({
+      message: ownershipError.message,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('allows user-state ownership bootstrap without prior verification', async () => {
+    const assertAccountOwnership = vi.fn();
+    const fetchMock = vi.fn(async () => {
+      return new Response(JSON.stringify([trpcResult({ userId: 'account-a' })]), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+    }) as typeof fetch;
+    const client = createLambdaClient({
+      assertAccountOwnership,
+      desktop: false,
+      fetch: fetchMock,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await client.user.getUserState.query();
+
+    expect(assertAccountOwnership).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('isolates a correlated message update and sends its diagnostic metadata', async () => {
     const urls: string[] = [];
     const diagnosticIds: string[] = [];

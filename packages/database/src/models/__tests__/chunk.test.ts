@@ -202,6 +202,71 @@ describe('ChunkModel', () => {
       expect(result[1].id).toBe(chunk2.id);
       expect(result[0].similarity).toBeGreaterThan(result[1].similarity);
     });
+
+    it('only returns chunks and file metadata owned by the current user', async () => {
+      const otherUserId = 'chunk-model-other-user-id';
+      const ownedFileId = '1';
+      const otherFileId = 'other-user-file';
+      await serverDB.insert(users).values({ id: otherUserId });
+      await serverDB.insert(files).values({
+        fileType: 'text/plain',
+        id: otherFileId,
+        name: 'other-user-secret.txt',
+        size: 100,
+        url: 'https://example.com/other-user-secret.txt',
+        userId: otherUserId,
+      });
+
+      const [ownedChunk, otherChunk] = await serverDB
+        .insert(chunks)
+        .values([
+          { text: 'Owned semantic search result', userId },
+          { text: 'Other user private semantic search result', userId: otherUserId },
+        ])
+        .returning();
+
+      await serverDB.insert(fileChunks).values([
+        { chunkId: ownedChunk.id, fileId: ownedFileId, userId },
+        { chunkId: otherChunk.id, fileId: otherFileId, userId: otherUserId },
+      ]);
+      await serverDB.insert(embeddings).values([
+        { chunkId: ownedChunk.id, embeddings: designThinkingQuery, userId },
+        { chunkId: otherChunk.id, embeddings: designThinkingQuery, userId: otherUserId },
+      ]);
+
+      const unfilteredResult = await chunkModel.semanticSearch({
+        embedding: designThinkingQuery2,
+        fileIds: undefined,
+        query: 'design thinking',
+      });
+      const foreignFileResult = await chunkModel.semanticSearch({
+        embedding: designThinkingQuery2,
+        fileIds: [otherFileId],
+        query: 'design thinking',
+      });
+      const chatResult = await chunkModel.semanticSearchForChat({
+        embedding: designThinkingQuery2,
+        fileIds: [ownedFileId, otherFileId],
+        query: 'design thinking',
+      });
+
+      expect(unfilteredResult).toHaveLength(1);
+      expect(unfilteredResult[0]).toMatchObject({
+        fileId: ownedFileId,
+        fileName: 'document.pdf',
+        id: ownedChunk.id,
+        text: 'Owned semantic search result',
+      });
+      expect(foreignFileResult).toEqual([]);
+      expect(chatResult).toHaveLength(1);
+      expect(chatResult[0]).toMatchObject({
+        fileId: ownedFileId,
+        fileName: 'document.pdf',
+        id: ownedChunk.id,
+        text: 'Owned semantic search result',
+      });
+    });
+
     // 补充无文件 ID 的搜索场景
     it('should perform semantic search without fileIds', async () => {
       const [chunk1, chunk2] = await serverDB
