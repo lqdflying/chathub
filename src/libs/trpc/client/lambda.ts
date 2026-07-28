@@ -5,6 +5,7 @@ import debug from 'debug';
 import { ModelProvider } from 'model-bank';
 import superjson from 'superjson';
 
+import { CHATHUB_ACCOUNT_SCOPE_HEADER } from '@/const/auth';
 import {
   CHATHUB_RPC_DIAGNOSTIC_OPERATIONS,
   CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER,
@@ -14,6 +15,7 @@ import {
 } from '@/const/tools';
 import { isDesktop } from '@/const/version';
 import type { LambdaRouter } from '@/server/routers/lambda';
+import type { AccountMutationSnapshot } from '@/store/accountMutation';
 
 import { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from './tools';
 import { createGuardedRPCFetch, findRPCResponseError } from './toolsResponse';
@@ -24,7 +26,9 @@ type FetchInit = Parameters<typeof fetch>[1];
 type HeadersInput = ConstructorParameters<typeof Headers>[0];
 
 type LambdaClientOptions = {
-  assertAccountOwnership?: () => Promise<void> | void;
+  assertAccountOwnership?: () =>
+    | AccountMutationSnapshot
+    | Promise<AccountMutationSnapshot>;
   desktop?: boolean;
   fetch?: typeof fetch;
   getAuthHeaders?: () => Promise<HeadersInput>;
@@ -140,15 +144,18 @@ const defaultGetAuthHeaders = async (): Promise<HeadersInput> => {
   return headers;
 };
 
-const defaultAssertAccountOwnership = async (): Promise<void> => {
-  const [{ captureAccountMutationSnapshot }, { useUserStore }] = await Promise.all([
+const defaultAssertAccountOwnership = async (): Promise<AccountMutationSnapshot> => {
+  const [{ captureSensitiveAccountMutationSnapshot }, { useUserStore }] = await Promise.all([
     import('@/store/accountMutation'),
     import('@/store/user'),
   ]);
+  const snapshot = captureSensitiveAccountMutationSnapshot(useUserStore.getState());
 
-  if (!captureAccountMutationSnapshot(useUserStore.getState())) {
+  if (!snapshot) {
     throw new DOMException('user state ownership is not initialized', 'AbortError');
   }
+
+  return snapshot;
 };
 
 const requiresVerifiedAccountOwnership = (path: string): boolean =>
@@ -199,12 +206,16 @@ const createLambdaLinks = ({
   const verifiedAccountLink = httpLink<LambdaRouter>({
     fetch: guardedFetch,
     headers: async ({ op }) => {
-      await assertAccountOwnership();
-
-      return headersForDiagnostics(
-        diagnosticIdFromContext(op.context),
-        diagnosticOperationFromContext(op.context),
+      const accountMutationSnapshot = await assertAccountOwnership();
+      const headers = new Headers(
+        await headersForDiagnostics(
+          diagnosticIdFromContext(op.context),
+          diagnosticOperationFromContext(op.context),
+        ),
       );
+      headers.set(CHATHUB_ACCOUNT_SCOPE_HEADER, accountMutationSnapshot.scope);
+
+      return Object.fromEntries(headers.entries());
     },
     transformer: superjson,
     url: '/trpc/lambda',

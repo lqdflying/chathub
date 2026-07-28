@@ -4,18 +4,21 @@ import { TRPCError } from '@trpc/server';
 import { enableAuth } from '@/const/auth';
 import { PicbedModel } from '@/database/models/picbed';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
-import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
 
-const picbedProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
-  return opts.next({
-    ctx: {
-      fileService: new FileService(ctx.serverDB, ctx.userId),
-      picbedModel: new PicbedModel(ctx.serverDB, ctx.userId),
-    },
+const picbedProcedure = authedProcedure
+  .use(verifiedAccountScope)
+  .use(serverDatabase)
+  .use(async (opts) => {
+    const { ctx } = opts;
+    return opts.next({
+      ctx: {
+        fileService: new FileService(ctx.serverDB, ctx.userId),
+        picbedModel: new PicbedModel(ctx.serverDB, ctx.userId),
+      },
+    });
   });
-});
 
 export const picbedRouter = router({
   create: picbedProcedure

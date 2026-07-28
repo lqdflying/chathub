@@ -5,6 +5,7 @@ export const enableAuth = enableClerk || enableNextAuth || enableTokenAuth || fa
 
 export const LOBE_CHAT_AUTH_HEADER = 'X-lobe-chat-auth';
 export const LOBE_CHAT_OIDC_AUTH_HEADER = 'Oidc-Auth';
+export const CHATHUB_ACCOUNT_SCOPE_HEADER = 'X-ChatHub-Account-Scope';
 
 export const OAUTH_AUTHORIZED = 'X-oauth-authorized';
 export const TOKEN_AUTH_USER_HEADER = 'X-token-auth-user';

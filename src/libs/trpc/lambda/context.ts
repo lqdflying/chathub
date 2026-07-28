@@ -5,6 +5,7 @@ import { User } from 'next-auth';
 import { NextRequest } from 'next/server';
 
 import {
+  CHATHUB_ACCOUNT_SCOPE_HEADER,
   LOBE_CHAT_AUTH_HEADER,
   LOBE_CHAT_OIDC_AUTH_HEADER,
   TOKEN_AUTH_USER_HEADER,
@@ -29,6 +30,7 @@ export interface OIDCAuth {
 }
 
 export interface AuthContext {
+  accountScope?: string | null;
   authorizationHeader?: string | null;
   clerkAuth?: IClerkAuth;
   jwtPayload?: ClientSecretPayload | null;
@@ -46,6 +48,7 @@ export interface AuthContext {
  * This is useful for testing when we don't want to mock Next.js' request/response
  */
 export const createContextInner = async (params?: {
+  accountScope?: string | null;
   authorizationHeader?: string | null;
   clerkAuth?: IClerkAuth;
   marketAccessToken?: string;
@@ -58,6 +61,7 @@ export const createContextInner = async (params?: {
   const responseHeaders = new Headers();
 
   return {
+    accountScope: params?.accountScope,
     authorizationHeader: params?.authorizationHeader,
     clerkAuth: params?.clerkAuth,
     marketAccessToken: params?.marketAccessToken,
@@ -80,9 +84,10 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
   // IT WON'T GO INTO PRODUCTION ANYMORE
   const isDebugApi = request.headers.get('lobe-auth-dev-backend-api') === '1';
   const isMockUser = process.env.ENABLE_MOCK_DEV_USER === '1';
+  const accountScope = request.headers.get(CHATHUB_ACCOUNT_SCOPE_HEADER);
 
   if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
-    return { userId: process.env.MOCK_DEV_USER_ID };
+    return { accountScope, userId: process.env.MOCK_DEV_USER_ID };
   }
 
   log('createLambdaContext called for request');
@@ -98,6 +103,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
 
   log('marketAccessToken from cookie:', marketAccessToken ? '[HIDDEN]' : 'undefined');
   const commonContext = {
+    accountScope,
     authorizationHeader: authorization,
     marketAccessToken,
     userAgent,

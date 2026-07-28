@@ -190,7 +190,12 @@ repopulating cleared maps.
 Mounted components with account-owned local state use the same scope as a React
 identity key or reset dependency. This includes profile API-key tables and
 modals, SSO unlink state, and Picbed pagination and gallery state; a Zustand
-reset alone cannot clear state owned by an already mounted component.
+reset alone cannot clear state owned by an already mounted component. API-key
+and Picbed list components use the sensitive verified scope rather than the raw
+authentication scope. They defer their initial request while authenticated user
+state is unverified, then the selector changes from `undefined` to
+`user:<raw-auth-id>` after matching hydration and naturally remounts/reloads the
+list without requiring a page remount.
 
 The stores clear account-owned in-memory data synchronously when the scope
 changes, abort in-flight account operations, and increment store-local scope
@@ -227,11 +232,24 @@ invalidated during an account reset.
 
 Direct account-sensitive Lambda callers use the same contract at the transport
 boundary. The Lambda client routes `apiKey.*` and `picbed.*` through an
-isolated verified-account link that rejects before authentication headers or
-network fetch when no current account snapshot can be captured. User-state
-bootstrap remains outside that gate so `user.getUserState` can establish the
-verification without deadlocking. Picbed upload additionally captures the
-snapshot before its separate S3 stage and rechecks it before record creation.
+isolated verified-account link that requires a sensitive account snapshot,
+explicitly rejects `guest`, and aborts before authentication headers or network
+fetch when ownership is unresolved or unverified. The link sends the captured
+scope in `X-ChatHub-Account-Scope`. Shared server middleware on every
+`apiKey.*` and `picbed.*` procedure treats that header as an untrusted claim and
+compares it with the trusted raw request principal (Clerk ID, NextAuth ID, OIDC
+subject, or token-auth user ID) before database or model setup. Authenticated
+deployments accept only `user:<raw-auth-id>`; no-auth deployments accept only
+`local`. Missing, `guest`, malformed, or foreign claims fail closed. The claim
+never selects a database owner, and mapped database owner IDs remain separate
+from the raw authentication identity. User-state bootstrap remains outside that
+gate so `user.getUserState` can establish verification without deadlocking.
+Picbed upload additionally captures the snapshot before its separate S3 stage
+and rechecks it before record creation. This follows tRPC v11's documented
+[per-request dynamic headers](https://trpc.io/docs/client/headers) and
+[request-derived server context](https://trpc.io/docs/server/context) pattern;
+authorization remains in shared server middleware rather than in the
+client-supplied header.
 
 Server-side authorization remains authoritative. `ChunkModel.semanticSearch`
 and `semanticSearchForChat` constrain the root chunk, embedding, file-chunk
@@ -297,10 +315,11 @@ or A-to-B-to-A summary sequences.
 Picbed uses the same account scope as a React identity key, aborts active uploads
 when that scope unmounts, and checks scope before every file, after object
 storage upload, and before record creation. The scope and `AbortSignal` continue
-through pre-signing and the tRPC mutation. The server compares the requested
-scope with the raw authenticated identity before inserting a Picbed record, so
-an object uploaded for account A cannot be registered to account B after an
-in-place account switch.
+through pre-signing and the tRPC mutation. Shared transport middleware compares
+the asserted scope with the raw authenticated identity before every Picbed list,
+delete, or create procedure, and record creation retains its input-level scope
+check as defense in depth. An object uploaded for account A therefore cannot be
+registered to account B after an in-place account switch.
 
 Telemetry-consent SWR entries use `['checkTrace', currentUserScope]`; no entry is
 read while authentication scope is unresolved. This prevents one account's

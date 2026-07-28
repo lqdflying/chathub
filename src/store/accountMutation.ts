@@ -25,6 +25,18 @@ export const captureAccountMutationSnapshot = (
   };
 };
 
+export const captureSensitiveAccountMutationSnapshot = (
+  state: UserStore,
+): AccountMutationSnapshot | undefined => {
+  const snapshot = captureAccountMutationSnapshot(state);
+  if (!snapshot || snapshot.scope === 'guest') return undefined;
+
+  return snapshot;
+};
+
+export const sensitiveAccountScope = (state: UserStore): string | undefined =>
+  captureSensitiveAccountMutationSnapshot(state)?.scope;
+
 export const isAccountMutationCurrent = (
   state: UserStore,
   snapshot: AccountMutationSnapshot,

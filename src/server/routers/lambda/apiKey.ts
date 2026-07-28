@@ -2,21 +2,24 @@ import { z } from 'zod';
 
 import { ApiKeyModel } from '@/database/models/apiKey';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
-import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middleware';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
-const apiKeyProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
-  const { ctx } = opts;
+const apiKeyProcedure = authedProcedure
+  .use(verifiedAccountScope)
+  .use(serverDatabase)
+  .use(async (opts) => {
+    const { ctx } = opts;
 
-  const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+    const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
 
-  return opts.next({
-    ctx: {
-      apiKeyModel: new ApiKeyModel(ctx.serverDB, ctx.userId),
-      gateKeeper,
-    },
+    return opts.next({
+      ctx: {
+        apiKeyModel: new ApiKeyModel(ctx.serverDB, ctx.userId),
+        gateKeeper,
+      },
+    });
   });
-});
 
 export const apiKeyRouter = router({
   createApiKey: apiKeyProcedure

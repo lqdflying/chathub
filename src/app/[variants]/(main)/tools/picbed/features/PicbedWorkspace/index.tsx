@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { picbedService } from '@/services/picbed';
+import { sensitiveAccountScope } from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
@@ -184,7 +185,7 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
 });
 
 const PicbedWorkspace = memo(() => {
-  const requestedScope = useUserStore(authSelectors.currentUserScope);
+  const requestedScope = useUserStore(sensitiveAccountScope);
 
   return (
     <PicbedWorkspaceContent

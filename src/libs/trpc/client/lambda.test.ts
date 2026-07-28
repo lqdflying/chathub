@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { CHATHUB_ACCOUNT_SCOPE_HEADER } from '@/const/auth';
 import {
   CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER,
   CHATHUB_TOOLS_DIAGNOSTIC_HEADER,
@@ -36,8 +37,37 @@ describe('lambda tRPC client links', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('sends the verified account scope with account-sensitive RPCs', async () => {
+    const accountScopes: string[] = [];
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      accountScopes.push(new Headers(init?.headers).get(CHATHUB_ACCOUNT_SCOPE_HEADER) || '');
+
+      return new Response(JSON.stringify(trpcResult([])), {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+    }) as typeof fetch;
+    const client = createLambdaClient({
+      assertAccountOwnership: () => ({
+        ownershipInvalidationGeneration: 7,
+        scope: 'user:account-a',
+      }),
+      desktop: false,
+      fetch: fetchMock,
+      getAuthHeaders: async () => ({}),
+    });
+
+    await client.apiKey.getApiKeys.query();
+    await client.picbed.list.query();
+
+    expect(accountScopes).toEqual(['user:account-a', 'user:account-a']);
+  });
+
   it('allows user-state ownership bootstrap without prior verification', async () => {
-    const assertAccountOwnership = vi.fn();
+    const assertAccountOwnership = vi.fn(() => ({
+      ownershipInvalidationGeneration: 0,
+      scope: 'user:account-a',
+    }));
     const fetchMock = vi.fn(async () => {
       return new Response(JSON.stringify([trpcResult({ userId: 'account-a' })]), {
         headers: { 'content-type': 'application/json' },

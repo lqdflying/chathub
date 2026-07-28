@@ -35,6 +35,7 @@ describe('picbedRouter', () => {
 
   it('rejects a create request owned by a different authenticated account', async () => {
     const caller = picbedRouter.createCaller({
+      accountScope: 'user:account-b',
       clerkAuth: { userId: 'account-b' },
       userId: 'account-b',
     } as never);
@@ -54,6 +55,7 @@ describe('picbedRouter', () => {
       userId: 'mapped-owner',
     });
     const caller = picbedRouter.createCaller({
+      accountScope: 'user:account-a',
       clerkAuth: { userId: 'account-a' },
       userId: 'mapped-owner',
     } as never);
@@ -66,5 +68,23 @@ describe('picbedRouter', () => {
       size: input.size,
       url: input.url,
     });
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['guest', 'guest'],
+    ['foreign', 'user:account-b'],
+  ])('rejects a %s account scope before database access', async (_caseName, accountScope) => {
+    const caller = picbedRouter.createCaller({
+      accountScope,
+      clerkAuth: { userId: 'account-a' },
+      userId: 'account-a',
+    } as never);
+
+    await expect(caller.list()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Account scope does not match the authenticated user',
+    });
+    expect(getServerDB).not.toHaveBeenCalled();
   });
 });

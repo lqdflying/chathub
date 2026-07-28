@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   captureAccountMutationSnapshot,
+  captureSensitiveAccountMutationSnapshot,
   isAccountMutationCurrent,
 } from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
@@ -48,6 +49,19 @@ describe('account mutation ownership boundary', () => {
     });
 
     expect(captureAccountMutationSnapshot(useUserStore.getState())).toBeUndefined();
+  });
+
+  it('does not capture guest ownership for sensitive account operations', () => {
+    useUserStore.setState({
+      ...initialState,
+      isLoaded: true,
+      isSignedIn: false,
+    });
+
+    expect(captureAccountMutationSnapshot(useUserStore.getState())).toMatchObject({
+      scope: 'guest',
+    });
+    expect(captureSensitiveAccountMutationSnapshot(useUserStore.getState())).toBeUndefined();
   });
 
   it('does not capture authenticated ownership before user state verifies the scope', () => {
