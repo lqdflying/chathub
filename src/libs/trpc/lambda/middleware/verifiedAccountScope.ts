@@ -12,10 +12,10 @@ export const resolveAuthenticatedAccountScope = (
   if (!authenticationEnabled) return 'local';
 
   const authenticatedUserId =
+    context.rawAuthUserId ??
     context.clerkAuth?.userId ??
     context.nextAuth?.id ??
     context.oidcAuth?.sub ??
-    context.userId ??
     undefined;
 
   return authenticatedUserId ? `user:${authenticatedUserId}` : undefined;

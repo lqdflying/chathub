@@ -14,6 +14,33 @@ The top-level README documents the built-in credentials login flow, including:
 
 The current repo also contains a dedicated background document at `doc/credentials-login-flow.md` that describes how credentials login behaves in practice.
 
+### Static bearer authentication boundary
+
+Machine-to-machine requests authenticate with
+`Authorization: Bearer <AUTH_TOKEN>`. Lambda tRPC, Edge tRPC, model-runtime
+guards, and route middleware all validate that bearer directly against the
+server-side `AUTH_TOKEN` using the shared constant-time comparator. Successful
+validation derives the raw authentication principal only from
+`AUTH_USER_ID` (falling back to `default_user` for direct API bearer access);
+request headers cannot select the user.
+
+`X-token-auth-user` is legacy, untrusted input and is never accepted as proof
+of identity. In particular, a caller cannot combine that header with
+`X-ChatHub-Account-Scope` to choose an API-key or Picbed tenant. Sensitive
+account middleware compares the asserted account scope with the explicit raw
+principal recorded by a validated authentication mechanism, not with the
+generic `userId` that may later represent a mapped database owner.
+
+Do not attempt to pass token identity through response headers. Next.js 15
+documents that only
+[`NextResponse.next({ request: { headers } })`](https://nextjs.org/docs/15/app/api-reference/file-conventions/middleware#setting-headers)
+forwards modified headers upstream; setting `response.headers` exposes a
+response header instead. ChatHub validates the bearer again in each server
+context rather than making middleware forwarding part of the authorization
+boundary. The bounded constant-time comparison follows
+[OWASP authentication guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+for secret comparisons.
+
 ## LLM environment configuration
 
 The main provider environment map lives in `src/envs/llm.ts`, which is referenced from the README as the canonical provider/env source. That config drives how server runtime code resolves keys and base URLs for providers like OpenAI, Anthropic, Azure, and provider-compatible gateways.

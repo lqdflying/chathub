@@ -12,11 +12,11 @@ import {
   LOBE_CHAT_AUTH_HEADER,
   LOBE_CHAT_OIDC_AUTH_HEADER,
   OAUTH_AUTHORIZED,
-  TOKEN_AUTH_USER_HEADER,
   enableClerk,
 } from '@/const/auth';
 import { ClerkAuth } from '@/libs/clerk-auth';
 import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
+import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 import { checkAuthMethod } from './utils';
@@ -46,8 +46,8 @@ export const checkAuth =
       // get Authorization from header
       const authorization = req.headers.get(LOBE_CHAT_AUTH_HEADER);
       const oauthAuthorized = !!req.headers.get(OAUTH_AUTHORIZED);
-      const tokenAuthUser = req.headers.get(TOKEN_AUTH_USER_HEADER);
-      const tokenAuthAuthorized = !!tokenAuthUser;
+      const tokenAuthUserId = resolveTokenAuthUserId(req.headers);
+      const tokenAuthAuthorized = !!tokenAuthUserId;
 
       if (!authorization) throw AgentRuntimeError.createError(ChatErrorType.Unauthorized);
 

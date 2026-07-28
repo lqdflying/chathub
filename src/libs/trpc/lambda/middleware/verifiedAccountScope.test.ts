@@ -49,15 +49,27 @@ describe('verifiedAccountScope middleware', () => {
     await expect(caller.sensitiveQuery()).resolves.toBe('user:account-a');
   });
 
-  it('uses the authenticated context user for token-authenticated requests', () => {
+  it('uses only the validated raw principal for token-authenticated requests', () => {
     expect(
       resolveAuthenticatedAccountScope(
         {
-          userId: 'token-account',
+          rawAuthUserId: 'token-account',
+          userId: 'mapped-database-owner',
         },
         true,
       ),
     ).toBe('user:token-account');
+  });
+
+  it('does not accept a generic context user as authentication proof', () => {
+    expect(
+      resolveAuthenticatedAccountScope(
+        {
+          userId: 'caller-controlled-user',
+        },
+        true,
+      ),
+    ).toBeUndefined();
   });
 
   it('permits only the local scope when authentication is disabled', () => {

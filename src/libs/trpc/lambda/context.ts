@@ -8,7 +8,6 @@ import {
   CHATHUB_ACCOUNT_SCOPE_HEADER,
   LOBE_CHAT_AUTH_HEADER,
   LOBE_CHAT_OIDC_AUTH_HEADER,
-  TOKEN_AUTH_USER_HEADER,
   enableClerk,
   enableNextAuth,
   enableTokenAuth,
@@ -16,6 +15,7 @@ import {
 import { oidcEnv } from '@/envs/oidc';
 import { ClerkAuth, IClerkAuth } from '@/libs/clerk-auth';
 import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
+import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 
 // Create context logger namespace
 const log = debug('lobe-trpc:lambda:context');
@@ -38,6 +38,7 @@ export interface AuthContext {
   nextAuth?: User;
   // Add OIDC authentication information
   oidcAuth?: OIDCAuth | null;
+  rawAuthUserId?: string | null;
   resHeaders?: Headers;
   userAgent?: string;
   userId?: string | null;
@@ -54,6 +55,7 @@ export const createContextInner = async (params?: {
   marketAccessToken?: string;
   nextAuth?: User;
   oidcAuth?: OIDCAuth | null;
+  rawAuthUserId?: string | null;
   userAgent?: string;
   userId?: string | null;
 }): Promise<AuthContext> => {
@@ -67,6 +69,7 @@ export const createContextInner = async (params?: {
     marketAccessToken: params?.marketAccessToken,
     nextAuth: params?.nextAuth,
     oidcAuth: params?.oidcAuth,
+    rawAuthUserId: params?.rawAuthUserId,
     resHeaders: responseHeaders,
     userAgent: params?.userAgent,
     userId: params?.userId,
@@ -87,7 +90,11 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
   const accountScope = request.headers.get(CHATHUB_ACCOUNT_SCOPE_HEADER);
 
   if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
-    return { accountScope, userId: process.env.MOCK_DEV_USER_ID };
+    return {
+      accountScope,
+      rawAuthUserId: process.env.MOCK_DEV_USER_ID,
+      userId: process.env.MOCK_DEV_USER_ID,
+    };
   }
 
   log('createLambdaContext called for request');
@@ -116,10 +123,14 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
 
   // Token-based auth (static bearer token, no OAuth required)
   if (enableTokenAuth) {
-    const tokenAuthUserId = request.headers.get(TOKEN_AUTH_USER_HEADER);
+    const tokenAuthUserId = resolveTokenAuthUserId(request.headers);
     if (tokenAuthUserId) {
       log('Token auth detected, userId: %s', tokenAuthUserId);
-      return createContextInner({ ...commonContext, userId: tokenAuthUserId });
+      return createContextInner({
+        ...commonContext,
+        rawAuthUserId: tokenAuthUserId,
+        userId: tokenAuthUserId,
+      });
     }
   }
 
@@ -149,6 +160,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
         return createContextInner({
           oidcAuth,
           ...commonContext,
+          rawAuthUserId: userId,
           userId,
         });
       }
@@ -173,6 +185,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
     return createContextInner({
       clerkAuth: auth,
       ...commonContext,
+      rawAuthUserId: userId,
       userId,
     });
   }
@@ -193,6 +206,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
       return createContextInner({
         nextAuth: auth,
         ...commonContext,
+        rawAuthUserId: userId,
         userId,
       });
     } catch (e) {

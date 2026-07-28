@@ -238,12 +238,15 @@ fetch when ownership is unresolved or unverified. The link sends the captured
 scope in `X-ChatHub-Account-Scope`. Shared server middleware on every
 `apiKey.*` and `picbed.*` procedure treats that header as an untrusted claim and
 compares it with the trusted raw request principal (Clerk ID, NextAuth ID, OIDC
-subject, or token-auth user ID) before database or model setup. Authenticated
-deployments accept only `user:<raw-auth-id>`; no-auth deployments accept only
-`local`. Missing, `guest`, malformed, or foreign claims fail closed. The claim
-never selects a database owner, and mapped database owner IDs remain separate
-from the raw authentication identity. User-state bootstrap remains outside that
-gate so `user.getUserState` can establish verification without deadlocking.
+subject, or bearer-validated `rawAuthUserId`) before database or model setup.
+Token auth derives that principal from server-side `AUTH_USER_ID` only after
+constant-time validation of `Authorization: Bearer <AUTH_TOKEN>`; the legacy
+`X-token-auth-user` request header is ignored. Authenticated deployments accept
+only `user:<raw-auth-id>`; no-auth deployments accept only `local`. Missing,
+`guest`, malformed, or foreign claims fail closed. The claim never selects a
+database owner, and mapped database owner IDs remain separate from the raw
+authentication identity. User-state bootstrap remains outside that gate so
+`user.getUserState` can establish verification without deadlocking.
 Picbed upload additionally captures the snapshot before its separate S3 stage
 and rechecks it before record creation. This follows tRPC v11's documented
 [per-request dynamic headers](https://trpc.io/docs/client/headers) and

@@ -2,14 +2,16 @@ import { ClientSecretPayload } from '@lobechat/types';
 import { User } from 'next-auth';
 import { NextRequest } from 'next/server';
 
-import { LOBE_CHAT_AUTH_HEADER, TOKEN_AUTH_USER_HEADER, enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
+import { LOBE_CHAT_AUTH_HEADER, enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
 import { ClerkAuth, IClerkAuth } from '@/libs/clerk-auth';
+import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 
 export interface AuthContext {
   authorizationHeader?: string | null;
   clerkAuth?: IClerkAuth;
   jwtPayload?: ClientSecretPayload | null;
   nextAuth?: User;
+  rawAuthUserId?: string | null;
   userId?: string | null;
 }
 
@@ -21,11 +23,13 @@ export const createContextInner = async (params?: {
   authorizationHeader?: string | null;
   clerkAuth?: IClerkAuth;
   nextAuth?: User;
+  rawAuthUserId?: string | null;
   userId?: string | null;
 }): Promise<AuthContext> => ({
   authorizationHeader: params?.authorizationHeader,
   clerkAuth: params?.clerkAuth,
   nextAuth: params?.nextAuth,
+  rawAuthUserId: params?.rawAuthUserId,
   userId: params?.userId,
 });
 
@@ -45,9 +49,13 @@ export const createEdgeContext = async (request: NextRequest): Promise<EdgeConte
 
   // Token-based auth (static bearer token, no OAuth required)
   if (enableTokenAuth) {
-    const tokenAuthUserId = request.headers.get(TOKEN_AUTH_USER_HEADER);
+    const tokenAuthUserId = resolveTokenAuthUserId(request.headers);
     if (tokenAuthUserId) {
-      return createContextInner({ authorizationHeader: authorization, userId: tokenAuthUserId });
+      return createContextInner({
+        authorizationHeader: authorization,
+        rawAuthUserId: tokenAuthUserId,
+        userId: tokenAuthUserId,
+      });
     }
   }
 
@@ -57,7 +65,12 @@ export const createEdgeContext = async (request: NextRequest): Promise<EdgeConte
     auth = result.clerkAuth;
     userId = result.userId;
 
-    return createContextInner({ authorizationHeader: authorization, clerkAuth: auth, userId });
+    return createContextInner({
+      authorizationHeader: authorization,
+      clerkAuth: auth,
+      rawAuthUserId: userId,
+      userId,
+    });
   }
 
   if (enableNextAuth) {
@@ -69,7 +82,12 @@ export const createEdgeContext = async (request: NextRequest): Promise<EdgeConte
         auth = session.user;
         userId = session.user.id;
       }
-      return createContextInner({ authorizationHeader: authorization, nextAuth: auth, userId });
+      return createContextInner({
+        authorizationHeader: authorization,
+        nextAuth: auth,
+        rawAuthUserId: userId,
+        userId,
+      });
     } catch (e) {
       console.error('next auth err', e);
     }

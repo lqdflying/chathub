@@ -3,6 +3,7 @@ import { ChatErrorType } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LOBE_CHAT_AUTH_HEADER, TOKEN_AUTH_USER_HEADER } from '@/const/auth';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 import { RequestHandler, checkAuth } from './index';
@@ -31,10 +32,13 @@ describe('checkAuth', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubEnv('AUTH_TOKEN', 'access-token');
+    vi.stubEnv('AUTH_USER_ID', 'account-a');
   });
 
   afterEach(() => {
     vi.resetAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('should return unauthorized error if no authorization header', async () => {
@@ -76,5 +80,42 @@ describe('checkAuth', () => {
       provider: 'mock',
     });
     expect(mockHandler).not.toHaveBeenCalled();
+  });
+
+  it('does not authorize a forged token-auth user header', async () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
+        [TOKEN_AUTH_USER_HEADER]: 'victim',
+      },
+    });
+    vi.mocked(getXorPayload).mockReturnValue({});
+
+    await checkAuth(mockHandler)(request, mockOptions);
+
+    expect(checkAuthMethod).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokenAuthAuthorized: false,
+      }),
+    );
+  });
+
+  it('authorizes a valid bearer independently of the token-auth user header', async () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        Authorization: 'Bearer access-token',
+        [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
+        [TOKEN_AUTH_USER_HEADER]: 'victim',
+      },
+    });
+    vi.mocked(getXorPayload).mockReturnValue({});
+
+    await checkAuth(mockHandler)(request, mockOptions);
+
+    expect(checkAuthMethod).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokenAuthAuthorized: true,
+      }),
+    );
   });
 });

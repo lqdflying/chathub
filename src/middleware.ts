@@ -5,12 +5,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
 import urlJoin from 'url-join';
 
-import { OAUTH_AUTHORIZED, TOKEN_AUTH_USER_HEADER } from '@/const/auth';
+import { OAUTH_AUTHORIZED } from '@/const/auth';
 import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { LOBE_THEME_APPEARANCE } from '@/const/theme';
 import { appEnv } from '@/envs/app';
 import { authEnv } from '@/envs/auth';
 import NextAuth from '@/libs/next-auth';
+import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 import { Locales } from '@/locales/resources';
 
 import { oidcEnv } from './envs/oidc';
@@ -314,17 +315,10 @@ const tokenAuthMiddleware = (request: NextRequest) => {
 
   const response = defaultMiddleware(request);
 
-  const authHeader = request.headers.get('Authorization');
-  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const expectedToken = process.env.AUTH_TOKEN!;
+  const tokenAuthUserId = resolveTokenAuthUserId(request.headers);
 
-  // Always clear the header first to prevent injection
-  response.headers.delete(TOKEN_AUTH_USER_HEADER);
-
-  if (bearerToken && bearerToken === expectedToken) {
-    const userId = process.env.AUTH_USER_ID || 'default_user';
-    logTokenAuth('Token auth successful, userId: %s', userId);
-    response.headers.set(TOKEN_AUTH_USER_HEADER, userId);
+  if (tokenAuthUserId) {
+    logTokenAuth('Token auth successful, userId: %s', tokenAuthUserId);
   } else {
     const url = new URL(request.url);
     // Protect all non-public routes by default when auth is enabled.
