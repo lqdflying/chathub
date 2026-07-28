@@ -78,6 +78,27 @@ round.
 - Never auto-bump the canary number between fixes. Wait for the user to
   confirm that the fix is ready to ship.
 
+## Commit preflight — one batched read, never repeat
+
+Run the pre-commit inspection **once**, as a single batch: `git status`, the
+staged/unstaged `git diff`, and `git log` for message style. These are
+independent read-only commands, so issue them in one message (parallel calls or
+one chained command) for every affected repository, including `wiki/`.
+
+Hard gates:
+
+- Once a read-only check has produced output, the only legal next moves are
+  **forward** (stage, commit, verify) or **stop and report**. Re-running it is
+  not a move.
+- If a read-only command returns output identical to its previous run and no
+  files were edited in between, treat that as a control-flow bug: act on the
+  evidence already gathered, or tell the user what is blocking progress.
+- Never poll `git status` (or any idempotent inspection) while deciding what to
+  commit. It wastes tokens, floods the transcript, and hides real progress.
+- Post-commit verification is a **different** state from preflight: one
+  `git status` plus `git log -1` per repository after committing is expected,
+  and does not count as a repeat.
+
 ## Commits
 
 - Commit messages must be prefixed with a **gitmoji** (e.g. `🐛 fix(scope): …`, `✨ feat(scope): …`).
