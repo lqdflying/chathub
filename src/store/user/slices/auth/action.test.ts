@@ -237,6 +237,37 @@ describe('createAuthSlice', () => {
       enableNextAuth = false;
     });
 
+    it('should continue direct OAuth sign-in when localStorage is unavailable', async () => {
+      enableNextAuth = true;
+      useUserStore.setState({ oAuthSSOProviders: ['github'] });
+
+      const authorizationUrl = 'https://github.com/login/oauth/authorize';
+      const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('Storage access denied', 'SecurityError');
+      });
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('Storage access denied', 'SecurityError');
+      });
+      const { signIn } = await import('next-auth/react');
+      vi.mocked(signIn).mockResolvedValue({
+        code: undefined,
+        error: undefined,
+        ok: true,
+        status: 200,
+        url: authorizationUrl,
+      });
+      const { result } = renderHook(() => useUserStore());
+
+      await act(async () => {
+        await result.current.openLogin();
+      });
+
+      expect(signIn).toHaveBeenCalledWith('github', { redirect: false });
+      expect(assignSpy).toHaveBeenCalledWith(authorizationUrl);
+      enableNextAuth = false;
+    });
+
     it('should not call next-auth signIn when NextAuth is disabled', async () => {
       const { result } = renderHook(() => useUserStore());
 

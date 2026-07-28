@@ -162,4 +162,30 @@ describe('AuthSignInBox', () => {
       expect(localStorage.getItem('chathub:next-auth-session-transition')).toBeNull();
     });
   });
+
+  it('continues to the provider when localStorage is unavailable', async () => {
+    const authorizationUrl = 'https://github.com/login/oauth/authorize';
+    const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError');
+    });
+    signIn.mockResolvedValue({
+      code: undefined,
+      error: undefined,
+      ok: true,
+      status: 200,
+      url: authorizationUrl,
+    });
+
+    render(<AuthSignInBox />);
+    fireEvent.click(screen.getByRole('button', { name: 'github' }));
+
+    await waitFor(() => {
+      expect(assignSpy).toHaveBeenCalledWith(authorizationUrl);
+      expect(screen.getByRole('button', { name: 'github' }).getAttribute('aria-busy')).toBe('true');
+    });
+  });
 });

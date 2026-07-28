@@ -6,25 +6,36 @@ const SESSION_TRANSITION_GENERATION_STORAGE_KEY = 'chathub:next-auth-session-tra
 const SESSION_TRANSITION_OWNER_STORAGE_KEY = 'chathub:next-auth-session-transition-owner';
 const AUTH_JS_OAUTH_TRANSACTION_LIFETIME_MS = 15 * 60 * 1000;
 
+// Auth.js refreshes useSession before redirect:false returns. Keep this
+// document from treating that old-account refresh as callback completion.
+let activeRedirectingOAuthMarker: string | undefined;
+
 const createTransitionMarker = (): string =>
   JSON.stringify({
     createdAt: Date.now(),
     id: crypto.randomUUID(),
   });
 
-const getStoredValue = (key: string): null | string => {
+type StoredValueResult =
+  { available: false; value: null } | { available: true; value: null | string };
+
+const readStoredValue = (key: string): StoredValueResult => {
   try {
-    return localStorage.getItem(key);
+    return { available: true, value: localStorage.getItem(key) };
   } catch {
-    return null;
+    return { available: false, value: null };
   }
 };
 
-const setStoredValue = (key: string, value: string): void => {
+const getStoredValue = (key: string): null | string => readStoredValue(key).value;
+
+const setStoredValue = (key: string, value: string): boolean => {
   try {
     localStorage.setItem(key, value);
+    return true;
   } catch {
     // Session transitions continue without cross-document coordination when storage is unavailable.
+    return false;
   }
 };
 
@@ -83,29 +94,56 @@ export const getNextAuthSessionTransitionGeneration = (): number => {
   return Number.isSafeInteger(generation) && generation >= 0 ? generation : 0;
 };
 
-export const beginNextAuthSessionTransition = (): string => {
+const startNextAuthSessionTransition = (): {
+  marker: string;
+  markerWasStored: boolean;
+} => {
   const marker = createTransitionMarker();
   const nextGeneration = getNextAuthSessionTransitionGeneration() + 1;
+  const markerWasStored = setStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY, marker);
 
-  setStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY, marker);
   setStoredValue(SESSION_TRANSITION_GENERATION_STORAGE_KEY, String(nextGeneration));
   setOwnedTransitionMarker(marker);
-  return marker;
+  return { marker, markerWasStored };
 };
 
-const extendNextAuthSessionTransition = (marker: string): string | undefined => {
-  if (getStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY) !== marker) {
+export const beginNextAuthSessionTransition = (): string => startNextAuthSessionTransition().marker;
+
+const extendNextAuthSessionTransition = (
+  marker: string,
+  markerWasStored: boolean,
+): string | undefined => {
+  const storedMarker = readStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY);
+  const wasSuperseded = markerWasStored && storedMarker.available && storedMarker.value !== marker;
+
+  if (wasSuperseded) {
     removeOwnedTransitionMarker(marker);
+    if (activeRedirectingOAuthMarker === marker) activeRedirectingOAuthMarker = undefined;
     return;
   }
 
   const extendedMarker = createTransitionMarker();
   const nextGeneration = getNextAuthSessionTransitionGeneration() + 1;
+  const extendedMarkerWasStored = setStoredValue(
+    NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY,
+    extendedMarker,
+  );
 
-  setStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY, extendedMarker);
+  if (!extendedMarkerWasStored) {
+    removeOwnedTransitionMarker(marker);
+    setOwnedTransitionMarker(extendedMarker);
+    if (activeRedirectingOAuthMarker === marker) {
+      activeRedirectingOAuthMarker = extendedMarker;
+    }
+    return extendedMarker;
+  }
+
   setStoredValue(SESSION_TRANSITION_GENERATION_STORAGE_KEY, String(nextGeneration));
   removeOwnedTransitionMarker(marker);
   setOwnedTransitionMarker(extendedMarker);
+  if (activeRedirectingOAuthMarker === marker) {
+    activeRedirectingOAuthMarker = extendedMarker;
+  }
   return extendedMarker;
 };
 
@@ -114,17 +152,30 @@ export const completeNextAuthSessionTransition = (marker: string): void => {
     removeStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY);
   }
   removeOwnedTransitionMarker(marker);
+  if (activeRedirectingOAuthMarker === marker) activeRedirectingOAuthMarker = undefined;
 };
 
 export const completeOwnedNextAuthSessionTransition = (): void => {
   const ownedMarker = getOwnedTransitionMarker();
   if (!ownedMarker) return;
+  if (activeRedirectingOAuthMarker === ownedMarker) return;
 
   completeNextAuthSessionTransition(ownedMarker);
   window.dispatchEvent(new Event(NEXT_AUTH_SESSION_TRANSITION_COMPLETED_EVENT));
 };
 
 export const isNextAuthSessionTransitionPending = (): boolean => {
+  const activeOAuthTransitionCreatedAt = getTransitionCreatedAt(
+    activeRedirectingOAuthMarker ?? null,
+  );
+  if (
+    activeOAuthTransitionCreatedAt !== undefined &&
+    Date.now() - activeOAuthTransitionCreatedAt <= AUTH_JS_OAUTH_TRANSACTION_LIFETIME_MS
+  ) {
+    return true;
+  }
+  activeRedirectingOAuthMarker = undefined;
+
   const marker = getStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY);
   const createdAt = getTransitionCreatedAt(marker);
 
@@ -176,7 +227,9 @@ export const runRedirectingNextAuthSessionTransition = async <Result>(
 export const runRedirectingNextAuthOAuthTransition = async (
   operation: () => Promise<string | undefined>,
 ): Promise<string | undefined> => {
-  let marker = beginNextAuthSessionTransition();
+  const startedTransition = startNextAuthSessionTransition();
+  let marker = startedTransition.marker;
+  activeRedirectingOAuthMarker = marker;
 
   try {
     const establishOAuthTransaction = async (): Promise<string | undefined> => {
@@ -186,7 +239,10 @@ export const runRedirectingNextAuthOAuthTransition = async (
         return;
       }
 
-      const extendedMarker = extendNextAuthSessionTransition(marker);
+      const extendedMarker = extendNextAuthSessionTransition(
+        marker,
+        startedTransition.markerWasStored,
+      );
       if (!extendedMarker) return;
 
       marker = extendedMarker;
@@ -201,3 +257,9 @@ export const runRedirectingNextAuthOAuthTransition = async (
     throw error;
   }
 };
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    activeRedirectingOAuthMarker = undefined;
+  });
+}

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   beginNextAuthSessionTransition,
   completeNextAuthSessionTransition,
+  completeOwnedNextAuthSessionTransition,
   getNextAuthSessionTransitionGeneration,
   isNextAuthSessionTransitionPending,
   runNextAuthSessionTransition,
@@ -30,6 +31,8 @@ describe('NextAuth session lifecycle coordination', () => {
   });
 
   afterEach(() => {
+    window.dispatchEvent(new Event('pagehide'));
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -81,6 +84,31 @@ describe('NextAuth session lifecycle coordination', () => {
     expect(isNextAuthSessionTransitionPending()).toBe(false);
   });
 
+  it('ignores the old-session update performed during OAuth preflight', async () => {
+    const authorizationUrl = 'https://accounts.example.com/authorize';
+    const establishTransaction = createDeferred<string | undefined>();
+    const transitionPromise = runRedirectingNextAuthOAuthTransition(
+      () => establishTransaction.promise,
+    );
+    const originalMarker = localStorage.getItem('chathub:next-auth-session-transition');
+
+    completeOwnedNextAuthSessionTransition();
+
+    expect(localStorage.getItem('chathub:next-auth-session-transition')).toBe(originalMarker);
+    expect(isNextAuthSessionTransitionPending()).toBe(true);
+
+    establishTransaction.resolve(authorizationUrl);
+    await expect(transitionPromise).resolves.toBe(authorizationUrl);
+
+    const callbackMarker = localStorage.getItem('chathub:next-auth-session-transition');
+    expect(callbackMarker).not.toBe(originalMarker);
+
+    completeOwnedNextAuthSessionTransition();
+
+    expect(localStorage.getItem('chathub:next-auth-session-transition')).toBe(callbackMarker);
+    expect(isNextAuthSessionTransitionPending()).toBe(true);
+  });
+
   it('starts the OAuth callback lifetime after a delayed Auth.js preflight', async () => {
     vi.useFakeTimers();
     const authorizationUrl = 'https://accounts.example.com/authorize';
@@ -121,5 +149,37 @@ describe('NextAuth session lifecycle coordination', () => {
     expect(isNextAuthSessionTransitionPending()).toBe(true);
 
     completeNextAuthSessionTransition(newerTransitionMarker);
+  });
+
+  it('returns the OAuth authorization URL when localStorage is unavailable', async () => {
+    vi.useFakeTimers();
+    const authorizationUrl = 'https://accounts.example.com/authorize';
+    const establishTransaction = createDeferred<string | undefined>();
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError');
+    });
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError');
+    });
+    const removeItemSpy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('Storage access denied', 'SecurityError');
+    });
+
+    const transitionPromise = runRedirectingNextAuthOAuthTransition(
+      () => establishTransaction.promise,
+    );
+    await vi.advanceTimersByTimeAsync(30 * 1000);
+    establishTransaction.resolve(authorizationUrl);
+    await expect(transitionPromise).resolves.toBe(authorizationUrl);
+
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+    expect(isNextAuthSessionTransitionPending()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(isNextAuthSessionTransitionPending()).toBe(false);
+
+    getItemSpy.mockRestore();
+    setItemSpy.mockRestore();
+    removeItemSpy.mockRestore();
   });
 });

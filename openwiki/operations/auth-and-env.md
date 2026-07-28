@@ -60,10 +60,18 @@ and the OAuth sign-in POST. OAuth launchers request the authorization URL with
 [state and PKCE cookies](https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/lib/utils/cookie.ts),
 ChatHub renews the shared marker while still holding the Web Lock and only then
 navigates to the provider. The callback lifetime therefore starts from the
-actual Auth.js transaction rather than the earlier button click. The callback
-or error destination clears the marker as soon as session bootstrap finishes;
-stale cleanup cannot resume keep-alives before the Auth.js transaction itself
-expires. Browsers without Web Locks skip the background cookie-writing
+actual Auth.js transaction rather than the earlier button click. Auth.js also
+refreshes the client session before a `redirect: false` sign-in returns. A
+document-local OAuth phase prevents `UserUpdater` from mistaking that old-account
+refresh for callback completion; only the new callback or error document may
+clear the owned marker after session bootstrap finishes. Stale cleanup cannot
+resume keep-alives before the Auth.js transaction itself expires.
+
+If `localStorage` is unavailable, OAuth launch still proceeds with a rebased
+document-local marker instead of treating the missing shared marker as
+supersession. That document remains protected from its own keep-alive while it
+navigates, but cross-tab coordination is necessarily unavailable without shared
+storage. Browsers without Web Locks skip the background cookie-writing
 keep-alive rather than issuing an unsynchronized write; explicit authentication
 remains available.
 
