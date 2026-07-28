@@ -2,7 +2,10 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { enableAuth, enableClerk, enableNextAuth } from '@/const/auth';
 import { normalizeAuthRedirect } from '@/helpers/normalizeAuthRedirect';
-import { runRedirectingNextAuthSessionTransition } from '@/libs/next-auth/sessionLifecycle';
+import {
+  runRedirectingNextAuthOAuthTransition,
+  runRedirectingNextAuthSessionTransition,
+} from '@/libs/next-auth/sessionLifecycle';
 
 import type { UserStore } from '../../store';
 
@@ -73,7 +76,17 @@ export const createAuthSlice: StateCreator<
       }
 
       if (providers && providers.length === 1) {
-        await runRedirectingNextAuthSessionTransition(() => signIn(providers[0]));
+        let authError: string | undefined;
+        const redirectUrl = await runRedirectingNextAuthOAuthTransition(async () => {
+          const result = await signIn(providers[0], { redirect: false });
+          authError = result?.error;
+          return result?.url ?? undefined;
+        });
+        if (authError) {
+          window.location.assign(`/next-auth/error?error=${encodeURIComponent(authError)}`);
+        } else if (redirectUrl) {
+          window.location.assign(redirectUrl);
+        }
         return;
       }
       await signIn();

@@ -6,6 +6,7 @@ import {
   getNextAuthSessionTransitionGeneration,
   isNextAuthSessionTransitionPending,
   runNextAuthSessionTransition,
+  runRedirectingNextAuthOAuthTransition,
   runWithNextAuthSessionLock,
 } from './sessionLifecycle';
 
@@ -22,6 +23,10 @@ describe('NextAuth session lifecycle coordination', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    Object.defineProperty(window.navigator, 'locks', {
+      configurable: true,
+      value: undefined,
+    });
   });
 
   afterEach(() => {
@@ -76,17 +81,45 @@ describe('NextAuth session lifecycle coordination', () => {
     expect(isNextAuthSessionTransitionPending()).toBe(false);
   });
 
-  it('keeps an OAuth transition pending for the full Auth.js transaction lifetime', () => {
+  it('starts the OAuth callback lifetime after a delayed Auth.js preflight', async () => {
     vi.useFakeTimers();
-    const transitionMarker = beginNextAuthSessionTransition();
+    const authorizationUrl = 'https://accounts.example.com/authorize';
+    const establishTransaction = createDeferred<string | undefined>();
+    const transitionPromise = runRedirectingNextAuthOAuthTransition(
+      () => establishTransaction.promise,
+    );
 
-    vi.advanceTimersByTime(15 * 60 * 1000);
+    expect(getNextAuthSessionTransitionGeneration()).toBe(1);
 
+    await vi.advanceTimersByTimeAsync(30 * 1000);
+    establishTransaction.resolve(authorizationUrl);
+    await expect(transitionPromise).resolves.toBe(authorizationUrl);
+
+    expect(getNextAuthSessionTransitionGeneration()).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
     expect(isNextAuthSessionTransitionPending()).toBe(true);
 
-    vi.advanceTimersByTime(1);
+    await vi.advanceTimersByTimeAsync(1);
 
     expect(isNextAuthSessionTransitionPending()).toBe(false);
-    completeNextAuthSessionTransition(transitionMarker);
+  });
+
+  it('does not navigate when a newer auth transition supersedes OAuth preflight', async () => {
+    const establishTransaction = createDeferred<string | undefined>();
+    const transitionPromise = runRedirectingNextAuthOAuthTransition(
+      () => establishTransaction.promise,
+    );
+    const newerTransitionMarker = beginNextAuthSessionTransition();
+
+    establishTransaction.resolve('https://accounts.example.com/authorize');
+
+    await expect(transitionPromise).resolves.toBeUndefined();
+    expect(localStorage.getItem('chathub:next-auth-session-transition')).toBe(
+      newerTransitionMarker,
+    );
+    expect(isNextAuthSessionTransitionPending()).toBe(true);
+
+    completeNextAuthSessionTransition(newerTransitionMarker);
   });
 });

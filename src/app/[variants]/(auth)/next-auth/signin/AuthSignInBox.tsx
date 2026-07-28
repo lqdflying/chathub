@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import BrandWatermark from '@/components/BrandWatermark';
 import { ProductLogo } from '@/components/Branding';
 import AuthIcons from '@/components/NextAuth/AuthIcons';
-import { runRedirectingNextAuthSessionTransition } from '@/libs/next-auth/sessionLifecycle';
+import { runRedirectingNextAuthOAuthTransition } from '@/libs/next-auth/sessionLifecycle';
 import { useUserStore } from '@/store/user';
 
 import CredentialsForm from './CredentialsForm';
@@ -85,9 +85,20 @@ export default memo(() => {
   const handleSignIn = async (provider: string) => {
     setLoadingProvider(provider);
     try {
-      await runRedirectingNextAuthSessionTransition(() =>
-        signIn(provider, { redirectTo: callbackUrl }),
-      );
+      let authError: string | undefined;
+      const redirectUrl = await runRedirectingNextAuthOAuthTransition(async () => {
+        const result = await signIn(provider, { redirect: false, redirectTo: callbackUrl });
+        authError = result?.error;
+        return result?.url ?? undefined;
+      });
+
+      if (authError) {
+        window.location.assign(`/next-auth/error?error=${encodeURIComponent(authError)}`);
+      } else if (redirectUrl) {
+        window.location.assign(redirectUrl);
+      } else {
+        setLoadingProvider(null);
+      }
     } catch (error) {
       setLoadingProvider(null);
       // Signin can fail for a number of reasons, such as the user

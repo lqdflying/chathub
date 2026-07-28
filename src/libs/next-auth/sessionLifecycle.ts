@@ -93,6 +93,22 @@ export const beginNextAuthSessionTransition = (): string => {
   return marker;
 };
 
+const extendNextAuthSessionTransition = (marker: string): string | undefined => {
+  if (getStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY) !== marker) {
+    removeOwnedTransitionMarker(marker);
+    return;
+  }
+
+  const extendedMarker = createTransitionMarker();
+  const nextGeneration = getNextAuthSessionTransitionGeneration() + 1;
+
+  setStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY, extendedMarker);
+  setStoredValue(SESSION_TRANSITION_GENERATION_STORAGE_KEY, String(nextGeneration));
+  removeOwnedTransitionMarker(marker);
+  setOwnedTransitionMarker(extendedMarker);
+  return extendedMarker;
+};
+
 export const completeNextAuthSessionTransition = (marker: string): void => {
   if (getStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY) === marker) {
     removeStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY);
@@ -151,6 +167,35 @@ export const runRedirectingNextAuthSessionTransition = async <Result>(
     if (!navigator.locks) return await operation();
 
     return await navigator.locks.request(SESSION_TRANSITION_LOCK_NAME, operation);
+  } catch (error) {
+    completeNextAuthSessionTransition(marker);
+    throw error;
+  }
+};
+
+export const runRedirectingNextAuthOAuthTransition = async (
+  operation: () => Promise<string | undefined>,
+): Promise<string | undefined> => {
+  let marker = beginNextAuthSessionTransition();
+
+  try {
+    const establishOAuthTransaction = async (): Promise<string | undefined> => {
+      const redirectUrl = await operation();
+      if (!redirectUrl) {
+        completeNextAuthSessionTransition(marker);
+        return;
+      }
+
+      const extendedMarker = extendNextAuthSessionTransition(marker);
+      if (!extendedMarker) return;
+
+      marker = extendedMarker;
+      return redirectUrl;
+    };
+
+    return navigator.locks
+      ? await navigator.locks.request(SESSION_TRANSITION_LOCK_NAME, establishOAuthTransaction)
+      : await establishOAuthTransaction();
   } catch (error) {
     completeNextAuthSessionTransition(marker);
     throw error;

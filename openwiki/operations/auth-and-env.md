@@ -53,13 +53,19 @@ for the lock, so an older probe cannot start or apply follow-up work. If a
 replacement login begins during a keep-alive, it waits for the older write and
 then lands last. Transition completion triggers read-only reconciliation in the
 redirecting document and other open tabs. Redirecting OAuth transitions remain
-pending through Auth.js's 15-minute state and PKCE transaction lifetime, even
-though the initiating document's Web Lock ends when it leaves for the provider.
-The callback or error destination clears the marker as soon as session
-bootstrap finishes; stale cleanup cannot resume keep-alives before the Auth.js
-transaction itself expires. Browsers without Web Locks skip the background
-cookie-writing keep-alive rather than issuing an unsynchronized write; explicit
-authentication remains available.
+pending through Auth.js's 15-minute state and PKCE transaction lifetime. ChatHub
+sets an early marker before Auth.js performs provider lookup, CSRF retrieval,
+and the OAuth sign-in POST. OAuth launchers request the authorization URL with
+`redirect: false`; after that POST has created the
+[state and PKCE cookies](https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/lib/utils/cookie.ts),
+ChatHub renews the shared marker while still holding the Web Lock and only then
+navigates to the provider. The callback lifetime therefore starts from the
+actual Auth.js transaction rather than the earlier button click. The callback
+or error destination clears the marker as soon as session bootstrap finishes;
+stale cleanup cannot resume keep-alives before the Auth.js transaction itself
+expires. Browsers without Web Locks skip the background cookie-writing
+keep-alive rather than issuing an unsynchronized write; explicit authentication
+remains available.
 
 The response filter uses the server-side
 [`Headers.getSetCookie()` API](https://developer.mozilla.org/en-US/docs/Web/API/Headers/getSetCookie)

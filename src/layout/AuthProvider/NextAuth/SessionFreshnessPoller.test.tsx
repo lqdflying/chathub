@@ -8,6 +8,7 @@ import {
   beginNextAuthSessionTransition,
   completeNextAuthSessionTransition,
   completeOwnedNextAuthSessionTransition,
+  runRedirectingNextAuthOAuthTransition,
 } from '@/libs/next-auth/sessionLifecycle';
 
 import SessionFreshnessPoller from './SessionFreshnessPoller';
@@ -357,22 +358,33 @@ describe('SessionFreshnessPoller', () => {
     expect(onReconcileSession).toHaveBeenCalledWith(accountCSession);
   });
 
-  it('blocks cross-tab renewal throughout a pending OAuth callback window', async () => {
+  it('blocks cross-tab renewal after delayed OAuth preflight until a late valid callback', async () => {
     const accountBSession = createSession('account-b');
+    const establishTransaction = createDeferred<string | undefined>();
     const onReconcileSession = vi.fn();
-    const transitionMarker = beginNextAuthSessionTransition();
-    sessionStorage.clear();
     vi.mocked(fetch).mockResolvedValue(createJsonResponse({ session: accountBSession }));
 
+    const transitionPromise = runRedirectingNextAuthOAuthTransition(
+      () => establishTransaction.promise,
+    );
     render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
     await flushImmediateProbe();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(12 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+    });
+    establishTransaction.resolve('https://accounts.example.com/authorize');
+    await expect(transitionPromise).resolves.toBe('https://accounts.example.com/authorize');
+    sessionStorage.clear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14 * 60 * 1000 + 59 * 1000);
     });
 
     expect(fetch).not.toHaveBeenCalled();
 
+    const transitionMarker = localStorage.getItem(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY);
+    if (!transitionMarker) throw new Error('Expected the OAuth transition marker');
     completeNextAuthSessionTransition(transitionMarker);
     window.dispatchEvent(
       new StorageEvent('storage', {

@@ -194,18 +194,49 @@ describe('createAuthSlice', () => {
       useUserStore.setState({ oAuthSSOProviders: ['github'] });
 
       const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
+      const { signIn } = await import('next-auth/react');
+      vi.mocked(signIn).mockResolvedValue({
+        code: undefined,
+        error: undefined,
+        ok: true,
+        status: 200,
+        url: 'https://github.com/login/oauth/authorize',
+      });
       const { result } = renderHook(() => useUserStore());
 
       await act(async () => {
         await result.current.openLogin();
       });
 
-      const { signIn } = await import('next-auth/react');
-
-      expect(signIn).toHaveBeenCalledWith('github');
-      expect(assignSpy).not.toHaveBeenCalled();
+      expect(signIn).toHaveBeenCalledWith('github', { redirect: false });
+      expect(assignSpy).toHaveBeenCalledWith('https://github.com/login/oauth/authorize');
       enableNextAuth = false;
     });
+
+    it('should open the configured error page when direct OAuth setup fails', async () => {
+      enableNextAuth = true;
+      useUserStore.setState({ oAuthSSOProviders: ['github'] });
+
+      const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
+      const { signIn } = await import('next-auth/react');
+      vi.mocked(signIn).mockResolvedValue({
+        code: undefined,
+        error: 'OAuthSignin',
+        ok: false,
+        status: 500,
+        url: null,
+      });
+      const { result } = renderHook(() => useUserStore());
+
+      await act(async () => {
+        await result.current.openLogin();
+      });
+
+      expect(assignSpy).toHaveBeenCalledWith('/next-auth/error?error=OAuthSignin');
+      expect(localStorage.getItem('chathub:next-auth-session-transition')).toBeNull();
+      enableNextAuth = false;
+    });
+
     it('should not call next-auth signIn when NextAuth is disabled', async () => {
       const { result } = renderHook(() => useUserStore());
 
