@@ -1,8 +1,8 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix */
 
-
 export const API_ENDPOINTS = {
   oauth: '/api/auth',
+  sessionProbe: '/api/auth/session-probe',
 
   proxy: '/webapi/proxy',
 

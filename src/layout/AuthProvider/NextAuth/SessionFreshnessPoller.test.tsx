@@ -11,7 +11,7 @@ type NextAuthSessionState =
   | { data: Session; status: 'authenticated' }
   | { data: null; status: 'loading' | 'unauthenticated' };
 
-const { nextAuthSessionStore, updateSessionMock } = vi.hoisted(() => {
+const { nextAuthSessionStore } = vi.hoisted(() => {
   let currentSession: NextAuthSessionState = {
     data: {
       expires: new Date(Date.now() + 60_000).toISOString(),
@@ -33,19 +33,16 @@ const { nextAuthSessionStore, updateSessionMock } = vi.hoisted(() => {
         return () => listeners.delete(listener);
       },
     },
-    updateSessionMock: vi.fn(),
   };
 });
 
 vi.mock('next-auth/react', () => ({
-  useSession: () => ({
-    ...useSyncExternalStore(
+  useSession: () =>
+    useSyncExternalStore(
       nextAuthSessionStore.subscribe,
       nextAuthSessionStore.getSnapshot,
       nextAuthSessionStore.getSnapshot,
     ),
-    update: updateSessionMock,
-  }),
 }));
 
 const createSession = (accountId: string): Session => ({
@@ -83,8 +80,6 @@ describe('SessionFreshnessPoller', () => {
       status: 'authenticated',
     });
     setOnline(true);
-    updateSessionMock.mockReset();
-    updateSessionMock.mockResolvedValue(null);
     vi.stubGlobal('fetch', vi.fn());
   });
 
@@ -93,28 +88,32 @@ describe('SessionFreshnessPoller', () => {
     vi.useRealTimers();
   });
 
-  it('requests non-destructive reconciliation when a probe confirms there is no session', async () => {
+  it('reloads when a read-only probe confirms there is no session', async () => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     vi.mocked(fetch).mockResolvedValue({
-      json: vi.fn().mockResolvedValue(null),
+      json: vi.fn().mockResolvedValue({ userId: null }),
       ok: true,
     } as unknown as Response);
     render(<SessionFreshnessPoller />);
     await advanceToNextPoll();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(fetch).toHaveBeenCalledWith('/api/auth/session', {
+    expect(fetch).toHaveBeenCalledWith('/api/auth/session-probe', {
       cache: 'no-store',
       credentials: 'same-origin',
       headers: { Accept: 'application/json' },
       signal: expect.any(AbortSignal),
     });
-    expect(updateSessionMock).toHaveBeenCalledOnce();
-    expect(updateSessionMock).toHaveBeenCalledWith();
+    expect(reloadSpy).toHaveBeenCalledOnce();
+
+    await advanceToNextPoll();
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it('preserves the current session when the probe returns an authenticated session', async () => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     vi.mocked(fetch).mockResolvedValue({
-      json: vi.fn().mockResolvedValue({ user: { id: 'account-a' } }),
+      json: vi.fn().mockResolvedValue({ userId: 'account-a' }),
       ok: true,
     } as unknown as Response);
 
@@ -122,12 +121,13 @@ describe('SessionFreshnessPoller', () => {
     await advanceToNextPoll();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(updateSessionMock).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 
-  it('requests reconciliation when the probe belongs to another authenticated account', async () => {
+  it('reloads when the probe belongs to another authenticated account', async () => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     vi.mocked(fetch).mockResolvedValue({
-      json: vi.fn().mockResolvedValue({ user: { id: 'account-b' } }),
+      json: vi.fn().mockResolvedValue({ userId: 'account-b' }),
       ok: true,
     } as unknown as Response);
 
@@ -135,8 +135,7 @@ describe('SessionFreshnessPoller', () => {
     await advanceToNextPoll();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(updateSessionMock).toHaveBeenCalledOnce();
-    expect(updateSessionMock).toHaveBeenCalledWith();
+    expect(reloadSpy).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -154,37 +153,48 @@ describe('SessionFreshnessPoller', () => {
         ok: true,
       },
     ],
+    [
+      'a malformed identity',
+      {
+        json: vi.fn().mockResolvedValue({ userId: 42 }),
+        ok: true,
+      },
+    ],
   ])('preserves the current session after %s', async (_caseName, response) => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     vi.mocked(fetch).mockResolvedValue(response as unknown as Response);
 
     render(<SessionFreshnessPoller />);
     await advanceToNextPoll();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(updateSessionMock).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 
   it('does not probe while the browser reports an offline connection', async () => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     setOnline(false);
 
     render(<SessionFreshnessPoller />);
     await advanceToNextPoll();
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(updateSessionMock).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 
   it('does not schedule polling for an unauthenticated session', async () => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     nextAuthSessionStore.setSession({ data: null, status: 'unauthenticated' });
 
     render(<SessionFreshnessPoller />);
     await advanceToNextPoll();
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(updateSessionMock).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 
   it('aborts and ignores an account-A probe after account B becomes active', async () => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     const deferredResponse = createDeferred<Response>();
     vi.mocked(fetch).mockReturnValue(deferredResponse.promise);
 
@@ -204,7 +214,7 @@ describe('SessionFreshnessPoller', () => {
     expect(requestSignal?.aborted).toBe(true);
 
     deferredResponse.resolve({
-      json: vi.fn().mockResolvedValue(null),
+      json: vi.fn().mockResolvedValue({ userId: null }),
       ok: true,
     } as unknown as Response);
     await act(async () => {
@@ -212,10 +222,11 @@ describe('SessionFreshnessPoller', () => {
       await Promise.resolve();
     });
 
-    expect(updateSessionMock).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
   });
 
-  it('reconciles safely after same-account reauthentication replaces the session cookie', async () => {
+  it('reloads directly after same-account reauthentication without a second session request', async () => {
+    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
     const deferredResponse = createDeferred<Response>();
     vi.mocked(fetch).mockReturnValue(deferredResponse.promise);
 
@@ -233,7 +244,7 @@ describe('SessionFreshnessPoller', () => {
     });
 
     deferredResponse.resolve({
-      json: vi.fn().mockResolvedValue(null),
+      json: vi.fn().mockResolvedValue({ userId: null }),
       ok: true,
     } as unknown as Response);
     await act(async () => {
@@ -241,7 +252,7 @@ describe('SessionFreshnessPoller', () => {
       await Promise.resolve();
     });
 
-    expect(updateSessionMock).toHaveBeenCalledOnce();
-    expect(updateSessionMock).toHaveBeenCalledWith();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(reloadSpy).toHaveBeenCalledOnce();
   });
 });

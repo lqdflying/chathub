@@ -1,6 +1,5 @@
 'use client';
 
-import type { Session } from 'next-auth';
 import { useSession } from 'next-auth/react';
 import { memo, useEffect, useRef } from 'react';
 
@@ -8,15 +7,19 @@ import { API_ENDPOINTS } from '@/services/_url';
 
 const SESSION_REFETCH_INTERVAL_MS = 5 * 60 * 1000;
 
-const getAuthenticatedSessionIdentity = (session: unknown): string | undefined => {
-  if (!session || typeof session !== 'object') return;
+interface SessionProbeResult {
+  userId: string | null;
+}
 
-  const user = (session as Partial<Session>).user;
-  return typeof user?.id === 'string' ? user.id : undefined;
+const getProbedSessionIdentity = (result: unknown): string | null | undefined => {
+  if (!result || typeof result !== 'object' || !('userId' in result)) return;
+
+  const { userId } = result as Partial<SessionProbeResult>;
+  return typeof userId === 'string' || userId === null ? userId : undefined;
 };
 
 const SessionFreshnessPoller = memo(() => {
-  const { data: session, status, update } = useSession();
+  const { data: session, status } = useSession();
   const activeSessionIdentity = session?.user?.id;
   const activeSessionIdentityRef = useRef(activeSessionIdentity);
   activeSessionIdentityRef.current = activeSessionIdentity;
@@ -26,14 +29,15 @@ const SessionFreshnessPoller = memo(() => {
 
     let activeAbortController: AbortController | undefined;
     let isCurrentSessionEffect = true;
+    let isReloading = false;
 
     const pollSession = async () => {
-      if (!navigator.onLine || activeAbortController) return;
+      if (!navigator.onLine || activeAbortController || isReloading) return;
 
       const abortController = new AbortController();
       activeAbortController = abortController;
       try {
-        const response = await fetch(`${API_ENDPOINTS.oauth}/session`, {
+        const response = await fetch(API_ENDPOINTS.sessionProbe, {
           cache: 'no-store',
           credentials: 'same-origin',
           headers: { Accept: 'application/json' },
@@ -41,16 +45,19 @@ const SessionFreshnessPoller = memo(() => {
         });
         if (!response.ok) return;
 
-        const probedSession: unknown = await response.json();
-        const probedSessionIdentity = getAuthenticatedSessionIdentity(probedSession);
-        const isConfirmedSignedOut = probedSession === null;
-        const isConfirmedDifferentAccount =
-          !!probedSessionIdentity && probedSessionIdentity !== activeSessionIdentity;
-        if (!isConfirmedSignedOut && !isConfirmedDifferentAccount) return;
+        const probeResult: unknown = await response.json();
+        const probedSessionIdentity = getProbedSessionIdentity(probeResult);
+        if (
+          probedSessionIdentity === undefined ||
+          probedSessionIdentity === activeSessionIdentity
+        ) {
+          return;
+        }
         if (!isCurrentSessionEffect || abortController.signal.aborted) return;
         if (activeSessionIdentityRef.current !== activeSessionIdentity) return;
 
-        await update();
+        isReloading = true;
+        window.location.reload();
       } catch {
         // Preserve the last confirmed session when the freshness probe is inconclusive.
       } finally {
@@ -69,7 +76,7 @@ const SessionFreshnessPoller = memo(() => {
       activeAbortController?.abort();
       window.clearInterval(interval);
     };
-  }, [activeSessionIdentity, status, update]);
+  }, [activeSessionIdentity, status]);
 
   return null;
 });
