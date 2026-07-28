@@ -10,7 +10,6 @@ import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
 import SkeletonList from '../SkeletonList';
-import { getAssistantListBootstrapStatus } from './assistantListBootstrap';
 
 interface AssistantListBootstrapGuardProps {
   children: ReactNode;
@@ -20,7 +19,7 @@ const AssistantListBootstrapGuard = memo<AssistantListBootstrapGuardProps>(({ ch
   const { t } = useTranslation('chat');
   const [retryingScope, setRetryingScope] = useState<string>();
   const currentUserScope = useUserStore(authSelectors.currentUserScope);
-  const bootstrapStatus = useUserStore(getAssistantListBootstrapStatus);
+  const bootstrapStatus = useUserStore(authSelectors.assistantCreationStatus);
   const userStateInitializationFailure = useUserStore(
     (state) => state.userStateInitializationFailure,
   );

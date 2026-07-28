@@ -3,7 +3,7 @@
 import { ActionIcon, Dropdown, Icon } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { Bot, MessageSquarePlus, SquarePlus, Users } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -20,7 +20,6 @@ import { useUserStore } from '@/store/user';
 import { authSelectors, settingsSelectors } from '@/store/user/selectors';
 
 import TogglePanelButton from '../../../features/TogglePanelButton';
-import { getAssistantListBootstrapStatus } from '../../features/SessionListContent/assistantListBootstrap';
 import SessionSearchBar from '../../features/SessionSearchBar';
 import { createGroupFromTemplate } from './createGroupFromTemplate';
 
@@ -48,8 +47,12 @@ const Header = memo(() => {
   const [createSession] = useSessionStore((s) => [s.createSession]);
   const [createGroup] = useChatGroupStore((s) => [s.createGroup]);
   const { showCreateSession, enableGroupChat } = useServerConfigStore(featureFlagsSelectors);
-  const canCreateAssistant = useUserStore(getAssistantListBootstrapStatus) === 'ready';
+  const canCreateAssistant = useUserStore(authSelectors.canCreateAssistant);
   const [isGroupWizardOpen, setIsGroupWizardOpen] = useState(false);
+
+  useEffect(() => {
+    if (!canCreateAssistant) setIsGroupWizardOpen(false);
+  }, [canCreateAssistant]);
 
   // const enableGroupChatInLabs = useUserStore(preferenceSelectors.enableGroupChat);
 
@@ -237,13 +240,13 @@ const Header = memo(() => {
       </Flexbox>
       <SessionSearchBar />
 
-      {enableGroupChat && (
+      {enableGroupChat && canCreateAssistant && (
         <ChatGroupWizard
           isCreatingFromTemplate={isCreatingGroup}
           onCancel={handleGroupWizardCancel}
           onCreateCustom={handleCreateGroupWithMembers}
           onCreateFromTemplate={handleCreateGroupFromTemplate}
-          open={isGroupWizardOpen}
+          open={isGroupWizardOpen && canCreateAssistant}
         />
       )}
     </Flexbox>

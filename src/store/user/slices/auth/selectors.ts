@@ -75,7 +75,33 @@ const hasActiveUserStateOwnerMismatch = (s: UserStore): boolean => {
   );
 };
 
+export type AssistantCreationStatus =
+  'owner-mismatch' | 'pending' | 'ready' | 'request-failed' | 'unresolved-authenticated-scope';
+
+const assistantCreationStatus = (s: UserStore): AssistantCreationStatus => {
+  const userScope = currentUserScope(s);
+  const currentScopeFailure =
+    userScope && s.userStateInitializationFailure?.scope === userScope
+      ? s.userStateInitializationFailure
+      : undefined;
+
+  if (currentScopeFailure) return currentScopeFailure.reason;
+
+  if (!userScope) {
+    const hasUnresolvedAuthenticatedScope = s.isLoaded && !!isLogin(s);
+    return hasUnresolvedAuthenticatedScope ? 'unresolved-authenticated-scope' : 'pending';
+  }
+
+  if (userScope.startsWith('user:') && (!s.isUserStateInit || s.userStateScope !== userScope)) {
+    return 'pending';
+  }
+
+  return 'ready';
+};
+
 export const authSelectors = {
+  assistantCreationStatus,
+  canCreateAssistant: (s: UserStore): boolean => assistantCreationStatus(s) === 'ready',
   currentUserScope,
   hasActiveUserStateOwnerMismatch,
   isLoaded: (s: UserStore) => s.isLoaded,

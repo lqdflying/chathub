@@ -73,6 +73,31 @@ vi.mock('@/store/user', async () => {
 
 vi.mock('@/store/user/selectors', () => ({
   authSelectors: {
+    assistantCreationStatus: (state: typeof userStoreState) => {
+      const currentUserScope =
+        state.isLoaded && state.isSignedIn && state.authUserId
+          ? `user:${state.authUserId}`
+          : state.isLoaded && state.isSignedIn === false
+            ? 'guest'
+            : undefined;
+      const currentScopeFailure =
+        currentUserScope && state.userStateInitializationFailure?.scope === currentUserScope
+          ? state.userStateInitializationFailure
+          : undefined;
+
+      if (currentScopeFailure) return currentScopeFailure.reason;
+      if (!currentUserScope) {
+        return state.isLoaded && state.isSignedIn ? 'unresolved-authenticated-scope' : 'pending';
+      }
+      if (
+        currentUserScope.startsWith('user:') &&
+        (!state.isUserStateInit || state.userStateScope !== currentUserScope)
+      ) {
+        return 'pending';
+      }
+
+      return 'ready';
+    },
     currentUserScope: (state: typeof userStoreState) =>
       state.isLoaded && state.isSignedIn && state.authUserId
         ? `user:${state.authUserId}`

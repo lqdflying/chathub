@@ -14,16 +14,15 @@ import UserAvatar from '@/features/User/UserAvatar';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSessionStore } from '@/store/session';
 import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 import { mobileHeaderSticky } from '@/styles/mobileHeader';
-
-import { getAssistantListBootstrapStatus } from '../../features/SessionListContent/assistantListBootstrap';
 
 const Header = memo(() => {
   const [createSession] = useSessionStore((s) => [s.createSession]);
   const router = useRouter();
   const theme = useTheme();
   const { showCreateSession } = useServerConfigStore(featureFlagsSelectors);
-  const canCreateAssistant = useUserStore(getAssistantListBootstrapStatus) === 'ready';
+  const canCreateAssistant = useUserStore(authSelectors.canCreateAssistant);
 
   return (
     <ChatHeader

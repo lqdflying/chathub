@@ -17,6 +17,8 @@ import { chatSelectors } from '@/store/chat/selectors';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSessionStore } from '@/store/session';
 import { sessionMetaSelectors } from '@/store/session/selectors';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import AddButton from './AddButton';
 import OpeningQuestions from './OpeningQuestions';
@@ -52,6 +54,8 @@ const InboxWelcome = memo(() => {
   const mobile = useIsMobile();
   const greeting = useGreeting();
   const { showCreateSession } = useServerConfigStore(featureFlagsSelectors);
+  const canCreateAssistant = useUserStore(authSelectors.canCreateAssistant);
+  const showAssistantCreation = showCreateSession && canCreateAssistant;
   const openingQuestions = useAgentStore(agentSelectors.openingQuestions);
 
   const meta = useSessionStore(sessionMetaSelectors.currentAgentMeta, isEqual);
@@ -97,9 +101,14 @@ const InboxWelcome = memo(() => {
           variant={'chat'}
         >
           {showInboxWelcome
-            ? t(showCreateSession ? 'guide.defaultMessage' : 'guide.defaultMessageWithoutCreate', {
-                appName: BRANDING_NAME,
-              })
+            ? t(
+                showAssistantCreation
+                  ? 'guide.defaultMessage'
+                  : 'guide.defaultMessageWithoutCreate',
+                {
+                  appName: BRANDING_NAME,
+                },
+              )
             : message}
         </Markdown>
         {openingQuestions.length > 0 && (

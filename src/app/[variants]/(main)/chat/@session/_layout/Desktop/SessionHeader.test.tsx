@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -25,7 +25,22 @@ vi.mock('@lobehub/ui', () => ({
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }) => (
     <button type="button" {...props} />
   ),
-  Dropdown: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Dropdown: ({
+    children,
+    menu,
+  }: {
+    children: React.ReactNode;
+    menu?: { items?: Array<{ key: string; label: string; onClick?: () => void }> };
+  }) => (
+    <>
+      {children}
+      {menu?.items?.map((item) => (
+        <button key={item.key} onClick={item.onClick} type="button">
+          {item.label}
+        </button>
+      ))}
+    </>
+  ),
   Icon: () => null,
 }));
 
@@ -46,7 +61,9 @@ vi.mock('@/components/Branding', () => ({
 }));
 
 vi.mock('@/components/ChatGroupWizard', () => ({
-  ChatGroupWizard: () => null,
+  ChatGroupWizard: ({ open }: { open: boolean }) => (
+    <div data-open={String(open)} data-testid="group-wizard" />
+  ),
 }));
 
 vi.mock('@/components/ChatGroupWizard/templates', () => ({
@@ -66,7 +83,7 @@ vi.mock('@/store/serverConfig', () => ({
   featureFlagsSelectors: (state: { enableGroupChat: boolean; showCreateSession: boolean }) => state,
   useServerConfigStore: (
     selector: (state: { enableGroupChat: boolean; showCreateSession: boolean }) => unknown,
-  ) => selector({ enableGroupChat: false, showCreateSession: true }),
+  ) => selector({ enableGroupChat: true, showCreateSession: true }),
 }));
 
 vi.mock('@/store/session', () => ({
@@ -113,5 +130,31 @@ describe('desktop SessionHeader', () => {
 
     expect(screen.queryByRole('button', { name: 'newAgent' })).toBeNull();
     expect(screen.getByRole('button', { name: 'toggle-panel' })).not.toBeNull();
+  });
+
+  it('closes an open group wizard when assistant creation readiness is lost', () => {
+    render(<SessionHeader />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'newGroupChat' }));
+    expect(screen.getByTestId('group-wizard').dataset.open).toBe('true');
+
+    act(() => {
+      useUserStore.setState({
+        isUserStateInit: false,
+        userStateInitializationFailure: {
+          reason: 'request-failed',
+          scope: 'user:account-a',
+        },
+        userStateScope: undefined,
+      });
+    });
+
+    expect(screen.queryByTestId('group-wizard')).toBeNull();
+
+    act(() => {
+      setVerifiedAccount();
+    });
+
+    expect(screen.getByTestId('group-wizard').dataset.open).toBe('false');
   });
 });

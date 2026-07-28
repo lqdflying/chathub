@@ -10,6 +10,8 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useChatGroupStore } from '@/store/chatGroup';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 const useStyles = createStyles(({ css }) => ({
   modalRoot: css`
@@ -45,6 +47,7 @@ const Actions = memo<ActionsProps>(
     const [createGroup] = useChatGroupStore((s) => [s.createGroup]);
 
     const { showCreateSession, enableGroupChat } = useServerConfigStore(featureFlagsSelectors);
+    const canCreateAssistant = useUserStore(authSelectors.canCreateAssistant);
 
     const sessionGroupConfigPublicItem: MenuItemType = {
       icon: <Icon icon={Settings2} />,
@@ -170,7 +173,7 @@ const Actions = memo<ActionsProps>(
     const menuItems = useMemo(() => {
       const items: MenuProps['items'] = [];
 
-      if (showCreateSession) {
+      if (showCreateSession && canCreateAssistant) {
         items.push(newAgentPublicItem);
 
         if (enableGroupChat) {
@@ -183,7 +186,14 @@ const Actions = memo<ActionsProps>(
       items.push(...tailItems);
 
       return items;
-    }, [showCreateSession, enableGroupChat, newAgentPublicItem, newGroupChatItem, tailItems]);
+    }, [
+      showCreateSession,
+      canCreateAssistant,
+      enableGroupChat,
+      newAgentPublicItem,
+      newGroupChatItem,
+      tailItems,
+    ]);
 
     return (
       <>

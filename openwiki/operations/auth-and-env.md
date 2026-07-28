@@ -26,18 +26,28 @@ unauthenticated session and consequently clearing every account-scoped store.
 while the browser reports an online connection. Network failures, non-success
 responses, and invalid JSON are inconclusive and preserve the last confirmed
 session. Each probe is bound to the current `session.user.id`; an identity or
-authentication-status change aborts the request and invalidates its result. A
-successful JSON `null` response uses Auth.js sign-out propagation only while the
-same identity is still active, so a delayed probe from account A cannot sign out
-a replacement account B session. This bounds stale client state without
-reintroducing the unreliable foreground-resume request or Auth.js beta's
-built-in polling path, which collapses fetch failures to `null`. Initial session
-loading, explicit sign-in/sign-out, Auth.js cross-tab session broadcasts, and
-successful probe responses remain authoritative. `UserUpdater` mirrors
-authenticated and genuine unauthenticated states into the user store; it does
-not maintain a second cached session or suppress a real sign-out. On a confirmed
-unauthenticated status it clears the raw auth ID, NextAuth session/user, and
-mapped user identity together.
+authentication-status change aborts the request and invalidates its result.
+
+A successful JSON `null` response or a response for a different authenticated
+user requests non-destructive reconciliation through Auth.js
+`useSession().update()`. The existing provider performs a fresh session GET with
+the cookie that is current at that point and publishes the result in place. The
+poller never calls Auth.js `signOut`, so it cannot revoke a replacement session
+created after the original probe, including a same-user reauthentication. An
+account-mismatched response likewise replaces stale client state with the
+current server session. This follows the
+[Auth.js React session contract](https://authjs.dev/reference/nextjs/react):
+session reads are GET-based, while sign-out is a separate CSRF-protected
+state-changing operation.
+
+This bounds stale client state without reintroducing the unreliable
+foreground-resume request or Auth.js beta's built-in polling path, which
+collapses fetch failures to `null`. Initial session loading, explicit
+sign-in/sign-out, Auth.js cross-tab session broadcasts, and reconciled probe
+responses remain authoritative. `UserUpdater` mirrors authenticated and genuine
+unauthenticated states into the user store; it does not maintain a second cached
+session or suppress a real sign-out. On a confirmed unauthenticated status it
+clears the raw auth ID, NextAuth session/user, and mapped user identity together.
 
 ChatHub defaults `NEXT_AUTH_SSO_SESSION_STRATEGY` to `jwt`. Deployments that
 explicitly select Auth.js database sessions retain Auth.js's upstream session

@@ -6,6 +6,7 @@ import NextAuth from './index';
 
 const sessionProviderProps = vi.hoisted(() => ({
   basePath: undefined as string | undefined,
+  mountCount: 0,
   refetchOnWindowFocus: undefined as boolean | undefined,
   refetchWhenOffline: undefined as boolean | undefined,
 }));
@@ -21,6 +22,7 @@ vi.mock('next-auth/react', () => ({
     refetchOnWindowFocus?: boolean;
     refetchWhenOffline?: boolean;
   }>) => {
+    sessionProviderProps.mountCount += 1;
     sessionProviderProps.basePath = basePath;
     sessionProviderProps.refetchOnWindowFocus = refetchOnWindowFocus;
     sessionProviderProps.refetchWhenOffline = refetchWhenOffline;
@@ -39,6 +41,7 @@ vi.mock('./UserUpdater', () => ({
 
 describe('NextAuth provider', () => {
   it('polls online while avoiding focus and offline revalidation', () => {
+    sessionProviderProps.mountCount = 0;
     render(
       <NextAuth>
         <div>protected-content</div>
@@ -51,5 +54,6 @@ describe('NextAuth provider', () => {
     expect(sessionProviderProps.basePath).toBe('/api/auth');
     expect(sessionProviderProps.refetchOnWindowFocus).toBe(false);
     expect(sessionProviderProps.refetchWhenOffline).toBe(false);
+    expect(sessionProviderProps.mountCount).toBe(1);
   });
 });

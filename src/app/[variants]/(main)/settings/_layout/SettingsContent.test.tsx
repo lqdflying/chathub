@@ -274,4 +274,38 @@ describe('SettingsContent', () => {
     expect(screen.queryByTestId('settings-component-4')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
   });
+
+  it.each([
+    [SettingsTabs.Provider, 'settings-component-4'],
+    [SettingsTabs.Storage, 'settings-component-10'],
+  ])('keeps the %s tab hidden until authentication loading resolves', (tab, componentTestId) => {
+    updateUserStore({
+      authUserId: undefined,
+      isLoaded: false,
+      isSignedIn: undefined,
+      isUserStateInit: false,
+      userStateInitializationFailure: undefined,
+      userStateScope: undefined,
+    });
+
+    render(<SettingsContent activeTab={tab} mobile />);
+
+    expect(screen.queryByTestId(componentTestId)).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps account-independent tabs available while authentication is loading', () => {
+    updateUserStore({
+      authUserId: undefined,
+      isLoaded: false,
+      isSignedIn: undefined,
+      isUserStateInit: false,
+      userStateInitializationFailure: undefined,
+      userStateScope: undefined,
+    });
+
+    render(<SettingsContent activeTab={SettingsTabs.About} mobile />);
+
+    expect(screen.getByTestId('settings-component-7')).not.toBeNull();
+  });
 });

@@ -124,7 +124,9 @@ const UserStateBootstrapGuard = memo<UserStateBootstrapGuardProps>(({ children, 
     return children;
   }
 
-  if (isRetryingCurrentScope || hasPendingAuthenticatedBootstrap) return <Loading />;
+  if (!isAuthLoaded || isRetryingCurrentScope || hasPendingAuthenticatedBootstrap) {
+    return <Loading />;
+  }
 
   if (!hasUserStateFailure && !hasUnresolvedAuthenticatedScope) return children;
 

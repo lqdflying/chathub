@@ -1,14 +1,22 @@
 'use client';
 
-import { signOut, useSession } from 'next-auth/react';
+import type { Session } from 'next-auth';
+import { useSession } from 'next-auth/react';
 import { memo, useEffect, useRef } from 'react';
 
 import { API_ENDPOINTS } from '@/services/_url';
 
 const SESSION_REFETCH_INTERVAL_MS = 5 * 60 * 1000;
 
+const getAuthenticatedSessionIdentity = (session: unknown): string | undefined => {
+  if (!session || typeof session !== 'object') return;
+
+  const user = (session as Partial<Session>).user;
+  return typeof user?.id === 'string' ? user.id : undefined;
+};
+
 const SessionFreshnessPoller = memo(() => {
-  const { data: session, status } = useSession();
+  const { data: session, status, update } = useSession();
   const activeSessionIdentity = session?.user?.id;
   const activeSessionIdentityRef = useRef(activeSessionIdentity);
   activeSessionIdentityRef.current = activeSessionIdentity;
@@ -33,12 +41,16 @@ const SessionFreshnessPoller = memo(() => {
         });
         if (!response.ok) return;
 
-        const probedSession = await response.json();
-        if (probedSession !== null) return;
+        const probedSession: unknown = await response.json();
+        const probedSessionIdentity = getAuthenticatedSessionIdentity(probedSession);
+        const isConfirmedSignedOut = probedSession === null;
+        const isConfirmedDifferentAccount =
+          !!probedSessionIdentity && probedSessionIdentity !== activeSessionIdentity;
+        if (!isConfirmedSignedOut && !isConfirmedDifferentAccount) return;
         if (!isCurrentSessionEffect || abortController.signal.aborted) return;
         if (activeSessionIdentityRef.current !== activeSessionIdentity) return;
 
-        await signOut({ redirect: false });
+        await update();
       } catch {
         // Preserve the last confirmed session when the freshness probe is inconclusive.
       } finally {
@@ -57,7 +69,7 @@ const SessionFreshnessPoller = memo(() => {
       activeAbortController?.abort();
       window.clearInterval(interval);
     };
-  }, [activeSessionIdentity, status]);
+  }, [activeSessionIdentity, status, update]);
 
   return null;
 });

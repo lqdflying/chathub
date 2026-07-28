@@ -11,7 +11,7 @@ type NextAuthSessionState =
   | { data: Session; status: 'authenticated' }
   | { data: null; status: 'loading' | 'unauthenticated' };
 
-const { nextAuthSessionStore, signOutMock } = vi.hoisted(() => {
+const { nextAuthSessionStore, updateSessionMock } = vi.hoisted(() => {
   let currentSession: NextAuthSessionState = {
     data: {
       expires: new Date(Date.now() + 60_000).toISOString(),
@@ -33,18 +33,19 @@ const { nextAuthSessionStore, signOutMock } = vi.hoisted(() => {
         return () => listeners.delete(listener);
       },
     },
-    signOutMock: vi.fn(),
+    updateSessionMock: vi.fn(),
   };
 });
 
 vi.mock('next-auth/react', () => ({
-  signOut: signOutMock,
-  useSession: () =>
-    useSyncExternalStore(
+  useSession: () => ({
+    ...useSyncExternalStore(
       nextAuthSessionStore.subscribe,
       nextAuthSessionStore.getSnapshot,
       nextAuthSessionStore.getSnapshot,
     ),
+    update: updateSessionMock,
+  }),
 }));
 
 const createSession = (accountId: string): Session => ({
@@ -82,7 +83,8 @@ describe('SessionFreshnessPoller', () => {
       status: 'authenticated',
     });
     setOnline(true);
-    signOutMock.mockReset();
+    updateSessionMock.mockReset();
+    updateSessionMock.mockResolvedValue(null);
     vi.stubGlobal('fetch', vi.fn());
   });
 
@@ -91,13 +93,11 @@ describe('SessionFreshnessPoller', () => {
     vi.useRealTimers();
   });
 
-  it('signs out after an online probe confirms there is no session', async () => {
+  it('requests non-destructive reconciliation when a probe confirms there is no session', async () => {
     vi.mocked(fetch).mockResolvedValue({
       json: vi.fn().mockResolvedValue(null),
       ok: true,
     } as unknown as Response);
-    signOutMock.mockResolvedValue(undefined);
-
     render(<SessionFreshnessPoller />);
     await advanceToNextPoll();
 
@@ -108,8 +108,8 @@ describe('SessionFreshnessPoller', () => {
       headers: { Accept: 'application/json' },
       signal: expect.any(AbortSignal),
     });
-    expect(signOutMock).toHaveBeenCalledOnce();
-    expect(signOutMock).toHaveBeenCalledWith({ redirect: false });
+    expect(updateSessionMock).toHaveBeenCalledOnce();
+    expect(updateSessionMock).toHaveBeenCalledWith();
   });
 
   it('preserves the current session when the probe returns an authenticated session', async () => {
@@ -122,7 +122,21 @@ describe('SessionFreshnessPoller', () => {
     await advanceToNextPoll();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(signOutMock).not.toHaveBeenCalled();
+    expect(updateSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('requests reconciliation when the probe belongs to another authenticated account', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      json: vi.fn().mockResolvedValue({ user: { id: 'account-b' } }),
+      ok: true,
+    } as unknown as Response);
+
+    render(<SessionFreshnessPoller />);
+    await advanceToNextPoll();
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(updateSessionMock).toHaveBeenCalledOnce();
+    expect(updateSessionMock).toHaveBeenCalledWith();
   });
 
   it.each([
@@ -147,7 +161,7 @@ describe('SessionFreshnessPoller', () => {
     await advanceToNextPoll();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(signOutMock).not.toHaveBeenCalled();
+    expect(updateSessionMock).not.toHaveBeenCalled();
   });
 
   it('does not probe while the browser reports an offline connection', async () => {
@@ -157,7 +171,7 @@ describe('SessionFreshnessPoller', () => {
     await advanceToNextPoll();
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(signOutMock).not.toHaveBeenCalled();
+    expect(updateSessionMock).not.toHaveBeenCalled();
   });
 
   it('does not schedule polling for an unauthenticated session', async () => {
@@ -167,7 +181,7 @@ describe('SessionFreshnessPoller', () => {
     await advanceToNextPoll();
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(signOutMock).not.toHaveBeenCalled();
+    expect(updateSessionMock).not.toHaveBeenCalled();
   });
 
   it('aborts and ignores an account-A probe after account B becomes active', async () => {
@@ -198,6 +212,36 @@ describe('SessionFreshnessPoller', () => {
       await Promise.resolve();
     });
 
-    expect(signOutMock).not.toHaveBeenCalled();
+    expect(updateSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('reconciles safely after same-account reauthentication replaces the session cookie', async () => {
+    const deferredResponse = createDeferred<Response>();
+    vi.mocked(fetch).mockReturnValue(deferredResponse.promise);
+
+    render(<SessionFreshnessPoller />);
+    await advanceToNextPoll();
+
+    act(() => {
+      nextAuthSessionStore.setSession({
+        data: {
+          ...createSession('account-a'),
+          expires: new Date(Date.now() + 120_000).toISOString(),
+        },
+        status: 'authenticated',
+      });
+    });
+
+    deferredResponse.resolve({
+      json: vi.fn().mockResolvedValue(null),
+      ok: true,
+    } as unknown as Response);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(updateSessionMock).toHaveBeenCalledOnce();
+    expect(updateSessionMock).toHaveBeenCalledWith();
   });
 });

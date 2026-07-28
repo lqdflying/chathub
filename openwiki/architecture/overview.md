@@ -60,13 +60,21 @@ list and its mutation controls are replaced by one account-scoped recovery
 alert. A request failure offers **Retry**; an owner mismatch or unresolved
 signed-in identity offers **Sign in again**. Inbox remains available throughout
 recovery. Desktop and mobile create-assistant controls use the same bootstrap
-status and remain hidden until account ownership is ready, while unrelated
-header navigation remains available. Every Inbox click advances a synchronous
-assistant-hydration cancellation generation before routing to `session=inbox`
-or starting the optional desktop new-topic action. `SessionHydration` binds a
-pending assistant query to the generation at which it was observed and refuses
-to activate it after cancellation, even while the throttled URL update is still
-pending.
+status from `authSelectors.assistantCreationStatus`. Header controls, the Inbox
+welcome plus button, empty-list add buttons, and group action menus remain
+hidden until account ownership is ready, while unrelated navigation remains
+available. An open group-creation wizard closes and clears its open state if
+readiness is lost. Every Inbox click advances a synchronous assistant-hydration
+cancellation generation before routing to `session=inbox` or starting the
+optional desktop new-topic action. `SessionHydration` binds a pending assistant
+query to the generation at which it was observed and refuses to activate it
+after cancellation, even while the throttled URL update is still pending.
+
+Account-dependent settings tabs also remain on their loading boundary while the
+authentication provider is unresolved. They render only after authentication
+has loaded and the resulting user scope is ready, or show the existing scoped
+recovery action after a confirmed bootstrap failure. Account-independent tabs
+such as About remain available during authentication loading.
 
 ## Account-owned chat-group membership
 

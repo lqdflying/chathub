@@ -309,6 +309,77 @@ describe('authSelectors', () => {
     });
   });
 
+  describe('assistantCreationStatus', () => {
+    it.each([
+      [
+        'initial authentication loading',
+        {
+          isLoaded: false,
+          isSignedIn: undefined,
+        },
+        'pending',
+      ],
+      [
+        'an unresolved authenticated identity',
+        {
+          isLoaded: true,
+          isSignedIn: true,
+        },
+        'unresolved-authenticated-scope',
+      ],
+      [
+        'authenticated user-state loading',
+        {
+          authUserId: 'account-a',
+          isLoaded: true,
+          isSignedIn: true,
+          isUserStateInit: false,
+          userStateScope: undefined,
+        },
+        'pending',
+      ],
+      [
+        'a current-scope request failure',
+        {
+          authUserId: 'account-a',
+          isLoaded: true,
+          isSignedIn: true,
+          isUserStateInit: false,
+          userStateInitializationFailure: {
+            reason: 'request-failed',
+            scope: 'user:account-a',
+          },
+          userStateScope: undefined,
+        },
+        'request-failed',
+      ],
+      [
+        'a verified authenticated account',
+        {
+          authUserId: 'account-a',
+          isLoaded: true,
+          isSignedIn: true,
+          isUserStateInit: true,
+          userStateScope: 'user:account-a',
+        },
+        'ready',
+      ],
+      [
+        'a signed-out guest',
+        {
+          isLoaded: true,
+          isSignedIn: false,
+          isUserStateInit: true,
+          userStateScope: 'guest',
+        },
+        'ready',
+      ],
+    ])('returns the expected status during %s', (_caseName, state, expectedStatus) => {
+      expect(authSelectors.assistantCreationStatus(state as UserStore)).toBe(expectedStatus);
+      expect(authSelectors.canCreateAssistant(state as UserStore)).toBe(expectedStatus === 'ready');
+    });
+  });
+
   describe('isLogin', () => {
     it('should return true when auth is disabled', () => {
       enableAuth = false;
