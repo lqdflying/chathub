@@ -27,16 +27,24 @@ request headers cannot select the user.
 Backend WebAPI requests still decode the client-generated
 `X-lobe-chat-auth` payload for provider credentials and runtime options. Each
 WebAPI route uses the shared resolver to validate `Oidc-Auth`, Clerk, NextAuth,
-or static bearer authentication directly at the route boundary. A valid OIDC
-access token is authoritative and binds the request to its validated `sub`.
+or static bearer authentication directly at the route boundary. When
+`ENABLE_OIDC=1`, a valid OIDC access token is authoritative and binds the
+request to its validated `sub`; a supplied but invalid token is terminal and
+cannot fall through to an access code or provider API key. When OIDC is
+disabled, the resolver does not validate or accept `Oidc-Auth`, even when a
+JWKS remains configured, so previously issued tokens grant no WebAPI identity.
+The remaining configured authentication and access-code rules determine the
+request outcome.
+
 Otherwise, the first configured method that validates returns an authoritative
 database owner: Clerk returns its mapped owner, NextAuth returns
 `session.user.id`, and static bearer authentication returns `AUTH_USER_ID`. The
 server overwrites the payload's `userId` with that owner before invoking the
 route handler. The decoded payload therefore cannot redirect user-scoped model
-runtime, tracing, cache, or nested tRPC work to another database owner. A
-supplied but invalid `Oidc-Auth` token is terminal and cannot fall through to an
-access code or provider API key.
+runtime, tracing, cache, or nested tRPC work to another database owner. Keeping
+the OIDC feature gate in the shared resolver follows
+[OWASP's authorization guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html)
+to deny by default and validate access on every request.
 
 Configured server authentication fails closed. If none of the enabled Clerk,
 NextAuth, or static bearer methods validates the request, WebAPI execution stops

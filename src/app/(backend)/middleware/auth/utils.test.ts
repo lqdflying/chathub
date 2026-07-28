@@ -11,6 +11,7 @@ import { checkAuthMethod, resolveWebApiAuthFromHeader } from './utils';
 let enableClerkMock = false;
 let enableNextAuthMock = false;
 let enableTokenAuthMock = false;
+const oidcFlags = vi.hoisted(() => ({ enabled: false }));
 
 vi.mock('@/const/auth', async (importOriginal) => {
   const data = await importOriginal();
@@ -33,6 +34,14 @@ vi.mock('@/envs/app', () => ({
   getAppConfig: vi.fn(),
 }));
 
+vi.mock('@/envs/oidc', () => ({
+  oidcEnv: {
+    get ENABLE_OIDC() {
+      return oidcFlags.enabled;
+    },
+  },
+}));
+
 vi.mock('@lobechat/utils/server', () => ({
   getXorPayload: vi.fn(),
 }));
@@ -46,6 +55,7 @@ describe('checkAuthMethod', () => {
     enableClerkMock = false;
     enableNextAuthMock = false;
     enableTokenAuthMock = false;
+    oidcFlags.enabled = false;
     vi.clearAllMocks();
     vi.mocked(getAppConfig).mockReturnValue({
       ACCESS_CODES: ['validAccessCode'],
@@ -177,6 +187,7 @@ describe('resolveWebApiAuthFromHeader', () => {
     enableClerkMock = false;
     enableNextAuthMock = false;
     enableTokenAuthMock = false;
+    oidcFlags.enabled = false;
     vi.clearAllMocks();
     vi.mocked(getAppConfig).mockReturnValue({
       ACCESS_CODES: ['validAccessCode'],
@@ -248,6 +259,7 @@ describe('resolveWebApiAuthFromHeader', () => {
   });
 
   it('binds a validated OIDC client to its token subject', async () => {
+    oidcFlags.enabled = true;
     vi.mocked(getXorPayload).mockReturnValue({
       accessCode: 'validAccessCode',
       userId: 'caller-selected-owner',
@@ -274,7 +286,28 @@ describe('resolveWebApiAuthFromHeader', () => {
     expect(validateOIDCJWT).toHaveBeenCalledWith('valid-oidc-token');
   });
 
+  it('does not authenticate an OIDC token when OIDC is disabled', async () => {
+    vi.mocked(getXorPayload).mockReturnValue({});
+    vi.mocked(validateOIDCJWT).mockResolvedValue({
+      tokenData: {},
+      userId: 'oidc-owner',
+    } as never);
+    const request = new Request('https://chathub.example/webapi/proxy', {
+      headers: {
+        [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
+        [LOBE_CHAT_OIDC_AUTH_HEADER]: 'valid-oidc-token',
+      },
+      method: 'POST',
+    });
+
+    await expect(resolveWebApiAuthFromHeader(request)).rejects.toMatchObject({
+      errorType: ChatErrorType.InvalidAccessCode,
+    });
+    expect(validateOIDCJWT).not.toHaveBeenCalled();
+  });
+
   it('rejects an invalid supplied OIDC token without falling back to payload credentials', async () => {
+    oidcFlags.enabled = true;
     vi.mocked(getXorPayload).mockReturnValue({
       accessCode: 'validAccessCode',
     });

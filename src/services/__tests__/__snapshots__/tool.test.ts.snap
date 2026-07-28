@@ -167,7 +167,7 @@ exports[`ToolService > getToolManifest > support OpenAPI manifest > should get p
       },
     },
   ],
-  "author": "LobeHub",
+  "author": "ChatHub",
   "createAt": "2023-08-12",
   "homepage": "https://github.com/lobehub/chat-plugin-realtime-weather",
   "identifier": "realtime-weather",

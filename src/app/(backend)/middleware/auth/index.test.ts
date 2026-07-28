@@ -24,6 +24,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 const authFlags = vi.hoisted(() => ({
   enableClerk: false,
   enableNextAuth: false,
+  enableOIDC: false,
   enableTokenAuth: false,
 }));
 
@@ -45,6 +46,14 @@ vi.mock('@/const/auth', async (importOriginal) => ({
 
 vi.mock('@/envs/app', () => ({
   getAppConfig: vi.fn(),
+}));
+
+vi.mock('@/envs/oidc', () => ({
+  oidcEnv: {
+    get ENABLE_OIDC() {
+      return authFlags.enableOIDC;
+    },
+  },
 }));
 
 vi.mock('@/libs/next-auth', () => ({
@@ -73,6 +82,7 @@ describe('checkAuth', () => {
   beforeEach(() => {
     authFlags.enableClerk = false;
     authFlags.enableNextAuth = false;
+    authFlags.enableOIDC = false;
     authFlags.enableTokenAuth = false;
     vi.clearAllMocks();
     vi.stubEnv('AUTH_TOKEN', 'access-token');
@@ -216,6 +226,7 @@ describe('checkAuth', () => {
   });
 
   it('binds a validated OIDC token subject', async () => {
+    authFlags.enableOIDC = true;
     const request = new Request('https://example.com', {
       headers: {
         [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
@@ -237,6 +248,30 @@ describe('checkAuth', () => {
           userId: 'oidc-owner',
         }),
       }),
+    );
+  });
+
+  it('rejects an OIDC token at the route boundary when OIDC is disabled', async () => {
+    vi.mocked(getAppConfig).mockReturnValue({ ACCESS_CODES: ['valid-access-code'] } as never);
+    const request = new Request('https://example.com', {
+      headers: {
+        [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
+        [LOBE_CHAT_OIDC_AUTH_HEADER]: 'valid-oidc-token',
+      },
+    });
+    vi.mocked(getXorPayload).mockReturnValue({});
+    vi.mocked(validateOIDCJWT).mockResolvedValue({
+      tokenData: {},
+      userId: 'oidc-owner',
+    } as never);
+
+    await checkAuth(mockHandler)(request, mockOptions);
+
+    expect(validateOIDCJWT).not.toHaveBeenCalled();
+    expect(mockHandler).not.toHaveBeenCalled();
+    expect(createErrorResponse).toHaveBeenCalledWith(
+      ChatErrorType.InvalidAccessCode,
+      expect.objectContaining({ provider: 'mock' }),
     );
   });
 

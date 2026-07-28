@@ -11,6 +11,7 @@ import {
   enableTokenAuth,
 } from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
+import { oidcEnv } from '@/envs/oidc';
 import { ClerkAuth } from '@/libs/clerk-auth';
 import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
 import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
@@ -82,7 +83,7 @@ export const resolveWebApiAuth = async (
   payload: Pick<ClientSecretPayload, 'accessCode' | 'apiKey'>,
 ): Promise<AuthMethodResult> => {
   const oidcAuthorization = request.headers.get(LOBE_CHAT_OIDC_AUTH_HEADER);
-  if (oidcAuthorization) {
+  if (oidcEnv.ENABLE_OIDC && oidcAuthorization) {
     const oidc = await validateOIDCJWT(oidcAuthorization);
 
     return { method: 'oidc', userId: oidc.userId };
