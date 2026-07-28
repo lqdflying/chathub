@@ -13,13 +13,17 @@ import { MOBILE_HEADER_ICON_SIZE } from '@/const/layoutTokens';
 import UserAvatar from '@/features/User/UserAvatar';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
 import { mobileHeaderSticky } from '@/styles/mobileHeader';
+
+import { getAssistantListBootstrapStatus } from '../../features/SessionListContent/assistantListBootstrap';
 
 const Header = memo(() => {
   const [createSession] = useSessionStore((s) => [s.createSession]);
   const router = useRouter();
   const theme = useTheme();
   const { showCreateSession } = useServerConfigStore(featureFlagsSelectors);
+  const canCreateAssistant = useUserStore(getAssistantListBootstrapStatus) === 'ready';
 
   return (
     <ChatHeader
@@ -30,7 +34,8 @@ const Header = memo(() => {
         </Flexbox>
       }
       right={
-        showCreateSession && (
+        showCreateSession &&
+        canCreateAssistant && (
           <ActionIcon
             icon={MessageSquarePlus}
             onClick={() => createSession()}

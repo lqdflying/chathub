@@ -10,6 +10,7 @@ import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
 import SkeletonList from '../SkeletonList';
+import { getAssistantListBootstrapStatus } from './assistantListBootstrap';
 
 interface AssistantListBootstrapGuardProps {
   children: ReactNode;
@@ -18,11 +19,8 @@ interface AssistantListBootstrapGuardProps {
 const AssistantListBootstrapGuard = memo<AssistantListBootstrapGuardProps>(({ children }) => {
   const { t } = useTranslation('chat');
   const [retryingScope, setRetryingScope] = useState<string>();
-  const isAuthLoaded = useUserStore(authSelectors.isLoaded);
-  const isLogin = useUserStore(authSelectors.isLogin);
   const currentUserScope = useUserStore(authSelectors.currentUserScope);
-  const isUserStateInit = useUserStore((state) => state.isUserStateInit);
-  const userStateScope = useUserStore((state) => state.userStateScope);
+  const bootstrapStatus = useUserStore(getAssistantListBootstrapStatus);
   const userStateInitializationFailure = useUserStore(
     (state) => state.userStateInitializationFailure,
   );
@@ -33,12 +31,7 @@ const AssistantListBootstrapGuard = memo<AssistantListBootstrapGuardProps>(({ ch
     !!currentUserScope && userStateInitializationFailure?.scope === currentUserScope;
   const hasOwnerMismatch =
     hasUserStateFailure && userStateInitializationFailure?.reason === 'owner-mismatch';
-  const hasUnresolvedAuthenticatedScope = isAuthLoaded && !!isLogin && !currentUserScope;
-  const hasPendingAuthenticatedBootstrap =
-    !!currentUserScope &&
-    currentUserScope.startsWith('user:') &&
-    (!isUserStateInit || userStateScope !== currentUserScope) &&
-    !hasUserStateFailure;
+  const hasUnresolvedAuthenticatedScope = bootstrapStatus === 'unresolved-authenticated-scope';
   const isRetryingCurrentScope = !!currentUserScope && retryingScope === currentUserScope;
 
   const handleRetry = useCallback(async () => {
@@ -61,9 +54,9 @@ const AssistantListBootstrapGuard = memo<AssistantListBootstrapGuardProps>(({ ch
     await logout();
   }, [logout]);
 
-  if (isRetryingCurrentScope || hasPendingAuthenticatedBootstrap) return <SkeletonList />;
+  if (isRetryingCurrentScope || bootstrapStatus === 'pending') return <SkeletonList />;
 
-  if (!hasUserStateFailure && !hasUnresolvedAuthenticatedScope) return children;
+  if (bootstrapStatus === 'ready') return children;
 
   const requiresSignInAgain = hasOwnerMismatch || hasUnresolvedAuthenticatedScope;
 

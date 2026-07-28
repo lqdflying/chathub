@@ -25,8 +25,11 @@ unauthenticated session and consequently clearing every account-scoped store.
 `SessionFreshnessPoller` instead probes the session endpoint every five minutes
 while the browser reports an online connection. Network failures, non-success
 responses, and invalid JSON are inconclusive and preserve the last confirmed
-session. A successful JSON `null` response confirms expiry or revocation and
-uses Auth.js sign-out propagation. This bounds stale client state without
+session. Each probe is bound to the current `session.user.id`; an identity or
+authentication-status change aborts the request and invalidates its result. A
+successful JSON `null` response uses Auth.js sign-out propagation only while the
+same identity is still active, so a delayed probe from account A cannot sign out
+a replacement account B session. This bounds stale client state without
 reintroducing the unreliable foreground-resume request or Auth.js beta's
 built-in polling path, which collapses fetch failures to `null`. Initial session
 loading, explicit sign-in/sign-out, Auth.js cross-tab session broadcasts, and

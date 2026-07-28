@@ -20,6 +20,7 @@ import { useUserStore } from '@/store/user';
 import { authSelectors, settingsSelectors } from '@/store/user/selectors';
 
 import TogglePanelButton from '../../../features/TogglePanelButton';
+import { getAssistantListBootstrapStatus } from '../../features/SessionListContent/assistantListBootstrap';
 import SessionSearchBar from '../../features/SessionSearchBar';
 import { createGroupFromTemplate } from './createGroupFromTemplate';
 
@@ -47,6 +48,7 @@ const Header = memo(() => {
   const [createSession] = useSessionStore((s) => [s.createSession]);
   const [createGroup] = useChatGroupStore((s) => [s.createGroup]);
   const { showCreateSession, enableGroupChat } = useServerConfigStore(featureFlagsSelectors);
+  const canCreateAssistant = useUserStore(getAssistantListBootstrapStatus) === 'ready';
   const [isGroupWizardOpen, setIsGroupWizardOpen] = useState(false);
 
   // const enableGroupChatInLabs = useUserStore(preferenceSelectors.enableGroupChat);
@@ -186,6 +188,7 @@ const Header = memo(() => {
         <Flexbox align={'center'} gap={4} horizontal>
           <TogglePanelButton />
           {showCreateSession &&
+            canCreateAssistant &&
             (enableGroupChat ? (
               <Dropdown
                 menu={{

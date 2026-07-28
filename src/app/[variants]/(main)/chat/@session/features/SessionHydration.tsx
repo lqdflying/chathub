@@ -9,6 +9,7 @@ import { hasVerifiedAccountOwnership } from '@/store/accountMutation';
 import { useAgentStore } from '@/store/agent';
 import { useChatStore } from '@/store/chat';
 import { getSessionStoreState, useSessionStore } from '@/store/session';
+import { getAssistantHydrationCancellationGeneration } from '@/store/session/hydrationIntent';
 import { sessionSelectors } from '@/store/session/selectors';
 import { getUserStoreState, useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -26,9 +27,16 @@ const SessionHydration = memo(() => {
   });
   const isSessionListInit = useSessionStore(sessionSelectors.isSessionListInit);
   const sessions = useSessionStore((state) => state.sessions);
-  const blockedSessionIdRef = useRef<string>();
-  const pendingInboxNormalizationRef = useRef<string>();
-  const previousVerifiedScopeRef = useRef<string>();
+  const blockedSessionIdRef = useRef<string | undefined>(undefined);
+  const observedAssistantQueryRef = useRef<
+    | {
+        cancellationGeneration: number;
+        sessionId: string;
+      }
+    | undefined
+  >(undefined);
+  const pendingInboxNormalizationRef = useRef<string | undefined>(undefined);
+  const previousVerifiedScopeRef = useRef<string | undefined>(undefined);
 
   const [session, setSession] = useQueryState(
     'session',
@@ -39,6 +47,14 @@ const SessionHydration = memo(() => {
   );
   const querySessionRef = useRef(session);
   querySessionRef.current = session;
+  if (session === INBOX_SESSION_ID) {
+    observedAssistantQueryRef.current = undefined;
+  } else if (observedAssistantQueryRef.current?.sessionId !== session) {
+    observedAssistantQueryRef.current = {
+      cancellationGeneration: getAssistantHydrationCancellationGeneration(),
+      sessionId: session,
+    };
+  }
 
   const normalizeQueryToInbox = useCallback(
     (staleSessionId: string) => {
@@ -122,6 +138,18 @@ const SessionHydration = memo(() => {
 
     if (blockedSessionIdRef.current === session) {
       normalizeQueryToInbox(session);
+      return;
+    }
+
+    const observedAssistantQuery = observedAssistantQueryRef.current;
+    const wasAssistantHydrationCancelled =
+      observedAssistantQuery?.sessionId === session &&
+      observedAssistantQuery.cancellationGeneration !==
+        getAssistantHydrationCancellationGeneration();
+    if (wasAssistantHydrationCancelled) {
+      blockedSessionIdRef.current = session;
+      const didSwitchSession = activateSession(INBOX_SESSION_ID);
+      if (!didSwitchSession) normalizeQueryToInbox(session);
       return;
     }
 

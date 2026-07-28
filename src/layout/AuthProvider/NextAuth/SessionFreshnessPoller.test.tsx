@@ -1,22 +1,65 @@
 import { act, render } from '@testing-library/react';
-import React from 'react';
+import type { Session } from 'next-auth';
+import React, { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SessionFreshnessPoller from './SessionFreshnessPoller';
 
 vi.stubGlobal('React', React);
 
-const { nextAuthState, signOutMock } = vi.hoisted(() => ({
-  nextAuthState: {
-    status: 'authenticated' as 'authenticated' | 'loading' | 'unauthenticated',
-  },
-  signOutMock: vi.fn(),
-}));
+type NextAuthSessionState =
+  | { data: Session; status: 'authenticated' }
+  | { data: null; status: 'loading' | 'unauthenticated' };
+
+const { nextAuthSessionStore, signOutMock } = vi.hoisted(() => {
+  let currentSession: NextAuthSessionState = {
+    data: {
+      expires: new Date(Date.now() + 60_000).toISOString(),
+      user: { id: 'account-a' },
+    },
+    status: 'authenticated',
+  };
+  const listeners = new Set<() => void>();
+
+  return {
+    nextAuthSessionStore: {
+      getSnapshot: () => currentSession,
+      setSession: (nextSession: NextAuthSessionState) => {
+        currentSession = nextSession;
+        listeners.forEach((listener) => listener());
+      },
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+    signOutMock: vi.fn(),
+  };
+});
 
 vi.mock('next-auth/react', () => ({
   signOut: signOutMock,
-  useSession: () => ({ status: nextAuthState.status }),
+  useSession: () =>
+    useSyncExternalStore(
+      nextAuthSessionStore.subscribe,
+      nextAuthSessionStore.getSnapshot,
+      nextAuthSessionStore.getSnapshot,
+    ),
 }));
+
+const createSession = (accountId: string): Session => ({
+  expires: new Date(Date.now() + 60_000).toISOString(),
+  user: { id: accountId },
+});
+
+const createDeferred = <Value,>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
 
 const setOnline = (online: boolean) => {
   Object.defineProperty(window.navigator, 'onLine', {
@@ -34,7 +77,10 @@ const advanceToNextPoll = async () => {
 describe('SessionFreshnessPoller', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    nextAuthState.status = 'authenticated';
+    nextAuthSessionStore.setSession({
+      data: createSession('account-a'),
+      status: 'authenticated',
+    });
     setOnline(true);
     signOutMock.mockReset();
     vi.stubGlobal('fetch', vi.fn());
@@ -60,6 +106,7 @@ describe('SessionFreshnessPoller', () => {
       cache: 'no-store',
       credentials: 'same-origin',
       headers: { Accept: 'application/json' },
+      signal: expect.any(AbortSignal),
     });
     expect(signOutMock).toHaveBeenCalledOnce();
     expect(signOutMock).toHaveBeenCalledWith({ redirect: false });
@@ -114,12 +161,43 @@ describe('SessionFreshnessPoller', () => {
   });
 
   it('does not schedule polling for an unauthenticated session', async () => {
-    nextAuthState.status = 'unauthenticated';
+    nextAuthSessionStore.setSession({ data: null, status: 'unauthenticated' });
 
     render(<SessionFreshnessPoller />);
     await advanceToNextPoll();
 
     expect(fetch).not.toHaveBeenCalled();
+    expect(signOutMock).not.toHaveBeenCalled();
+  });
+
+  it('aborts and ignores an account-A probe after account B becomes active', async () => {
+    const deferredResponse = createDeferred<Response>();
+    vi.mocked(fetch).mockReturnValue(deferredResponse.promise);
+
+    render(<SessionFreshnessPoller />);
+    await advanceToNextPoll();
+
+    const requestSignal = vi.mocked(fetch).mock.calls[0]?.[1]?.signal;
+    expect(requestSignal?.aborted).toBe(false);
+
+    act(() => {
+      nextAuthSessionStore.setSession({
+        data: createSession('account-b'),
+        status: 'authenticated',
+      });
+    });
+
+    expect(requestSignal?.aborted).toBe(true);
+
+    deferredResponse.resolve({
+      json: vi.fn().mockResolvedValue(null),
+      ok: true,
+    } as unknown as Response);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
     expect(signOutMock).not.toHaveBeenCalled();
   });
 });

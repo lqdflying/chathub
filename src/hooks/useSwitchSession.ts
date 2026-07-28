@@ -6,6 +6,7 @@ import { hasVerifiedAccountOwnership } from '@/store/accountMutation';
 import { useChatStore } from '@/store/chat';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { getSessionStoreState } from '@/store/session';
+import { cancelPendingAssistantHydration } from '@/store/session/hydrationIntent';
 import { sessionSelectors } from '@/store/session/selectors';
 import { getUserStoreState } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -28,6 +29,10 @@ export const useSwitchSession = () => {
           !!sessionSelectors.getSessionById(id)(sessionState);
 
         if (!isVerifiedCurrentAccount || !isKnownCurrentAccountSession) return false;
+      }
+
+      if (id === INBOX_SESSION_ID) {
+        cancelPendingAssistantHydration();
       }
 
       togglePortal(false);

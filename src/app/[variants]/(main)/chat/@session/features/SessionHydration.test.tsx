@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAgentStore } from '@/store/agent';
 import { useChatStore } from '@/store/chat';
 import { useSessionStore } from '@/store/session';
+import { cancelPendingAssistantHydration } from '@/store/session/hydrationIntent';
 import { useUserStore } from '@/store/user';
 
 import SessionHydration from './SessionHydration';
@@ -107,6 +108,28 @@ describe('SessionHydration', () => {
     expect(useAgentStore.getState().activeId).toBe('assistant-a');
     expect(useChatStore.getState().activeId).toBe('assistant-a');
     expect(setSessionMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps Inbox active when the user cancels an unresolved assistant deep link', async () => {
+    queryStateStore.setQuerySession('assistant-a');
+    render(<SessionHydration />);
+
+    expect(useSessionStore.getState().activeId).toBe('inbox');
+
+    act(() => {
+      cancelPendingAssistantHydration();
+      useSessionStore.setState({
+        isSessionsFirstFetchFinished: true,
+        sessions: [assistantSession] as any,
+      });
+    });
+
+    await waitFor(() => {
+      expect(setSessionMock).toHaveBeenCalledWith('inbox');
+    });
+    expect(useSessionStore.getState().activeId).toBe('inbox');
+    expect(useAgentStore.getState().activeId).toBe('inbox');
+    expect(useChatStore.getState().activeId).toBe('inbox');
   });
 
   it('does not replay topic switching for an already-active valid deep link', () => {

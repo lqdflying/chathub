@@ -59,10 +59,14 @@ If authenticated user-state bootstrap fails, the default or searched assistant
 list and its mutation controls are replaced by one account-scoped recovery
 alert. A request failure offers **Retry**; an owner mismatch or unresolved
 signed-in identity offers **Sign in again**. Inbox remains available throughout
-recovery. Every Inbox click routes to `session=inbox` before the optional
-desktop new-topic action, even when the session store already reports Inbox
-active, so the user can explicitly cancel an assistant deep link that is still
-waiting for hydration.
+recovery. Desktop and mobile create-assistant controls use the same bootstrap
+status and remain hidden until account ownership is ready, while unrelated
+header navigation remains available. Every Inbox click advances a synchronous
+assistant-hydration cancellation generation before routing to `session=inbox`
+or starting the optional desktop new-topic action. `SessionHydration` binds a
+pending assistant query to the generation at which it was observed and refuses
+to activate it after cancellation, even while the throttled URL update is still
+pending.
 
 ## Account-owned chat-group membership
 

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useChatStore } from '@/store/chat';
 import { useSessionStore } from '@/store/session';
+import { getAssistantHydrationCancellationGeneration } from '@/store/session/hydrationIntent';
 import { useUserStore } from '@/store/user';
 
 import { useSwitchSession } from './useSwitchSession';
@@ -102,11 +103,13 @@ describe('useSwitchSession', () => {
       sessions: [],
     });
     const { result } = renderHook(() => useSwitchSession());
+    const previousCancellationGeneration = getAssistantHydrationCancellationGeneration();
 
     act(() => {
       expect(result.current('inbox')).toBe(true);
     });
 
+    expect(getAssistantHydrationCancellationGeneration()).toBe(previousCancellationGeneration + 1);
     expect(pushMock).toHaveBeenCalledWith('/chat', {
       query: { session: 'inbox', showMobileWorkspace: 'true' },
     });
