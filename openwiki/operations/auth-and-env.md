@@ -52,9 +52,14 @@ Auth transitions also publish a monotonic storage generation before waiting
 for the lock, so an older probe cannot start or apply follow-up work. If a
 replacement login begins during a keep-alive, it waits for the older write and
 then lands last. Transition completion triggers read-only reconciliation in the
-redirecting document and other open tabs. Browsers without Web Locks skip the
-background cookie-writing keep-alive rather than issuing an unsynchronized
-write; explicit authentication remains available.
+redirecting document and other open tabs. Redirecting OAuth transitions remain
+pending through Auth.js's 15-minute state and PKCE transaction lifetime, even
+though the initiating document's Web Lock ends when it leaves for the provider.
+The callback or error destination clears the marker as soon as session
+bootstrap finishes; stale cleanup cannot resume keep-alives before the Auth.js
+transaction itself expires. Browsers without Web Locks skip the background
+cookie-writing keep-alive rather than issuing an unsynchronized write; explicit
+authentication remains available.
 
 The response filter uses the server-side
 [`Headers.getSetCookie()` API](https://developer.mozilla.org/en-US/docs/Web/API/Headers/getSetCookie)

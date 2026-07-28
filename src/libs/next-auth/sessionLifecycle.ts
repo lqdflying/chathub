@@ -4,7 +4,7 @@ export const NEXT_AUTH_SESSION_TRANSITION_COMPLETED_EVENT =
   'chathub:next-auth-session-transition-completed';
 const SESSION_TRANSITION_GENERATION_STORAGE_KEY = 'chathub:next-auth-session-transition-generation';
 const SESSION_TRANSITION_OWNER_STORAGE_KEY = 'chathub:next-auth-session-transition-owner';
-const SESSION_TRANSITION_MAX_AGE_MS = 10 * 60 * 1000;
+const AUTH_JS_OAUTH_TRANSACTION_LIFETIME_MS = 15 * 60 * 1000;
 
 const createTransitionMarker = (): string =>
   JSON.stringify({
@@ -112,7 +112,7 @@ export const isNextAuthSessionTransitionPending = (): boolean => {
   const marker = getStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY);
   const createdAt = getTransitionCreatedAt(marker);
 
-  if (createdAt === undefined || Date.now() - createdAt > SESSION_TRANSITION_MAX_AGE_MS) {
+  if (createdAt === undefined || Date.now() - createdAt > AUTH_JS_OAUTH_TRANSACTION_LIFETIME_MS) {
     if (marker) removeStoredValue(NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY);
     return false;
   }

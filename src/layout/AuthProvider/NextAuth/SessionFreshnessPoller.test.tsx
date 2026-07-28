@@ -4,6 +4,7 @@ import React, { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY,
   beginNextAuthSessionTransition,
   completeNextAuthSessionTransition,
   completeOwnedNextAuthSessionTransition,
@@ -354,5 +355,37 @@ describe('SessionFreshnessPoller', () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(onReconcileSession).toHaveBeenCalledOnce();
     expect(onReconcileSession).toHaveBeenCalledWith(accountCSession);
+  });
+
+  it('blocks cross-tab renewal throughout a pending OAuth callback window', async () => {
+    const accountBSession = createSession('account-b');
+    const onReconcileSession = vi.fn();
+    const transitionMarker = beginNextAuthSessionTransition();
+    sessionStorage.clear();
+    vi.mocked(fetch).mockResolvedValue(createJsonResponse({ session: accountBSession }));
+
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12 * 60 * 1000);
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+
+    completeNextAuthSessionTransition(transitionMarker);
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: NEXT_AUTH_SESSION_TRANSITION_STORAGE_KEY,
+        newValue: null,
+        oldValue: transitionMarker,
+        storageArea: localStorage,
+      }),
+    );
+    await flushImmediateProbe();
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith('/api/auth/session-probe', expect.any(Object));
+    expect(onReconcileSession).toHaveBeenCalledWith(accountBSession);
   });
 });
