@@ -1,34 +1,46 @@
-import { usePathname } from 'next/navigation';
 import { useCallback } from 'react';
 
+import { INBOX_SESSION_ID } from '@/const/session';
 import { useQueryRoute } from '@/hooks/useQueryRoute';
+import { hasVerifiedAccountOwnership } from '@/store/accountMutation';
 import { useChatStore } from '@/store/chat';
 import { useServerConfigStore } from '@/store/serverConfig';
-import { useSessionStore } from '@/store/session';
+import { getSessionStoreState } from '@/store/session';
+import { sessionSelectors } from '@/store/session/selectors';
+import { getUserStoreState } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 export const useSwitchSession = () => {
-  const switchSession = useSessionStore((s) => s.switchSession);
-  const internalUpdateActiveId = useChatStore((s) => s.internal_updateActiveId);
   const togglePortal = useChatStore((s) => s.togglePortal);
   const mobile = useServerConfigStore((s) => s.isMobile);
   const router = useQueryRoute();
-  const pathname = usePathname();
 
   return useCallback(
-    (id: string) => {
-      internalUpdateActiveId(id);
-      switchSession(id);
+    (id: string): boolean => {
+      if (id !== INBOX_SESSION_ID) {
+        const userState = getUserStoreState();
+        const currentUserScope = authSelectors.currentUserScope(userState);
+        const sessionState = getSessionStoreState();
+        const isVerifiedCurrentAccount =
+          !!currentUserScope && hasVerifiedAccountOwnership(userState, currentUserScope);
+        const isKnownCurrentAccountSession =
+          sessionSelectors.isSessionListInit(sessionState) &&
+          !!sessionSelectors.getSessionById(id)(sessionState);
+
+        if (!isVerifiedCurrentAccount || !isKnownCurrentAccountSession) return false;
+      }
+
       togglePortal(false);
 
-      const chatPath = '/chat';
-      if (mobile || pathname !== chatPath) {
-        setTimeout(() => {
-          router.push(chatPath, {
-            query: { session: id, showMobileWorkspace: 'true' },
-          });
-        }, 50);
-      }
+      router.push('/chat', {
+        query: {
+          session: id,
+          ...(mobile ? { showMobileWorkspace: 'true' } : {}),
+        },
+      });
+
+      return true;
     },
-    [internalUpdateActiveId, mobile, pathname, router, switchSession, togglePortal],
+    [mobile, router, togglePortal],
   );
 };

@@ -10,10 +10,7 @@ import { useOnlyFetchOnceSWR } from '@/libs/swr/useOnlyFetchOnceSWR';
 import { userService } from '@/services/user';
 import { publishAccountScopeInvalidation } from '@/store/accountScopeInvalidation';
 import type { UserStore } from '@/store/user';
-import {
-  captureUserMutationSnapshot,
-  isUserMutationCurrent,
-} from '@/store/user/userMutation';
+import { captureUserMutationSnapshot, isUserMutationCurrent } from '@/store/user/userMutation';
 import {
   createTrackedUserMutationController,
   releaseTrackedUserMutationController,
@@ -34,10 +31,7 @@ const n = setNamespace('common');
 
 const GET_USER_STATE_KEY = 'initUserState';
 const getUserStateKey = (userScope: string, ownershipInvalidationGeneration: number) =>
-  createAccountCacheKey(
-    [GET_USER_STATE_KEY, userScope],
-    ownershipInvalidationGeneration,
-  );
+  createAccountCacheKey([GET_USER_STATE_KEY, userScope], ownershipInvalidationGeneration);
 const createResetUserState = (
   ownershipInvalidationGeneration: number,
   currentState: UserStore,
@@ -94,10 +88,7 @@ export const createCommonSlice: StateCreator<
   },
   updateAvatar: async (avatar) => {
     const mutationSnapshot = captureUserMutationSnapshot(get());
-    const abortController = createTrackedUserMutationController(
-      set,
-      'updateAvatar',
-    );
+    const abortController = createTrackedUserMutationController(set, 'updateAvatar');
 
     try {
       await userService.updateAvatar(avatar, abortController.signal);
@@ -165,14 +156,12 @@ export const createCommonSlice: StateCreator<
     }, [isLogin, userScope]);
 
     return useOnlyFetchOnceSWR<UserInitializationState>(
-      isLogin &&
-        userScope &&
-        currentUserScope === userScope &&
-        !hasOwnerMismatch
+      isLogin && userScope && currentUserScope === userScope && !hasOwnerMismatch
         ? getUserStateKey(userScope, ownershipInvalidationGeneration)
         : null,
       () => userService.getUserState(),
       {
+        dedupingInterval: 0,
         onError: () => {
           const currentUserScope = authSelectors.currentUserScope(get());
           if (currentUserScope !== userScope) return;

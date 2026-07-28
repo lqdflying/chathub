@@ -35,6 +35,26 @@ The root README frames ChatHub as a self-hosted alternative to upstream LobeChat
 
 These priorities explain why the codebase has both UI features and a substantial server/runtime surface.
 
+## Account-aware assistant navigation
+
+Assistant selection treats the URL as the navigation request and
+`SessionHydration` as the only URL-to-store activation boundary.
+`useSwitchSession` closes the portal and routes immediately without first
+writing an account-owned assistant ID into Zustand. Inbox is always routable.
+Other IDs are accepted only when the current canonical account scope has
+verified user-state ownership and the initialized session list contains the
+assistant.
+
+Hydration waits for both verified ownership and session-list initialization
+before activating a non-inbox URL. A valid current-account deep link then
+updates the session, agent, and chat stores. A missing ID is normalized to
+inbox only after the initialized list confirms the absence. Store-driven
+inbox resets and verified account changes block the displaced URL value while
+the throttled History API update settles, so a stale query cannot resurrect an
+assistant after account invalidation. `nuqs` rate limiting uses
+`limitUrlUpdates: throttle(50)` rather than the deprecated `throttleMs`
+option.
+
 ## Account-owned chat-group membership
 
 A row in `chat_groups_agents` is valid only when its `userId` matches both the

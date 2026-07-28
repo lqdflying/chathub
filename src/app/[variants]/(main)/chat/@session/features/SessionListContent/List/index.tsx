@@ -52,7 +52,8 @@ const SessionList = memo<SessionListProps>(({ dataSource, groupId, showAddButton
           href={SESSION_CHAT_URL(id, mobile)}
           onClick={(e) => {
             e.preventDefault();
-            switchSession(id);
+            const didSwitchSession = switchSession(id);
+            if (!didSwitchSession) return;
 
             // Enhanced analytics tracking
             if (analytics) {

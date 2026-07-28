@@ -14,6 +14,21 @@ The top-level README documents the built-in credentials login flow, including:
 
 The current repo also contains a dedicated background document at `doc/credentials-login-flow.md` that describes how credentials login behaves in practice.
 
+### Mobile session resume
+
+The NextAuth client does not revalidate the session merely because a mobile
+browser or installed PWA returns to the foreground. `SessionProvider` sets both
+`refetchOnWindowFocus` and `refetchWhenOffline` to `false`. This avoids treating
+a transient resume-time transport, HTTP, or JSON failure as a definitive
+unauthenticated session and consequently clearing every account-scoped store.
+
+Initial session loading, explicit sign-in/sign-out, and Auth.js cross-tab
+session broadcasts remain authoritative. `UserUpdater` mirrors authenticated
+and genuine unauthenticated states into the user store; it does not maintain a
+second cached session or suppress a real sign-out. On a confirmed
+unauthenticated status it clears the raw auth ID, NextAuth session/user, and
+mapped user identity together.
+
 ### Static bearer authentication boundary
 
 Machine-to-machine requests authenticate with

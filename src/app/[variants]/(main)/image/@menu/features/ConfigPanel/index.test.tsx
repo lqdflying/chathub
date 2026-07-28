@@ -10,8 +10,7 @@ const { aiInfraListeners, aiInfraState, imageListeners, imageState, userListener
     aiInfraState: {
       refreshAiProviderRuntimeState: vi.fn(),
       runtimeStateInitializationFailure: undefined as
-        | { reason: 'request-failed'; scope: string }
-        | undefined,
+        { reason: 'request-failed'; scope: string } | undefined,
     },
     imageListeners: new Set<() => void>(),
     imageState: {
@@ -28,8 +27,7 @@ const { aiInfraListeners, aiInfraState, imageListeners, imageState, userListener
       refreshUserState: vi.fn(),
       user: { id: 'account-a' } as { id: string } | undefined,
       userStateInitializationFailure: undefined as
-        | { reason: 'owner-mismatch' | 'request-failed'; scope: string }
-        | undefined,
+        { reason: 'owner-mismatch' | 'request-failed'; scope: string } | undefined,
     },
   }));
 
@@ -191,7 +189,7 @@ vi.mock('./components/DimensionControlGroup', () => ({
   default: () => <div>parameter-control</div>,
 }));
 vi.mock('./components/ImageNum', () => ({
-  default: () => <div>parameter-control</div>,
+  default: () => <div>image-count-control</div>,
 }));
 vi.mock('./components/ImageUrl', () => ({
   default: () => <div>parameter-control</div>,
@@ -206,7 +204,7 @@ vi.mock('./components/SeedNumberInput', () => ({
   default: () => <div>parameter-control</div>,
 }));
 vi.mock('./components/SizeSelect', () => ({
-  default: () => <div>parameter-control</div>,
+  default: () => <div>size-control</div>,
 }));
 vi.mock('./components/StepsSliderInput', () => ({
   default: () => <div>parameter-control</div>,
@@ -233,6 +231,30 @@ describe('ConfigPanel', () => {
     expect(screen.getByText('model-select')).not.toBeNull();
     expect(screen.queryByText('image-config-skeleton')).toBeNull();
     expect(screen.queryByText('parameter-control')).toBeNull();
+  });
+
+  it('renders image count last in normal scroll flow without sticky positioning', () => {
+    updateStoreState(imageState, imageListeners, {
+      isImageModelAvailable: true,
+      isInit: true,
+      parametersSchema: {
+        size: {},
+      },
+    });
+
+    render(<ConfigPanel />);
+
+    const sizeControl = screen.getByText('size-control');
+    const imageCountControl = screen.getByText('image-count-control');
+    const scrollContainer = screen.getByText('model-select').parentElement?.parentElement;
+    const imageCountLayout = imageCountControl.parentElement;
+
+    expect(scrollContainer).not.toBeNull();
+    expect(imageCountLayout).toBe(scrollContainer?.lastElementChild);
+    expect(
+      sizeControl.compareDocumentPosition(imageCountControl) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(imageCountLayout?.style.position).not.toBe('sticky');
   });
 
   it('retries only failed current-scope resources and settles without remounting', async () => {
@@ -316,9 +338,7 @@ describe('ConfigPanel', () => {
     expect(screen.getByRole('alert').textContent).toContain(
       'config.bootstrapFailure.ownerMismatchDescription',
     );
-    expect(
-      screen.queryByRole('button', { name: 'config.bootstrapFailure.retry' }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'config.bootstrapFailure.retry' })).toBeNull();
     expect(screen.queryByText('model-select')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'config.bootstrapFailure.signInAgain' }));
@@ -376,9 +396,7 @@ describe('ConfigPanel', () => {
     expect(screen.getByRole('alert').textContent).toContain(
       'config.bootstrapFailure.accountDescription',
     );
-    expect(
-      screen.queryByRole('button', { name: 'config.bootstrapFailure.retry' }),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'config.bootstrapFailure.retry' })).toBeNull();
     expect(screen.queryByText('image-config-skeleton')).toBeNull();
   });
 });

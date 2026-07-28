@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React, { type ComponentType } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsTabs } from '@/store/global/initialState';
 
@@ -8,9 +8,24 @@ import SettingsContent from './SettingsContent';
 
 vi.stubGlobal('React', React);
 
-const { dynamicLoaderState } = vi.hoisted(() => ({
+const { dynamicLoaderState, userStoreListeners, userStoreState } = vi.hoisted(() => ({
   dynamicLoaderState: { nextIndex: 0 },
+  userStoreListeners: new Set<() => void>(),
+  userStoreState: {
+    authUserId: 'account-a' as string | undefined,
+    isLoaded: true,
+    isSignedIn: true as boolean | undefined,
+    logout: vi.fn(),
+    refreshUserState: vi.fn(),
+    userStateInitializationFailure: undefined as
+      { reason: 'owner-mismatch' | 'request-failed'; scope: string } | undefined,
+  },
 }));
+
+const updateUserStore = (update: Partial<typeof userStoreState>) => {
+  Object.assign(userStoreState, update);
+  userStoreListeners.forEach((listener) => listener());
+};
 
 vi.mock('next/dynamic', () => ({
   default: (loader: () => Promise<{ default: ComponentType }>) => {
@@ -31,14 +46,195 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('react-layout-kit', () => ({
+  Center: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Flexbox: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock('@lobehub/ui', () => ({
+  Alert: ({
+    action,
+    description,
+    message,
+  }: {
+    action?: React.ReactNode;
+    description?: React.ReactNode;
+    message?: React.ReactNode;
+  }) => (
+    <div role="alert">
+      <div>{message}</div>
+      <div>{description}</div>
+      {action}
+    </div>
+  ),
+  Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
+    <button onClick={onClick}>{children}</button>
+  ),
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock('@/store/user', async () => {
+  const React = await import('react');
+
+  return {
+    useUserStore: <Selected,>(selector: (state: typeof userStoreState) => Selected) =>
+      React.useSyncExternalStore(
+        (listener) => {
+          userStoreListeners.add(listener);
+          return () => userStoreListeners.delete(listener);
+        },
+        () => selector(userStoreState),
+        () => selector(userStoreState),
+      ),
+  };
+});
+
+vi.mock('@/store/user/selectors', () => ({
+  authSelectors: {
+    currentUserScope: (state: typeof userStoreState) =>
+      state.isLoaded && state.isSignedIn && state.authUserId
+        ? `user:${state.authUserId}`
+        : state.isLoaded && state.isSignedIn === false
+          ? 'guest'
+          : undefined,
+    isLoaded: (state: typeof userStoreState) => state.isLoaded,
+    isLogin: (state: typeof userStoreState) => state.isSignedIn,
+  },
+}));
+
 describe('SettingsContent', () => {
+  beforeEach(() => {
+    updateUserStore({
+      authUserId: 'account-a',
+      isLoaded: true,
+      isSignedIn: true,
+      logout: vi.fn(),
+      refreshUserState: vi.fn(),
+      userStateInitializationFailure: undefined,
+    });
+  });
+
   it('renders the dedicated page for the Chat Instruction tab', () => {
     render(<SettingsContent activeTab={SettingsTabs.ChatInstruction} mobile />);
 
     expect(screen.getByTestId('settings-component-1')).not.toBeNull();
     expect(screen.queryByTestId('settings-component-0')).toBeNull();
+  });
+
+  it('retries a current-scope request failure and restores the tab loading UI', async () => {
+    let finishRetry!: () => void;
+    const retryRequest = new Promise<void>((resolve) => {
+      finishRetry = resolve;
+    });
+    userStoreState.refreshUserState = vi.fn(async () => {
+      updateUserStore({ userStateInitializationFailure: undefined });
+      await retryRequest;
+    });
+    updateUserStore({
+      userStateInitializationFailure: {
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      },
+    });
+
+    render(<SettingsContent activeTab={SettingsTabs.SystemAgent} mobile />);
+
+    expect(screen.getByRole('alert').textContent).toContain('bootstrapFailure.description');
+    expect(screen.queryByTestId('settings-component-11')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'bootstrapFailure.retry' }));
+
+    expect(userStoreState.refreshUserState).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('settings-component-11')).not.toBeNull();
+
+    await act(async () => {
+      finishRetry();
+      await retryRequest;
+    });
+  });
+
+  it('restores failure guidance when the retry request rejects', async () => {
+    userStoreState.refreshUserState = vi.fn(async () => {
+      updateUserStore({ userStateInitializationFailure: undefined });
+      await Promise.resolve();
+      updateUserStore({
+        userStateInitializationFailure: {
+          reason: 'request-failed',
+          scope: 'user:account-a',
+        },
+      });
+      throw new Error('retry failed');
+    });
+    updateUserStore({
+      userStateInitializationFailure: {
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      },
+    });
+
+    render(<SettingsContent activeTab={SettingsTabs.SystemAgent} mobile />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'bootstrapFailure.retry' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('bootstrapFailure.description');
+    });
+    expect(userStoreState.refreshUserState).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires sign-in again for an owner mismatch without retrying', () => {
+    updateUserStore({
+      userStateInitializationFailure: {
+        reason: 'owner-mismatch',
+        scope: 'user:account-a',
+      },
+    });
+
+    render(<SettingsContent activeTab={SettingsTabs.Image} mobile />);
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      'bootstrapFailure.ownerMismatchDescription',
+    );
+    expect(screen.queryByRole('button', { name: 'bootstrapFailure.retry' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'bootstrapFailure.signInAgain' }));
+
+    expect(userStoreState.logout).toHaveBeenCalledTimes(1);
+    expect(userStoreState.refreshUserState).not.toHaveBeenCalled();
+  });
+
+  it('requires sign-in again when the authenticated identity remains unresolved', () => {
+    updateUserStore({
+      authUserId: undefined,
+      isLoaded: true,
+      isSignedIn: true,
+      userStateInitializationFailure: undefined,
+    });
+
+    render(<SettingsContent activeTab={SettingsTabs.Common} mobile />);
+
+    expect(screen.getByRole('alert').textContent).toContain('bootstrapFailure.accountDescription');
+    expect(screen.queryByRole('button', { name: 'bootstrapFailure.retry' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'bootstrapFailure.signInAgain' }));
+
+    expect(userStoreState.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the AI Provider tab usable during a user-state failure', async () => {
+    updateUserStore({
+      userStateInitializationFailure: {
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      },
+    });
+
+    render(<SettingsContent activeTab={SettingsTabs.Provider} mobile />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-component-4')).not.toBeNull();
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

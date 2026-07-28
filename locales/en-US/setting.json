@@ -19,6 +19,14 @@
     },
     "title": "Analytics"
   },
+  "bootstrapFailure": {
+    "accountDescription": "The signed-in account is not ready. Sign in again to protect your account data.",
+    "description": "ChatHub could not load settings for the current account. Check your connection and retry.",
+    "ownerMismatchDescription": "The signed-in session does not match the returned account. Sign in again to protect your account data.",
+    "retry": "Retry",
+    "signInAgain": "Sign in again",
+    "title": "Unable to load settings"
+  },
   "chatInstruction": {
     "desc": "This top-level instruction applies to every user-facing regular assistant and group member across the Default Topic, all other topics, and threads. It does not apply to group supervisors or internal automation.",
     "placeholder": "Describe the behavior you want ChatHub assistants to follow...",

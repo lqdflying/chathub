@@ -1,9 +1,8 @@
 'use client';
 
 import { Alert, Button, Text } from '@lobehub/ui';
-import { useTheme } from 'antd-style';
 import { LogIn, RefreshCw } from 'lucide-react';
-import React, { ReactNode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { ReactNode, memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
@@ -44,11 +43,8 @@ const isSupportedParamSelector = imageGenerationConfigSelectors.isSupportedParam
 
 const ConfigPanel = memo(() => {
   const { t } = useTranslation('image');
-  const theme = useTheme();
 
   // All hooks must be called before any early returns
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [isScrollable, setIsScrollable] = useState(false);
   const [retryingScope, setRetryingScope] = useState<string>();
 
   const isInit = useImageStore((s) => s.isInit);
@@ -87,8 +83,7 @@ const ConfigPanel = memo(() => {
   const hasUnresolvedAuthenticatedScope = isAuthLoaded && !!isLogin && !currentUserScope;
   const hasBootstrapFailure =
     hasUserStateFailure || hasProviderRuntimeFailure || hasUnresolvedAuthenticatedScope;
-  const isRetryingCurrentScope =
-    !!currentUserScope && retryingScope === currentUserScope;
+  const isRetryingCurrentScope = !!currentUserScope && retryingScope === currentUserScope;
 
   const handleRetry = useCallback(async () => {
     if (
@@ -125,73 +120,6 @@ const ConfigPanel = memo(() => {
     await logout();
   }, [logout]);
 
-  // Check if content exceeds container height and needs scrolling
-  const checkScrollable = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (container) {
-      const hasScrollbar = container.scrollHeight > container.clientHeight;
-      setIsScrollable(hasScrollbar);
-    }
-  }, []);
-
-  // Re-check when content changes
-  useEffect(() => {
-    checkScrollable();
-  }, [
-    checkScrollable,
-    isSupportImageUrl,
-    isSupportSize,
-    isSupportQuality,
-    isSupportSeed,
-    isSupportSteps,
-    isSupportCfg,
-    isSupportImageUrls,
-    showDimensionControl,
-  ]);
-
-  // Setup observers for container changes
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    // Initial check
-    checkScrollable();
-
-    // Use ResizeObserver for container size changes
-    const resizeObserver = new ResizeObserver(checkScrollable);
-    resizeObserver.observe(container);
-
-    // Use MutationObserver for content changes
-    const mutationObserver = new MutationObserver(checkScrollable);
-    mutationObserver.observe(container, { childList: true, subtree: true });
-
-    return () => {
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-    };
-  }, [checkScrollable]);
-
-  // Memoize sticky styles to prevent unnecessary re-renders
-  const stickyStyles = useMemo(
-    () => ({
-      bottom: 0,
-      position: 'sticky' as const,
-      zIndex: 1,
-      ...(isScrollable && {
-        backgroundColor: theme.colorBgContainer,
-        borderTop: `1px solid ${theme.colorBorder}`,
-        // Use negative margin to extend background to container edges
-        marginLeft: -12,
-        marginRight: -12,
-        marginTop: 20,
-        // Add back internal padding
-        paddingLeft: 12,
-        paddingRight: 12,
-      }),
-    }),
-    [isScrollable, theme.colorBgContainer, theme.colorBorder],
-  );
-
   if (isRetryingCurrentScope) {
     return <ImageConfigSkeleton />;
   }
@@ -217,8 +145,8 @@ const ConfigPanel = memo(() => {
             hasOwnerMismatch
               ? 'config.bootstrapFailure.ownerMismatchDescription'
               : hasUnresolvedAuthenticatedScope
-              ? 'config.bootstrapFailure.accountDescription'
-              : 'config.bootstrapFailure.description',
+                ? 'config.bootstrapFailure.accountDescription'
+                : 'config.bootstrapFailure.description',
           )}
           message={t('config.bootstrapFailure.title')}
           showIcon
@@ -233,12 +161,7 @@ const ConfigPanel = memo(() => {
   }
 
   return (
-    <Flexbox
-      gap={32}
-      padding="12px 12px 0 12px"
-      ref={scrollContainerRef}
-      style={{ height: '100%', overflow: 'auto' }}
-    >
+    <Flexbox gap={32} padding="12px 12px 24px" style={{ height: '100%', overflow: 'auto' }}>
       <ConfigItemLayout>
         <ModelSelect />
       </ConfigItemLayout>
@@ -288,11 +211,9 @@ const ConfigPanel = memo(() => {
       )}
 
       {isImageModelAvailable && (
-        <Flexbox padding="12px 0" style={stickyStyles}>
-          <ConfigItemLayout label={t('config.imageNum.label')}>
-            <ImageNum />
-          </ConfigItemLayout>
-        </Flexbox>
+        <ConfigItemLayout label={t('config.imageNum.label')}>
+          <ImageNum />
+        </ConfigItemLayout>
       )}
     </Flexbox>
   );

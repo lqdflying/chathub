@@ -101,7 +101,12 @@ without revalidating stale account generations. SWR applies global mutation
 predicates to [all existing cache keys](https://swr.vercel.app/docs/mutation#mutate-multiple-items),
 so account-owned actions must not call raw predicate `mutate` directly.
 User-state bootstrap uses the same epoch key directly to avoid a store import
-cycle and remains disabled for a same-scope hard mismatch.
+cycle and remains disabled for a same-scope hard mismatch. Its SWR request uses
+`dedupingInterval: 0`: after account-scoped cache clearing and a
+`user:A → unresolved → user:A` remount, the newly mounted initializer must
+start a replacement request even if the previous same-key request settled
+within SWR's normal deduplication window. Scope, ownership-generation, and
+owner-mismatch checks still reject stale responses.
 
 User-owned mutations use the same fail-closed boundary. Settings, avatar,
 preference, image-config migration/update, model-provider configuration, and
@@ -137,6 +142,23 @@ offers **Retry**: Image Settings shows identity-specific guidance and **Sign in
 again**, which uses the universal logout flow so the authentication provider can
 establish a new session. The normal no-model guidance remains a settled
 image-configuration state and is not classified as a bootstrap failure.
+
+The same bounded failure contract wraps settings tabs that require hydrated
+user state. While the active-scope request is pending they keep their existing
+loading UI. A `request-failed` state offers **Retry** through
+`refreshUserState`; an owner mismatch or signed-in identity whose scope remains
+unresolved offers **Sign in again**. Tabs that do not require user-state
+hydration, including AI Provider, remain usable.
+
+### Image Settings scroll layout
+
+Every configuration control is a normal-flow child of the same scroll
+container. **Number of Images** is the final item after Model, reference image,
+Size, Quality, dimension, Steps, CFG, and Seed controls, with ordinary bottom
+spacing on the container. It is not sticky or fixed and has no observer-driven
+overlay, negative margins, or reserved magic-height padding. Mobile drawers and
+desktop panels therefore scroll the complete ordered form without controls
+moving underneath the image-count selector.
 
 Browser system status is advisory preference data. If
 `LOBE_SYSTEM_STATUS` is missing, inaccessible, or contains malformed JSON,

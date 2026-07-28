@@ -1,12 +1,17 @@
 'use client';
 
+import { Alert, Button } from '@lobehub/ui';
+import { LogIn, RefreshCw } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { notFound } from 'next/navigation';
-import React, { CSSProperties } from 'react';
-import { Flexbox } from 'react-layout-kit';
+import React, { CSSProperties, ReactNode, memo, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Center, Flexbox } from 'react-layout-kit';
 
 import Loading from '@/components/Loading/BrandTextLoading';
 import { SettingsTabs } from '@/store/global/initialState';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 const componentMap = {
   [SettingsTabs.Common]: dynamic(() => import('../common'), {
@@ -50,6 +55,99 @@ const componentMap = {
   }),
 };
 
+const userStateDependentTabs = new Set<string>([
+  SettingsTabs.Agent,
+  SettingsTabs.ChatInstruction,
+  SettingsTabs.Common,
+  SettingsTabs.Hotkey,
+  SettingsTabs.Image,
+  SettingsTabs.SystemAgent,
+  SettingsTabs.TTS,
+]);
+
+interface UserStateBootstrapGuardProps {
+  children: ReactNode;
+  tab: string;
+}
+
+const UserStateBootstrapGuard = memo<UserStateBootstrapGuardProps>(({ children, tab }) => {
+  const { t } = useTranslation('setting');
+  const [retryingScope, setRetryingScope] = useState<string>();
+  const isAuthLoaded = useUserStore(authSelectors.isLoaded);
+  const isLogin = useUserStore(authSelectors.isLogin);
+  const currentUserScope = useUserStore(authSelectors.currentUserScope);
+  const userStateInitializationFailure = useUserStore(
+    (state) => state.userStateInitializationFailure,
+  );
+  const logout = useUserStore((state) => state.logout);
+  const refreshUserState = useUserStore((state) => state.refreshUserState);
+
+  const hasUserStateFailure =
+    !!currentUserScope && userStateInitializationFailure?.scope === currentUserScope;
+  const hasOwnerMismatch =
+    hasUserStateFailure && userStateInitializationFailure?.reason === 'owner-mismatch';
+  const hasUnresolvedAuthenticatedScope = isAuthLoaded && !!isLogin && !currentUserScope;
+  const isRetryingCurrentScope = !!currentUserScope && retryingScope === currentUserScope;
+
+  const handleRetry = useCallback(async () => {
+    if (!currentUserScope || hasOwnerMismatch || !hasUserStateFailure) return;
+
+    const requestedScope = currentUserScope;
+    setRetryingScope(requestedScope);
+    try {
+      await refreshUserState();
+    } catch {
+      // The user store exposes request failures through userStateInitializationFailure.
+    } finally {
+      setRetryingScope((activeRetryScope) =>
+        activeRetryScope === requestedScope ? undefined : activeRetryScope,
+      );
+    }
+  }, [currentUserScope, hasOwnerMismatch, hasUserStateFailure, refreshUserState]);
+
+  const handleSignInAgain = useCallback(async () => {
+    await logout();
+  }, [logout]);
+
+  if (
+    !userStateDependentTabs.has(tab) ||
+    isRetryingCurrentScope ||
+    (!hasUserStateFailure && !hasUnresolvedAuthenticatedScope)
+  ) {
+    return children;
+  }
+
+  const requiresSignInAgain = hasOwnerMismatch || hasUnresolvedAuthenticatedScope;
+
+  return (
+    <Center height={'100%'} padding={16} width={'100%'}>
+      <Alert
+        action={
+          requiresSignInAgain ? (
+            <Button icon={LogIn} onClick={handleSignInAgain} size={'small'} type={'primary'}>
+              {t('bootstrapFailure.signInAgain')}
+            </Button>
+          ) : (
+            <Button icon={RefreshCw} onClick={handleRetry} size={'small'} type={'primary'}>
+              {t('bootstrapFailure.retry')}
+            </Button>
+          )
+        }
+        description={t(
+          hasOwnerMismatch
+            ? 'bootstrapFailure.ownerMismatchDescription'
+            : hasUnresolvedAuthenticatedScope
+              ? 'bootstrapFailure.accountDescription'
+              : 'bootstrapFailure.description',
+        )}
+        message={t('bootstrapFailure.title')}
+        showIcon
+        type={'error'}
+      />
+    </Center>
+  );
+});
+
 interface SettingsContentProps {
   activeTab?: string;
   mobile?: boolean;
@@ -74,7 +172,11 @@ const SettingsContent = ({ mobile, activeTab, showLLM = true }: SettingsContentP
       componentProps.mobile = mobile;
     }
 
-    return <Component {...componentProps} />;
+    return (
+      <UserStateBootstrapGuard tab={tab}>
+        <Component {...componentProps} />
+      </UserStateBootstrapGuard>
+    );
   };
 
   if (mobile) {

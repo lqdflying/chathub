@@ -22,23 +22,29 @@ const UserUpdater = memo(() => {
   useStoreUpdater('nextSession', session!);
   useStoreUpdater('authUserId', nextUser?.id);
 
-  // 使用 useEffect 处理需要保持同步的用户数据
   useEffect(() => {
-    if (nextUser) {
-      const userAvatar = useUserStore.getState().user?.avatar;
-
-      const lobeUser = {
-        // 头像使用设置的，而不是从 next-auth 中获取
-        avatar: userAvatar || '',
-        email: nextUser.email,
-        fullName: nextUser.name,
-        id: nextUser.id,
-      } as LobeUser;
-
-      // 更新用户相关数据
-      useUserStore.setState({ nextUser: nextUser, user: lobeUser });
+    if (status === 'unauthenticated') {
+      useUserStore.setState({
+        authUserId: undefined,
+        nextSession: undefined,
+        nextUser: undefined,
+        user: undefined,
+      });
+      return;
     }
-  }, [nextUser]);
+
+    if (!nextUser) return;
+
+    const userAvatar = useUserStore.getState().user?.avatar;
+    const lobeUser = {
+      avatar: userAvatar || '',
+      email: nextUser.email,
+      fullName: nextUser.name,
+      id: nextUser.id,
+    } as LobeUser;
+
+    useUserStore.setState({ nextUser, user: lobeUser });
+  }, [nextUser, status]);
   return null;
 });
 

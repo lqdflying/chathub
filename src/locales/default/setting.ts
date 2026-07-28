@@ -19,6 +19,14 @@ export default {
     },
     title: '数据统计',
   },
+  bootstrapFailure: {
+    accountDescription: '当前登录账户尚未准备完成。为保护账户数据，请重新登录。',
+    description: '加载当前账户设置失败，请检查网络连接后重试。',
+    ownerMismatchDescription: '当前登录会话与返回的账户不一致。为保护账户数据，请重新登录。',
+    retry: '重试',
+    signInAgain: '重新登录',
+    title: '无法加载设置',
+  },
   chatInstruction: {
     desc: '此顶层指令会应用于所有面向用户的普通助手和群聊成员，以及每个默认话题、其他话题和子话题。不会应用于群聊主持人或内部自动化任务。',
     placeholder: '描述你希望 ChatHub 助手遵循的行为……',
@@ -325,7 +333,8 @@ export default {
     rollupSuccess: '助手记忆已更新',
     saveAssistantMemory: '保存助手记忆',
     submit: '保存',
-    topicCompactionHint: '仅当前活跃话题的滚动摘要，由压缩/总结生成；换话题后显示对应该话题的内容。',
+    topicCompactionHint:
+      '仅当前活跃话题的滚动摘要，由压缩/总结生成；换话题后显示对应该话题的内容。',
     topicCompactionSection: '当前话题压缩（本会话）',
   },
   settingChatAppearance: {
