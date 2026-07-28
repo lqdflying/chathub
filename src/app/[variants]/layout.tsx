@@ -1,6 +1,7 @@
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import { ThemeAppearance } from 'antd-style';
 import { ResolvingViewport } from 'next';
+import type { Session } from 'next-auth';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 import { ReactNode } from 'react';
 import { isRtlLang } from 'rtl-detect';
@@ -9,9 +10,11 @@ import Analytics from '@/components/Analytics';
 import DebugBootstrap from '@/components/DebugBootstrap';
 import { DEFAULT_LANG } from '@/const/locale';
 import { isDesktop } from '@/const/version';
+import { authEnv } from '@/envs/auth';
 import PWAInstall from '@/features/PWAInstall';
 import AuthProvider from '@/layout/AuthProvider';
 import GlobalProvider from '@/layout/GlobalProvider';
+import NextAuth from '@/libs/next-auth';
 import { Locales } from '@/locales/resources';
 import { DynamicLayoutProps } from '@/types/next';
 import { RouteVariants } from '@/utils/server/routeVariants';
@@ -29,6 +32,9 @@ const RootLayout = async ({ children, params, modal }: RootLayoutProps) => {
   const { locale, isMobile, theme, primaryColor, neutralColor } =
     RouteVariants.deserializeVariants(variants);
 
+  const initialNextAuthSession: Session | null = authEnv.NEXT_PUBLIC_ENABLE_NEXT_AUTH
+    ? await NextAuth.auth()
+    : null;
   const direction = isRtlLang(locale) ? 'rtl' : 'ltr';
 
   return (
@@ -49,7 +55,7 @@ const RootLayout = async ({ children, params, modal }: RootLayoutProps) => {
             primaryColor={primaryColor}
             variants={variants}
           >
-            <AuthProvider>
+            <AuthProvider initialNextAuthSession={initialNextAuthSession}>
               {children}
               {!isMobile && modal}
             </AuthProvider>

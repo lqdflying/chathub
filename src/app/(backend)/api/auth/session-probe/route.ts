@@ -11,8 +11,5 @@ const SESSION_PROBE_HEADERS = {
 export const GET = async () => {
   const session = await NextAuth.auth();
 
-  return NextResponse.json(
-    { userId: session?.user?.id ?? null },
-    { headers: SESSION_PROBE_HEADERS },
-  );
+  return NextResponse.json({ session }, { headers: SESSION_PROBE_HEADERS });
 };

@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { memo } from 'react';
 
 import ErrorCapture from '@/components/Error';
+import { runRedirectingNextAuthSessionTransition } from '@/libs/next-auth/sessionLifecycle';
 
 enum ErrorEnum {
   AccessDenied = 'AccessDenied',
@@ -33,7 +34,8 @@ export default memo(() => {
       message: errorMap[error] || 'Unknown error type.',
       name: 'NextAuth Error',
     },
-    reset: () => signIn(undefined, { callbackUrl: '/' }),
+    reset: () =>
+      runRedirectingNextAuthSessionTransition(() => signIn(undefined, { callbackUrl: '/' })),
   };
   console.log('[NextAuth] Error:', props.error);
   return <ErrorCapture {...props} />;

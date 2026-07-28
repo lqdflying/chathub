@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { memo, useEffect } from 'react';
 import { createStoreUpdater } from 'zustand-utils';
 
+import { completeOwnedNextAuthSessionTransition } from '@/libs/next-auth/sessionLifecycle';
 import { useUserStore } from '@/store/user';
 import { LobeUser } from '@/types/user';
 
@@ -23,6 +24,8 @@ const UserUpdater = memo(() => {
   useStoreUpdater('authUserId', nextUser?.id);
 
   useEffect(() => {
+    if (status !== 'loading') completeOwnedNextAuthSessionTransition();
+
     if (status === 'unauthenticated') {
       useUserStore.setState({
         authUserId: undefined,

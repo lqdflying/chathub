@@ -2,6 +2,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { enableAuth, enableClerk, enableNextAuth } from '@/const/auth';
 import { normalizeAuthRedirect } from '@/helpers/normalizeAuthRedirect';
+import { runRedirectingNextAuthSessionTransition } from '@/libs/next-auth/sessionLifecycle';
 
 import type { UserStore } from '../../store';
 
@@ -38,7 +39,9 @@ export const createAuthSlice: StateCreator<
 
     if (enableNextAuth) {
       const { signOut } = await import('next-auth/react');
-      const result = await signOut({ redirect: false, redirectTo: NEXT_AUTH_SIGN_OUT_REDIRECT });
+      const result = await runRedirectingNextAuthSessionTransition(() =>
+        signOut({ redirect: false, redirectTo: NEXT_AUTH_SIGN_OUT_REDIRECT }),
+      );
       window.location.assign(normalizeAuthRedirect(result?.url, NEXT_AUTH_SIGN_OUT_REDIRECT));
     }
   },
@@ -70,10 +73,10 @@ export const createAuthSlice: StateCreator<
       }
 
       if (providers && providers.length === 1) {
-        signIn(providers[0]);
+        await runRedirectingNextAuthSessionTransition(() => signIn(providers[0]));
         return;
       }
-      signIn();
+      await signIn();
     }
   },
 });

@@ -3,14 +3,15 @@
 import { Button, Text } from '@lobehub/ui';
 import { Alert, Flex, Input, Tabs } from 'antd';
 import { createStyles } from 'antd-style';
-import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { normalizeAuthRedirect } from '@/helpers/normalizeAuthRedirect';
+import { runNextAuthSessionTransition } from '@/libs/next-auth/sessionLifecycle';
 
-const useStyles = createStyles(({ css, token }) => ({
+const useStyles = createStyles(({ css }) => ({
   form: css`
     width: 100%;
   `,
@@ -48,18 +49,20 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await signIn('credentials', {
-        password,
-        redirect: false,
-        redirectTo: callbackUrl,
-        token: '',
-        username,
-      });
+      const result = await runNextAuthSessionTransition(() =>
+        signIn('credentials', {
+          password,
+          redirect: false,
+          redirectTo: callbackUrl,
+          token: '',
+          username,
+        }),
+      );
 
       if (result?.error) {
         setError(t('credentials.errorInvalid'));
       } else {
-        router.push(normalizeAuthRedirect(result?.url, '/'));
+        router.push(normalizeAuthRedirect(result?.url ?? undefined, '/'));
       }
     } catch {
       setError(t('credentials.errorInvalid'));
@@ -76,18 +79,20 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await signIn('credentials', {
-        password: '',
-        redirect: false,
-        redirectTo: callbackUrl,
-        token,
-        username: '',
-      });
+      const result = await runNextAuthSessionTransition(() =>
+        signIn('credentials', {
+          password: '',
+          redirect: false,
+          redirectTo: callbackUrl,
+          token,
+          username: '',
+        }),
+      );
 
       if (result?.error) {
         setError(t('credentials.errorInvalidToken'));
       } else {
-        router.push(normalizeAuthRedirect(result?.url, '/'));
+        router.push(normalizeAuthRedirect(result?.url ?? undefined, '/'));
       }
     } catch {
       setError(t('credentials.errorInvalidToken'));
@@ -99,6 +104,7 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
   return (
     <Flex className={styles.form} gap="small" vertical>
       <Tabs
+        activeKey={activeTab}
         centered
         className={styles.tab}
         items={[
@@ -151,7 +157,6 @@ export default memo<CredentialsFormProps>(({ callbackUrl }) => {
         ]}
         onChange={setActiveTab}
         size="small"
-        activeKey={activeTab}
       />
       {error && <Alert message={error} showIcon type="error" />}
     </Flex>

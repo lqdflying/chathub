@@ -17,30 +17,31 @@ describe('GET /api/auth/session-probe', () => {
     vi.clearAllMocks();
   });
 
-  it('returns only the authenticated user identity without forwarding session cookies', async () => {
-    authMock.mockResolvedValue({
+  it('returns the authenticated session snapshot without forwarding session cookies', async () => {
+    const session = {
       expires: new Date(Date.now() + 60_000).toISOString(),
       user: {
         email: 'private@example.com',
         id: 'account-a',
         name: 'Private User',
       },
-    });
+    };
+    authMock.mockResolvedValue(session);
 
     const response = await GET();
 
     expect(authMock).toHaveBeenCalledOnce();
-    await expect(response.json()).resolves.toEqual({ userId: 'account-a' });
+    await expect(response.json()).resolves.toEqual({ session });
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(response.headers.get('set-cookie')).toBeNull();
   });
 
-  it('returns a confirmed signed-out identity without forwarding cookie cleanup', async () => {
+  it('returns a confirmed signed-out snapshot without forwarding cookie cleanup', async () => {
     authMock.mockResolvedValue(null);
 
     const response = await GET();
 
-    await expect(response.json()).resolves.toEqual({ userId: null });
+    await expect(response.json()).resolves.toEqual({ session: null });
     expect(response.headers.get('set-cookie')).toBeNull();
   });
 });

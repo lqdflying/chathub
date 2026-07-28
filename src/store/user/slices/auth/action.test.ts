@@ -15,12 +15,17 @@ vi.mock('swr', async (importOriginal) => {
 });
 
 // 定义一个变量来存储 enableAuth 的值
+let enableAuth = false;
+
 let enableClerk = false;
 
 let enableNextAuth = false;
 
 // 模拟 @/const/auth 模块
 vi.mock('@/const/auth', () => ({
+  get enableAuth() {
+    return enableAuth;
+  },
   get enableClerk() {
     return enableClerk;
   },
@@ -31,9 +36,12 @@ vi.mock('@/const/auth', () => ({
 
 afterEach(() => {
   vi.restoreAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
 
   enableNextAuth = false;
   enableClerk = false;
+  enableAuth = false;
 });
 
 /**
@@ -49,14 +57,24 @@ vi.mock('next-auth/react', async () => {
 describe('createAuthSlice', () => {
   describe('refreshUserState', () => {
     it('should refresh user config', async () => {
-      useUserStore.setState({ userStateScope: 'user:user-id' });
+      enableAuth = true;
+      useUserStore.setState({
+        authUserId: 'user-id',
+        isLoaded: true,
+        isSignedIn: true,
+        userStateScope: 'user:user-id',
+      });
       const { result } = renderHook(() => useUserStore());
 
       await act(async () => {
         await result.current.refreshUserState();
       });
 
-      expect(mutate).toHaveBeenCalledWith(['initUserState', 'user:user-id']);
+      expect(mutate).toHaveBeenCalledWith([
+        'initUserState',
+        'user:user-id',
+        ['account-cache-epoch', 0],
+      ]);
     });
   });
 
@@ -90,6 +108,7 @@ describe('createAuthSlice', () => {
     });
 
     it('should call next-auth signOut when NextAuth is enabled', async () => {
+      enableAuth = true;
       enableNextAuth = true;
 
       const assignSpy = vi.spyOn(window.location, 'assign').mockImplementation(() => undefined);
@@ -108,6 +127,7 @@ describe('createAuthSlice', () => {
         redirectTo: '/next-auth/signin',
       });
       expect(assignSpy).toHaveBeenCalledWith('/next-auth/signin');
+      expect(localStorage.getItem('chathub:next-auth-session-transition')).not.toBeNull();
       enableNextAuth = false;
     });
 

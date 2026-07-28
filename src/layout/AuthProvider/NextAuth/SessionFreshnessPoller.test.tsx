@@ -3,6 +3,12 @@ import type { Session } from 'next-auth';
 import React, { useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  beginNextAuthSessionTransition,
+  completeNextAuthSessionTransition,
+  completeOwnedNextAuthSessionTransition,
+} from '@/libs/next-auth/sessionLifecycle';
+
 import SessionFreshnessPoller from './SessionFreshnessPoller';
 
 vi.stubGlobal('React', React);
@@ -72,15 +78,39 @@ const advanceToNextPoll = async () => {
   });
 };
 
+const flushImmediateProbe = async () => {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+};
+
+const createJsonResponse = (body: unknown, ok = true): Response =>
+  ({
+    json: vi.fn().mockResolvedValue(body),
+    ok,
+  }) as unknown as Response;
+
 describe('SessionFreshnessPoller', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    localStorage.clear();
+    sessionStorage.clear();
     nextAuthSessionStore.setSession({
       data: createSession('account-a'),
       status: 'authenticated',
     });
     setOnline(true);
     vi.stubGlobal('fetch', vi.fn());
+    Object.defineProperty(window.navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: vi.fn(
+          async <Result,>(_name: string, operation: () => Promise<Result>): Promise<Result> =>
+            operation(),
+        ),
+      },
+    });
   });
 
   afterEach(() => {
@@ -88,14 +118,12 @@ describe('SessionFreshnessPoller', () => {
     vi.useRealTimers();
   });
 
-  it('reloads when a read-only probe confirms there is no session', async () => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
-    vi.mocked(fetch).mockResolvedValue({
-      json: vi.fn().mockResolvedValue({ userId: null }),
-      ok: true,
-    } as unknown as Response);
-    render(<SessionFreshnessPoller />);
-    await advanceToNextPoll();
+  it('reconciles a confirmed logout without a second session request', async () => {
+    const onReconcileSession = vi.fn();
+    vi.mocked(fetch).mockResolvedValue(createJsonResponse({ session: null }));
+
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
     expect(fetch).toHaveBeenCalledOnce();
     expect(fetch).toHaveBeenCalledWith('/api/auth/session-probe', {
@@ -104,38 +132,52 @@ describe('SessionFreshnessPoller', () => {
       headers: { Accept: 'application/json' },
       signal: expect.any(AbortSignal),
     });
-    expect(reloadSpy).toHaveBeenCalledOnce();
-
-    await advanceToNextPoll();
-    expect(fetch).toHaveBeenCalledOnce();
+    expect(onReconcileSession).toHaveBeenCalledOnce();
+    expect(onReconcileSession).toHaveBeenCalledWith(null);
   });
 
-  it('preserves the current session when the probe returns an authenticated session', async () => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
-    vi.mocked(fetch).mockResolvedValue({
-      json: vi.fn().mockResolvedValue({ userId: 'account-a' }),
-      ok: true,
-    } as unknown as Response);
+  it('renews a matching authenticated session through the explicit refresh boundary', async () => {
+    const activeSession = createSession('account-a');
+    const refreshedSession = {
+      ...activeSession,
+      expires: new Date(Date.now() + 120_000).toISOString(),
+    };
+    const onReconcileSession = vi.fn();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(createJsonResponse({ session: activeSession }))
+      .mockResolvedValueOnce(createJsonResponse({ session: activeSession }))
+      .mockResolvedValueOnce(createJsonResponse(refreshedSession));
 
-    render(<SessionFreshnessPoller />);
-    await advanceToNextPoll();
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(reloadSpy).not.toHaveBeenCalled();
+
+    await advanceToNextPoll();
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/auth/session', {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'application/json',
+        'x-chathub-session-refresh': '1',
+      },
+      signal: expect.any(AbortSignal),
+    });
+    expect(onReconcileSession).not.toHaveBeenCalled();
   });
 
-  it('reloads when the probe belongs to another authenticated account', async () => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
-    vi.mocked(fetch).mockResolvedValue({
-      json: vi.fn().mockResolvedValue({ userId: 'account-b' }),
-      ok: true,
-    } as unknown as Response);
+  it('reconciles when the probe belongs to another authenticated account', async () => {
+    const accountBSession = createSession('account-b');
+    const onReconcileSession = vi.fn();
+    vi.mocked(fetch).mockResolvedValue(createJsonResponse({ session: accountBSession }));
 
-    render(<SessionFreshnessPoller />);
-    await advanceToNextPoll();
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(reloadSpy).toHaveBeenCalledOnce();
+    expect(onReconcileSession).toHaveBeenCalledWith(accountBSession);
   });
 
   it.each([
@@ -156,50 +198,68 @@ describe('SessionFreshnessPoller', () => {
     [
       'a malformed identity',
       {
-        json: vi.fn().mockResolvedValue({ userId: 42 }),
+        json: vi.fn().mockResolvedValue({ session: { user: { id: 42 } } }),
         ok: true,
       },
     ],
   ])('preserves the current session after %s', async (_caseName, response) => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
+    const onReconcileSession = vi.fn();
     vi.mocked(fetch).mockResolvedValue(response as unknown as Response);
 
-    render(<SessionFreshnessPoller />);
-    await advanceToNextPoll();
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(onReconcileSession).not.toHaveBeenCalled();
   });
 
   it('does not probe while the browser reports an offline connection', async () => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
+    const onReconcileSession = vi.fn();
     setOnline(false);
 
-    render(<SessionFreshnessPoller />);
-    await advanceToNextPoll();
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(onReconcileSession).not.toHaveBeenCalled();
   });
 
-  it('does not schedule polling for an unauthenticated session', async () => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
+  it('reconciles a replacement login from an unauthenticated server snapshot', async () => {
+    const onReconcileSession = vi.fn();
+    const accountBSession = createSession('account-b');
     nextAuthSessionStore.setSession({ data: null, status: 'unauthenticated' });
+    vi.mocked(fetch).mockResolvedValue(createJsonResponse({ session: accountBSession }));
 
-    render(<SessionFreshnessPoller />);
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(onReconcileSession).toHaveBeenCalledWith(accountBSession);
+
     await advanceToNextPoll();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('does not probe while the initial session is loading', async () => {
+    const onReconcileSession = vi.fn();
+    nextAuthSessionStore.setSession({ data: null, status: 'loading' });
+
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(onReconcileSession).not.toHaveBeenCalled();
   });
 
   it('aborts and ignores an account-A probe after account B becomes active', async () => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
+    const onReconcileSession = vi.fn();
     const deferredResponse = createDeferred<Response>();
-    vi.mocked(fetch).mockReturnValue(deferredResponse.promise);
+    vi.mocked(fetch)
+      .mockReturnValueOnce(deferredResponse.promise)
+      .mockResolvedValueOnce(createJsonResponse({ session: createSession('account-b') }));
 
-    render(<SessionFreshnessPoller />);
-    await advanceToNextPoll();
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
     const requestSignal = vi.mocked(fetch).mock.calls[0]?.[1]?.signal;
     expect(requestSignal?.aborted).toBe(false);
@@ -210,11 +270,12 @@ describe('SessionFreshnessPoller', () => {
         status: 'authenticated',
       });
     });
+    await flushImmediateProbe();
 
     expect(requestSignal?.aborted).toBe(true);
 
     deferredResponse.resolve({
-      json: vi.fn().mockResolvedValue({ userId: null }),
+      json: vi.fn().mockResolvedValue({ session: null }),
       ok: true,
     } as unknown as Response);
     await act(async () => {
@@ -222,29 +283,21 @@ describe('SessionFreshnessPoller', () => {
       await Promise.resolve();
     });
 
-    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(onReconcileSession).not.toHaveBeenCalled();
   });
 
-  it('reloads directly after same-account reauthentication without a second session request', async () => {
-    const reloadSpy = vi.spyOn(window.location, 'reload').mockImplementation(() => undefined);
+  it('does not renew after an auth transition begins while the probe is in flight', async () => {
+    const onReconcileSession = vi.fn();
     const deferredResponse = createDeferred<Response>();
     vi.mocked(fetch).mockReturnValue(deferredResponse.promise);
 
-    render(<SessionFreshnessPoller />);
-    await advanceToNextPoll();
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
 
-    act(() => {
-      nextAuthSessionStore.setSession({
-        data: {
-          ...createSession('account-a'),
-          expires: new Date(Date.now() + 120_000).toISOString(),
-        },
-        status: 'authenticated',
-      });
-    });
+    const transitionMarker = beginNextAuthSessionTransition();
 
     deferredResponse.resolve({
-      json: vi.fn().mockResolvedValue({ userId: null }),
+      json: vi.fn().mockResolvedValue({ session: createSession('account-a') }),
       ok: true,
     } as unknown as Response);
     await act(async () => {
@@ -253,6 +306,53 @@ describe('SessionFreshnessPoller', () => {
     });
 
     expect(fetch).toHaveBeenCalledOnce();
-    expect(reloadSpy).toHaveBeenCalledOnce();
+    expect(onReconcileSession).not.toHaveBeenCalled();
+
+    completeNextAuthSessionTransition(transitionMarker);
+  });
+
+  it('reconciles immediately after this tab completes an auth transition', async () => {
+    const accountASession = createSession('account-a');
+    const accountBSession = createSession('account-b');
+    const onReconcileSession = vi.fn();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(createJsonResponse({ session: accountASession }))
+      .mockResolvedValueOnce(createJsonResponse({ session: accountBSession }));
+
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
+
+    beginNextAuthSessionTransition();
+    completeOwnedNextAuthSessionTransition();
+    await flushImmediateProbe();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(onReconcileSession).toHaveBeenCalledWith(accountBSession);
+  });
+
+  it('queues reconciliation when a transition completes during an older probe', async () => {
+    const accountBSession = createSession('account-b');
+    const accountCSession = createSession('account-c');
+    const deferredResponse = createDeferred<Response>();
+    const onReconcileSession = vi.fn();
+    vi.mocked(fetch)
+      .mockReturnValueOnce(deferredResponse.promise)
+      .mockResolvedValueOnce(createJsonResponse({ session: accountCSession }));
+
+    render(<SessionFreshnessPoller onReconcileSession={onReconcileSession} />);
+    await flushImmediateProbe();
+
+    beginNextAuthSessionTransition();
+    completeOwnedNextAuthSessionTransition();
+    await flushImmediateProbe();
+
+    expect(fetch).toHaveBeenCalledOnce();
+
+    deferredResponse.resolve(createJsonResponse({ session: accountBSession }));
+    await flushImmediateProbe();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(onReconcileSession).toHaveBeenCalledOnce();
+    expect(onReconcileSession).toHaveBeenCalledWith(accountCSession);
   });
 });

@@ -22,29 +22,41 @@ browser or installed PWA returns to the foreground. `SessionProvider` sets both
 a transient resume-time transport, HTTP, or JSON failure as a definitive
 unauthenticated session and consequently clearing every account-scoped store.
 
-`SessionFreshnessPoller` instead calls ChatHub's identity-only
-`/api/auth/session-probe` endpoint every five minutes while the browser reports
-an online connection. The route uses server-side Auth.js `auth()` to return only
-`{ userId }` with no-store headers. Both this endpoint and normal page
-navigation still pass through the global `NextAuth.auth` middleware wrapper.
-Auth.js can append session-token rotations after the application middleware
-callback returns, so ChatHub post-processes every NextAuth middleware response
-and removes `authjs.session-token`, `__Secure-authjs.session-token`, and their
-chunked variants from `Set-Cookie`. Other middleware cookies, such as locale
-preferences, are preserved. Explicit Auth.js sign-in, sign-out, and session
-route handlers remain responsible for intentional session-cookie changes.
+The variants layout reads the current session with server-side Auth.js `auth()`
+and passes that snapshot to `SessionProvider`. Supplying the `session` prop
+prevents Auth.js from issuing an automatic `/api/auth/session` request after a
+reload. Page navigation and ordinary `/api/auth/session` reads are
+cookie-neutral: ChatHub removes `authjs.session-token`,
+`__Secure-authjs.session-token`, and their chunked variants from `Set-Cookie`
+while preserving unrelated cookies. OAuth callbacks, credentials login,
+sign-out, and an explicitly marked keep-alive request remain able to change the
+browser session cookie.
 
-Network failures, non-success responses, invalid JSON, and malformed identities
-are inconclusive and preserve the last confirmed session. Each probe is bound
-to the current `session.user.id`; an identity or authentication-status change
-aborts the request and invalidates its result. A successful probe returning
-`userId: null` or a different authenticated user reloads the document exactly
-once. The old document performs no Auth.js `update()` or `signOut()` request,
-and both the probe response and reload navigation pass through the cookie-neutral
-middleware boundary. A delayed response from either request therefore cannot
-restore an older session cookie. The new document performs normal initial
-Auth.js bootstrap using whichever cookie is current when it loads. The response
-filter uses the server-side
+`SessionFreshnessPoller` calls the no-store `/api/auth/session-probe` endpoint
+immediately after definitive session bootstrap and after an auth transition
+finishes. Authenticated, online tabs repeat the probe every five minutes. The
+endpoint returns a read-only `{ session }` snapshot. A confirmed missing or
+different account remounts `SessionProvider` from that snapshot without
+reloading the document or issuing an Auth.js client update. Network failures,
+non-success responses, invalid JSON, and malformed sessions are inconclusive
+and preserve the last confirmed state. Each request is bound to the identity
+and auth-transition generation that started it; identity changes, transition
+starts, and component cleanup abort or invalidate older work.
+
+When the five-minute probe still matches the active account, the poller may send
+one explicitly marked `/api/auth/session` keep-alive. That request is the only
+session GET allowed to forward Auth.js's renewed session cookie. Keep-alives and
+actual sign-in/sign-out writes share an origin-wide
+[Web Lock](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API).
+Auth transitions also publish a monotonic storage generation before waiting
+for the lock, so an older probe cannot start or apply follow-up work. If a
+replacement login begins during a keep-alive, it waits for the older write and
+then lands last. Transition completion triggers read-only reconciliation in the
+redirecting document and other open tabs. Browsers without Web Locks skip the
+background cookie-writing keep-alive rather than issuing an unsynchronized
+write; explicit authentication remains available.
+
+The response filter uses the server-side
 [`Headers.getSetCookie()` API](https://developer.mozilla.org/en-US/docs/Web/API/Headers/getSetCookie)
 to preserve independent cookie headers and follows Next.js's documented
 [middleware response-cookie model](https://nextjs.org/docs/app/building-your-application/routing/middleware#using-cookies).
@@ -52,15 +64,12 @@ This avoids the known client update and concurrent cookie-write limitations in
 [next-auth#11958](https://github.com/nextauthjs/next-auth/issues/11958) and
 [next-auth#8897](https://github.com/nextauthjs/next-auth/issues/8897).
 
-This bounds stale client state without reintroducing the unreliable
-foreground-resume request or Auth.js beta's built-in polling path, which
-collapses fetch failures to `null`. Initial session loading, explicit
-sign-in/sign-out, Auth.js cross-tab session broadcasts, and fresh-document
-bootstrap after a confirmed probe remain authoritative. `UserUpdater` mirrors
-authenticated and genuine unauthenticated states into the user store; it does
-not maintain a second cached session or suppress a real sign-out. On a confirmed
-unauthenticated status it clears the raw auth ID, NextAuth session/user, and
-mapped user identity together.
+This bounds stale client state and preserves sliding expiry without
+reintroducing the unreliable foreground-resume request or Auth.js beta's
+built-in polling path, which collapses fetch failures to `null`.
+`UserUpdater` mirrors the provider snapshot into the user store and clears the
+raw auth ID, NextAuth session/user, and mapped user identity together after a
+confirmed sign-out.
 
 ChatHub defaults `NEXT_AUTH_SSO_SESSION_STRATEGY` to `jwt`. Deployments that
 explicitly select Auth.js database sessions retain Auth.js's upstream session
