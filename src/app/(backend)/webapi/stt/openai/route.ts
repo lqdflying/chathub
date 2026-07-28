@@ -1,7 +1,14 @@
+import { ChatErrorType } from '@lobechat/types';
 import { OpenAISTTPayload } from '@lobehub/tts';
 import { createOpenaiAudioTranscriptions } from '@lobehub/tts/server';
 
-import { createBizOpenAI } from '@/app/(backend)/_deprecated/createBizOpenAI';
+import {
+  createWebApiAuthErrorResponse,
+  resolveWebApiAuthFromHeader,
+} from '@/app/(backend)/middleware/auth/utils';
+import { createErrorResponse } from '@/utils/errorResponse';
+
+import { createOpenAIAudioClient } from '../../openaiAudio';
 
 export const runtime = 'edge';
 
@@ -26,6 +33,21 @@ export const preferredRegion = [
 ];
 
 export const POST = async (req: Request) => {
+  let openai;
+
+  try {
+    const { payload } = await resolveWebApiAuthFromHeader(req, {
+      allowProviderApiKey: true,
+    });
+    openai = createOpenAIAudioClient(payload);
+  } catch (error) {
+    if ((error as { errorType?: ChatErrorType }).errorType) {
+      return createWebApiAuthErrorResponse(error);
+    }
+
+    return createErrorResponse(ChatErrorType.InternalServerError, error);
+  }
+
   const formData = await req.formData();
   const speechBlob = formData.get('speech') as Blob;
   const optionsString = formData.get('options') as string;
@@ -34,13 +56,8 @@ export const POST = async (req: Request) => {
     speech: speechBlob,
   } as OpenAISTTPayload;
 
-  const openaiOrErrResponse = createBizOpenAI(req);
-
-  // if resOrOpenAI is a Response, it means there is an error,just return it
-  if (openaiOrErrResponse instanceof Response) return openaiOrErrResponse;
-
   const res = await createOpenaiAudioTranscriptions({
-    openai: openaiOrErrResponse as any,
+    openai,
     payload,
   });
 

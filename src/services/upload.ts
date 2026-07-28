@@ -6,6 +6,7 @@ import { sha256 } from 'js-sha256';
 
 import { fileEnv } from '@/envs/file';
 import { lambdaClient } from '@/libs/trpc/client';
+import { createHeaderWithAuth } from '@/services/_auth';
 import { API_ENDPOINTS } from '@/services/_url';
 import { clientS3Storage } from '@/services/file/ClientS3';
 import { FileMetadata, UploadBase64ToS3Result } from '@/types/files';
@@ -281,7 +282,8 @@ class UploadService {
    * @param fileType
    */
   getImageFileByUrlWithCORS = async (url: string, filename: string, fileType = 'image/png') => {
-    const res = await fetch(API_ENDPOINTS.proxy, { body: url, method: 'POST' });
+    const headers = await createHeaderWithAuth();
+    const res = await fetch(API_ENDPOINTS.proxy, { body: url, headers, method: 'POST' });
     const data = await res.arrayBuffer();
 
     return new File([data], filename, { lastModified: Date.now(), type: fileType });

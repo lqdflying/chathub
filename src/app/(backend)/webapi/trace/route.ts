@@ -1,10 +1,20 @@
 import { TraceEventType } from '@lobechat/types';
 import { after } from 'next/server';
 
+import {
+  createWebApiAuthErrorResponse,
+  resolveWebApiAuthFromHeader,
+} from '@/app/(backend)/middleware/auth/utils';
 import { TraceClient } from '@/libs/traces';
 import { TraceEventBasePayload, TraceEventPayloads } from '@/types/trace';
 
 export const POST = async (req: Request) => {
+  try {
+    await resolveWebApiAuthFromHeader(req);
+  } catch (error) {
+    return createWebApiAuthErrorResponse(error);
+  }
+
   type RequestData = TraceEventPayloads & TraceEventBasePayload;
   const data = (await req.json()) as RequestData;
   const { traceId, eventType } = data;

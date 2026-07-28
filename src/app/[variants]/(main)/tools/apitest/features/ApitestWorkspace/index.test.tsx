@@ -1,11 +1,19 @@
-import React from 'react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App } from 'antd';
-import { fireEvent, render, screen } from '@testing-library/react';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+
+import { createHeaderWithAuth } from '@/services/_auth';
 
 import ApitestWorkspace from './index';
 
 vi.stubGlobal('React', React);
+
+vi.mock('@/services/_auth', () => ({
+  createHeaderWithAuth: vi.fn(async () => ({
+    'X-lobe-chat-auth': 'encrypted-payload',
+  })),
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -61,6 +69,42 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('ApitestWorkspace', () => {
+  it('sends API Tester requests with the standard encrypted auth header', async () => {
+    const fetchSpy = vi.fn(async () =>
+      Response.json({
+        body: '{"ok":true}',
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+        statusText: 'OK',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    render(
+      <App>
+        <ApitestWorkspace />
+      </App>,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('https://api.example.com/v1/users'), {
+      target: { value: 'https://api.example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Send/ }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/webapi/tools/apitest',
+        expect.objectContaining({
+          headers: { 'X-lobe-chat-auth': 'encrypted-payload' },
+          method: 'POST',
+        }),
+      );
+    });
+    expect(createHeaderWithAuth).toHaveBeenCalledWith({
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
   it('does not send the underlying request when Ctrl+Enter is pressed in the import modal', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);

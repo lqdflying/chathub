@@ -1,10 +1,21 @@
 import { NextResponse } from 'next/server';
 import { ssrfSafeFetch } from 'ssrf-safe-fetch';
 
+import {
+  createWebApiAuthErrorResponse,
+  resolveWebApiAuthFromHeader,
+} from '@/app/(backend)/middleware/auth/utils';
+
 /**
  * just for a proxy
  */
 export const POST = async (req: Request) => {
+  try {
+    await resolveWebApiAuthFromHeader(req);
+  } catch (error) {
+    return createWebApiAuthErrorResponse(error);
+  }
+
   const url = await req.text();
 
   try {

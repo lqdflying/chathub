@@ -1,11 +1,13 @@
 import { AgentRuntimeError } from '@lobechat/model-runtime';
 import { ChatErrorType, type ClientSecretPayload } from '@lobechat/types';
+import { getXorPayload } from '@lobechat/utils/server';
 import { NextRequest } from 'next/server';
 
-import { enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
+import { LOBE_CHAT_AUTH_HEADER, enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
 import { ClerkAuth } from '@/libs/clerk-auth';
 import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
+import { createErrorResponse } from '@/utils/errorResponse';
 
 interface CheckAuthParams {
   accessCode?: string;
@@ -23,6 +25,15 @@ export type AuthMethodResult =
   | {
       method: 'accessCode' | 'apiKey' | 'none';
     };
+
+export interface WebApiRequestAuth {
+  authResult: AuthMethodResult;
+  payload: ClientSecretPayload;
+}
+
+interface WebApiRequestAuthOptions {
+  allowProviderApiKey?: boolean;
+}
 
 /**
  * Check if a resolved server identity, user API key, or access code authorizes the request.
@@ -83,4 +94,25 @@ export const resolveWebApiAuth = async (
     nextAuthUserId,
     tokenAuthUserId: resolveTokenAuthUserId(request.headers),
   });
+};
+
+export const resolveWebApiAuthFromHeader = async (
+  request: Request,
+  options: WebApiRequestAuthOptions = {},
+): Promise<WebApiRequestAuth> => {
+  const encodedPayload = request.headers.get(LOBE_CHAT_AUTH_HEADER);
+  const payload: ClientSecretPayload = encodedPayload ? getXorPayload(encodedPayload) : {};
+  const authResult = await resolveWebApiAuth(request, {
+    accessCode: payload.accessCode,
+    apiKey: options.allowProviderApiKey ? payload.apiKey : undefined,
+  });
+
+  return { authResult, payload };
+};
+
+export const createWebApiAuthErrorResponse = (error: unknown): Response => {
+  const errorType =
+    (error as { errorType?: ChatErrorType }).errorType ?? ChatErrorType.Unauthorized;
+
+  return createErrorResponse(errorType, error);
 };

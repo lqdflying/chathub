@@ -6,6 +6,8 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { createHeaderWithAuth } from '@/services/_auth';
+
 import HistoryDrawer from './HistoryDrawer';
 import ImportCurlModal from './ImportCurlModal';
 import RequestBuilder from './RequestBuilder';
@@ -111,9 +113,12 @@ const ApitestWorkspace = memo(() => {
     let nextResponse: ResponseState;
 
     try {
+      const headers = await createHeaderWithAuth({
+        headers: { 'Content-Type': 'application/json' },
+      });
       const res = await fetch('/webapi/tools/apitest', {
         body: JSON.stringify(buildProxyRequestPayload(draft)),
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         method: 'POST',
         signal: controller.signal,
       });

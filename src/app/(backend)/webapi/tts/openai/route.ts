@@ -1,7 +1,14 @@
+import { ChatErrorType } from '@lobechat/types';
 import { OpenAITTSPayload } from '@lobehub/tts';
 import { createOpenaiAudioSpeech } from '@lobehub/tts/server';
 
-import { createBizOpenAI } from '@/app/(backend)/_deprecated/createBizOpenAI';
+import {
+  createWebApiAuthErrorResponse,
+  resolveWebApiAuthFromHeader,
+} from '@/app/(backend)/middleware/auth/utils';
+import { createErrorResponse } from '@/utils/errorResponse';
+
+import { createOpenAIAudioClient } from '../../openaiAudio';
 
 export const runtime = 'edge';
 
@@ -26,13 +33,22 @@ export const preferredRegion = [
 ];
 
 export const POST = async (req: Request) => {
+  let openai;
+
+  try {
+    const { payload } = await resolveWebApiAuthFromHeader(req, {
+      allowProviderApiKey: true,
+    });
+    openai = createOpenAIAudioClient(payload);
+  } catch (error) {
+    if ((error as { errorType?: ChatErrorType }).errorType) {
+      return createWebApiAuthErrorResponse(error);
+    }
+
+    return createErrorResponse(ChatErrorType.InternalServerError, error);
+  }
+
   const payload = (await req.json()) as OpenAITTSPayload;
 
-  // need to be refactored with jwt auth mode
-  const openaiOrErrResponse = createBizOpenAI(req);
-
-  // if resOrOpenAI is a Response, it means there is an error,just return it
-  if (openaiOrErrResponse instanceof Response) return openaiOrErrResponse;
-
-  return await createOpenaiAudioSpeech({ openai: openaiOrErrResponse as any, payload });
+  return await createOpenaiAudioSpeech({ openai, payload });
 };

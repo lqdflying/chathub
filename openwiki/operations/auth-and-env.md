@@ -41,12 +41,33 @@ with `Unauthorized`; payload API keys, access codes, or an empty access-code
 configuration are not fallback authentication. Those legacy payload methods
 remain available only when all server authentication modes are disabled.
 
+The fail-closed route boundary covers model WebAPIs and the operational
+endpoints that can create server-side effects:
+
+- OpenAI TTS and STT authenticate before parsing audio input or creating an
+  OpenAI client.
+- `/webapi/proxy` authenticates before reading the target URL or issuing an
+  SSRF-safe outbound fetch.
+- `/webapi/tools/apitest` authenticates before parsing or executing the
+  requested API probe.
+- `/webapi/trace` authenticates before parsing or mutating a trace event.
+
+Browser callers send the standard encrypted `X-lobe-chat-auth` payload to these
+routes. Operational endpoints accept its access code only when all server
+authentication modes are disabled; an arbitrary provider API key cannot
+authorize proxy, API Tester, or trace access. OpenAI TTS/STT are the narrow
+exception: when server authentication is disabled, they may use the encrypted
+OpenAI API key because that credential is consumed by the same upstream audio
+operation. If server authentication is configured, the validated session or
+bearer remains mandatory even when an OpenAI key is present.
+
 `X-oauth-authorized` is legacy, untrusted input and is not read as an
 authorization signal. Auth.js documents that route handlers should use
 [`auth()`](https://authjs.dev/getting-started/session-management/protecting) to
 validate the current session close to the protected operation. ChatHub follows
-that pattern for both model WebAPI routes and the plugin gateway instead of
-trusting a header written by middleware.
+that pattern for model WebAPI routes, operational WebAPI routes, and the plugin
+gateway instead of trusting a header written by middleware. The deprecated
+`createBizOpenAI` path that consumed this marker has been removed.
 
 `X-token-auth-user` is legacy, untrusted input and is never accepted as proof
 of identity. In particular, a caller cannot combine that header with

@@ -1,3 +1,4 @@
+import { createHeaderWithAuth } from '@/services/_auth';
 import { API_ENDPOINTS } from '@/services/_url';
 import { useUserStore } from '@/store/user';
 import { preferenceSelectors } from '@/store/user/selectors';
@@ -6,9 +7,13 @@ import { TraceEventBasePayload, TraceEventPayloads } from '@/types/trace';
 class TraceService {
   private request = async <T>(data: T) => {
     try {
+      const headers = await createHeaderWithAuth({
+        headers: { 'Content-Type': 'application/json' },
+      });
+
       return fetch(API_ENDPOINTS.trace, {
         body: JSON.stringify(data),
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         method: 'POST',
       });
     } catch (e) {

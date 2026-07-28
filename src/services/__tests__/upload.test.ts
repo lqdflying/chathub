@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fileEnv } from '@/envs/file';
 import { lambdaClient } from '@/libs/trpc/client';
+import { createHeaderWithAuth } from '@/services/_auth';
 import { API_ENDPOINTS } from '@/services/_url';
 import { clientS3Storage } from '@/services/file/ClientS3';
 
@@ -19,6 +20,12 @@ vi.mock('@lobechat/model-runtime', () => ({
 
 vi.mock('@lobechat/utils', () => ({
   uuid: () => 'mock-uuid',
+}));
+
+vi.mock('@/services/_auth', () => ({
+  createHeaderWithAuth: vi.fn(async () => ({
+    'X-lobe-chat-auth': 'encrypted-payload',
+  })),
 }));
 
 vi.mock('@/libs/trpc/client', () => ({
@@ -64,7 +71,7 @@ describe('UploadService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock Date.now
-    vi.spyOn(Date, 'now').mockImplementation(() => 3600000); // 1 hour in milliseconds
+    vi.spyOn(Date, 'now').mockImplementation(() => 3_600_000); // 1 hour in milliseconds
   });
 
   describe('uploadFileToS3', () => {
@@ -396,8 +403,10 @@ describe('UploadService', () => {
 
       expect(global.fetch).toHaveBeenCalledWith(API_ENDPOINTS.proxy, {
         body: url,
+        headers: { 'X-lobe-chat-auth': 'encrypted-payload' },
         method: 'POST',
       });
+      expect(createHeaderWithAuth).toHaveBeenCalledOnce();
       expect(result).toBeInstanceOf(File);
       expect(result.name).toBe(filename);
       expect(result.type).toBe('image/png');

@@ -106,7 +106,7 @@ export const createXorKeyVaultsPayload = (provider: string) => {
 };
 
 // eslint-disable-next-line no-undef
-export const createHeaderWithAuth = async (params?: AuthParams): Promise<HeadersInit> => {
+export const createHeaderWithAuthSync = (params?: AuthParams): HeadersInit => {
   assertActiveUserStateOwnership();
   let payload = params?.payload || {};
 
@@ -119,3 +119,7 @@ export const createHeaderWithAuth = async (params?: AuthParams): Promise<Headers
   // eslint-disable-next-line no-undef
   return { ...params?.headers, [LOBE_CHAT_AUTH_HEADER]: token };
 };
+
+// eslint-disable-next-line no-undef
+export const createHeaderWithAuth = async (params?: AuthParams): Promise<HeadersInit> =>
+  createHeaderWithAuthSync(params);

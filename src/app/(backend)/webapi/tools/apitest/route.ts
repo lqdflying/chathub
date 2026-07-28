@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 
 import {
-  ApiTesterRequestSchema,
-  executeApiTesterRequest,
-} from '@/server/services/apiTester';
+  createWebApiAuthErrorResponse,
+  resolveWebApiAuthFromHeader,
+} from '@/app/(backend)/middleware/auth/utils';
+import { ApiTesterRequestSchema, executeApiTesterRequest } from '@/server/services/apiTester';
 
 export const runtime = 'nodejs';
 
@@ -26,6 +27,12 @@ const anySignal = (signals: AbortSignal[]): AbortSignal => {
 };
 
 export const POST = async (req: Request) => {
+  try {
+    await resolveWebApiAuthFromHeader(req);
+  } catch (error) {
+    return createWebApiAuthErrorResponse(error);
+  }
+
   try {
     const payload = ApiTesterRequestSchema.parse(await req.json());
     const timeoutSignal = AbortSignal.timeout(SERVER_REQUEST_TIMEOUT_MS);
