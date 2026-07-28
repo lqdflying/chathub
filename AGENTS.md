@@ -6,7 +6,8 @@ This file is for automated agents and assistants working in this repository. Aut
 
 - For every **bugfix** or **feature**: **do not** implement on **`main`**. If currently on `main`, create a **`fix/<short-slug>`** or **`feat/<short-slug>`** branch before editing.
 - If already on a non-`main` branch, continue there by default even when the troubleshooting target changes before GA. Do not create another branch just because the next fix/feature touches a different area; use distinct commit messages to separate phases unless the user explicitly asks for a fresh/isolation branch.
-- After each completed and verified bugfix or feature, create local commits automatically in **every affected Git repository**. If both the main repository and the separate `wiki/` repository changed, commit each repository locally with only its relevant files. Use separate local commits for every later fix/feature; do not amend completed work.
+- After each completed and verified bugfix or feature, create local commits automatically in **every affected Git repository**. If both the main repository and the separate `wiki/` repository changed, commit each repository locally with only its relevant files.
+- Treat every completed implementation or review-fix pass as a separate round. Each verified round must create a new local commit on top of the previous round's commit, including fixes based on review. Never amend a completed round or leave it uncommitted to combine with later work.
 - **Never** `git push`, create/push a tag, trigger a remote build, or perform GA/release actions without an **explicit in-turn** user instruction.
 
 Full workflow (stash, canary/GA tags, Docker release, recovery): **`.cursor/rules/git-and-release.mdc`**.

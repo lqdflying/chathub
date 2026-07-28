@@ -52,6 +52,14 @@ own local commit containing only its relevant files. A later bugfix or feature
 must receive new local commits; do not amend or fold it into previous completed
 work.
 
+Treat each completed implementation or review-fix pass as a separate **round**.
+This applies whether work started from an implementation plan, direct bug
+report, code review, CI review, or follow-up review of an earlier local commit.
+After a round is verified and documented, create a new local commit on top of
+the previous round's commit. Never leave a completed review-fix round
+uncommitted, amend it into the prior commit, or wait to combine it with a later
+round.
+
 - While a fix/feature is still in progress, keep edits uncommitted so verification
   and related corrections stay in one coherent commit.
 - Before the automatic local commit, inspect status and diff, preserve unrelated
@@ -75,6 +83,8 @@ work.
 - Commit messages must be prefixed with a **gitmoji** (e.g. `🐛 fix(scope): …`, `✨ feat(scope): …`).
 - Use a new commit for every later fix or feature, even when continuing on the
   same pre-GA branch.
+- Review follow-ups are later fix rounds: commit each verified round on top of
+  the commit it reviews; never amend or squash it into that earlier commit.
 - Before merge: show `git status` and `git branch -a`.
 - After merge/push: run `git fetch --prune` to confirm remote branch cleanup.
 - After merge: verify with `git log --oneline -3`.
