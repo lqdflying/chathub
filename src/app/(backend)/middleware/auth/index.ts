@@ -76,14 +76,22 @@ export const checkAuth =
         };
       }
 
-      if (!isUseOidcAuth)
-        checkAuthMethod({
+      if (!isUseOidcAuth) {
+        const authMethod = checkAuthMethod({
           accessCode: jwtPayload.accessCode,
           apiKey: jwtPayload.apiKey,
           clerkAuth,
           nextAuthAuthorized: oauthAuthorized,
           tokenAuthAuthorized,
         });
+
+        if (authMethod === 'tokenAuth' && tokenAuthUserId) {
+          jwtPayload = {
+            ...jwtPayload,
+            userId: tokenAuthUserId,
+          };
+        }
+      }
     } catch (e) {
       const params = await options.params;
 

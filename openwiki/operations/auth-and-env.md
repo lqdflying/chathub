@@ -24,12 +24,26 @@ validation derives the raw authentication principal only from
 `AUTH_USER_ID` (falling back to `default_user` for direct API bearer access);
 request headers cannot select the user.
 
+Backend WebAPI requests still decode the client-generated
+`X-lobe-chat-auth` payload for provider credentials and runtime options. When
+static bearer authentication is the credential that authorizes the request,
+the server overwrites that payload's `userId` with the bearer-validated
+`AUTH_USER_ID` before invoking the route handler. The decoded payload therefore
+cannot redirect user-scoped model runtime, tracing, cache, or nested tRPC work
+to another database owner.
+
 `X-token-auth-user` is legacy, untrusted input and is never accepted as proof
 of identity. In particular, a caller cannot combine that header with
 `X-ChatHub-Account-Scope` to choose an API-key or Picbed tenant. Sensitive
 account middleware compares the asserted account scope with the explicit raw
 principal recorded by a validated authentication mechanism, not with the
 generic `userId` that may later represent a mapped database owner.
+
+Clerk development impersonation preserves this separation explicitly:
+`clerkAuth.userId` remains the raw authenticated Clerk principal used by
+account-scope verification, while the mapped `userId` remains the database
+owner. Lambda and Edge contexts must never populate `rawAuthUserId` from the
+mapped owner.
 
 Do not attempt to pass token identity through response headers. Next.js 15
 documents that only

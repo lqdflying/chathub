@@ -2,12 +2,19 @@ import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CHATHUB_ACCOUNT_SCOPE_HEADER, TOKEN_AUTH_USER_HEADER } from '@/const/auth';
+import { ClerkAuth } from '@/libs/clerk-auth';
 
 import { createLambdaContext } from './context';
 
+const authFlags = vi.hoisted(() => ({
+  enableClerk: false,
+}));
+
 vi.mock('@/const/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/const/auth')>()),
-  enableClerk: false,
+  get enableClerk() {
+    return authFlags.enableClerk;
+  },
   enableNextAuth: false,
   enableTokenAuth: true,
 }));
@@ -18,8 +25,14 @@ vi.mock('@/envs/oidc', () => ({
   },
 }));
 
+vi.mock('@/libs/clerk-auth', () => ({
+  ClerkAuth: vi.fn(),
+}));
+
 describe('createLambdaContext account scope', () => {
   beforeEach(() => {
+    authFlags.enableClerk = false;
+    vi.clearAllMocks();
     vi.stubEnv('AUTH_TOKEN', 'access-token');
     vi.stubEnv('AUTH_USER_ID', 'account-a');
   });
@@ -72,6 +85,31 @@ describe('createLambdaContext account scope', () => {
       accountScope: 'user:account-a',
       rawAuthUserId: 'account-a',
       userId: 'account-a',
+    });
+  });
+
+  it('preserves the raw Clerk principal when the database owner is mapped', async () => {
+    authFlags.enableClerk = true;
+    vi.mocked(ClerkAuth).mockImplementation(
+      () =>
+        ({
+          getAuthFromRequest: vi.fn(() => ({
+            clerkAuth: { userId: 'dev-account' },
+            userId: 'prod-account',
+          })),
+        }) as never,
+    );
+    const request = new NextRequest('https://chathub.example/trpc/lambda/apiKey.getApiKeys', {
+      headers: {
+        [CHATHUB_ACCOUNT_SCOPE_HEADER]: 'user:dev-account',
+      },
+    });
+
+    await expect(createLambdaContext(request)).resolves.toMatchObject({
+      accountScope: 'user:dev-account',
+      clerkAuth: { userId: 'dev-account' },
+      rawAuthUserId: 'dev-account',
+      userId: 'prod-account',
     });
   });
 });

@@ -7,6 +7,7 @@ import { checkAuthMethod } from './utils';
 
 let enableClerkMock = false;
 let enableNextAuthMock = false;
+let enableTokenAuthMock = false;
 
 vi.mock('@/const/auth', async (importOriginal) => {
   const data = await importOriginal();
@@ -19,6 +20,9 @@ vi.mock('@/const/auth', async (importOriginal) => {
     get enableNextAuth() {
       return enableNextAuthMock;
     },
+    get enableTokenAuth() {
+      return enableTokenAuthMock;
+    },
   };
 });
 
@@ -28,6 +32,9 @@ vi.mock('@/envs/app', () => ({
 
 describe('checkAuthMethod', () => {
   beforeEach(() => {
+    enableClerkMock = false;
+    enableNextAuthMock = false;
+    enableTokenAuthMock = false;
     vi.mocked(getAppConfig).mockReturnValue({
       ACCESS_CODES: ['validAccessCode'],
     } as any);
@@ -35,13 +42,11 @@ describe('checkAuthMethod', () => {
 
   it('should pass with valid Clerk auth', () => {
     enableClerkMock = true;
-    expect(() =>
+    expect(
       checkAuthMethod({
         clerkAuth: { userId: 'someUserId' } as AuthObject,
       }),
-    ).not.toThrow();
-
-    enableClerkMock = false;
+    ).toBe('clerk');
   });
 
   it('should throw error with invalid Clerk auth', () => {
@@ -53,26 +58,45 @@ describe('checkAuthMethod', () => {
     } catch (e) {
       expect(e).toEqual({ errorType: 'InvalidClerkUser' });
     }
-    enableClerkMock = false;
   });
 
   it('should pass with valid Next auth', () => {
     enableNextAuthMock = true;
-    expect(() =>
+    expect(
       checkAuthMethod({
         nextAuthAuthorized: true,
       }),
-    ).not.toThrow();
+    ).toBe('nextAuth');
+  });
 
-    enableNextAuthMock = false;
+  it('should prefer valid Next auth over token auth', () => {
+    enableNextAuthMock = true;
+    enableTokenAuthMock = true;
+
+    expect(
+      checkAuthMethod({
+        nextAuthAuthorized: true,
+        tokenAuthAuthorized: true,
+      }),
+    ).toBe('nextAuth');
+  });
+
+  it('should select valid token auth', () => {
+    enableTokenAuthMock = true;
+
+    expect(
+      checkAuthMethod({
+        tokenAuthAuthorized: true,
+      }),
+    ).toBe('tokenAuth');
   });
 
   it('should pass with valid API key', () => {
-    expect(() =>
+    expect(
       checkAuthMethod({
         apiKey: 'someApiKey',
       }),
-    ).not.toThrow();
+    ).toBe('apiKey');
   });
 
   it('should pass with no access code required', () => {
@@ -80,15 +104,15 @@ describe('checkAuthMethod', () => {
       ACCESS_CODES: [],
     } as any);
 
-    expect(() => checkAuthMethod({})).not.toThrow();
+    expect(checkAuthMethod({})).toBe('none');
   });
 
   it('should pass with valid access code', () => {
-    expect(() =>
+    expect(
       checkAuthMethod({
         accessCode: 'validAccessCode',
       }),
-    ).not.toThrow();
+    ).toBe('accessCode');
   });
 
   it('should throw error with invalid access code', () => {

@@ -68,7 +68,7 @@ export const createEdgeContext = async (request: NextRequest): Promise<EdgeConte
     return createContextInner({
       authorizationHeader: authorization,
       clerkAuth: auth,
-      rawAuthUserId: userId,
+      rawAuthUserId: auth.userId,
       userId,
     });
   }

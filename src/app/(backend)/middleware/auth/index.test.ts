@@ -100,7 +100,7 @@ describe('checkAuth', () => {
     );
   });
 
-  it('authorizes a valid bearer independently of the token-auth user header', async () => {
+  it('binds a valid bearer request to the configured token-auth user', async () => {
     const request = new Request('https://example.com', {
       headers: {
         Authorization: 'Bearer access-token',
@@ -108,13 +108,22 @@ describe('checkAuth', () => {
         [TOKEN_AUTH_USER_HEADER]: 'victim',
       },
     });
-    vi.mocked(getXorPayload).mockReturnValue({});
+    vi.mocked(getXorPayload).mockReturnValue({ userId: 'victim' });
+    vi.mocked(checkAuthMethod).mockReturnValue('tokenAuth');
 
     await checkAuth(mockHandler)(request, mockOptions);
 
     expect(checkAuthMethod).toHaveBeenCalledWith(
       expect.objectContaining({
         tokenAuthAuthorized: true,
+      }),
+    );
+    expect(mockHandler).toHaveBeenCalledWith(
+      request,
+      expect.objectContaining({
+        jwtPayload: expect.objectContaining({
+          userId: 'account-a',
+        }),
       }),
     );
   });

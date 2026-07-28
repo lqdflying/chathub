@@ -185,7 +185,7 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
     return createContextInner({
       clerkAuth: auth,
       ...commonContext,
-      rawAuthUserId: userId,
+      rawAuthUserId: auth.userId,
       userId,
     });
   }
