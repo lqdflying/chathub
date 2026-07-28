@@ -15,10 +15,12 @@ const { dynamicLoaderState, userStoreListeners, userStoreState } = vi.hoisted(()
     authUserId: 'account-a' as string | undefined,
     isLoaded: true,
     isSignedIn: true as boolean | undefined,
+    isUserStateInit: true,
     logout: vi.fn(),
     refreshUserState: vi.fn(),
     userStateInitializationFailure: undefined as
       { reason: 'owner-mismatch' | 'request-failed'; scope: string } | undefined,
+    userStateScope: 'user:account-a' as string | undefined,
   },
 }));
 
@@ -110,9 +112,11 @@ describe('SettingsContent', () => {
       authUserId: 'account-a',
       isLoaded: true,
       isSignedIn: true,
+      isUserStateInit: true,
       logout: vi.fn(),
       refreshUserState: vi.fn(),
       userStateInitializationFailure: undefined,
+      userStateScope: 'user:account-a',
     });
   });
 
@@ -147,12 +151,15 @@ describe('SettingsContent', () => {
     fireEvent.click(screen.getByRole('button', { name: 'bootstrapFailure.retry' }));
 
     expect(userStoreState.refreshUserState).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('settings-component-11')).not.toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('settings-component-11')).toBeNull();
 
     await act(async () => {
       finishRetry();
       await retryRequest;
     });
+
+    expect(screen.getByTestId('settings-component-11')).not.toBeNull();
   });
 
   it('restores failure guidance when the retry request rejects', async () => {
@@ -222,7 +229,12 @@ describe('SettingsContent', () => {
     expect(userStoreState.logout).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the AI Provider tab usable during a user-state failure', async () => {
+  it.each([
+    [SettingsTabs.Provider, 'settings-component-4'],
+    [SettingsTabs.LLM, 'settings-component-3'],
+    [SettingsTabs.Storage, 'settings-component-10'],
+    [SettingsTabs.Mcp, 'settings-component-12'],
+  ])('guards the %s tab during a user-state failure', (tab, componentTestId) => {
     updateUserStore({
       userStateInitializationFailure: {
         reason: 'request-failed',
@@ -230,11 +242,36 @@ describe('SettingsContent', () => {
       },
     });
 
+    render(<SettingsContent activeTab={tab} mobile />);
+
+    expect(screen.getByRole('alert').textContent).toContain('bootstrapFailure.description');
+    expect(screen.queryByTestId(componentTestId)).toBeNull();
+  });
+
+  it('keeps account-independent tabs usable during a user-state failure', () => {
+    updateUserStore({
+      userStateInitializationFailure: {
+        reason: 'request-failed',
+        scope: 'user:account-a',
+      },
+    });
+
+    render(<SettingsContent activeTab={SettingsTabs.About} mobile />);
+
+    expect(screen.getByTestId('settings-component-7')).not.toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('keeps account controls hidden while authenticated user state is pending', () => {
+    updateUserStore({
+      isUserStateInit: false,
+      userStateInitializationFailure: undefined,
+      userStateScope: undefined,
+    });
+
     render(<SettingsContent activeTab={SettingsTabs.Provider} mobile />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-component-4')).not.toBeNull();
-    });
+    expect(screen.queryByTestId('settings-component-4')).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });

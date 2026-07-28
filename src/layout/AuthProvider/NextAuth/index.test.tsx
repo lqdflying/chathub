@@ -29,12 +29,16 @@ vi.mock('next-auth/react', () => ({
   },
 }));
 
+vi.mock('./SessionFreshnessPoller', () => ({
+  default: () => <div>session-freshness-poller</div>,
+}));
+
 vi.mock('./UserUpdater', () => ({
   default: () => <div>user-updater</div>,
 }));
 
 describe('NextAuth provider', () => {
-  it('does not revalidate the session during window focus or offline transitions', () => {
+  it('polls online while avoiding focus and offline revalidation', () => {
     render(
       <NextAuth>
         <div>protected-content</div>
@@ -42,6 +46,7 @@ describe('NextAuth provider', () => {
     );
 
     expect(screen.getByText('protected-content')).not.toBeNull();
+    expect(screen.getByText('session-freshness-poller')).not.toBeNull();
     expect(screen.getByText('user-updater')).not.toBeNull();
     expect(sessionProviderProps.basePath).toBe('/api/auth');
     expect(sessionProviderProps.refetchOnWindowFocus).toBe(false);

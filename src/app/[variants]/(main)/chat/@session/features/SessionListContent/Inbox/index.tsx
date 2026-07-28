@@ -27,6 +27,7 @@ const Inbox = memo(() => {
       href={SESSION_CHAT_URL(INBOX_SESSION_ID, mobile)}
       onClick={async (e) => {
         e.preventDefault();
+        switchSession(INBOX_SESSION_ID);
 
         if (activeId === INBOX_SESSION_ID && !mobile) {
           // If user tap the inbox again, open a new topic.
@@ -36,8 +37,6 @@ const Inbox = memo(() => {
           if (inboxMessages.length > 0) {
             await openNewTopicOrSaveTopic();
           }
-        } else {
-          switchSession(INBOX_SESSION_ID);
         }
       }}
     >

@@ -17,6 +17,7 @@ import {
   SessionDefaultGroup,
 } from '@/types/session';
 
+import AssistantListBootstrapGuard from './AssistantListBootstrapGuard';
 import CollapseGroup from './CollapseGroup';
 import Actions from './CollapseGroup/Actions';
 import Inbox from './Inbox';
@@ -105,26 +106,28 @@ const DefaultMode = memo(() => {
   return (
     <>
       <Inbox />
-      <CollapseGroup
-        activeKey={sessionGroupKeys}
-        items={items}
-        onChange={(keys) => {
-          const expandSessionGroupKeys = typeof keys === 'string' ? [keys] : keys;
+      <AssistantListBootstrapGuard>
+        <CollapseGroup
+          activeKey={sessionGroupKeys}
+          items={items}
+          onChange={(keys) => {
+            const expandSessionGroupKeys = typeof keys === 'string' ? [keys] : keys;
 
-          updateSystemStatus({ expandSessionGroupKeys });
-        }}
-      />
-      {activeGroupId && (
-        <RenameGroupModal
-          id={activeGroupId}
-          onCancel={() => setRenameGroupModalOpen(false)}
-          open={renameGroupModalOpen}
+            updateSystemStatus({ expandSessionGroupKeys });
+          }}
         />
-      )}
-      <ConfigGroupModal
-        onCancel={() => setConfigGroupModalOpen(false)}
-        open={configGroupModalOpen}
-      />
+        {activeGroupId && (
+          <RenameGroupModal
+            id={activeGroupId}
+            onCancel={() => setRenameGroupModalOpen(false)}
+            open={renameGroupModalOpen}
+          />
+        )}
+        <ConfigGroupModal
+          onCancel={() => setConfigGroupModalOpen(false)}
+          open={configGroupModalOpen}
+        />
+      </AssistantListBootstrapGuard>
     </>
   );
 });

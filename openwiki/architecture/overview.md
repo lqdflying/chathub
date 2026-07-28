@@ -55,6 +55,15 @@ assistant after account invalidation. `nuqs` rate limiting uses
 `limitUrlUpdates: throttle(50)` rather than the deprecated `throttleMs`
 option.
 
+If authenticated user-state bootstrap fails, the default or searched assistant
+list and its mutation controls are replaced by one account-scoped recovery
+alert. A request failure offers **Retry**; an owner mismatch or unresolved
+signed-in identity offers **Sign in again**. Inbox remains available throughout
+recovery. Every Inbox click routes to `session=inbox` before the optional
+desktop new-topic action, even when the session store already reports Inbox
+active, so the user can explicitly cancel an assistant deep link that is still
+waiting for hydration.
+
 ## Account-owned chat-group membership
 
 A row in `chat_groups_agents` is valid only when its `userId` matches both the

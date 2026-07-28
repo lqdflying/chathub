@@ -147,8 +147,11 @@ The same bounded failure contract wraps settings tabs that require hydrated
 user state. While the active-scope request is pending they keep their existing
 loading UI. A `request-failed` state offers **Retry** through
 `refreshUserState`; an owner mismatch or signed-in identity whose scope remains
-unresolved offers **Sign in again**. Tabs that do not require user-state
-hydration, including AI Provider, remain usable.
+unresolved offers **Sign in again**. The guard includes General, Chat
+Instruction, Default Assistant, legacy LLM, AI Provider, Image, TTS, Hotkeys,
+System Assistant, MCP, and Storage so account-owned mutations cannot silently
+no-op or report success before ownership is verified. Account-independent
+pages such as About and desktop Proxy remain usable.
 
 ### Image Settings scroll layout
 

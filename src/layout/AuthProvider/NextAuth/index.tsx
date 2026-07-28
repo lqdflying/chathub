@@ -3,6 +3,7 @@ import React, { PropsWithChildren } from 'react';
 
 import { API_ENDPOINTS } from '@/services/_url';
 
+import SessionFreshnessPoller from './SessionFreshnessPoller';
 import UserUpdater from './UserUpdater';
 
 const NextAuth = ({ children }: PropsWithChildren) => {
@@ -13,6 +14,7 @@ const NextAuth = ({ children }: PropsWithChildren) => {
       refetchWhenOffline={false}
     >
       {children}
+      <SessionFreshnessPoller />
       <UserUpdater />
     </SessionProvider>
   );

@@ -359,6 +359,15 @@ export default {
   searchAgents: '搜索助手...',
   selectedAgents: '已选助手',
   sendPlaceholder: '输入聊天内容...',
+  sessionBootstrapFailure: {
+    accountDescription: '当前登录账户尚未准备完成。为保护账户数据，请重新登录。',
+    description: '加载当前账户的助手失败，请检查网络连接后重试。你仍可使用 Just Chat。',
+    ownerMismatchDescription:
+      '当前登录会话与返回的账户不一致。为保护账户数据，请重新登录。你仍可使用 Just Chat。',
+    retry: '重试',
+    signInAgain: '重新登录',
+    title: '无法加载助手',
+  },
   sessionGroup: {
     config: '分组管理',
     confirmRemoveGroupAlert: '即将删除该分组，删除后该分组的助手将移动到默认列表，请确认你的操作',

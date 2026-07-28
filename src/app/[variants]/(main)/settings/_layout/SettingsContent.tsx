@@ -61,6 +61,10 @@ const userStateDependentTabs = new Set<string>([
   SettingsTabs.Common,
   SettingsTabs.Hotkey,
   SettingsTabs.Image,
+  SettingsTabs.LLM,
+  SettingsTabs.Mcp,
+  SettingsTabs.Provider,
+  SettingsTabs.Storage,
   SettingsTabs.SystemAgent,
   SettingsTabs.TTS,
 ]);
@@ -76,6 +80,8 @@ const UserStateBootstrapGuard = memo<UserStateBootstrapGuardProps>(({ children, 
   const isAuthLoaded = useUserStore(authSelectors.isLoaded);
   const isLogin = useUserStore(authSelectors.isLogin);
   const currentUserScope = useUserStore(authSelectors.currentUserScope);
+  const isUserStateInit = useUserStore((state) => state.isUserStateInit);
+  const userStateScope = useUserStore((state) => state.userStateScope);
   const userStateInitializationFailure = useUserStore(
     (state) => state.userStateInitializationFailure,
   );
@@ -87,6 +93,11 @@ const UserStateBootstrapGuard = memo<UserStateBootstrapGuardProps>(({ children, 
   const hasOwnerMismatch =
     hasUserStateFailure && userStateInitializationFailure?.reason === 'owner-mismatch';
   const hasUnresolvedAuthenticatedScope = isAuthLoaded && !!isLogin && !currentUserScope;
+  const hasPendingAuthenticatedBootstrap =
+    !!currentUserScope &&
+    currentUserScope.startsWith('user:') &&
+    (!isUserStateInit || userStateScope !== currentUserScope) &&
+    !hasUserStateFailure;
   const isRetryingCurrentScope = !!currentUserScope && retryingScope === currentUserScope;
 
   const handleRetry = useCallback(async () => {
@@ -109,13 +120,13 @@ const UserStateBootstrapGuard = memo<UserStateBootstrapGuardProps>(({ children, 
     await logout();
   }, [logout]);
 
-  if (
-    !userStateDependentTabs.has(tab) ||
-    isRetryingCurrentScope ||
-    (!hasUserStateFailure && !hasUnresolvedAuthenticatedScope)
-  ) {
+  if (!userStateDependentTabs.has(tab)) {
     return children;
   }
+
+  if (isRetryingCurrentScope || hasPendingAuthenticatedBootstrap) return <Loading />;
+
+  if (!hasUserStateFailure && !hasUnresolvedAuthenticatedScope) return children;
 
   const requiresSignInAgain = hasOwnerMismatch || hasUnresolvedAuthenticatedScope;
 

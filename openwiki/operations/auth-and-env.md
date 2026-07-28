@@ -22,12 +22,26 @@ browser or installed PWA returns to the foreground. `SessionProvider` sets both
 a transient resume-time transport, HTTP, or JSON failure as a definitive
 unauthenticated session and consequently clearing every account-scoped store.
 
-Initial session loading, explicit sign-in/sign-out, and Auth.js cross-tab
-session broadcasts remain authoritative. `UserUpdater` mirrors authenticated
-and genuine unauthenticated states into the user store; it does not maintain a
-second cached session or suppress a real sign-out. On a confirmed
+`SessionFreshnessPoller` instead probes the session endpoint every five minutes
+while the browser reports an online connection. Network failures, non-success
+responses, and invalid JSON are inconclusive and preserve the last confirmed
+session. A successful JSON `null` response confirms expiry or revocation and
+uses Auth.js sign-out propagation. This bounds stale client state without
+reintroducing the unreliable foreground-resume request or Auth.js beta's
+built-in polling path, which collapses fetch failures to `null`. Initial session
+loading, explicit sign-in/sign-out, Auth.js cross-tab session broadcasts, and
+successful probe responses remain authoritative. `UserUpdater` mirrors
+authenticated and genuine unauthenticated states into the user store; it does
+not maintain a second cached session or suppress a real sign-out. On a confirmed
 unauthenticated status it clears the raw auth ID, NextAuth session/user, and
 mapped user identity together.
+
+ChatHub defaults `NEXT_AUTH_SSO_SESSION_STRATEGY` to `jwt`. Deployments that
+explicitly select Auth.js database sessions retain Auth.js's upstream session
+endpoint limitation: an adapter failure can produce the same successful `null`
+body as a missing session. The custom poller removes false sign-outs caused by
+browser-visible transport and response failures but cannot disambiguate that
+server-internal database-session case.
 
 ### Static bearer authentication boundary
 

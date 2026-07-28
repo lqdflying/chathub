@@ -308,6 +308,14 @@
   "searchAgents": "Search assistants...",
   "selectedAgents": "Selected agents",
   "sendPlaceholder": "Type your message here...",
+  "sessionBootstrapFailure": {
+    "accountDescription": "The current account is not ready. Sign in again to protect your account data.",
+    "description": "ChatHub could not load this account's assistants. Check your connection and retry. You can still use Just Chat.",
+    "ownerMismatchDescription": "The signed-in session does not match the returned account. Sign in again to protect your account data. You can still use Just Chat.",
+    "retry": "Retry",
+    "signInAgain": "Sign in again",
+    "title": "Unable to load assistants"
+  },
   "sessionGroup": {
     "config": "Group Management",
     "confirmRemoveGroupAlert": "This group is about to be deleted. After deletion, the assistants in this group will be moved to the default list. Please confirm your operation.",

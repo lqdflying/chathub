@@ -6,6 +6,7 @@ import { useSessionStore } from '@/store/session';
 import { LobeAgentSession, LobeSessionType, LobeSessions } from '@/types/session';
 
 import SkeletonList from '../SkeletonList';
+import AssistantListBootstrapGuard from './AssistantListBootstrapGuard';
 import SessionList from './List';
 
 const SearchMode = memo(() => {
@@ -31,10 +32,14 @@ const SearchMode = memo(() => {
     );
   }, [data, isMobile]);
 
-  return isLoading ? (
-    <SkeletonList />
-  ) : (
-    <SessionList dataSource={filteredData} showAddButton={false} />
+  return (
+    <AssistantListBootstrapGuard>
+      {isLoading ? (
+        <SkeletonList />
+      ) : (
+        <SessionList dataSource={filteredData} showAddButton={false} />
+      )}
+    </AssistantListBootstrapGuard>
   );
 });
 
