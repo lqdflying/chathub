@@ -1,7 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { correctOIDCUrl, parseDefaultThemeFromCountry } from '@lobechat/utils/server';
 import debug from 'debug';
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextFetchEvent, type NextMiddleware, NextRequest, NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
 import urlJoin from 'url-join';
 
@@ -24,6 +24,33 @@ const logClerk = debug('middleware:clerk');
 
 // OIDC session pre-sync constant
 const OIDC_SESSION_HEADER = 'x-oidc-session-sync';
+const AUTH_JS_SESSION_COOKIE_NAME = /^(?:__Secure-)?authjs\.session-token(?:\.\d+)?$/;
+
+const isAuthJsSessionCookie = (setCookieHeader: string) => {
+  const nameSeparatorIndex = setCookieHeader.indexOf('=');
+  if (nameSeparatorIndex < 0) return false;
+
+  const cookieName = setCookieHeader.slice(0, nameSeparatorIndex).trim();
+  return AUTH_JS_SESSION_COOKIE_NAME.test(cookieName);
+};
+
+export const stripAuthJsSessionCookies = <ResponseType extends Response>(
+  response: ResponseType,
+) => {
+  const setCookieHeaders = response.headers.getSetCookie();
+  const preservedSetCookieHeaders = setCookieHeaders.filter(
+    (setCookieHeader) => !isAuthJsSessionCookie(setCookieHeader),
+  );
+
+  if (preservedSetCookieHeaders.length === setCookieHeaders.length) return response;
+
+  response.headers.delete('set-cookie');
+  for (const setCookieHeader of preservedSetCookieHeaders) {
+    response.headers.append('set-cookie', setCookieHeader);
+  }
+
+  return response;
+};
 
 export const config = {
   matcher: [
@@ -207,9 +234,8 @@ const nextAuthMiddleware = NextAuth.auth((req) => {
 
   // Protect all non-public routes by default when auth is enabled.
   // ENABLE_AUTH_PROTECTION=0 can opt back to the legacy narrow list (settings/knowledge only).
-  const isProtected = appEnv.ENABLE_AUTH_PROTECTION === false
-    ? isProtectedRoute(req)
-    : !isPublicRoute(req);
+  const isProtected =
+    appEnv.ENABLE_AUTH_PROTECTION === false ? isProtectedRoute(req) : !isPublicRoute(req);
 
   logNextAuth('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
 
@@ -238,7 +264,10 @@ const nextAuthMiddleware = NextAuth.auth((req) => {
     if (isProtected) {
       logNextAuth('Request a protected route, redirecting to sign-in page');
       const nextLoginUrl = new URL('/next-auth/signin', req.nextUrl.origin);
-      nextLoginUrl.searchParams.set('callbackUrl', `${req.nextUrl.pathname}${req.nextUrl.search}` || '/');
+      nextLoginUrl.searchParams.set(
+        'callbackUrl',
+        `${req.nextUrl.pathname}${req.nextUrl.search}` || '/',
+      );
       const hl = req.nextUrl.searchParams.get('hl');
       if (hl) {
         nextLoginUrl.searchParams.set('hl', hl);
@@ -250,7 +279,14 @@ const nextAuthMiddleware = NextAuth.auth((req) => {
   }
 
   return response;
-});
+}) as NextMiddleware;
+
+const cookieNeutralNextAuthMiddleware = async (request: NextRequest, event: NextFetchEvent) => {
+  const response = await nextAuthMiddleware(request, event);
+  if (!(response instanceof Response)) return response;
+
+  return stripAuthJsSessionCookies(response);
+};
 
 const clerkAuthMiddleware = clerkMiddleware(
   async (auth, req) => {
@@ -258,9 +294,8 @@ const clerkAuthMiddleware = clerkMiddleware(
 
     // Protect all non-public routes by default when auth is enabled.
     // ENABLE_AUTH_PROTECTION=0 can opt back to the legacy narrow list (settings/knowledge only).
-    const isProtected = appEnv.ENABLE_AUTH_PROTECTION === false
-      ? isProtectedRoute(req)
-      : !isPublicRoute(req);
+    const isProtected =
+      appEnv.ENABLE_AUTH_PROTECTION === false ? isProtectedRoute(req) : !isPublicRoute(req);
 
     logClerk('Route protection status: %s, %s', req.url, isProtected ? 'protected' : 'public');
 
@@ -317,9 +352,8 @@ const tokenAuthMiddleware = (request: NextRequest) => {
     const url = new URL(request.url);
     // Protect all non-public routes by default when auth is enabled.
     // ENABLE_AUTH_PROTECTION=0 can opt back to the legacy narrow list (settings/knowledge only).
-    const isProtected = appEnv.ENABLE_AUTH_PROTECTION === false
-      ? isProtectedRoute(request)
-      : !isPublicRoute(request);
+    const isProtected =
+      appEnv.ENABLE_AUTH_PROTECTION === false ? isProtectedRoute(request) : !isPublicRoute(request);
 
     logTokenAuth(
       'Token auth failed or missing, path: %s, isProtected: %s',
@@ -339,7 +373,7 @@ const tokenAuthMiddleware = (request: NextRequest) => {
 export default authEnv.NEXT_PUBLIC_ENABLE_CLERK_AUTH
   ? clerkAuthMiddleware
   : authEnv.NEXT_PUBLIC_ENABLE_NEXT_AUTH
-    ? nextAuthMiddleware
+    ? cookieNeutralNextAuthMiddleware
     : process.env.AUTH_TOKEN
       ? tokenAuthMiddleware
       : defaultMiddleware;

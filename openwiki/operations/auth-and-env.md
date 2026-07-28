@@ -22,26 +22,33 @@ browser or installed PWA returns to the foreground. `SessionProvider` sets both
 a transient resume-time transport, HTTP, or JSON failure as a definitive
 unauthenticated session and consequently clearing every account-scoped store.
 
-`SessionFreshnessPoller` instead calls ChatHub's read-only
+`SessionFreshnessPoller` instead calls ChatHub's identity-only
 `/api/auth/session-probe` endpoint every five minutes while the browser reports
-an online connection. The endpoint uses server-side Auth.js `auth()` to return
-only `{ userId }`, adds no-store headers, and deliberately does not forward
-Auth.js's internal session response or `Set-Cookie` headers. This matters
-because ordinary Auth.js session reads can rotate JWT expiry or database-session
-cookies, making overlapping browser-visible reads vulnerable to stale-response
-cookie writes.
+an online connection. The route uses server-side Auth.js `auth()` to return only
+`{ userId }` with no-store headers. Both this endpoint and normal page
+navigation still pass through the global `NextAuth.auth` middleware wrapper.
+Auth.js can append session-token rotations after the application middleware
+callback returns, so ChatHub post-processes every NextAuth middleware response
+and removes `authjs.session-token`, `__Secure-authjs.session-token`, and their
+chunked variants from `Set-Cookie`. Other middleware cookies, such as locale
+preferences, are preserved. Explicit Auth.js sign-in, sign-out, and session
+route handlers remain responsible for intentional session-cookie changes.
 
 Network failures, non-success responses, invalid JSON, and malformed identities
 are inconclusive and preserve the last confirmed session. Each probe is bound
 to the current `session.user.id`; an identity or authentication-status change
 aborts the request and invalidates its result. A successful probe returning
 `userId: null` or a different authenticated user reloads the document exactly
-once. The old document performs no Auth.js `update()` or `signOut()` request, so
-it cannot publish a delayed session value or revoke a replacement login. The
-new document performs normal initial Auth.js bootstrap using whichever cookie
-is current when it loads. This design follows Auth.js's documented server-side
-[`auth()` usage](https://authjs.dev/getting-started/session-management/protecting)
-and avoids the known client update and concurrent cookie-write limitations in
+once. The old document performs no Auth.js `update()` or `signOut()` request,
+and both the probe response and reload navigation pass through the cookie-neutral
+middleware boundary. A delayed response from either request therefore cannot
+restore an older session cookie. The new document performs normal initial
+Auth.js bootstrap using whichever cookie is current when it loads. The response
+filter uses the server-side
+[`Headers.getSetCookie()` API](https://developer.mozilla.org/en-US/docs/Web/API/Headers/getSetCookie)
+to preserve independent cookie headers and follows Next.js's documented
+[middleware response-cookie model](https://nextjs.org/docs/app/building-your-application/routing/middleware#using-cookies).
+This avoids the known client update and concurrent cookie-write limitations in
 [next-auth#11958](https://github.com/nextauthjs/next-auth/issues/11958) and
 [next-auth#8897](https://github.com/nextauthjs/next-auth/issues/8897).
 
