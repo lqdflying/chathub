@@ -1,14 +1,9 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ServerConfigStoreProvider } from '@/store/serverConfig/Provider';
 import { useUserStore } from '@/store/user';
 
 import { useCategory } from '../features/useCategory';
-
-const wrapper: React.JSXElementConstructor<{ children: React.ReactNode }> = ({ children }) => (
-  <ServerConfigStoreProvider>{children}</ServerConfigStoreProvider>
-);
 
 // Mock dependencies
 vi.mock('next/navigation', () => ({
@@ -25,6 +20,13 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('../../settings/features/useCategory', () => ({
   useCategory: vi.fn(() => [{ key: 'extraSetting', label: 'Extra Setting' }]),
+}));
+
+vi.mock('@/store/serverConfig', () => ({
+  featureFlagsSelectors: (state: { hideDocs: boolean; showCloudPromotion: boolean }) => state,
+  useServerConfigStore: (
+    selector: (state: { hideDocs: boolean; showCloudPromotion: boolean }) => unknown,
+  ) => selector({ hideDocs: false, showCloudPromotion: false }),
 }));
 
 // 定义一个变量来存储 enableAuth 的值
@@ -53,16 +55,16 @@ describe('useCategory', () => {
     enableAuth = true;
     enableClerk = false;
 
-    const { result } = renderHook(() => useCategory(), { wrapper });
+    const { result } = renderHook(() => useCategory());
 
     act(() => {
       const items = result.current;
       expect(items.some((item) => item.key === 'profile')).toBe(true);
       expect(items.some((item) => item.key === 'setting')).toBe(true);
       expect(items.some((item) => item.key === 'data')).toBe(true);
-      expect(items.some((item) => item.key === 'docs')).toBe(true);
-      expect(items.some((item) => item.key === 'feedback')).toBe(true);
-      expect(items.some((item) => item.key === 'changelog')).toBe(true);
+      expect(items.some((item) => item.key === 'docs')).toBe(false);
+      expect(items.some((item) => item.key === 'feedback')).toBe(false);
+      expect(items.some((item) => item.key === 'changelog')).toBe(false);
     });
   });
 
@@ -72,16 +74,16 @@ describe('useCategory', () => {
     });
     enableAuth = true;
 
-    const { result } = renderHook(() => useCategory(), { wrapper });
+    const { result } = renderHook(() => useCategory());
 
     act(() => {
       const items = result.current;
       expect(items.some((item) => item.key === 'profile')).toBe(false);
       expect(items.some((item) => item.key === 'setting')).toBe(false);
       expect(items.some((item) => item.key === 'data')).toBe(false);
-      expect(items.some((item) => item.key === 'docs')).toBe(true);
-      expect(items.some((item) => item.key === 'feedback')).toBe(true);
-      expect(items.some((item) => item.key === 'changelog')).toBe(true);
+      expect(items.some((item) => item.key === 'docs')).toBe(false);
+      expect(items.some((item) => item.key === 'feedback')).toBe(false);
+      expect(items.some((item) => item.key === 'changelog')).toBe(false);
     });
   });
 
@@ -92,7 +94,7 @@ describe('useCategory', () => {
     enableClerk = false;
     enableAuth = false;
 
-    const { result } = renderHook(() => useCategory(), { wrapper });
+    const { result } = renderHook(() => useCategory());
 
     act(() => {
       const items = result.current;
