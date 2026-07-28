@@ -26,11 +26,27 @@ request headers cannot select the user.
 
 Backend WebAPI requests still decode the client-generated
 `X-lobe-chat-auth` payload for provider credentials and runtime options. When
-static bearer authentication is the credential that authorizes the request,
-the server overwrites that payload's `userId` with the bearer-validated
-`AUTH_USER_ID` before invoking the route handler. The decoded payload therefore
-cannot redirect user-scoped model runtime, tracing, cache, or nested tRPC work
-to another database owner.
+server authentication is configured, each WebAPI route validates Clerk,
+NextAuth, or static bearer authentication directly at the route boundary. The
+first configured method that validates returns an authoritative database owner:
+Clerk returns its mapped owner, NextAuth returns `session.user.id`, and static
+bearer authentication returns `AUTH_USER_ID`. The server overwrites the
+payload's `userId` with that owner before invoking the route handler. The
+decoded payload therefore cannot redirect user-scoped model runtime, tracing,
+cache, or nested tRPC work to another database owner.
+
+Configured server authentication fails closed. If none of the enabled Clerk,
+NextAuth, or static bearer methods validates the request, WebAPI execution stops
+with `Unauthorized`; payload API keys, access codes, or an empty access-code
+configuration are not fallback authentication. Those legacy payload methods
+remain available only when all server authentication modes are disabled.
+
+`X-oauth-authorized` is legacy, untrusted input and is not read as an
+authorization signal. Auth.js documents that route handlers should use
+[`auth()`](https://authjs.dev/getting-started/session-management/protecting) to
+validate the current session close to the protected operation. ChatHub follows
+that pattern for both model WebAPI routes and the plugin gateway instead of
+trusting a header written by middleware.
 
 `X-token-auth-user` is legacy, untrusted input and is never accepted as proof
 of identity. In particular, a caller cannot combine that header with

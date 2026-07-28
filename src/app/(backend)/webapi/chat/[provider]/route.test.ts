@@ -1,23 +1,18 @@
 // @vitest-environment node
-import { getAuth } from '@clerk/nextjs/server';
 import { LOBE_CHAT_CONTEXT_EXPORT_HEADER } from '@lobechat/const';
 import { LobeRuntimeAI, ModelRuntime } from '@lobechat/model-runtime';
 import { ChatErrorType } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { checkAuthMethod } from '@/app/(backend)/middleware/auth/utils';
-import { LOBE_CHAT_AUTH_HEADER, OAUTH_AUTHORIZED } from '@/const/auth';
+import { resolveWebApiAuth } from '@/app/(backend)/middleware/auth/utils';
+import { LOBE_CHAT_AUTH_HEADER } from '@/const/auth';
 
 import { POST } from './route';
 import { resolveTrustedCatalogModel } from './trustedCatalogModel';
 
-vi.mock('@clerk/nextjs/server', () => ({
-  getAuth: vi.fn(),
-}));
-
 vi.mock('@/app/(backend)/middleware/auth/utils', () => ({
-  checkAuthMethod: vi.fn(),
+  resolveWebApiAuth: vi.fn(),
 }));
 
 vi.mock('@lobechat/utils/server', () => ({
@@ -49,10 +44,10 @@ beforeEach(() => {
     body: JSON.stringify({ model: 'test-model' }),
     headers: {
       [LOBE_CHAT_AUTH_HEADER]: 'Bearer some-valid-token',
-      [OAUTH_AUTHORIZED]: 'true',
     },
     method: 'POST',
   });
+  vi.mocked(resolveWebApiAuth).mockResolvedValue({ method: 'none' });
 });
 
 afterEach(() => {
@@ -108,7 +103,7 @@ describe('POST handler', () => {
       });
     });
 
-    it('should have pass clerk Auth when enable clerk', async () => {
+    it('should pass Clerk authentication resolved at the WebAPI boundary', async () => {
       enableClerk = true;
 
       vi.mocked(getXorPayload).mockReturnValueOnce({
@@ -118,9 +113,10 @@ describe('POST handler', () => {
       });
 
       const mockParams = Promise.resolve({ provider: 'test-provider' });
-      // 设置 initModelRuntimeWithUserPayload 的模拟返回值
-      vi.mocked(getAuth).mockReturnValue({} as any);
-      vi.mocked(checkAuthMethod).mockReset();
+      vi.mocked(resolveWebApiAuth).mockResolvedValueOnce({
+        method: 'clerk',
+        userId: 'clerk-user',
+      });
 
       const mockRuntime: LobeRuntimeAI = { baseURL: 'abc', chat: vi.fn() };
 
@@ -132,19 +128,15 @@ describe('POST handler', () => {
         body: JSON.stringify({ model: 'test-model' }),
         headers: {
           [LOBE_CHAT_AUTH_HEADER]: 'some-valid-token',
-          [OAUTH_AUTHORIZED]: '1',
         },
         method: 'POST',
       });
 
       await POST(request, { params: mockParams });
 
-      expect(checkAuthMethod).toBeCalledWith({
+      expect(resolveWebApiAuth).toBeCalledWith(request, {
         accessCode: 'test-access-code',
         apiKey: 'test-api-key',
-        clerkAuth: {},
-        nextAuthAuthorized: true,
-        tokenAuthAuthorized: false,
       });
     });
 

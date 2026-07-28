@@ -1,4 +1,3 @@
-import { type AuthObject } from '@clerk/backend';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getAppConfig } from '@/envs/app';
@@ -44,29 +43,28 @@ describe('checkAuthMethod', () => {
     enableClerkMock = true;
     expect(
       checkAuthMethod({
-        clerkAuth: { userId: 'someUserId' } as AuthObject,
+        clerkUserId: 'someUserId',
       }),
-    ).toBe('clerk');
+    ).toEqual({ method: 'clerk', userId: 'someUserId' });
   });
 
-  it('should throw error with invalid Clerk auth', () => {
+  it('should fail closed with invalid Clerk auth', () => {
     enableClerkMock = true;
-    try {
+    expect(() =>
       checkAuthMethod({
-        clerkAuth: {} as any,
-      });
-    } catch (e) {
-      expect(e).toEqual({ errorType: 'InvalidClerkUser' });
-    }
+        apiKey: 'payload-key',
+        clerkUserId: null,
+      }),
+    ).toThrow();
   });
 
   it('should pass with valid Next auth', () => {
     enableNextAuthMock = true;
     expect(
       checkAuthMethod({
-        nextAuthAuthorized: true,
+        nextAuthUserId: 'session-user',
       }),
-    ).toBe('nextAuth');
+    ).toEqual({ method: 'nextAuth', userId: 'session-user' });
   });
 
   it('should prefer valid Next auth over token auth', () => {
@@ -75,10 +73,10 @@ describe('checkAuthMethod', () => {
 
     expect(
       checkAuthMethod({
-        nextAuthAuthorized: true,
-        tokenAuthAuthorized: true,
+        nextAuthUserId: 'session-user',
+        tokenAuthUserId: 'token-user',
       }),
-    ).toBe('nextAuth');
+    ).toEqual({ method: 'nextAuth', userId: 'session-user' });
   });
 
   it('should select valid token auth', () => {
@@ -86,9 +84,34 @@ describe('checkAuthMethod', () => {
 
     expect(
       checkAuthMethod({
-        tokenAuthAuthorized: true,
+        tokenAuthUserId: 'token-user',
       }),
-    ).toBe('tokenAuth');
+    ).toEqual({ method: 'tokenAuth', userId: 'token-user' });
+  });
+
+  it('should accept a valid token when the configured NextAuth session is missing', () => {
+    enableNextAuthMock = true;
+    enableTokenAuthMock = true;
+
+    expect(
+      checkAuthMethod({
+        nextAuthUserId: null,
+        tokenAuthUserId: 'token-user',
+      }),
+    ).toEqual({ method: 'tokenAuth', userId: 'token-user' });
+  });
+
+  it('should reject payload credentials when configured authentication does not validate', () => {
+    enableNextAuthMock = true;
+    enableTokenAuthMock = true;
+
+    expect(() =>
+      checkAuthMethod({
+        accessCode: 'validAccessCode',
+        apiKey: 'payload-key',
+        nextAuthUserId: null,
+      }),
+    ).toThrow();
   });
 
   it('should pass with valid API key', () => {
@@ -96,7 +119,7 @@ describe('checkAuthMethod', () => {
       checkAuthMethod({
         apiKey: 'someApiKey',
       }),
-    ).toBe('apiKey');
+    ).toEqual({ method: 'apiKey' });
   });
 
   it('should pass with no access code required', () => {
@@ -104,7 +127,7 @@ describe('checkAuthMethod', () => {
       ACCESS_CODES: [],
     } as any);
 
-    expect(checkAuthMethod({})).toBe('none');
+    expect(checkAuthMethod({})).toEqual({ method: 'none' });
   });
 
   it('should pass with valid access code', () => {
@@ -112,7 +135,7 @@ describe('checkAuthMethod', () => {
       checkAuthMethod({
         accessCode: 'validAccessCode',
       }),
-    ).toBe('accessCode');
+    ).toEqual({ method: 'accessCode' });
   });
 
   it('should throw error with invalid access code', () => {

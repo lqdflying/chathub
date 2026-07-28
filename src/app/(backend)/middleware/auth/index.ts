@@ -1,4 +1,3 @@
-import { AuthObject } from '@clerk/backend';
 import {
   AgentRuntimeError,
   ChatCompletionErrorPayload,
@@ -6,20 +5,12 @@ import {
 } from '@lobechat/model-runtime';
 import { ChatErrorType, ClientSecretPayload } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
-import { NextRequest } from 'next/server';
 
-import {
-  LOBE_CHAT_AUTH_HEADER,
-  LOBE_CHAT_OIDC_AUTH_HEADER,
-  OAUTH_AUTHORIZED,
-  enableClerk,
-} from '@/const/auth';
-import { ClerkAuth } from '@/libs/clerk-auth';
+import { LOBE_CHAT_AUTH_HEADER, LOBE_CHAT_OIDC_AUTH_HEADER } from '@/const/auth';
 import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
-import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 import { createErrorResponse } from '@/utils/errorResponse';
 
-import { checkAuthMethod } from './utils';
+import { resolveWebApiAuth } from './utils';
 
 type CreateRuntime = (jwtPayload: ClientSecretPayload) => ModelRuntime;
 type RequestOptions = { createRuntime?: CreateRuntime; params: Promise<{ provider: string }> };
@@ -45,21 +36,8 @@ export const checkAuth =
     try {
       // get Authorization from header
       const authorization = req.headers.get(LOBE_CHAT_AUTH_HEADER);
-      const oauthAuthorized = !!req.headers.get(OAUTH_AUTHORIZED);
-      const tokenAuthUserId = resolveTokenAuthUserId(req.headers);
-      const tokenAuthAuthorized = !!tokenAuthUserId;
 
       if (!authorization) throw AgentRuntimeError.createError(ChatErrorType.Unauthorized);
-
-      // check the Auth With payload and clerk auth
-      let clerkAuth = {} as AuthObject;
-
-      // TODO: V2 完整移除 client 模式下的 clerk 集成代码
-      if (enableClerk) {
-        const auth = new ClerkAuth();
-        const data = auth.getAuthFromRequest(req as NextRequest);
-        clerkAuth = data.clerkAuth;
-      }
 
       jwtPayload = getXorPayload(authorization);
 
@@ -77,18 +55,15 @@ export const checkAuth =
       }
 
       if (!isUseOidcAuth) {
-        const authMethod = checkAuthMethod({
+        const authResult = await resolveWebApiAuth(req, {
           accessCode: jwtPayload.accessCode,
           apiKey: jwtPayload.apiKey,
-          clerkAuth,
-          nextAuthAuthorized: oauthAuthorized,
-          tokenAuthAuthorized,
         });
 
-        if (authMethod === 'tokenAuth' && tokenAuthUserId) {
+        if ('userId' in authResult) {
           jwtPayload = {
             ...jwtPayload,
-            userId: tokenAuthUserId,
+            userId: authResult.userId,
           };
         }
       }

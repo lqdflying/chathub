@@ -5,7 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { UAParser } from 'ua-parser-js';
 import urlJoin from 'url-join';
 
-import { OAUTH_AUTHORIZED } from '@/const/auth';
 import { LOBE_LOCALE_COOKIE } from '@/const/locale';
 import { LOBE_THEME_APPEARANCE } from '@/const/theme';
 import { appEnv } from '@/envs/app';
@@ -227,12 +226,7 @@ const nextAuthMiddleware = NextAuth.auth((req) => {
     userId: session?.user?.id,
   });
 
-  // Remove & amend OAuth authorized header
-  response.headers.delete(OAUTH_AUTHORIZED);
   if (isLoggedIn) {
-    logNextAuth('Setting auth header: %s = %s', OAUTH_AUTHORIZED, 'true');
-    response.headers.set(OAUTH_AUTHORIZED, 'true');
-
     // If OIDC is enabled and user is logged in, add OIDC session pre-sync header
     if (oidcEnv.ENABLE_OIDC && session?.user?.id) {
       logNextAuth('OIDC session pre-sync: Setting %s = %s', OIDC_SESSION_HEADER, session.user.id);

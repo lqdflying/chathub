@@ -1,62 +1,86 @@
-import { type AuthObject } from '@clerk/backend';
 import { AgentRuntimeError } from '@lobechat/model-runtime';
-import { ChatErrorType } from '@lobechat/types';
+import { ChatErrorType, type ClientSecretPayload } from '@lobechat/types';
+import { NextRequest } from 'next/server';
 
 import { enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
+import { ClerkAuth } from '@/libs/clerk-auth';
+import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 
 interface CheckAuthParams {
   accessCode?: string;
   apiKey?: string;
-  clerkAuth?: AuthObject;
-  nextAuthAuthorized?: boolean;
-  tokenAuthAuthorized?: boolean;
+  clerkUserId?: null | string;
+  nextAuthUserId?: null | string;
+  tokenAuthUserId?: string;
 }
 
-export type AuthMethod = 'accessCode' | 'apiKey' | 'clerk' | 'nextAuth' | 'none' | 'tokenAuth';
+export type AuthMethodResult =
+  | {
+      method: 'clerk' | 'nextAuth' | 'tokenAuth';
+      userId: string;
+    }
+  | {
+      method: 'accessCode' | 'apiKey' | 'none';
+    };
 
 /**
- * Check if the provided access code is valid, a user API key should be used or the OAuth 2 header is provided.
+ * Check if a resolved server identity, user API key, or access code authorizes the request.
  *
- * @param {string} accessCode - The access code to check.
- * @param {string} apiKey - The user API key.
- * @param {boolean} oauthAuthorized - Whether the OAuth 2 header is provided.
- * @throws {AgentRuntimeError} If the access code is invalid and no user API key is provided.
+ * Configured server authentication is authoritative. Payload credentials are considered only when
+ * Clerk, NextAuth, and static bearer authentication are all disabled.
  */
 export const checkAuthMethod = ({
   apiKey,
-  nextAuthAuthorized,
-  tokenAuthAuthorized,
+  nextAuthUserId,
+  tokenAuthUserId,
   accessCode,
-  clerkAuth,
-}: CheckAuthParams): AuthMethod => {
-  // clerk auth handler
-  if (enableClerk) {
-    // if there is no userId, means the use is not login, just throw error
-    if (!(clerkAuth as any)?.userId)
-      throw AgentRuntimeError.createError(ChatErrorType.InvalidClerkUser);
-    // if the user is login, just return
-    else return 'clerk';
+  clerkUserId,
+}: CheckAuthParams): AuthMethodResult => {
+  if (enableClerk && clerkUserId) return { method: 'clerk', userId: clerkUserId };
+  if (enableNextAuth && nextAuthUserId) return { method: 'nextAuth', userId: nextAuthUserId };
+  if (enableTokenAuth && tokenAuthUserId) return { method: 'tokenAuth', userId: tokenAuthUserId };
+
+  if (enableClerk || enableNextAuth || enableTokenAuth) {
+    throw AgentRuntimeError.createError(ChatErrorType.Unauthorized);
   }
 
-  // if next auth handler is provided
-  if (enableNextAuth && nextAuthAuthorized) return 'nextAuth';
-
-  // if token auth handler is provided
-  if (enableTokenAuth && tokenAuthAuthorized) return 'tokenAuth';
-
-  // if apiKey exist
-  if (apiKey) return 'apiKey';
+  if (apiKey) return { method: 'apiKey' };
 
   const { ACCESS_CODES } = getAppConfig();
 
-  // if accessCode doesn't exist
-  if (!ACCESS_CODES.length) return 'none';
+  if (!ACCESS_CODES.length) return { method: 'none' };
 
   if (!accessCode || !ACCESS_CODES.includes(accessCode)) {
     console.warn('tracked an invalid access code, 检查到输入的错误密码：', accessCode);
     throw AgentRuntimeError.createError(ChatErrorType.InvalidAccessCode);
   }
 
-  return 'accessCode';
+  return { method: 'accessCode' };
+};
+
+export const resolveWebApiAuth = async (
+  request: Request,
+  payload: Pick<ClientSecretPayload, 'accessCode' | 'apiKey'>,
+): Promise<AuthMethodResult> => {
+  let clerkUserId: null | string | undefined;
+  if (enableClerk) {
+    const clerkAuth = new ClerkAuth();
+    clerkUserId = clerkAuth.getAuthFromRequest(request as NextRequest).userId;
+  }
+
+  let nextAuthUserId: null | string | undefined;
+  if (enableNextAuth) {
+    const { default: NextAuth } = await import('@/libs/next-auth');
+    const session = await NextAuth.auth();
+    nextAuthUserId = session?.user?.id;
+  }
+
+  return checkAuthMethod({
+    accessCode: payload.accessCode,
+    apiKey: payload.apiKey,
+    clerkUserId,
+    nextAuthUserId,
+    tokenAuthUserId: resolveTokenAuthUserId(request.headers),
+  });
 };
