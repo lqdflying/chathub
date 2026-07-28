@@ -1,6 +1,7 @@
 import { Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { edgeClient } from '@/libs/trpc/client';
+import { createHeaderWithAuth } from '@/services/_auth';
 import { globalHelpers } from '@/store/global/helpers';
 
 import { toolService } from '../tool';
@@ -23,6 +24,12 @@ vi.mock('@/libs/trpc/client', () => ({
       },
     },
   },
+}));
+
+vi.mock('@/services/_auth', () => ({
+  createHeaderWithAuth: vi.fn(async () => ({
+    'X-lobe-chat-auth': 'encrypted-payload',
+  })),
 }));
 
 beforeEach(() => {
@@ -141,6 +148,47 @@ describe('ToolService', () => {
     });
 
     describe('support OpenAPI manifest', () => {
+      it('authenticates both manifest and OpenAPI requests when proxying', async () => {
+        const manifestUrl = 'http://fake-url.com/manifest.json';
+        const openapiUrl = 'http://fake-url.com/openapiUrl.json';
+        const fakeManifest = {
+          api: [],
+          author: 'ChatHub',
+          homepage: 'https://example.com',
+          identifier: 'authenticated-proxy-plugin',
+          meta: {
+            avatar: '🌈',
+            description: 'Authenticated proxy plugin',
+            title: 'Authenticated proxy plugin',
+          },
+          openapi: openapiUrl,
+          type: 'default',
+          version: '1',
+        };
+
+        global.fetch = vi.fn((url, init) =>
+          Promise.resolve({
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: () => Promise.resolve(init?.body === openapiUrl ? openAPIV3 : fakeManifest),
+            ok: true,
+          }),
+        ) as any;
+
+        await toolService.getToolManifest(manifestUrl, true);
+
+        expect(createHeaderWithAuth).toHaveBeenCalledOnce();
+        expect(fetch).toHaveBeenNthCalledWith(1, '/webapi/proxy', {
+          body: manifestUrl,
+          headers: { 'X-lobe-chat-auth': 'encrypted-payload' },
+          method: 'POST',
+        });
+        expect(fetch).toHaveBeenNthCalledWith(2, '/webapi/proxy', {
+          body: openapiUrl,
+          headers: { 'X-lobe-chat-auth': 'encrypted-payload' },
+          method: 'POST',
+        });
+      });
+
       it('should get plugin manifest', async () => {
         const manifestUrl = 'http://fake-url.com/manifest.json';
         const openapiUrl = 'http://fake-url.com/openapiUrl.json';

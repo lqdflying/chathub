@@ -8,7 +8,8 @@ export const createOpenAIAudioClient = (
   payload: Pick<ClientSecretPayload, 'apiKey' | 'baseURL'>,
 ): OpenAI => {
   const { OPENAI_API_KEY } = getLLMConfig();
-  const apiKey = payload.apiKey || OPENAI_API_KEY;
+  const clientApiKey = payload.apiKey;
+  const apiKey = clientApiKey || OPENAI_API_KEY;
 
   if (!apiKey) {
     throw AgentRuntimeError.createError(ChatErrorType.NoOpenAIAPIKey);
@@ -16,6 +17,7 @@ export const createOpenAIAudioClient = (
 
   return new OpenAI({
     apiKey,
-    baseURL: payload.baseURL || process.env.OPENAI_PROXY_URL || undefined,
+    baseURL:
+      (clientApiKey ? payload.baseURL : undefined) || process.env.OPENAI_PROXY_URL || undefined,
   });
 };

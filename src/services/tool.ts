@@ -1,4 +1,5 @@
 import { lambdaClient } from '@/libs/trpc/client';
+import { createHeaderWithAuth } from '@/services/_auth';
 import { globalHelpers } from '@/store/global/helpers';
 import { PluginQueryParams } from '@/types/discover';
 import { convertOpenAIManifestToLobeManifest, getToolManifest } from '@/utils/toolManifest';
@@ -15,7 +16,15 @@ class ToolService {
     });
   };
 
-  getToolManifest = getToolManifest;
+  getToolManifest = async (url?: string, useProxy: boolean = false) => {
+    const proxyRequestInit = useProxy
+      ? {
+          headers: await createHeaderWithAuth(),
+        }
+      : undefined;
+
+    return getToolManifest(url, useProxy, proxyRequestInit);
+  };
   convertOpenAIManifestToLobeManifest = convertOpenAIManifestToLobeManifest;
 }
 

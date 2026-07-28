@@ -2,8 +2,9 @@ import { ChatErrorType } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { LOBE_CHAT_AUTH_HEADER, OAUTH_AUTHORIZED } from '@/const/auth';
+import { LOBE_CHAT_AUTH_HEADER, LOBE_CHAT_OIDC_AUTH_HEADER, OAUTH_AUTHORIZED } from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
+import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
 
 import { checkAuthMethod, resolveWebApiAuthFromHeader } from './utils';
 
@@ -34,6 +35,10 @@ vi.mock('@/envs/app', () => ({
 
 vi.mock('@lobechat/utils/server', () => ({
   getXorPayload: vi.fn(),
+}));
+
+vi.mock('@/libs/oidc-provider/jwt', () => ({
+  validateOIDCJWT: vi.fn(),
 }));
 
 describe('checkAuthMethod', () => {
@@ -240,6 +245,50 @@ describe('resolveWebApiAuthFromHeader', () => {
       authResult: { method: 'apiKey' },
       payload: { apiKey: 'client-provider-key' },
     });
+  });
+
+  it('binds a validated OIDC client to its token subject', async () => {
+    vi.mocked(getXorPayload).mockReturnValue({
+      accessCode: 'validAccessCode',
+      userId: 'caller-selected-owner',
+    });
+    vi.mocked(validateOIDCJWT).mockResolvedValue({
+      tokenData: {},
+      userId: 'oidc-owner',
+    } as never);
+    const request = new Request('https://chathub.example/webapi/proxy', {
+      headers: {
+        [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
+        [LOBE_CHAT_OIDC_AUTH_HEADER]: 'valid-oidc-token',
+      },
+      method: 'POST',
+    });
+
+    await expect(resolveWebApiAuthFromHeader(request)).resolves.toEqual({
+      authResult: { method: 'oidc', userId: 'oidc-owner' },
+      payload: {
+        accessCode: 'validAccessCode',
+        userId: 'caller-selected-owner',
+      },
+    });
+    expect(validateOIDCJWT).toHaveBeenCalledWith('valid-oidc-token');
+  });
+
+  it('rejects an invalid supplied OIDC token without falling back to payload credentials', async () => {
+    vi.mocked(getXorPayload).mockReturnValue({
+      accessCode: 'validAccessCode',
+    });
+    vi.mocked(validateOIDCJWT).mockRejectedValue(new Error('invalid OIDC token'));
+    const request = new Request('https://chathub.example/webapi/proxy', {
+      headers: {
+        [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
+        [LOBE_CHAT_OIDC_AUTH_HEADER]: 'invalid-oidc-token',
+      },
+      method: 'POST',
+    });
+
+    await expect(resolveWebApiAuthFromHeader(request)).rejects.toThrow('invalid OIDC token');
+    expect(validateOIDCJWT).toHaveBeenCalledWith('invalid-oidc-token');
   });
 
   it('rejects a forged OAuth marker when configured bearer auth does not validate', async () => {

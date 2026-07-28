@@ -25,15 +25,18 @@ validation derives the raw authentication principal only from
 request headers cannot select the user.
 
 Backend WebAPI requests still decode the client-generated
-`X-lobe-chat-auth` payload for provider credentials and runtime options. When
-server authentication is configured, each WebAPI route validates Clerk,
-NextAuth, or static bearer authentication directly at the route boundary. The
-first configured method that validates returns an authoritative database owner:
-Clerk returns its mapped owner, NextAuth returns `session.user.id`, and static
-bearer authentication returns `AUTH_USER_ID`. The server overwrites the
-payload's `userId` with that owner before invoking the route handler. The
-decoded payload therefore cannot redirect user-scoped model runtime, tracing,
-cache, or nested tRPC work to another database owner.
+`X-lobe-chat-auth` payload for provider credentials and runtime options. Each
+WebAPI route uses the shared resolver to validate `Oidc-Auth`, Clerk, NextAuth,
+or static bearer authentication directly at the route boundary. A valid OIDC
+access token is authoritative and binds the request to its validated `sub`.
+Otherwise, the first configured method that validates returns an authoritative
+database owner: Clerk returns its mapped owner, NextAuth returns
+`session.user.id`, and static bearer authentication returns `AUTH_USER_ID`. The
+server overwrites the payload's `userId` with that owner before invoking the
+route handler. The decoded payload therefore cannot redirect user-scoped model
+runtime, tracing, cache, or nested tRPC work to another database owner. A
+supplied but invalid `Oidc-Auth` token is terminal and cannot fall through to an
+access code or provider API key.
 
 Configured server authentication fails closed. If none of the enabled Clerk,
 NextAuth, or static bearer methods validates the request, WebAPI execution stops
@@ -60,6 +63,17 @@ exception: when server authentication is disabled, they may use the encrypted
 OpenAI API key because that credential is consumed by the same upstream audio
 operation. If server authentication is configured, the validated session or
 bearer remains mandatory even when an OpenAI key is present.
+
+OpenAI audio credential selection also binds endpoint ownership. A browser
+OpenAI key may be paired with that browser payload's `baseURL`. If the audio
+route falls back to the deployment's `OPENAI_API_KEY`, it ignores the browser
+`baseURL` and uses only the deployment-controlled `OPENAI_PROXY_URL` or the
+OpenAI SDK default. This follows the
+[OpenAI Node SDK contract](https://github.com/openai/openai-node/blob/master/src/client.ts),
+where `baseURL` selects the request destination and `apiKey` is automatically
+sent there as a Bearer credential, and
+[OWASP's SSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet)
+to restrict privileged outbound calls to identified trusted destinations.
 
 `X-oauth-authorized` is legacy, untrusted input and is not read as an
 authorization signal. Auth.js documents that route handlers should use

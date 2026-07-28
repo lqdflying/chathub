@@ -97,6 +97,11 @@ MCP code is easy to break in ways that only show up in deployment-specific paths
 - MCP client cache keys are fingerprinted. OAuth connections use user + plugin identity and exclude rotating access tokens; simultaneous initialization is coalesced. Cache replacement, capability upgrades, eviction, and partial initialization failure disconnect the old/partial client best-effort.
 - local/private URL handling
 - manifest metadata and plugin installability
+- custom plugin manifest proxying uses the authenticated `/webapi/proxy`
+  boundary. `ToolService` creates one standard encrypted `X-lobe-chat-auth`
+  header set and the manifest parser reuses it for both the manifest document
+  and its nested OpenAPI document. Keep application credential creation outside
+  `packages/utils`; inject proxy request options instead.
 - async reporting that should not block the main tool call
 
 ## Tool call debug

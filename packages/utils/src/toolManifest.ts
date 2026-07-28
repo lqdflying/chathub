@@ -3,11 +3,19 @@ import { LobeChatPluginManifest, pluginManifestSchema } from '@lobehub/chat-plug
 
 import { API_ENDPOINTS } from '@/services/_url';
 
-const fetchJSON = async <T = any>(url: string, proxy = false): Promise<T> => {
+type ProxyRequestInit = Parameters<typeof fetch>[1];
+
+const fetchJSON = async <T = any>(
+  url: string,
+  proxy = false,
+  proxyRequestInit?: ProxyRequestInit,
+): Promise<T> => {
   // 2. 发送请求
   let res: Response;
   try {
-    res = await (proxy ? fetch(API_ENDPOINTS.proxy, { body: url, method: 'POST' }) : fetch(url));
+    res = await (proxy
+      ? fetch(API_ENDPOINTS.proxy, { ...proxyRequestInit, body: url, method: 'POST' })
+      : fetch(url));
   } catch {
     throw new TypeError('fetchError');
   }
@@ -79,6 +87,7 @@ export const convertOpenAIManifestToLobeManifest = (
 export const getToolManifest = async (
   url?: string,
   useProxy: boolean = false,
+  proxyRequestInit?: ProxyRequestInit,
 ): Promise<LobeChatPluginManifest> => {
   // 1. valid plugin
   if (!url) {
@@ -86,7 +95,7 @@ export const getToolManifest = async (
   }
 
   // 2. 发送请求
-  let data = await fetchJSON<LobeChatPluginManifest>(url, useProxy);
+  let data = await fetchJSON<LobeChatPluginManifest>(url, useProxy, proxyRequestInit);
 
   // @ts-ignore
   // if there is a description_for_model, it is an OpenAI plugin
@@ -103,7 +112,7 @@ export const getToolManifest = async (
 
   // 4. if exist OpenAPI api, merge the OpenAPIs to api
   if (parser.data.openapi) {
-    const openapiJson = await fetchJSON(parser.data.openapi, useProxy);
+    const openapiJson = await fetchJSON(parser.data.openapi, useProxy, proxyRequestInit);
 
     // avoid https://github.com/lobehub/lobe-chat/issues/9059
     if (typeof window !== 'undefined') {

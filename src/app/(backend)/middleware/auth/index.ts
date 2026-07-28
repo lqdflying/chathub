@@ -6,8 +6,7 @@ import {
 import { ChatErrorType, ClientSecretPayload } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
 
-import { LOBE_CHAT_AUTH_HEADER, LOBE_CHAT_OIDC_AUTH_HEADER } from '@/const/auth';
-import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
+import { LOBE_CHAT_AUTH_HEADER } from '@/const/auth';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 import { resolveWebApiAuth } from './utils';
@@ -41,31 +40,16 @@ export const checkAuth =
 
       jwtPayload = getXorPayload(authorization);
 
-      const oidcAuthorization = req.headers.get(LOBE_CHAT_OIDC_AUTH_HEADER);
-      let isUseOidcAuth = false;
-      if (!!oidcAuthorization) {
-        const oidc = await validateOIDCJWT(oidcAuthorization);
+      const authResult = await resolveWebApiAuth(req, {
+        accessCode: jwtPayload.accessCode,
+        apiKey: jwtPayload.apiKey,
+      });
 
-        isUseOidcAuth = true;
-
+      if ('userId' in authResult) {
         jwtPayload = {
           ...jwtPayload,
-          userId: oidc.userId,
+          userId: authResult.userId,
         };
-      }
-
-      if (!isUseOidcAuth) {
-        const authResult = await resolveWebApiAuth(req, {
-          accessCode: jwtPayload.accessCode,
-          apiKey: jwtPayload.apiKey,
-        });
-
-        if ('userId' in authResult) {
-          jwtPayload = {
-            ...jwtPayload,
-            userId: authResult.userId,
-          };
-        }
       }
     } catch (e) {
       const params = await options.params;

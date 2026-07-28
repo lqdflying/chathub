@@ -4,9 +4,15 @@ import { ChatErrorType } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { LOBE_CHAT_AUTH_HEADER, OAUTH_AUTHORIZED, TOKEN_AUTH_USER_HEADER } from '@/const/auth';
+import {
+  LOBE_CHAT_AUTH_HEADER,
+  LOBE_CHAT_OIDC_AUTH_HEADER,
+  OAUTH_AUTHORIZED,
+  TOKEN_AUTH_USER_HEADER,
+} from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
 import NextAuth from '@/libs/next-auth';
+import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 import { RequestHandler, checkAuth } from './index';
@@ -45,6 +51,10 @@ vi.mock('@/libs/next-auth', () => ({
   default: {
     auth: vi.fn(),
   },
+}));
+
+vi.mock('@/libs/oidc-provider/jwt', () => ({
+  validateOIDCJWT: vi.fn(),
 }));
 
 vi.mock('@/utils/errorResponse', () => ({
@@ -200,6 +210,31 @@ describe('checkAuth', () => {
       expect.objectContaining({
         jwtPayload: expect.objectContaining({
           userId: 'session-owner',
+        }),
+      }),
+    );
+  });
+
+  it('binds a validated OIDC token subject', async () => {
+    const request = new Request('https://example.com', {
+      headers: {
+        [LOBE_CHAT_AUTH_HEADER]: 'encrypted-payload',
+        [LOBE_CHAT_OIDC_AUTH_HEADER]: 'valid-oidc-token',
+      },
+    });
+    vi.mocked(getXorPayload).mockReturnValue({ userId: 'victim' });
+    vi.mocked(validateOIDCJWT).mockResolvedValue({
+      tokenData: {},
+      userId: 'oidc-owner',
+    } as never);
+
+    await checkAuth(mockHandler)(request, mockOptions);
+
+    expect(mockHandler).toHaveBeenCalledWith(
+      request,
+      expect.objectContaining({
+        jwtPayload: expect.objectContaining({
+          userId: 'oidc-owner',
         }),
       }),
     );

@@ -3,9 +3,16 @@ import { ChatErrorType, type ClientSecretPayload } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
 import { NextRequest } from 'next/server';
 
-import { LOBE_CHAT_AUTH_HEADER, enableClerk, enableNextAuth, enableTokenAuth } from '@/const/auth';
+import {
+  LOBE_CHAT_AUTH_HEADER,
+  LOBE_CHAT_OIDC_AUTH_HEADER,
+  enableClerk,
+  enableNextAuth,
+  enableTokenAuth,
+} from '@/const/auth';
 import { getAppConfig } from '@/envs/app';
 import { ClerkAuth } from '@/libs/clerk-auth';
+import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
 import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 import { createErrorResponse } from '@/utils/errorResponse';
 
@@ -19,7 +26,7 @@ interface CheckAuthParams {
 
 export type AuthMethodResult =
   | {
-      method: 'clerk' | 'nextAuth' | 'tokenAuth';
+      method: 'clerk' | 'nextAuth' | 'oidc' | 'tokenAuth';
       userId: string;
     }
   | {
@@ -74,6 +81,13 @@ export const resolveWebApiAuth = async (
   request: Request,
   payload: Pick<ClientSecretPayload, 'accessCode' | 'apiKey'>,
 ): Promise<AuthMethodResult> => {
+  const oidcAuthorization = request.headers.get(LOBE_CHAT_OIDC_AUTH_HEADER);
+  if (oidcAuthorization) {
+    const oidc = await validateOIDCJWT(oidcAuthorization);
+
+    return { method: 'oidc', userId: oidc.userId };
+  }
+
   let clerkUserId: null | string | undefined;
   if (enableClerk) {
     const clerkAuth = new ClerkAuth();
