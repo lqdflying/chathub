@@ -227,6 +227,7 @@ export const createCreateImageSlice: StateCreator<
           model: batch.model,
           params: batch.config as any,
           provider: batch.provider,
+          sourceGenerationBatchId: generationBatchId,
         },
         abortController.signal,
       );

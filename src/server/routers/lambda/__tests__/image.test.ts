@@ -183,15 +183,175 @@ describe('imageRouter', () => {
     );
   });
 
+  it('recovers historical regeneration references from the owned source batch', async () => {
+    const historicalStoredReference = 'webapi/files/references/historical.png';
+    const collisionStoredReference = 'webapi/files/references/collision.png';
+    const ambiguousStoredReference = 'webapi/files/references/ambiguous.png';
+    const feedExpandedHistoricalReference =
+      'https://storage.example.com/webapi/files/references/historical.png';
+    const feedExpandedCollisionReference =
+      'https://storage.example.com/webapi/files/references/collision.png';
+    const feedExpandedAmbiguousReference =
+      'https://storage.example.com/webapi/files/references/ambiguous.png';
+    const freshHistoricalReference =
+      'https://storage.example.com/references/historical.png?X-Amz-Signature=fresh';
+    const freshCollisionReference =
+      'https://storage.example.com/webapi/files/references/collision.png?X-Amz-Signature=fresh';
+    const freshAmbiguousReference =
+      'https://storage.example.com/webapi/files/references/ambiguous.png?X-Amz-Signature=fresh';
+    const batchValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'replacement-batch-id' }]),
+    });
+    const generationValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'generation-id' }]),
+    });
+    const asyncTaskValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'task-id' }]),
+    });
+    const transaction = {
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: batchValues })
+        .mockReturnValueOnce({ values: generationValues })
+        .mockReturnValueOnce({ values: asyncTaskValues }),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        where: vi.fn().mockReturnThis(),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(undefined),
+        }),
+      }),
+    };
+    const fileOwnershipQuery = {
+      from: vi.fn().mockReturnThis(),
+      where: vi
+        .fn()
+        .mockResolvedValue([
+          { url: 'references/historical.png' },
+          { url: collisionStoredReference },
+        ]),
+    };
+    const serverDB = {
+      query: {
+        generationBatches: {
+          findFirst: vi.fn().mockResolvedValue({
+            config: {
+              imageUrl: historicalStoredReference,
+              imageUrls: [collisionStoredReference, ambiguousStoredReference],
+            },
+          }),
+        },
+      },
+      select: vi.fn().mockReturnValue(fileOwnershipQuery),
+      transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
+      ),
+    };
+    const getKeyFromFullUrl = vi.fn((reference: string) => reference);
+    const getFullFileUrl = vi.fn(async (key: string) => {
+      if (key === 'references/historical.png') return freshHistoricalReference;
+      if (key === collisionStoredReference) return freshCollisionReference;
+      if (key === ambiguousStoredReference) return freshAmbiguousReference;
+      return key;
+    });
+    const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl }) as never,
+    );
+    vi.mocked(createAsyncCaller).mockResolvedValue({
+      image: { createImage: dispatchCreateImage },
+    } as never);
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await caller.createImage({
+      ...validInput,
+      imageNum: 1,
+      params: {
+        imageUrl: feedExpandedHistoricalReference,
+        imageUrls: [feedExpandedCollisionReference, feedExpandedAmbiguousReference],
+        prompt: 'Regenerate an image',
+      },
+      sourceGenerationBatchId: 'source-batch-id',
+    });
+
+    expect(serverDB.query.generationBatches.findFirst).toHaveBeenCalledTimes(1);
+    expect(batchValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: {
+          imageUrl: 'references/historical.png',
+          imageUrls: [collisionStoredReference, ambiguousStoredReference],
+          prompt: 'Regenerate an image',
+        },
+      }),
+    );
+    expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(feedExpandedHistoricalReference);
+    expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(feedExpandedCollisionReference);
+    expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(feedExpandedAmbiguousReference);
+    expect(dispatchCreateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: {
+          imageUrl: freshHistoricalReference,
+          imageUrls: [freshCollisionReference, freshAmbiguousReference],
+          prompt: 'Regenerate an image',
+        },
+      }),
+    );
+  });
+
+  it('rejects regeneration from a source batch outside the current user and topic', async () => {
+    const serverDB = {
+      query: {
+        generationBatches: {
+          findFirst: vi.fn().mockResolvedValue(undefined),
+        },
+      },
+      transaction: vi.fn(),
+    };
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () =>
+        ({
+          getFullFileUrl: vi.fn(),
+          getKeyFromFullUrl: vi.fn(),
+        }) as never,
+    );
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-b',
+    } as never);
+
+    await expect(
+      caller.createImage({
+        ...validInput,
+        sourceGenerationBatchId: 'foreign-batch-id',
+      }),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Source generation batch does not belong to the current user and topic',
+    });
+    expect(serverDB.transaction).not.toHaveBeenCalled();
+  });
+
   it('rejects image creation when the topic belongs to another user', async () => {
     const topicOwnershipQuery = {
       from: vi.fn().mockReturnThis(),
-      where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([]),
+      where: vi.fn().mockReturnThis(),
     };
     const transaction = {
-      select: vi.fn().mockReturnValue(topicOwnershipQuery),
       insert: vi.fn(),
+      select: vi.fn().mockReturnValue(topicOwnershipQuery),
     };
     const serverDB = {
       transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
@@ -415,8 +575,8 @@ describe('imageRouter', () => {
 
       it('should not throw for strings that contain but do not start with http', () => {
         const config = {
-          imageUrl: 'some-prefix-https://example.com',
           description: 'This text contains http:// but is not a URL',
+          imageUrl: 'some-prefix-https://example.com',
         };
 
         expect(() => validateNoUrlsInConfig(config)).not.toThrow();

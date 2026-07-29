@@ -570,14 +570,28 @@ Failed-output recreation is replacement-first:
    other failed batches remain independently actionable.
 3. Submit one replacement batch with `imageNum` equal to the failed count and
    reuse the original provider, model, prompt, reference images, and runtime
-   configuration. Reference images stored by ChatHub remain durable object keys
-   in the batch config. Before storage normalization, the lambda unwraps
-   authenticated `${APP_URL}/webapi/files/<key>` references to the original
-   object key only when an absolute reference has the same normalized origin as
-   `APP_URL`; exact relative and legacy bare proxy paths remain supported. A
-   foreign storage URL whose pathname also contains `/webapi/files/` continues
-   through the backend-specific parser. The origin comparison follows the
-   standard `URL.origin` scheme, host, and port identity
+   configuration. The request includes `sourceGenerationBatchId`; the lambda
+   accepts it only when the source batch belongs to the current user and
+   generation topic, then reloads the raw stored `imageUrl` and `imageUrls`.
+   Client feed URLs are not trusted as retry provenance because feed construction
+   expands stored keys into access URLs.
+
+   Reference images stored by ChatHub remain durable object keys in the batch
+   config. For historical rows that accidentally stored
+   `webapi/files/<key>`, the lambda uses the current user's `files.url` records
+   to resolve the ambiguity. An owned full `webapi/files/<key>` key wins and is
+   preserved as a legitimate storage-path collision. Otherwise, an owned
+   stripped `<key>` proves the historical proxy-prefix error and is recovered.
+   If neither key is owned, the stored value remains unchanged rather than being
+   guessed or probed through storage permissions.
+
+   For new submissions, the lambda unwraps authenticated
+   `${APP_URL}/webapi/files/<key>` references to the original object key only
+   when an absolute reference has the same normalized origin as `APP_URL`; exact
+   relative and legacy bare proxy paths remain supported. A foreign storage URL
+   whose pathname also contains `/webapi/files/` continues through the
+   backend-specific parser. The origin comparison follows the standard
+   `URL.origin` scheme, host, and port identity
    ([MDN URL origin](https://developer.mozilla.org/en-US/docs/Web/API/URL/origin)).
    The lambda then derives fresh model-access URLs from those keys immediately
    before async dispatch, while inline `data:` references pass through unchanged.
@@ -586,6 +600,7 @@ Failed-output recreation is replacement-first:
    that a presigned URL expires at its configured deadline or when its signing
    credentials expire, whichever happens first
    ([Amazon S3 presigned URL expiration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)).
+
 4. After the replacement is accepted, remove the entire original batch when
    every output failed. For a mixed batch, remove only the failed generation
    records and retain every successful sibling.

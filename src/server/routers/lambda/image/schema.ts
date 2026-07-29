@@ -20,6 +20,7 @@ export const createImageInputSchema = z
       })
       .passthrough(),
     provider: z.string().trim().min(1),
+    sourceGenerationBatchId: z.string().trim().min(1).optional(),
   })
   .superRefine((input, refinementContext) => {
     if (input.provider !== 'openaicompatible' || input.model !== 'gpt-image-2') return;

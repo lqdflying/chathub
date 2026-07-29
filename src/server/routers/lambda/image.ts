@@ -1,11 +1,12 @@
 import { TRPCError } from '@trpc/server';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import {
   NewGeneration,
   NewGenerationBatch,
   asyncTasks,
+  files,
   generationBatches,
   generationTopics,
   generations,
@@ -24,7 +25,10 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { keyVaults, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import { FileService } from '@/server/services/file';
-import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileReference';
+import {
+  APP_FILE_PROXY_PATH_PREFIX,
+  extractKeyFromAppFileProxyUrl,
+} from '@/server/services/file/fileReference';
 import {
   AsyncTaskError,
   AsyncTaskErrorType,
@@ -44,7 +48,71 @@ export type { CreateImageServicePayload } from './image/schema';
 const IMAGE_TRIGGER_ERROR_MESSAGE =
   'trigger image generation async task error. Please make sure INTERNAL_APP_URL or APP_URL is reachable from the server.';
 
-const normalizeImageReference = async (reference: string, fileService: FileService) => {
+type ImageReferenceConfig = {
+  imageUrl?: string;
+  imageUrls?: string[];
+};
+
+const findLegacyProxyKeyCandidate = (reference: string): string | undefined => {
+  const legacyPrefix = APP_FILE_PROXY_PATH_PREFIX.slice(1);
+  if (!reference.startsWith(legacyPrefix)) return undefined;
+
+  return extractKeyFromAppFileProxyUrl(reference);
+};
+
+const recoverLegacyImageReference = (reference: string, ownedFileKeys: Set<string>): string => {
+  const strippedKey = findLegacyProxyKeyCandidate(reference);
+  if (!strippedKey) return reference;
+
+  if (ownedFileKeys.has(reference)) return reference;
+  return ownedFileKeys.has(strippedKey) ? strippedKey : reference;
+};
+
+const recoverSourceImageReferences = async ({
+  config,
+  serverDB,
+  userId,
+}: {
+  config: ImageReferenceConfig;
+  serverDB: ConstructorParameters<typeof FileService>[0];
+  userId: string;
+}): Promise<ImageReferenceConfig> => {
+  const references = [
+    ...(typeof config.imageUrl === 'string' ? [config.imageUrl] : []),
+    ...(Array.isArray(config.imageUrls) ? config.imageUrls : []),
+  ];
+  const candidateKeys = references.flatMap((reference) => {
+    const strippedKey = findLegacyProxyKeyCandidate(reference);
+    return strippedKey ? [reference, strippedKey] : [];
+  });
+  const ownedFiles =
+    candidateKeys.length > 0
+      ? await serverDB
+          .select({ url: files.url })
+          .from(files)
+          .where(and(eq(files.userId, userId), inArray(files.url, candidateKeys)))
+      : [];
+  const ownedFileKeys = new Set(ownedFiles.map(({ url }) => url));
+  const recoveredConfig = { ...config };
+
+  if (typeof config.imageUrl === 'string') {
+    recoveredConfig.imageUrl = recoverLegacyImageReference(config.imageUrl, ownedFileKeys);
+  }
+
+  if (Array.isArray(config.imageUrls)) {
+    recoveredConfig.imageUrls = config.imageUrls.map((reference) =>
+      recoverLegacyImageReference(reference, ownedFileKeys),
+    );
+  }
+
+  return recoveredConfig;
+};
+
+const normalizeImageReference = async (
+  reference: string,
+  fileService: FileService,
+  referenceIsStored = false,
+) => {
   if (reference.startsWith('data:')) {
     return {
       databaseReference: reference,
@@ -52,9 +120,13 @@ const normalizeImageReference = async (reference: string, fileService: FileServi
     };
   }
 
+  const referenceIsAbsoluteUrl =
+    reference.startsWith('http://') || reference.startsWith('https://');
   const databaseReference =
-    extractKeyFromAppFileProxyUrl(reference, appEnv.APP_URL) ??
-    fileService.getKeyFromFullUrl(reference);
+    referenceIsStored && !referenceIsAbsoluteUrl
+      ? reference
+      : (extractKeyFromAppFileProxyUrl(reference, appEnv.APP_URL) ??
+        fileService.getKeyFromFullUrl(reference));
   const dispatchReference = await fileService.getFullFileUrl(databaseReference);
 
   return {
@@ -161,7 +233,8 @@ export const imageRouter = router({
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {
     const execute = async () => {
       const { userId, serverDB, asyncTaskModel, fileService } = ctx;
-      const { generationTopicId, provider, model, imageNum, params } = input;
+      const { generationTopicId, provider, model, imageNum, params, sourceGenerationBatchId } =
+        input;
 
       logImageDebugSafe('submission_accepted', createSubmissionDebugFields(input));
       logImageDebugVerbose('submission_accepted', {
@@ -170,14 +243,56 @@ export const imageRouter = router({
         provider,
       });
 
+      let paramsWithSourceReferences = params;
+      if (sourceGenerationBatchId) {
+        const sourceBatch = await serverDB.query.generationBatches.findFirst({
+          columns: { config: true },
+          where: and(
+            eq(generationBatches.id, sourceGenerationBatchId),
+            eq(generationBatches.generationTopicId, generationTopicId),
+            eq(generationBatches.userId, userId),
+          ),
+        });
+
+        if (!sourceBatch) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'Source generation batch does not belong to the current user and topic',
+          });
+        }
+
+        const sourceConfig = (sourceBatch.config ?? {}) as ImageReferenceConfig;
+        const sourceReferenceConfig: ImageReferenceConfig = {
+          imageUrl: sourceConfig.imageUrl,
+          imageUrls: sourceConfig.imageUrls,
+        };
+        const recoveredSourceReferences = await recoverSourceImageReferences({
+          config: sourceReferenceConfig,
+          serverDB,
+          userId,
+        });
+
+        paramsWithSourceReferences = {
+          ...params,
+          imageUrl: recoveredSourceReferences.imageUrl,
+          imageUrls: recoveredSourceReferences.imageUrls,
+        };
+      }
+
       // 规范化参考图地址，统一存储 S3 key（避免把会过期的预签名 URL 存进数据库）
-      let configForDatabase = { ...params };
-      let paramsForDispatch = { ...params };
+      let configForDatabase = { ...paramsWithSourceReferences };
+      let paramsForDispatch = { ...paramsWithSourceReferences };
+      const referencesComeFromSourceBatch = Boolean(sourceGenerationBatchId);
       // 1) 处理多图 imageUrls
-      if (Array.isArray(params.imageUrls) && params.imageUrls.length > 0) {
+      if (
+        Array.isArray(paramsWithSourceReferences.imageUrls) &&
+        paramsWithSourceReferences.imageUrls.length > 0
+      ) {
         try {
           const normalizedReferences = await Promise.all(
-            params.imageUrls.map((reference) => normalizeImageReference(reference, fileService)),
+            paramsWithSourceReferences.imageUrls.map((reference) =>
+              normalizeImageReference(reference, fileService, referencesComeFromSourceBatch),
+            ),
           );
 
           configForDatabase = {
@@ -199,11 +314,15 @@ export const imageRouter = router({
       }
 
       // 2) 处理单图 imageUrl
-      if (typeof params.imageUrl === 'string' && params.imageUrl) {
+      if (
+        typeof paramsWithSourceReferences.imageUrl === 'string' &&
+        paramsWithSourceReferences.imageUrl
+      ) {
         try {
           const { databaseReference, dispatchReference } = await normalizeImageReference(
-            params.imageUrl,
+            paramsWithSourceReferences.imageUrl,
             fileService,
+            referencesComeFromSourceBatch,
           );
           configForDatabase = { ...configForDatabase, imageUrl: databaseReference };
           paramsForDispatch = { ...paramsForDispatch, imageUrl: dispatchReference };

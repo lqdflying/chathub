@@ -536,6 +536,7 @@ describe('CreateImageAction', () => {
           model: 'batch-model',
           imageNum: 4,
           params: { prompt: 'batch prompt' },
+          sourceGenerationBatchId: 'batch-id',
         },
         expect.any(AbortSignal),
       );
