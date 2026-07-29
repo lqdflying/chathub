@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fileRouter } from '@/server/routers/lambda/file';
+import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 
 // Patch: Use actual router context middleware to inject the correct models/services
@@ -49,6 +50,8 @@ function createCallerWithCtx(partialCtx: any = {}) {
     ...partialCtx,
   };
 
+  vi.mocked(FileService).mockImplementation(() => fileService as never);
+
   return { ctx, caller: fileRouter.createCaller(ctx) };
 }
 
@@ -83,6 +86,12 @@ vi.mock('@/database/models/file', () => ({
     query: vi.fn(),
     clear: vi.fn(),
   })),
+}));
+
+vi.mock('@/envs/app', () => ({
+  appEnv: {
+    APP_URL: 'https://chat.example.com',
+  },
 }));
 
 vi.mock('@/server/services/file', () => ({
@@ -208,6 +217,28 @@ describe('fileRouter', () => {
       await caller.removeFileAsyncTask({ id: 'test-id', type: 'chunk' });
 
       expect(ctx.asyncTaskModel.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resolvePublicUrl', () => {
+    it('resolves same-origin app-proxy URLs from their durable key', async () => {
+      ctx.fileService.getFullFileUrl.mockResolvedValue('https://storage.example.com/signed.png');
+
+      await expect(
+        caller.resolvePublicUrl({
+          url: 'https://chat.example.com/webapi/files/references/image.png',
+        }),
+      ).resolves.toBe('https://storage.example.com/signed.png');
+
+      expect(ctx.fileService.getFullFileUrl).toHaveBeenCalledWith('references/image.png');
+    });
+
+    it('does not resolve foreign storage URLs that collide with the proxy path', async () => {
+      const storageUrl = 'https://storage.example.com/webapi/files/references/image.png';
+
+      await expect(caller.resolvePublicUrl({ url: storageUrl })).resolves.toBe(storageUrl);
+
+      expect(ctx.fileService.getFullFileUrl).not.toHaveBeenCalled();
     });
   });
 });

@@ -573,7 +573,12 @@ Failed-output recreation is replacement-first:
    configuration. Reference images stored by ChatHub remain durable object keys
    in the batch config. Before storage normalization, the lambda unwraps
    authenticated `${APP_URL}/webapi/files/<key>` references to the original
-   object key; direct storage URLs continue through the backend-specific parser.
+   object key only when an absolute reference has the same normalized origin as
+   `APP_URL`; exact relative and legacy bare proxy paths remain supported. A
+   foreign storage URL whose pathname also contains `/webapi/files/` continues
+   through the backend-specific parser. The origin comparison follows the
+   standard `URL.origin` scheme, host, and port identity
+   ([MDN URL origin](https://developer.mozilla.org/en-US/docs/Web/API/URL/origin)).
    The lambda then derives fresh model-access URLs from those keys immediately
    before async dispatch, while inline `data:` references pass through unchanged.
    This avoids signing the application proxy path as part of an object key and

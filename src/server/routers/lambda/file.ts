@@ -5,6 +5,7 @@ import { serverDBEnv } from '@/config/db';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { ChunkModel } from '@/database/models/chunk';
 import { FileModel } from '@/database/models/file';
+import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
@@ -192,7 +193,7 @@ export const fileRouter = router({
   resolvePublicUrl: fileProcedure
     .input(z.object({ url: z.string() }))
     .query(async ({ ctx, input }) => {
-      const key = extractKeyFromAppFileProxyUrl(input.url);
+      const key = extractKeyFromAppFileProxyUrl(input.url, appEnv.APP_URL);
       if (!key) return input.url;
 
       return ctx.fileService.getFullFileUrl(key);

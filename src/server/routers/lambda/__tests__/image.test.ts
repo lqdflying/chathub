@@ -25,6 +25,12 @@ vi.mock('@/database/models/asyncTask', () => ({
   AsyncTaskModel: vi.fn(),
 }));
 
+vi.mock('@/envs/app', () => ({
+  appEnv: {
+    APP_URL: 'https://chat.example.com',
+  },
+}));
+
 vi.mock('@/libs/logger/imageDebug', () => ({
   describeImageDebugError: vi.fn(),
   fingerprintImageDebugValue: vi.fn(() => ({ hash: 'test-hash' })),
@@ -70,11 +76,15 @@ describe('imageRouter', () => {
       'https://chat.example.com/webapi/files/references/nested%20folder/single.png';
     const expiredMultipleReference =
       'https://storage.example.com/references/multiple.png?X-Amz-Signature=expired';
+    const storagePathCollisionReference =
+      'https://storage.example.com/webapi/files/references/collision.png';
     const inlineReference = 'data:image/png;base64,aW1hZ2U=';
     const freshSingleReference =
       'https://storage.example.com/references/nested%20folder/single.png?X-Amz-Signature=fresh';
     const freshMultipleReference =
       'https://storage.example.com/references/multiple.png?X-Amz-Signature=fresh';
+    const freshCollisionReference =
+      'https://storage.example.com/webapi/files/references/collision.png?X-Amz-Signature=fresh';
     const batchValues = vi.fn().mockReturnValue({
       returning: vi.fn().mockResolvedValue([{ id: 'batch-id' }]),
     });
@@ -108,11 +118,15 @@ describe('imageRouter', () => {
     };
     const getKeyFromFullUrl = vi.fn((reference: string) => {
       if (reference === expiredMultipleReference) return 'references/multiple.png';
+      if (reference === storagePathCollisionReference) {
+        return 'webapi/files/references/collision.png';
+      }
       return reference;
     });
     const getFullFileUrl = vi.fn(async (key: string) => {
       if (key === 'references/nested folder/single.png') return freshSingleReference;
       if (key === 'references/multiple.png') return freshMultipleReference;
+      if (key === 'webapi/files/references/collision.png') return freshCollisionReference;
       return key;
     });
     const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
@@ -135,7 +149,7 @@ describe('imageRouter', () => {
       imageNum: 1,
       params: {
         imageUrl: appProxyReference,
-        imageUrls: [expiredMultipleReference, inlineReference],
+        imageUrls: [expiredMultipleReference, storagePathCollisionReference, inlineReference],
         prompt: 'Generate an image',
       },
     });
@@ -144,12 +158,17 @@ describe('imageRouter', () => {
       expect.objectContaining({
         config: {
           imageUrl: 'references/nested folder/single.png',
-          imageUrls: ['references/multiple.png', inlineReference],
+          imageUrls: [
+            'references/multiple.png',
+            'webapi/files/references/collision.png',
+            inlineReference,
+          ],
           prompt: 'Generate an image',
         },
       }),
     );
     expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(appProxyReference);
+    expect(getKeyFromFullUrl).toHaveBeenCalledWith(storagePathCollisionReference);
     expect(getFullFileUrl).toHaveBeenCalledWith('references/nested folder/single.png');
     expect(getFullFileUrl).toHaveBeenCalledWith('references/multiple.png');
     expect(getFullFileUrl).not.toHaveBeenCalledWith(inlineReference);
@@ -157,7 +176,7 @@ describe('imageRouter', () => {
       expect.objectContaining({
         params: {
           imageUrl: freshSingleReference,
-          imageUrls: [freshMultipleReference, inlineReference],
+          imageUrls: [freshMultipleReference, freshCollisionReference, inlineReference],
           prompt: 'Generate an image',
         },
       }),

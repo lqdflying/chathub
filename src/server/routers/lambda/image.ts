@@ -10,6 +10,7 @@ import {
   generationTopics,
   generations,
 } from '@/database/schemas';
+import { appEnv } from '@/envs/app';
 import {
   createImageDiagnosticId,
   describeImageDebugError,
@@ -52,7 +53,8 @@ const normalizeImageReference = async (reference: string, fileService: FileServi
   }
 
   const databaseReference =
-    extractKeyFromAppFileProxyUrl(reference) ?? fileService.getKeyFromFullUrl(reference);
+    extractKeyFromAppFileProxyUrl(reference, appEnv.APP_URL) ??
+    fileService.getKeyFromFullUrl(reference);
   const dispatchReference = await fileService.getFullFileUrl(databaseReference);
 
   return {
