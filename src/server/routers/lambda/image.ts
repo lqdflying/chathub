@@ -1,12 +1,11 @@
 import { TRPCError } from '@trpc/server';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import {
   NewGeneration,
   NewGenerationBatch,
   asyncTasks,
-  files,
   generationBatches,
   generationTopics,
   generations,
@@ -47,61 +46,68 @@ export type { CreateImageServicePayload } from './image/schema';
 
 const IMAGE_TRIGGER_ERROR_MESSAGE =
   'trigger image generation async task error. Please make sure INTERNAL_APP_URL or APP_URL is reachable from the server.';
+const AMBIGUOUS_STORED_IMAGE_REFERENCE_MESSAGE =
+  'Stored image reference format is ambiguous and cannot be regenerated safely';
+const UNSUPPORTED_STORED_IMAGE_REFERENCE_VERSION_MESSAGE =
+  'Stored image reference format version is not supported';
+const IMAGE_REFERENCE_FORMAT_VERSION = 1;
 
 type ImageReferenceConfig = {
+  imageReferenceFormatVersion?: number;
   imageUrl?: string;
   imageUrls?: string[];
 };
 
-const findLegacyProxyKeyCandidate = (reference: string): string | undefined => {
-  const legacyPrefix = APP_FILE_PROXY_PATH_PREFIX.slice(1);
-  if (!reference.startsWith(legacyPrefix)) return undefined;
+const extractExplicitAppFileProxyKey = (reference: string): string | undefined => {
+  const referenceIsRootRelative = reference.startsWith(APP_FILE_PROXY_PATH_PREFIX);
+  const referenceIsAbsolute =
+    reference.startsWith('http://') ||
+    reference.startsWith('https://') ||
+    reference.startsWith('//');
+  if (!referenceIsRootRelative && !referenceIsAbsolute) return undefined;
 
-  return extractKeyFromAppFileProxyUrl(reference);
+  return extractKeyFromAppFileProxyUrl(reference, appEnv.APP_URL);
 };
 
-const recoverLegacyImageReference = (reference: string, ownedFileKeys: Set<string>): string => {
-  const strippedKey = findLegacyProxyKeyCandidate(reference);
-  if (!strippedKey) return reference;
+const recoverStoredImageReference = (
+  reference: string,
+  imageReferenceFormatVersion?: number,
+): string => {
+  if (imageReferenceFormatVersion === IMAGE_REFERENCE_FORMAT_VERSION) return reference;
+  if (imageReferenceFormatVersion !== undefined) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: UNSUPPORTED_STORED_IMAGE_REFERENCE_VERSION_MESSAGE,
+    });
+  }
 
-  if (ownedFileKeys.has(reference)) return reference;
-  return ownedFileKeys.has(strippedKey) ? strippedKey : reference;
+  const explicitProxyKey = extractExplicitAppFileProxyKey(reference);
+  if (explicitProxyKey) return explicitProxyKey;
+
+  const legacyBareProxyPrefix = APP_FILE_PROXY_PATH_PREFIX.slice(1);
+  if (reference.startsWith(legacyBareProxyPrefix)) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: AMBIGUOUS_STORED_IMAGE_REFERENCE_MESSAGE,
+    });
+  }
+
+  return reference;
 };
 
-const recoverSourceImageReferences = async ({
-  config,
-  serverDB,
-  userId,
-}: {
-  config: ImageReferenceConfig;
-  serverDB: ConstructorParameters<typeof FileService>[0];
-  userId: string;
-}): Promise<ImageReferenceConfig> => {
-  const references = [
-    ...(typeof config.imageUrl === 'string' ? [config.imageUrl] : []),
-    ...(Array.isArray(config.imageUrls) ? config.imageUrls : []),
-  ];
-  const candidateKeys = references.flatMap((reference) => {
-    const strippedKey = findLegacyProxyKeyCandidate(reference);
-    return strippedKey ? [reference, strippedKey] : [];
-  });
-  const ownedFiles =
-    candidateKeys.length > 0
-      ? await serverDB
-          .select({ url: files.url })
-          .from(files)
-          .where(and(eq(files.userId, userId), inArray(files.url, candidateKeys)))
-      : [];
-  const ownedFileKeys = new Set(ownedFiles.map(({ url }) => url));
+const recoverSourceImageReferences = (config: ImageReferenceConfig): ImageReferenceConfig => {
   const recoveredConfig = { ...config };
 
   if (typeof config.imageUrl === 'string') {
-    recoveredConfig.imageUrl = recoverLegacyImageReference(config.imageUrl, ownedFileKeys);
+    recoveredConfig.imageUrl = recoverStoredImageReference(
+      config.imageUrl,
+      config.imageReferenceFormatVersion,
+    );
   }
 
   if (Array.isArray(config.imageUrls)) {
     recoveredConfig.imageUrls = config.imageUrls.map((reference) =>
-      recoverLegacyImageReference(reference, ownedFileKeys),
+      recoverStoredImageReference(reference, config.imageReferenceFormatVersion),
     );
   }
 
@@ -125,8 +131,7 @@ const normalizeImageReference = async (
   const databaseReference =
     referenceIsStored && !referenceIsAbsoluteUrl
       ? reference
-      : (extractKeyFromAppFileProxyUrl(reference, appEnv.APP_URL) ??
-        fileService.getKeyFromFullUrl(reference));
+      : (extractExplicitAppFileProxyKey(reference) ?? fileService.getKeyFromFullUrl(reference));
   const dispatchReference = await fileService.getFullFileUrl(databaseReference);
 
   return {
@@ -243,7 +248,11 @@ export const imageRouter = router({
         provider,
       });
 
-      let paramsWithSourceReferences = params;
+      const paramsWithoutInternalMetadata = {
+        ...params,
+      } as typeof params & { imageReferenceFormatVersion?: unknown };
+      delete paramsWithoutInternalMetadata.imageReferenceFormatVersion;
+      let paramsWithSourceReferences = paramsWithoutInternalMetadata;
       if (sourceGenerationBatchId) {
         const sourceBatch = await serverDB.query.generationBatches.findFirst({
           columns: { config: true },
@@ -263,24 +272,24 @@ export const imageRouter = router({
 
         const sourceConfig = (sourceBatch.config ?? {}) as ImageReferenceConfig;
         const sourceReferenceConfig: ImageReferenceConfig = {
+          imageReferenceFormatVersion: sourceConfig.imageReferenceFormatVersion,
           imageUrl: sourceConfig.imageUrl,
           imageUrls: sourceConfig.imageUrls,
         };
-        const recoveredSourceReferences = await recoverSourceImageReferences({
-          config: sourceReferenceConfig,
-          serverDB,
-          userId,
-        });
+        const recoveredSourceReferences = recoverSourceImageReferences(sourceReferenceConfig);
 
         paramsWithSourceReferences = {
-          ...params,
+          ...paramsWithoutInternalMetadata,
           imageUrl: recoveredSourceReferences.imageUrl,
           imageUrls: recoveredSourceReferences.imageUrls,
         };
       }
 
       // 规范化参考图地址，统一存储 S3 key（避免把会过期的预签名 URL 存进数据库）
-      let configForDatabase = { ...paramsWithSourceReferences };
+      let configForDatabase = {
+        ...paramsWithSourceReferences,
+        imageReferenceFormatVersion: IMAGE_REFERENCE_FORMAT_VERSION,
+      };
       let paramsForDispatch = { ...paramsWithSourceReferences };
       const referencesComeFromSourceBatch = Boolean(sourceGenerationBatchId);
       // 1) 处理多图 imageUrls

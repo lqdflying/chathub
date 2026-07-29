@@ -388,6 +388,30 @@ describe('GenerationBatchModel', () => {
       });
     });
 
+    it('should omit internal image reference provenance from returned config', async () => {
+      const [createdBatch] = await serverDB
+        .insert(generationBatches)
+        .values({
+          ...testBatch,
+          userId,
+          config: {
+            imageReferenceFormatVersion: 1,
+            imageUrl: 'single-image.jpg',
+            prompt: 'test prompt',
+          },
+        })
+        .returning();
+
+      const results = await generationBatchModel.queryGenerationBatchesByTopicIdWithGenerations(
+        testTopic.id,
+      );
+
+      expect(results[0].config).toEqual({
+        imageUrl: 'https://example.com/single-image.jpg',
+        prompt: 'test prompt',
+      });
+    });
+
     it('should transform both imageUrl and imageUrls when both are present', async () => {
       const [createdBatch] = await serverDB
         .insert(generationBatches)

@@ -120,7 +120,9 @@ export class GenerationBatchModel {
           ),
           // Transform config
           (async () => {
-            const config = batch.config as GenerationConfig;
+            const storedConfig = batch.config as GenerationConfig;
+            const config = { ...storedConfig };
+            delete config.imageReferenceFormatVersion;
 
             // Handle single imageUrl
             if (config.imageUrl) {

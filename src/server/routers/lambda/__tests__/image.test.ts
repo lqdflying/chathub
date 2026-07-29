@@ -148,6 +148,7 @@ describe('imageRouter', () => {
       ...validInput,
       imageNum: 1,
       params: {
+        imageReferenceFormatVersion: 999,
         imageUrl: appProxyReference,
         imageUrls: [expiredMultipleReference, storagePathCollisionReference, inlineReference],
         prompt: 'Generate an image',
@@ -157,6 +158,7 @@ describe('imageRouter', () => {
     expect(batchValues).toHaveBeenCalledWith(
       expect.objectContaining({
         config: {
+          imageReferenceFormatVersion: 1,
           imageUrl: 'references/nested folder/single.png',
           imageUrls: [
             'references/multiple.png',
@@ -183,22 +185,12 @@ describe('imageRouter', () => {
     );
   });
 
-  it('recovers historical regeneration references from the owned source batch', async () => {
-    const historicalStoredReference = 'webapi/files/references/historical.png';
+  it('preserves versioned storage-path collisions during regeneration', async () => {
     const collisionStoredReference = 'webapi/files/references/collision.png';
-    const ambiguousStoredReference = 'webapi/files/references/ambiguous.png';
-    const feedExpandedHistoricalReference =
-      'https://storage.example.com/webapi/files/references/historical.png';
     const feedExpandedCollisionReference =
       'https://storage.example.com/webapi/files/references/collision.png';
-    const feedExpandedAmbiguousReference =
-      'https://storage.example.com/webapi/files/references/ambiguous.png';
-    const freshHistoricalReference =
-      'https://storage.example.com/references/historical.png?X-Amz-Signature=fresh';
     const freshCollisionReference =
       'https://storage.example.com/webapi/files/references/collision.png?X-Amz-Signature=fresh';
-    const freshAmbiguousReference =
-      'https://storage.example.com/webapi/files/references/ambiguous.png?X-Amz-Signature=fresh';
     const batchValues = vi.fn().mockReturnValue({
       returning: vi.fn().mockResolvedValue([{ id: 'replacement-batch-id' }]),
     });
@@ -225,36 +217,24 @@ describe('imageRouter', () => {
         }),
       }),
     };
-    const fileOwnershipQuery = {
-      from: vi.fn().mockReturnThis(),
-      where: vi
-        .fn()
-        .mockResolvedValue([
-          { url: 'references/historical.png' },
-          { url: collisionStoredReference },
-        ]),
-    };
     const serverDB = {
       query: {
         generationBatches: {
           findFirst: vi.fn().mockResolvedValue({
             config: {
-              imageUrl: historicalStoredReference,
-              imageUrls: [collisionStoredReference, ambiguousStoredReference],
+              imageReferenceFormatVersion: 1,
+              imageUrl: collisionStoredReference,
             },
           }),
         },
       },
-      select: vi.fn().mockReturnValue(fileOwnershipQuery),
       transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
         callback(transaction),
       ),
     };
     const getKeyFromFullUrl = vi.fn((reference: string) => reference);
     const getFullFileUrl = vi.fn(async (key: string) => {
-      if (key === 'references/historical.png') return freshHistoricalReference;
       if (key === collisionStoredReference) return freshCollisionReference;
-      if (key === ambiguousStoredReference) return freshAmbiguousReference;
       return key;
     });
     const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
@@ -276,8 +256,7 @@ describe('imageRouter', () => {
       ...validInput,
       imageNum: 1,
       params: {
-        imageUrl: feedExpandedHistoricalReference,
-        imageUrls: [feedExpandedCollisionReference, feedExpandedAmbiguousReference],
+        imageUrl: feedExpandedCollisionReference,
         prompt: 'Regenerate an image',
       },
       sourceGenerationBatchId: 'source-batch-id',
@@ -287,24 +266,207 @@ describe('imageRouter', () => {
     expect(batchValues).toHaveBeenCalledWith(
       expect.objectContaining({
         config: {
-          imageUrl: 'references/historical.png',
-          imageUrls: [collisionStoredReference, ambiguousStoredReference],
+          imageReferenceFormatVersion: 1,
+          imageUrl: collisionStoredReference,
           prompt: 'Regenerate an image',
         },
       }),
     );
-    expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(feedExpandedHistoricalReference);
     expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(feedExpandedCollisionReference);
-    expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(feedExpandedAmbiguousReference);
     expect(dispatchCreateImage).toHaveBeenCalledWith(
       expect.objectContaining({
         params: {
-          imageUrl: freshHistoricalReference,
-          imageUrls: [freshCollisionReference, freshAmbiguousReference],
+          imageUrl: freshCollisionReference,
           prompt: 'Regenerate an image',
         },
       }),
     );
+  });
+
+  it('recovers unversioned root-relative proxy references during regeneration', async () => {
+    const rootRelativeReference = '/webapi/files/references/historical.png';
+    const feedExpandedReference =
+      'https://storage.example.com/webapi/files/references/historical.png';
+    const freshReference =
+      'https://storage.example.com/references/historical.png?X-Amz-Signature=fresh';
+    const batchValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'replacement-batch-id' }]),
+    });
+    const generationValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'generation-id' }]),
+    });
+    const asyncTaskValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'task-id' }]),
+    });
+    const transaction = {
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: batchValues })
+        .mockReturnValueOnce({ values: generationValues })
+        .mockReturnValueOnce({ values: asyncTaskValues }),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        where: vi.fn().mockReturnThis(),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(undefined),
+        }),
+      }),
+    };
+    const serverDB = {
+      query: {
+        generationBatches: {
+          findFirst: vi.fn().mockResolvedValue({
+            config: {
+              imageUrl: rootRelativeReference,
+            },
+          }),
+        },
+      },
+      transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
+      ),
+    };
+    const getKeyFromFullUrl = vi.fn((reference: string) => reference);
+    const getFullFileUrl = vi.fn(async (key: string) =>
+      key === 'references/historical.png' ? freshReference : key,
+    );
+    const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl }) as never,
+    );
+    vi.mocked(createAsyncCaller).mockResolvedValue({
+      image: { createImage: dispatchCreateImage },
+    } as never);
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await caller.createImage({
+      ...validInput,
+      imageNum: 1,
+      params: {
+        imageUrl: feedExpandedReference,
+        prompt: 'Regenerate an image',
+      },
+      sourceGenerationBatchId: 'source-batch-id',
+    });
+
+    expect(batchValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: {
+          imageReferenceFormatVersion: 1,
+          imageUrl: 'references/historical.png',
+          prompt: 'Regenerate an image',
+        },
+      }),
+    );
+    expect(dispatchCreateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: {
+          imageUrl: freshReference,
+          prompt: 'Regenerate an image',
+        },
+      }),
+    );
+  });
+
+  it('rejects ambiguous unversioned bare proxy references during regeneration', async () => {
+    const ambiguousStoredReference = 'webapi/files/references/ambiguous.png';
+    const serverDB = {
+      query: {
+        generationBatches: {
+          findFirst: vi.fn().mockResolvedValue({
+            config: {
+              imageUrl: ambiguousStoredReference,
+            },
+          }),
+        },
+      },
+      transaction: vi.fn(),
+    };
+    const getFullFileUrl = vi.fn();
+    const getKeyFromFullUrl = vi.fn();
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl }) as never,
+    );
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await expect(
+      caller.createImage({
+        ...validInput,
+        imageNum: 1,
+        params: {
+          imageUrl: 'https://storage.example.com/webapi/files/references/ambiguous.png',
+          prompt: 'Regenerate an image',
+        },
+        sourceGenerationBatchId: 'source-batch-id',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Stored image reference format is ambiguous and cannot be regenerated safely',
+    });
+    expect(serverDB.transaction).not.toHaveBeenCalled();
+    expect(getFullFileUrl).not.toHaveBeenCalled();
+    expect(getKeyFromFullUrl).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported stored reference versions during regeneration', async () => {
+    const serverDB = {
+      query: {
+        generationBatches: {
+          findFirst: vi.fn().mockResolvedValue({
+            config: {
+              imageReferenceFormatVersion: 2,
+              imageUrl: 'references/future.png',
+            },
+          }),
+        },
+      },
+      transaction: vi.fn(),
+    };
+    const getFullFileUrl = vi.fn();
+    const getKeyFromFullUrl = vi.fn();
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl }) as never,
+    );
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await expect(
+      caller.createImage({
+        ...validInput,
+        imageNum: 1,
+        params: {
+          imageUrl: 'https://storage.example.com/references/future.png',
+          prompt: 'Regenerate an image',
+        },
+        sourceGenerationBatchId: 'source-batch-id',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'Stored image reference format version is not supported',
+    });
+    expect(serverDB.transaction).not.toHaveBeenCalled();
+    expect(getFullFileUrl).not.toHaveBeenCalled();
+    expect(getKeyFromFullUrl).not.toHaveBeenCalled();
   });
 
   it('rejects regeneration from a source batch outside the current user and topic', async () => {

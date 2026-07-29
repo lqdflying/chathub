@@ -41,6 +41,7 @@ export interface GenerationConfig {
   aspectRatio?: string;
   cfg?: number;
   height?: number;
+  imageReferenceFormatVersion?: number;
   imageUrl?: string | null;
   imageUrls?: string[];
   prompt: string;

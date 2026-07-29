@@ -577,19 +577,26 @@ Failed-output recreation is replacement-first:
    expands stored keys into access URLs.
 
    Reference images stored by ChatHub remain durable object keys in the batch
-   config. For historical rows that accidentally stored
-   `webapi/files/<key>`, the lambda uses the current user's `files.url` records
-   to resolve the ambiguity. An owned full `webapi/files/<key>` key wins and is
-   preserved as a legitimate storage-path collision. Otherwise, an owned
-   stripped `<key>` proves the historical proxy-prefix error and is recovered.
-   If neither key is owned, the stored value remains unchanged rather than being
-   guessed or probed through storage permissions.
+   config. Every accepted submission writes
+   `imageReferenceFormatVersion: 1`, which declares that stored references are
+   canonical object keys. Regeneration trusts versioned references exactly as
+   stored, so a legitimate `webapi/files/<key>` storage key cannot be rewritten
+   based on an unrelated file record. The marker is server-owned: request
+   parameters cannot set it, and feed transformation removes it before returning
+   the config to clients.
 
-   For new submissions, the lambda unwraps authenticated
-   `${APP_URL}/webapi/files/<key>` references to the original object key only
-   when an absolute reference has the same normalized origin as `APP_URL`; exact
-   relative and legacy bare proxy paths remain supported. A foreign storage URL
-   whose pathname also contains `/webapi/files/` continues through the
+   Unversioned historical references are recovered only when their syntax is
+   unambiguous. A root-relative `/webapi/files/<key>` or same-origin absolute
+   `${APP_URL}/webapi/files/<key>` reference is decoded to `<key>`. An
+   unversioned bare `webapi/files/<key>` value could be either a malformed proxy
+   reference or a legitimate storage key, so regeneration fails with
+   `PRECONDITION_FAILED` rather than guessing from file ownership or probing
+   object storage.
+
+   For new submissions, the lambda unwraps same-origin absolute and
+   root-relative app-proxy references to the original object key. Bare
+   `webapi/files/<key>` values are canonical storage keys, and a foreign storage
+   URL whose pathname also contains `/webapi/files/` continues through the
    backend-specific parser. The origin comparison follows the standard
    `URL.origin` scheme, host, and port identity
    ([MDN URL origin](https://developer.mozilla.org/en-US/docs/Web/API/URL/origin)).
