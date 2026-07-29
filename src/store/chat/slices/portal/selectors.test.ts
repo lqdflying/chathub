@@ -2,10 +2,13 @@ import { UIChatMessage } from '@lobechat/types';
 import { describe, expect, it } from 'vitest';
 
 import type { ChatStoreState } from '@/store/chat';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { chatPortalSelectors } from './selectors';
 
 describe('chatDockSelectors', () => {
+  const defaultMessageMapKey = messageMapKey('test-id');
+
   const createState = (overrides?: Partial<ChatStoreState>) => {
     const state = {
       showPortal: false,
@@ -110,7 +113,7 @@ describe('chatDockSelectors', () => {
       const messageContent = 'Test message content';
       const state = createState({
         messagesMap: {
-          'test-id_null': [
+          [defaultMessageMapKey]: [
             {
               id: 'test-id',
               content: messageContent,
@@ -131,7 +134,7 @@ describe('chatDockSelectors', () => {
     it('should return empty string when no artifact tag found', () => {
       const state = createState({
         messagesMap: {
-          'test-id_null': [
+          [defaultMessageMapKey]: [
             {
               id: 'test-id',
               content: 'No artifact tag here',
@@ -151,7 +154,7 @@ describe('chatDockSelectors', () => {
       const artifactContent = 'Test artifact content';
       const state = createState({
         messagesMap: {
-          'test-id_null': [
+          [defaultMessageMapKey]: [
             {
               id: 'test-id',
               content: `<lobeArtifact type="text">${artifactContent}</lobeArtifact>`,
@@ -179,7 +182,7 @@ describe('chatDockSelectors', () => {
 </html>`;
       const state = createState({
         messagesMap: {
-          'test-id_null': [
+          [defaultMessageMapKey]: [
             {
               id: 'test-id',
               content: `<lobeArtifact type="text/html">
@@ -204,7 +207,7 @@ ${htmlContent}
     it('should return false for unclosed artifact tag', () => {
       const state = createState({
         messagesMap: {
-          'test-id_null': [
+          [defaultMessageMapKey]: [
             {
               id: 'test-id',
               content: '<lobeArtifact type="text">Test content',
@@ -223,7 +226,7 @@ ${htmlContent}
     it('should return true for closed artifact tag', () => {
       const state = createState({
         messagesMap: {
-          'test-id_null': [
+          [defaultMessageMapKey]: [
             {
               id: 'test-id',
               content: '<lobeArtifact type="text">Test content</lobeArtifact>',
@@ -242,7 +245,7 @@ ${htmlContent}
     it('should return false when no artifact tag exists', () => {
       const state = createState({
         messagesMap: {
-          'test-id_null': [
+          [defaultMessageMapKey]: [
             {
               id: 'test-id',
               content: 'No artifact tag here',

@@ -121,6 +121,15 @@ When the browser cannot read or parse the Tools RPC response, it converts the ra
 
 In server mode, `mcp.callTool` receives the destination tool-message ID and persists the normalized result directly through the user-scoped `MessageModel` before returning. Its response contains the serialized `content` plus a persistence status: `persisted`, `failed`, or `client_required`. The browser applies a `persisted` result to its optimistic store without reposting the raw payload through `message.update`. A server-side `failed` result also remains available for the immediate model continuation, but the UI warns that a reload may lose it; ChatHub deliberately does not send the same large result through a second proxy boundary.
 
+Client-side tool-result persistence must retain the exact conversation identity
+from the assistant message. `messagesMap` keys are transient, versioned JSON
+tuples created and decoded only by `src/store/chat/utils/messageMapKey.ts`.
+Session and topic identifiers may contain underscores, so tool execution must
+never reconstruct either value with delimiter splitting or ID-prefix
+heuristics. Explicit message `sessionId` or `groupId` values remain
+authoritative; the decoded map context is the fallback for hydrated or
+optimistic messages that omit those fields.
+
 Every server-routed MCP invocation also carries a unique `invocationId`, including manual re-invocations. If the browser loses the `mcp.callTool` response after the server commits the tool message, it reads the matching recovery record immediately and, if the result is still pending or that read fails transiently, retries once after an abortable 500 ms delay. Both reads contain the tool-message ID and invocation ID. The server returns the result only when the stored pending invocation matches and has reached `persisted`; an older invocation can never recover or overwrite a newer attempt. The captured invocation signal is checked before recovery and error persistence, so browser aborts (including browsers that surface cancellation as `TypeError: Load failed`) do not become MCP gateway errors. This follows the [AbortSignal contract](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal), where `aborted` records the operation's cancellation state.
 
 Assistant tool calls are executed only after their final message write is confirmed. If both bounded finalization attempts receive an unusable gateway response, the UI keeps the streamed assistant state, reports the diagnostic failure, and stops before invoking external tools. This prevents side effects from running when the database may not contain the assistant's tool-call state; the user can retry the request explicitly.

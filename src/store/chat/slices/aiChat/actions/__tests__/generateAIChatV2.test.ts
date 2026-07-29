@@ -144,9 +144,7 @@ describe('generateAIChatV2 actions', () => {
       vi.spyOn(authSelectors, 'hasActiveUserStateOwnerMismatch').mockReturnValue(true);
       const messagesBefore = useChatStore.getState().messagesMap;
 
-      await useChatStore
-        .getState()
-        .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+      await useChatStore.getState().sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
 
       expect(aiChatService.sendMessageInServer).not.toHaveBeenCalled();
       expect(useChatStore.getState().messagesMap).toBe(messagesBefore);
@@ -464,7 +462,9 @@ describe('generateAIChatV2 actions', () => {
         });
 
         expect(addFilesToAgent).not.toHaveBeenCalled();
-        expect(useChatStore.getState().serverGenerationOperations).toBe(operationsBeforeInvalidation);
+        expect(useChatStore.getState().serverGenerationOperations).toBe(
+          operationsBeforeInvalidation,
+        );
       });
 
       it('does not attach files after switching away and back during runtime', async () => {
@@ -501,7 +501,9 @@ describe('generateAIChatV2 actions', () => {
         });
 
         expect(addFilesToAgent).not.toHaveBeenCalled();
-        expect(useChatStore.getState().serverGenerationOperations).toBe(operationsBeforeInvalidation);
+        expect(useChatStore.getState().serverGenerationOperations).toBe(
+          operationsBeforeInvalidation,
+        );
       });
 
       it('keeps a same-topic sibling operation when the older runtime completes first', async () => {
@@ -852,7 +854,9 @@ describe('generateAIChatV2 actions', () => {
         await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
       });
 
-      expect(useChatStore.getState().messagesMap[`${TEST_IDS.SESSION_ID}_null`]).toEqual([]);
+      expect(useChatStore.getState().messagesMap[messageMapKey(TEST_IDS.SESSION_ID, null)]).toEqual(
+        [],
+      );
     });
 
     it('should automatically switch to newly created topic when no active topic exists', async () => {

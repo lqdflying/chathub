@@ -14,11 +14,10 @@ import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatGroupService } from '@/services/chatGroup';
 import { sessionService } from '@/services/session';
 import {
+  type AccountMutationSnapshot,
   captureAccountMutationSnapshot,
   isAccountMutationCurrent,
-  type AccountMutationSnapshot,
 } from '@/store/accountMutation';
-import { getChatGroupStoreState } from '@/store/chatGroup';
 import { SessionStore } from '@/store/session';
 import { getUserStoreState, useUserStore } from '@/store/user';
 import { authSelectors, settingsSelectors, userProfileSelectors } from '@/store/user/selectors';
@@ -320,7 +319,7 @@ export const createSessionSlice: StateCreator<
           sessionGroups: [],
           sessions: [],
         },
-        onSuccess: (data) => {
+        onSuccess: async (data) => {
           if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
           if (
@@ -339,6 +338,9 @@ export const createSessionSlice: StateCreator<
           // Sync chat groups from group sessions to chat store
           const groupSessions = data.sessions.filter((session) => session.type === 'group');
           if (groupSessions.length > 0) {
+            const { getChatGroupStoreState } = await import('@/store/chatGroup/store');
+            if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+
             // For group sessions, we need to transform them to ChatGroupItem format
             // The session ID is the chat group ID, and we can extract basic group info
             const chatGroupStore = getChatGroupStoreState();

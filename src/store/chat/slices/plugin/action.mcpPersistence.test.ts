@@ -375,6 +375,63 @@ describe('MCP tool-result persistence recovery', () => {
     });
   });
 
+  it('preserves exact session and topic IDs when creating a tool message', async () => {
+    const sessionId = 'ssn_KbcUulFch0XW';
+    const topicId = 'tpc_sFEpZTp0eROJ';
+    const assistantId = 'assistant-with-map-context';
+    const toolMessageId = 'tool-message-with-map-context';
+    const toolPayload = {
+      apiName: 'tavily_search',
+      arguments: '{"query":"test"}',
+      id: 'tool-call-with-map-context',
+      identifier: 'tavily',
+      type: 'mcp',
+    } as const;
+    const assistantMessage = {
+      content: '',
+      id: assistantId,
+      role: 'assistant',
+      tools: [toolPayload],
+    } as UIChatMessage;
+    const createMessage = vi.fn().mockResolvedValue(toolMessageId);
+
+    vi.spyOn(messageService, 'getConversationVersion').mockResolvedValue(undefined);
+    useChatStore.setState({
+      activeId: sessionId,
+      activeTopicId: topicId,
+      internal_createMessage: createMessage,
+      internal_invokeDifferentTypePlugin: vi.fn().mockResolvedValue({
+        data: '{"ok":true}',
+        outcome: 'completed',
+        shouldContinue: false,
+      }),
+      internal_toggleMessageInToolsCalling: vi.fn().mockResolvedValue(undefined),
+      messagesMap: {
+        [messageMapKey(sessionId, topicId)]: [assistantMessage],
+      },
+      triggerAIMessage: vi.fn(),
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentId: assistantId,
+        sessionId,
+        topicId,
+      }),
+      {
+        expectedConversationVersion: undefined,
+      },
+    );
+    expect(createMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: `${sessionId}_tpc`,
+      }),
+      expect.anything(),
+    );
+  });
+
   it('settles parallel tools and continues once when one tool rejects', async () => {
     const assistantId = 'assistant-id';
     const message = {

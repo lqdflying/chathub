@@ -28,13 +28,10 @@ import { createMCPChatMessageError } from '@/services/mcpError';
 import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { messageMapKey, parseMessageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { useUserStore } from '@/store/user';
@@ -77,18 +74,14 @@ const createPluginMessageResource = (
   mapKey: string,
   message: UIChatMessage,
 ): PluginMessageResource => {
-  const keySeparatorIndex = mapKey.lastIndexOf('_');
-  const keySessionId =
-    keySeparatorIndex >= 0 ? mapKey.slice(0, keySeparatorIndex) : undefined;
-  const keyTopicId =
-    keySeparatorIndex >= 0 ? mapKey.slice(keySeparatorIndex + 1) : undefined;
+  const mapContext = parseMessageMapKey(mapKey);
 
   return {
     mapKey,
     message,
     messageId: message.id,
-    sessionId: message.sessionId ?? message.groupId ?? keySessionId,
-    topicId: message.topicId ?? (keyTopicId === 'null' ? null : keyTopicId),
+    sessionId: message.sessionId ?? message.groupId ?? mapContext?.sessionId,
+    topicId: message.topicId ?? mapContext?.topicId,
   };
 };
 
@@ -151,8 +144,7 @@ const createResourceConversationContext = (
 const isPluginMessageResourceActive = (
   state: ChatStore,
   resource: PluginMessageResource | undefined,
-): boolean =>
-  !resource || resource.mapKey === messageMapKey(state.activeId, state.activeTopicId);
+): boolean => !resource || resource.mapKey === messageMapKey(state.activeId, state.activeTopicId);
 
 const createResourceDispatchContext = (
   state: ChatStore,
@@ -176,10 +168,8 @@ const dispatchPluginMessage = (
   }
 };
 
-const getPluginMessageById = (
-  state: ChatStore,
-  messageId: string,
-): UIChatMessage | undefined => resolvePluginMessageResource(state, messageId)?.message;
+const getPluginMessageById = (state: ChatStore, messageId: string): UIChatMessage | undefined =>
+  resolvePluginMessageResource(state, messageId)?.message;
 
 const resolveToolDiagnosticRuntimeType = (
   payload: ExecutableChatToolPayload,
@@ -1059,11 +1049,7 @@ export const chatPlugin: StateCreator<
       !abortController?.signal.aborted;
 
     try {
-      abortController = internal_togglePluginApiCalling(
-        true,
-        id,
-        n('fetchPlugin/start') as string,
-      );
+      abortController = internal_togglePluginApiCalling(true, id, n('fetchPlugin/start') as string);
 
       const message = messageResource?.message;
 

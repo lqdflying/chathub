@@ -76,6 +76,21 @@ has loaded and the resulting user scope is ready, or show the existing scoped
 recovery action after a confirmed bootstrap failure. Account-independent tabs
 such as About remain available during authentication loading.
 
+## Cross-store synchronization
+
+Zustand stores are constructed synchronously when their modules are evaluated.
+Cross-store actions must not create a static dependency cycle between store
+constructors, because client-component imports also participate in server
+prerendering and can evaluate an action before its lexical declaration is
+initialized. When synchronization is needed only after asynchronous data
+arrives, import the concrete target store module inside that success path
+instead of importing a broad store barrel at module scope.
+
+Any account-scoped synchronization deferred across an `await`, including a
+dynamic import, must revalidate the captured account scope after the await and
+before mutating the target store. This preserves both module initialization
+order and account ownership when a user transition races with data loading.
+
 ## Account-owned chat-group membership
 
 A row in `chat_groups_agents` is valid only when its `userId` matches both the
