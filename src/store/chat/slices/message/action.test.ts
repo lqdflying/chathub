@@ -88,7 +88,7 @@ describe('chatMessage actions', () => {
         activeId: 'session-id',
         activeTopicId: 'topic-id',
         serverGenerationOperations: {
-          'other-session_other-topic': {
+          [messageMapKey('other-session', 'other-topic')]: {
             'other-operation': {
               generation: 1,
               operationId: 'other-operation',
@@ -97,7 +97,7 @@ describe('chatMessage actions', () => {
               userScope: 'user:account-a',
             },
           },
-          'session-id_topic-id': {
+          [messageMapKey('session-id', 'topic-id')]: {
             'current-operation-one': {
               generation: 1,
               operationId: 'current-operation-one',
@@ -122,7 +122,7 @@ describe('chatMessage actions', () => {
       });
 
       expect(useChatStore.getState().serverGenerationOperations).toEqual({
-        'other-session_other-topic': {
+        [messageMapKey('other-session', 'other-topic')]: {
           'other-operation': {
             generation: 1,
             operationId: 'other-operation',
@@ -548,7 +548,7 @@ describe('chatMessage actions', () => {
         searchLoading: { 'tool-message': true },
         searchTopics: [{ id: 'search-topic', title: 'Search result' }],
         serverGenerationOperations: {
-          'session-id_topic-id': {
+          [messageMapKey('session-id', 'topic-id')]: {
             'generation-operation': {
               generation: 1,
               operationId: 'generation-operation',

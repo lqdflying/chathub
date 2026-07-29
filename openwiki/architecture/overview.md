@@ -87,8 +87,12 @@ arrives, import the concrete target store module inside that success path
 instead of importing a broad store barrel at module scope.
 
 Any account-scoped synchronization deferred across an `await`, including a
-dynamic import, must revalidate the captured account scope after the await and
-before mutating the target store. This preserves both module initialization
+dynamic import, must capture and revalidate the complete account epoch: the
+canonical scope, ownership invalidation generation, owner-mismatch state, and
+the source store's scope generation. Comparing only the scope string does not
+reject same-scope invalidation or an A-to-B-to-A transition. Revalidate the
+epoch after every asynchronous boundary and before mutating the target store or
+marking the source store initialized. This preserves both module initialization
 order and account ownership when a user transition races with data loading.
 
 ## Account-owned chat-group membership

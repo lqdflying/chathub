@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ChatStore } from '@/store/chat';
 import { initialState } from '@/store/chat/initialState';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { merge } from '@/utils/merge';
 
 import { topicSelectors } from './selectors';
@@ -63,7 +64,7 @@ describe('topicSelectors', () => {
       const state = merge(initialStore, {
         activeId: 'test',
         serverGenerationOperations: {
-          test_topic1: {
+          [messageMapKey('test', 'topic1')]: {
             'generation-operation-one': {
               generation: 2,
               operationId: 'generation-operation-one',
@@ -90,7 +91,7 @@ describe('topicSelectors', () => {
       const state = merge(initialStore, {
         activeId: 'test',
         serverGenerationOperations: {
-          another_topic1: {
+          [messageMapKey('another', 'topic1')]: {
             'generation-operation': {
               generation: 2,
               operationId: 'generation-operation',
@@ -109,7 +110,7 @@ describe('topicSelectors', () => {
       const state = merge(initialStore, {
         activeId: 'test',
         serverGenerationOperations: {
-          test_topic1: {},
+          [messageMapKey('test', 'topic1')]: {},
         },
       });
 

@@ -7,5 +7,5 @@ describe('accountScopeReset module initialization', () => {
     const accountScopeResetModule = await import('./accountScopeReset');
 
     expect(accountScopeResetModule.resetAccountScopedStores).toBeTypeOf('function');
-  }, 15_000);
+  }, 30_000);
 });

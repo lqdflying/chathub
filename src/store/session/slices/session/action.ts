@@ -47,6 +47,12 @@ interface SessionMutationSnapshot {
   scopeGeneration: number;
 }
 
+interface SessionFetchSnapshot {
+  ownershipInvalidationGeneration: number;
+  scope: string;
+  scopeGeneration: number;
+}
+
 const captureSessionMutationSnapshot = (
   state: SessionStore,
 ): SessionMutationSnapshot | undefined => {
@@ -65,6 +71,17 @@ const isSessionMutationCurrent = (
 ): boolean =>
   isAccountMutationCurrent(useUserStore.getState(), snapshot.account) &&
   state.scopeGeneration === snapshot.scopeGeneration;
+
+const isSessionFetchCurrent = (state: SessionStore, snapshot: SessionFetchSnapshot): boolean => {
+  const userState = useUserStore.getState();
+
+  return (
+    authSelectors.currentUserScope(userState) === snapshot.scope &&
+    !authSelectors.hasActiveUserStateOwnerMismatch(userState) &&
+    userState.ownershipInvalidationGeneration === snapshot.ownershipInvalidationGeneration &&
+    state.scopeGeneration === snapshot.scopeGeneration
+  );
+};
 
 /* eslint-disable typescript-sort-keys/interface */
 export interface SessionAction {
@@ -309,6 +326,14 @@ export const createSessionSlice: StateCreator<
 
   useFetchSessions: (enabled, isLogin) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
+    const requestedGeneration = useUserStore((state) => state.ownershipInvalidationGeneration);
+    const fetchSnapshot: SessionFetchSnapshot | undefined = requestedScope
+      ? {
+          ownershipInvalidationGeneration: requestedGeneration,
+          scope: requestedScope,
+          scopeGeneration: get().scopeGeneration,
+        }
+      : undefined;
     const shouldFetch = enabled && isLogin !== undefined && !!requestedScope;
 
     return useClientDataSWR<ChatSessionList>(
@@ -320,7 +345,7 @@ export const createSessionSlice: StateCreator<
           sessions: [],
         },
         onSuccess: async (data) => {
-          if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+          if (!fetchSnapshot || !isSessionFetchCurrent(get(), fetchSnapshot)) return;
 
           if (
             get().isSessionsFirstFetchFinished &&
@@ -339,7 +364,7 @@ export const createSessionSlice: StateCreator<
           const groupSessions = data.sessions.filter((session) => session.type === 'group');
           if (groupSessions.length > 0) {
             const { getChatGroupStoreState } = await import('@/store/chatGroup/store');
-            if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
+            if (!isSessionFetchCurrent(get(), fetchSnapshot)) return;
 
             // For group sessions, we need to transform them to ChatGroupItem format
             // The session ID is the chat group ID, and we can extract basic group info
