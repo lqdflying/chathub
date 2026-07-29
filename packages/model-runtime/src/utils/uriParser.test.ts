@@ -9,6 +9,13 @@ describe('parseDataUri', () => {
     expect(result).toEqual({ base64: 'abc', mimeType: 'image/png', type: 'base64' });
   });
 
+  it('should expose the shared stack-safe parser through model runtime', () => {
+    const base64 = 'A'.repeat(4 * 1024 * 1024);
+    const result = parseDataUri(`data:image/webp;base64,${base64}`);
+
+    expect(result).toEqual({ base64, mimeType: 'image/webp', type: 'base64' });
+  });
+
   it('should parse a valid URL', () => {
     const url = 'https://example.com/image.jpg';
     const result = parseDataUri(url);

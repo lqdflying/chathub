@@ -334,6 +334,41 @@ describe('GenerationService', () => {
       expect(vi.mocked(sha256)).toHaveBeenCalledTimes(2);
     });
 
+    it('should transform a large inline provider image without fetching it', async () => {
+      const pngHeaderAndImage = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAGAWqGfKwAAAABJRU5ErkJggg==',
+        'base64',
+      );
+      const largeImageBuffer = Buffer.concat([
+        pngHeaderAndImage,
+        Buffer.alloc(8 * 1024 * 1024),
+      ]);
+      const dataUri = `data:image/png;base64,${largeImageBuffer.toString('base64')}`;
+      const mockSharp = {
+        metadata: vi.fn().mockResolvedValue({ format: 'png', height: 1024, width: 1024 }),
+        resize: vi.fn().mockReturnThis(),
+        toBuffer: vi.fn().mockResolvedValue(mockThumbnailBuffer),
+        webp: vi.fn().mockReturnThis(),
+      };
+      vi.mocked(sharp).mockReturnValue(mockSharp as any);
+      vi.mocked(calculateThumbnailDimensions).mockReturnValue({
+        shouldResize: true,
+        thumbnailHeight: 512,
+        thumbnailWidth: 512,
+      });
+
+      const result = await service.transformImageForGeneration(dataUri);
+      const sharpInput = vi.mocked(sharp).mock.calls[0][0] as Buffer;
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(result.image.buffer).toBe(sharpInput);
+      expect(sharpInput.length).toBe(largeImageBuffer.length);
+      expect(sharpInput.subarray(0, pngHeaderAndImage.length)).toEqual(pngHeaderAndImage);
+      expect(sharpInput.subarray(-16)).toEqual(largeImageBuffer.subarray(-16));
+      expect(result.image.size).toBe(largeImageBuffer.length);
+      expect(result.image.mime).toBe('image/png');
+    });
+
     it('should handle HTTP URL successfully', async () => {
       const url = 'https://example.com/image.jpg';
 

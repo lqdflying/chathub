@@ -520,6 +520,15 @@ authenticated async HTTP request emits one `async_route_started` record and
 exactly one
 `async_route_settled` record whose outcome reflects tRPC errors and HTTP status.
 
+Generated image responses can contain multi-megabyte base64 data URIs. The
+shared URI parser reads only the fixed header boundaries with string indexing,
+then passes the payload to `Buffer.from` before Sharp metadata and thumbnail
+processing. It does not run a regular expression across the encoded image,
+which keeps parsing stack usage independent of image size. A completed
+`provider_call_settled` event with `imageUrlKind=data_uri` followed by a failed
+`transform_settled` event identifies a local decode or image-processing failure,
+not an upstream generation failure.
+
 Diagnostics propagate an opaque `x-chathub-image-diagnostic-id` header only
 when the async request presents the internal server bearer secret. External,
 malformed, or unauthorized headers are neither logged nor reflected. The ID is
