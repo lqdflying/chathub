@@ -1,10 +1,13 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { imageService } from '@/services/image';
 import { resetAccountScopedStores } from '@/store/accountScopeReset';
 import { useImageStore } from '@/store/image';
 import { useUserStore } from '@/store/user';
+import { AsyncTaskStatus } from '@/types/asyncTask';
+
+import { ImageRegenerationCleanupError } from './action';
 
 // Mock external dependencies
 vi.mock('@/services/image', () => ({
@@ -35,6 +38,15 @@ vi.mock('@/services/image', () => ({
 
 const mockImageService = vi.mocked(imageService);
 
+const createDeferred = <Value>() => {
+  let resolve!: (value: Value) => void;
+  const promise = new Promise<Value>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+};
+
 describe('CreateImageAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,6 +57,7 @@ describe('CreateImageAction', () => {
       isCreating: false,
       isCreatingWithNewTopic: false,
       imageGenerationAbortControllers: [],
+      regeneratingBatchIds: [],
       isImageModelAvailable: true,
       isInit: true,
       activeGenerationTopicId: 'active-topic-id',
@@ -59,7 +72,15 @@ describe('CreateImageAction', () => {
             provider: 'batch-provider',
             model: 'batch-model',
             config: { prompt: 'batch prompt' },
-            generations: [{}, {}, {}, {}], // 4 generations to match expected imageNum
+            generations: Array.from({ length: 4 }, (_, index) => ({
+              asyncTaskId: `task-${index + 1}`,
+              createdAt: new Date(),
+              id: `generation-${index + 1}`,
+              task: {
+                id: `task-${index + 1}`,
+                status: AsyncTaskStatus.Error,
+              },
+            })),
             createdAt: new Date(),
             prompt: 'batch prompt',
           } as any,
@@ -485,50 +506,178 @@ describe('CreateImageAction', () => {
       expect(useImageStore.getState().isCreating).toBe(false);
     });
 
-    it('should recreate image successfully', async () => {
+    it('should replace an all-failed batch after submitting the original failed count', async () => {
       const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
       const mockRemoveGenerationBatch = vi.fn().mockResolvedValue(undefined);
+      const mockRemoveGeneration = vi.fn();
 
       const { result } = renderHook(() => useImageStore());
 
       act(() => {
         useImageStore.setState({
           refreshGenerationBatches: mockRefreshGenerationBatches,
+          removeGeneration: mockRemoveGeneration,
           removeGenerationBatch: mockRemoveGenerationBatch,
         });
       });
-
-      // Get batch to verify imageNum uses batch.generations.length
-      const batch = result.current.generationBatchesMap['active-topic-id']?.[0];
-      const expectedImageNum = batch?.generations.length ?? 0;
 
       await act(async () => {
         await result.current.recreateImage('batch-id');
       });
 
-      // Verify state changes
       expect(useImageStore.getState().isCreating).toBe(false);
-
-      // Verify batch removal
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual([]);
       expect(mockRemoveGenerationBatch).toHaveBeenCalledWith('batch-id', 'active-topic-id');
-
-      // Verify service call uses batch.generations.length for imageNum
+      expect(mockRemoveGeneration).not.toHaveBeenCalled();
       expect(mockImageService.createImage).toHaveBeenCalledWith(
         {
           generationTopicId: 'active-topic-id',
           provider: 'batch-provider',
           model: 'batch-model',
-          imageNum: expectedImageNum,
+          imageNum: 4,
           params: { prompt: 'batch prompt' },
         },
         expect.any(AbortSignal),
       );
-
-      // Verify refresh was called
       expect(mockRefreshGenerationBatches).toHaveBeenCalled();
       expect(mockImageService.createImage.mock.invocationCallOrder[0]).toBeLessThan(
         mockRemoveGenerationBatch.mock.invocationCallOrder[0],
       );
+    });
+
+    it('should replace only failed outputs in a mixed batch', async () => {
+      const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
+      const mockRemoveGenerationBatch = vi.fn();
+      const mockRemoveGeneration = vi.fn().mockResolvedValue(undefined);
+      const mixedGenerations = [
+        {
+          asyncTaskId: 'task-success-1',
+          createdAt: new Date(),
+          id: 'generation-success-1',
+          task: { id: 'task-success-1', status: AsyncTaskStatus.Success },
+        },
+        {
+          asyncTaskId: 'task-error-1',
+          createdAt: new Date(),
+          id: 'generation-error-1',
+          task: { id: 'task-error-1', status: AsyncTaskStatus.Error },
+        },
+        {
+          asyncTaskId: 'task-success-2',
+          createdAt: new Date(),
+          id: 'generation-success-2',
+          task: { id: 'task-success-2', status: AsyncTaskStatus.Success },
+        },
+        {
+          asyncTaskId: 'task-error-2',
+          createdAt: new Date(),
+          id: 'generation-error-2',
+          task: { id: 'task-error-2', status: AsyncTaskStatus.Error },
+        },
+      ];
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          generationBatchesMap: {
+            'active-topic-id': [
+              {
+                ...useImageStore.getState().generationBatchesMap['active-topic-id'][0],
+                generations: mixedGenerations,
+              } as any,
+            ],
+          },
+          refreshGenerationBatches: mockRefreshGenerationBatches,
+          removeGeneration: mockRemoveGeneration,
+          removeGenerationBatch: mockRemoveGenerationBatch,
+        });
+      });
+
+      await act(async () => {
+        await result.current.recreateImage('batch-id');
+      });
+
+      expect(mockImageService.createImage).toHaveBeenCalledWith(
+        expect.objectContaining({ imageNum: 2 }),
+        expect.any(AbortSignal),
+      );
+      expect(mockRemoveGeneration).toHaveBeenNthCalledWith(1, 'generation-error-1');
+      expect(mockRemoveGeneration).toHaveBeenNthCalledWith(2, 'generation-error-2');
+      expect(mockRemoveGenerationBatch).not.toHaveBeenCalled();
+      expect(mockRemoveGeneration).not.toHaveBeenCalledWith('generation-success-1');
+      expect(mockRemoveGeneration).not.toHaveBeenCalledWith('generation-success-2');
+      expect(mockRefreshGenerationBatches).toHaveBeenCalled();
+    });
+
+    it('should do nothing when the batch has no failed outputs', async () => {
+      const mockRefreshGenerationBatches = vi.fn();
+      const mockRemoveGenerationBatch = vi.fn();
+      const mockRemoveGeneration = vi.fn();
+      const successfulGenerations = useImageStore
+        .getState()
+        .generationBatchesMap['active-topic-id'][0].generations.map((generation) => ({
+          ...generation,
+          task: { ...generation.task, status: AsyncTaskStatus.Success },
+        }));
+      const { result } = renderHook(() => useImageStore());
+
+      act(() => {
+        useImageStore.setState({
+          generationBatchesMap: {
+            'active-topic-id': [
+              {
+                ...useImageStore.getState().generationBatchesMap['active-topic-id'][0],
+                generations: successfulGenerations,
+              },
+            ],
+          },
+          refreshGenerationBatches: mockRefreshGenerationBatches,
+          removeGeneration: mockRemoveGeneration,
+          removeGenerationBatch: mockRemoveGenerationBatch,
+        });
+      });
+
+      await act(async () => {
+        await result.current.recreateImage('batch-id');
+      });
+
+      expect(mockImageService.createImage).not.toHaveBeenCalled();
+      expect(mockRemoveGeneration).not.toHaveBeenCalled();
+      expect(mockRemoveGenerationBatch).not.toHaveBeenCalled();
+      expect(mockRefreshGenerationBatches).not.toHaveBeenCalled();
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual([]);
+    });
+
+    it('should ignore a repeated request while the same batch is regenerating', async () => {
+      const submission = createDeferred<unknown>();
+      mockImageService.createImage.mockReturnValueOnce(submission.promise as never);
+      const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
+      const mockRemoveGenerationBatch = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useImageStore());
+      useImageStore.setState({
+        refreshGenerationBatches: mockRefreshGenerationBatches,
+        removeGenerationBatch: mockRemoveGenerationBatch,
+      });
+
+      let firstRequest!: Promise<void>;
+      act(() => {
+        firstRequest = result.current.recreateImage('batch-id');
+      });
+      await waitFor(() => expect(mockImageService.createImage).toHaveBeenCalledTimes(1));
+
+      await act(async () => {
+        await result.current.recreateImage('batch-id');
+      });
+
+      expect(mockImageService.createImage).toHaveBeenCalledTimes(1);
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual(['batch-id']);
+
+      submission.resolve({ success: true });
+      await act(async () => {
+        await firstRequest;
+      });
+
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual([]);
     });
 
     it('should throw error when no active topic', async () => {
@@ -593,9 +742,10 @@ describe('CreateImageAction', () => {
       expect(mockRemoveGenerationBatch).not.toHaveBeenCalled();
       expect(mockRefreshGenerationBatches).toHaveBeenCalled();
       expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual([]);
     });
 
-    it('should handle batch removal error', async () => {
+    it('should report cleanup separately after replacement acceptance', async () => {
       const error = new Error('Removal error');
       const mockRemoveGenerationBatch = vi.fn().mockRejectedValueOnce(error);
       const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
@@ -619,13 +769,57 @@ describe('CreateImageAction', () => {
       });
 
       // The replacement is accepted before the original batch is removed.
-      expect(thrownError).toEqual(error);
+      expect(thrownError).toBeInstanceOf(ImageRegenerationCleanupError);
+      expect((thrownError as ImageRegenerationCleanupError).cause).toBe(error);
       expect(mockImageService.createImage).toHaveBeenCalled();
       expect(mockImageService.createImage.mock.invocationCallOrder[0]).toBeLessThan(
         mockRemoveGenerationBatch.mock.invocationCallOrder[0],
       );
       expect(mockRefreshGenerationBatches).toHaveBeenCalled();
       expect(useImageStore.getState().isCreating).toBe(false);
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual([]);
+    });
+
+    it('should abort and clear regeneration state after account reset', async () => {
+      let rejectRequest: ((reason?: unknown) => void) | undefined;
+      const pendingRequest = new Promise((_, reject) => {
+        rejectRequest = reject;
+      });
+      mockImageService.createImage.mockImplementationOnce(async (_payload, signal) => {
+        signal?.addEventListener('abort', () => rejectRequest?.(signal.reason), { once: true });
+        return pendingRequest as never;
+      });
+      const mockRefreshGenerationBatches = vi.fn();
+      const mockRemoveGenerationBatch = vi.fn();
+      const { result } = renderHook(() => useImageStore());
+      useImageStore.setState({
+        refreshGenerationBatches: mockRefreshGenerationBatches,
+        removeGenerationBatch: mockRemoveGenerationBatch,
+      });
+
+      let regenerationPromise!: Promise<void>;
+      act(() => {
+        regenerationPromise = result.current.recreateImage('batch-id');
+      });
+      await waitFor(() => expect(mockImageService.createImage).toHaveBeenCalledTimes(1));
+
+      const requestSignal = mockImageService.createImage.mock.calls[0][1];
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual(['batch-id']);
+
+      act(() => {
+        resetAccountScopedStores('Account changed');
+      });
+
+      await act(async () => {
+        await expect(regenerationPromise).resolves.toBeUndefined();
+      });
+
+      expect(requestSignal?.aborted).toBe(true);
+      expect(requestSignal?.reason).toBe('Account changed');
+      expect(mockRemoveGenerationBatch).not.toHaveBeenCalled();
+      expect(mockRefreshGenerationBatches).not.toHaveBeenCalled();
+      expect(useImageStore.getState().imageGenerationAbortControllers).toEqual([]);
+      expect(useImageStore.getState().regeneratingBatchIds).toEqual([]);
     });
   });
 });

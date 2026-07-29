@@ -18,6 +18,15 @@ const createMockImageStore = (overrides?: Partial<ImageStore>): ImageStore => {
 };
 
 describe('createImageSelectors', () => {
+  describe('isBatchRegenerating', () => {
+    it('should match only the batch with an active regeneration', () => {
+      const state = createMockImageStore({ regeneratingBatchIds: ['batch-2'] });
+
+      expect(createImageSelectors.isBatchRegenerating('batch-1')(state)).toBe(false);
+      expect(createImageSelectors.isBatchRegenerating('batch-2')(state)).toBe(true);
+    });
+  });
+
   describe('isCreating', () => {
     it('should return false from initial state', () => {
       const state = createMockImageStore();

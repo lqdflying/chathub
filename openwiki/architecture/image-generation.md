@@ -560,17 +560,37 @@ metadata.
 
 ## Retry safety
 
-Recreate is replacement-first:
+Failed-output recreation is replacement-first:
 
-1. Validate the active topic and original generation batch.
-2. Submit the replacement using the original batch's provider, model,
-   configuration, and generation count.
-3. Remove the original only after replacement submission succeeds.
-4. Refresh batches regardless of success or failure.
-5. Clear the busy state and preserve the primary error.
+1. Validate the active topic and original generation batch, then select only
+   generations whose async task status is `Error`. A batch without failures
+   cannot start recreation.
+2. Add the batch ID to `regeneratingBatchIds` and register an
+   `AbortController`. A second request for the same batch is ignored, while
+   other failed batches remain independently actionable.
+3. Submit one replacement batch with `imageNum` equal to the failed count and
+   reuse the original provider, model, prompt, reference images, and runtime
+   configuration.
+4. After the replacement is accepted, remove the entire original batch when
+   every output failed. For a mixed batch, remove only the failed generation
+   records and retain every successful sibling.
+5. Refresh the active topic after submission or cleanup settles. Clear only
+   the current operation's controller and per-batch marker.
 
-This may leave both batches visible if cleanup fails, but it does not destroy
-the user's failed batch before a replacement has been accepted.
+Submission failure leaves every original record intact and reaches the existing
+generation-start error handling. Cleanup or refresh failure after acceptance is
+wrapped as `ImageRegenerationCleanupError`: the replacement remains accepted,
+any undeleted originals remain available, and the client reports that the topic
+may need a refresh instead of presenting the failure as a rejected submission.
+An account-scope reset aborts the request, clears the marker with the image
+store, and prevents stale refresh or deletion continuations.
+
+`GenerationBatchItem` exposes **Regenerate** only when the batch contains an
+`Error` result and places it before **Reuse Settings**. Regenerate starts the
+failed-only operation immediately; Reuse Settings remains the edit-before-submit
+path. Only the active batch action shows its disabled loading state. The invalid
+API-key recovery form invokes the same operation, so its all-failed batch keeps
+the whole-batch replacement behavior.
 
 ## Source map
 

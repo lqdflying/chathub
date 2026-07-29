@@ -3,6 +3,7 @@ import { StateCreator } from 'zustand';
 import { imageService } from '@/services/image';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
+import { AsyncTaskStatus } from '@/types/asyncTask';
 
 import { ImageStore } from '../../store';
 import { generationBatchSelectors } from '../generationBatch/selectors';
@@ -17,6 +18,16 @@ export interface CreateImageAction {
    * eg: invalid api key, recreate image
    */
   recreateImage: (generationBatchId: string) => Promise<void>;
+}
+
+export class ImageRegenerationCleanupError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Replacement image generation was accepted, but failed outputs could not be removed');
+    this.cause = cause;
+    this.name = 'ImageRegenerationCleanupError';
+  }
 }
 
 // ====== helper functions ====== //
@@ -158,6 +169,8 @@ export const createCreateImageSlice: StateCreator<
 
   async recreateImage(generationBatchId: string) {
     const store = get();
+    if (store.regeneratingBatchIds.includes(generationBatchId)) return;
+
     const userState = useUserStore.getState();
     const requestedScope = authSelectors.currentUserScope(userState);
     const requestedGeneration = store.scopeGeneration;
@@ -182,7 +195,12 @@ export const createCreateImageSlice: StateCreator<
       throw new Error('Generation batch not found');
     }
 
-    const imageNum = batch.generations.length;
+    const failedGenerations = batch.generations.filter(
+      (generation) => generation.task.status === AsyncTaskStatus.Error,
+    );
+    if (failedGenerations.length === 0) return;
+
+    const shouldRemoveWholeBatch = failedGenerations.length === batch.generations.length;
     const abortController = new AbortController();
     set(
       (state) => ({
@@ -191,33 +209,42 @@ export const createCreateImageSlice: StateCreator<
           abortController,
         ],
         isCreating: true,
+        regeneratingBatchIds: [...state.regeneratingBatchIds, generationBatchId],
       }),
       false,
       'recreateImage/startCreateImage',
     );
 
     let operationError: unknown;
+    let replacementAccepted = false;
     try {
       if (!isOperationCurrent()) return;
 
       await imageService.createImage(
         {
           generationTopicId: activeGenerationTopicId,
-          imageNum,
+          imageNum: failedGenerations.length,
           model: batch.model,
           params: batch.config as any,
           provider: batch.provider,
         },
         abortController.signal,
       );
+      replacementAccepted = true;
 
       if (!isOperationCurrent()) return;
 
-      // Only remove the failed batch after its replacement was accepted.
-      await get().removeGenerationBatch(generationBatchId, activeGenerationTopicId);
-      if (!isOperationCurrent()) return;
+      if (shouldRemoveWholeBatch) {
+        await get().removeGenerationBatch(generationBatchId, activeGenerationTopicId);
+        if (!isOperationCurrent()) return;
+      } else {
+        for (const generation of failedGenerations) {
+          await get().removeGeneration(generation.id);
+          if (!isOperationCurrent()) return;
+        }
+      }
     } catch (error) {
-      operationError = error;
+      operationError = replacementAccepted ? new ImageRegenerationCleanupError(error) : error;
     }
 
     try {
@@ -227,7 +254,7 @@ export const createCreateImageSlice: StateCreator<
       if (!isOperationCurrent()) return;
     } catch (error) {
       if (!operationError) {
-        operationError = error;
+        operationError = replacementAccepted ? new ImageRegenerationCleanupError(error) : error;
       } else {
         console.error('Failed to refresh generation batches after recreate:', error);
       }
@@ -243,6 +270,9 @@ export const createCreateImageSlice: StateCreator<
           return {
             imageGenerationAbortControllers: remainingAbortControllers,
             isCreating: remainingAbortControllers.length > 0,
+            regeneratingBatchIds: state.regeneratingBatchIds.filter(
+              (batchId) => batchId !== generationBatchId,
+            ),
           };
         },
         false,

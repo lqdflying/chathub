@@ -13,15 +13,17 @@ import ProviderApiKeyForm from './ProviderApiKeyForm';
 interface APIKeyFormProps {
   description: string;
   id: string;
+  loading?: boolean;
   onClose: () => void;
   onRecreate: () => void;
   provider?: string;
 }
 
 const APIKeyForm = memo<APIKeyFormProps>(
-  ({ provider, description, onRecreate, onClose }) => {
+  ({ provider, description, loading: regenerationLoading = false, onRecreate, onClose }) => {
     const { t } = useTranslation('error');
-    const [loading, setLoading] = useState(false);
+    const [configurationLoading, setConfigurationLoading] = useState(false);
+    const loading = configurationLoading || regenerationLoading;
 
     const apiKeyPlaceholder = useMemo(() => {
       switch (provider) {
@@ -36,7 +38,7 @@ const APIKeyForm = memo<APIKeyFormProps>(
     }, [provider]);
 
     return (
-      <LoadingContext value={{ loading, setLoading }}>
+      <LoadingContext value={{ loading, setLoading: setConfigurationLoading }}>
         <Center
           gap={16}
           style={{
@@ -55,6 +57,7 @@ const APIKeyForm = memo<APIKeyFormProps>(
             <Button
               block
               disabled={loading}
+              loading={regenerationLoading}
               onClick={() => {
                 onRecreate();
               }}

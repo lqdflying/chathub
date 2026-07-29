@@ -2,13 +2,21 @@
 
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { ModelTag } from '@lobehub/icons';
-import { ActionIconGroup, Block, Grid, Markdown, Tag, Text } from '@lobehub/ui';
+import {
+  ActionIconGroup,
+  type ActionIconGroupProps,
+  Block,
+  Grid,
+  Markdown,
+  Tag,
+  Text,
+} from '@lobehub/ui';
 import { App } from 'antd';
 import { createStyles } from 'antd-style';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { omit } from 'lodash-es';
-import { CopyIcon, RotateCcwSquareIcon, Trash2 } from 'lucide-react';
+import { CopyIcon, RefreshCw, RotateCcwSquareIcon, Trash2 } from 'lucide-react';
 import { RuntimeImageGenParams } from 'model-bank';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +24,9 @@ import { Flexbox } from 'react-layout-kit';
 
 import InvalidAPIKey from '@/components/InvalidAPIKey';
 import { useImageStore } from '@/store/image';
-import { AsyncTaskErrorType } from '@/types/asyncTask';
+import { ImageRegenerationCleanupError } from '@/store/image/slices/createImage/action';
+import { createImageSelectors } from '@/store/image/slices/createImage/selectors';
+import { AsyncTaskErrorType, AsyncTaskStatus } from '@/types/asyncTask';
 import { GenerationBatch } from '@/types/generation';
 
 import { GenerationItem } from './GenerationItem';
@@ -78,6 +88,7 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
   const removeGenerationBatch = useImageStore((s) => s.removeGenerationBatch);
   const recreateImage = useImageStore((s) => s.recreateImage);
   const reuseSettings = useImageStore((s) => s.reuseSettings);
+  const isRegenerating = useImageStore(createImageSelectors.isBatchRegenerating(batch.id));
 
   const time = useMemo(() => {
     return dayjs(batch.createdAt).format('YYYY-MM-DD HH:mm:ss');
@@ -101,6 +112,21 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
     );
   };
 
+  const handleRegenerate = async () => {
+    try {
+      await recreateImage(batch.id);
+    } catch (error) {
+      console.error('Failed to regenerate image:', error);
+      message.error(
+        t(
+          error instanceof ImageRegenerationCleanupError
+            ? 'generation.actions.regenerateCleanupFailed'
+            : 'generation.actions.generateFailed',
+        ),
+      );
+    }
+  };
+
   const handleDeleteBatch = async () => {
     if (!activeTopicId) return;
 
@@ -118,6 +144,9 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
   const isInvalidApiKey = batch.generations.some(
     (generation) => generation.task.error?.name === AsyncTaskErrorType.InvalidProviderAPIKey,
   );
+  const hasFailedGenerations = batch.generations.some(
+    (generation) => generation.task.status === AsyncTaskStatus.Error,
+  );
 
   if (isInvalidApiKey) {
     // Use unified InvalidAPIKey component for all providers (including ComfyUI)
@@ -128,14 +157,12 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
           ns: 'error',
         })}
         id={batch.id}
+        loading={isRegenerating}
         onClose={() => {
           removeGenerationBatch(batch.id, activeTopicId!);
         }}
         onRecreate={() => {
-          recreateImage(batch.id).catch((error) => {
-            console.error('Failed to recreate image:', error);
-            message.error(t('generation.actions.generateFailed'));
-          });
+          void handleRegenerate();
         }}
         provider={batch.provider}
       />
@@ -217,6 +244,18 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
         <ActionIconGroup
           actionIconProps={{ size: { blockSize: 44, size: 20 } }}
           items={[
+            hasFailedGenerations && {
+              disabled: isRegenerating,
+              icon: RefreshCw,
+              key: 'regenerate',
+              label: t(
+                isRegenerating
+                  ? 'generation.actions.regenerating'
+                  : 'generation.actions.regenerate',
+              ),
+              loading: isRegenerating,
+              onClick: handleRegenerate,
+            },
             {
               icon: RotateCcwSquareIcon,
               key: 'reuseSettings',
@@ -236,7 +275,7 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
               label: t('generation.actions.deleteBatch'),
               onClick: handleDeleteBatch,
             },
-          ]}
+          ].filter(Boolean) as ActionIconGroupProps['items']}
         />
       </Flexbox>
     </Block>
