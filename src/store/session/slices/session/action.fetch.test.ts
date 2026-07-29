@@ -3,15 +3,18 @@ import type { SWRConfiguration } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useSessionStore } from '@/store/session';
+import { createSessionListBaseKey } from '@/store/session/sessionListKey';
 import { useUserStore } from '@/store/user';
 import type { ChatSessionList } from '@/types/session';
 
-const { useClientDataSWR } = vi.hoisted(() => ({
+const { mutateAccountSWRByPredicate, useClientDataSWR } = vi.hoisted(() => ({
+  mutateAccountSWRByPredicate: vi.fn(),
   useClientDataSWR: vi.fn(),
 }));
 
 vi.mock('@/libs/swr', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/libs/swr')>()),
+  mutateAccountSWRByPredicate,
   useClientDataSWR,
 }));
 
@@ -117,7 +120,9 @@ describe('useFetchSessions ownership', () => {
   it('starts and accepts a replacement fetch after the session generation changes', async () => {
     renderHook(() => useSessionStore.getState().useFetchSessions(true, true));
 
-    expect(useClientDataSWR.mock.calls[0][0]).toEqual(['fetchSessions', 'user:account-a', 0, 0]);
+    expect(useClientDataSWR.mock.calls[0][0]).toEqual(
+      createSessionListBaseKey('user:account-a', 0, 0),
+    );
 
     act(() => {
       useSessionStore.setState({
@@ -133,7 +138,7 @@ describe('useFetchSessions ownership', () => {
     });
 
     const replacementCall = useClientDataSWR.mock.calls.at(-1);
-    expect(replacementCall?.[0]).toEqual(['fetchSessions', 'user:account-a', 0, 1]);
+    expect(replacementCall?.[0]).toEqual(createSessionListBaseKey('user:account-a', 0, 1));
 
     const replacementConfiguration = replacementCall?.[2] as SWRConfiguration<ChatSessionList>;
     await act(async () => {
@@ -148,5 +153,26 @@ describe('useFetchSessions ownership', () => {
     });
 
     expect(useSessionStore.getState().isSessionsFirstFetchFinished).toBe(true);
+  });
+
+  it('imperatively refreshes the epoch-aware session-list key', async () => {
+    await act(async () => {
+      await useSessionStore.getState().refreshSessions();
+    });
+
+    expect(mutateAccountSWRByPredicate).toHaveBeenCalledTimes(1);
+    const [requestedScope, predicate] = mutateAccountSWRByPredicate.mock.calls[0];
+    expect(requestedScope).toBe('user:account-a');
+
+    const activeSessionListKey = [
+      ...createSessionListBaseKey('user:account-a', 0, 0),
+      ['account-cache-epoch', 0],
+    ];
+    expect(predicate(activeSessionListKey)).toBe(true);
+    expect(predicate(['fetchSessions', 'user:account-a', ['account-cache-epoch', 0]])).toBe(false);
+    expect(
+      predicate([...createSessionListBaseKey('user:account-b', 0, 0), ['account-cache-epoch', 0]]),
+    ).toBe(false);
+    expect(predicate(['searchSessions', 'user:account-a', 0, 0])).toBe(false);
   });
 });

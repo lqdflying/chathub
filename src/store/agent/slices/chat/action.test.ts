@@ -12,11 +12,20 @@ import { topicService } from '@/services/topic';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useSessionStore } from '@/store/session';
+import { createSessionListBaseKey } from '@/store/session/sessionListKey';
 import { useUserStore } from '@/store/user';
+
+const { mutateAccountSWRByPredicate } = vi.hoisted(() => ({
+  mutateAccountSWRByPredicate: vi.fn(),
+}));
 
 vi.mock('zustand/traditional', async () => {
   return await vi.importActual('zustand/traditional');
 });
+vi.mock('@/libs/swr', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/libs/swr')>()),
+  mutateAccountSWRByPredicate,
+}));
 vi.mock('@/const/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/const/auth')>()),
   enableAuth: true,
@@ -78,8 +87,10 @@ beforeEach(() => {
     authUserId: 'user-id',
     isLoaded: true,
     isSignedIn: true,
+    isUserStateInit: true,
     ownershipInvalidationGeneration: 0,
     user: { id: 'user-id' },
+    userStateScope: 'user:user-id',
     userStateInitializationFailure: undefined,
   });
 });
@@ -513,6 +524,7 @@ describe('AgentSlice', () => {
         useUserStore.setState({
           authUserId: 'account-a',
           user: { id: 'account-a' },
+          userStateScope: 'user:account-a',
         });
       });
 
@@ -544,6 +556,7 @@ describe('AgentSlice', () => {
         useUserStore.setState({
           authUserId: 'account-b',
           user: { id: 'account-b' },
+          userStateScope: 'user:account-b',
         });
         useAgentStore.setState({
           activeAgentId: 'account-b-agent',
@@ -558,6 +571,7 @@ describe('AgentSlice', () => {
         useUserStore.setState({
           authUserId: 'account-a',
           user: { id: 'account-a' },
+          userStateScope: 'user:account-a',
         });
         useAgentStore.setState({
           activeAgentId: 'account-a-returned-agent',
@@ -854,7 +868,7 @@ describe('AgentSlice', () => {
       );
     });
 
-    it('should refresh the session list with the originating account checkpoint', async () => {
+    it('refreshes the epoch-aware session list with the originating account checkpoint', async () => {
       const { result } = renderHook(() => useAgentStore());
 
       vi.spyOn(sessionService, 'updateSessionConfig').mockResolvedValue(undefined);
@@ -864,11 +878,19 @@ describe('AgentSlice', () => {
         await result.current.internal_updateAgentConfig('test-session-id', { model: 'gpt-4' });
       });
 
-      expect(mutate).toHaveBeenCalledWith([
-        'fetchSessions',
-        'user:user-id',
-        ['account-cache-epoch', 0],
-      ]);
+      expect(mutateAccountSWRByPredicate).toHaveBeenCalledTimes(1);
+      const [requestedScope, predicate] = vi.mocked(mutateAccountSWRByPredicate).mock.calls[0];
+      expect(requestedScope).toBe('user:user-id');
+      expect(
+        predicate([...createSessionListBaseKey('user:user-id', 0, 6), ['account-cache-epoch', 0]]),
+      ).toBe(true);
+      expect(
+        predicate([
+          ...createSessionListBaseKey('user:another-user', 0, 6),
+          ['account-cache-epoch', 0],
+        ]),
+      ).toBe(false);
+      expect(predicate(['FETCH_AGENT_CONFIG', 'user:user-id', 'test-session-id'])).toBe(false);
     });
   });
 

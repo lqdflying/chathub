@@ -10,13 +10,19 @@ import { StateCreator } from 'zustand/vanilla';
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
-import { mutateAccountSWR, useClientDataSWR, useOnlyFetchOnceSWR } from '@/libs/swr';
+import {
+  mutateAccountSWR,
+  mutateAccountSWRByPredicate,
+  useClientDataSWR,
+  useOnlyFetchOnceSWR,
+} from '@/libs/swr';
 import { agentService } from '@/services/agent';
 import { chatService } from '@/services/chat';
 import { sessionService } from '@/services/session';
 import { topicService } from '@/services/topic';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { AgentState } from '@/store/agent/slices/chat/initialState';
+import { isSessionListCacheKey } from '@/store/session/sessionListKey';
 import { useUserStore } from '@/store/user';
 import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
 import { LobeAgentChatConfig, LobeAgentConfig } from '@/types/agent';
@@ -86,7 +92,6 @@ export interface AgentChatAction {
 
 const FETCH_AGENT_CONFIG_KEY = 'FETCH_AGENT_CONFIG';
 const FETCH_AGENT_KNOWLEDGE_KEY = 'FETCH_AGENT_KNOWLEDGE';
-const FETCH_SESSIONS_KEY = 'fetchSessions';
 
 interface AgentMutationCheckpoint {
   accountSnapshot: NonNullable<ReturnType<typeof captureAccountMutationSnapshot>>;
@@ -137,9 +142,7 @@ export const createChatSlice: StateCreator<
   const isNestedRefreshCurrent = (
     checkpoint: AgentMutationCheckpoint,
     isOriginatingMutationCurrent?: AgentMutationCurrentness,
-  ) =>
-    isStoreMutationContextCurrent(checkpoint) &&
-    (isOriginatingMutationCurrent?.() ?? true);
+  ) => isStoreMutationContextCurrent(checkpoint) && (isOriginatingMutationCurrent?.() ?? true);
   const refreshAgentSessions = async (
     originatingCheckpoint?: AgentMutationCheckpoint,
     isOriginatingMutationCurrent?: AgentMutationCurrentness,
@@ -147,7 +150,9 @@ export const createChatSlice: StateCreator<
     const checkpoint = originatingCheckpoint ?? captureStoreMutationContext();
     if (!checkpoint || !isNestedRefreshCurrent(checkpoint, isOriginatingMutationCurrent)) return;
 
-    await mutateAccountSWR([FETCH_SESSIONS_KEY, checkpoint.accountSnapshot.scope]);
+    await mutateAccountSWRByPredicate(checkpoint.accountSnapshot.scope, (key) =>
+      isSessionListCacheKey(key, checkpoint.accountSnapshot.scope),
+    );
     if (!isNestedRefreshCurrent(checkpoint, isOriginatingMutationCurrent)) return;
   };
 
@@ -493,7 +498,9 @@ export const createChatSlice: StateCreator<
       if (!mutationContext || signal?.aborted) return;
       const targetId = id;
       const operationController =
-        get().updateAgentConfigSignal?.signal === signal ? get().updateAgentConfigSignal : undefined;
+        get().updateAgentConfigSignal?.signal === signal
+          ? get().updateAgentConfigSignal
+          : undefined;
       const isCurrentRequest = () =>
         isStoreMutationContextCurrent(mutationContext) &&
         (isOriginatingMutationCurrent?.() ?? true) &&

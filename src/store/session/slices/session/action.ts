@@ -11,7 +11,7 @@ import { message } from '@/components/AntdStaticMethods';
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
-import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWRByPredicate, useClientDataSWR } from '@/libs/swr';
 import { chatGroupService } from '@/services/chatGroup';
 import { sessionService } from '@/services/session';
 import {
@@ -20,6 +20,7 @@ import {
   isAccountMutationCurrent,
 } from '@/store/accountMutation';
 import { SessionStore } from '@/store/session';
+import { createSessionListBaseKey, isSessionListCacheKey } from '@/store/session/sessionListKey';
 import { getUserStoreState, useUserStore } from '@/store/user';
 import { authSelectors, settingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { MetaData } from '@/types/meta';
@@ -40,7 +41,6 @@ import { sessionMetaSelectors } from './selectors/meta';
 
 const n = setNamespace('session');
 
-const FETCH_SESSIONS_KEY = 'fetchSessions';
 const SEARCH_SESSIONS_KEY = 'searchSessions';
 
 interface SessionMutationSnapshot {
@@ -344,7 +344,7 @@ export const createSessionSlice: StateCreator<
 
     return useClientDataSWR<ChatSessionList>(
       shouldFetch
-        ? [FETCH_SESSIONS_KEY, requestedScope, requestedGeneration, scopeGeneration]
+        ? createSessionListBaseKey(requestedScope, requestedGeneration, scopeGeneration)
         : null,
       () => sessionService.getGroupedSessions(),
       {
@@ -472,6 +472,8 @@ export const createSessionSlice: StateCreator<
     const requestedScope = authSelectors.currentUserScope(userState);
     if (!requestedScope) return;
 
-    await mutateAccountSWR([FETCH_SESSIONS_KEY, requestedScope]);
+    await mutateAccountSWRByPredicate(requestedScope, (key) =>
+      isSessionListCacheKey(key, requestedScope),
+    );
   },
 });

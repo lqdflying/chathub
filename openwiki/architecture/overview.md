@@ -102,6 +102,13 @@ change the key and start a replacement request for the new epoch; reading a
 generation imperatively only inside the callback can reject the old response
 without ever scheduling its replacement.
 
+Declarative fetches and imperative refreshes must also share one cache-key
+contract. When an account-scoped key includes store generations, construct it
+through a shared key builder and invalidate it with an account-epoch-scoped
+predicate that matches the complete resource key shape. Mutating an older,
+shorter key creates a separate SWR cache identity and does not revalidate the
+active request.
+
 ## Account-owned chat-group membership
 
 A row in `chat_groups_agents` is valid only when its `userId` matches both the
