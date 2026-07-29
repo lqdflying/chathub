@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { createCallerFactory } from '@/libs/trpc/lambda';
-
+import { createAsyncCaller } from '@/server/routers/async/caller';
 import {
   createImageInputSchema,
   validateNoUrlsInConfig,
 } from '@/server/routers/lambda/image/schema';
+import { FileService } from '@/server/services/file';
 
 import { imageRouter } from '../image';
 
@@ -64,6 +65,105 @@ const gptImage2CompatibleInput = {
 };
 
 describe('imageRouter', () => {
+  it('refreshes stored image references before dispatch while persisting durable keys', async () => {
+    const expiredSingleReference =
+      'https://storage.example.com/references/single.png?X-Amz-Signature=expired';
+    const expiredMultipleReference =
+      'https://storage.example.com/references/multiple.png?X-Amz-Signature=expired';
+    const inlineReference = 'data:image/png;base64,aW1hZ2U=';
+    const freshSingleReference =
+      'https://storage.example.com/references/single.png?X-Amz-Signature=fresh';
+    const freshMultipleReference =
+      'https://storage.example.com/references/multiple.png?X-Amz-Signature=fresh';
+    const batchValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'batch-id' }]),
+    });
+    const generationValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'generation-id' }]),
+    });
+    const asyncTaskValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'task-id' }]),
+    });
+    const transaction = {
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: batchValues })
+        .mockReturnValueOnce({ values: generationValues })
+        .mockReturnValueOnce({ values: asyncTaskValues }),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        where: vi.fn().mockReturnThis(),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(undefined),
+        }),
+      }),
+    };
+    const serverDB = {
+      transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
+      ),
+    };
+    const getKeyFromFullUrl = vi.fn((reference: string) => {
+      if (reference === expiredSingleReference) return 'references/single.png';
+      if (reference === expiredMultipleReference) return 'references/multiple.png';
+      return reference;
+    });
+    const getFullFileUrl = vi.fn(async (key: string) => {
+      if (key === 'references/single.png') return freshSingleReference;
+      if (key === 'references/multiple.png') return freshMultipleReference;
+      return key;
+    });
+    const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl }) as never,
+    );
+    vi.mocked(createAsyncCaller).mockResolvedValue({
+      image: { createImage: dispatchCreateImage },
+    } as never);
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await caller.createImage({
+      ...validInput,
+      imageNum: 1,
+      params: {
+        imageUrl: expiredSingleReference,
+        imageUrls: [expiredMultipleReference, inlineReference],
+        prompt: 'Generate an image',
+      },
+    });
+
+    expect(batchValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: {
+          imageUrl: 'references/single.png',
+          imageUrls: ['references/multiple.png', inlineReference],
+          prompt: 'Generate an image',
+        },
+      }),
+    );
+    expect(getFullFileUrl).toHaveBeenCalledWith('references/single.png');
+    expect(getFullFileUrl).toHaveBeenCalledWith('references/multiple.png');
+    expect(getFullFileUrl).not.toHaveBeenCalledWith(inlineReference);
+    expect(dispatchCreateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: {
+          imageUrl: freshSingleReference,
+          imageUrls: [freshMultipleReference, inlineReference],
+          prompt: 'Generate an image',
+        },
+      }),
+    );
+  });
+
   it('rejects image creation when the topic belongs to another user', async () => {
     const topicOwnershipQuery = {
       from: vi.fn().mockReturnThis(),

@@ -250,7 +250,7 @@ export const createCreateImageSlice: StateCreator<
     try {
       if (!isOperationCurrent()) return;
 
-      await get().refreshGenerationBatches();
+      await get().refreshGenerationBatches(activeGenerationTopicId);
       if (!isOperationCurrent()) return;
     } catch (error) {
       if (!operationError) {

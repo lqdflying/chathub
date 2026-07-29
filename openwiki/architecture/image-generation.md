@@ -570,12 +570,20 @@ Failed-output recreation is replacement-first:
    other failed batches remain independently actionable.
 3. Submit one replacement batch with `imageNum` equal to the failed count and
    reuse the original provider, model, prompt, reference images, and runtime
-   configuration.
+   configuration. Reference images stored by ChatHub remain durable object keys
+   in the batch config. The lambda derives fresh model-access URLs from those
+   keys immediately before async dispatch, while inline `data:` references pass
+   through unchanged. This avoids replaying feed URLs whose presigned lifetime
+   has elapsed; AWS documents that a presigned URL expires at its configured
+   deadline or when its signing credentials expire, whichever happens first
+   ([Amazon S3 presigned URL expiration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)).
 4. After the replacement is accepted, remove the entire original batch when
    every output failed. For a mixed batch, remove only the failed generation
    records and retain every successful sibling.
-5. Refresh the active topic after submission or cleanup settles. Clear only
-   the current operation's controller and per-batch marker.
+5. Refresh the operation's captured originating topic after submission or
+   cleanup settles, even if the user selected another topic while the request
+   was in flight. Clear only the current operation's controller and per-batch
+   marker.
 
 Submission failure leaves every original record intact and reaches the existing
 generation-start error handling. Cleanup or refresh failure after acceptance is

@@ -1,5 +1,5 @@
-import { and, eq } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
+import { and, eq } from 'drizzle-orm';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import {
@@ -7,8 +7,8 @@ import {
   NewGenerationBatch,
   asyncTasks,
   generationBatches,
-  generations,
   generationTopics,
+  generations,
 } from '@/database/schemas';
 import {
   createImageDiagnosticId,
@@ -41,6 +41,23 @@ export type { CreateImageServicePayload } from './image/schema';
 
 const IMAGE_TRIGGER_ERROR_MESSAGE =
   'trigger image generation async task error. Please make sure INTERNAL_APP_URL or APP_URL is reachable from the server.';
+
+const normalizeImageReference = async (reference: string, fileService: FileService) => {
+  if (reference.startsWith('data:')) {
+    return {
+      databaseReference: reference,
+      dispatchReference: reference,
+    };
+  }
+
+  const databaseReference = fileService.getKeyFromFullUrl(reference);
+  const dispatchReference = await fileService.getFullFileUrl(databaseReference);
+
+  return {
+    databaseReference,
+    dispatchReference,
+  };
+};
 
 const createSubmissionDebugFields = ({
   generationTopicId,
@@ -151,14 +168,21 @@ export const imageRouter = router({
 
       // 规范化参考图地址，统一存储 S3 key（避免把会过期的预签名 URL 存进数据库）
       let configForDatabase = { ...params };
+      let paramsForDispatch = { ...params };
       // 1) 处理多图 imageUrls
       if (Array.isArray(params.imageUrls) && params.imageUrls.length > 0) {
         try {
-          const imageKeys = params.imageUrls.map((url) => fileService.getKeyFromFullUrl(url));
+          const normalizedReferences = await Promise.all(
+            params.imageUrls.map((reference) => normalizeImageReference(reference, fileService)),
+          );
 
           configForDatabase = {
             ...configForDatabase,
-            imageUrls: imageKeys,
+            imageUrls: normalizedReferences.map(({ databaseReference }) => databaseReference),
+          };
+          paramsForDispatch = {
+            ...paramsForDispatch,
+            imageUrls: normalizedReferences.map(({ dispatchReference }) => dispatchReference),
           };
         } catch (error) {
           logImageDebugSafe('config_warning', {
@@ -173,8 +197,12 @@ export const imageRouter = router({
       // 2) 处理单图 imageUrl
       if (typeof params.imageUrl === 'string' && params.imageUrl) {
         try {
-          const key = fileService.getKeyFromFullUrl(params.imageUrl);
-          configForDatabase = { ...configForDatabase, imageUrl: key };
+          const { databaseReference, dispatchReference } = await normalizeImageReference(
+            params.imageUrl,
+            fileService,
+          );
+          configForDatabase = { ...configForDatabase, imageUrl: databaseReference };
+          paramsForDispatch = { ...paramsForDispatch, imageUrl: dispatchReference };
         } catch (error) {
           logImageDebugSafe('config_warning', {
             ...describeImageDebugError(error),
@@ -306,9 +334,9 @@ export const imageRouter = router({
             .createImage({
               generationId: generation.id,
               model,
-              params,
+              params: paramsForDispatch,
               provider,
-              taskId: asyncTaskId, // 使用原始参数
+              taskId: asyncTaskId,
             })
             .then((result) => {
               logImageDebugSafe('dispatch_settled', {
