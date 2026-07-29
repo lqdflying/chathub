@@ -605,6 +605,14 @@ describe('convertUsage', () => {
 });
 
 describe('convertOpenAIImageUsage', () => {
+  const pricing: Pricing = {
+    units: [
+      { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
+      { name: 'imageInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
+      { name: 'imageOutput', rate: 40, strategy: 'fixed', unit: 'millionTokens' },
+    ],
+  };
+
   it('should convert gpt-image-1 usage data correctly', () => {
     // Arrange - Based on actual gpt-image-1 logs
     const gptImage1Usage: OpenAI.Images.ImagesResponse.Usage = {
@@ -615,14 +623,6 @@ describe('convertOpenAIImageUsage', () => {
       },
       output_tokens: 4160,
       total_tokens: 4174,
-    };
-
-    const pricing: Pricing = {
-      units: [
-        { name: 'textInput', rate: 5, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'imageInput', rate: 10, strategy: 'fixed', unit: 'millionTokens' },
-        { name: 'imageOutput', rate: 40, strategy: 'fixed', unit: 'millionTokens' },
-      ],
     };
 
     // Act
@@ -637,6 +637,64 @@ describe('convertOpenAIImageUsage', () => {
       totalOutputTokens: 4160,
       totalTokens: 4174,
       cost: 0.16647, // Based on pricing: 14 * 5/1M + 0 * 10/1M + 4160 * 40/1M = 0.00007 + 0 + 0.1664 = 0.16647
+    });
+  });
+
+  it('should preserve totals and omit unavailable input details', () => {
+    const usageWithoutInputDetails = {
+      input_tokens: 100,
+      output_tokens: 900,
+      total_tokens: 1000,
+    } as OpenAI.Images.ImagesResponse.Usage;
+
+    expect(convertOpenAIImageUsage(usageWithoutInputDetails, pricing)).toEqual({
+      cost: 0.036,
+      outputImageTokens: 900,
+      totalInputTokens: 100,
+      totalOutputTokens: 900,
+      totalTokens: 1000,
+    });
+  });
+
+  it('should calculate cost from only the available input modality details', () => {
+    const usageWithPartialInputDetails = {
+      input_tokens: 100,
+      input_tokens_details: {
+        text_tokens: 50,
+      },
+      output_tokens: 900,
+      total_tokens: 1000,
+    } as OpenAI.Images.ImagesResponse.Usage;
+
+    expect(convertOpenAIImageUsage(usageWithPartialInputDetails, pricing)).toEqual({
+      cost: 0.03625,
+      inputTextTokens: 50,
+      outputImageTokens: 900,
+      totalInputTokens: 100,
+      totalOutputTokens: 900,
+      totalTokens: 1000,
+    });
+  });
+
+  it('should preserve reported zero modality counters', () => {
+    const usageWithZeroes = {
+      input_tokens: 0,
+      input_tokens_details: {
+        image_tokens: 0,
+        text_tokens: 0,
+      },
+      output_tokens: 0,
+      total_tokens: 0,
+    } satisfies OpenAI.Images.ImagesResponse.Usage;
+
+    expect(convertOpenAIImageUsage(usageWithZeroes, pricing)).toEqual({
+      cost: 0,
+      inputImageTokens: 0,
+      inputTextTokens: 0,
+      outputImageTokens: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalTokens: 0,
     });
   });
 });

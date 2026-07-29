@@ -529,6 +529,14 @@ which keeps parsing stack usage independent of image size. A completed
 `transform_settled` event identifies a local decode or image-processing failure,
 not an upstream generation failure.
 
+OpenAI-compatible image responses are normalized defensively after the provider
+returns. Some compatible endpoints report the top-level input, output, and total
+token counters but omit `input_tokens_details` or one of its text/image modality
+counters. ChatHub preserves every reported total and explicit zero, omits only
+the unavailable modality counters, and prices only counters that are actually
+present. Incomplete optional usage telemetry therefore cannot turn a completed
+image response into a failed task or invent an unreported token breakdown.
+
 Diagnostics propagate an opaque `x-chathub-image-diagnostic-id` header only
 when the async request presents the internal server bearer secret. External,
 malformed, or unauthorized headers are neither logged nor reflected. The ID is

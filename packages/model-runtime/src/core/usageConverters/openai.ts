@@ -169,14 +169,29 @@ export const convertOpenAIImageUsage = (
   usage: OpenAI.Images.ImagesResponse.Usage,
   pricing?: Pricing,
 ): ModelUsage => {
-  const data: ModelTokensUsage = {
-    inputImageTokens: usage.input_tokens_details.image_tokens,
-    inputTextTokens: usage.input_tokens_details.text_tokens,
+  const inputTokenDetails = usage.input_tokens_details as
+    | OpenAI.Images.ImagesResponse.Usage['input_tokens_details']
+    | undefined;
+  const data = {
+    inputImageTokens: inputTokenDetails?.image_tokens,
+    inputTextTokens: inputTokenDetails?.text_tokens,
     outputImageTokens: usage.output_tokens,
     totalInputTokens: usage.input_tokens,
     totalOutputTokens: usage.output_tokens,
     totalTokens: usage.total_tokens,
-  };
+  } satisfies ModelTokensUsage;
 
-  return withUsageCost(data as ModelUsage, pricing);
+  const availableUsage = Object.fromEntries(
+    Object.entries(data).filter(([, value]) => value !== undefined && value !== null),
+  ) as ModelUsage;
+  const usageForPricing = {
+    inputImageTokens: availableUsage.inputImageTokens,
+    inputTextTokens: availableUsage.inputTextTokens,
+    outputImageTokens: availableUsage.outputImageTokens,
+  } satisfies ModelTokensUsage;
+  const pricingResult = withUsageCost(usageForPricing as ModelUsage, pricing);
+
+  return pricingResult.cost === undefined
+    ? availableUsage
+    : { ...availableUsage, cost: pricingResult.cost };
 };
