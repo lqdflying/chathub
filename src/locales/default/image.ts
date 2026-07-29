@@ -75,9 +75,9 @@ export default {
       tiers: {
         '2k': '2K / QHD',
         '4k': '4K / UHD',
-        auto: '自动',
-        custom: '自定义',
-        standard: '标准',
+        'auto': '自动',
+        'custom': '自定义',
+        'standard': '标准',
       },
     },
     steps: {
@@ -106,6 +106,8 @@ export default {
       promptCopyFailed: '复制提示词失败',
       regenerate: '重新生成',
       regenerateCleanupFailed: '新任务已发起，但清理失败结果时出错，请刷新后查看。',
+      regenerateReferenceRecoveryRequired:
+        '此批次的参考图记录来自旧版本，无法安全地重新生成。请复用设置，删除并重新添加参考图后提交新任务。',
       regenerating: '正在重新生成',
       reuseSettings: '复用设置',
       seedApplied: '种子已应用到配置',

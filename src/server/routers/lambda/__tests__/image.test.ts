@@ -78,6 +78,8 @@ describe('imageRouter', () => {
       'https://storage.example.com/references/multiple.png?X-Amz-Signature=expired';
     const storagePathCollisionReference =
       'https://storage.example.com/webapi/files/references/collision.png';
+    const protocolRelativeAppProxyReference =
+      '//chat.example.com/webapi/files/references/protocol-relative.png';
     const inlineReference = 'data:image/png;base64,aW1hZ2U=';
     const freshSingleReference =
       'https://storage.example.com/references/nested%20folder/single.png?X-Amz-Signature=fresh';
@@ -85,6 +87,8 @@ describe('imageRouter', () => {
       'https://storage.example.com/references/multiple.png?X-Amz-Signature=fresh';
     const freshCollisionReference =
       'https://storage.example.com/webapi/files/references/collision.png?X-Amz-Signature=fresh';
+    const freshProtocolRelativeReference =
+      'https://storage.example.com/references/protocol-relative.png?X-Amz-Signature=fresh';
     const batchValues = vi.fn().mockReturnValue({
       returning: vi.fn().mockResolvedValue([{ id: 'batch-id' }]),
     });
@@ -127,6 +131,7 @@ describe('imageRouter', () => {
       if (key === 'references/nested folder/single.png') return freshSingleReference;
       if (key === 'references/multiple.png') return freshMultipleReference;
       if (key === 'webapi/files/references/collision.png') return freshCollisionReference;
+      if (key === 'references/protocol-relative.png') return freshProtocolRelativeReference;
       return key;
     });
     const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
@@ -150,7 +155,12 @@ describe('imageRouter', () => {
       params: {
         imageReferenceFormatVersion: 999,
         imageUrl: appProxyReference,
-        imageUrls: [expiredMultipleReference, storagePathCollisionReference, inlineReference],
+        imageUrls: [
+          expiredMultipleReference,
+          storagePathCollisionReference,
+          protocolRelativeAppProxyReference,
+          inlineReference,
+        ],
         prompt: 'Generate an image',
       },
     });
@@ -163,6 +173,7 @@ describe('imageRouter', () => {
           imageUrls: [
             'references/multiple.png',
             'webapi/files/references/collision.png',
+            'references/protocol-relative.png',
             inlineReference,
           ],
           prompt: 'Generate an image',
@@ -170,6 +181,7 @@ describe('imageRouter', () => {
       }),
     );
     expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(appProxyReference);
+    expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(protocolRelativeAppProxyReference);
     expect(getKeyFromFullUrl).toHaveBeenCalledWith(storagePathCollisionReference);
     expect(getFullFileUrl).toHaveBeenCalledWith('references/nested folder/single.png');
     expect(getFullFileUrl).toHaveBeenCalledWith('references/multiple.png');
@@ -178,11 +190,56 @@ describe('imageRouter', () => {
       expect.objectContaining({
         params: {
           imageUrl: freshSingleReference,
-          imageUrls: [freshMultipleReference, freshCollisionReference, inlineReference],
+          imageUrls: [
+            freshMultipleReference,
+            freshCollisionReference,
+            freshProtocolRelativeReference,
+            inlineReference,
+          ],
           prompt: 'Generate an image',
         },
       }),
     );
+  });
+
+  it('rejects foreign protocol-relative references before persistence', async () => {
+    const serverDB = {
+      transaction: vi.fn(),
+    };
+    const getFullFileUrl = vi.fn();
+    const getKeyFromFullUrl = vi.fn((reference: string) => reference);
+    const dispatchCreateImage = vi.fn();
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl }) as never,
+    );
+    vi.mocked(createAsyncCaller).mockResolvedValue({
+      image: { createImage: dispatchCreateImage },
+    } as never);
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await expect(
+      caller.createImage({
+        ...validInput,
+        imageNum: 1,
+        params: {
+          imageUrl: '//storage.example.com/references/image.png',
+          prompt: 'Generate an image',
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: 'Protocol-relative image references are not supported',
+    });
+    expect(serverDB.transaction).not.toHaveBeenCalled();
+    expect(getFullFileUrl).not.toHaveBeenCalled();
+    expect(getKeyFromFullUrl).not.toHaveBeenCalled();
+    expect(dispatchCreateImage).not.toHaveBeenCalled();
   });
 
   it('preserves versioned storage-path collisions during regeneration', async () => {

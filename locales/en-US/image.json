@@ -106,6 +106,7 @@
       "promptCopyFailed": "Failed to Copy Prompt",
       "regenerate": "Regenerate",
       "regenerateCleanupFailed": "The replacement started, but failed results could not be cleaned up. Refresh to reconcile the batch.",
+      "regenerateReferenceRecoveryRequired": "This batch uses a legacy reference-image record that cannot be regenerated safely. Reuse Settings, remove and add the reference image again, then submit a new generation.",
       "regenerating": "Regenerating",
       "reuseSettings": "Reuse Settings",
       "seedApplied": "Seed Applied to Configuration",

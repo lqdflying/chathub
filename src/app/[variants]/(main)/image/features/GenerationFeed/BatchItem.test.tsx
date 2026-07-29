@@ -9,7 +9,7 @@ import { GenerationBatchItem } from './BatchItem';
 
 vi.stubGlobal('React', React);
 
-const { imageStoreListeners, imageStoreState } = vi.hoisted(() => ({
+const { imageStoreListeners, imageStoreState, messageError } = vi.hoisted(() => ({
   imageStoreListeners: new Set<() => void>(),
   imageStoreState: {
     activeGenerationTopicId: 'topic-1',
@@ -18,6 +18,7 @@ const { imageStoreListeners, imageStoreState } = vi.hoisted(() => ({
     removeGenerationBatch: vi.fn(async () => {}),
     reuseSettings: vi.fn(),
   },
+  messageError: vi.fn(),
 }));
 
 const updateImageStoreState = (update: Partial<typeof imageStoreState>) => {
@@ -88,7 +89,7 @@ vi.mock('antd', () => ({
   App: {
     useApp: () => ({
       message: {
-        error: vi.fn(),
+        error: messageError,
         success: vi.fn(),
       },
     }),
@@ -128,10 +129,7 @@ vi.mock('./ReferenceImages', () => ({
   ReferenceImages: () => null,
 }));
 
-const createGenerationBatch = (
-  id: string,
-  statuses: AsyncTaskStatus[],
-): GenerationBatch => ({
+const createGenerationBatch = (id: string, statuses: AsyncTaskStatus[]): GenerationBatch => ({
   config: { prompt: 'Create a landscape' },
   createdAt: new Date('2026-07-29T00:00:00Z'),
   generations: statuses.map((status, index) => ({
@@ -158,6 +156,7 @@ describe('GenerationBatchItem', () => {
       removeGenerationBatch: vi.fn(async () => {}),
       reuseSettings: vi.fn(),
     });
+    messageError.mockClear();
   });
 
   it('does not show Regenerate when every output succeeded', () => {
@@ -202,6 +201,29 @@ describe('GenerationBatchItem', () => {
     expect(imageStoreState.recreateImage).toHaveBeenCalledWith('failed-batch');
   });
 
+  it('shows the reference recovery workflow for an ambiguous stored reference', async () => {
+    updateImageStoreState({
+      recreateImage: vi.fn(async () => {
+        throw new Error(
+          'Stored image reference format is ambiguous and cannot be regenerated safely',
+        );
+      }),
+    });
+    render(
+      <GenerationBatchItem
+        batch={createGenerationBatch('failed-batch', [AsyncTaskStatus.Error])}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'generation.actions.regenerate' }));
+
+    await vi.waitFor(() => {
+      expect(messageError).toHaveBeenCalledWith(
+        'generation.actions.regenerateReferenceRecoveryRequired',
+      );
+    });
+  });
+
   it('shows progress only for the batch currently regenerating', () => {
     updateImageStoreState({ regeneratingBatchIds: ['active-batch'] });
 
@@ -210,9 +232,7 @@ describe('GenerationBatchItem', () => {
         <GenerationBatchItem
           batch={createGenerationBatch('active-batch', [AsyncTaskStatus.Error])}
         />
-        <GenerationBatchItem
-          batch={createGenerationBatch('idle-batch', [AsyncTaskStatus.Error])}
-        />
+        <GenerationBatchItem batch={createGenerationBatch('idle-batch', [AsyncTaskStatus.Error])} />
       </>,
     );
 

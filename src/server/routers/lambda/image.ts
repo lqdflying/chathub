@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
 
+import { IMAGE_REFERENCE_ERROR_MESSAGES } from '@/const/imageGeneration';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import {
   NewGeneration,
@@ -46,10 +47,6 @@ export type { CreateImageServicePayload } from './image/schema';
 
 const IMAGE_TRIGGER_ERROR_MESSAGE =
   'trigger image generation async task error. Please make sure INTERNAL_APP_URL or APP_URL is reachable from the server.';
-const AMBIGUOUS_STORED_IMAGE_REFERENCE_MESSAGE =
-  'Stored image reference format is ambiguous and cannot be regenerated safely';
-const UNSUPPORTED_STORED_IMAGE_REFERENCE_VERSION_MESSAGE =
-  'Stored image reference format version is not supported';
 const IMAGE_REFERENCE_FORMAT_VERSION = 1;
 
 type ImageReferenceConfig = {
@@ -77,7 +74,7 @@ const recoverStoredImageReference = (
   if (imageReferenceFormatVersion !== undefined) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
-      message: UNSUPPORTED_STORED_IMAGE_REFERENCE_VERSION_MESSAGE,
+      message: IMAGE_REFERENCE_ERROR_MESSAGES.unsupportedStoredReferenceVersion,
     });
   }
 
@@ -88,7 +85,7 @@ const recoverStoredImageReference = (
   if (reference.startsWith(legacyBareProxyPrefix)) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
-      message: AMBIGUOUS_STORED_IMAGE_REFERENCE_MESSAGE,
+      message: IMAGE_REFERENCE_ERROR_MESSAGES.ambiguousStoredReference,
     });
   }
 
@@ -114,6 +111,11 @@ const recoverSourceImageReferences = (config: ImageReferenceConfig): ImageRefere
   return recoveredConfig;
 };
 
+const isUnsupportedProtocolRelativeReferenceError = (error: unknown): error is TRPCError =>
+  error instanceof TRPCError &&
+  error.code === 'BAD_REQUEST' &&
+  error.message === IMAGE_REFERENCE_ERROR_MESSAGES.protocolRelativeReference;
+
 const normalizeImageReference = async (
   reference: string,
   fileService: FileService,
@@ -128,10 +130,18 @@ const normalizeImageReference = async (
 
   const referenceIsAbsoluteUrl =
     reference.startsWith('http://') || reference.startsWith('https://');
+  const explicitAppFileProxyKey = extractExplicitAppFileProxyKey(reference);
+  if (!explicitAppFileProxyKey && reference.startsWith('//')) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: IMAGE_REFERENCE_ERROR_MESSAGES.protocolRelativeReference,
+    });
+  }
+
   const databaseReference =
     referenceIsStored && !referenceIsAbsoluteUrl
       ? reference
-      : (extractExplicitAppFileProxyKey(reference) ?? fileService.getKeyFromFullUrl(reference));
+      : (explicitAppFileProxyKey ?? fileService.getKeyFromFullUrl(reference));
   const dispatchReference = await fileService.getFullFileUrl(databaseReference);
 
   return {
@@ -313,6 +323,8 @@ export const imageRouter = router({
             imageUrls: normalizedReferences.map(({ dispatchReference }) => dispatchReference),
           };
         } catch (error) {
+          if (isUnsupportedProtocolRelativeReferenceError(error)) throw error;
+
           logImageDebugSafe('config_warning', {
             ...describeImageDebugError(error),
             failurePhase: 'reference_image_normalization',
@@ -336,6 +348,8 @@ export const imageRouter = router({
           configForDatabase = { ...configForDatabase, imageUrl: databaseReference };
           paramsForDispatch = { ...paramsForDispatch, imageUrl: dispatchReference };
         } catch (error) {
+          if (isUnsupportedProtocolRelativeReferenceError(error)) throw error;
+
           logImageDebugSafe('config_warning', {
             ...describeImageDebugError(error),
             failurePhase: 'reference_image_normalization',

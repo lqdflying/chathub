@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import InvalidAPIKey from '@/components/InvalidAPIKey';
+import { IMAGE_REFERENCE_ERROR_MESSAGES } from '@/const/imageGeneration';
 import { useImageStore } from '@/store/image';
 import { ImageRegenerationCleanupError } from '@/store/image/slices/createImage/action';
 import { createImageSelectors } from '@/store/image/slices/createImage/selectors';
@@ -117,13 +118,15 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
       await recreateImage(batch.id);
     } catch (error) {
       console.error('Failed to regenerate image:', error);
-      message.error(
-        t(
-          error instanceof ImageRegenerationCleanupError
-            ? 'generation.actions.regenerateCleanupFailed'
-            : 'generation.actions.generateFailed',
-        ),
-      );
+      const errorMessage =
+        error instanceof ImageRegenerationCleanupError
+          ? 'generation.actions.regenerateCleanupFailed'
+          : error instanceof Error &&
+              error.message === IMAGE_REFERENCE_ERROR_MESSAGES.ambiguousStoredReference
+            ? 'generation.actions.regenerateReferenceRecoveryRequired'
+            : 'generation.actions.generateFailed';
+
+      message.error(t(errorMessage));
     }
   };
 
@@ -243,39 +246,41 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
         </Text>
         <ActionIconGroup
           actionIconProps={{ size: { blockSize: 44, size: 20 } }}
-          items={[
-            hasFailedGenerations && {
-              disabled: isRegenerating,
-              icon: RefreshCw,
-              key: 'regenerate',
-              label: t(
-                isRegenerating
-                  ? 'generation.actions.regenerating'
-                  : 'generation.actions.regenerate',
-              ),
-              loading: isRegenerating,
-              onClick: handleRegenerate,
-            },
-            {
-              icon: RotateCcwSquareIcon,
-              key: 'reuseSettings',
-              label: t('generation.actions.reuseSettings'),
-              onClick: handleReuseSettings,
-            },
-            {
-              icon: CopyIcon,
-              key: 'copyPrompt',
-              label: t('generation.actions.copyPrompt'),
-              onClick: handleCopyPrompt,
-            },
-            {
-              danger: true,
-              icon: Trash2,
-              key: 'deleteBatch',
-              label: t('generation.actions.deleteBatch'),
-              onClick: handleDeleteBatch,
-            },
-          ].filter(Boolean) as ActionIconGroupProps['items']}
+          items={
+            [
+              hasFailedGenerations && {
+                disabled: isRegenerating,
+                icon: RefreshCw,
+                key: 'regenerate',
+                label: t(
+                  isRegenerating
+                    ? 'generation.actions.regenerating'
+                    : 'generation.actions.regenerate',
+                ),
+                loading: isRegenerating,
+                onClick: handleRegenerate,
+              },
+              {
+                icon: RotateCcwSquareIcon,
+                key: 'reuseSettings',
+                label: t('generation.actions.reuseSettings'),
+                onClick: handleReuseSettings,
+              },
+              {
+                icon: CopyIcon,
+                key: 'copyPrompt',
+                label: t('generation.actions.copyPrompt'),
+                onClick: handleCopyPrompt,
+              },
+              {
+                danger: true,
+                icon: Trash2,
+                key: 'deleteBatch',
+                label: t('generation.actions.deleteBatch'),
+                onClick: handleDeleteBatch,
+              },
+            ].filter(Boolean) as ActionIconGroupProps['items']
+          }
         />
       </Flexbox>
     </Block>

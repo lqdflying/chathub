@@ -597,8 +597,13 @@ Failed-output recreation is replacement-first:
    root-relative app-proxy references to the original object key. Bare
    `webapi/files/<key>` values are canonical storage keys, and a foreign storage
    URL whose pathname also contains `/webapi/files/` continues through the
-   backend-specific parser. The origin comparison follows the standard
-   `URL.origin` scheme, host, and port identity
+   backend-specific parser. A same-origin scheme-relative
+   `//<APP_HOST>/webapi/files/<key>` reference is also unwrapped against
+   `APP_URL`; any other `//<host>/...` reference is rejected with `BAD_REQUEST`
+   before storage parsing or database writes because a scheme-relative URL
+   requires a base URL and is not a canonical storage key
+   ([WHATWG URL syntax](https://url.spec.whatwg.org/#url-syntax)). The origin
+   comparison follows the standard `URL.origin` scheme, host, and port identity
    ([MDN URL origin](https://developer.mozilla.org/en-US/docs/Web/API/URL/origin)).
    The lambda then derives fresh model-access URLs from those keys immediately
    before async dispatch, while inline `data:` references pass through unchanged.
@@ -617,10 +622,13 @@ Failed-output recreation is replacement-first:
    marker.
 
 Submission failure leaves every original record intact and reaches the existing
-generation-start error handling. Cleanup or refresh failure after acceptance is
-wrapped as `ImageRegenerationCleanupError`: the replacement remains accepted,
-any undeleted originals remain available, and the client reports that the topic
-may need a refresh instead of presenting the failure as a rejected submission.
+generation-start error handling. The UI maps the exact server-owned ambiguous
+reference error to localized **Reuse Settings** recovery guidance; arbitrary
+server or provider error text remains behind the generic generation-start
+message. Cleanup or refresh failure after acceptance is wrapped as
+`ImageRegenerationCleanupError`: the replacement remains accepted, any undeleted
+originals remain available, and the client reports that the topic may need a
+refresh instead of presenting the failure as a rejected submission.
 An account-scope reset aborts the request, clears the marker with the image
 store, and prevents stale refresh or deletion continuations.
 
