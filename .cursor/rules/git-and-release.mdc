@@ -78,6 +78,32 @@ round.
 - Never auto-bump the canary number between fixes. Wait for the user to
   confirm that the fix is ready to ship.
 
+## Mandatory final-response commit gate
+
+For any implementation or standalone rules/docs maintenance that changed
+files, use this exact completion sequence:
+
+1. Finish required documentation and verification.
+2. Run the one-time commit preflight for every affected repository.
+3. Stage only the completed round and create the required local commit(s).
+4. Run post-commit `git status` and `git log -1`; confirm no files from the
+   completed round remain uncommitted.
+5. Only then mark the round complete and send a final success response.
+
+Hard gates:
+
+- Verification success means **commit next**, not final response next.
+- Never say `complete`, `fixed`, `passed with no follow-up`, or `no additional
+  action needed` while files from the completed round remain uncommitted.
+- Shell/subagent completion notifications do not bypass this gate. Before
+  responding to one, check whether the completed round still needs its local
+  commit.
+- If a required local commit cannot be created, stop and report the blocker.
+  Do not describe the round as complete.
+- Unrelated pre-existing worktree changes may remain, but post-commit
+  verification must show that no path belonging to the completed round remains
+  staged, modified, or untracked.
+
 ## Commit preflight — one batched read, never repeat
 
 Run the pre-commit inspection **once**, as a single batch: `git status`, the

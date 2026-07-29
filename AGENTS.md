@@ -10,6 +10,7 @@ This file is for automated agents and assistants working in this repository. Aut
 - Treat every completed implementation or review-fix pass as a separate round. Each verified round must create a new local commit on top of the previous round's commit, including fixes based on review. Never amend a completed round or leave it uncommitted to combine with later work.
 - **Never** `git push`, create/push a tag, trigger a remote build, or perform GA/release actions without an **explicit in-turn** user instruction.
 - Run the pre-commit inspection **once**, batching `git status`, `git diff`, and `git log` into a single message per affected repository. After a read-only check returns output, move forward (stage, commit, verify) or stop and report — never re-run it. Identical output from a repeated inspection with no edits in between means the agent is looping, not verifying.
+- The completion order is mandatory: **verify → one-time preflight → local commit(s) → post-commit `git status` + `git log -1` → final response**. Never report `complete`, `fixed`, `passed with no follow-up`, or `no additional action needed` while any file from the completed round remains uncommitted. If committing is blocked, report the blocker instead of claiming completion.
 
 Full workflow (stash, canary/GA tags, Docker release, recovery): **`.cursor/rules/git-and-release.mdc`**.
 
