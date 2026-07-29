@@ -26,8 +26,10 @@ beforeEach(() => {
     authUserId: 'account-a',
     isLoaded: true,
     isSignedIn: true,
+    isUserStateInit: true,
     ownershipInvalidationGeneration: 0,
     user: { id: 'account-a' },
+    userStateScope: 'user:account-a',
     userStateInitializationFailure: undefined,
   });
   useSessionStore.setState({
@@ -129,9 +131,7 @@ describe('createSessionGroupSlice', () => {
       vi.spyOn(sessionService, 'removeSessionGroups').mockReturnValue(clearedGroups.promise);
       vi.spyOn(sessionService, 'removeSessionGroup').mockReturnValue(removedGroup.promise);
       vi.spyOn(sessionService, 'updateSessionGroup').mockReturnValue(renamedGroup.promise);
-      vi.spyOn(sessionService, 'updateSessionGroupOrder').mockReturnValue(
-        reorderedGroups.promise,
-      );
+      vi.spyOn(sessionService, 'updateSessionGroupOrder').mockReturnValue(reorderedGroups.promise);
       vi.spyOn(sessionService, 'updateSession').mockReturnValue(associatedSession.promise);
       const refreshSessions = vi.fn();
       const accountSession = {

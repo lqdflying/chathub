@@ -64,8 +64,10 @@ beforeEach(() => {
     authUserId: 'account-a',
     isLoaded: true,
     isSignedIn: true,
+    isUserStateInit: true,
     ownershipInvalidationGeneration: 0,
     user: { id: 'account-a' },
+    userStateScope: 'user:account-a',
     userStateInitializationFailure: undefined,
   });
   useSessionStore.setState({
