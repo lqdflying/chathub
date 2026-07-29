@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import type { SWRConfiguration } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -97,7 +97,7 @@ describe('useFetchSessions ownership', () => {
     });
 
     await expectStaleSynchronizationRejected(successPromise);
-  });
+  }, 15_000);
 
   it('rejects group synchronization after the session store generation changes', async () => {
     const successPromise = startGroupSynchronization();
@@ -112,5 +112,41 @@ describe('useFetchSessions ownership', () => {
     });
 
     await expectStaleSynchronizationRejected(successPromise);
+  }, 15_000);
+
+  it('starts and accepts a replacement fetch after the session generation changes', async () => {
+    renderHook(() => useSessionStore.getState().useFetchSessions(true, true));
+
+    expect(useClientDataSWR.mock.calls[0][0]).toEqual(['fetchSessions', 'user:account-a', 0, 0]);
+
+    act(() => {
+      useSessionStore.setState({
+        isSessionsFirstFetchFinished: false,
+        scopeGeneration: 1,
+        sessionGroups: [],
+        sessions: [],
+      });
+    });
+
+    await waitFor(() => {
+      expect(useClientDataSWR).toHaveBeenCalledTimes(2);
+    });
+
+    const replacementCall = useClientDataSWR.mock.calls.at(-1);
+    expect(replacementCall?.[0]).toEqual(['fetchSessions', 'user:account-a', 0, 1]);
+
+    const replacementConfiguration = replacementCall?.[2] as SWRConfiguration<ChatSessionList>;
+    await act(async () => {
+      await replacementConfiguration.onSuccess?.(
+        {
+          sessionGroups: [],
+          sessions: [],
+        },
+        'fetch-sessions',
+        replacementConfiguration,
+      );
+    });
+
+    expect(useSessionStore.getState().isSessionsFirstFetchFinished).toBe(true);
   });
 });

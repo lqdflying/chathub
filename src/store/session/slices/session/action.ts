@@ -2,6 +2,7 @@ import { getSingletonAnalyticsOptional } from '@lobehub/analytics';
 import isEqual from 'fast-deep-equal';
 import { t } from 'i18next';
 import { nanoid } from 'nanoid';
+import { useSyncExternalStore } from 'react';
 import { SWRResponse } from 'swr';
 import type { PartialDeep } from 'type-fest';
 import { StateCreator } from 'zustand/vanilla';
@@ -150,7 +151,7 @@ export const createSessionSlice: StateCreator<
   [['zustand/devtools', never]],
   [],
   SessionAction
-> = (set, get) => ({
+> = (set, get, store) => ({
   clearSessions: async () => {
     const mutationSnapshot = captureSessionMutationSnapshot(get());
     if (!mutationSnapshot) return;
@@ -327,17 +328,24 @@ export const createSessionSlice: StateCreator<
   useFetchSessions: (enabled, isLogin) => {
     const requestedScope = useUserStore(authSelectors.currentUserScope);
     const requestedGeneration = useUserStore((state) => state.ownershipInvalidationGeneration);
+    const scopeGeneration = useSyncExternalStore(
+      store.subscribe,
+      () => get().scopeGeneration,
+      () => get().scopeGeneration,
+    );
     const fetchSnapshot: SessionFetchSnapshot | undefined = requestedScope
       ? {
           ownershipInvalidationGeneration: requestedGeneration,
           scope: requestedScope,
-          scopeGeneration: get().scopeGeneration,
+          scopeGeneration,
         }
       : undefined;
     const shouldFetch = enabled && isLogin !== undefined && !!requestedScope;
 
     return useClientDataSWR<ChatSessionList>(
-      shouldFetch ? [FETCH_SESSIONS_KEY, requestedScope] : null,
+      shouldFetch
+        ? [FETCH_SESSIONS_KEY, requestedScope, requestedGeneration, scopeGeneration]
+        : null,
       () => sessionService.getGroupedSessions(),
       {
         fallbackData: {

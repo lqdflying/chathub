@@ -95,6 +95,13 @@ epoch after every asynchronous boundary and before mutating the target store or
 marking the source store initialized. This preserves both module initialization
 order and account ownership when a user transition races with data loading.
 
+Epoch validation must preserve liveness as well as reject stale work. Every
+generation used to invalidate a fetch callback must be read through a reactive
+store subscription and included in that fetch's cache key. A reset can then
+change the key and start a replacement request for the new epoch; reading a
+generation imperatively only inside the callback can reject the old response
+without ever scheduling its replacement.
+
 ## Account-owned chat-group membership
 
 A row in `chat_groups_agents` is valid only when its `userId` matches both the
