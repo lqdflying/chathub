@@ -8,6 +8,7 @@ import { FileModel } from '@/database/models/file';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
+import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileReference';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { FileListItem, QueryFileListSchema, UploadFileSchema } from '@/types/files';
 
@@ -191,10 +192,9 @@ export const fileRouter = router({
   resolvePublicUrl: fileProcedure
     .input(z.object({ url: z.string() }))
     .query(async ({ ctx, input }) => {
-      const PREFIX = '/webapi/files/';
-      const idx = input.url.indexOf(PREFIX);
-      if (idx === -1) return input.url;
-      const key = input.url.slice(idx + PREFIX.length);
+      const key = extractKeyFromAppFileProxyUrl(input.url);
+      if (!key) return input.url;
+
       return ctx.fileService.getFullFileUrl(key);
     }),
 });

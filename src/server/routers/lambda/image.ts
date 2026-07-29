@@ -23,6 +23,7 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { keyVaults, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import { FileService } from '@/server/services/file';
+import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileReference';
 import {
   AsyncTaskError,
   AsyncTaskErrorType,
@@ -50,7 +51,8 @@ const normalizeImageReference = async (reference: string, fileService: FileServi
     };
   }
 
-  const databaseReference = fileService.getKeyFromFullUrl(reference);
+  const databaseReference =
+    extractKeyFromAppFileProxyUrl(reference) ?? fileService.getKeyFromFullUrl(reference);
   const dispatchReference = await fileService.getFullFileUrl(databaseReference);
 
   return {

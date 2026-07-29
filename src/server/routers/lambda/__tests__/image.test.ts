@@ -65,14 +65,14 @@ const gptImage2CompatibleInput = {
 };
 
 describe('imageRouter', () => {
-  it('refreshes stored image references before dispatch while persisting durable keys', async () => {
-    const expiredSingleReference =
-      'https://storage.example.com/references/single.png?X-Amz-Signature=expired';
+  it('normalizes app-proxy and storage references before dispatch', async () => {
+    const appProxyReference =
+      'https://chat.example.com/webapi/files/references/nested%20folder/single.png';
     const expiredMultipleReference =
       'https://storage.example.com/references/multiple.png?X-Amz-Signature=expired';
     const inlineReference = 'data:image/png;base64,aW1hZ2U=';
     const freshSingleReference =
-      'https://storage.example.com/references/single.png?X-Amz-Signature=fresh';
+      'https://storage.example.com/references/nested%20folder/single.png?X-Amz-Signature=fresh';
     const freshMultipleReference =
       'https://storage.example.com/references/multiple.png?X-Amz-Signature=fresh';
     const batchValues = vi.fn().mockReturnValue({
@@ -107,12 +107,11 @@ describe('imageRouter', () => {
       ),
     };
     const getKeyFromFullUrl = vi.fn((reference: string) => {
-      if (reference === expiredSingleReference) return 'references/single.png';
       if (reference === expiredMultipleReference) return 'references/multiple.png';
       return reference;
     });
     const getFullFileUrl = vi.fn(async (key: string) => {
-      if (key === 'references/single.png') return freshSingleReference;
+      if (key === 'references/nested folder/single.png') return freshSingleReference;
       if (key === 'references/multiple.png') return freshMultipleReference;
       return key;
     });
@@ -135,7 +134,7 @@ describe('imageRouter', () => {
       ...validInput,
       imageNum: 1,
       params: {
-        imageUrl: expiredSingleReference,
+        imageUrl: appProxyReference,
         imageUrls: [expiredMultipleReference, inlineReference],
         prompt: 'Generate an image',
       },
@@ -144,13 +143,14 @@ describe('imageRouter', () => {
     expect(batchValues).toHaveBeenCalledWith(
       expect.objectContaining({
         config: {
-          imageUrl: 'references/single.png',
+          imageUrl: 'references/nested folder/single.png',
           imageUrls: ['references/multiple.png', inlineReference],
           prompt: 'Generate an image',
         },
       }),
     );
-    expect(getFullFileUrl).toHaveBeenCalledWith('references/single.png');
+    expect(getKeyFromFullUrl).not.toHaveBeenCalledWith(appProxyReference);
+    expect(getFullFileUrl).toHaveBeenCalledWith('references/nested folder/single.png');
     expect(getFullFileUrl).toHaveBeenCalledWith('references/multiple.png');
     expect(getFullFileUrl).not.toHaveBeenCalledWith(inlineReference);
     expect(dispatchCreateImage).toHaveBeenCalledWith(

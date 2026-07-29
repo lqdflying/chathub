@@ -571,11 +571,15 @@ Failed-output recreation is replacement-first:
 3. Submit one replacement batch with `imageNum` equal to the failed count and
    reuse the original provider, model, prompt, reference images, and runtime
    configuration. Reference images stored by ChatHub remain durable object keys
-   in the batch config. The lambda derives fresh model-access URLs from those
-   keys immediately before async dispatch, while inline `data:` references pass
-   through unchanged. This avoids replaying feed URLs whose presigned lifetime
-   has elapsed; AWS documents that a presigned URL expires at its configured
-   deadline or when its signing credentials expire, whichever happens first
+   in the batch config. Before storage normalization, the lambda unwraps
+   authenticated `${APP_URL}/webapi/files/<key>` references to the original
+   object key; direct storage URLs continue through the backend-specific parser.
+   The lambda then derives fresh model-access URLs from those keys immediately
+   before async dispatch, while inline `data:` references pass through unchanged.
+   This avoids signing the application proxy path as part of an object key and
+   avoids replaying feed URLs whose presigned lifetime has elapsed; AWS documents
+   that a presigned URL expires at its configured deadline or when its signing
+   credentials expire, whichever happens first
    ([Amazon S3 presigned URL expiration](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)).
 4. After the replacement is accepted, remove the entire original batch when
    every output failed. For a mixed batch, remove only the failed generation
