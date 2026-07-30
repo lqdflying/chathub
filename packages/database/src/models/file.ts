@@ -314,6 +314,14 @@ export class FileModel {
     }
   };
 
+  hasFileByUrl = async (url: string): Promise<boolean> => {
+    const result = await this.db
+      .select({ count: count() })
+      .from(files)
+      .where(and(eq(files.url, url), eq(files.userId, this.userId)));
+    return result[0].count > 0;
+  };
+
   findByNames = async (fileNames: string[]) =>
     this.db.query.files.findMany({
       where: and(

@@ -355,7 +355,7 @@ export const generateAIChatV2: StateCreator<
     summaryTitle().catch(console.error);
 
     try {
-      await get().triggerTokenThresholdMemoryCompaction();
+      await get().triggerTokenThresholdMemoryCompaction(abortController);
       if (!isCurrentConversation()) return;
 
       await internal_execAgentRuntime({

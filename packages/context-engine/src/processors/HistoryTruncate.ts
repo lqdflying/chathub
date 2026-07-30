@@ -10,6 +10,8 @@ export interface HistoryTruncateConfig {
   enableHistoryCount?: boolean;
   /** Maximum number of historical messages to keep */
   historyCount?: number;
+  /** Maximum assistant/tool continuation messages after the latest user message (default 20) */
+  maxContinuationMessages?: number;
 }
 
 /**
@@ -18,11 +20,14 @@ export interface HistoryTruncateConfig {
  * @param options Configuration options for slicing
  * @returns Sliced messages array
  */
+const DEFAULT_MAX_CONTINUATION = 20;
+
 export const getSlicedMessages = (
   messages: any[],
   options: {
     enableHistoryCount?: boolean;
     historyCount?: number;
+    maxContinuationMessages?: number;
   },
 ): any[] => {
   // if historyCount is not enabled, return all messages
@@ -40,8 +45,10 @@ export const getSlicedMessages = (
   if (latestUserIndex < 0) return messages.slice(-options.historyCount);
 
   const startIndex = Math.max(0, latestUserIndex + 1 - options.historyCount);
+  const maxContinuation = options.maxContinuationMessages ?? DEFAULT_MAX_CONTINUATION;
+  const endIndex = Math.min(messages.length, latestUserIndex + 1 + maxContinuation);
 
-  return messages.slice(startIndex);
+  return messages.slice(startIndex, endIndex);
 };
 
 /**
@@ -67,6 +74,7 @@ export class HistoryTruncateProcessor extends BaseProcessor {
     clonedContext.messages = getSlicedMessages(clonedContext.messages, {
       enableHistoryCount: this.config.enableHistoryCount,
       historyCount: this.config.historyCount,
+      maxContinuationMessages: this.config.maxContinuationMessages,
     });
 
     const finalCount = clonedContext.messages.length;

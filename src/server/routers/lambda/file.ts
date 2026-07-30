@@ -188,13 +188,16 @@ export const fileRouter = router({
       await ctx.fileService.deleteFiles(needToRemoveFileList.map((file) => file.url!));
     }),
 
-  // Resolve a /webapi/files/<key> proxy URL back to the public S3 URL.
-  // Used client-side after refreshMessages() replaces S3 URLs with auth-proxy URLs post-MCP call.
   resolvePublicUrl: fileProcedure
     .input(z.object({ url: z.string() }))
     .query(async ({ ctx, input }) => {
       const key = extractKeyFromAppFileProxyUrl(input.url, appEnv.APP_URL);
       if (!key) return input.url;
+
+      const owned = await ctx.fileModel.hasFileByUrl(key);
+      if (!owned) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'file_not_found' });
+      }
 
       return ctx.fileService.getFullFileUrl(key);
     }),
