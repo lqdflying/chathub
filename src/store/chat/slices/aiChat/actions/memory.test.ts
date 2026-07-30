@@ -270,6 +270,32 @@ describe('chat memory actions', () => {
     expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
   });
 
+  it('lets an abortable caller bail out of a running job without cancelling it', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+      await gate;
+      await onFinish?.('shared summary', {} as any);
+    });
+
+    // a job started without a controller (e.g. the auto-compact watcher)
+    const background = useChatStore.getState().triggerScheduledMemoryCompaction();
+    await vi.waitFor(() => expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(1));
+
+    // a pre-send caller joins the same job with its own controller and then aborts
+    const controller = new AbortController();
+    const joined = useChatStore.getState().triggerTokenThresholdMemoryCompaction(controller);
+    controller.abort();
+
+    await expect(joined).resolves.toEqual({ reason: 'aborted', status: 'ineligible' });
+    // the background job is untouched and still completes with its single topic write
+    release();
+    await background;
+    expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
+  });
+
   it('caps pre-send token compaction at three batches without advancing the cursor past them', async () => {
     // 85 user/assistant pairs → 168 eligible messages → batches of 40/40/40/40/8
     const longMessages = Array.from({ length: 170 }, (_, i) =>

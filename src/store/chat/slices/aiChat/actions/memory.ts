@@ -417,7 +417,26 @@ const triggerCompaction = async (
 
   const key = `${accountMutationSnapshot.scope}:${state.activeId}:${state.activeTopicId}`;
   const running = compactionJobs.get(key);
-  if (running) return running;
+  if (running) {
+    // An abortable caller (pre-send) may join a job started without a controller (e.g. the
+    // auto-compact watcher). Don't make it await the whole uncapped job — let it bail on
+    // abort. The background job keeps running; its writes stay guarded by the generation
+    // checks in runCompactionFromStore.
+    if (!abortController) return running;
+    if (abortController.signal.aborted) {
+      return compactionResult('ineligible', { reason: 'aborted' });
+    }
+    return Promise.race([
+      running,
+      new Promise<MemoryCompactionResult>((resolve) => {
+        abortController.signal.addEventListener(
+          'abort',
+          () => resolve(compactionResult('ineligible', { reason: 'aborted' })),
+          { once: true },
+        );
+      }),
+    ]);
+  }
 
   const job = runCompactionFromStore(get, trigger, accountMutationSnapshot, abortController).catch(
     () => compactionResult('failed', { reason: 'compaction_exception' }),
