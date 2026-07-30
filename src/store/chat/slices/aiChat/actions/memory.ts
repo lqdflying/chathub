@@ -379,10 +379,37 @@ async function runCompactionFromStore(
     provider: chatProvider,
   };
 
+  // Re-check right before the write to shrink the window where an invalidation
+  // (e.g. the user edited/deleted an included message) races this persist.
+  if (!isCurrentRequest())
+    return compactionResult('ineligible', { reason: 'conversation_changed' });
+
   await topicService.updateTopic(requestedTopicId, {
     historySummary,
     metadata: nextMetadata,
   });
+
+  // If an invalidation landed while updateTopic was in flight, our summary is now stale on
+  // disk. Undo it with the same cleared state internal_invalidateMemoryCompaction writes,
+  // so the next run rebuilds instead of trusting a summary tied to a since-changed message.
+  const invalidationRacedWrite =
+    get().memoryCompactionInvalidationGeneration !== requestedInvalidationGeneration;
+  if (invalidationRacedWrite) {
+    if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
+      await topicService
+        .updateTopic(requestedTopicId, {
+          historySummary: '',
+          metadata: {
+            ...nextMetadata,
+            historySummaryLastMessageId: undefined,
+            memoryArchives: [],
+          },
+        })
+        .catch(console.error);
+    }
+    return compactionResult('ineligible', { reason: 'conversation_changed' });
+  }
+
   if (isCurrentRequest()) {
     get().internal_dispatchTopic(
       {

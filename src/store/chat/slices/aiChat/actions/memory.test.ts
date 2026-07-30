@@ -363,6 +363,30 @@ describe('chat memory actions', () => {
     });
   });
 
+  it('undoes a summary write that raced an invalidation', async () => {
+    vi.mocked(topicService.updateTopic).mockReset();
+    // the first (real) write lands, but an invalidation bumps the generation mid-flight
+    vi.mocked(topicService.updateTopic).mockImplementationOnce(async () => {
+      useChatStore.setState((s) => ({
+        memoryCompactionInvalidationGeneration: s.memoryCompactionInvalidationGeneration + 1,
+      }));
+    });
+    vi.mocked(topicService.updateTopic).mockResolvedValue(undefined);
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toMatchObject({ reason: 'conversation_changed', status: 'ineligible' });
+    // the stale summary is compensated with the same cleared state as invalidation
+    expect(topicService.updateTopic).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(topicService.updateTopic).mock.calls[1][1]).toMatchObject({
+      historySummary: '',
+      metadata: expect.objectContaining({
+        historySummaryLastMessageId: undefined,
+        memoryArchives: [],
+      }),
+    });
+  });
+
   it('skips count estimates when no complete turn has expired', async () => {
     vi.spyOn(agentChatConfigSelectors, 'historyCount').mockReturnValue(20);
 
