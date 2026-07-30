@@ -194,7 +194,11 @@ export const fileRouter = router({
       const key = extractKeyFromAppFileProxyUrl(input.url, appEnv.APP_URL);
       if (!key) return input.url;
 
-      const owned = await ctx.fileModel.hasFileByUrl(key);
+      const candidates = await ctx.fileModel.findUrlCandidatesByKey(key);
+      const owned = candidates.some(
+        // exact match: normal rows store the bare key; legacy rows store the full URL
+        (url) => url === key || ctx.fileService.getKeyFromFullUrl(url) === key,
+      );
       if (!owned) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'file_not_found' });
       }
