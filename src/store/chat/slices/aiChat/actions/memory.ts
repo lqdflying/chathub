@@ -452,7 +452,9 @@ export const chatMemory: StateCreator<
     if (!affectsSummary) return;
 
     _set(
-      (s) => ({ memoryCompactionInvalidationGeneration: s.memoryCompactionInvalidationGeneration + 1 }),
+      (s) => ({
+        memoryCompactionInvalidationGeneration: s.memoryCompactionInvalidationGeneration + 1,
+      }),
       false,
       'invalidateMemoryCompaction/bumpGeneration',
     );

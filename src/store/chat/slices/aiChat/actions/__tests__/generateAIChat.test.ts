@@ -98,6 +98,54 @@ describe('chatMessage actions', () => {
       });
     });
 
+    describe('pre-send compaction', () => {
+      const realTriggerCompaction =
+        useChatStore.getState().triggerTokenThresholdMemoryCompaction;
+
+      afterEach(() => {
+        act(() => {
+          useChatStore.setState({
+            triggerTokenThresholdMemoryCompaction: realTriggerCompaction,
+          });
+        });
+      });
+
+      it('should pass an AbortController to the token-threshold compaction trigger', async () => {
+        const compactionSpy = vi.fn(() => Promise.resolve({ status: 'ineligible' }) as any);
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+      });
+
+      it('should skip AI processing when the compaction is aborted by stopGenerateMessage', async () => {
+        const compactionSpy = vi.fn(async () => {
+          // simulate the user pressing Stop while the pre-send compaction is running
+          useChatStore.getState().stopGenerateMessage();
+          return { status: 'ineligible' } as any;
+        });
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+        expect(result.current.isCreatingMessage).toBe(false);
+      });
+    });
+
     describe('message creation', () => {
       it('should create user message and trigger AI processing', async () => {
         const { result } = renderHook(() => useChatStore());
