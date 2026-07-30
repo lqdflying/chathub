@@ -25,6 +25,11 @@ vi.mock('@/database/models/asyncTask', () => ({
   AsyncTaskModel: vi.fn(),
 }));
 
+const { mockExistsByAssetKey } = vi.hoisted(() => ({ mockExistsByAssetKey: vi.fn() }));
+vi.mock('@/database/models/generation', () => ({
+  GenerationModel: vi.fn(() => ({ existsByAssetKey: mockExistsByAssetKey })),
+}));
+
 vi.mock('@/envs/app', () => ({
   appEnv: {
     APP_URL: 'https://chat.example.com',
@@ -136,9 +141,10 @@ describe('imageRouter', () => {
     });
     const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
 
+    const isKeyOwnedByUser = vi.fn().mockResolvedValue(true);
     vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
     vi.mocked(FileService).mockImplementation(
-      () => ({ getFullFileUrl, getKeyFromFullUrl }) as never,
+      () => ({ getFullFileUrl, getKeyFromFullUrl, isKeyOwnedByUser }) as never,
     );
     vi.mocked(createAsyncCaller).mockResolvedValue({
       image: { createImage: dispatchCreateImage },
@@ -590,6 +596,112 @@ describe('imageRouter', () => {
       message: 'Generation topic does not belong to the current user',
     });
     expect(transaction.insert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a fresh reference the user does not own with FORBIDDEN', async () => {
+    const foreignReference = 'https://storage.example.com/references/foreign.png?X-Amz-Signature=x';
+    const serverDB = { transaction: vi.fn() };
+    const getFullFileUrl = vi.fn();
+    const getKeyFromFullUrl = vi.fn(() => 'references/foreign.png');
+    const isKeyOwnedByUser = vi.fn().mockResolvedValue(false);
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl, isKeyOwnedByUser }) as never,
+    );
+    mockExistsByAssetKey.mockResolvedValue(false);
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await expect(
+      caller.createImage({
+        ...validInput,
+        params: { imageUrl: foreignReference, prompt: 'Generate an image' },
+      }),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'Image reference does not belong to the current user',
+    });
+    expect(isKeyOwnedByUser).toHaveBeenCalledWith('references/foreign.png');
+    expect(getFullFileUrl).not.toHaveBeenCalled();
+    expect(serverDB.transaction).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a fresh reference owned via the generations table', async () => {
+    const generatedReference =
+      'https://storage.example.com/generations/gen-1/image.png?X-Amz-Signature=x';
+    const freshGeneratedUrl =
+      'https://storage.example.com/generations/gen-1/image.png?X-Amz-Signature=fresh';
+    const batchValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'batch-id' }]),
+    });
+    const generationValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'generation-id' }]),
+    });
+    const asyncTaskValues = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: 'task-id' }]),
+    });
+    const transaction = {
+      insert: vi
+        .fn()
+        .mockReturnValueOnce({ values: batchValues })
+        .mockReturnValueOnce({ values: generationValues })
+        .mockReturnValueOnce({ values: asyncTaskValues }),
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([{ id: 'topic-id' }]),
+        where: vi.fn().mockReturnThis(),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+      }),
+    };
+    const serverDB = {
+      transaction: vi.fn(async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+        callback(transaction),
+      ),
+    };
+    const getKeyFromFullUrl = vi.fn(() => 'generations/gen-1/image.png');
+    const getFullFileUrl = vi.fn(async () => freshGeneratedUrl);
+    const isKeyOwnedByUser = vi.fn().mockResolvedValue(false);
+    const dispatchCreateImage = vi.fn().mockResolvedValue({ success: true });
+
+    vi.mocked(getServerDB).mockResolvedValue(serverDB as never);
+    vi.mocked(FileService).mockImplementation(
+      () => ({ getFullFileUrl, getKeyFromFullUrl, isKeyOwnedByUser }) as never,
+    );
+    vi.mocked(createAsyncCaller).mockResolvedValue({
+      image: { createImage: dispatchCreateImage },
+    } as never);
+    // ownership is proven through the generations table, not the files table
+    mockExistsByAssetKey.mockResolvedValue(true);
+
+    const caller = createCallerFactory(imageRouter)({
+      authorizationHeader: 'test-authorization',
+      userId: 'account-a',
+    } as never);
+
+    await caller.createImage({
+      ...validInput,
+      imageNum: 1,
+      params: { imageUrl: generatedReference, prompt: 'Generate an image' },
+    });
+
+    expect(mockExistsByAssetKey).toHaveBeenCalledWith('generations/gen-1/image.png');
+    expect(isKeyOwnedByUser).not.toHaveBeenCalled();
+    expect(batchValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ imageUrl: 'generations/gen-1/image.png' }),
+      }),
+    );
+    expect(dispatchCreateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({ imageUrl: freshGeneratedUrl }),
+      }),
+    );
   });
 
   describe('createImageInputSchema', () => {
