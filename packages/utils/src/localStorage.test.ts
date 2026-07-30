@@ -5,6 +5,7 @@ import { AsyncLocalStorage } from './localStorage';
 describe('AsyncLocalStorage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     localStorage.clear();
   });
 
@@ -37,5 +38,38 @@ describe('AsyncLocalStorage', () => {
 
     expect(JSON.parse(localStorage.getItem('LOBE_PREFERENCE') || '{}')).toEqual(preference);
     expect(localStorage.getItem('LOBE_GLOBAL')).toBeNull();
+  });
+
+  it('resolves updateLocalStorage with the merged state when persistence is denied', async () => {
+    const storage = new AsyncLocalStorage<{ a?: number }>('LOBE_SYSTEM_STATUS');
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+
+    await expect(storage.updateLocalStorage(() => ({ a: 1 }))).resolves.toMatchObject({ a: 1 });
+    expect(setItem).toHaveBeenCalled();
+  });
+
+  it('reports updated:false from updateLocalStorageAtomically when persistence is denied', async () => {
+    let lockQueue = Promise.resolve<unknown>(undefined);
+    vi.stubGlobal('navigator', {
+      locks: {
+        request: <Result,>(_name: string, operation: () => Promise<Result>) => {
+          const lockRequest = lockQueue.catch(() => undefined).then(operation);
+          lockQueue = lockRequest;
+          return lockRequest;
+        },
+      },
+    });
+    const storage = new AsyncLocalStorage<{ a?: number }>('LOBE_SYSTEM_STATUS');
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError');
+    });
+
+    await expect(storage.updateLocalStorageAtomically(() => ({ a: 1 }))).resolves.toEqual({
+      state: expect.objectContaining({ a: 1 }),
+      updated: false,
+    });
+    expect(setItem).toHaveBeenCalled();
   });
 });

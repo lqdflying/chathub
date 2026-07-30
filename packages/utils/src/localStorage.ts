@@ -83,7 +83,11 @@ export class AsyncLocalStorage<State> {
       if (!stateUpdate) return currentState;
 
       const nextState = { ...currentState, ...stateUpdate };
-      localStorage.setItem(this.storageKey, JSON.stringify(nextState));
+      try {
+        localStorage.setItem(this.storageKey, JSON.stringify(nextState));
+      } catch {
+        // Storage may be denied or full — keep the in-memory result, drop the persist.
+      }
       return nextState;
     });
   }
@@ -101,7 +105,13 @@ export class AsyncLocalStorage<State> {
       if (!stateUpdate) return { state: currentState, updated: false };
 
       const nextState = { ...currentState, ...stateUpdate };
-      localStorage.setItem(this.storageKey, JSON.stringify(nextState));
+      try {
+        localStorage.setItem(this.storageKey, JSON.stringify(nextState));
+      } catch {
+        // Persist failed: report not-updated so no caller ever treats an unpersisted
+        // migration as durable; the in-memory result is still returned.
+        return { state: nextState, updated: false };
+      }
       return { state: nextState, updated: true };
     });
   }

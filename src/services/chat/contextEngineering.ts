@@ -47,8 +47,14 @@ const resolveProxyImageUrls = async (messages: UIChatMessage[]): Promise<UIChatM
       const resolvedImageList = await Promise.all(
         imageList.map(async (img) => {
           if (!img.url?.includes(WEBAPI_FILES_PREFIX)) return img;
-          const resolvedUrl = await lambdaClient.file.resolvePublicUrl.query({ url: img.url });
-          return { ...img, url: resolvedUrl };
+          try {
+            const resolvedUrl = await lambdaClient.file.resolvePublicUrl.query({ url: img.url });
+            return { ...img, url: resolvedUrl };
+          } catch {
+            // stale/unowned key (e.g. the file was deleted elsewhere): keep the proxy URL so
+            // the send proceeds — the provider gets an unreachable URL instead of a hard failure
+            return img;
+          }
         }),
       );
       return { ...message, imageList: resolvedImageList } as UIChatMessage;

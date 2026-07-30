@@ -10,13 +10,12 @@ import { chatSelectors } from '@/store/chat/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
+import { isGroupSessionContext } from './isGroupSessionContext';
+
 const CHECK_MS = 120_000;
 
-const dailyKey = (
-  scope: string | undefined,
-  sessionId: string | null,
-  topicId: string | null | undefined,
-) => `lobe_daily_memory_${scope ?? 'anon'}_${sessionId ?? 'none'}_${topicId ?? 'none'}`;
+const dailyKey = (scope: string, sessionId: string | null, topicId: string | null | undefined) =>
+  `lobe_daily_memory_${scope}_${sessionId ?? 'none'}_${topicId ?? 'none'}`;
 
 const todayUtc = () => new Date().toISOString().slice(0, 10);
 
@@ -36,7 +35,8 @@ const DailyMemorySummaryScheduler = () => {
 
       if (!cfg.enableDailyMemorySummary) return;
       if (!chat.activeTopicId || !chat.activeId) return;
-      if (chat.activeSessionType === 'group' || chat.activeThreadId || chat.portalThreadId) return;
+      if (isGroupSessionContext(chat.activeSessionType) || chat.activeThreadId || chat.portalThreadId)
+        return;
       if (!agentChatConfigSelectors.enableHistoryCount(agent) || !cfg.enableCompressHistory) return;
       if (chatSelectors.isAIGenerating(chat)) return;
 

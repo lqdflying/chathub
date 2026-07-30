@@ -73,6 +73,19 @@ describe('useSwitchSession', () => {
     expect(useChatGroupStore.getState().activeThreadAgentId).toBe('');
   });
 
+  it('preserves the DM thread agent when re-clicking the active session', () => {
+    useSessionStore.setState({ activeId: 'assistant-a' });
+    useChatGroupStore.setState({ activeThreadAgentId: 'agent-x' });
+    const { result } = renderHook(() => useSwitchSession());
+
+    act(() => {
+      expect(result.current('assistant-a')).toBe(true);
+    });
+
+    expect(useChatGroupStore.getState().activeThreadAgentId).toBe('agent-x');
+    expect(useChatStore.getState().togglePortal).toHaveBeenCalledWith(false);
+  });
+
   it('leaves the thread agent untouched when the switch is blocked', () => {
     useChatGroupStore.setState({ activeThreadAgentId: 'agent-x' });
     const { result } = renderHook(() => useSwitchSession());

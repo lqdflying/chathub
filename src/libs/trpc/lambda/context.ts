@@ -85,16 +85,16 @@ export type LambdaContext = Awaited<ReturnType<typeof createContextInner>>;
 export const createLambdaContext = async (request: NextRequest): Promise<LambdaContext> => {
   // we have a special header to debug the api endpoint in development mode
   // IT WON'T GO INTO PRODUCTION ANYMORE
-  const isDebugApi = request.headers.get('lobe-auth-dev-backend-api') === '1';
+  const isDebugApi =
+    request.headers.get('lobe-auth-dev-backend-api') === '1' &&
+    !!process.env.AUTH_DEV_BYPASS_SECRET &&
+    request.headers.get('lobe-auth-dev-secret') === process.env.AUTH_DEV_BYPASS_SECRET;
+  // server-side opt-in: no header required, so header-less requests (e.g. <img> loads
+  // hitting the file proxy) authenticate as the mock user too
   const isMockUser = process.env.ENABLE_MOCK_DEV_USER === '1';
   const accountScope = request.headers.get(CHATHUB_ACCOUNT_SCOPE_HEADER);
 
-  if (
-    process.env.NODE_ENV === 'development' &&
-    (isDebugApi || isMockUser) &&
-    process.env.AUTH_DEV_BYPASS_SECRET &&
-    request.headers.get('lobe-auth-dev-secret') === process.env.AUTH_DEV_BYPASS_SECRET
-  ) {
+  if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
     return {
       accountScope,
       rawAuthUserId: process.env.MOCK_DEV_USER_ID,

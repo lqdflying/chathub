@@ -387,6 +387,23 @@ describe('chat memory actions', () => {
     });
   });
 
+  it('reports a mid-request abort as ineligible, not failed', async () => {
+    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(
+      async ({ abortController }) => {
+        // a user Stop lands while the summarize request is in flight; errorHandle then
+        // resolves without calling onFinish or onError
+        abortController?.abort();
+      },
+    );
+
+    const result = await useChatStore
+      .getState()
+      .triggerTokenThresholdMemoryCompaction(new AbortController());
+
+    expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
+    expect(topicService.updateTopic).not.toHaveBeenCalled();
+  });
+
   it('skips count estimates when no complete turn has expired', async () => {
     vi.spyOn(agentChatConfigSelectors, 'historyCount').mockReturnValue(20);
 
