@@ -16,6 +16,12 @@ vi.mock('@/utils/client/parserPlaceholder', () => ({
   },
 }));
 
+const resolvePublicUrlQuery = vi.hoisted(() => vi.fn());
+
+vi.mock('@/libs/trpc/client', () => ({
+  lambdaClient: { file: { resolvePublicUrl: { query: resolvePublicUrlQuery } } },
+}));
+
 // 默认设置 isServerMode 为 false
 let isServerMode = false;
 
@@ -175,6 +181,49 @@ describe('contextEngineering', () => {
           content: 'Hey',
           role: 'assistant',
         },
+      ]);
+
+      isServerMode = false;
+    });
+
+    it('resolves proxy image urls per image and keeps the send alive when one fails', async () => {
+      isServerMode = true;
+      vi.spyOn(helpers, 'isCanUseVision').mockReturnValue(true);
+      resolvePublicUrlQuery.mockImplementation(async ({ url }: { url: string }) => {
+        if (url.includes('good')) return 'https://s3.example.com/good.png';
+        throw new Error('file_not_found');
+      });
+
+      const messages = [
+        {
+          content: 'Hello',
+          role: 'user',
+          imageList: [
+            {
+              id: 'img-good',
+              url: 'https://chat.example.com/webapi/files/files/1/good.png',
+              alt: 'good.png',
+            },
+            {
+              id: 'img-stale',
+              url: 'https://chat.example.com/webapi/files/files/1/stale.png',
+              alt: 'stale.png',
+            },
+          ],
+        },
+      ] as UIChatMessage[];
+
+      const output = await contextEngineering({
+        messages,
+        model: 'gpt-4o',
+        provider: 'openai',
+      });
+
+      const imageParts = (output[0].content as any[]).filter((part) => part.type === 'image_url');
+      expect(imageParts.map((part) => part.image_url.url)).toEqual([
+        'https://s3.example.com/good.png',
+        // the stale reference keeps its proxy URL instead of failing the whole request
+        'https://chat.example.com/webapi/files/files/1/stale.png',
       ]);
 
       isServerMode = false;
