@@ -41,6 +41,9 @@ const DailyMemorySummaryScheduler = () => {
       if (chatSelectors.isAIGenerating(chat)) return;
 
       const userScope = authSelectors.currentUserScope(useUserStore.getState());
+      // auth state not resolved yet — skip so the marker isn't written under 'anon'
+      // and again under 'user:<id>' the same day
+      if (!userScope) return;
       const key = dailyKey(userScope, chat.activeId, chat.activeTopicId);
       const day = todayUtc();
       let stored = '';

@@ -648,7 +648,7 @@ describe('convertOpenAIImageUsage', () => {
     } as OpenAI.Images.ImagesResponse.Usage;
 
     expect(convertOpenAIImageUsage(usageWithoutInputDetails, pricing)).toEqual({
-      cost: 0.036,
+      cost: 0.0365, // 100 totalInputTokens fall back to textInput (100 * 5/1M) + 900 * 40/1M
       outputImageTokens: 900,
       totalInputTokens: 100,
       totalOutputTokens: 900,

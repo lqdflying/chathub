@@ -18,10 +18,7 @@ const todayUtc = () => new Date().toISOString().slice(0, 10);
 const AssistantMemoryRollupScheduler = () => {
   const fingerprint = useAgentStore((s) => {
     const cfg = agentChatConfigSelectors.currentChatConfig(s);
-    return [
-      cfg.enablePeriodicAssistantMemoryRollup,
-      s.activeAgentId,
-    ].join('|');
+    return [cfg.enablePeriodicAssistantMemoryRollup, s.activeAgentId].join('|');
   });
 
   useEffect(() => {
@@ -32,6 +29,7 @@ const AssistantMemoryRollupScheduler = () => {
 
       if (!cfg.enablePeriodicAssistantMemoryRollup) return;
       if (!agent.activeAgentId || !chat.activeId) return;
+      if (chat.activeSessionType === 'group') return;
       if (chatSelectors.isAIGenerating(chat)) return;
 
       const key = rollupKey(agent.activeAgentId);
