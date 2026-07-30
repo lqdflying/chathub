@@ -7,6 +7,11 @@ export interface MainSendMessageOperation {
   isLoading: boolean;
 }
 
+export interface PreSendCompactionOperation {
+  abortController: AbortController;
+  threadId?: string | null;
+}
+
 export interface ChatAIChatState {
   /**
    * is the AI message is generating
@@ -32,6 +37,12 @@ export interface ChatAIChatState {
   pluginApiAbortControllers: Record<string, AbortController>;
   pluginApiLoadingIds: string[];
   /**
+   * pre-send token-threshold compaction operations, keyed by sessionId|topicId.
+   * Registered by sendMessage/sendMessageInServer while compaction runs so
+   * stopGenerateMessage can abort it for the current conversation only.
+   */
+  preSendCompactionOperations: Record<string, PreSendCompactionOperation>;
+  /**
    * is the AI message is reasoning
    */
   reasoningLoadingIds: string[];
@@ -56,6 +67,7 @@ export const initialAiChatState: ChatAIChatState = {
   messageRetryingIds: [],
   pluginApiAbortControllers: {},
   pluginApiLoadingIds: [],
+  preSendCompactionOperations: {},
   reasoningLoadingIds: [],
   searchWorkflowLoadingIds: [],
   threadInputEditor: null,

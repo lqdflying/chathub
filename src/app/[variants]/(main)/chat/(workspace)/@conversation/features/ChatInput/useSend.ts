@@ -32,6 +32,7 @@ export const useSend = () => {
     generating,
     isSendButtonDisabledByMessage,
     isSendingMessage,
+    isPreSendCompacting,
   ] = useChatStore((s) => [
     !s.inputMessage,
     s.sendMessage,
@@ -41,6 +42,7 @@ export const useSend = () => {
     chatSelectors.isAIGenerating(s),
     chatSelectors.isSendButtonDisabledByMessage(s),
     aiChatSelectors.isCurrentSendMessageLoading(s),
+    aiChatSelectors.isCurrentPreSendCompacting(s),
   ]);
   const { analytics } = useAnalytics();
   const checkGeminiChineseWarning = useGeminiChineseWarning();
@@ -129,7 +131,8 @@ export const useSend = () => {
     const store = getChatStoreState();
     const generating = chatSelectors.isAIGenerating(store);
 
-    if (generating) {
+    // stopGenerateMessage also aborts a running pre-send compaction for this conversation
+    if (generating || aiChatSelectors.isCurrentPreSendCompacting(store)) {
       stopGenerateMessage();
       return;
     }
@@ -144,11 +147,11 @@ export const useSend = () => {
   return useMemo(
     () => ({
       disabled: canNotSend,
-      generating: generating || isSendingMessage,
+      generating: generating || isSendingMessage || isPreSendCompacting,
       send: handleSend,
       stop,
     }),
-    [canNotSend, generating, isSendingMessage, stop, handleSend],
+    [canNotSend, generating, isSendingMessage, isPreSendCompacting, stop, handleSend],
   );
 };
 
