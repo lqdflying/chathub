@@ -676,6 +676,74 @@ describe('FileModel', () => {
     });
   });
 
+  describe('findUrlCandidatesByKey', () => {
+    const insertUrls = async (urls: { url: string; userId?: string }[]) =>
+      serverDB.insert(files).values(
+        urls.map(({ url, userId: rowUserId }, index) => ({
+          name: `f${index}`,
+          url,
+          size: 1,
+          fileType: 'image/png',
+          userId: rowUserId ?? userId,
+        })),
+      );
+
+    it('matches a bare-key row exactly', async () => {
+      await insertUrls([{ url: 'files/466737/abc.png' }]);
+
+      expect(await fileModel.findUrlCandidatesByKey('files/466737/abc.png')).toEqual([
+        'files/466737/abc.png',
+      ]);
+    });
+
+    it('matches a legacy full storage URL by its trailing path', async () => {
+      const legacy = 'https://s3.example.com/bucket/files/466737/abc.png';
+      await insertUrls([{ url: legacy }]);
+
+      expect(await fileModel.findUrlCandidatesByKey('files/466737/abc.png')).toEqual([legacy]);
+    });
+
+    it('matches a presigned legacy URL with a query string', async () => {
+      const presigned = 'https://s3.example.com/bucket/files/466737/abc.png?X-Amz-Signature=xyz';
+      await insertUrls([{ url: presigned }]);
+
+      expect(await fileModel.findUrlCandidatesByKey('files/466737/abc.png')).toEqual([presigned]);
+    });
+
+    it('excludes rows that merely contain the key at a non-slash boundary', async () => {
+      await insertUrls([
+        { url: 'files/466737/zabc.png' },
+        { url: 'prefix-files/466737/abc.png-suffix' },
+      ]);
+
+      expect(await fileModel.findUrlCandidatesByKey('files/466737/abc.png')).toEqual([]);
+    });
+
+    it('returns the real match even when many rows contain the key substring', async () => {
+      const noise = Array.from({ length: 25 }, (_, i) => ({
+        url: `files/noise/${i}/contains-abc.png`,
+      }));
+      const legacy = 'https://s3.example.com/bucket/files/466737/abc.png';
+      await insertUrls([...noise, { url: legacy }]);
+
+      expect(await fileModel.findUrlCandidatesByKey('files/466737/abc.png')).toContain(legacy);
+    });
+
+    it('treats underscore in the key as a literal, not a LIKE wildcard', async () => {
+      await insertUrls([{ url: 'https://s3.example.com/bucket/files/aXb.png' }]);
+
+      expect(await fileModel.findUrlCandidatesByKey('files/a_b.png')).toEqual([]);
+    });
+
+    it('excludes rows belonging to other users', async () => {
+      await insertUrls([
+        { url: 'https://s3.example.com/bucket/files/466737/abc.png', userId: 'user2' },
+      ]);
+
+      expect(await fileModel.findUrlCandidatesByKey('files/466737/abc.png')).toEqual([]);
+    });
+  });
+
   describe('deleteGlobalFile', () => {
     it('should delete global file by hashId', async () => {
       // 准备测试数据

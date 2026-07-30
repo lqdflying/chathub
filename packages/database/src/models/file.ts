@@ -316,9 +316,12 @@ export class FileModel {
 
   /**
    * Legacy rows may store the full storage URL instead of the bare key
-   * (https://github.com/lobehub/lobe-chat/issues/8994). Return this user's url values
-   * that exactly match or contain the key; the caller confirms legacy candidates by
-   * extracting the key from the stored URL.
+   * (https://github.com/lobehub/lobe-chat/issues/8994). Return this user's url values that
+   * match the key exactly (normal rows) or whose storage path ends in `/<key>` (legacy
+   * full URLs, optionally followed by a presigned query string). Matching the trailing
+   * slash boundary avoids a bare `%key%` contains-match, which for a short key would match
+   * nearly every row and could push the real match past the row limit. The caller confirms
+   * legacy candidates by extracting the key from the stored URL.
    */
   findUrlCandidatesByKey = async (key: string): Promise<string[]> => {
     const escapedKey = key.replaceAll(/([%_\\])/g, String.raw`\$1`);
@@ -328,7 +331,11 @@ export class FileModel {
       .where(
         and(
           eq(files.userId, this.userId),
-          or(eq(files.url, key), like(files.url, `%${escapedKey}%`)),
+          or(
+            eq(files.url, key),
+            like(files.url, `%/${escapedKey}`),
+            like(files.url, `%/${escapedKey}?%`),
+          ),
         ),
       )
       .limit(20);
