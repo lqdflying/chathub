@@ -301,6 +301,11 @@ async function runCompactionFromStore(
       return compactionResult('ineligible', { reason: 'conversation_changed' });
     }
     if (!nextSummary) {
+      // fetchPresetTaskResult resolves without onFinish/onError when the request is
+      // aborted — a user Stop is not a summarizer failure
+      if (abortController?.signal.aborted) {
+        return compactionResult('ineligible', { reason: 'aborted' });
+      }
       return compactionResult('failed', {
         estimatedTokensBefore: beforeEstimate.totalToken,
         highWatermark: high,
