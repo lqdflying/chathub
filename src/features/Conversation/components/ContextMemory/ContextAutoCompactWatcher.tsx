@@ -12,6 +12,8 @@ import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 
+import { isGroupSessionContext } from './isGroupSessionContext';
+
 const COMPACTION_DEBOUNCE_MS = 750;
 
 const ContextAutoCompactWatcher = () => {
@@ -35,7 +37,7 @@ const ContextAutoCompactWatcher = () => {
     return {
       activeThreadId: state.activeThreadId,
       generating: chatSelectors.isAIGenerating(state),
-      group: state.activeSessionType === 'group',
+      group: isGroupSessionContext(state.activeSessionType),
       isCreatingMessage: state.isCreatingMessage,
       messageFingerprint: createCompactionFingerprint({
         cursorId: topic?.metadata?.historySummaryLastMessageId,

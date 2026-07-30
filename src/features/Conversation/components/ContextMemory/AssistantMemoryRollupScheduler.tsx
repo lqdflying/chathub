@@ -8,6 +8,8 @@ import { getAgentStoreState } from '@/store/agent/store';
 import { getChatStoreState } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 
+import { isGroupSessionContext } from './isGroupSessionContext';
+
 const CHECK_MS = 120_000;
 
 const rollupKey = (agentId: string | null | undefined) =>
@@ -29,7 +31,7 @@ const AssistantMemoryRollupScheduler = () => {
 
       if (!cfg.enablePeriodicAssistantMemoryRollup) return;
       if (!agent.activeAgentId || !chat.activeId) return;
-      if (chat.activeSessionType === 'group') return;
+      if (isGroupSessionContext(chat.activeSessionType)) return;
       if (chatSelectors.isAIGenerating(chat)) return;
 
       const key = rollupKey(agent.activeAgentId);
