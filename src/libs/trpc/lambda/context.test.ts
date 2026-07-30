@@ -45,15 +45,44 @@ describe('createLambdaContext account scope', () => {
     vi.stubEnv('NODE_ENV', 'development');
     vi.stubEnv('ENABLE_MOCK_DEV_USER', '1');
     vi.stubEnv('MOCK_DEV_USER_ID', 'account-a');
+    vi.stubEnv('AUTH_DEV_BYPASS_SECRET', 'dev-secret');
     const request = new NextRequest('https://chathub.example/trpc/lambda/apiKey.getApiKeys', {
       headers: {
         [CHATHUB_ACCOUNT_SCOPE_HEADER]: 'user:account-a',
+        'lobe-auth-dev-secret': 'dev-secret',
       },
     });
 
     await expect(createLambdaContext(request)).resolves.toMatchObject({
       accountScope: 'user:account-a',
       userId: 'account-a',
+    });
+  });
+
+  it('rejects the dev mock user when the bypass secret header is missing', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('ENABLE_MOCK_DEV_USER', '1');
+    vi.stubEnv('MOCK_DEV_USER_ID', 'account-a');
+    vi.stubEnv('AUTH_DEV_BYPASS_SECRET', 'dev-secret');
+    const request = new NextRequest('https://chathub.example/trpc/lambda/apiKey.getApiKeys');
+
+    await expect(createLambdaContext(request)).resolves.toMatchObject({
+      userId: undefined,
+    });
+  });
+
+  it('rejects the dev mock user when AUTH_DEV_BYPASS_SECRET is not configured', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('ENABLE_MOCK_DEV_USER', '1');
+    vi.stubEnv('MOCK_DEV_USER_ID', 'account-a');
+    const request = new NextRequest('https://chathub.example/trpc/lambda/apiKey.getApiKeys', {
+      headers: {
+        'lobe-auth-dev-secret': 'dev-secret',
+      },
+    });
+
+    await expect(createLambdaContext(request)).resolves.toMatchObject({
+      userId: undefined,
     });
   });
 

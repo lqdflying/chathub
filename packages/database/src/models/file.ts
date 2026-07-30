@@ -314,12 +314,26 @@ export class FileModel {
     }
   };
 
-  hasFileByUrl = async (url: string): Promise<boolean> => {
-    const result = await this.db
-      .select({ count: count() })
+  /**
+   * Legacy rows may store the full storage URL instead of the bare key
+   * (https://github.com/lobehub/lobe-chat/issues/8994). Return this user's url values
+   * that exactly match or contain the key; the caller confirms legacy candidates by
+   * extracting the key from the stored URL.
+   */
+  findUrlCandidatesByKey = async (key: string): Promise<string[]> => {
+    const escapedKey = key.replaceAll(/([%_\\])/g, String.raw`\$1`);
+    const rows = await this.db
+      .select({ url: files.url })
       .from(files)
-      .where(and(eq(files.url, url), eq(files.userId, this.userId)));
-    return result[0].count > 0;
+      .where(
+        and(
+          eq(files.userId, this.userId),
+          or(eq(files.url, key), like(files.url, `%${escapedKey}%`)),
+        ),
+      )
+      .limit(20);
+
+    return rows.map((row) => row.url).filter(Boolean) as string[];
   };
 
   findByNames = async (fileNames: string[]) =>

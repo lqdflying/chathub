@@ -40,6 +40,10 @@ import { chatSelectors, topicSelectors } from '../../../selectors';
 
 const n = setNamespace('ai');
 
+// pre-send compaction runs before internal_fetchAIChatMessage creates its own
+// controller, so Stop needs a dedicated handle to abort it (see stopGenerateMessage)
+let preSendCompactionAbortController: AbortController | undefined;
+
 const RETRY_LOADING_KEYS = [
   'chatLoadingIds',
   'messageLoadingIds',
@@ -389,7 +393,16 @@ export const generateAIChat: StateCreator<
     const contextExportCaptureId = !isWelcomeQuestion ? get().consumeContextExportArm() : undefined;
 
     try {
-      await get().triggerTokenThresholdMemoryCompaction();
+      preSendCompactionAbortController = new AbortController();
+      await get().triggerTokenThresholdMemoryCompaction(preSendCompactionAbortController);
+      const compactionAborted = preSendCompactionAbortController.signal.aborted;
+      preSendCompactionAbortController = undefined;
+      if (compactionAborted) {
+        if (isCurrentConversation()) {
+          set({ isCreatingMessage: false }, false, n('creatingMessage/stop'));
+        }
+        return;
+      }
       if (!isCurrentConversation()) return;
 
       await internal_coreProcessMessage(messages, id, {
@@ -401,6 +414,7 @@ export const generateAIChat: StateCreator<
         threadId: activeThreadId,
       });
     } finally {
+      preSendCompactionAbortController = undefined;
       if (contextExportCaptureId && isCurrentConversation()) {
         get().completeContextExport(contextExportCaptureId);
       }
@@ -440,6 +454,8 @@ export const generateAIChat: StateCreator<
     await Promise.all([summaryTitle(), addFilesToAgent()]);
   },
   stopGenerateMessage: () => {
+    preSendCompactionAbortController?.abort(MESSAGE_CANCEL_FLAT);
+
     const { chatLoadingIdsAbortController, internal_toggleChatLoading } = get();
 
     if (!chatLoadingIdsAbortController) return;
@@ -1328,7 +1344,9 @@ export const generateAIChat: StateCreator<
     } finally {
       if (isCurrentConversation()) {
         set(
-          { messageRetryingIds: get().messageRetryingIds.filter((id) => id !== anchor.message.id) },
+          {
+            messageRetryingIds: get().messageRetryingIds.filter((id) => id !== anchor.message.id),
+          },
           false,
           n('retryMessage/end'),
         );

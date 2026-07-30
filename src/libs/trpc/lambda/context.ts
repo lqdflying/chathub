@@ -89,7 +89,12 @@ export const createLambdaContext = async (request: NextRequest): Promise<LambdaC
   const isMockUser = process.env.ENABLE_MOCK_DEV_USER === '1';
   const accountScope = request.headers.get(CHATHUB_ACCOUNT_SCOPE_HEADER);
 
-  if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
+  if (
+    process.env.NODE_ENV === 'development' &&
+    (isDebugApi || isMockUser) &&
+    process.env.AUTH_DEV_BYPASS_SECRET &&
+    request.headers.get('lobe-auth-dev-secret') === process.env.AUTH_DEV_BYPASS_SECRET
+  ) {
     return {
       accountScope,
       rawAuthUserId: process.env.MOCK_DEV_USER_ID,

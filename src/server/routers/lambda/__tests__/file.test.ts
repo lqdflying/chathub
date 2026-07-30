@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { FileModel } from '@/database/models/file';
 import { fileRouter } from '@/server/routers/lambda/file';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
@@ -16,10 +17,12 @@ function createCallerWithCtx(partialCtx: any = {}) {
     delete: vi.fn().mockResolvedValue(undefined),
     deleteMany: vi.fn().mockResolvedValue([]),
     clear: vi.fn().mockResolvedValue({} as any),
+    findUrlCandidatesByKey: vi.fn().mockResolvedValue([]),
   };
 
   const fileService = {
     getFullFileUrl: vi.fn().mockResolvedValue('full-url'),
+    getKeyFromFullUrl: vi.fn(),
     deleteFile: vi.fn().mockResolvedValue(undefined),
     deleteFiles: vi.fn().mockResolvedValue(undefined),
   };
@@ -51,6 +54,7 @@ function createCallerWithCtx(partialCtx: any = {}) {
   };
 
   vi.mocked(FileService).mockImplementation(() => fileService as never);
+  vi.mocked(FileModel).mockImplementation(() => fileModel as never);
 
   return { ctx, caller: fileRouter.createCaller(ctx) };
 }
@@ -85,6 +89,7 @@ vi.mock('@/database/models/file', () => ({
     findById: vi.fn(),
     query: vi.fn(),
     clear: vi.fn(),
+    findUrlCandidatesByKey: vi.fn(),
   })),
 }));
 
@@ -97,6 +102,7 @@ vi.mock('@/envs/app', () => ({
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn(() => ({
     getFullFileUrl: vi.fn(),
+    getKeyFromFullUrl: vi.fn(),
     deleteFile: vi.fn(),
     deleteFiles: vi.fn(),
   })),
@@ -221,7 +227,8 @@ describe('fileRouter', () => {
   });
 
   describe('resolvePublicUrl', () => {
-    it('resolves same-origin app-proxy URLs from their durable key', async () => {
+    it('resolves same-origin app-proxy URLs owned by the user via their bare key', async () => {
+      ctx.fileModel.findUrlCandidatesByKey.mockResolvedValue(['references/image.png']);
       ctx.fileService.getFullFileUrl.mockResolvedValue('https://storage.example.com/signed.png');
 
       await expect(
@@ -230,7 +237,50 @@ describe('fileRouter', () => {
         }),
       ).resolves.toBe('https://storage.example.com/signed.png');
 
+      expect(ctx.fileModel.findUrlCandidatesByKey).toHaveBeenCalledWith('references/image.png');
       expect(ctx.fileService.getFullFileUrl).toHaveBeenCalledWith('references/image.png');
+    });
+
+    it('resolves keys stored as legacy full URLs', async () => {
+      const legacyUrl = 'https://s3.example.com/bucket/references/image.png';
+      ctx.fileModel.findUrlCandidatesByKey.mockResolvedValue([legacyUrl]);
+      ctx.fileService.getKeyFromFullUrl.mockReturnValue('references/image.png');
+      ctx.fileService.getFullFileUrl.mockResolvedValue('https://storage.example.com/signed.png');
+
+      await expect(
+        caller.resolvePublicUrl({
+          url: 'https://chat.example.com/webapi/files/references/image.png',
+        }),
+      ).resolves.toBe('https://storage.example.com/signed.png');
+
+      expect(ctx.fileService.getKeyFromFullUrl).toHaveBeenCalledWith(legacyUrl);
+    });
+
+    it('rejects keys not owned by the requesting user with NOT_FOUND', async () => {
+      ctx.fileModel.findUrlCandidatesByKey.mockResolvedValue([]);
+
+      await expect(
+        caller.resolvePublicUrl({
+          url: 'https://chat.example.com/webapi/files/references/image.png',
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+      expect(ctx.fileService.getFullFileUrl).not.toHaveBeenCalled();
+    });
+
+    it('rejects when candidate rows do not confirm the requested key', async () => {
+      ctx.fileModel.findUrlCandidatesByKey.mockResolvedValue([
+        'https://s3.example.com/bucket/other/key.png',
+      ]);
+      ctx.fileService.getKeyFromFullUrl.mockReturnValue('other/key.png');
+
+      await expect(
+        caller.resolvePublicUrl({
+          url: 'https://chat.example.com/webapi/files/references/image.png',
+        }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+      expect(ctx.fileService.getFullFileUrl).not.toHaveBeenCalled();
     });
 
     it('does not resolve foreign storage URLs that collide with the proxy path', async () => {
