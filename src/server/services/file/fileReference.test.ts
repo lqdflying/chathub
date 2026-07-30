@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractKeyFromAppFileProxyUrl } from './fileReference';
+import { extractKeyFromAppFileProxyUrl, isValidFileProxyKeySegments } from './fileReference';
 
 describe('extractKeyFromAppFileProxyUrl', () => {
   it('extracts and decodes nested keys from app-proxy URLs', () => {
@@ -86,5 +86,24 @@ describe('extractKeyFromAppFileProxyUrl', () => {
     const reference = 'https://chat.example.com/webapi/files/../secret.png';
 
     expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
+  });
+});
+
+describe('isValidFileProxyKeySegments', () => {
+  it('accepts ordinary decoded key segments', () => {
+    expect(isValidFileProxyKeySegments(['files', '466737', 'abc.png'])).toBe(true);
+  });
+
+  it('rejects dot, empty, separator-smuggling and control-char segments', () => {
+    expect(isValidFileProxyKeySegments(['..'])).toBe(false);
+    expect(isValidFileProxyKeySegments(['a', '.', 'b.png'])).toBe(false);
+    expect(isValidFileProxyKeySegments(['a', '', 'b.png'])).toBe(false);
+    expect(isValidFileProxyKeySegments(['a/b', 'c.png'])).toBe(false);
+    expect(isValidFileProxyKeySegments(['a\\b', 'c.png'])).toBe(false);
+    expect(isValidFileProxyKeySegments(['a\u0000b', 'c.png'])).toBe(false);
+  });
+
+  it('rejects an empty segment list', () => {
+    expect(isValidFileProxyKeySegments([])).toBe(false);
   });
 });

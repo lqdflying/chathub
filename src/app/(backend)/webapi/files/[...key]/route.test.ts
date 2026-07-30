@@ -70,4 +70,21 @@ describe('GET /webapi/files/[...key]', () => {
 
     expect(mockIsKeyOwnedByUser).toHaveBeenCalledWith('references/nested/image.png');
   });
+
+  // Next.js decodes catch-all params, so encoded traversal ('%2e%2e', '%2F') arrives here
+  // as literal '..' segments or separators smuggled inside one segment
+  it.each([
+    [['..', 'other-user', 'file.png']],
+    [['.', 'a.png']],
+    [['a', '', 'b.png']],
+    [['a\\b', 'c.png']],
+    [['a/b', 'c.png']],
+    [['a\u0000b', 'c.png']],
+  ])('rejects a traversal-shaped key %j before touching the database', async (segments) => {
+    const response = await GET(makeRequest(), makeParams(segments));
+
+    expect(response.status).toBe(404);
+    expect(mockGetServerDB).not.toHaveBeenCalled();
+    expect(mockIsKeyOwnedByUser).not.toHaveBeenCalled();
+  });
 });

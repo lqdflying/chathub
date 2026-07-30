@@ -4,6 +4,7 @@ import { getServerDB } from '@/database/server';
 import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { S3 } from '@/server/modules/S3';
 import { FileService } from '@/server/services/file';
+import { isValidFileProxyKeySegments } from '@/server/services/file/fileReference';
 
 const CONTENT_TYPE_MAP: Record<string, string> = {
   gif: 'image/gif',
@@ -24,6 +25,11 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ key:
   }
 
   const { key } = await params;
+  // Next.js decodes catch-all segments, so encoded traversal arrives as literal '..'/'/'
+  // segments — reject the same shapes the proxy-URL decoder rejects before touching the DB
+  if (!isValidFileProxyKeySegments(key)) {
+    return new NextResponse('File not found', { status: 404 });
+  }
   const fileKey = key.join('/');
 
   // Only serve objects the requesting user owns — otherwise any authenticated user could
