@@ -280,7 +280,11 @@ async function runCompactionFromStore(
   const batches = splitCompactionBatches(candidateMessages);
   const maxBatches =
     trigger === 'token_threshold' && abortController ? MAX_PRE_SEND_BATCHES : batches.length;
-  for (const batch of batches.slice(0, maxBatches)) {
+  const processedBatches = batches.slice(0, maxBatches);
+  // pre-send runs may process fewer batches than eligible; the cursor and stats below must
+  // only cover what was actually summarized, or the skipped batches are lost forever
+  const truncatedForPreSend = processedBatches.length < batches.length;
+  for (const batch of processedBatches) {
     if (abortController?.signal.aborted) {
       return compactionResult('ineligible', { reason: 'aborted' });
     }
@@ -307,7 +311,8 @@ async function runCompactionFromStore(
     historySummary = nextSummary;
   }
 
-  const compactedThroughMessageId = candidateMessages.at(-1)!.id;
+  const processedMessages = processedBatches.flat();
+  const compactedThroughMessageId = processedMessages.at(-1)!.id;
   const previousMetadata = topic.metadata ?? {};
   const previousArchives = previousMetadata.memoryArchives ?? [];
   const archiveExcerpt = historySummary.slice(0, 600);
@@ -337,7 +342,8 @@ async function runCompactionFromStore(
     .at(-1)
     ?.at(-1)?.id;
   const exhaustedEligibleHistory =
-    !targetReachable || compactedThroughMessageId === lastEligibleMessageId;
+    !truncatedForPreSend &&
+    (!targetReachable || compactedThroughMessageId === lastEligibleMessageId);
   const status =
     trigger === 'token_threshold' &&
     maxTokens &&
@@ -354,7 +360,7 @@ async function runCompactionFromStore(
     estimatedTokensBefore: beforeEstimate.totalToken,
     highWatermark: high,
     lowWatermark: low,
-    messageCountIncluded: candidateMessages.length,
+    messageCountIncluded: processedMessages.length,
     model: chatModel,
     provider: chatProvider,
     reason,
@@ -393,7 +399,7 @@ async function runCompactionFromStore(
     estimatedTokensBefore: beforeEstimate.totalToken,
     highWatermark: high,
     lowWatermark: low,
-    messageCountIncluded: candidateMessages.length,
+    messageCountIncluded: processedMessages.length,
     reason,
   });
 }
