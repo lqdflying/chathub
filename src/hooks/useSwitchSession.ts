@@ -37,8 +37,11 @@ export const useSwitchSession = () => {
       }
 
       // leaving a session invalidates any group DM thread bound to it; clear it so the
-      // group-thread portal doesn't linger (and double-mount MemoryContextOrchestrator)
-      useChatGroupStore.setState({ activeThreadAgentId: '' });
+      // group-thread portal doesn't linger (and double-mount MemoryContextOrchestrator).
+      // A re-click of the already-active session is not a leave — keep the selection.
+      if (id !== getSessionStoreState().activeId) {
+        useChatGroupStore.setState({ activeThreadAgentId: '' });
+      }
       togglePortal(false);
 
       router.push('/chat', {
