@@ -5,6 +5,7 @@ import anthropiccompatible from './aiModels/anthropiccompatible';
 import openaiChatModels, { gptImage1ParamsSchema } from './aiModels/openai';
 import openaicompatible, {
   GPT_IMAGE_2_SIZE_PRESETS,
+  OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
   gptImage2CompatibleParamsSchema,
 } from './aiModels/openaicompatible';
 
@@ -36,7 +37,10 @@ describe('compatible provider fixed model lists', () => {
         searchImpl: 'params',
       },
     });
-    expect(sourceGpt55).toBeDefined();
+    expect(sourceGpt55).toMatchObject({
+      contextWindowTokens: 1_050_000,
+      maxOutput: 128_000,
+    });
     expect(openaicompatible.map((model) => model.id)).toEqual([
       'gpt-5.6-sol',
       'gpt-5.5',
@@ -49,7 +53,7 @@ describe('compatible provider fixed model lists', () => {
         abilities: {
           search: false,
         },
-        contextWindowTokens: 258_000,
+        contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
         enabled: true,
         settings: {
           extendParams: ['gpt5ReasoningEffort', 'textVerbosity'],

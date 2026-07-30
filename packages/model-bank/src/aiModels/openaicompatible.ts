@@ -4,6 +4,9 @@ import { gptImage1ParamsSchema, openaiChatModels } from './openai';
 
 const compatibleChatModelIds = ['gpt-5.6-sol', 'gpt-5.5'];
 
+// Compatible gateways use a smaller shared context budget than native OpenAI.
+export const OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS = 258_000;
+
 export const GPT_IMAGE_2_SIZE_PRESETS = [
   'auto',
   '1024x1024',
@@ -48,7 +51,7 @@ const openaicompatibleModels: Array<AIChatModelCard | AIImageModelCard> = [
         ...sourceModel.abilities,
         search: false,
       },
-      contextWindowTokens: 258_000,
+      contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
       enabled: true,
       settings,
     };

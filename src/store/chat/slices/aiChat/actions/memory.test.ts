@@ -2,6 +2,7 @@ import type { UIChatMessage } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
+import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
 import { topicService } from '@/services/topic';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -156,6 +157,7 @@ describe('chat memory actions', () => {
       reason: 'below_high_watermark',
       status: 'not_needed',
     });
+    expect(getModelContextWindowTokens).toHaveBeenCalledWith('active-model', 'active-provider');
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
   });
 

@@ -55,5 +55,6 @@ export { default as openaicompatible } from './openaicompatible';
 export { gptImage1ParamsSchema, openaiChatModels } from './openai';
 export {
   GPT_IMAGE_2_SIZE_PRESETS,
+  OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
   gptImage2CompatibleParamsSchema,
 } from './openaicompatible';
