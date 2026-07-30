@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react';
 import type { Session } from 'next-auth';
-import React, { type PropsWithChildren } from 'react';
+import React, { type PropsWithChildren, useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import NextAuth from './index';
@@ -29,7 +29,11 @@ vi.mock('next-auth/react', () => ({
     refetchWhenOffline?: boolean;
     session?: Session | null;
   }>) => {
-    sessionProviderProps.mountCount += 1;
+    // count true mounts, not renders — the real SessionProvider only reads its
+    // `session` prop on mount, so reconciliation must arrive via remount (key change)
+    useEffect(() => {
+      sessionProviderProps.mountCount += 1;
+    }, []);
     sessionProviderProps.basePath = basePath;
     sessionProviderProps.refetchOnWindowFocus = refetchOnWindowFocus;
     sessionProviderProps.refetchWhenOffline = refetchWhenOffline;
@@ -73,7 +77,7 @@ describe('NextAuth provider', () => {
     expect(sessionProviderProps.mountCount).toBe(1);
   });
 
-  it('replaces an authenticated provider snapshot after confirmed server logout', () => {
+  it('remounts the provider after confirmed server logout so consumers see the new session', () => {
     const initialSession: Session = {
       expires: new Date(Date.now() + 60_000).toISOString(),
       user: { id: 'account-a' },
@@ -92,5 +96,52 @@ describe('NextAuth provider', () => {
 
     expect(sessionProviderProps.session).toBeNull();
     expect(sessionProviderProps.mountCount).toBe(2);
+  });
+
+  it('remounts the provider when the account identity changes', () => {
+    const initialSession: Session = {
+      expires: new Date(Date.now() + 60_000).toISOString(),
+      user: { id: 'account-a' },
+    };
+    sessionProviderProps.mountCount = 0;
+
+    render(
+      <NextAuth initialSession={initialSession}>
+        <div>protected-content</div>
+      </NextAuth>,
+    );
+
+    const nextSession: Session = {
+      expires: new Date(Date.now() + 60_000).toISOString(),
+      user: { id: 'account-b' },
+    };
+    act(() => {
+      pollerProps.onReconcileSession?.(nextSession);
+    });
+
+    expect(sessionProviderProps.session).toBe(nextSession);
+    expect(sessionProviderProps.mountCount).toBe(2);
+  });
+
+  it('does not remount the provider on re-renders with an unchanged identity', () => {
+    const initialSession: Session = {
+      expires: new Date(Date.now() + 60_000).toISOString(),
+      user: { id: 'account-a' },
+    };
+    sessionProviderProps.mountCount = 0;
+
+    const { rerender } = render(
+      <NextAuth initialSession={initialSession}>
+        <div>protected-content</div>
+      </NextAuth>,
+    );
+
+    rerender(
+      <NextAuth initialSession={initialSession}>
+        <div>protected-content</div>
+      </NextAuth>,
+    );
+
+    expect(sessionProviderProps.mountCount).toBe(1);
   });
 });

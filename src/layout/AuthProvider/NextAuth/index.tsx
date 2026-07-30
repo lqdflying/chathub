@@ -20,9 +20,16 @@ const NextAuth = ({ children, initialSession }: NextAuthProps) => {
     setSessionSnapshot(nextSession);
   }, []);
 
+  // next-auth's SessionProvider captures `session` in a lazy useState once and never syncs
+  // later prop changes. Remount it when the session *identity* changes (login/logout/account
+  // switch) — the only case reconcileSession fires — so reconciliation reaches useSession()
+  // consumers without remounting the app tree on every poll.
+  const sessionIdentity = sessionSnapshot?.user?.id ?? 'anonymous';
+
   return (
     <SessionProvider
       basePath={API_ENDPOINTS.oauth}
+      key={sessionIdentity}
       refetchOnWindowFocus={false}
       refetchWhenOffline={false}
       session={sessionSnapshot}
