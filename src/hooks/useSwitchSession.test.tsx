@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useChatStore } from '@/store/chat';
+import { useChatGroupStore } from '@/store/chatGroup';
 import { useSessionStore } from '@/store/session';
 import { getAssistantHydrationCancellationGeneration } from '@/store/session/hydrationIntent';
 import { useUserStore } from '@/store/user';
@@ -58,6 +59,32 @@ describe('useSwitchSession', () => {
       showPortal: true,
       togglePortal: vi.fn(),
     });
+    useChatGroupStore.setState({ activeThreadAgentId: '' });
+  });
+
+  it('clears a lingering group DM thread agent when switching sessions', () => {
+    useChatGroupStore.setState({ activeThreadAgentId: 'agent-x' });
+    const { result } = renderHook(() => useSwitchSession());
+
+    act(() => {
+      expect(result.current('assistant-a')).toBe(true);
+    });
+
+    expect(useChatGroupStore.getState().activeThreadAgentId).toBe('');
+  });
+
+  it('leaves the thread agent untouched when the switch is blocked', () => {
+    useChatGroupStore.setState({ activeThreadAgentId: 'agent-x' });
+    const { result } = renderHook(() => useSwitchSession());
+    act(() => {
+      useUserStore.setState({ isUserStateInit: false, userStateScope: undefined });
+    });
+
+    act(() => {
+      expect(result.current('assistant-a')).toBe(false);
+    });
+
+    expect(useChatGroupStore.getState().activeThreadAgentId).toBe('agent-x');
   });
 
   it('routes a valid mobile assistant without eagerly changing the active session', () => {

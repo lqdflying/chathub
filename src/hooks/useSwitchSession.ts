@@ -4,6 +4,7 @@ import { INBOX_SESSION_ID } from '@/const/session';
 import { useQueryRoute } from '@/hooks/useQueryRoute';
 import { hasVerifiedAccountOwnership } from '@/store/accountMutation';
 import { useChatStore } from '@/store/chat';
+import { useChatGroupStore } from '@/store/chatGroup';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { getSessionStoreState } from '@/store/session';
 import { cancelPendingAssistantHydration } from '@/store/session/hydrationIntent';
@@ -35,6 +36,9 @@ export const useSwitchSession = () => {
         cancelPendingAssistantHydration();
       }
 
+      // leaving a session invalidates any group DM thread bound to it; clear it so the
+      // group-thread portal doesn't linger (and double-mount MemoryContextOrchestrator)
+      useChatGroupStore.setState({ activeThreadAgentId: '' });
       togglePortal(false);
 
       router.push('/chat', {
