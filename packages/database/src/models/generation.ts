@@ -6,7 +6,7 @@ import {
   ImageGenerationAsset,
 } from '@lobechat/types';
 import debug from 'debug';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 
 import { FileService } from '@/server/services/file';
 
@@ -60,6 +60,29 @@ export class GenerationModel {
 
     log('Generation %s: %s', id, result ? 'found' : 'not found');
     return result;
+  }
+
+  /**
+   * Whether a stored storage key (asset.url or asset.thumbnailUrl, both bare keys) belongs
+   * to one of this user's generations. Used to authorize reusing a generated image as an
+   * image-generation reference without a sourceGenerationBatchId.
+   */
+  async existsByAssetKey(key: string): Promise<boolean> {
+    const result = await this.db
+      .select({ id: generations.id })
+      .from(generations)
+      .where(
+        and(
+          eq(generations.userId, this.userId),
+          or(
+            sql`${generations.asset}->>'url' = ${key}`,
+            sql`${generations.asset}->>'thumbnailUrl' = ${key}`,
+          ),
+        ),
+      )
+      .limit(1);
+
+    return result.length > 0;
   }
 
   async findByIdWithAsyncTask(id: string): Promise<GenerationWithAsyncTask | undefined> {

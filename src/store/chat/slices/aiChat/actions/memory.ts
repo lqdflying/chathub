@@ -280,7 +280,11 @@ async function runCompactionFromStore(
   const batches = splitCompactionBatches(candidateMessages);
   const maxBatches =
     trigger === 'token_threshold' && abortController ? MAX_PRE_SEND_BATCHES : batches.length;
-  for (const batch of batches.slice(0, maxBatches)) {
+  const processedBatches = batches.slice(0, maxBatches);
+  // pre-send runs may process fewer batches than eligible; the cursor and stats below must
+  // only cover what was actually summarized, or the skipped batches are lost forever
+  const truncatedForPreSend = processedBatches.length < batches.length;
+  for (const batch of processedBatches) {
     if (abortController?.signal.aborted) {
       return compactionResult('ineligible', { reason: 'aborted' });
     }
@@ -307,7 +311,8 @@ async function runCompactionFromStore(
     historySummary = nextSummary;
   }
 
-  const compactedThroughMessageId = candidateMessages.at(-1)!.id;
+  const processedMessages = processedBatches.flat();
+  const compactedThroughMessageId = processedMessages.at(-1)!.id;
   const previousMetadata = topic.metadata ?? {};
   const previousArchives = previousMetadata.memoryArchives ?? [];
   const archiveExcerpt = historySummary.slice(0, 600);
@@ -337,7 +342,8 @@ async function runCompactionFromStore(
     .at(-1)
     ?.at(-1)?.id;
   const exhaustedEligibleHistory =
-    !targetReachable || compactedThroughMessageId === lastEligibleMessageId;
+    !truncatedForPreSend &&
+    (!targetReachable || compactedThroughMessageId === lastEligibleMessageId);
   const status =
     trigger === 'token_threshold' &&
     maxTokens &&
@@ -354,7 +360,7 @@ async function runCompactionFromStore(
     estimatedTokensBefore: beforeEstimate.totalToken,
     highWatermark: high,
     lowWatermark: low,
-    messageCountIncluded: candidateMessages.length,
+    messageCountIncluded: processedMessages.length,
     model: chatModel,
     provider: chatProvider,
     reason,
@@ -373,10 +379,37 @@ async function runCompactionFromStore(
     provider: chatProvider,
   };
 
+  // Re-check right before the write to shrink the window where an invalidation
+  // (e.g. the user edited/deleted an included message) races this persist.
+  if (!isCurrentRequest())
+    return compactionResult('ineligible', { reason: 'conversation_changed' });
+
   await topicService.updateTopic(requestedTopicId, {
     historySummary,
     metadata: nextMetadata,
   });
+
+  // If an invalidation landed while updateTopic was in flight, our summary is now stale on
+  // disk. Undo it with the same cleared state internal_invalidateMemoryCompaction writes,
+  // so the next run rebuilds instead of trusting a summary tied to a since-changed message.
+  const invalidationRacedWrite =
+    get().memoryCompactionInvalidationGeneration !== requestedInvalidationGeneration;
+  if (invalidationRacedWrite) {
+    if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
+      await topicService
+        .updateTopic(requestedTopicId, {
+          historySummary: '',
+          metadata: {
+            ...nextMetadata,
+            historySummaryLastMessageId: undefined,
+            memoryArchives: [],
+          },
+        })
+        .catch(console.error);
+    }
+    return compactionResult('ineligible', { reason: 'conversation_changed' });
+  }
+
   if (isCurrentRequest()) {
     get().internal_dispatchTopic(
       {
@@ -393,7 +426,7 @@ async function runCompactionFromStore(
     estimatedTokensBefore: beforeEstimate.totalToken,
     highWatermark: high,
     lowWatermark: low,
-    messageCountIncluded: candidateMessages.length,
+    messageCountIncluded: processedMessages.length,
     reason,
   });
 }
@@ -411,7 +444,26 @@ const triggerCompaction = async (
 
   const key = `${accountMutationSnapshot.scope}:${state.activeId}:${state.activeTopicId}`;
   const running = compactionJobs.get(key);
-  if (running) return running;
+  if (running) {
+    // An abortable caller (pre-send) may join a job started without a controller (e.g. the
+    // auto-compact watcher). Don't make it await the whole uncapped job — let it bail on
+    // abort. The background job keeps running; its writes stay guarded by the generation
+    // checks in runCompactionFromStore.
+    if (!abortController) return running;
+    if (abortController.signal.aborted) {
+      return compactionResult('ineligible', { reason: 'aborted' });
+    }
+    return Promise.race([
+      running,
+      new Promise<MemoryCompactionResult>((resolve) => {
+        abortController.signal.addEventListener(
+          'abort',
+          () => resolve(compactionResult('ineligible', { reason: 'aborted' })),
+          { once: true },
+        );
+      }),
+    ]);
+  }
 
   const job = runCompactionFromStore(get, trigger, accountMutationSnapshot, abortController).catch(
     () => compactionResult('failed', { reason: 'compaction_exception' }),

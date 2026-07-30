@@ -40,10 +40,6 @@ import { chatSelectors, topicSelectors } from '../../../selectors';
 
 const n = setNamespace('ai');
 
-// pre-send compaction runs before internal_fetchAIChatMessage creates its own
-// controller, so Stop needs a dedicated handle to abort it (see stopGenerateMessage)
-let preSendCompactionAbortController: AbortController | undefined;
-
 const RETRY_LOADING_KEYS = [
   'chatLoadingIds',
   'messageLoadingIds',
@@ -392,12 +388,50 @@ export const generateAIChat: StateCreator<
     const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
     const contextExportCaptureId = !isWelcomeQuestion ? get().consumeContextExportArm() : undefined;
 
+    // pre-send compaction runs before internal_fetchAIChatMessage creates its own
+    // controller, so Stop needs a dedicated per-conversation handle to abort it
+    // (see stopGenerateMessage). Read the local controller after the await — a later
+    // overlapping send may have replaced the registered operation.
+    const compactionKey = messageMapKey(
+      conversationContext.sessionId,
+      conversationContext.topicId,
+    );
+    const compactionController = new AbortController();
+    const clearCompactionOperation = () => {
+      set(
+        (state) => {
+          if (
+            state.preSendCompactionOperations[compactionKey]?.abortController !==
+            compactionController
+          )
+            return state;
+
+          const preSendCompactionOperations = { ...state.preSendCompactionOperations };
+          delete preSendCompactionOperations[compactionKey];
+          return { preSendCompactionOperations };
+        },
+        false,
+        n('preSendCompaction/end'),
+      );
+    };
+
     try {
-      preSendCompactionAbortController = new AbortController();
-      await get().triggerTokenThresholdMemoryCompaction(preSendCompactionAbortController);
-      const compactionAborted = preSendCompactionAbortController.signal.aborted;
-      preSendCompactionAbortController = undefined;
-      if (compactionAborted) {
+      set(
+        (state) => ({
+          preSendCompactionOperations: {
+            ...state.preSendCompactionOperations,
+            [compactionKey]: {
+              abortController: compactionController,
+              threadId: activeThreadId ?? null,
+            },
+          },
+        }),
+        false,
+        n('preSendCompaction/start'),
+      );
+      await get().triggerTokenThresholdMemoryCompaction(compactionController);
+      clearCompactionOperation();
+      if (compactionController.signal.aborted) {
         if (isCurrentConversation()) {
           set({ isCreatingMessage: false }, false, n('creatingMessage/stop'));
         }
@@ -414,7 +448,7 @@ export const generateAIChat: StateCreator<
         threadId: activeThreadId,
       });
     } finally {
-      preSendCompactionAbortController = undefined;
+      clearCompactionOperation();
       if (contextExportCaptureId && isCurrentConversation()) {
         get().completeContextExport(contextExportCaptureId);
       }
@@ -454,7 +488,14 @@ export const generateAIChat: StateCreator<
     await Promise.all([summaryTitle(), addFilesToAgent()]);
   },
   stopGenerateMessage: () => {
-    preSendCompactionAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    // abort only a pre-send compaction registered for the CURRENT conversation — a Stop
+    // issued from another session/topic must not kill it. (A portal-thread Stop shares
+    // this conversation key, but compaction refuses to start while a portal thread is
+    // open, so the overlap is limited to a thread opened after compaction began.)
+    const { activeId, activeTopicId, preSendCompactionOperations } = get();
+    preSendCompactionOperations[messageMapKey(activeId, activeTopicId)]?.abortController.abort(
+      MESSAGE_CANCEL_FLAT,
+    );
 
     const { chatLoadingIdsAbortController, internal_toggleChatLoading } = get();
 

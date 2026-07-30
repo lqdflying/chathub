@@ -5,7 +5,7 @@ import { LOADING_FLAT } from '@/const/message';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
-import { chatSelectors } from '@/store/chat/selectors';
+import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -143,6 +143,49 @@ describe('chatMessage actions', () => {
         expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
         expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
         expect(result.current.isCreatingMessage).toBe(false);
+      });
+
+      it('tracks a stoppable operation while compaction runs and clears it afterwards', async () => {
+        let compactingDuringRun = false;
+        const compactionSpy = vi.fn(async () => {
+          compactingDuringRun = aiChatSelectors.isCurrentPreSendCompacting(
+            useChatStore.getState(),
+          );
+          return { status: 'ineligible' } as any;
+        });
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(compactingDuringRun).toBe(true);
+        expect(result.current.preSendCompactionOperations).toEqual({});
+      });
+
+      it("stop in another conversation does not abort this send's compaction", async () => {
+        const compactionSpy = vi.fn(async () => {
+          const previousTopicId = useChatStore.getState().activeTopicId;
+          // a Stop pressed while another conversation is active must not abort this send
+          useChatStore.setState({ activeTopicId: 'other-topic' });
+          useChatStore.getState().stopGenerateMessage();
+          useChatStore.setState({ activeTopicId: previousTopicId });
+          return { status: 'ineligible' } as any;
+        });
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
       });
     });
 

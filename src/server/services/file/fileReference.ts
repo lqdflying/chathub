@@ -9,7 +9,20 @@ const decodeAppFileProxyKey = (pathname: string): string | undefined => {
       .split('/')
       .map((segment) => decodeURIComponent(segment));
 
-    if (segments.some((s) => s === '..' || s === '.' || s.includes('\\') || s === '')) {
+    if (
+      segments.some(
+        (s) =>
+          s === '..' ||
+          s === '.' ||
+          s === '' ||
+          // URL.pathname keeps %2F/%5C encoded, so a decoded segment can smuggle in
+          // separators ('..%2f..%2fx' → '../../x') — reject them, and control chars too
+          s.includes('/') ||
+          s.includes('\\') ||
+          // eslint-disable-next-line no-control-regex
+          /[\u0000-\u001F]/.test(s),
+      )
+    ) {
       return undefined;
     }
 

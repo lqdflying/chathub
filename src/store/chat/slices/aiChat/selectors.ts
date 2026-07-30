@@ -24,7 +24,13 @@ const isCurrentSendMessageError = (s: ChatStoreState) => {
 const isSendMessageLoadingForTopic = (topicKey: string) => (s: ChatStoreState) =>
   s.mainSendMessageOperations[topicKey]?.isLoading ?? false;
 
+const isCurrentPreSendCompacting = (s: ChatStoreState) => {
+  const operationKey = messageMapKey(s.activeId, s.activeTopicId);
+  return !!s.preSendCompactionOperations[operationKey];
+};
+
 export const aiChatSelectors = {
+  isCurrentPreSendCompacting,
   isCurrentSendMessageError,
   isCurrentSendMessageLoading,
   isIntentUnderstanding,

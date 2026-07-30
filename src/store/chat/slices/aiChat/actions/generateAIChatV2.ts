@@ -354,8 +354,60 @@ export const generateAIChatV2: StateCreator<
 
     summaryTitle().catch(console.error);
 
+    // The send operation's controller was already released in the finally above (and its
+    // cancel path only aborts while isLoading), so the pre-send compaction needs its own
+    // controller, registered under the conversation key so stopGenerateMessage can reach
+    // it. A server-created topic is already folded into conversationContext at this point.
+    const compactionKey = messageMapKey(
+      conversationContext.sessionId,
+      conversationContext.topicId,
+    );
+    const compactionController = new AbortController();
+    const clearCompactionOperation = () => {
+      set(
+        (state) => {
+          if (
+            state.preSendCompactionOperations[compactionKey]?.abortController !==
+            compactionController
+          )
+            return state;
+
+          const preSendCompactionOperations = { ...state.preSendCompactionOperations };
+          delete preSendCompactionOperations[compactionKey];
+          return { preSendCompactionOperations };
+        },
+        false,
+        n('preSendCompaction/end'),
+      );
+    };
+
     try {
-      await get().triggerTokenThresholdMemoryCompaction(abortController);
+      set(
+        (state) => ({
+          preSendCompactionOperations: {
+            ...state.preSendCompactionOperations,
+            [compactionKey]: {
+              abortController: compactionController,
+              threadId: activeThreadId ?? null,
+            },
+          },
+        }),
+        false,
+        n('preSendCompaction/start'),
+      );
+      try {
+        await get().triggerTokenThresholdMemoryCompaction(compactionController);
+      } finally {
+        clearCompactionOperation();
+      }
+      if (compactionController.signal.aborted) {
+        // the server already created the assistant placeholder; a stranded LOADING_FLAT
+        // message would render a loading bubble forever — remove it before bailing
+        if (isCurrentConversation()) {
+          await get().internal_deleteMessage(data.assistantMessageId);
+        }
+        return;
+      }
       if (!isCurrentConversation()) return;
 
       await internal_execAgentRuntime({

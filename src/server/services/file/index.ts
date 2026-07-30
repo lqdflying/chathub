@@ -104,6 +104,16 @@ export class FileService {
   }
 
   /**
+   * Whether a storage key belongs to this user. A files row stores the key either as the
+   * bare key (normal rows) or as a legacy full storage URL that resolves to it. Used to gate
+   * per-user access to the file proxy so a logged-in user can't read another user's objects.
+   */
+  public async isKeyOwnedByUser(key: string): Promise<boolean> {
+    const candidates = await this.fileModel.findUrlCandidatesByKey(key);
+    return candidates.some((url) => url === key || this.getKeyFromFullUrl(url) === key);
+  }
+
+  /**
    * 上传媒体文件
    */
   public async uploadMedia(key: string, buffer: Buffer): Promise<{ key: string }> {

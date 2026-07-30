@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getServerDB } from '@/database/server';
 import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { S3 } from '@/server/modules/S3';
+import { FileService } from '@/server/services/file';
 
 const CONTENT_TYPE_MAP: Record<string, string> = {
   gif: 'image/gif',
@@ -23,6 +25,14 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ key:
 
   const { key } = await params;
   const fileKey = key.join('/');
+
+  // Only serve objects the requesting user owns — otherwise any authenticated user could
+  // read another user's files by key (the proxy URL exposes the bare key).
+  const serverDB = await getServerDB();
+  const fileService = new FileService(serverDB, ctx.userId);
+  if (!(await fileService.isKeyOwnedByUser(fileKey))) {
+    return new NextResponse('File not found', { status: 404 });
+  }
 
   try {
     const s3 = new S3();

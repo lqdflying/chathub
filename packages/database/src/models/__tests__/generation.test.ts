@@ -209,6 +209,32 @@ describe('GenerationModel', () => {
     });
   });
 
+  describe('existsByAssetKey', () => {
+    it('matches the asset url key', async () => {
+      await serverDB.insert(generations).values({ ...testGeneration, userId });
+
+      expect(await generationModel.existsByAssetKey('asset-url.jpg')).toBe(true);
+    });
+
+    it('matches the asset thumbnailUrl key', async () => {
+      await serverDB.insert(generations).values({ ...testGeneration, userId });
+
+      expect(await generationModel.existsByAssetKey('thumbnail-url.jpg')).toBe(true);
+    });
+
+    it('returns false for a key that matches no generation asset', async () => {
+      await serverDB.insert(generations).values({ ...testGeneration, userId });
+
+      expect(await generationModel.existsByAssetKey('unknown-key.jpg')).toBe(false);
+    });
+
+    it('does not match another user\'s generation asset', async () => {
+      await serverDB.insert(generations).values({ ...testGeneration, userId: otherUserId });
+
+      expect(await generationModel.existsByAssetKey('asset-url.jpg')).toBe(false);
+    });
+  });
+
   describe('findByIdWithAsyncTask', () => {
     it('should find generation with async task data', async () => {
       const [createdGeneration] = await serverDB

@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { IMAGE_REFERENCE_ERROR_MESSAGES } from '@/const/imageGeneration';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
+import { GenerationModel } from '@/database/models/generation';
 import {
   NewGeneration,
   NewGenerationBatch,
@@ -116,9 +117,15 @@ const isUnsupportedProtocolRelativeReferenceError = (error: unknown): error is T
   error.code === 'BAD_REQUEST' &&
   error.message === IMAGE_REFERENCE_ERROR_MESSAGES.protocolRelativeReference;
 
+const isUnauthorizedReferenceError = (error: unknown): error is TRPCError =>
+  error instanceof TRPCError &&
+  error.code === 'FORBIDDEN' &&
+  error.message === IMAGE_REFERENCE_ERROR_MESSAGES.unauthorizedReference;
+
 const normalizeImageReference = async (
   reference: string,
   fileService: FileService,
+  generationModel: GenerationModel,
   referenceIsStored = false,
 ) => {
   if (reference.startsWith('data:')) {
@@ -142,6 +149,22 @@ const normalizeImageReference = async (
     referenceIsStored && !referenceIsAbsoluteUrl
       ? reference
       : (explicitAppFileProxyKey ?? fileService.getKeyFromFullUrl(reference));
+
+  // A reference already recovered from the user's own generation batch is trusted. A fresh
+  // client reference is not: presigning it would sign an arbitrary storage key. Require the
+  // key to belong to one of this user's own uploads or generated images before signing.
+  if (!referenceIsStored) {
+    const owned = databaseReference.startsWith('generations/')
+      ? await generationModel.existsByAssetKey(databaseReference)
+      : await fileService.isKeyOwnedByUser(databaseReference);
+    if (!owned) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: IMAGE_REFERENCE_ERROR_MESSAGES.unauthorizedReference,
+      });
+    }
+  }
+
   const dispatchReference = await fileService.getFullFileUrl(databaseReference);
 
   return {
@@ -240,6 +263,7 @@ const imageProcedure = authedProcedure
       ctx: {
         asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.userId),
         fileService: new FileService(ctx.serverDB, ctx.userId),
+        generationModel: new GenerationModel(ctx.serverDB, ctx.userId),
       },
     });
   });
@@ -247,7 +271,7 @@ const imageProcedure = authedProcedure
 export const imageRouter = router({
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {
     const execute = async () => {
-      const { userId, serverDB, asyncTaskModel, fileService } = ctx;
+      const { userId, serverDB, asyncTaskModel, fileService, generationModel } = ctx;
       const { generationTopicId, provider, model, imageNum, params, sourceGenerationBatchId } =
         input;
 
@@ -310,7 +334,12 @@ export const imageRouter = router({
         try {
           const normalizedReferences = await Promise.all(
             paramsWithSourceReferences.imageUrls.map((reference) =>
-              normalizeImageReference(reference, fileService, referencesComeFromSourceBatch),
+              normalizeImageReference(
+                reference,
+                fileService,
+                generationModel,
+                referencesComeFromSourceBatch,
+              ),
             ),
           );
 
@@ -323,7 +352,11 @@ export const imageRouter = router({
             imageUrls: normalizedReferences.map(({ dispatchReference }) => dispatchReference),
           };
         } catch (error) {
-          if (isUnsupportedProtocolRelativeReferenceError(error)) throw error;
+          if (
+            isUnsupportedProtocolRelativeReferenceError(error) ||
+            isUnauthorizedReferenceError(error)
+          )
+            throw error;
 
           logImageDebugSafe('config_warning', {
             ...describeImageDebugError(error),
@@ -343,12 +376,17 @@ export const imageRouter = router({
           const { databaseReference, dispatchReference } = await normalizeImageReference(
             paramsWithSourceReferences.imageUrl,
             fileService,
+            generationModel,
             referencesComeFromSourceBatch,
           );
           configForDatabase = { ...configForDatabase, imageUrl: databaseReference };
           paramsForDispatch = { ...paramsForDispatch, imageUrl: dispatchReference };
         } catch (error) {
-          if (isUnsupportedProtocolRelativeReferenceError(error)) throw error;
+          if (
+            isUnsupportedProtocolRelativeReferenceError(error) ||
+            isUnauthorizedReferenceError(error)
+          )
+            throw error;
 
           logImageDebugSafe('config_warning', {
             ...describeImageDebugError(error),

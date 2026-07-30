@@ -10,6 +10,7 @@ import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { aiChatSelectors } from '@/store/chat/selectors';
 import { useSessionStore } from '@/store/session';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -225,6 +226,67 @@ describe('generateAIChatV2 actions', () => {
         });
 
         expect(messageService.createMessage).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('pre-send compaction', () => {
+      const realTriggerCompaction = useChatStore.getState().triggerTokenThresholdMemoryCompaction;
+      const realDeleteMessage = useChatStore.getState().internal_deleteMessage;
+
+      afterEach(() => {
+        act(() => {
+          useChatStore.setState({
+            internal_deleteMessage: realDeleteMessage,
+            triggerTokenThresholdMemoryCompaction: realTriggerCompaction,
+          });
+        });
+      });
+
+      it('registers a fresh stoppable AbortController while compaction runs and clears it', async () => {
+        let compactingDuringRun = false;
+        const compactionSpy = vi.fn(async () => {
+          compactingDuringRun = aiChatSelectors.isCurrentPreSendCompacting(
+            useChatStore.getState(),
+          );
+          return { status: 'ineligible' } as any;
+        });
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(compactingDuringRun).toBe(true);
+        expect(result.current.preSendCompactionOperations).toEqual({});
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+      });
+
+      it('skips agent runtime and removes the placeholder when compaction is aborted', async () => {
+        const internal_deleteMessage = vi.fn(() => Promise.resolve());
+        const compactionSpy = vi.fn(async () => {
+          // simulate the user pressing Stop while the pre-send compaction is running
+          useChatStore.getState().stopGenerateMessage();
+          return { status: 'ineligible' } as any;
+        });
+        act(() => {
+          useChatStore.setState({
+            internal_deleteMessage,
+            triggerTokenThresholdMemoryCompaction: compactionSpy,
+          });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+        expect(internal_deleteMessage).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
+        expect(result.current.preSendCompactionOperations).toEqual({});
       });
     });
 

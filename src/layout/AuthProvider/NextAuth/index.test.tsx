@@ -123,6 +123,48 @@ describe('NextAuth provider', () => {
     expect(sessionProviderProps.mountCount).toBe(2);
   });
 
+  it('remounts on logout even when the authenticated session lacks a user id', () => {
+    const initialSession = {
+      expires: new Date(Date.now() + 60_000).toISOString(),
+      user: {},
+    } as Session;
+    sessionProviderProps.mountCount = 0;
+
+    render(
+      <NextAuth initialSession={initialSession}>
+        <div>protected-content</div>
+      </NextAuth>,
+    );
+
+    act(() => {
+      pollerProps.onReconcileSession?.(null);
+    });
+
+    expect(sessionProviderProps.session).toBeNull();
+    expect(sessionProviderProps.mountCount).toBe(2);
+  });
+
+  it('remounts when an anonymous session becomes an authenticated one without a user id', () => {
+    sessionProviderProps.mountCount = 0;
+
+    render(
+      <NextAuth initialSession={null}>
+        <div>protected-content</div>
+      </NextAuth>,
+    );
+
+    const nextSession = {
+      expires: new Date(Date.now() + 60_000).toISOString(),
+      user: {},
+    } as Session;
+    act(() => {
+      pollerProps.onReconcileSession?.(nextSession);
+    });
+
+    expect(sessionProviderProps.session).toBe(nextSession);
+    expect(sessionProviderProps.mountCount).toBe(2);
+  });
+
   it('does not remount the provider on re-renders with an unchanged identity', () => {
     const initialSession: Session = {
       expires: new Date(Date.now() + 60_000).toISOString(),

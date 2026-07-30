@@ -34,7 +34,26 @@ export const fileRouter = router({
     }),
 
   createFile: fileProcedure
-    .input(UploadFileSchema.omit({ url: true }).extend({ url: z.string() }))
+    .input(
+      UploadFileSchema.omit({ url: true }).extend({
+        // The url a client stores becomes a key that ownership checks (resolvePublicUrl,
+        // the file proxy, image references) trust, so reject traversal-shaped and
+        // control-char values before they land in the row. This is a shape filter, not a
+        // full ownership guarantee — keys are still self-asserted, but unguessable UUIDs.
+        url: z
+          .string()
+          .max(1024)
+          .refine(
+            (url) =>
+              !url.includes('\\') &&
+              // eslint-disable-next-line no-control-regex
+              !/[\u0000-\u001F]/.test(url) &&
+              !url.startsWith('/') &&
+              !url.split('/').some((segment) => segment === '..' || segment === '.'),
+            { message: 'invalid file url' },
+          ),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const { isExist } = await ctx.fileModel.checkHash(input.hash!);
 

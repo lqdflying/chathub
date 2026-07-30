@@ -270,6 +270,123 @@ describe('chat memory actions', () => {
     expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
   });
 
+  it('lets an abortable caller bail out of a running job without cancelling it', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+      await gate;
+      await onFinish?.('shared summary', {} as any);
+    });
+
+    // a job started without a controller (e.g. the auto-compact watcher)
+    const background = useChatStore.getState().triggerScheduledMemoryCompaction();
+    await vi.waitFor(() => expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(1));
+
+    // a pre-send caller joins the same job with its own controller and then aborts
+    const controller = new AbortController();
+    const joined = useChatStore.getState().triggerTokenThresholdMemoryCompaction(controller);
+    controller.abort();
+
+    await expect(joined).resolves.toEqual({ reason: 'aborted', status: 'ineligible' });
+    // the background job is untouched and still completes with its single topic write
+    release();
+    await background;
+    expect(topicService.updateTopic).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps pre-send token compaction at three batches without advancing the cursor past them', async () => {
+    // 85 user/assistant pairs → 168 eligible messages → batches of 40/40/40/40/8
+    const longMessages = Array.from({ length: 170 }, (_, i) =>
+      message(
+        i % 2 === 0 ? `u${i / 2 + 1}` : `a${(i - 1) / 2 + 1}`,
+        i % 2 === 0 ? 'user' : 'assistant',
+      ),
+    );
+    setConversation({ messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: longMessages } });
+    vi.mocked(estimateContextUsageAsync)
+      .mockReset()
+      .mockResolvedValueOnce({
+        chatsToken: 6,
+        contextMessages: longMessages,
+        historySummaryToken: 0,
+        totalToken: 800,
+      })
+      .mockResolvedValueOnce({
+        chatsToken: 4,
+        contextMessages: longMessages.slice(120),
+        historySummaryToken: 2,
+        totalToken: 700,
+      });
+
+    const result = await useChatStore
+      .getState()
+      .triggerTokenThresholdMemoryCompaction(new AbortController());
+
+    expect(result).toMatchObject({ messageCountIncluded: 120, status: 'compacted' });
+    expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(3);
+    // the cursor must stop at the end of batch 3 (messages[119]), not the last candidate
+    expect(topicService.updateTopic).toHaveBeenCalledWith(
+      TOPIC_ID,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ historySummaryLastMessageId: 'a60' }),
+      }),
+    );
+
+    // a follow-up run resumes from the capped cursor and summarizes the remaining batches
+    vi.mocked(estimateContextUsageAsync)
+      .mockResolvedValueOnce({
+        chatsToken: 6,
+        contextMessages: longMessages.slice(120),
+        historySummaryToken: 2,
+        totalToken: 800,
+      })
+      .mockResolvedValueOnce({
+        chatsToken: 2,
+        contextMessages: longMessages.slice(168),
+        historySummaryToken: 2,
+        totalToken: 500,
+      });
+
+    const followUp = await useChatStore
+      .getState()
+      .triggerTokenThresholdMemoryCompaction(new AbortController());
+
+    expect(followUp).toMatchObject({ messageCountIncluded: 48, status: 'compacted' });
+    expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(5);
+    const followUpRequest = vi.mocked(chatService.fetchPresetTaskResult).mock.calls[3][0];
+    expect(followUpRequest.params.messages?.[1].content).toContain('<user>u61</user>');
+    expect(followUpRequest.params.messages?.[1].content).not.toContain('<user>u60</user>');
+    expect(vi.mocked(topicService.updateTopic).mock.calls.at(-1)?.[1]).toMatchObject({
+      metadata: expect.objectContaining({ historySummaryLastMessageId: 'a84' }),
+    });
+  });
+
+  it('undoes a summary write that raced an invalidation', async () => {
+    vi.mocked(topicService.updateTopic).mockReset();
+    // the first (real) write lands, but an invalidation bumps the generation mid-flight
+    vi.mocked(topicService.updateTopic).mockImplementationOnce(async () => {
+      useChatStore.setState((s) => ({
+        memoryCompactionInvalidationGeneration: s.memoryCompactionInvalidationGeneration + 1,
+      }));
+    });
+    vi.mocked(topicService.updateTopic).mockResolvedValue(undefined);
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toMatchObject({ reason: 'conversation_changed', status: 'ineligible' });
+    // the stale summary is compensated with the same cleared state as invalidation
+    expect(topicService.updateTopic).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(topicService.updateTopic).mock.calls[1][1]).toMatchObject({
+      historySummary: '',
+      metadata: expect.objectContaining({
+        historySummaryLastMessageId: undefined,
+        memoryArchives: [],
+      }),
+    });
+  });
+
   it('skips count estimates when no complete turn has expired', async () => {
     vi.spyOn(agentChatConfigSelectors, 'historyCount').mockReturnValue(20);
 

@@ -158,6 +158,37 @@ describe('fileRouter', () => {
         }),
       ).rejects.toThrow();
     });
+
+    const createFileWithUrl = (url: string) =>
+      caller.createFile({
+        hash: 'test-hash',
+        fileType: 'image/png',
+        name: 'test.png',
+        size: 100,
+        url,
+        metadata: {},
+      });
+
+    it.each(['../secret.png', 'a/../b.png', '/abs/path.png', 'a\u0000b.png', 'a\\b.png'])(
+      'rejects a traversal-shaped or control-char url %j',
+      async (url) => {
+        await expect(createFileWithUrl(url)).rejects.toThrow();
+        expect(ctx.fileModel.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['files/466737/uuid.png', 'desktop://documents/x.png'])(
+      'accepts a well-formed key or desktop url %j',
+      async (url) => {
+        ctx.fileService.getUIFileUrl = vi.fn().mockResolvedValue('ui-url');
+
+        await expect(createFileWithUrl(url)).resolves.toEqual({ id: 'test-id', url: 'ui-url' });
+        expect(ctx.fileModel.create).toHaveBeenCalledWith(
+          expect.objectContaining({ url }),
+          false,
+        );
+      },
+    );
   });
 
   describe('findById', () => {
