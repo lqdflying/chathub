@@ -10,7 +10,7 @@ export interface HistoryTruncateConfig {
   enableHistoryCount?: boolean;
   /** Maximum number of historical messages to keep */
   historyCount?: number;
-  /** Maximum assistant/tool continuation messages after the latest user message (default 20) */
+  /** Keep at most this many of the latest assistant/tool continuation messages after the latest user message (default 20) */
   maxContinuationMessages?: number;
 }
 
@@ -46,9 +46,18 @@ export const getSlicedMessages = (
 
   const startIndex = Math.max(0, latestUserIndex + 1 - options.historyCount);
   const maxContinuation = options.maxContinuationMessages ?? DEFAULT_MAX_CONTINUATION;
-  const endIndex = Math.min(messages.length, latestUserIndex + 1 + maxContinuation);
+  const continuationCount = messages.length - (latestUserIndex + 1);
 
-  return messages.slice(startIndex, endIndex);
+  if (continuationCount <= maxContinuation) return messages.slice(startIndex);
+
+  // Pathological long tool tail: keep the stable prefix + latest user message, then the
+  // NEWEST maxContinuation continuation messages so the active loop always sees its most
+  // recent tool results and can make progress. Orphaned tool results at the head of the
+  // kept tail are dropped downstream by repairOpenAIChatToolMessageSequence.
+  return [
+    ...messages.slice(startIndex, latestUserIndex + 1),
+    ...messages.slice(messages.length - maxContinuation),
+  ];
 };
 
 /**

@@ -79,6 +79,74 @@ describe('HistoryTruncateProcessor', () => {
       ]);
     });
 
+    it('should keep the newest continuation messages when the tail exceeds maxContinuationMessages', () => {
+      const messagesWithLongTail = [
+        { id: 'old-assistant', content: 'Old answer', role: 'assistant' },
+        { id: 'latest-user', content: 'Search for this', role: 'user' },
+        { id: 'a1', content: '', role: 'assistant' },
+        { id: 't1', content: 'Result 1', role: 'tool' },
+        { id: 't2', content: 'Result 2', role: 'tool' },
+        { id: 'a2', content: '', role: 'assistant' },
+        { id: 't3', content: 'Result 3', role: 'tool' },
+        { id: 't4', content: 'Result 4', role: 'tool' },
+      ];
+
+      const result = getSlicedMessages(messagesWithLongTail, {
+        enableHistoryCount: true,
+        historyCount: 2,
+        maxContinuationMessages: 3,
+      });
+
+      expect(result.map(({ id }) => id)).toEqual([
+        'old-assistant',
+        'latest-user',
+        'a2',
+        't3',
+        't4',
+      ]);
+    });
+
+    it('should always include the newest tool result so a capped loop can progress', () => {
+      const base = [
+        { id: 'latest-user', content: 'Do the task', role: 'user' },
+        ...Array.from({ length: 5 }, (_, i) => ({
+          id: `tail-${i}`,
+          content: `Step ${i}`,
+          role: i % 2 === 0 ? 'assistant' : 'tool',
+        })),
+      ];
+      const grown = [...base, { id: 'tail-new', content: 'Newest result', role: 'tool' }];
+      const options = { enableHistoryCount: true, historyCount: 1, maxContinuationMessages: 3 };
+
+      const firstWindow = getSlicedMessages(base, options);
+      const secondWindow = getSlicedMessages(grown, options);
+
+      expect(secondWindow.at(-1)?.id).toBe('tail-new');
+      // consecutive rounds must not produce identical prompts, or the loop can never progress
+      expect(secondWindow.map(({ id }) => id)).not.toEqual(firstWindow.map(({ id }) => id));
+    });
+
+    it('should cap the continuation tail to the latest 20 messages by default', () => {
+      const longTail = [
+        { id: 'latest-user', content: 'Go', role: 'user' },
+        ...Array.from({ length: 25 }, (_, i) => ({
+          id: `c-${i}`,
+          content: `Continuation ${i}`,
+          role: i % 2 === 0 ? 'assistant' : 'tool',
+        })),
+      ];
+
+      const result = getSlicedMessages(longTail, {
+        enableHistoryCount: true,
+        historyCount: 5,
+      });
+
+      expect(result).toHaveLength(21); // latest user message + last 20 continuation messages
+      expect(result[0].id).toBe('latest-user');
+      expect(result[1].id).toBe('c-5');
+      expect(result.at(-1)?.id).toBe('c-24');
+    });
+
     it('should re-anchor the history window when a new user turn starts', () => {
       const messagesWithNewTurn = [
         { id: 'old-user', content: 'Old question', role: 'user' },
