@@ -1,15 +1,14 @@
 'use client';
 
+import type { MemoryCompactionDebugEntry } from '@lobechat/types';
+import { Icon, Text } from '@lobehub/ui';
 import { Collapse, Descriptions } from 'antd';
 import { createStyles } from 'antd-style';
-import type { MemoryCompactionDebugEntry } from '@lobechat/types';
 import { Bug, Eye } from 'lucide-react';
 import numeral from 'numeral';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
-
-import { Icon, Text } from '@lobehub/ui';
 
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
@@ -39,7 +38,7 @@ const MemoryCompactionDebug = memo(() => {
 
   if (!entries.length) return null;
 
-  const latest = entries[entries.length - 1] as MemoryCompactionDebugEntry;
+  const latest = entries.at(-1) as MemoryCompactionDebugEntry;
   const triggerLabel = t(`memoryCompaction.trigger.${latest.trigger}`, {
     defaultValue: latest.trigger,
   });
@@ -74,6 +73,20 @@ const MemoryCompactionDebug = memo(() => {
                   <Descriptions.Item label={t('memoryCompaction.debug.trigger')}>
                     {triggerLabel}
                   </Descriptions.Item>
+                  {!!latest.status && (
+                    <Descriptions.Item label={t('memoryCompaction.debug.status')}>
+                      {t(`memoryCompaction.result.${latest.status}`, {
+                        defaultValue: latest.status,
+                      })}
+                    </Descriptions.Item>
+                  )}
+                  {typeof latest.highWatermark === 'number' && (
+                    <Descriptions.Item label={t('memoryCompaction.debug.watermarks')}>
+                      {`${Math.round(latest.highWatermark * 100)}% -> ${Math.round(
+                        (latest.lowWatermark ?? 0) * 100,
+                      )}%`}
+                    </Descriptions.Item>
+                  )}
                   {typeof latest.estimatedTokensBefore === 'number' && (
                     <Descriptions.Item label={t('memoryCompaction.debug.approxTokensBefore')}>
                       {numeral(latest.estimatedTokensBefore).format('0,0')}
@@ -87,6 +100,16 @@ const MemoryCompactionDebug = memo(() => {
                   {typeof latest.messageCountIncluded === 'number' && (
                     <Descriptions.Item label={t('memoryCompaction.debug.messageCount')}>
                       {latest.messageCountIncluded}
+                    </Descriptions.Item>
+                  )}
+                  {!!latest.compactedThroughMessageId && (
+                    <Descriptions.Item label={t('memoryCompaction.debug.cursor')}>
+                      {latest.compactedThroughMessageId}
+                    </Descriptions.Item>
+                  )}
+                  {!!latest.reason && (
+                    <Descriptions.Item label={t('memoryCompaction.debug.reason')}>
+                      {latest.reason}
                     </Descriptions.Item>
                   )}
                   {!!modelLabel && (

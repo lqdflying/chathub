@@ -1,3 +1,4 @@
+import { getSlicedMessages as getContextEngineSlicedMessages } from '@lobechat/context-engine';
 import { OpenAIChatMessage, UIChatMessage } from '@lobechat/types';
 
 import { encodeAsync } from '@/utils/tokenizer';
@@ -16,19 +17,15 @@ const getSlicedMessages = (
     includeNewUserMessage?: boolean;
   },
 ): UIChatMessage[] => {
-  // if historyCount is not enabled, return all messages
-  if (!options.enableHistoryCount || options.historyCount === undefined) return messages;
+  const historyCount =
+    !!options.includeNewUserMessage && options.historyCount !== undefined
+      ? options.historyCount + 1
+      : options.historyCount;
 
-  // if user send message, history will include this message so the total length should +1
-  const messagesCount = !!options.includeNewUserMessage
-    ? options.historyCount + 1
-    : options.historyCount;
-
-  // if historyCount is negative or set to 0, return empty array
-  if (messagesCount <= 0) return [];
-
-  // if historyCount is positive, return last N messages
-  return messages.slice(-messagesCount);
+  return getContextEngineSlicedMessages(messages, {
+    enableHistoryCount: options.enableHistoryCount,
+    historyCount,
+  });
 };
 
 export const chatHelpers = {

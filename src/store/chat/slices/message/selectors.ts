@@ -2,6 +2,7 @@ import { ChatFileItem, UIChatMessage } from '@lobechat/types';
 
 import { DEFAULT_USER_AVATAR } from '@/const/meta';
 import { INBOX_SESSION_ID } from '@/const/session';
+import { selectMessagesForContext } from '@/helpers/contextCompaction';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -97,14 +98,31 @@ const mainAIChats = (s: ChatStoreState): UIChatMessage[] => {
   return getChatsWithThread(s, messages);
 };
 
+const mainTopicAIChats = (s: ChatStoreState): UIChatMessage[] =>
+  activeBaseChats(s).filter((message) => !message.threadId);
+
 const mainAIChatsWithHistoryConfig = (s: ChatStoreState): UIChatMessage[] => {
   const chats = mainAIChats(s);
-  const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(useAgentStore.getState());
-  const historyCount = agentChatConfigSelectors.historyCount(useAgentStore.getState());
+  const agentState = useAgentStore.getState();
+  const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
+  const enableCompressHistory =
+    agentChatConfigSelectors.currentChatConfig(agentState).enableCompressHistory;
+  const historyCount = agentChatConfigSelectors.historyCount(agentState);
+  const cursorId =
+    s.activeSessionType === 'group' ||
+    !!s.activeThreadId ||
+    !!s.portalThreadId ||
+    !enableHistoryCount ||
+    !enableCompressHistory
+      ? undefined
+      : s.topicMaps[s.activeId]?.find(({ id }) => id === s.activeTopicId)?.metadata
+          ?.historySummaryLastMessageId;
 
-  return chatHelpers.getSlicedMessages(chats, {
+  return selectMessagesForContext({
+    cursorId,
     enableHistoryCount,
     historyCount,
+    messages: chats,
   });
 };
 
@@ -318,5 +336,6 @@ export const chatSelectors = {
   mainAILatestMessageReasoningContent,
   mainDisplayChatIDs,
   mainDisplayChats,
+  mainTopicAIChats,
   showInboxWelcome,
 };

@@ -119,6 +119,39 @@ provider remains identifiable while its runtime is shown as `openai`.
 
 A notable implementation detail in the current code is proxy image URL resolution. After MCP tool calls, refreshed messages may contain `/webapi/files/...` URLs that are not directly accessible to providers, so `contextEngineering` resolves them back to public URLs before the pipeline runs.
 
+## Topic compaction and watermarks
+
+Topic compaction is incremental. Raw messages remain in storage; the topic metadata field
+`historySummaryLastMessageId` records the last complete turn represented by `historySummary`.
+Request construction removes messages through that cursor before applying the configured history
+window. The token estimator, token popover, and provider request all use the same latest-user-anchored
+window from `packages/context-engine`, so assistant/tool continuations extend the active turn without
+sliding the cached prefix.
+
+The configurable compact threshold is the high watermark. It is clamped to 50%-99% and defaults to
+80%. The low watermark is derived 20 percentage points below it, so the default target is 60%.
+Token compaction chooses the oldest complete turns needed to reach the low watermark. It never
+summarizes the latest user turn or an unresolved assistant/tool tail. If fixed prompt content and the
+protected turn already exceed the target, the action reports `target_unreachable` instead of retrying
+the same unchanged context continuously.
+
+The compaction prompt merges only messages after the cursor into the prior summary and caps the model
+output at 400 tokens. Large deltas are split between complete turns into bounded batches. Legacy topic
+summaries without a valid cursor are rebuilt from raw eligible history once, rather than treating an
+unknown prefix as safely compacted. Empty or failed model output never replaces the existing summary
+or advances the cursor. Identical archive excerpts are not stored twice.
+
+All entry points use the same per-topic single-flight action: manual, message-count, daily, pre-request
+token checks, and reactive token automation. The automatic watcher is driven by message/config/token
+changes instead of a polling timer. Topic compaction and topic-summary injection are intentionally
+limited to regular topic chats. Group chats and active/portal threads use their raw scoped history and
+cannot create, mutate, or consume a regular topic summary; assistant-wide memory remains available.
+
+Compaction persists the summary, cursor, archive data, and bounded debug log in one topic update. The
+debug entry records trigger, result, watermarks, before/after estimates, and cursor. Editing, deleting,
+or retry-rewinding a message at or before the cursor invalidates the derived summary and archive state
+before the conversation is regenerated.
+
 ## Retry and conversation rewind
 
 Retry is a state transition, not an append-only resend. The selected message resolves to its
@@ -134,6 +167,9 @@ restores and refreshes conversation state without generating; additional retry c
 while a rewind is in progress. Main-chat, active-thread, portal-thread, and group-chat retry
 buttons all use this primitive. Group retry routes the retained user message through the existing
 supervisor/direct-mention flow and does not create a second user message.
+
+If the discarded tail intersects the topic compaction cursor, retry also clears the derived topic
+summary and its archive excerpts. A later compaction rebuilds them from the retained raw messages.
 
 ## Package boundary
 
@@ -152,6 +188,8 @@ Useful test locations include:
 ## Key source references
 
 - `src/services/chat/contextEngineering.ts`
+- `src/helpers/contextCompaction.ts`
+- `src/store/chat/slices/aiChat/actions/memory.ts`
 - `packages/context-engine/src/pipeline.ts`
 - `packages/context-engine/src/processors/`
 - `packages/context-engine/src/providers/`

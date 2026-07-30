@@ -1,3 +1,4 @@
+import { ChatTopicMetadataSchema } from '@lobechat/types';
 import { z } from 'zod';
 
 import { TopicModel } from '@/database/models/topic';
@@ -204,12 +205,7 @@ export const topicRouter = router({
           favorite: z.boolean().optional(),
           historySummary: z.string().optional(),
           messages: z.array(z.string()).optional(),
-          metadata: z
-            .object({
-              model: z.string().optional(),
-              provider: z.string().optional(),
-            })
-            .optional(),
+          metadata: ChatTopicMetadataSchema.optional(),
           sessionId: z.string().optional(),
           title: z.string().optional(),
         }),

@@ -11,6 +11,7 @@ import { messageService } from '@/services/message';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useSessionStore } from '@/store/session';
+import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
 
@@ -436,6 +437,7 @@ describe('generateAIChatV2 actions', () => {
         const runtimeDeferred = createDeferred<void>();
         const addFilesToAgent = vi.fn().mockResolvedValue(undefined);
         let currentUserScope = 'user:account-a';
+        useUserStore.setState({ isUserStateInit: true, userStateScope: currentUserScope });
         vi.spyOn(authSelectors, 'currentUserScope').mockImplementation(() => currentUserScope);
         vi.spyOn(useAgentStore.getState(), 'addFilesToAgent').mockImplementation(addFilesToAgent);
         useChatStore.setState({

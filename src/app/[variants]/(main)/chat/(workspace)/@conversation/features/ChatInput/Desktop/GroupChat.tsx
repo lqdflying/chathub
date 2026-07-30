@@ -9,7 +9,6 @@ import { Flexbox } from 'react-layout-kit';
 
 import { DEFAULT_AVATAR } from '@/const/meta';
 import { type ActionKeys, ChatInputProvider, DesktopChatInput } from '@/features/ChatInput';
-import MemoryContextOrchestrator from '@/features/Conversation/components/ContextMemory/MemoryContextOrchestrator';
 import WideScreenContainer from '@/features/Conversation/components/WideScreenContainer';
 import { useChatStore } from '@/store/chat';
 import { aiChatSelectors } from '@/store/chat/selectors';
@@ -105,7 +104,6 @@ const Desktop = memo((props: { targetMemberId?: string }) => {
       }}
     >
       <WideScreenContainer>
-        <MemoryContextOrchestrator />
         {mainInputSendErrorMsg && (
           <Flexbox paddingBlock={'0 6px'} paddingInline={12}>
             <Alert

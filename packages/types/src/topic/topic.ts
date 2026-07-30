@@ -1,13 +1,10 @@
+import { z } from 'zod';
+
 import { BaseDataModel } from '@/types/meta';
 
 // 类型定义
 export type TimeGroupId =
-  | 'today'
-  | 'yesterday'
-  | 'week'
-  | 'month'
-  | `${number}-${string}`
-  | `${number}`;
+  'today' | 'yesterday' | 'week' | 'month' | `${number}-${string}` | `${number}`;
 
 /* eslint-disable typescript-sort-keys/string-enum */
 export enum TopicDisplayMode {
@@ -24,19 +21,33 @@ export interface GroupedTopic {
   title?: string;
 }
 
-export type MemoryCompactionTrigger =
-  | 'manual'
-  | 'message_count'
-  | 'scheduled'
-  | 'token_threshold';
+export type MemoryCompactionTrigger = 'manual' | 'message_count' | 'scheduled' | 'token_threshold';
+
+export type MemoryCompactionStatus =
+  'compacted' | 'failed' | 'ineligible' | 'not_needed' | 'target_unreachable';
+
+export interface MemoryCompactionResult {
+  estimatedTokensAfter?: number;
+  estimatedTokensBefore?: number;
+  highWatermark?: number;
+  lowWatermark?: number;
+  messageCountIncluded?: number;
+  reason?: string;
+  status: MemoryCompactionStatus;
+}
 
 export interface MemoryCompactionDebugEntry {
   at: number;
+  compactedThroughMessageId?: string;
   estimatedTokensAfter?: number;
   estimatedTokensBefore?: number;
+  highWatermark?: number;
+  lowWatermark?: number;
   messageCountIncluded?: number;
   model?: string;
   provider?: string;
+  reason?: string;
+  status?: MemoryCompactionStatus;
   trigger: MemoryCompactionTrigger;
 }
 
@@ -52,11 +63,59 @@ export interface TopicMemoryArchiveEntry {
 }
 
 export interface ChatTopicMetadata {
+  historySummaryLastMessageId?: string;
   memoryArchives?: TopicMemoryArchiveEntry[];
   memoryDebugLog?: MemoryCompactionDebugEntry[];
   model?: string;
   provider?: string;
 }
+
+const memoryCompactionTriggerSchema = z.enum([
+  'manual',
+  'message_count',
+  'scheduled',
+  'token_threshold',
+]);
+const memoryCompactionStatusSchema = z.enum([
+  'compacted',
+  'failed',
+  'ineligible',
+  'not_needed',
+  'target_unreachable',
+]);
+
+export const ChatTopicMetadataSchema = z.object({
+  historySummaryLastMessageId: z.string().optional(),
+  memoryArchives: z
+    .array(
+      z.object({
+        at: z.number(),
+        summaryExcerpt: z.string(),
+        trigger: memoryCompactionTriggerSchema.optional(),
+      }),
+    )
+    .optional(),
+  memoryDebugLog: z
+    .array(
+      z.object({
+        at: z.number(),
+        compactedThroughMessageId: z.string().optional(),
+        estimatedTokensAfter: z.number().optional(),
+        estimatedTokensBefore: z.number().optional(),
+        highWatermark: z.number().optional(),
+        lowWatermark: z.number().optional(),
+        messageCountIncluded: z.number().optional(),
+        model: z.string().optional(),
+        provider: z.string().optional(),
+        reason: z.string().optional(),
+        status: memoryCompactionStatusSchema.optional(),
+        trigger: memoryCompactionTriggerSchema,
+      }),
+    )
+    .optional(),
+  model: z.string().optional(),
+  provider: z.string().optional(),
+}) satisfies z.ZodType<ChatTopicMetadata>;
 
 export interface ChatTopicSummary {
   content: string;

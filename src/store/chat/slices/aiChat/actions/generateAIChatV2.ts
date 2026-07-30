@@ -22,13 +22,10 @@ import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/slices/chat';
 import { aiModelSelectors, aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
@@ -358,6 +355,9 @@ export const generateAIChatV2: StateCreator<
     summaryTitle().catch(console.error);
 
     try {
+      await get().triggerTokenThresholdMemoryCompaction();
+      if (!isCurrentConversation()) return;
+
       await internal_execAgentRuntime({
         conversationContext,
         contextExportCaptureId: activeContextExportCaptureId,
@@ -499,7 +499,7 @@ export const generateAIChatV2: StateCreator<
     const messages = [...originalMessages];
 
     const agentStoreState = getAgentStoreState();
-    const { model, provider, chatConfig } = agentSelectors.currentAgentConfig(agentStoreState);
+    const { model, provider } = agentSelectors.currentAgentConfig(agentStoreState);
 
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;
@@ -707,21 +707,8 @@ export const generateAIChatV2: StateCreator<
       }
     }
 
-    // 6. summary history if context messages is larger than historyCount
-    const historyCount = agentChatConfigSelectors.historyCount(agentStoreState);
-
-    if (
-      agentChatConfigSelectors.enableHistoryCount(agentStoreState) &&
-      chatConfig.enableCompressHistory &&
-      originalMessages.length > historyCount
-    ) {
-      // after generation: [u1,a1,u2,a2,u3,a3]
-      // but the `originalMessages` is still: [u1,a1,u2,a2,u3]
-      // So if historyCount=2, we need to summary [u1,a1,u2,a2]
-      // because user find UI is [u1,a1,u2,a2 | u3,a3]
-      const historyMessages = originalMessages.slice(0, -historyCount + 1);
-
-      await get().internal_summaryHistory(historyMessages, { trigger: 'message_count' });
+    if (!params.threadId && !params.inPortalThread) {
+      void Promise.resolve(get().triggerMessageCountMemoryCompaction()).catch(console.error);
     }
   },
 

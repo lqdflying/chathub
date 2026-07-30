@@ -20,6 +20,7 @@ export {
 // Processors
 export type { VisionRoutingConfig } from './processors';
 export {
+  getSlicedMessages,
   GroupMessageFlattenProcessor,
   HistoryTruncateProcessor,
   InputTemplateProcessor,

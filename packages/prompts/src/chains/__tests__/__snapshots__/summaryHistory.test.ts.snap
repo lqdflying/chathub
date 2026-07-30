@@ -4,7 +4,7 @@ exports[`chainSummaryHistory > should use the default model if the token count i
 {
   "messages": [
     {
-      "content": "You're an assistant who's good at extracting key takeaways from conversations and summarizing them. Please summarize according to the user's needs. The content you need to summarize is located in the <chat_history> </chat_history> group of xml tags. The summary needs to maintain the original language.",
+      "content": "You maintain a compact, cumulative memory of a conversation. Merge new chat history into the existing summary when one is provided. Preserve the conversation's original language. Keep durable facts, user preferences, decisions, constraints, technical identifiers, completed work, and unresolved tasks. Replace superseded facts instead of retaining contradictions. Do not invent details. Return only the updated summary, limited to 400 tokens.",
       "role": "system",
     },
     {
@@ -13,7 +13,7 @@ exports[`chainSummaryHistory > should use the default model if the token count i
 <user>I need help with my account.</user>
 </chat_history>
 
-Please summarize the above conversation and retain key information. The summarized content will be used as context for subsequent prompts, and should be limited to 400 tokens.",
+Merge the new conversation content into a self-contained cumulative summary.",
       "role": "user",
     },
   ],

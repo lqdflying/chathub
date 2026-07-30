@@ -1,39 +1,157 @@
 import { chainSummaryHistory } from '@lobechat/prompts';
-import { SummaryHistoryOptions, TraceNameMap, UIChatMessage } from '@lobechat/types';
+import {
+  type ChatTopicMetadata,
+  type MemoryCompactionResult,
+  type MemoryCompactionTrigger,
+  TraceNameMap,
+  type UIChatMessage,
+} from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
+import {
+  CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+  getContextCompactionWatermarks,
+  getSettledCompactionPrefixes,
+  resolvePendingCompactionHistory,
+  selectDefaultCompactionPrefix,
+  splitCompactionBatches,
+} from '@/helpers/contextCompaction';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
+import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
 import { topicService } from '@/services/topic';
-import { getAgentStoreState } from '@/store/agent/store';
-import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import {
   AccountMutationSnapshot,
   captureAccountMutationSnapshot,
   isAccountMutationCurrent,
 } from '@/store/accountMutation';
-import type { ChatStore } from '@/store/chat/store';
+import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
+import { getAgentStoreState } from '@/store/agent/store';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
+import type { ChatStore } from '@/store/chat/store';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
+import { encodeAsync } from '@/utils/tokenizer';
 
 const MAX_MEMORY_DEBUG_LOG = 20;
+const MAX_MEMORY_ARCHIVES = 24;
+const compactionJobs = new Map<string, Promise<MemoryCompactionResult>>();
+
+const compactionResult = (
+  status: MemoryCompactionResult['status'],
+  values: Omit<MemoryCompactionResult, 'status'> = {},
+): MemoryCompactionResult => ({ status, ...values });
 
 export interface ChatMemoryAction {
-  internal_summaryHistory: (
-    messages: UIChatMessage[],
-    options?: SummaryHistoryOptions,
-  ) => Promise<void>;
-  triggerManualMemoryCompaction: () => Promise<void>;
-  triggerScheduledMemoryCompaction: () => Promise<void>;
-  triggerTokenThresholdMemoryCompaction: () => Promise<void>;
+  internal_invalidateMemoryCompaction: (messageIds: string[]) => Promise<void>;
+  triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
+  triggerMessageCountMemoryCompaction: () => Promise<MemoryCompactionResult>;
+  triggerScheduledMemoryCompaction: () => Promise<MemoryCompactionResult>;
+  triggerTokenThresholdMemoryCompaction: () => Promise<MemoryCompactionResult>;
 }
+
+const countTextTokens = async (text: string) => {
+  try {
+    return await encodeAsync(text);
+  } catch {
+    return text.length;
+  }
+};
+
+const selectTokenTargetPrefix = async ({
+  contextMessages,
+  estimatedTokensBefore,
+  maxTokens,
+  pendingMessages,
+  previousSummary,
+  targetRatio,
+}: {
+  contextMessages: UIChatMessage[];
+  estimatedTokensBefore: number;
+  maxTokens: number;
+  pendingMessages: UIChatMessage[];
+  previousSummary: string;
+  targetRatio: number;
+}) => {
+  const prefixes = getSettledCompactionPrefixes(pendingMessages);
+  if (!prefixes.length) return { messages: [] as UIChatMessage[], targetReachable: false };
+
+  const contextMessageIds = new Set(contextMessages.map(({ id }) => id));
+  const previousSummaryTokens = await countTextTokens(previousSummary);
+  const summaryGrowthAllowance = Math.max(
+    0,
+    CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS - previousSummaryTokens,
+  );
+  const targetTokens = maxTokens * targetRatio;
+
+  for (const prefix of prefixes) {
+    const removableText = prefix
+      .filter(({ id }) => contextMessageIds.has(id))
+      .map(({ content }) => content)
+      .join('');
+    const removableTokens = await countTextTokens(removableText);
+    const projectedTokens = estimatedTokensBefore - removableTokens + summaryGrowthAllowance;
+
+    if (projectedTokens <= targetTokens) return { messages: prefix, targetReachable: true };
+  }
+
+  return { messages: prefixes.at(-1) ?? [], targetReachable: false };
+};
+
+const summarizeBatch = async ({
+  messages,
+  model,
+  previousSummary,
+  provider,
+  sessionId,
+  topicId,
+}: {
+  messages: UIChatMessage[];
+  model: string;
+  previousSummary: string;
+  provider: string;
+  sessionId?: string;
+  topicId: string;
+}): Promise<string | undefined> => {
+  let failed = false;
+  let output = '';
+
+  await chatService.fetchPresetTaskResult({
+    onError: () => {
+      failed = true;
+    },
+    onFinish: async (text) => {
+      output = text;
+    },
+    params: {
+      ...chainSummaryHistory(messages, previousSummary || undefined),
+      max_tokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+      model,
+      provider,
+      stream: false,
+    },
+    trace: {
+      sessionId,
+      topicId,
+      traceName: TraceNameMap.SummaryHistoryMessages,
+    },
+  });
+
+  const summary = output.trim();
+  return failed || !summary ? undefined : summary;
+};
+
+const isRegularTopicCompaction = (state: ChatStore) =>
+  state.activeSessionType !== 'group' &&
+  !state.activeThreadId &&
+  !state.portalThreadId &&
+  !chatSelectors.mainTopicAIChats(state).some(({ groupId }) => !!groupId);
 
 async function runCompactionFromStore(
   get: () => ChatStore,
-  trigger: 'manual' | 'scheduled' | 'token_threshold',
+  trigger: MemoryCompactionTrigger,
   accountMutationSnapshot: AccountMutationSnapshot,
-) {
+): Promise<MemoryCompactionResult> {
   const state = get();
   const requestedGeneration = state.conversationClearGeneration;
   const requestedSessionId = state.activeId;
@@ -43,170 +161,299 @@ async function runCompactionFromStore(
     get().conversationClearGeneration === requestedGeneration &&
     get().activeId === requestedSessionId &&
     get().activeTopicId === requestedTopicId;
-  if (!isCurrentRequest()) return;
+
+  if (!requestedSessionId || !requestedTopicId || !isCurrentRequest()) {
+    return compactionResult('ineligible', { reason: 'no_active_topic' });
+  }
+  if (!isRegularTopicCompaction(state)) {
+    return compactionResult('ineligible', { reason: 'threads_and_groups_are_not_supported' });
+  }
+  if (chatSelectors.isAIGenerating(state)) {
+    return compactionResult('ineligible', { reason: 'generation_in_progress' });
+  }
 
   const agentState = getAgentStoreState();
   const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
+  const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
   const historyCount = agentChatConfigSelectors.historyCount(agentState);
 
-  if (!state.activeTopicId) return;
-  if (!chatConfig.enableHistoryCount || !chatConfig.enableCompressHistory) return;
-
-  const originalMessages = chatSelectors.mainAIChatsWithHistoryConfig(state);
-  if (originalMessages.length <= 1) return;
-
-  let historyMessages: UIChatMessage[];
-  if (originalMessages.length > historyCount) {
-    historyMessages = originalMessages.slice(0, -historyCount + 1);
-  } else if (originalMessages.length > 2) {
-    historyMessages = originalMessages.slice(0, -2);
-  } else {
-    return;
+  if (!enableHistoryCount || !chatConfig.enableCompressHistory) {
+    return compactionResult('ineligible', { reason: 'history_compaction_is_disabled' });
+  }
+  if (trigger === 'token_threshold' && !chatConfig.enableTokenThresholdAutoCompact) {
+    return compactionResult('ineligible', { reason: 'token_auto_compaction_is_disabled' });
   }
 
-  if (historyMessages.length <= 1) return;
+  const topic = topicSelectors.currentActiveTopic(state);
+  if (!topic) return compactionResult('ineligible', { reason: 'topic_not_loaded' });
 
-  const est = await estimateContextUsageAsync({
-    agentState,
-    chatState: state,
+  const mainMessages = chatSelectors.mainTopicAIChats(state);
+  const pending = resolvePendingCompactionHistory({
+    cursorId: topic.metadata?.historySummaryLastMessageId,
+    historySummary: topic.historySummary,
+    messages: mainMessages,
   });
-  if (!isCurrentRequest()) return;
+  const { high, low } = getContextCompactionWatermarks(chatConfig.contextCompactThreshold);
+  let candidateMessages: UIChatMessage[] = [];
+  let targetReachable = true;
 
-  await get().internal_summaryHistory(historyMessages, {
-    estimatedTokensBefore: est.totalToken,
+  if (trigger !== 'token_threshold') {
+    candidateMessages = selectDefaultCompactionPrefix(
+      pending.pendingMessages,
+      trigger,
+      historyCount,
+    );
+    if (pending.rebuildingSummary) {
+      candidateMessages = getSettledCompactionPrefixes(pending.pendingMessages).at(-1) ?? [];
+    }
+    if (!candidateMessages.length) {
+      return compactionResult('not_needed', {
+        highWatermark: high,
+        lowWatermark: low,
+        reason: 'no_settled_turn_available',
+      });
+    }
+  }
+
+  const beforeEstimate = await estimateContextUsageAsync({ agentState, chatState: state });
+  if (!isCurrentRequest())
+    return compactionResult('ineligible', { reason: 'conversation_changed' });
+
+  const { model: chatModel, provider: chatProvider } =
+    // The history compression model is used only for the summarizer; the active model owns watermarks.
+    systemAgentSelectors.historyCompress(useUserStore.getState());
+  const { model: activeModel, provider: activeProvider } =
+    agentSelectors.currentAgentConfig(agentState);
+  const maxTokens = getModelContextWindowTokens(activeModel, activeProvider);
+
+  if (trigger === 'token_threshold') {
+    if (!maxTokens) {
+      return compactionResult('ineligible', { reason: 'unknown_context_window' });
+    }
+    if (beforeEstimate.totalToken / maxTokens < high) {
+      return compactionResult('not_needed', {
+        estimatedTokensBefore: beforeEstimate.totalToken,
+        highWatermark: high,
+        lowWatermark: low,
+        reason: 'below_high_watermark',
+      });
+    }
+  }
+
+  if (trigger === 'token_threshold' && maxTokens) {
+    const selected = await selectTokenTargetPrefix({
+      contextMessages: beforeEstimate.contextMessages,
+      estimatedTokensBefore: beforeEstimate.totalToken,
+      maxTokens,
+      pendingMessages: pending.pendingMessages,
+      previousSummary: pending.previousSummary,
+      targetRatio: low,
+    });
+    candidateMessages = selected.messages;
+    targetReachable = selected.targetReachable;
+  }
+
+  if (pending.rebuildingSummary) {
+    candidateMessages = getSettledCompactionPrefixes(pending.pendingMessages).at(-1) ?? [];
+  }
+
+  if (!candidateMessages.length) {
+    return compactionResult(trigger === 'token_threshold' ? 'target_unreachable' : 'not_needed', {
+      estimatedTokensBefore: beforeEstimate.totalToken,
+      highWatermark: high,
+      lowWatermark: low,
+      reason: 'no_settled_turn_available',
+    });
+  }
+
+  let historySummary = pending.previousSummary;
+  for (const batch of splitCompactionBatches(candidateMessages)) {
+    const nextSummary = await summarizeBatch({
+      messages: batch,
+      model: chatModel,
+      previousSummary: historySummary,
+      provider: chatProvider,
+      sessionId: requestedSessionId,
+      topicId: requestedTopicId,
+    });
+    if (!isCurrentRequest()) {
+      return compactionResult('ineligible', { reason: 'conversation_changed' });
+    }
+    if (!nextSummary) {
+      return compactionResult('failed', {
+        estimatedTokensBefore: beforeEstimate.totalToken,
+        highWatermark: high,
+        lowWatermark: low,
+        reason: 'empty_or_failed_summary',
+      });
+    }
+    historySummary = nextSummary;
+  }
+
+  const compactedThroughMessageId = candidateMessages.at(-1)!.id;
+  const previousMetadata = topic.metadata ?? {};
+  const previousArchives = previousMetadata.memoryArchives ?? [];
+  const archiveExcerpt = historySummary.slice(0, 600);
+  const shouldArchive =
+    !!chatConfig.enableUserMemoryArchive &&
+    !!archiveExcerpt &&
+    !previousArchives.some(({ summaryExcerpt }) => summaryExcerpt === archiveExcerpt);
+  const nextArchives = shouldArchive
+    ? [
+        ...previousArchives.slice(-(MAX_MEMORY_ARCHIVES - 1)),
+        { at: Date.now(), summaryExcerpt: archiveExcerpt, trigger },
+      ]
+    : previousArchives;
+  const afterEstimate = await estimateContextUsageAsync({
+    agentState,
+    chatState: get(),
+    overrides: {
+      historySummary,
+      historySummaryLastMessageId: compactedThroughMessageId,
+      memoryArchives: nextArchives,
+    },
+  });
+  if (!isCurrentRequest())
+    return compactionResult('ineligible', { reason: 'conversation_changed' });
+
+  const lastEligibleMessageId = getSettledCompactionPrefixes(pending.pendingMessages)
+    .at(-1)
+    ?.at(-1)?.id;
+  const exhaustedEligibleHistory =
+    !targetReachable || compactedThroughMessageId === lastEligibleMessageId;
+  const status =
+    trigger === 'token_threshold' &&
+    maxTokens &&
+    exhaustedEligibleHistory &&
+    afterEstimate.totalToken / maxTokens > low
+      ? 'target_unreachable'
+      : 'compacted';
+  const reason =
+    status === 'target_unreachable' ? 'protected_context_exceeds_low_watermark' : undefined;
+  const debugEntry = {
+    at: Date.now(),
+    compactedThroughMessageId,
+    estimatedTokensAfter: afterEstimate.totalToken,
+    estimatedTokensBefore: beforeEstimate.totalToken,
+    highWatermark: high,
+    lowWatermark: low,
+    messageCountIncluded: candidateMessages.length,
+    model: chatModel,
+    provider: chatProvider,
+    reason,
+    status,
     trigger,
+  } as const;
+  const nextMetadata: ChatTopicMetadata = {
+    ...previousMetadata,
+    historySummaryLastMessageId: compactedThroughMessageId,
+    memoryArchives: nextArchives,
+    memoryDebugLog: [
+      ...(previousMetadata.memoryDebugLog ?? []).slice(-(MAX_MEMORY_DEBUG_LOG - 1)),
+      debugEntry,
+    ],
+    model: chatModel,
+    provider: chatProvider,
+  };
+
+  await topicService.updateTopic(requestedTopicId, {
+    historySummary,
+    metadata: nextMetadata,
+  });
+  if (isCurrentRequest()) {
+    get().internal_dispatchTopic(
+      {
+        id: requestedTopicId,
+        type: 'updateTopic',
+        value: { historySummary, metadata: nextMetadata },
+      },
+      'memoryCompaction',
+    );
+  }
+
+  return compactionResult(status, {
+    estimatedTokensAfter: afterEstimate.totalToken,
+    estimatedTokensBefore: beforeEstimate.totalToken,
+    highWatermark: high,
+    lowWatermark: low,
+    messageCountIncluded: candidateMessages.length,
+    reason,
   });
 }
+
+const triggerCompaction = async (
+  get: () => ChatStore,
+  trigger: MemoryCompactionTrigger,
+): Promise<MemoryCompactionResult> => {
+  const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+  const state = get();
+  if (!accountMutationSnapshot || !state.activeId || !state.activeTopicId) {
+    return compactionResult('ineligible', { reason: 'no_active_topic' });
+  }
+
+  const key = `${accountMutationSnapshot.scope}:${state.activeId}:${state.activeTopicId}`;
+  const running = compactionJobs.get(key);
+  if (running) return running;
+
+  const job = runCompactionFromStore(get, trigger, accountMutationSnapshot).catch(() =>
+    compactionResult('failed', { reason: 'compaction_exception' }),
+  );
+  compactionJobs.set(key, job);
+  try {
+    return await job;
+  } finally {
+    if (compactionJobs.get(key) === job) compactionJobs.delete(key);
+  }
+};
 
 export const chatMemory: StateCreator<
   ChatStore,
   [['zustand/devtools', never]],
   [],
   ChatMemoryAction
-> = (set, get) => ({
-  internal_summaryHistory: async (messages, options) => {
+> = (_set, get) => ({
+  internal_invalidateMemoryCompaction: async (messageIds) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    if (!accountMutationSnapshot) return;
-
-    const topicId = get().activeTopicId;
-    if (messages.length <= 1 || !topicId) return;
-    const requestedGeneration = get().conversationClearGeneration;
-    const requestedSessionId = get().activeId;
-    const isCurrentRequest = () =>
-      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === requestedSessionId &&
-      get().activeTopicId === topicId;
-
-    const trigger = options?.trigger ?? 'message_count';
-
-    const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
-
-    let estimatedTokensBefore = options?.estimatedTokensBefore;
-    if (estimatedTokensBefore === undefined) {
-      const est = await estimateContextUsageAsync({
-        agentState: getAgentStoreState(),
-        chatState: get(),
-      });
-      estimatedTokensBefore = est.totalToken;
-      if (!isCurrentRequest()) return;
+    const state = get();
+    const topicId = state.activeTopicId;
+    const sessionId = state.activeId;
+    if (!accountMutationSnapshot || !topicId || !sessionId || state.activeSessionType === 'group') {
+      return;
     }
 
-    let historySummary = '';
-    await chatService.fetchPresetTaskResult({
-      onFinish: async (text) => {
-        if (!isCurrentRequest()) return;
-        historySummary = text;
-      },
-      params: { ...chainSummaryHistory(messages), model, provider, stream: false },
-      trace: {
-        sessionId: get().activeId,
-        topicId: get().activeTopicId,
-        traceName: TraceNameMap.SummaryHistoryMessages,
-      },
+    const topic = topicSelectors.currentActiveTopic(state);
+    const cursorId = topic?.metadata?.historySummaryLastMessageId;
+    if (!topic?.historySummary && !cursorId) return;
+
+    const mainMessages = chatSelectors.mainTopicAIChats(state);
+    const cursorIndex = cursorId ? mainMessages.findIndex(({ id }) => id === cursorId) : -1;
+    const affectsSummary = messageIds.some((id) => {
+      const index = mainMessages.findIndex((message) => message.id === id);
+      return index >= 0 && (cursorIndex < 0 || index <= cursorIndex);
     });
-    if (!isCurrentRequest()) return;
+    if (!affectsSummary) return;
 
-    const prevTopic = topicSelectors.currentActiveTopic(get());
-    const prevMeta = prevTopic?.metadata ?? {};
-
-    await topicService.updateTopic(topicId, {
-      historySummary,
-      metadata: {
-        ...prevMeta,
-        model,
-        provider,
-      },
-    });
-    if (!isCurrentRequest()) return;
-    await get().refreshTopic();
-    if (!isCurrentRequest()) return;
-    await get().refreshMessages();
-    if (!isCurrentRequest()) return;
-
-    const afterEst = await estimateContextUsageAsync({
-      agentState: getAgentStoreState(),
-      chatState: get(),
-    });
-    if (!isCurrentRequest()) return;
-
-    const metaAfterRefresh = topicSelectors.currentActiveTopic(get())?.metadata ?? prevMeta;
-
-    const debugEntry = {
-      at: Date.now(),
-      estimatedTokensAfter: afterEst.totalToken,
-      estimatedTokensBefore,
-      messageCountIncluded: messages.length,
-      model,
-      provider,
-      trigger,
+    const metadata: ChatTopicMetadata = {
+      ...topic.metadata,
+      historySummaryLastMessageId: undefined,
+      memoryArchives: [],
     };
+    await topicService.updateTopic(topicId, { historySummary: '', metadata });
 
-    const prevLog = metaAfterRefresh.memoryDebugLog ?? [];
-    const agentCfg = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
-    const prevArchives = metaAfterRefresh.memoryArchives ?? [];
-    const nextArchives =
-      agentCfg.enableUserMemoryArchive && historySummary
-        ? [
-            ...prevArchives.slice(-24),
-            {
-              at: Date.now(),
-              summaryExcerpt: historySummary.slice(0, 600),
-              trigger,
-            },
-          ]
-        : prevArchives;
-
-    await topicService.updateTopic(topicId, {
-      metadata: {
-        ...metaAfterRefresh,
-        memoryArchives: nextArchives,
-        memoryDebugLog: [...prevLog.slice(-(MAX_MEMORY_DEBUG_LOG - 1)), debugEntry],
-        model,
-        provider,
-      },
-    });
-    if (isCurrentRequest()) await get().refreshTopic();
+    if (
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      get().activeId === sessionId &&
+      get().activeTopicId === topicId
+    ) {
+      get().internal_dispatchTopic(
+        { id: topicId, type: 'updateTopic', value: { historySummary: '', metadata } },
+        'invalidateMemoryCompaction',
+      );
+    }
   },
 
-  triggerManualMemoryCompaction: async () => {
-    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    if (!accountMutationSnapshot) return;
-
-    await runCompactionFromStore(get, 'manual', accountMutationSnapshot);
-  },
-
-  triggerScheduledMemoryCompaction: async () => {
-    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    if (!accountMutationSnapshot) return;
-
-    await runCompactionFromStore(get, 'scheduled', accountMutationSnapshot);
-  },
-
-  triggerTokenThresholdMemoryCompaction: async () => {
-    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    if (!accountMutationSnapshot) return;
-
-    await runCompactionFromStore(get, 'token_threshold', accountMutationSnapshot);
-  },
+  triggerManualMemoryCompaction: () => triggerCompaction(get, 'manual'),
+  triggerMessageCountMemoryCompaction: () => triggerCompaction(get, 'message_count'),
+  triggerScheduledMemoryCompaction: () => triggerCompaction(get, 'scheduled'),
+  triggerTokenThresholdMemoryCompaction: () => triggerCompaction(get, 'token_threshold'),
 });

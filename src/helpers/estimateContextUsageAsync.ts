@@ -1,38 +1,74 @@
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
-import { getAgentStoreState } from '@/store/agent/store';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
+import { getAgentStoreState } from '@/store/agent/store';
 import { aiModelSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { ChatStoreState } from '@/store/chat/initialState';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
-import { getToolStoreState } from '@/store/tool/store';
 import { toolSelectors } from '@/store/tool/selectors';
-import { getUserStoreState } from '@/store/user/store';
+import { getToolStoreState } from '@/store/tool/store';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
+import { getUserStoreState } from '@/store/user/store';
 import { encodeAsync } from '@/utils/tokenizer';
 
+import { selectMessagesForContext } from './contextCompaction';
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
+
+interface EstimateContextUsageOverrides {
+  historySummary?: string;
+  historySummaryLastMessageId?: string | null;
+  memoryArchives?: NonNullable<
+    ReturnType<typeof topicSelectors.currentActiveTopic>
+  >['metadata']['memoryArchives'];
+}
 
 export interface EstimateContextUsageAsyncParams {
   agentState: ReturnType<typeof getAgentStoreState>;
   chatState: ChatStoreState;
+  overrides?: EstimateContextUsageOverrides;
 }
+
+const countTokens = async (value: string) => {
+  try {
+    return await encodeAsync(value);
+  } catch {
+    return value.length;
+  }
+};
 
 /** Non-debounced estimate for automation (token threshold, compaction metadata). */
 export const estimateContextUsageAsync = async ({
   agentState,
   chatState,
-}: EstimateContextUsageAsyncParams): Promise<{ totalToken: number }> => {
+  overrides,
+}: EstimateContextUsageAsyncParams): Promise<{
+  chatsToken: number;
+  contextMessages: ReturnType<typeof chatSelectors.mainAIChats>;
+  historySummaryToken: number;
+  totalToken: number;
+}> => {
   const input = chatState.inputMessage || '';
-  const historySummary = topicSelectors.currentActiveTopicSummary(chatState)?.content;
   const activeTopic = topicSelectors.currentActiveTopic(chatState);
-  const assistantMemory = agentSelectors.currentAgentConfig(agentState).assistantMemory ?? undefined;
+  const historySummary = overrides
+    ? overrides.historySummary
+    : topicSelectors.currentActiveTopicSummary(chatState)?.content;
+  const historySummaryLastMessageId =
+    overrides?.historySummaryLastMessageId === undefined
+      ? activeTopic?.metadata?.historySummaryLastMessageId
+      : overrides.historySummaryLastMessageId || undefined;
+  const memoryArchives = overrides
+    ? overrides.memoryArchives
+    : activeTopic?.metadata?.memoryArchives;
+  const assistantMemory =
+    agentSelectors.currentAgentConfig(agentState).assistantMemory ?? undefined;
   const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
+  const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
+  const enableHistoryCompaction = !!enableHistoryCount && !!chatConfig.enableCompressHistory;
   const historySummaryForRequest =
     buildHistorySummaryForRequest({
-      archives: activeTopic?.metadata?.memoryArchives,
+      archives: memoryArchives,
       assistantMemory,
-      enableCompressHistory: chatConfig.enableCompressHistory,
+      enableCompressHistory: enableHistoryCompaction,
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: historySummary,
     }) || '';
@@ -60,20 +96,25 @@ export const estimateContextUsageAsync = async ({
   const pluginSystemRoles = toolSelectors.enabledSystemRoles(enabledToolIds)(toolState);
   const toolsString = canUseTool ? pluginSystemRoles + schemaNumber : '';
 
-  const chats = chatSelectors.mainAIChatsWithHistoryConfig(chatState);
+  const chats = selectMessagesForContext({
+    cursorId: enableHistoryCompaction ? historySummaryLastMessageId : undefined,
+    enableHistoryCount,
+    historyCount: agentChatConfigSelectors.historyCount(agentState),
+    messages: chatSelectors.mainAIChats(chatState),
+  });
   const chatsString = chats.map((chat) => chat.content).join('');
 
-  const parts = [systemRole, historySummaryForRequest, toolsString, chatsString, input].map(
-    (s) => s || '',
-  );
-  let total = 0;
-  for (const p of parts) {
-    try {
-      total += await encodeAsync(p);
-    } catch {
-      total += p.length;
-    }
-  }
+  const [systemRoleToken, historySummaryToken, toolsToken, chatsToken, inputToken] =
+    await Promise.all(
+      [systemRole, historySummaryForRequest, toolsString, chatsString, input].map((value) =>
+        countTokens(value || ''),
+      ),
+    );
 
-  return { totalToken: total };
+  return {
+    chatsToken,
+    contextMessages: chats,
+    historySummaryToken,
+    totalToken: systemRoleToken + historySummaryToken + toolsToken + chatsToken + inputToken,
+  };
 };

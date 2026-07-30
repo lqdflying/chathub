@@ -1,3 +1,4 @@
+import { LOBE_CHAT_CONTEXT_EXPORT_HEADER } from '@lobechat/const';
 import {
   FetchSSEOptions,
   fetchSSE,
@@ -7,12 +8,11 @@ import {
 import {
   AgentRuntimeError,
   ChatCompletionErrorPayload,
+  REASONING_BUDGET_TOKEN_ADAPTIVE,
   createContextExportCaptureBridge,
   prependContextSnapshotToResponse,
-  REASONING_BUDGET_TOKEN_ADAPTIVE,
   supportsAnthropicAdaptiveThinking,
 } from '@lobechat/model-runtime';
-import { LOBE_CHAT_CONTEXT_EXPORT_HEADER } from '@lobechat/const';
 import {
   ChatErrorType,
   ToolCacheDebugMetadata,
@@ -53,8 +53,8 @@ import { createHeaderWithAuth } from '../_auth';
 import { API_ENDPOINTS } from '../_url';
 import { initializeWithClientStore } from './clientModelRuntime';
 import { composeSystemRole } from './composeSystemRole';
-import { contextExportRedactions, sanitizeContextExportValue } from './contextExport';
 import { contextEngineering } from './contextEngineering';
+import { contextExportRedactions, sanitizeContextExportValue } from './contextExport';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
 import { FetchOptions } from './types';
@@ -95,9 +95,9 @@ interface FetchAITaskResultParams extends FetchSSEOptions {
 
 interface CreateAssistantMessageStream extends FetchSSEOptions {
   abortController?: AbortController;
+  contextExportRequest?: FetchOptions['contextExportRequest'];
   historySummary?: string;
   isWelcomeQuestion?: boolean;
-  contextExportRequest?: FetchOptions['contextExportRequest'];
   onContextEngineered?: FetchOptions['onContextEngineered'];
   params: GetChatCompletionPayload;
   toolCacheDebug?: ToolCacheDebugMetadata;
@@ -146,8 +146,7 @@ class ChatService {
     let oaiMessages = await contextEngineering({
       enableHistoryCount: agentChatConfigSelectors.enableHistoryCount(agentStoreState),
       existingSystemRolePolicy: 'prepend',
-      // include user messages
-      historyCount: agentChatConfigSelectors.historyCount(agentStoreState) + 2,
+      historyCount: agentChatConfigSelectors.historyCount(agentStoreState),
       historySummary: options?.historySummary,
       inputTemplate: chatConfig.inputTemplate,
       isWelcomeQuestion: options?.isWelcomeQuestion,
@@ -328,12 +327,12 @@ class ChatService {
         ...(toolCacheDebug ? { debugToolCache: toolCacheDebug } : {}),
       },
       {
+        contextExportRequest,
         historySummary,
         isWelcomeQuestion,
-        contextExportRequest,
+        onAbort,
         onContextEngineered,
         onContextSnapshot,
-        onAbort,
         onErrorHandle,
         onFinish,
         onMessageHandle,
@@ -452,9 +451,7 @@ class ChatService {
           const wrappedError = e as ChatCompletionErrorPayload & {
             contextExportSnapshot?: unknown;
           };
-          const originalError = wrappedError.contextExportSnapshot
-            ? (wrappedError.error ?? e)
-            : e;
+          const originalError = wrappedError.contextExportSnapshot ? (wrappedError.error ?? e) : e;
           const {
             errorType = ChatErrorType.BadRequest,
             error: errorContent,

@@ -2,62 +2,85 @@
 
 import { useEffect, useRef } from 'react';
 
-import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
-import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
+import {
+  createCompactionFingerprint,
+  getContextCompactionWatermarks,
+} from '@/helpers/contextCompaction';
+import { useEstimatedContextUsage } from '@/hooks/useEstimatedContextUsage';
 import { useAgentStore } from '@/store/agent';
-import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
-import { getAgentStoreState } from '@/store/agent/store';
-import { getChatStoreState } from '@/store/chat';
-import { chatSelectors } from '@/store/chat/selectors';
+import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { useChatStore } from '@/store/chat';
+import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 
-const COOLDOWN_MS = 90_000;
-const CHECK_INTERVAL_MS = 4000;
+const COMPACTION_DEBOUNCE_MS = 750;
 
 const ContextAutoCompactWatcher = () => {
-  const fingerprint = useAgentStore((s) => {
-    const cfg = agentChatConfigSelectors.currentChatConfig(s);
-    return [
-      agentSelectors.currentAgentModel(s),
-      agentSelectors.currentAgentModelProvider(s),
-      cfg.enableTokenThresholdAutoCompact,
-      cfg.contextCompactThreshold,
-      cfg.enableHistoryCount,
-      cfg.enableCompressHistory,
-      cfg.historyCount,
-    ].join('|');
+  const { maxTokens, ratio, totalToken } = useEstimatedContextUsage();
+  const config = useAgentStore((state) => {
+    const chatConfig = agentChatConfigSelectors.currentChatConfig(state);
+    return {
+      enableCompressHistory: !!chatConfig.enableCompressHistory,
+      enableHistoryCount: !!agentChatConfigSelectors.enableHistoryCount(state),
+      enableTokenThresholdAutoCompact:
+        !!agentChatConfigSelectors.enableTokenThresholdAutoCompact(state),
+      highWatermark: getContextCompactionWatermarks(
+        agentChatConfigSelectors.contextCompactThreshold(state),
+      ).high,
+    };
   });
+  const conversation = useChatStore((state) => {
+    const topic = topicSelectors.currentActiveTopic(state);
+    const messages = chatSelectors.mainTopicAIChats(state);
 
-  const lastRunRef = useRef(0);
+    return {
+      activeThreadId: state.activeThreadId,
+      generating: chatSelectors.isAIGenerating(state),
+      group: state.activeSessionType === 'group',
+      isCreatingMessage: state.isCreatingMessage,
+      messageFingerprint: createCompactionFingerprint({
+        cursorId: topic?.metadata?.historySummaryLastMessageId,
+        messages,
+        summary: topic?.historySummary,
+      }),
+      portalThreadId: state.portalThreadId,
+      sessionId: state.activeId,
+      topicId: state.activeTopicId,
+    };
+  });
+  const lastAttemptRef = useRef('');
 
   useEffect(() => {
-    const timer = window.setInterval(async () => {
-      const chat = getChatStoreState();
-      const agent = getAgentStoreState();
-      const cfg = agentChatConfigSelectors.currentChatConfig(agent);
+    if (!config.enableTokenThresholdAutoCompact) return;
+    if (!config.enableHistoryCount || !config.enableCompressHistory) return;
+    if (!conversation.sessionId || !conversation.topicId || !maxTokens) return;
+    if (
+      conversation.group ||
+      conversation.activeThreadId ||
+      conversation.portalThreadId ||
+      conversation.generating ||
+      conversation.isCreatingMessage
+    ) {
+      return;
+    }
+    if (ratio < config.highWatermark) return;
 
-      if (!cfg.enableTokenThresholdAutoCompact) return;
-      if (!chat.activeTopicId || chat.isCreatingMessage) return;
-      if (chatSelectors.isAIGenerating(chat)) return;
-      if (!cfg.enableHistoryCount || !cfg.enableCompressHistory) return;
+    const attemptFingerprint = [
+      conversation.sessionId,
+      conversation.topicId,
+      conversation.messageFingerprint,
+      totalToken,
+      maxTokens,
+      config.highWatermark,
+    ].join('|');
+    if (lastAttemptRef.current === attemptFingerprint) return;
 
-      const model = agentSelectors.currentAgentModel(agent) as string;
-      const provider = agentSelectors.currentAgentModelProvider(agent) as string;
-      const maxTokens = getModelContextWindowTokens(model, provider);
-      if (!maxTokens) return;
+    const timer = window.setTimeout(() => {
+      lastAttemptRef.current = attemptFingerprint;
+      void useChatStore.getState().triggerTokenThresholdMemoryCompaction().catch(console.error);
+    }, COMPACTION_DEBOUNCE_MS);
 
-      const { totalToken } = await estimateContextUsageAsync({ agentState: agent, chatState: chat });
-      const threshold = cfg.contextCompactThreshold ?? 0.8;
-      if (totalToken / maxTokens < threshold) return;
-
-      const now = Date.now();
-      if (now - lastRunRef.current < COOLDOWN_MS) return;
-
-      lastRunRef.current = now;
-      await chat.triggerTokenThresholdMemoryCompaction?.();
-    }, CHECK_INTERVAL_MS);
-
-    return () => window.clearInterval(timer);
-  }, [fingerprint]);
+    return () => window.clearTimeout(timer);
+  }, [config, conversation, maxTokens, ratio, totalToken]);
 
   return null;
 };

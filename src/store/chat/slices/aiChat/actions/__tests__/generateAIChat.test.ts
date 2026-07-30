@@ -973,7 +973,7 @@ describe('chatMessage actions', () => {
         createMockMessage({ id: 'old-assistant', role: 'assistant' }),
         createMockMessage({ id: 'tool-result', role: 'tool' }),
       ];
-      const summaryHistory = vi.fn();
+      const triggerMessageCountMemoryCompaction = vi.fn();
       vi.spyOn(agentChatConfigSelectors, 'enableHistoryCount').mockReturnValue(true);
       vi.spyOn(agentChatConfigSelectors, 'historyCount').mockReturnValue(2);
       vi.spyOn(result.current, 'internal_fetchAIChatMessage').mockResolvedValue({
@@ -981,7 +981,7 @@ describe('chatMessage actions', () => {
         isFunctionCall: false,
       });
       vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
-      useChatStore.setState({ internal_summaryHistory: summaryHistory });
+      useChatStore.setState({ triggerMessageCountMemoryCompaction });
 
       await act(async () => {
         await useChatStore.getState().internal_coreProcessMessage(messages, 'tool-result', {
@@ -989,7 +989,7 @@ describe('chatMessage actions', () => {
         });
       });
 
-      expect(summaryHistory).not.toHaveBeenCalled();
+      expect(triggerMessageCountMemoryCompaction).not.toHaveBeenCalled();
     });
 
     it('does not execute tool calls when assistant persistence remains ambiguous', async () => {
@@ -1071,6 +1071,81 @@ describe('chatMessage actions', () => {
   });
 
   describe('internal_fetchAIChatMessage', () => {
+    const setupCompactedTopic = () => {
+      const messages = [
+        createMockMessage({ id: 'compacted-message', role: 'user' }),
+        createMockMessage({ id: 'recent-message', role: 'user' }),
+      ];
+      useChatStore.setState({
+        topicMaps: {
+          [TEST_IDS.SESSION_ID]: [
+            {
+              historySummary: 'Rolling topic summary',
+              id: TEST_IDS.TOPIC_ID,
+              metadata: { historySummaryLastMessageId: 'compacted-message' },
+            } as any,
+          ],
+        },
+      });
+      vi.mocked(agentChatConfigSelectors.currentChatConfig).mockReturnValue({
+        enableCompressHistory: true,
+        enableUserMemoryArchive: false,
+      } as any);
+      vi.spyOn(agentChatConfigSelectors, 'enableHistoryCount').mockReturnValue(true);
+      const streamSpy = vi
+        .spyOn(chatService, 'createAssistantMessageStream')
+        .mockResolvedValue(undefined as any);
+
+      return { messages, streamSpy };
+    };
+
+    it('uses the rolling summary and post-cursor messages for a regular topic', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const { messages, streamSpy } = setupCompactedTopic();
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(streamSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          historySummary: 'Rolling topic summary',
+          params: expect.objectContaining({ messages: [messages[1]] }),
+        }),
+      );
+    });
+
+    it.each([
+      ['thread', { threadId: 'thread-id' }, undefined],
+      ['group', { agentId: 'agent-id', groupId: 'group-id' }, 'group'],
+    ])('does not apply the topic summary or cursor to a %s request', async (_, params, type) => {
+      const { result } = renderHook(() => useChatStore());
+      const { messages, streamSpy } = setupCompactedTopic();
+      useChatStore.setState({ activeSessionType: type as any });
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          params,
+          provider: 'openai',
+        });
+      });
+
+      expect(streamSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          historySummary: undefined,
+          params: expect.objectContaining({ messages }),
+        }),
+      );
+    });
+
     it('should fetch and return AI chat response', async () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [createMockMessage({ role: 'user' })];

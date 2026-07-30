@@ -29,10 +29,7 @@ import { messageService } from '@/services/message';
 import { rpcDiagnosticsService } from '@/services/rpcDiagnostics';
 import { topicService } from '@/services/topic';
 import { traceService } from '@/services/trace';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -278,6 +275,7 @@ export const chatMessage: StateCreator<
       ids = ids.concat(toolMessageIds);
     }
 
+    await get().internal_invalidateMemoryCompaction(ids).catch(console.error);
     get().internal_dispatchMessage({ type: 'deleteMessages', ids });
     await messageService.removeMessages(ids);
     if (isCurrentRequest()) await get().refreshMessages();
@@ -582,6 +580,7 @@ export const chatMessage: StateCreator<
       nextContent: content,
     });
 
+    await get().internal_invalidateMemoryCompaction([id]).catch(console.error);
     await get().internal_updateMessageContent(id, content);
   },
 
@@ -980,6 +979,7 @@ export const chatMessage: StateCreator<
       get().activeId === requestedSessionId &&
       get().activeTopicId === requestedTopicId;
 
+    await get().internal_invalidateMemoryCompaction([id]).catch(console.error);
     get().internal_dispatchMessage({ type: 'deleteMessage', id });
     await messageService.removeMessage(id);
     if (isCurrentRequest()) await get().refreshMessages();

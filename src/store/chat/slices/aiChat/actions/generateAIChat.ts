@@ -16,19 +16,17 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
+import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { getAgentStoreState } from '@/store/agent/store';
 import { aiModelSelectors, aiProviderSelectors } from '@/store/aiInfra';
 import { getAiInfraStoreState } from '@/store/aiInfra/store';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -391,6 +389,9 @@ export const generateAIChat: StateCreator<
     const contextExportCaptureId = !isWelcomeQuestion ? get().consumeContextExportArm() : undefined;
 
     try {
+      await get().triggerTokenThresholdMemoryCompaction();
+      if (!isCurrentConversation()) return;
+
       await internal_coreProcessMessage(messages, id, {
         conversationContext,
         contextExportCaptureId,
@@ -476,7 +477,7 @@ export const generateAIChat: StateCreator<
     const messages = [...originalMessages];
 
     const agentStoreState = getAgentStoreState();
-    const { model, provider, chatConfig } = agentSelectors.currentAgentConfig(agentStoreState);
+    const { model, provider } = agentSelectors.currentAgentConfig(agentStoreState);
 
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;
@@ -706,22 +707,8 @@ export const generateAIChat: StateCreator<
       }
     }
 
-    // 6. summary history if context messages is larger than historyCount
-    const historyCount = agentChatConfigSelectors.historyCount(agentStoreState);
-
-    if (
-      !params?.isToolContinuation &&
-      agentChatConfigSelectors.enableHistoryCount(agentStoreState) &&
-      chatConfig.enableCompressHistory &&
-      originalMessages.length > historyCount
-    ) {
-      // after generation: [u1,a1,u2,a2,u3,a3]
-      // but the `originalMessages` is still: [u1,a1,u2,a2,u3]
-      // So if historyCount=2, we need to summary [u1,a1,u2,a2]
-      // because user find UI is [u1,a1,u2,a2 | u3,a3]
-      const historyMessages = originalMessages.slice(0, -historyCount + 1);
-
-      await get().internal_summaryHistory(historyMessages, { trigger: 'message_count' });
+    if (!params?.isToolContinuation && !params?.threadId && !params?.inPortalThread) {
+      void Promise.resolve(get().triggerMessageCountMemoryCompaction()).catch(console.error);
     }
   },
   internal_fetchAIChatMessage: async ({
@@ -743,8 +730,7 @@ export const generateAIChat: StateCreator<
       internal_toggleToolCallingStreaming,
       internal_toggleChatReasoning,
     } = get();
-    const conversationContext =
-      requestedConversationContext ??
+    const conversationContext = requestedConversationContext ??
       params?.conversationContext ?? {
         generation: get().conversationClearGeneration,
         sessionId: get().activeId,
@@ -769,9 +755,9 @@ export const generateAIChat: StateCreator<
       n('generateMessage(start)', { messageId, messages }),
     );
 
-    const agentConfig =
-      params?.agentConfig || agentSelectors.currentAgentConfig(getAgentStoreState());
-    const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
+    const agentStoreState = getAgentStoreState();
+    const agentConfig = params?.agentConfig || agentSelectors.currentAgentConfig(agentStoreState);
+    const chatConfig = agentChatConfigSelectors.currentChatConfig(agentStoreState);
 
     // ================================== //
     //   messages uniformly preprocess    //
@@ -799,13 +785,31 @@ export const generateAIChat: StateCreator<
     const activeTopic = conversationContext.topicId
       ? topicSelectors.getTopicById(conversationContext.topicId)(get())
       : undefined;
+    const isRegularTopicRequest =
+      !!conversationContext.topicId &&
+      get().activeSessionType !== 'group' &&
+      !params?.threadId &&
+      !params?.inPortalThread &&
+      !params?.groupId &&
+      !params?.agentId &&
+      !messages.some(({ groupId }) => !!groupId);
+    const enableHistoryCompaction =
+      isRegularTopicRequest &&
+      !!agentChatConfigSelectors.enableHistoryCount(agentStoreState) &&
+      !!chatConfig.enableCompressHistory;
     const historySummaryForRequest = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
       assistantMemory: agentConfig.assistantMemory ?? undefined,
-      enableCompressHistory: chatConfig.enableCompressHistory,
+      enableCompressHistory: enableHistoryCompaction,
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: activeTopic?.historySummary,
     });
+    const requestMessages = enableHistoryCompaction
+      ? getMessagesAfterHistorySummaryCursor(
+          messages,
+          activeTopic?.metadata?.historySummaryLastMessageId,
+        )
+      : messages;
     const contextExportRequest = params?.contextExportCaptureId
       ? get().createContextExportRequest(
           params.contextExportCaptureId,
@@ -818,7 +822,7 @@ export const generateAIChat: StateCreator<
         abortController,
         contextExportRequest,
         params: {
-          messages,
+          messages: requestMessages,
           model,
           provider,
           ...agentConfig.params,
@@ -1061,7 +1065,11 @@ export const generateAIChat: StateCreator<
     } finally {
       if (isCurrentConversation()) {
         internal_toggleToolCallingStreaming(messageId, undefined);
-        internal_toggleChatReasoning(false, messageId, n('generateMessage(reasoningEnd)') as string);
+        internal_toggleChatReasoning(
+          false,
+          messageId,
+          n('generateMessage(reasoningEnd)') as string,
+        );
         internal_toggleChatLoading(false, messageId, n('generateMessage(end)') as string);
       }
     }
@@ -1148,6 +1156,12 @@ export const generateAIChat: StateCreator<
 
       const discardedIds = optimisticRewind.messageIds;
       const discardedThreadIds = optimisticRewind.threadIds;
+      const activeTopic = topicSelectors.currentActiveTopic(get());
+      if (activeTopic?.historySummary || activeTopic?.metadata?.historySummaryLastMessageId) {
+        await get()
+          .internal_invalidateMemoryCompaction([...discardedIds])
+          .catch(console.error);
+      }
       set(
         produce((draft: ChatStore) => {
           draft.messagesMap[chatKey] = (draft.messagesMap[chatKey] || []).filter(

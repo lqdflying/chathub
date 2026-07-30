@@ -32,6 +32,13 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
       agentChatConfigSelectors.enableHistoryCount(s) &&
       !!agentChatConfigSelectors.currentChatConfig(s).enableCompressHistory,
   );
+  const isRegularTopic = useChatStore(
+    (s) =>
+      !!s.activeTopicId &&
+      s.activeSessionType !== 'group' &&
+      !s.activeThreadId &&
+      !s.portalThreadId,
+  );
 
   const {
     chatInstructionToken,
@@ -140,25 +147,46 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
         showIcon
         showTotal={t('tokenDetails.total')}
       />
-      <Button
-        block
-        disabled={!canManualCompact}
-        loading={compacting}
-        onClick={async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setCompacting(true);
-          try {
-            await useChatStore.getState().triggerManualMemoryCompaction();
-          } finally {
-            setCompacting(false);
-          }
-        }}
-        size={'small'}
-        type={'default'}
-      >
-        {t('memoryCompaction.compactNow')}
-      </Button>
+      {conversationSource !== 'portal' && (
+        <Button
+          block
+          disabled={!canManualCompact || !isRegularTopic}
+          loading={compacting}
+          onClick={async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setCompacting(true);
+            try {
+              const result = await useChatStore.getState().triggerManualMemoryCompaction();
+              const { notification } = await import('@/components/AntdStaticMethods');
+              const message = t(`memoryCompaction.result.${result.status}`);
+              switch (result.status) {
+                case 'compacted': {
+                  notification.success({ message });
+                  break;
+                }
+                case 'failed': {
+                  notification.error({ message });
+                  break;
+                }
+                case 'target_unreachable': {
+                  notification.warning({ message });
+                  break;
+                }
+                default: {
+                  notification.info({ message });
+                }
+              }
+            } finally {
+              setCompacting(false);
+            }
+          }}
+          size={'small'}
+          type={'default'}
+        >
+          {t('memoryCompaction.compactNow')}
+        </Button>
+      )}
       <ContextExportControl allocation={contextExportAllocation} />
     </Flexbox>
   );

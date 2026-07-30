@@ -31,7 +31,8 @@ const DailyMemorySummaryScheduler = () => {
 
       if (!cfg.enableDailyMemorySummary) return;
       if (!chat.activeTopicId || !chat.activeId) return;
-      if (!cfg.enableHistoryCount || !cfg.enableCompressHistory) return;
+      if (chat.activeSessionType === 'group' || chat.activeThreadId || chat.portalThreadId) return;
+      if (!agentChatConfigSelectors.enableHistoryCount(agent) || !cfg.enableCompressHistory) return;
       if (chatSelectors.isAIGenerating(chat)) return;
 
       const key = dailyKey(chat.activeId, chat.activeTopicId);
@@ -45,7 +46,8 @@ const DailyMemorySummaryScheduler = () => {
 
       if (stored === day) return;
 
-      await chat.triggerScheduledMemoryCompaction?.();
+      const result = await chat.triggerScheduledMemoryCompaction?.();
+      if (!result || result.status === 'failed' || result.status === 'ineligible') return;
 
       try {
         localStorage.setItem(key, day);

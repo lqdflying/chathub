@@ -221,36 +221,68 @@ describe('chatSelectors', () => {
 
       const chats = chatSelectors.mainAIChatsWithHistoryConfig(state);
 
-      expect(chats).toHaveLength(2);
-      expect(chats).toEqual([
-        {
-          id: 'msg2',
-          content: 'Goodbye World',
-          role: 'user',
-          meta: {
-            avatar: '😀',
-          },
+      expect(chats).toHaveLength(3);
+      expect(chats).toEqual(mockedChats);
+    });
+
+    it('should apply the summary cursor when history compression is enabled', () => {
+      const topicId = 'topic-with-summary';
+      const state = merge(initialStore, {
+        activeId: 'abc',
+        activeTopicId: topicId,
+        messagesMap: { [messageMapKey('abc', topicId)]: mockMessages },
+        topicMaps: {
+          abc: [{ id: topicId, metadata: { historySummaryLastMessageId: 'msg1' } }],
         },
-        {
-          id: 'msg3',
-          content: 'Function Message',
-          role: 'tool',
-          meta: {
-            avatar: DEFAULT_INBOX_AVATAR,
-            backgroundColor: 'rgba(0,0,0,0)',
-            description: 'inbox.desc',
-            title: 'inbox.title',
-          },
-          tools: [
-            {
-              apiName: 'ttt',
-              arguments: ['arg1', 'arg2'],
-              identifier: 'func1',
-              id: 'abc',
-              type: 'pluginType',
+      });
+      useAgentStore.setState({
+        activeId: 'inbox',
+        agentMap: {
+          inbox: {
+            chatConfig: {
+              enableCompressHistory: true,
+              enableHistoryCount: true,
+              historyCount: 3,
             },
-          ],
+            model: 'abc',
+          } as LobeAgentConfig,
         },
+      });
+
+      expect(chatSelectors.mainAIChatsWithHistoryConfig(state).map(({ id }) => id)).toEqual([
+        'msg2',
+        'msg3',
+      ]);
+    });
+
+    it('should ignore the summary cursor when history compression is disabled', () => {
+      const topicId = 'topic-with-disabled-summary';
+      const state = merge(initialStore, {
+        activeId: 'abc',
+        activeTopicId: topicId,
+        messagesMap: { [messageMapKey('abc', topicId)]: mockMessages },
+        topicMaps: {
+          abc: [{ id: topicId, metadata: { historySummaryLastMessageId: 'msg1' } }],
+        },
+      });
+      useAgentStore.setState({
+        activeId: 'inbox',
+        agentMap: {
+          inbox: {
+            chatConfig: {
+              enableCompressHistory: false,
+              enableHistoryCount: true,
+              historyCount: 3,
+            },
+            model: 'abc',
+          } as LobeAgentConfig,
+        },
+      });
+
+      expect(chatSelectors.mainAIChatsWithHistoryConfig(state).map(({ id }) => id)).toEqual([
+        'msg1',
+        'msg2',
+        'msg3',
       ]);
     });
   });
@@ -278,11 +310,8 @@ describe('chatSelectors', () => {
         activeId: 'active-session',
       });
 
-      // Assume that the currentChatsWithHistoryConfig will return the last two messages
-      const expectedString = mockMessages
-        .slice(-2)
-        .map((m) => m.content)
-        .join('');
+      // The configured window ends at the latest user; its tool continuation stays attached.
+      const expectedString = mockMessages.map((m) => m.content).join('');
 
       // Call the selector and verify the result
       const concatenatedString = chatSelectors.mainAIChatsMessageString(state);

@@ -2,18 +2,26 @@ import { ChatStreamPayload, UIChatMessage } from '@lobechat/types';
 
 import { chatHistoryPrompts } from '../prompts';
 
-export const chainSummaryHistory = (messages: UIChatMessage[]): Partial<ChatStreamPayload> => ({
-  messages: [
-    {
-      content: `You're an assistant who's good at extracting key takeaways from conversations and summarizing them. Please summarize according to the user's needs. The content you need to summarize is located in the <chat_history> </chat_history> group of xml tags. The summary needs to maintain the original language.`,
-      role: 'system',
-    },
-    {
-      content: `${chatHistoryPrompts(messages)}
+export const chainSummaryHistory = (
+  messages: UIChatMessage[],
+  previousSummary?: string,
+): Partial<ChatStreamPayload> => {
+  const existingSummary = previousSummary?.trim();
 
-Please summarize the above conversation and retain key information. The summarized content will be used as context for subsequent prompts, and should be limited to 400 tokens.`,
+  return {
+    messages: [
+      {
+        content: `You maintain a compact, cumulative memory of a conversation. Merge new chat history into the existing summary when one is provided. Preserve the conversation's original language. Keep durable facts, user preferences, decisions, constraints, technical identifiers, completed work, and unresolved tasks. Replace superseded facts instead of retaining contradictions. Do not invent details. Return only the updated summary, limited to 400 tokens.`,
+        role: 'system',
+      },
+      {
+        content: `${
+          existingSummary ? `<existing_summary>\n${existingSummary}\n</existing_summary>\n\n` : ''
+        }${chatHistoryPrompts(messages)}
 
-      role: 'user',
-    },
-  ],
-});
+Merge the new conversation content into a self-contained cumulative summary.`,
+        role: 'user',
+      },
+    ],
+  };
+};

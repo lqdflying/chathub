@@ -1,6 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { useEstimatedContextUsage } from './useEstimatedContextUsage';
+
 const mocks = vi.hoisted(() => {
   const mainChats = [{ content: 'main-chat-context', id: 'main-message' }];
   const portalChats = [
@@ -50,9 +52,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('@/store/chat', () => ({ useChatStore: mocks.useChatStore }));
 vi.mock('@/store/agent', async () => {
   const { useSyncExternalStore } = await vi.importActual<typeof import('react')>('react');
-  const useAgentStore = (
-    selector?: (state: ReturnType<typeof mocks.getAgentState>) => unknown,
-  ) => {
+  const useAgentStore = (selector?: (state: ReturnType<typeof mocks.getAgentState>) => unknown) => {
     const state = useSyncExternalStore(
       mocks.subscribeAgent,
       mocks.getAgentState,
@@ -86,8 +86,7 @@ vi.mock('@/store/agent/selectors', () => ({
       enableCompressHistory: false,
       enableUserMemoryArchive: false,
     }),
-    enableHistoryCount: (state: ReturnType<typeof mocks.getAgentState>) =>
-      state.enableHistoryCount,
+    enableHistoryCount: (state: ReturnType<typeof mocks.getAgentState>) => state.enableHistoryCount,
     historyCount: (state: ReturnType<typeof mocks.getAgentState>) => state.historyCount,
   },
   agentSelectors: {
@@ -137,23 +136,17 @@ vi.mock('@/services/chat/composeSystemRole', () => ({
   composeSystemRole: (instruction: string, role: string) => `${instruction}${role}`,
 }));
 
-import { useEstimatedContextUsage } from './useEstimatedContextUsage';
-
 describe('useEstimatedContextUsage', () => {
   it('uses portal conversation content instead of main-chat content', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('portal'));
 
-    expect(result.current.chatsToken).toBe(
-      'recent-portal-contextlatest-portal-context'.length,
-    );
+    expect(result.current.chatsToken).toBe('recent-portal-contextlatest-portal-context'.length);
   });
 
   it('recalculates portal allocation when only the history limit changes', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('portal'));
 
-    expect(result.current.chatsToken).toBe(
-      'recent-portal-contextlatest-portal-context'.length,
-    );
+    expect(result.current.chatsToken).toBe('recent-portal-contextlatest-portal-context'.length);
 
     act(() => {
       mocks.setAgentState({

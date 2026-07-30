@@ -3,14 +3,7 @@ import { z } from 'zod';
 
 import { SearchMode } from '../search';
 
-export type GPT5ReasoningEffort =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
+export type GPT5ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export interface GPT5ReasoningEffortResolution {
   effort: GPT5ReasoningEffort;
@@ -127,7 +120,7 @@ export interface LobeAgentChatConfig {
    */
   enableTokenThresholdAutoCompact?: boolean;
 
-  /** Fraction of model context window (0–1) before token-based auto compact */
+  /** Fraction of model context window (0.5–0.99) before token-based auto compact */
   contextCompactThreshold?: number;
 
   /** Opt-in: client-side daily compaction per session/topic */
@@ -151,7 +144,7 @@ export interface LobeAgentChatConfig {
 export const AgentChatConfigSchema = z.object({
   assistanceLevel: z.enum(['balanced', 'minimal', 'rich']).optional(),
   autoCreateTopicThreshold: z.number().default(2),
-  contextCompactThreshold: z.number().min(0).max(1).optional(),
+  contextCompactThreshold: z.number().min(0.5).max(0.99).optional(),
   displayMode: z.enum(['chat', 'docs']).optional(),
   enableAutoCreateTopic: z.boolean().optional(),
   enableCompressHistory: z.boolean().optional(),

@@ -27,6 +27,41 @@ export default {
   confirmRemoveGroupSuccess: 'Agent 团队删除成功',
   confirmRemoveSessionItemAlert: '即将删除该助手，删除后该将无法找回，请确认你的操作',
   confirmRemoveSessionSuccess: '助手删除成功',
+  contextExport: {
+    allocation: '预估上下文分配',
+    cancelCapture: '取消捕获',
+    captureNext: '捕获下一次请求',
+    capturing: '正在捕获',
+    continuation: {
+      initial: '初始',
+      tool: '工具续接',
+    },
+    copyLayer: '复制当前层',
+    copySuccess: '已复制当前上下文层',
+    downloadBatch: '下载完整 JSON',
+    engineeredContext: '工程化上下文',
+    exportNext: '导出下一次请求',
+    noRequests: '本次捕获没有记录到模型请求',
+    partialWarning: '部分请求未到达提供商调度边界，导出内容可能不完整。',
+    providerBoundary: '此处展示发送给 SDK 的语义请求对象；认证与 SDK 序列化在此之后进行。',
+    providerRequest: '提供商请求',
+    purpose: {
+      assistant: '助手',
+      member: '群组成员',
+      supervisor: '群组主持',
+    },
+    request: '模型请求',
+    requestOption: '#{{index}} · {{purpose}} · {{continuation}} · {{model}}',
+    status: {
+      capturing: '捕获中',
+      complete: '完整',
+      error: '错误',
+      partial: '部分',
+    },
+    title: '上下文导出',
+    unknownModel: '未知模型',
+    viewCaptured: '查看已捕获上下文',
+  },
   defaultAgent: '自定义助手',
   defaultGroupChat: 'Agent 团队',
   defaultList: '默认列表',
@@ -105,6 +140,7 @@ export default {
     title: '群组',
   },
   groupDescription: '团队描述',
+
   groupSidebar: {
     members: {
       addMember: '添加成员',
@@ -197,6 +233,7 @@ export default {
     uploadGuide: '上传过的文件可以在「知识库」中查看哦',
     viewMore: '查看更多',
   },
+
   memberSelection: {
     addMember: '添加成员',
     allMembers: '全体成员',
@@ -214,13 +251,24 @@ export default {
     debug: {
       approxTokensAfter: '估算 Token（压缩后）',
       approxTokensBefore: '估算 Token（压缩前）',
+      cursor: '已压缩至消息',
       messageCount: '参与总结的消息条数',
       model: '模型',
       off: '隐藏调试',
       on: '显示调试',
       rawResponse: '压缩结果文本',
+      reason: '结果原因',
+      status: '结果',
       title: '上下文压缩调试',
       trigger: '触发方式',
+      watermarks: '触发 / 目标水位',
+    },
+    result: {
+      compacted: '上下文已压缩',
+      failed: '上下文压缩失败，原摘要未更改',
+      ineligible: '当前对话不支持上下文压缩',
+      not_needed: '当前没有可压缩的已完成对话',
+      target_unreachable: '已压缩可用历史，但受保护的最新内容仍高于目标水位',
     },
     trigger: {
       manual: '手动',
@@ -233,12 +281,12 @@ export default {
   mention: {
     title: '提及成员',
   },
-
   messageAction: {
     delAndRegenerate: '删除并重新生成',
     deleteDisabledByThreads: '存在子话题，不能删除',
     regenerate: '重新生成',
   },
+
   messages: {
     dm: {
       sentTo: '仅对{{name}}可见',
@@ -317,7 +365,6 @@ export default {
   pin: '置顶',
 
   pinOff: '取消置顶',
-
   rag: {
     referenceChunks: '引用源',
     userQuery: {
@@ -435,41 +482,6 @@ export default {
   toggleWideScreen: {
     off: '关闭宽屏模式',
     on: '开启宽屏模式',
-  },
-  contextExport: {
-    allocation: '预估上下文分配',
-    cancelCapture: '取消捕获',
-    captureNext: '捕获下一次请求',
-    capturing: '正在捕获',
-    continuation: {
-      initial: '初始',
-      tool: '工具续接',
-    },
-    copyLayer: '复制当前层',
-    copySuccess: '已复制当前上下文层',
-    downloadBatch: '下载完整 JSON',
-    engineeredContext: '工程化上下文',
-    exportNext: '导出下一次请求',
-    noRequests: '本次捕获没有记录到模型请求',
-    partialWarning: '部分请求未到达提供商调度边界，导出内容可能不完整。',
-    providerBoundary: '此处展示发送给 SDK 的语义请求对象；认证与 SDK 序列化在此之后进行。',
-    providerRequest: '提供商请求',
-    purpose: {
-      assistant: '助手',
-      member: '群组成员',
-      supervisor: '群组主持',
-    },
-    request: '模型请求',
-    requestOption: '#{{index}} · {{purpose}} · {{continuation}} · {{model}}',
-    status: {
-      capturing: '捕获中',
-      complete: '完整',
-      error: '错误',
-      partial: '部分',
-    },
-    title: '上下文导出',
-    unknownModel: '未知模型',
-    viewCaptured: '查看已捕获上下文',
   },
   tokenDetails: {
     chatInstruction: '聊天指令',
