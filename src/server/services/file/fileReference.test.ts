@@ -51,4 +51,40 @@ describe('extractKeyFromAppFileProxyUrl', () => {
 
     expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
   });
+
+  it('rejects encoded-slash traversal smuggled inside a single segment', () => {
+    const reference = 'https://chat.example.com/webapi/files/a/..%2f..%2fother-user/secret.png';
+
+    expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
+  });
+
+  it('rejects an encoded ../ prefix', () => {
+    const reference = 'https://chat.example.com/webapi/files/%2e%2e%2fsecret.png';
+
+    expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
+  });
+
+  it('rejects a whole segment that decodes to ..', () => {
+    const reference = 'https://chat.example.com/webapi/files/%2e%2e/secret.png';
+
+    expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
+  });
+
+  it('rejects an encoded backslash in a segment', () => {
+    const reference = 'https://chat.example.com/webapi/files/refs/a%5Cb.png';
+
+    expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
+  });
+
+  it('rejects a NUL byte in a segment', () => {
+    const reference = 'https://chat.example.com/webapi/files/refs/a%00.png';
+
+    expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
+  });
+
+  it('returns undefined for a literal ../ that URL-normalizes off the proxy prefix', () => {
+    const reference = 'https://chat.example.com/webapi/files/../secret.png';
+
+    expect(extractKeyFromAppFileProxyUrl(reference, 'https://chat.example.com')).toBeUndefined();
+  });
 });
