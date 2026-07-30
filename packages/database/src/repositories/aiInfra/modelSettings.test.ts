@@ -1,8 +1,38 @@
+import { ModelProvider, OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS } from 'model-bank';
 import { describe, expect, it } from 'vitest';
 
 import { injectModelSettings } from './index';
 
 describe('injectModelSettings', () => {
+  it.each(['gpt-5.6-sol', 'gpt-5.5'])(
+    'locks the OpenAI-compatible context window for %s',
+    (modelId) => {
+      const model = injectModelSettings(ModelProvider.OpenAICompatible, {
+        contextWindowTokens: 1_050_000,
+        id: modelId,
+        type: 'chat',
+      });
+
+      expect(model.contextWindowTokens).toBe(OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS);
+    },
+  );
+
+  it('does not change native OpenAI or OpenAI-compatible image context metadata', () => {
+    expect(
+      injectModelSettings(ModelProvider.OpenAI, {
+        contextWindowTokens: 1_050_000,
+        id: 'gpt-5.5',
+        type: 'chat',
+      }).contextWindowTokens,
+    ).toBe(1_050_000);
+    expect(
+      injectModelSettings(ModelProvider.OpenAICompatible, {
+        id: 'gpt-image-2',
+        type: 'image',
+      }).contextWindowTokens,
+    ).toBeUndefined();
+  });
+
   it('injects DeepSeek V4 reasoning controls for fetched models', () => {
     const model = injectModelSettings('deepseek', {
       abilities: { functionCall: true, reasoning: true },

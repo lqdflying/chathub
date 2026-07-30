@@ -5,6 +5,7 @@ import {
   AiProviderModelListItem,
   EnabledAiModel,
   ModelProvider,
+  OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
   type ExtendParamsType,
 } from 'model-bank';
 import pMap from 'p-map';
@@ -174,8 +175,20 @@ const injectSearchSettings = (providerId: string, item: any) => {
   return item;
 };
 
+const enforceOpenAICompatibleContextWindow = (providerId: string, item: any) => {
+  if (providerId !== ModelProvider.OpenAICompatible || item?.type !== 'chat') return item;
+
+  return {
+    ...item,
+    contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+  };
+};
+
 export const injectModelSettings = (providerId: string, item: any) =>
-  injectSearchSettings(providerId, injectExtendParamSettings(providerId, item));
+  enforceOpenAICompatibleContextWindow(
+    providerId,
+    injectSearchSettings(providerId, injectExtendParamSettings(providerId, item)),
+  );
 
 export class AiInfraRepos {
   private userId: string;

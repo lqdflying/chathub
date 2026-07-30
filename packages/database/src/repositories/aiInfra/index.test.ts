@@ -1,4 +1,9 @@
-import { AiProviderModelListItem, EnabledAiModel } from 'model-bank';
+import {
+  AiProviderModelListItem,
+  EnabledAiModel,
+  ModelProvider,
+  OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+} from 'model-bank';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_MODEL_PROVIDER_LIST } from '@/config/modelProviders';
@@ -183,6 +188,61 @@ describe('AiInfraRepos', () => {
           sort: 1,
           type: 'chat',
         }),
+      );
+    });
+
+    it('should ignore stale OpenAI-compatible context windows stored in the database', async () => {
+      const mockProviders = [
+        {
+          enabled: true,
+          id: ModelProvider.OpenAICompatible,
+          name: 'OpenAI Compatible',
+          source: 'builtin' as const,
+        },
+      ];
+      const mockAllModels: EnabledAiModel[] = [
+        {
+          abilities: { reasoning: true },
+          contextWindowTokens: 1_050_000,
+          enabled: true,
+          id: 'gpt-5.5',
+          providerId: ModelProvider.OpenAICompatible,
+          type: 'chat',
+        },
+      ];
+      const mockBuiltinModels: AiProviderModelListItem[] = [
+        {
+          abilities: { reasoning: true },
+          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          enabled: true,
+          id: 'gpt-5.6-sol',
+          type: 'chat',
+        },
+        {
+          abilities: { reasoning: true },
+          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          enabled: true,
+          id: 'gpt-5.5',
+          type: 'chat',
+        },
+      ];
+
+      vi.spyOn(repo, 'getAiProviderList').mockResolvedValue(mockProviders);
+      vi.spyOn(repo.aiModelModel, 'getAllModels').mockResolvedValue(mockAllModels);
+      vi.spyOn(repo as any, 'fetchBuiltinModels').mockResolvedValue(mockBuiltinModels);
+
+      const result = await repo.getEnabledModels();
+
+      expect(result).toEqual(
+        expect.arrayContaining(
+          ['gpt-5.6-sol', 'gpt-5.5'].map((id) =>
+            expect.objectContaining({
+              contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+              id,
+              providerId: ModelProvider.OpenAICompatible,
+            }),
+          ),
+        ),
       );
     });
 
@@ -785,6 +845,47 @@ describe('AiInfraRepos', () => {
           enabled: false,
           id: 'gpt-4',
         }),
+      );
+    });
+
+    it('should ignore stale OpenAI-compatible context windows in the provider model list', async () => {
+      const mockUserModels: AiProviderModelListItem[] = [
+        {
+          contextWindowTokens: 1_050_000,
+          enabled: true,
+          id: 'gpt-5.5',
+          type: 'chat',
+        },
+      ];
+      const mockDefaultModels: AiProviderModelListItem[] = [
+        {
+          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          enabled: true,
+          id: 'gpt-5.6-sol',
+          type: 'chat',
+        },
+        {
+          contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+          enabled: true,
+          id: 'gpt-5.5',
+          type: 'chat',
+        },
+      ];
+
+      vi.spyOn(repo.aiModelModel, 'getModelListByProviderId').mockResolvedValue(mockUserModels);
+      vi.spyOn(repo as any, 'fetchBuiltinModels').mockResolvedValue(mockDefaultModels);
+
+      const result = await repo.getAiProviderModelList(ModelProvider.OpenAICompatible);
+
+      expect(result).toEqual(
+        expect.arrayContaining(
+          ['gpt-5.6-sol', 'gpt-5.5'].map((id) =>
+            expect.objectContaining({
+              contextWindowTokens: OPENAI_COMPATIBLE_CONTEXT_WINDOW_TOKENS,
+              id,
+            }),
+          ),
+        ),
       );
     });
 
