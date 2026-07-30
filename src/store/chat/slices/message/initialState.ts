@@ -17,6 +17,8 @@ export interface ChatMessageState {
   activeSessionType?: 'agent' | 'group';
   /** Incremented when conversation history is cleared to invalidate stale producers */
   conversationClearGeneration: number;
+  /** Incremented when a memory summary is invalidated so in-flight compactions discard their result */
+  memoryCompactionInvalidationGeneration: number;
   /**
    * Group agents maps by group ID
    */
@@ -65,6 +67,7 @@ export const initialMessageState: ChatMessageState = {
   activeId: 'inbox',
   activeSessionType: undefined,
   conversationClearGeneration: 0,
+  memoryCompactionInvalidationGeneration: 0,
   groupAgentMaps: {},
   groupMaps: {},
   groupsInit: false,

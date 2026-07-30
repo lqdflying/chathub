@@ -59,11 +59,19 @@ export class AsyncLocalStorage<State> {
   }
 
   async saveToLocalStorage(state: object) {
-    await this.updateLocalStorage(() => state);
+    try {
+      await this.updateLocalStorage(() => state);
+    } catch {
+      // Storage may be denied or full — ignore write failures silently.
+    }
   }
 
   async getFromLocalStorage(key: StorageKey = this.storageKey): Promise<State> {
-    return JSON.parse(localStorage.getItem(key) || '{}');
+    try {
+      return JSON.parse(localStorage.getItem(key) || '{}');
+    } catch {
+      return {} as State;
+    }
   }
 
   async updateLocalStorage(

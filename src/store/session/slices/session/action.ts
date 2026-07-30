@@ -367,6 +367,7 @@ export const createSessionSlice: StateCreator<
             data.sessionGroups,
             n('useFetchSessions/updateData') as any,
           );
+          set({ isSessionsFirstFetchFinished: true }, false, n('useFetchSessions/onSuccess', data));
 
           // Sync chat groups from group sessions to chat store
           const groupSessions = data.sessions.filter((session) => session.type === 'group');
@@ -407,8 +408,6 @@ export const createSessionSlice: StateCreator<
 
             chatGroupStore.internal_updateGroupMaps(chatGroups);
           }
-
-          set({ isSessionsFirstFetchFinished: true }, false, n('useFetchSessions/onSuccess', data));
         },
         suspense: true,
       },

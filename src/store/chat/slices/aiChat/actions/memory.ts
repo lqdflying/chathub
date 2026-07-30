@@ -47,7 +47,9 @@ export interface ChatMemoryAction {
   triggerManualMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerMessageCountMemoryCompaction: () => Promise<MemoryCompactionResult>;
   triggerScheduledMemoryCompaction: () => Promise<MemoryCompactionResult>;
-  triggerTokenThresholdMemoryCompaction: () => Promise<MemoryCompactionResult>;
+  triggerTokenThresholdMemoryCompaction: (
+    abortController?: AbortController,
+  ) => Promise<MemoryCompactionResult>;
 }
 
 const countTextTokens = async (text: string) => {
@@ -99,6 +101,7 @@ const selectTokenTargetPrefix = async ({
 };
 
 const summarizeBatch = async ({
+  abortController,
   messages,
   model,
   previousSummary,
@@ -106,6 +109,7 @@ const summarizeBatch = async ({
   sessionId,
   topicId,
 }: {
+  abortController?: AbortController;
   messages: UIChatMessage[];
   model: string;
   previousSummary: string;
@@ -117,6 +121,7 @@ const summarizeBatch = async ({
   let output = '';
 
   await chatService.fetchPresetTaskResult({
+    abortController,
     onError: () => {
       failed = true;
     },
@@ -147,18 +152,23 @@ const isRegularTopicCompaction = (state: ChatStore) =>
   !state.portalThreadId &&
   !chatSelectors.mainTopicAIChats(state).some(({ groupId }) => !!groupId);
 
+const MAX_PRE_SEND_BATCHES = 3;
+
 async function runCompactionFromStore(
   get: () => ChatStore,
   trigger: MemoryCompactionTrigger,
   accountMutationSnapshot: AccountMutationSnapshot,
+  abortController?: AbortController,
 ): Promise<MemoryCompactionResult> {
   const state = get();
   const requestedGeneration = state.conversationClearGeneration;
+  const requestedInvalidationGeneration = state.memoryCompactionInvalidationGeneration;
   const requestedSessionId = state.activeId;
   const requestedTopicId = state.activeTopicId;
   const isCurrentRequest = () =>
     isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
     get().conversationClearGeneration === requestedGeneration &&
+    get().memoryCompactionInvalidationGeneration === requestedInvalidationGeneration &&
     get().activeId === requestedSessionId &&
     get().activeTopicId === requestedTopicId;
 
@@ -267,8 +277,15 @@ async function runCompactionFromStore(
   }
 
   let historySummary = pending.previousSummary;
-  for (const batch of splitCompactionBatches(candidateMessages)) {
+  const batches = splitCompactionBatches(candidateMessages);
+  const maxBatches =
+    trigger === 'token_threshold' && abortController ? MAX_PRE_SEND_BATCHES : batches.length;
+  for (const batch of batches.slice(0, maxBatches)) {
+    if (abortController?.signal.aborted) {
+      return compactionResult('ineligible', { reason: 'aborted' });
+    }
     const nextSummary = await summarizeBatch({
+      abortController,
       messages: batch,
       model: chatModel,
       previousSummary: historySummary,
@@ -384,6 +401,7 @@ async function runCompactionFromStore(
 const triggerCompaction = async (
   get: () => ChatStore,
   trigger: MemoryCompactionTrigger,
+  abortController?: AbortController,
 ): Promise<MemoryCompactionResult> => {
   const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
   const state = get();
@@ -395,8 +413,8 @@ const triggerCompaction = async (
   const running = compactionJobs.get(key);
   if (running) return running;
 
-  const job = runCompactionFromStore(get, trigger, accountMutationSnapshot).catch(() =>
-    compactionResult('failed', { reason: 'compaction_exception' }),
+  const job = runCompactionFromStore(get, trigger, accountMutationSnapshot, abortController).catch(
+    () => compactionResult('failed', { reason: 'compaction_exception' }),
   );
   compactionJobs.set(key, job);
   try {
@@ -433,6 +451,12 @@ export const chatMemory: StateCreator<
     });
     if (!affectsSummary) return;
 
+    _set(
+      (s) => ({ memoryCompactionInvalidationGeneration: s.memoryCompactionInvalidationGeneration + 1 }),
+      false,
+      'invalidateMemoryCompaction/bumpGeneration',
+    );
+
     const metadata: ChatTopicMetadata = {
       ...topic.metadata,
       historySummaryLastMessageId: undefined,
@@ -455,5 +479,6 @@ export const chatMemory: StateCreator<
   triggerManualMemoryCompaction: () => triggerCompaction(get, 'manual'),
   triggerMessageCountMemoryCompaction: () => triggerCompaction(get, 'message_count'),
   triggerScheduledMemoryCompaction: () => triggerCompaction(get, 'scheduled'),
-  triggerTokenThresholdMemoryCompaction: () => triggerCompaction(get, 'token_threshold'),
+  triggerTokenThresholdMemoryCompaction: (abortController) =>
+    triggerCompaction(get, 'token_threshold', abortController),
 });

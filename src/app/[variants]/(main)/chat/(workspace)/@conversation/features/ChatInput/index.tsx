@@ -1,3 +1,5 @@
+import MemoryContextOrchestrator from '@/features/Conversation/components/ContextMemory/MemoryContextOrchestrator';
+
 import DesktopChatInput from './Desktop';
 import MobileChatInput from './V1Mobile';
 
@@ -9,7 +11,12 @@ interface ChatInputProps {
 const ChatInput = ({ mobile, targetMemberId }: ChatInputProps) => {
   const Input = mobile ? MobileChatInput : DesktopChatInput;
 
-  return <Input targetMemberId={targetMemberId} />;
+  return (
+    <>
+      {mobile && <MemoryContextOrchestrator />}
+      <Input targetMemberId={targetMemberId} />
+    </>
+  );
 };
 
 export default ChatInput;

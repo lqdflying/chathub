@@ -24,9 +24,13 @@ export type RequestHandler = (
 
 export const checkAuth =
   (handler: RequestHandler) => async (req: Request, options: RequestOptions) => {
-    // we have a special header to debug the api endpoint in development mode
     const isDebugApi = req.headers.get('lobe-auth-dev-backend-api') === '1';
-    if (process.env.NODE_ENV === 'development' && isDebugApi) {
+    if (
+      process.env.NODE_ENV === 'development' &&
+      isDebugApi &&
+      process.env.AUTH_DEV_BYPASS_SECRET &&
+      req.headers.get('lobe-auth-dev-secret') === process.env.AUTH_DEV_BYPASS_SECRET
+    ) {
       return handler(req, { ...options, jwtPayload: { userId: 'DEV_USER' } });
     }
 

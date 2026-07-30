@@ -188,6 +188,7 @@ export const convertOpenAIImageUsage = (
     inputImageTokens: availableUsage.inputImageTokens,
     inputTextTokens: availableUsage.inputTextTokens,
     outputImageTokens: availableUsage.outputImageTokens,
+    totalInputTokens: availableUsage.totalInputTokens,
   } satisfies ModelTokensUsage;
   const pricingResult = withUsageCost(usageForPricing as ModelUsage, pricing);
 
