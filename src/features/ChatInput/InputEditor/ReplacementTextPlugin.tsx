@@ -5,6 +5,8 @@ import {
   $isRootNode,
   $isTextNode,
   CONTROLLED_TEXT_INSERTION_COMMAND,
+  type EditorState,
+  HISTORY_MERGE_TAG,
   type LexicalEditor,
 } from 'lexical';
 import { memo } from 'react';
@@ -47,8 +49,17 @@ const getWordPrefixLength = (text: string, cursorOffset: number, replacementText
 
 export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   let rootElement: HTMLElement | null = null;
+  let pendingNativeReplay: { editorState: EditorState; rootElement: HTMLElement } | null = null;
+  let replayGeneration = 0;
+
+  const invalidatePendingNativeReplay = () => {
+    pendingNativeReplay = null;
+    replayGeneration += 1;
+  };
 
   const handleBeforeInput = (event: Event) => {
+    invalidatePendingNativeReplay();
+
     const inputEvent = event as InputEvent;
     const isTextReplacement =
       inputEvent.inputType === 'insertReplacementText' ||
@@ -130,14 +141,38 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     );
 
     if (handled) {
+      pendingNativeReplay = {
+        editorState: editor.getEditorState(),
+        rootElement,
+      };
       inputEvent.preventDefault();
       inputEvent.stopImmediatePropagation();
     }
   };
 
+  const handleInput = (event: Event) => {
+    const replay = pendingNativeReplay;
+
+    if (!replay || event.target !== replay.rootElement) return;
+
+    pendingNativeReplay = null;
+    const generation = replayGeneration;
+
+    // Isolated browsers can apply the native edit after preventDefault. Let Lexical reconcile
+    // that input first, then restore the controlled insertion as the same history operation.
+    queueMicrotask(() => {
+      if (generation !== replayGeneration || rootElement !== replay.rootElement) return;
+
+      editor.setEditorState(replay.editorState, { tag: HISTORY_MERGE_TAG });
+    });
+  };
+
   return editor.registerRootListener((nextRootElement, previousRootElement) => {
+    invalidatePendingNativeReplay();
     previousRootElement?.removeEventListener('beforeinput', handleBeforeInput, true);
+    previousRootElement?.removeEventListener('input', handleInput, true);
     nextRootElement?.addEventListener('beforeinput', handleBeforeInput, true);
+    nextRootElement?.addEventListener('input', handleInput, true);
     rootElement = nextRootElement;
   });
 };

@@ -121,6 +121,13 @@ const dispatchBeforeInput = (
   return event;
 };
 
+const dispatchInput = (target: HTMLElement, inputType = 'insertText') => {
+  const event = new InputEvent('input', { bubbles: true, inputType });
+  target.dispatchEvent(event);
+
+  return event;
+};
+
 const getDOMTextNode = (editor: LexicalEditor, key: NodeKey) => {
   const element = editor.getElementByKey(key);
   const textNode = element?.firstChild;
@@ -272,6 +279,138 @@ describe('registerReplacementTextRangeHandler', () => {
     expect(getTextContent(editor)).toBe('sorry sorry');
   });
 
+  it('restores the handled state when an isolated browser replays a suggestion', async () => {
+    const { editor, rootElement } = createTestEditor();
+    let textKey: NodeKey = '';
+    let replayedText = '';
+
+    editor.update(
+      () => {
+        const textNode = $createTextNode('for fore one');
+        textKey = textNode.getKey();
+        $getRoot().append($createParagraphNode().append(textNode));
+        textNode.select(8, 8);
+      },
+      { discrete: true },
+    );
+
+    const domTextNode = getDOMTextNode(editor, textKey);
+    dispatchBeforeInput(
+      rootElement,
+      'insertReplacementText',
+      [createTargetRange(domTextNode, 8, domTextNode, 8)],
+      'forever',
+    );
+
+    expect(getTextContent(editor)).toBe('for forever one');
+
+    const replayNativeInsertion = () => {
+      editor.update(
+        () => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertText('forever');
+        },
+        { onUpdate: () => (replayedText = getTextContent(editor)) },
+      );
+    };
+    rootElement.addEventListener('input', replayNativeInsertion);
+
+    dispatchInput(rootElement);
+    rootElement.removeEventListener('input', replayNativeInsertion);
+    await Promise.resolve();
+
+    expect(replayedText).toBe('for foreverforever one');
+    expect(getTextContent(editor)).toBe('for forever one');
+  });
+
+  it('restores the handled state when a replay creates another paragraph', async () => {
+    const { editor, rootElement } = createTestEditor();
+    let textKey: NodeKey = '';
+    let replayedParagraphCount = 0;
+
+    editor.update(
+      () => {
+        const textNode = $createTextNode('se');
+        textKey = textNode.getKey();
+        $getRoot().append($createParagraphNode().append(textNode));
+        textNode.selectEnd();
+      },
+      { discrete: true },
+    );
+
+    const domTextNode = getDOMTextNode(editor, textKey);
+    dispatchBeforeInput(
+      rootElement,
+      'insertReplacementText',
+      [createTargetRange(domTextNode, 2, domTextNode, 2)],
+      'see',
+    );
+
+    const replayNativeInsertion = () => {
+      editor.update(
+        () => {
+          const root = $getRoot();
+          root.clear();
+          root.append(
+            $createParagraphNode().append($createTextNode('see')),
+            $createParagraphNode().append($createTextNode('see')),
+          );
+        },
+        {
+          onUpdate: () =>
+            editor.getEditorState().read(() => {
+              replayedParagraphCount = $getRoot().getChildrenSize();
+            }),
+        },
+      );
+    };
+    rootElement.addEventListener('input', replayNativeInsertion);
+
+    dispatchInput(rootElement, 'insertParagraph');
+    rootElement.removeEventListener('input', replayNativeInsertion);
+    await Promise.resolve();
+
+    expect(replayedParagraphCount).toBe(2);
+    expect(getTextContent(editor)).toBe('see');
+    editor.getEditorState().read(() => expect($getRoot().getChildrenSize()).toBe(1));
+  });
+
+  it('does not restore a suggestion over subsequent user input', async () => {
+    const { editor, rootElement } = createTestEditor();
+    let textKey: NodeKey = '';
+
+    editor.update(
+      () => {
+        const textNode = $createTextNode('se');
+        textKey = textNode.getKey();
+        $getRoot().append($createParagraphNode().append(textNode));
+        textNode.selectEnd();
+      },
+      { discrete: true },
+    );
+
+    const domTextNode = getDOMTextNode(editor, textKey);
+    dispatchBeforeInput(
+      rootElement,
+      'insertReplacementText',
+      [createTargetRange(domTextNode, 2, domTextNode, 2)],
+      'see',
+    );
+    dispatchBeforeInput(rootElement, 'insertText', undefined, 'x');
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText('x');
+      },
+      { discrete: true },
+    );
+
+    dispatchInput(rootElement);
+    await Promise.resolve();
+
+    expect(getTextContent(editor)).toBe('seex');
+  });
+
   it.each([
     ['a different input type', 'insertTranspose', 'see', false],
     ['a single-character insertText event', 'insertText', 'e', false],
@@ -390,7 +529,9 @@ describe('registerReplacementTextRangeHandler', () => {
     editor.setRootElement(secondRoot);
 
     expect(removeEventListener).toHaveBeenCalledWith('beforeinput', expect.any(Function), true);
+    expect(removeEventListener).toHaveBeenCalledWith('input', expect.any(Function), true);
     expect(addEventListener).toHaveBeenCalledWith('beforeinput', expect.any(Function), true);
+    expect(addEventListener).toHaveBeenCalledWith('input', expect.any(Function), true);
 
     unregister();
     editor.setRootElement(null);
