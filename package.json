@@ -126,6 +126,7 @@
     ]
   },
   "overrides": {
+    "lexical": "0.38.2",
     "mdast-util-gfm-autolink-literal": "2.0.0"
   },
   "dependencies": {
@@ -313,6 +314,7 @@
     "@commitlint/cli": "^19.8.1",
     "@edge-runtime/vm": "^5.0.0",
     "@huggingface/tasks": "^0.19.50",
+    "@lexical/rich-text": "0.38.2",
     "@lobechat/types": "workspace:*",
     "@lobehub/i18n-cli": "^1.25.1",
     "@lobehub/lint": "^1.26.2",
@@ -410,6 +412,7 @@
       "re2"
     ],
     "overrides": {
+      "lexical": "0.38.2",
       "mdast-util-gfm-autolink-literal": "2.0.0"
     }
   }
