@@ -14,7 +14,7 @@ const RAG_EVAL_UPLOAD_ROOT = 'ragEval';
 const getUploadRoot = (purpose: UploadPurpose): string => {
   const configuredRoot =
     purpose === 'ragEval' ? RAG_EVAL_UPLOAD_ROOT : fileEnv.NEXT_PUBLIC_S3_FILE_PATH || 'files';
-  const root = configuredRoot.replace(/^\/+|\/+$/g, '');
+  const root = configuredRoot.replaceAll(/^\/+|\/+$/g, '');
 
   if (!root || !isValidUploadPathname(`${root}/upload`)) {
     throw new Error('Invalid S3 upload root configuration');
@@ -28,7 +28,7 @@ const getSafeExtension = (filename: string): string => {
   if (dotIndex <= 0 || dotIndex === filename.length - 1) return 'bin';
 
   const extension = filename.slice(dotIndex + 1).toLowerCase();
-  return /^[a-z0-9]{1,16}$/.test(extension) ? extension : 'bin';
+  return /^[\da-z]{1,16}$/.test(extension) ? extension : 'bin';
 };
 
 const getAccountScope = (userId: string): string => sha256(userId);

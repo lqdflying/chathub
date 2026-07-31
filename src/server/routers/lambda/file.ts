@@ -37,7 +37,7 @@ export const fileRouter = router({
   createFile: fileProcedure
     .input(
       UploadFileSchema.omit({ hash: true, url: true }).extend({
-        hash: z.string().regex(/^[a-f\d]{64}$/i, 'invalid file hash'),
+        hash: z.string().regex(/^[\da-f]{64}$/i, 'invalid file hash'),
         // The URL stored in a files row is later trusted by proxy and image ownership checks.
         // Reject malformed shapes before the mutation applies its scoped-key or hash-canonical
         // ownership rule.
