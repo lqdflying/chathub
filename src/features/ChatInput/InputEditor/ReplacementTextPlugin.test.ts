@@ -528,6 +528,75 @@ describe('ReplacementTextPlugin', () => {
       expect(getParagraphCount(editor)).toBe(1);
     });
 
+    it('applies a synthetic replacement whose payload arrives only on the input event', async () => {
+      // Second field-captured shape: the beforeinput carries no payload at all
+      // (data=null, dataTransfer=null) and the acceptance text rides the paired
+      // synthetic input event's data.
+      const { editor } = createTestEditor();
+      const key = initText(editor, 'fore', 4);
+      const domText = getDOMTextNode(editor, key);
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        ranges: [createTargetRange(domText, 4, domText, 4)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: 'forever ',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('forever ');
+      expect(getParagraphCount(editor)).toBe(1);
+
+      // Repeated delivery of the same acceptance must not duplicate.
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        ranges: [createTargetRange(domText, 8, domText, 8)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: 'forever ',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('forever ');
+      expect(getParagraphCount(editor)).toBe(1);
+    });
+
+    it('ignores payload-less synthetic acceptance echoes', async () => {
+      // Repeat-clicks in the field arrive as fully empty synthetic pairs
+      // (beforeinput and input both without payload) and must change nothing.
+      const { editor } = createTestEditor();
+      const key = initText(editor, 'forever ', 8);
+      const domText = getDOMTextNode(editor, key);
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        ranges: [createTargetRange(domText, 8, domText, 8)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: '',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('forever ');
+      expect(getParagraphCount(editor)).toBe(1);
+    });
+
     it('applies synthetic corrections by replacing the whole typed word', async () => {
       const { editor } = createTestEditor();
       initText(editor, 'let teh', 7);

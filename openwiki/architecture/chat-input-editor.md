@@ -77,7 +77,14 @@ the editor root plus one high-priority command handler:
   `input` at all, so its arrival means the environment ignored `preventDefault`).
   In both cases the `input` event is flagged; if the DOM text of the selection
   anchor additionally diverges from the model, the DOM is rewritten from the model
-  by marking the text node dirty in a discrete update.
+  by marking the text node dirty in a discrete update. A third field-observed shape
+  is handled here too: the same injector can deliver the acceptance with a
+  **completely payload-less `beforeinput`** and the text riding only the paired
+  `input` event's `data`. The payload-less synthetic `beforeinput` arms a one-shot
+  state; the paired synthetic `input` is then flagged away from Lexical and the
+  replacement is applied directly (whole-word selection + plain-text insert), with
+  an ends-with dedupe so repeated deliveries of the same acceptance stay
+  idempotent. Fully empty echo pairs (no payload anywhere) change nothing.
 - **`CONTROLLED_TEXT_INSERTION_COMMAND` at `COMMAND_PRIORITY_CRITICAL`** — for
   `insertReplacementText` InputEvent payloads, inserts the `text/plain` payload only,
   stripping trailing newlines and mapping interior newlines to spaces. This bypasses

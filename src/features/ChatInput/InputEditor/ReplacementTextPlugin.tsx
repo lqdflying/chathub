@@ -106,9 +106,13 @@ const isDebugEnabled = () => {
 // outbound channel isolated browsers stream back to the user; console.debug is kept
 // for regular browsers.
 let overlayElement: HTMLElement | null = null;
+let overlaySequence = 0;
 
-const debugPrint = (line: string) => {
+const debugPrint = (rawLine: string) => {
   try {
+    overlaySequence += 1;
+    const line = `${overlaySequence} ${rawLine}`;
+
     // eslint-disable-next-line no-console
     console.debug('[ReplacementTextPlugin]', line);
 
@@ -134,7 +138,7 @@ const debugPrint = (line: string) => {
     entry.textContent = line;
     overlayElement.append(entry);
 
-    while (overlayElement.childElementCount > 40) overlayElement.children[1]?.remove();
+    while (overlayElement.childElementCount > 60) overlayElement.children[1]?.remove();
 
     overlayElement.scrollTop = overlayElement.scrollHeight;
   } catch {
@@ -182,6 +186,9 @@ const describeEvent = (event: Event, editor: LexicalEditor) => {
 export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   let rootElement: HTMLElement | null = null;
   let pendingTrusted: { event: InputEvent; timeStamp: number } | null = null;
+  // Armed by a payload-less synthetic insertReplacementText beforeinput: some
+  // injectors deliver the replacement text only on the paired input event.
+  let pendingSyntheticApply: { timeStamp: number } | null = null;
   let debugEnabled = false;
 
   const isEditorTarget = (target: EventTarget | null): boolean => {
@@ -302,6 +309,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     const inputEvent = event as InputEvent;
 
     pendingTrusted = null;
+    pendingSyntheticApply = null;
 
     if (!isEditorTarget(inputEvent.target)) return;
 
@@ -353,6 +361,10 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
             } range=${targetRange === null ? 0 : 1} replace=${replaceLength})`,
           );
         setLexicalHandled(inputEvent);
+
+        if (synthetic && !composing && !replacementText)
+          pendingSyntheticApply = { timeStamp: inputEvent.timeStamp };
+
         return;
       }
     } else if (composing) {
@@ -376,16 +388,83 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     pendingTrusted = { event: inputEvent, timeStamp: inputEvent.timeStamp };
   };
 
+  const applySyntheticReplacement = (rawData: string) => {
+    const text = rawData.replace(/(?:\r?\n)+$/u, '').replaceAll(/\r?\n/gu, ' ');
+
+    if (!text) return;
+
+    editor.update(
+      () => {
+        const selection = $getSelection();
+
+        if (!$isRangeSelection(selection)) return;
+
+        if (selection.isCollapsed() && selection.anchor.type === 'text') {
+          const anchorNode = selection.anchor.getNode();
+
+          if ($isTextNode(anchorNode)) {
+            const content = anchorNode.getTextContent();
+            const before = content.slice(0, selection.anchor.offset);
+
+            // Injectors can deliver the same acceptance more than once; repeated
+            // application must stay idempotent.
+            if (before.endsWith(rawData) || before.endsWith(text)) return;
+
+            const replaceLength = getWordReplaceLength(
+              content,
+              selection.anchor.offset,
+              text,
+              true,
+            );
+
+            if (replaceLength > 0)
+              selection.setTextNodeRange(
+                anchorNode,
+                selection.anchor.offset - replaceLength,
+                anchorNode,
+                selection.anchor.offset,
+              );
+          }
+        }
+
+        selection.insertText(text);
+      },
+      { discrete: true },
+    );
+  };
+
   const handleInput = (event: Event) => {
     const armed = pendingTrusted;
+    const armedSynthetic = pendingSyntheticApply;
 
     pendingTrusted = null;
-
-    if (!armed) return;
+    pendingSyntheticApply = null;
 
     const inputEvent = event as InputEvent;
 
     if (!isEditorTarget(inputEvent.target)) return;
+
+    if (!armed) {
+      // Payload-on-input shape: a payload-less synthetic replacement beforeinput was
+      // flagged away from lexical, and the acceptance text arrives only here.
+      if (
+        armedSynthetic &&
+        !inputEvent.isTrusted &&
+        inputEvent.inputType === 'insertReplacementText' &&
+        inputEvent.timeStamp - armedSynthetic.timeStamp <= 100
+      ) {
+        const data = getReplacementText(inputEvent);
+
+        if (data) {
+          setLexicalHandled(inputEvent);
+          if (debugEnabled)
+            debugPrint(`decision: synthetic input apply ${JSON.stringify(data)}`);
+          applySyntheticReplacement(data);
+        }
+      }
+
+      return;
+    }
 
     // A prevented trusted beforeinput produces no input event in compliant browsers.
     // Synthetic injectors dispatch a paired input event regardless (and their events
@@ -471,6 +550,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   const unregisterRootListener = editor.registerRootListener(
     (nextRootElement, previousRootElement) => {
       pendingTrusted = null;
+      pendingSyntheticApply = null;
 
       if (previousRootElement) {
         previousRootElement.removeEventListener('beforeinput', handleBeforeInput, true);

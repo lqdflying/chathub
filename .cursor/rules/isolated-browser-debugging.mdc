@@ -54,6 +54,11 @@ events: they prove which code path ran in the field.
   Injectors (isolation thin clients, Grammarly-class overlays) dispatch such
   events *expecting the editor to perform them*, and typically dispatch a
   paired synthetic `input` event that naive handlers double-process.
+- The same injector can use **multiple delivery shapes across runs**: payload on
+  the `beforeinput` `dataTransfer`, payload only on the paired `input` event's
+  `data`, and fully empty echo pairs for repeated acceptance. Handle all shapes
+  and make application idempotent — never assume the first captured shape is the
+  only one.
 - `cancelable === false`: `preventDefault()` is a silent no-op.
 - Target ranges from isolation layers can be bogus (collapsed, offset 0,
   outside the editor) — validate before use.
