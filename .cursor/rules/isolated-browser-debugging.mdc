@@ -54,13 +54,31 @@ events: they prove which code path ran in the field.
   Injectors (isolation thin clients, Grammarly-class overlays) dispatch such
   events *expecting the editor to perform them*, and typically dispatch a
   paired synthetic `input` event that naive handlers double-process.
+- The same injector can use **multiple delivery shapes across runs**: payload on
+  the `beforeinput` `dataTransfer`, payload only on the paired `input` event's
+  `data`, and fully empty echo pairs for repeated acceptance. Handle all shapes
+  and make application idempotent — never assume the first captured shape is the
+  only one.
 - `cancelable === false`: `preventDefault()` is a silent no-op.
 - Target ranges from isolation layers can be bogus (collapsed, offset 0,
   outside the editor) — validate before use.
 - A trusted, non-cancelable event (real IME/autocorrect) is applied by the
   browser itself: never re-apply it; reconcile from the DOM.
 
-## 5. Verification pattern
+## 5. The mirror itself can lie
+
+Under DOM-mirroring isolation, the **display** can show stale or duplicated
+content that does not exist in the real (remote) editor state — e.g. a ghost
+line left by the thin client's optimistic local echo, visible even while the
+app's placeholder shows through it. Before concluding the app is wrong, verify
+actual state through an out-of-band channel: submit the content (the sent
+message shows the true state), or read the `doc="…"` document snapshot on the
+debug overlay's decision lines. If the true state is correct, the residual
+artifact is the isolation vendor's mirroring bug — collect the overlay
+screenshot (correct `doc=` vs. wrong display) as evidence for an IT exemption
+request or vendor ticket; no app-side fix exists.
+
+## 6. Verification pattern
 
 Field-captured event sequences become unit-test replays: reproduce the exact
 shape (trust, cancelable, payload, ranges, paired events, same-task dispatch)

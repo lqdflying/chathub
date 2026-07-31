@@ -77,7 +77,14 @@ the editor root plus one high-priority command handler:
   `input` at all, so its arrival means the environment ignored `preventDefault`).
   In both cases the `input` event is flagged; if the DOM text of the selection
   anchor additionally diverges from the model, the DOM is rewritten from the model
-  by marking the text node dirty in a discrete update.
+  by marking the text node dirty in a discrete update. A third field-observed shape
+  is handled here too: the same injector can deliver the acceptance with a
+  **completely payload-less `beforeinput`** and the text riding only the paired
+  `input` event's `data`. The payload-less synthetic `beforeinput` arms a one-shot
+  state; the paired synthetic `input` is then flagged away from Lexical and the
+  replacement is applied directly (whole-word selection + plain-text insert), with
+  an ends-with dedupe so repeated deliveries of the same acceptance stay
+  idempotent. Fully empty echo pairs (no payload anywhere) change nothing.
 - **`CONTROLLED_TEXT_INSERTION_COMMAND` at `COMMAND_PRIORITY_CRITICAL`** — for
   `insertReplacementText` InputEvent payloads, inserts the `text/plain` payload only,
   stripping trailing newlines and mapping interior newlines to spaces. This bypasses
@@ -99,6 +106,13 @@ isolation products (e.g. Menlo "Safeview" thin clients) run the app in a remote
 browser: local DevTools and local `localStorage` never reach the app, and the app's
 console output never reaches the user — but the URL travels inbound and the mirrored
 DOM travels outbound, so the overlay is visible through the isolation layer.
+
+Field verification note: under DOM-mirroring isolation the *display* can show
+stale/duplicated text that does not exist in the editor state (a thin-client
+ghost — the app placeholder may even show through it). The `doc="…"` snapshot
+on the overlay's decision lines and the content of a sent message reflect the
+true state; if those are correct, the residual artifact is the isolation
+product's mirroring bug and cannot be fixed app-side.
 
 ## Dependency constraint: exactly one `lexical` instance
 
