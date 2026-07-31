@@ -172,9 +172,18 @@ export const convertOpenAIImageUsage = (
   const inputTokenDetails = usage.input_tokens_details as
     | OpenAI.Images.ImagesResponse.Usage['input_tokens_details']
     | undefined;
+  const imageTokens = inputTokenDetails?.image_tokens;
+  // Derive text input when the provider reports image tokens but omits text_tokens. Without
+  // this, computeChatCost's textInput falls back to totalInputTokens (which includes the
+  // image tokens) while imageInput also bills inputImageTokens — double-counting image input.
+  const inputTextTokens =
+    inputTokenDetails?.text_tokens ??
+    (typeof usage.input_tokens === 'number' && typeof imageTokens === 'number'
+      ? Math.max(usage.input_tokens - imageTokens, 0)
+      : undefined);
   const data = {
-    inputImageTokens: inputTokenDetails?.image_tokens,
-    inputTextTokens: inputTokenDetails?.text_tokens,
+    inputImageTokens: imageTokens,
+    inputTextTokens: inputTextTokens,
     outputImageTokens: usage.output_tokens,
     totalInputTokens: usage.input_tokens,
     totalOutputTokens: usage.output_tokens,
