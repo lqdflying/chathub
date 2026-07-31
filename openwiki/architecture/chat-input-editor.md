@@ -71,10 +71,19 @@ the editor root plus one high-priority command handler:
   re-trigger send-on-enter. String payloads and other input types fall through to the
   stock handler.
 
-A diagnostic probe (enabled with `localStorage.setItem('lobe_replacement_debug', '1')`)
-logs every `beforeinput`/`input`/`composition*` event's `inputType`, `cancelable`,
-`isTrusted`, `isComposing`, `dataTransfer` types, and target ranges to `console.debug`,
-for classifying misbehaving environments that cannot be reproduced locally.
+A diagnostic probe logs every `beforeinput`/`input`/`textInput`/`keydown`/
+`composition*` event (`inputType`, `data`, `dataTransfer` types and text/plain,
+`cancelable`, `isTrusted`, `isComposing`, target ranges) plus the plugin's routing
+decision (trusted / native-fallback with reasons / guard repair). Enable it with
+`localStorage.setItem('lobe_replacement_debug', '1')` — or, critically, by visiting
+the app with `?replacement_debug=1` (or `#replacement_debug=1`) appended to the URL,
+which persists the flag; `replacement_debug=0` clears it. Output goes to
+`console.debug` **and** to a fixed-position on-page overlay
+(`#replacement-debug-overlay`). The URL/overlay pair exists because remote-browser-
+isolation products (e.g. Menlo "Safeview" thin clients) run the app in a remote
+browser: local DevTools and local `localStorage` never reach the app, and the app's
+console output never reaches the user — but the URL travels inbound and the mirrored
+DOM travels outbound, so the overlay is visible through the isolation layer.
 
 ## Dependency constraint: exactly one `lexical` instance
 

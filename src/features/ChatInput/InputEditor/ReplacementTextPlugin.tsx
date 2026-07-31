@@ -12,9 +12,12 @@ import {
 import { memo } from 'react';
 
 const DEBUG_FLAG = 'lobe_replacement_debug';
+const DEBUG_OVERLAY_ID = 'replacement-debug-overlay';
 const PROBE_EVENTS = [
   'beforeinput',
   'input',
+  'textInput',
+  'keydown',
   'compositionstart',
   'compositionupdate',
   'compositionend',
@@ -70,15 +73,102 @@ const setLexicalHandled = (event: Event) => {
 
 const isDebugEnabled = () => {
   try {
+    // The URL is the only inbound channel that survives remote-browser-isolation
+    // products (DevTools and localStorage commands run in the local thin client, not
+    // in the remote browser executing this code). Seeing the flag once persists it.
+    const href = globalThis.location?.href ?? '';
+
+    if (/[#&?]replacement_debug=1/.test(href)) globalThis.localStorage?.setItem(DEBUG_FLAG, '1');
+    else if (/[#&?]replacement_debug=0/.test(href))
+      globalThis.localStorage?.removeItem(DEBUG_FLAG);
+
     return globalThis.localStorage?.getItem(DEBUG_FLAG) === '1';
   } catch {
     return false;
   }
 };
 
+// Debug output is mirrored into an on-page overlay because a mirrored DOM is the only
+// outbound channel isolated browsers stream back to the user; console.debug is kept
+// for regular browsers.
+let overlayElement: HTMLElement | null = null;
+
+const debugPrint = (line: string) => {
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[ReplacementTextPlugin]', line);
+
+    const doc = globalThis.document;
+
+    if (!doc?.body) return;
+
+    if (!overlayElement || !overlayElement.isConnected) {
+      overlayElement = doc.createElement('div');
+      overlayElement.id = DEBUG_OVERLAY_ID;
+      overlayElement.style.cssText =
+        'position:fixed;bottom:8px;right:8px;z-index:2147483647;max-width:46vw;' +
+        'max-height:42vh;overflow:auto;background:rgba(0,0,0,0.82);color:#7CFC00;' +
+        'font:11px/1.5 monospace;padding:8px;border-radius:6px;pointer-events:none;' +
+        'white-space:pre-wrap;word-break:break-all;';
+      const header = doc.createElement('div');
+      header.textContent = 'replacement debug on (disable: ?replacement_debug=0)';
+      overlayElement.append(header);
+      doc.body.append(overlayElement);
+    }
+
+    const entry = doc.createElement('div');
+    entry.textContent = line;
+    overlayElement.append(entry);
+
+    while (overlayElement.childElementCount > 40) overlayElement.children[1]?.remove();
+
+    overlayElement.scrollTop = overlayElement.scrollHeight;
+  } catch {
+    // Diagnostics must never break input handling.
+  }
+};
+
+const describeEvent = (event: Event, editor: LexicalEditor) => {
+  const inputEvent = event as InputEvent;
+  let ranges = '';
+
+  try {
+    ranges =
+      inputEvent.getTargetRanges?.()
+        .map(
+          (range) =>
+            `${range.startContainer.nodeName}:${range.startOffset}-${range.endContainer.nodeName}:${range.endOffset}${range.collapsed ? '(collapsed)' : ''}`,
+        )
+        .join(',') ?? 'no-api';
+  } catch {
+    ranges = 'THROWS';
+  }
+
+  let plain: string | null = null;
+
+  try {
+    plain = inputEvent.dataTransfer?.getData('text/plain') ?? null;
+  } catch {
+    plain = 'THROWS';
+  }
+
+  const key = (event as KeyboardEvent).key;
+
+  return (
+    `${event.type} ${inputEvent.inputType ?? key ?? ''} ` +
+    `data=${JSON.stringify(inputEvent.data ?? null)} ` +
+    `plain=${JSON.stringify(plain)} ` +
+    `dt=[${inputEvent.dataTransfer ? [...inputEvent.dataTransfer.types].join(',') : 'null'}] ` +
+    `trust=${event.isTrusted ? 1 : 0} cancel=${event.cancelable ? 1 : 0} ` +
+    `comp=${inputEvent.isComposing ? 1 : 0} edComp=${editor.isComposing() ? 1 : 0} ` +
+    `ranges=[${ranges}]`
+  );
+};
+
 export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   let rootElement: HTMLElement | null = null;
   let pendingTrusted: { event: InputEvent; timeStamp: number } | null = null;
+  let debugEnabled = false;
 
   const isEditorTarget = (target: EventTarget | null): boolean => {
     if (!rootElement || !(target instanceof Node)) return false;
@@ -215,6 +305,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
       !targetRange && replacementText ? getInferredPrefixLength(replacementText) : 0;
 
     if (blocked) {
+      if (debugEnabled) debugPrint('decision: native (getTargetRanges throws)');
       setLexicalHandled(inputEvent);
       return;
     }
@@ -234,6 +325,14 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
         (!targetRange && prefixLength === 0);
 
       if (nativeFallback) {
+        if (debugEnabled)
+          debugPrint(
+            `decision: native-fallback (comp=${composing ? 1 : 0} trust=${
+              inputEvent.isTrusted ? 1 : 0
+            } cancel=${inputEvent.cancelable ? 1 : 0} payload=${
+              replacementText === null ? 0 : 1
+            } range=${targetRange === null ? 0 : 1} prefix=${prefixLength})`,
+          );
         setLexicalHandled(inputEvent);
         return;
       }
@@ -244,8 +343,10 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     // Only repair the selection; lexical's own beforeinput handler performs the
     // preventDefault and the controlled insertion.
     if (targetRange) {
+      if (debugEnabled) debugPrint('decision: trusted (target-range path)');
       applyRangeIfSelectionStale(targetRange);
     } else if (prefixLength > 0) {
+      if (debugEnabled) debugPrint(`decision: trusted (prefix=${prefixLength})`);
       selectTypedPrefix(prefixLength);
     } else {
       return;
@@ -287,6 +388,8 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
     if (staleNodeKey === null) return;
 
+    if (debugEnabled) debugPrint('guard: DOM diverged after prevented edit — repairing from model');
+
     // The model already holds the controlled insertion; stop lexical's input handler
     // from copying the doubled DOM text back in, and rewrite the DOM from the model
     // (marking the node dirty makes the reconciler diff against the live DOM value).
@@ -306,34 +409,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
   };
 
   const handleProbe = (event: Event) => {
-    try {
-      const inputEvent = event as InputEvent;
-      let targetRanges: unknown;
-
-      try {
-        targetRanges = inputEvent.getTargetRanges?.().map((range) => ({
-          collapsed: range.collapsed,
-          end: `${range.endContainer.nodeName}:${range.endOffset}`,
-          start: `${range.startContainer.nodeName}:${range.startOffset}`,
-        }));
-      } catch (error) {
-        targetRanges = `error: ${String(error)}`;
-      }
-
-      // eslint-disable-next-line no-console
-      console.debug('[ReplacementTextPlugin]', event.type, {
-        cancelable: event.cancelable,
-        data: inputEvent.data,
-        dataTransferTypes: inputEvent.dataTransfer ? [...inputEvent.dataTransfer.types] : null,
-        editorComposing: editor.isComposing(),
-        inputType: inputEvent.inputType,
-        isComposing: inputEvent.isComposing,
-        isTrusted: event.isTrusted,
-        targetRanges,
-      });
-    } catch {
-      // Diagnostics must never break input handling.
-    }
+    debugPrint(describeEvent(event, editor));
   };
 
   const unregisterCommand = editor.registerCommand(
@@ -355,6 +431,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
       const text = raw.replace(/(?:\r?\n)+$/u, '').replaceAll(/\r?\n/gu, ' ');
 
       if (text) selection.insertText(text);
+      if (debugEnabled) debugPrint(`command: replacement insert ${JSON.stringify(text)}`);
 
       return true;
     },
@@ -373,10 +450,11 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
       }
 
       if (nextRootElement) {
+        debugEnabled = isDebugEnabled();
         nextRootElement.addEventListener('beforeinput', handleBeforeInput, true);
         nextRootElement.addEventListener('input', handleInput, true);
 
-        if (isDebugEnabled())
+        if (debugEnabled)
           for (const type of PROBE_EVENTS) nextRootElement.addEventListener(type, handleProbe, true);
       }
 
