@@ -508,6 +508,21 @@ the same task twice.
 The user setting `MAX_DEFAULT_IMAGE_NUM` remains 20; it is a settings boundary,
 not the per-request generation limit.
 
+Chat attachment context has a separate best-effort compatibility step before a
+provider call. Each `/webapi/files/...` image reference is independently
+resolved to a public object URL. A failed lookup preserves the original proxy
+URL so one stale image does not abort context engineering; that preserved URL
+may still be unreachable to the provider. This is not the generated-output
+ingestion path, which must fetch/decode and transform the provider result before
+the task can succeed.
+
+The shared app-file proxy key extractor recognizes absolute references when
+their WHATWG `URL.host` equals the configured `APP_URL.host`. Because `host`
+contains hostname and port but not scheme, an HTTP/HTTPS scheme difference is
+accepted when host and port match. This app-file lookup rule is distinct from
+the stricter origin checks used when normalizing new image-generation reference
+configuration.
+
 ## Structured diagnostics
 
 `CHATHUB_IMAGE_DEBUG` enables server-only prefixed JSON diagnostics for the core
@@ -532,10 +547,14 @@ not an upstream generation failure.
 OpenAI-compatible image responses are normalized defensively after the provider
 returns. Some compatible endpoints report the top-level input, output, and total
 token counters but omit `input_tokens_details` or one of its text/image modality
-counters. ChatHub preserves every reported total and explicit zero, omits only
-the unavailable modality counters, and prices only counters that are actually
-present. Incomplete optional usage telemetry therefore cannot turn a completed
-image response into a failed task or invent an unreported token breakdown.
+counters. ChatHub preserves every reported total and explicit zero. When
+`image_tokens` is present but `text_tokens` is absent, text input is derived as
+`max(input_tokens - image_tokens, 0)` to avoid billing the same image tokens as
+both text and image input. If image details are also absent, ChatHub omits the
+unknown modality split rather than treating all input as text. Pricing uses only
+the available or safely derived counters. Incomplete optional usage telemetry
+therefore cannot turn a completed image response into a failed task or invent an
+unreported token breakdown.
 
 Diagnostics propagate an opaque `x-chathub-image-diagnostic-id` header only
 when the async request presents the internal server bearer secret. External,

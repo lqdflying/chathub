@@ -197,6 +197,43 @@ boundary. The bounded constant-time comparison follows
 [OWASP authentication guidance](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 for secret comparisons.
 
+### Development-only auth bypass
+
+`resolveDevBypassUserId` is the single bypass resolver for Lambda tRPC and
+WebAPI `checkAuth` routes, including `/webapi/files`. It is disabled unless
+`NODE_ENV=development`. A request is accepted when either
+`ENABLE_MOCK_DEV_USER=1` is set (no headers required) or both
+`lobe-auth-dev-backend-api: 1` and a constant-time matching
+`lobe-auth-dev-secret` for `AUTH_DEV_BYPASS_SECRET` are present. Both entry
+points use `MOCK_DEV_USER_ID.trim()` and fall back to `DEV_USER`; they must not
+substitute different owners for the same development request.
+
+## File upload and object-storage ownership
+
+Authenticated presigned PUT requests accept a filename and purpose, not a
+caller-selected object key. The server creates keys under
+`<file-root>/<sha256(userId)>/<hour>/<random>.<safe-extension>`; RAG evaluation
+imports use the separate `ragEval/` root, while the password-gated Edge path
+uses an `edge` scope. The account hash keeps raw database IDs out of object
+names but is only a namespace, not an authorization credential.
+
+When a new `files` row is registered, `createFile` requires a SHA-256 hash and
+accepts only the current user's newly scoped file key or a desktop-local path.
+If that content hash already exists globally, the canonical URL, MIME type,
+size, and metadata from the global row win instead of trusting alternate
+client values. Generated-media and avatar namespaces remain server-only. RAG
+dataset import validates a current-user `ragEval` key before object storage is
+read. Existing legacy rows and keys remain readable through their normal
+database ownership checks; the scoped-key requirement applies to new uploads
+and registrations rather than rewriting stored references automatically.
+
+The authenticated app-file proxy can unwrap a root-relative path or an
+absolute reference whose WHATWG `URL.host` matches `APP_URL.host`. `host`
+includes the port but not the scheme, so HTTP and HTTPS references with the
+same host and port are accepted; a foreign host is rejected. This is narrower
+than arbitrary URL parsing but deliberately is not a strict `URL.origin`
+comparison.
+
 ## LLM environment configuration
 
 The main provider environment map lives in `src/envs/llm.ts`, which is referenced from the README as the canonical provider/env source. That config drives how server runtime code resolves keys and base URLs for providers like OpenAI, Anthropic, Azure, and provider-compatible gateways.

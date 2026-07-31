@@ -117,7 +117,7 @@ recursively sanitized. Snapshot metadata reports the user-selected provider ID
 separately from the resolved runtime adapter, so a custom OpenAI-compatible
 provider remains identifiable while its runtime is shown as `openai`.
 
-A notable implementation detail in the current code is proxy image URL resolution. After MCP tool calls, refreshed messages may contain `/webapi/files/...` URLs that are not directly accessible to providers, so `contextEngineering` resolves them back to public URLs before the pipeline runs.
+A notable implementation detail in the current code is proxy image URL resolution. After MCP tool calls, refreshed messages may contain `/webapi/files/...` URLs that are not directly accessible to providers, so `contextEngineering` attempts to resolve them back to public URLs before the pipeline runs. Resolution is best-effort per image: an unowned, deleted, or otherwise unresolvable reference keeps its original proxy URL and does not fail the whole send. The provider may still reject or be unable to fetch that individual URL.
 
 ## Topic compaction and watermarks
 
@@ -126,7 +126,9 @@ Topic compaction is incremental. Raw messages remain in storage; the topic metad
 Request construction removes messages through that cursor before applying the configured history
 window. The token estimator, token popover, and provider request all use the same latest-user-anchored
 window from `packages/context-engine`, so assistant/tool continuations extend the active turn without
-sliding the cached prefix.
+sliding the cached prefix. A pathological continuation tail is bounded separately: the default keeps
+the newest 20 assistant/tool messages after the latest user message, preserving the current tool
+results instead of the oldest tail entries.
 
 The configurable compact threshold is the high watermark. It is clamped to 50%-99% and defaults to
 80%. The low watermark is derived 20 percentage points below it, so the default target is 60%.
@@ -136,10 +138,13 @@ protected turn already exceed the target, the action reports `target_unreachable
 the same unchanged context continuously.
 
 The compaction prompt merges only messages after the cursor into the prior summary and caps the model
-output at 400 tokens. Large deltas are split between complete turns into bounded batches. Legacy topic
-summaries without a valid cursor are rebuilt from raw eligible history once, rather than treating an
-unknown prefix as safely compacted. Empty or failed model output never replaces the existing summary
-or advances the cursor. Identical archive excerpts are not stored twice.
+output at 400 tokens. Large deltas are split between complete turns into bounded batches. A pre-send
+token-threshold run processes at most three batches so sending remains bounded; it persists a cursor
+only through the batches actually summarized, and a later run resumes from that cursor. Manual,
+scheduled, and message-count runs may process all eligible batches. Legacy topic summaries without a
+valid cursor are rebuilt from raw eligible history once, rather than treating an unknown prefix as
+safely compacted. Empty or failed model output never replaces the existing summary or advances the
+cursor. Identical archive excerpts are not stored twice.
 
 All entry points use the same per-topic single-flight action: manual, message-count, daily, pre-request
 token checks, and reactive token automation. The automatic watcher is driven by message/config/token
@@ -147,10 +152,24 @@ changes instead of a polling timer. Topic compaction and topic-summary injection
 limited to regular topic chats. Group chats and active/portal threads use their raw scoped history and
 cannot create, mutate, or consume a regular topic summary; assistant-wide memory remains available.
 
+The daily browser marker is scoped by canonical account, session, and topic. An unresolved account
+does not write a marker, so a topic is not accidentally suppressed for another signed-in account.
+
 Compaction persists the summary, cursor, archive data, and bounded debug log in one topic update. The
-debug entry records trigger, result, watermarks, before/after estimates, and cursor. Editing, deleting,
-or retry-rewinding a message at or before the cursor invalidates the derived summary and archive state
+debug entry records trigger, result, watermarks, before/after estimates, and cursor. Pre-send work
+checks its abort signal after every awaited phase and immediately before persistence. If Stop races a
+completed topic write, compaction restores the prior summary and metadata; if message invalidation
+races the write, the cleared invalidation state takes precedence. Editing, deleting, or
+retry-rewinding a message at or before the cursor invalidates the derived summary and archive state
 before the conversation is regenerated.
+
+Server-mode V2 sends persist the user message and reserve the assistant ID first, but they do not
+create the assistant placeholder until the pre-send compaction attempt settles without cancellation
+and the conversation is still current. Placeholder creation is a
+separate authenticated, idempotent mutation that verifies the parent user message and the exact
+session/topic/thread scope. Stop remains wired to the pre-send controller through this mutation, and
+account or conversation changes prevent placeholder creation and model dispatch. Portal-thread Stop
+passes `portalThreadId`, so it cannot abort a main-chat pre-send compaction that shares the same topic.
 
 ## Retry and conversation rewind
 

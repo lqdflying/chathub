@@ -27,7 +27,7 @@ For OpenAI-compatible request conversion, stream lifecycle, cancellation, tool c
 ### Context Engine (`packages/context-engine/`)
 
 - `PlaceholderVariablesProcessor`: Expand **system** + **latest user** messages only. Historical user/assistant messages must remain untouched. For `openaicompatible`, skip volatile generators in system messages with `VOLATILE_GENERATOR_KEYS`; other providers keep existing placeholder behavior unless cache requirements change.
-- `HistoryTruncateProcessor`: Anchor the configured history window to the latest user message and retain the complete assistant/tool tail after it. Re-anchor only when a new user message starts. Tool continuations must pass the complete conversation into context engineering instead of pre-slicing it in the store.
+- `HistoryTruncateProcessor`: Anchor the configured history window to the latest user message. Retain the assistant/tool tail after it without sliding the prefix; if that tail exceeds the default continuation bound, keep its **newest 20 messages** so the current tool loop can still progress. Re-anchor only when a new user message starts. Tool continuations must pass the complete conversation into context engineering instead of pre-slicing it in the store.
 - `MessageContentProcessor`: Replay exactly **one** signed `thinking` block + standalone `redacted_thinking` blocks. Never duplicate thinking text across multiple signatures. Never fabricate a thinking block with an empty signature — unsigned reasoning (OpenAI-compatible history, interrupted streams) stays on `message.reasoning` and is NOT converted into content parts; Anthropic rejects `signature: ''` blocks.
 - `SystemRoleInjector` / `ToolSystemRoleProvider`: These inject raw templates every request. `Date.now()` in `id`/`createdAt` fields is OK because `MessageCleanupProcessor` strips them — but if cleanup ever stops stripping `id`, these timestamps would leak into the prefix.
 
@@ -97,6 +97,7 @@ When using or updating `skills/chathub-provider-probe`:
 ## Testing checklist for cache-related changes
 
 - Assert historical messages are NOT re-expanded (PlaceholderVariables tests)
+- Assert a pathological assistant/tool tail keeps the newest 20 continuation messages without moving the latest-user-anchored prefix
 - Assert volatile generators are skipped in system messages for `openaicompatible`
 - Assert `reasoning_content` is NOT present for `openaicompatible` provider (Chat Completions), and no `reasoning` items appear in Responses `input`
 - Assert Responses-API-only fields (`reasoning`, `text`, `verbosity`, `truncation`) are NOT present in Chat Completions mode
