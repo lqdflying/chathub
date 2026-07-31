@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { S3StaticFileImpl } from './s3';
 
-const config = {
+const config: {
+  S3_BUCKET: string;
+  S3_ENABLE_PATH_STYLE: boolean;
+  S3_PUBLIC_DOMAIN?: string;
+  S3_SET_ACL: boolean;
+} = {
   S3_ENABLE_PATH_STYLE: false,
   S3_PUBLIC_DOMAIN: 'https://example.com',
   S3_BUCKET: 'my-bucket',
@@ -36,6 +41,10 @@ describe('S3StaticFileImpl', () => {
   let fileService: S3StaticFileImpl;
 
   beforeEach(() => {
+    config.S3_BUCKET = 'my-bucket';
+    config.S3_ENABLE_PATH_STYLE = false;
+    config.S3_PUBLIC_DOMAIN = 'https://example.com';
+    config.S3_SET_ACL = true;
     fileService = new S3StaticFileImpl();
   });
 
@@ -46,10 +55,10 @@ describe('S3StaticFileImpl', () => {
     });
 
     it('当S3_SET_ACL为false时应返回预签名URL', async () => {
+      config.S3_PUBLIC_DOMAIN = undefined;
       config.S3_SET_ACL = false;
       const url = 'path/to/file.jpg';
       expect(await fileService.getFullFileUrl(url)).toBe('https://presigned.example.com/test.jpg');
-      config.S3_SET_ACL = true;
     });
 
     it('should return correct URL when S3_ENABLE_PATH_STYLE is false', async () => {
@@ -69,6 +78,7 @@ describe('S3StaticFileImpl', () => {
     // Legacy bug compatibility tests - https://github.com/lobehub/lobe-chat/issues/8994
     describe('legacy bug compatibility', () => {
       it('should handle full URL input by extracting key (S3_SET_ACL=false)', async () => {
+        config.S3_PUBLIC_DOMAIN = undefined;
         config.S3_SET_ACL = false;
         const fullUrl = 'https://s3.example.com/bucket/path/to/file.jpg?X-Amz-Signature=expired';
 
@@ -79,7 +89,6 @@ describe('S3StaticFileImpl', () => {
 
         expect(fileService.getKeyFromFullUrl).toHaveBeenCalledWith(fullUrl);
         expect(result).toBe('https://presigned.example.com/test.jpg');
-        config.S3_SET_ACL = true;
       });
 
       it('should handle full URL input by extracting key (S3_SET_ACL=true)', async () => {
