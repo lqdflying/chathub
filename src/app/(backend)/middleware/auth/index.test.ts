@@ -95,6 +95,54 @@ describe('checkAuth', () => {
     vi.unstubAllEnvs();
   });
 
+  it('authenticates the configured mock user without headers in development', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('ENABLE_MOCK_DEV_USER', '1');
+    vi.stubEnv('MOCK_DEV_USER_ID', 'account-a');
+    const request = new Request('https://example.com');
+
+    await checkAuth(mockHandler)(request, mockOptions);
+
+    expect(mockHandler).toHaveBeenCalledWith(
+      request,
+      expect.objectContaining({ jwtPayload: { userId: 'account-a' } }),
+    );
+    expect(getXorPayload).not.toHaveBeenCalled();
+  });
+
+  it('uses the configured mock identity for matching debug headers', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('AUTH_DEV_BYPASS_SECRET', 'dev-secret');
+    vi.stubEnv('MOCK_DEV_USER_ID', 'account-a');
+    const request = new Request('https://example.com', {
+      headers: {
+        'lobe-auth-dev-backend-api': '1',
+        'lobe-auth-dev-secret': 'dev-secret',
+      },
+    });
+
+    await checkAuth(mockHandler)(request, mockOptions);
+
+    expect(mockHandler).toHaveBeenCalledWith(
+      request,
+      expect.objectContaining({ jwtPayload: { userId: 'account-a' } }),
+    );
+  });
+
+  it('does not enable mock-user auth outside development', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('ENABLE_MOCK_DEV_USER', '1');
+    const request = new Request('https://example.com');
+
+    await checkAuth(mockHandler)(request, mockOptions);
+
+    expect(mockHandler).not.toHaveBeenCalled();
+    expect(createErrorResponse).toHaveBeenCalledWith(
+      ChatErrorType.Unauthorized,
+      expect.objectContaining({ provider: 'mock' }),
+    );
+  });
+
   it('should return unauthorized error if no authorization header', async () => {
     await checkAuth(mockHandler)(mockRequest, mockOptions);
 

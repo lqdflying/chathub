@@ -14,6 +14,7 @@ import {
 } from '@/const/auth';
 import { oidcEnv } from '@/envs/oidc';
 import { ClerkAuth, IClerkAuth } from '@/libs/clerk-auth';
+import { resolveDevBypassUserId } from '@/libs/devAuth';
 import { validateOIDCJWT } from '@/libs/oidc-provider/jwt';
 import { resolveTokenAuthUserId } from '@/libs/tokenAuth';
 
@@ -83,22 +84,14 @@ export type LambdaContext = Awaited<ReturnType<typeof createContextInner>>;
  * @link https://trpc.io/docs/v11/context
  */
 export const createLambdaContext = async (request: NextRequest): Promise<LambdaContext> => {
-  // we have a special header to debug the api endpoint in development mode
-  // IT WON'T GO INTO PRODUCTION ANYMORE
-  const isDebugApi =
-    request.headers.get('lobe-auth-dev-backend-api') === '1' &&
-    !!process.env.AUTH_DEV_BYPASS_SECRET &&
-    request.headers.get('lobe-auth-dev-secret') === process.env.AUTH_DEV_BYPASS_SECRET;
-  // server-side opt-in: no header required, so header-less requests (e.g. <img> loads
-  // hitting the file proxy) authenticate as the mock user too
-  const isMockUser = process.env.ENABLE_MOCK_DEV_USER === '1';
   const accountScope = request.headers.get(CHATHUB_ACCOUNT_SCOPE_HEADER);
+  const devUserId = resolveDevBypassUserId(request.headers);
 
-  if (process.env.NODE_ENV === 'development' && (isDebugApi || isMockUser)) {
+  if (devUserId) {
     return {
       accountScope,
-      rawAuthUserId: process.env.MOCK_DEV_USER_ID,
-      userId: process.env.MOCK_DEV_USER_ID,
+      rawAuthUserId: devUserId,
+      userId: devUserId,
     };
   }
 

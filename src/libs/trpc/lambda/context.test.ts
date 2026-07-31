@@ -69,6 +69,17 @@ describe('createLambdaContext account scope', () => {
     });
   });
 
+  it('uses the shared fallback identity when the mock user id is omitted', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('ENABLE_MOCK_DEV_USER', '1');
+    const request = new NextRequest('https://chathub.example/trpc/lambda/apiKey.getApiKeys');
+
+    await expect(createLambdaContext(request)).resolves.toMatchObject({
+      rawAuthUserId: 'DEV_USER',
+      userId: 'DEV_USER',
+    });
+  });
+
   it('rejects the dev mock user outside development', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('ENABLE_MOCK_DEV_USER', '1');

@@ -66,10 +66,12 @@ let hasActiveUserStateOwnerMismatch = false;
 vi.mock('@/store/user', () => {
   const userState = {
     authUserId: 'test-user',
+    isUserStateInit: true,
     isLoaded: true,
     isSignedIn: true,
     ownershipInvalidationGeneration: 0,
     user: { id: 'test-user' },
+    userStateScope: 'user:test-user',
   };
   const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
     selector(userState)) as {

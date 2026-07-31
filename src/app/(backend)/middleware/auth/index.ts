@@ -7,6 +7,7 @@ import { ChatErrorType, ClientSecretPayload } from '@lobechat/types';
 import { getXorPayload } from '@lobechat/utils/server';
 
 import { LOBE_CHAT_AUTH_HEADER } from '@/const/auth';
+import { resolveDevBypassUserId } from '@/libs/devAuth';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 import { resolveWebApiAuth } from './utils';
@@ -24,14 +25,9 @@ export type RequestHandler = (
 
 export const checkAuth =
   (handler: RequestHandler) => async (req: Request, options: RequestOptions) => {
-    const isDebugApi = req.headers.get('lobe-auth-dev-backend-api') === '1';
-    if (
-      process.env.NODE_ENV === 'development' &&
-      isDebugApi &&
-      process.env.AUTH_DEV_BYPASS_SECRET &&
-      req.headers.get('lobe-auth-dev-secret') === process.env.AUTH_DEV_BYPASS_SECRET
-    ) {
-      return handler(req, { ...options, jwtPayload: { userId: 'DEV_USER' } });
+    const devUserId = resolveDevBypassUserId(req.headers);
+    if (devUserId) {
+      return handler(req, { ...options, jwtPayload: { userId: devUserId } });
     }
 
     let jwtPayload: ClientSecretPayload;

@@ -18,7 +18,15 @@ vi.mock('zustand/traditional', async (importOriginal) => await importOriginal())
 let currentUserScope = 'local';
 let hasActiveUserStateOwnerMismatch = false;
 vi.mock('@/store/user', () => {
-  const userState = { ownershipInvalidationGeneration: 0 };
+  const userState = {
+    get isUserStateInit() {
+      return true;
+    },
+    ownershipInvalidationGeneration: 0,
+    get userStateScope() {
+      return currentUserScope;
+    },
+  };
   const useUserStore = (<Value>(selector: (state: typeof userState) => Value) =>
     selector(userState)) as {
     <Value>(selector: (state: typeof userState) => Value): Value;
