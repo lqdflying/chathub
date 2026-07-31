@@ -88,14 +88,16 @@ const createTargetRange = (
 const dispatchBeforeInput = (
   target: HTMLElement,
   inputType: string,
-  targetRanges: StaticRange[],
+  targetRanges: StaticRange[] | 'throw' | undefined,
   replacementText: string,
+  isComposing = false,
 ) => {
   const event = new InputEvent('beforeinput', {
     bubbles: true,
     cancelable: true,
     data: inputType === 'insertText' ? replacementText : null,
     inputType,
+    isComposing,
   });
 
   if (inputType === 'insertReplacementText') {
@@ -104,7 +106,16 @@ const dispatchBeforeInput = (
     Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
   }
 
-  Object.defineProperty(event, 'getTargetRanges', { value: () => targetRanges });
+  if (targetRanges === 'throw') {
+    Object.defineProperty(event, 'getTargetRanges', {
+      value: () => {
+        throw new Error('blocked by browser isolation');
+      },
+    });
+  } else if (targetRanges) {
+    Object.defineProperty(event, 'getTargetRanges', { value: () => targetRanges });
+  }
+
   target.dispatchEvent(event);
 
   return event;
@@ -226,10 +237,47 @@ describe('registerReplacementTextRangeHandler', () => {
   });
 
   it.each([
-    ['a different input type', 'insertTranspose', 4, 6],
-    ['a collapsed replacement range', 'insertReplacementText', 6, 6],
-    ['a collapsed insertText range', 'insertText', 6, 6],
-  ])('ignores %s', (_label, inputType, startOffset, endOffset) => {
+    ['a collapsed insertReplacementText range', 'insertReplacementText', 'collapsed'],
+    ['a collapsed insertText range', 'insertText', 'collapsed'],
+    ['an empty target range list', 'insertReplacementText', 'empty'],
+    ['no getTargetRanges API', 'insertReplacementText', 'unavailable'],
+    ['a blocked getTargetRanges API', 'insertReplacementText', 'throw'],
+  ])('infers the current word prefix with %s', (_label, inputType, rangeType) => {
+    const { editor, rootElement, stopLexicalBeforeInput } = createTestEditor();
+    let textKey: NodeKey = '';
+
+    editor.update(
+      () => {
+        const textNode = $createTextNode('sorry s');
+        textKey = textNode.getKey();
+        $getRoot().append($createParagraphNode().append(textNode));
+        textNode.selectEnd();
+      },
+      { discrete: true },
+    );
+
+    const domTextNode = getDOMTextNode(editor, textKey);
+    const targetRanges =
+      rangeType === 'collapsed'
+        ? [createTargetRange(domTextNode, 7, domTextNode, 7)]
+        : rangeType === 'empty'
+          ? []
+          : rangeType === 'throw'
+            ? 'throw'
+            : undefined;
+    const event = dispatchBeforeInput(rootElement, inputType, targetRanges, 'sorry');
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(stopLexicalBeforeInput).not.toHaveBeenCalled();
+    expect(getTextContent(editor)).toBe('sorry sorry');
+  });
+
+  it.each([
+    ['a different input type', 'insertTranspose', 'see', false],
+    ['a single-character insertText event', 'insertText', 'e', false],
+    ['a composing insertText event', 'insertText', 'see', true],
+    ['an insertText event without a matching prefix', 'insertText', 'other', false],
+  ])('ignores %s', (_label, inputType, replacementText, isComposing) => {
     const { editor, rootElement } = createTestEditor();
     let textKey: NodeKey = '';
 
@@ -247,8 +295,9 @@ describe('registerReplacementTextRangeHandler', () => {
     dispatchBeforeInput(
       rootElement,
       inputType,
-      [createTargetRange(domTextNode, startOffset, domTextNode, endOffset)],
-      'see',
+      [createTargetRange(domTextNode, 6, domTextNode, 6)],
+      replacementText,
+      isComposing,
     );
 
     editor.getEditorState().read(() => {
@@ -261,7 +310,7 @@ describe('registerReplacementTextRangeHandler', () => {
     });
   });
 
-  it('ignores missing and out-of-editor replacement ranges', () => {
+  it('ignores out-of-editor replacement ranges', () => {
     const { editor, rootElement } = createTestEditor();
     let textKey: NodeKey = '';
 
@@ -275,7 +324,6 @@ describe('registerReplacementTextRangeHandler', () => {
       { discrete: true },
     );
 
-    dispatchBeforeInput(rootElement, 'insertReplacementText', [], 'see');
     const outsideTextNode = document.createTextNode('se');
     dispatchBeforeInput(
       rootElement,
