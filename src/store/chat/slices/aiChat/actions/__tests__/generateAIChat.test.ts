@@ -187,6 +187,26 @@ describe('chatMessage actions', () => {
         expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
         expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
       });
+
+      it("a thread-scoped stop does not abort the main conversation's compaction", async () => {
+        const compactionSpy = vi.fn(async () => {
+          // a Stop pressed in a thread portal (threadId set) must not cancel the main send's
+          // pre-send compaction, which always runs in the main (threadId-null) context
+          useChatStore.getState().stopGenerateMessage({ threadId: 'thread-x' });
+          return { status: 'ineligible' } as any;
+        });
+        act(() => {
+          useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
+        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+      });
     });
 
     describe('message creation', () => {

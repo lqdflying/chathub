@@ -402,10 +402,9 @@ export const generateAIChatV2: StateCreator<
       }
       if (compactionController.signal.aborted) {
         // the server already created the assistant placeholder; a stranded LOADING_FLAT
-        // message would render a loading bubble forever — remove it before bailing
-        if (isCurrentConversation()) {
-          await get().internal_deleteMessage(data.assistantMessageId);
-        }
+        // message would render a loading bubble forever — remove it even if the user has
+        // since navigated away, or it survives in the DB and re-renders on refetch
+        await get().internal_deleteMessage(data.assistantMessageId);
         return;
       }
       if (!isCurrentConversation()) return;

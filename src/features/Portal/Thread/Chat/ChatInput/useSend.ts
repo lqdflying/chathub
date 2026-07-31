@@ -1,5 +1,5 @@
 import { SendMessageParams } from '@lobechat/types';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { useGeminiChineseWarning } from '@/hooks/useGeminiChineseWarning';
 import { getAgentStoreState } from '@/store/agent';
@@ -16,7 +16,13 @@ export const useSendThreadMessage = () => {
   const [loading, setLoading] = useState(false);
   const canNotSend = useChatStore(threadSelectors.isSendButtonDisabledByMessage);
   const generating = useChatStore((s) => threadSelectors.isThreadAIGenerating(s));
-  const stop = useChatStore((s) => s.stopGenerateMessage);
+  const stopGenerate = useChatStore((s) => s.stopGenerateMessage);
+  const activeThreadId = useChatStore((s) => s.activeThreadId);
+  // scope the Stop to this thread so it can't abort the main conversation's pre-send compaction
+  const stop = useCallback(
+    () => stopGenerate({ threadId: activeThreadId ?? null }),
+    [stopGenerate, activeThreadId],
+  );
   const [sendMessage, updateInputMessage] = useChatStore((s) => [
     s.sendThreadMessage,
     s.updateThreadInputMessage,

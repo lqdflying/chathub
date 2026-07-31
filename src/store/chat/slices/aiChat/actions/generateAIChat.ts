@@ -142,7 +142,7 @@ export interface AIGenerateAction {
   /**
    * Interrupts the ongoing ai message generation process
    */
-  stopGenerateMessage: () => void;
+  stopGenerateMessage: (options?: { threadId?: string | null }) => void;
 
   // =========  ↓ Internal Method ↓  ========== //
   // ========================================== //
@@ -487,15 +487,17 @@ export const generateAIChat: StateCreator<
 
     await Promise.all([summaryTitle(), addFilesToAgent()]);
   },
-  stopGenerateMessage: () => {
-    // abort only a pre-send compaction registered for the CURRENT conversation — a Stop
-    // issued from another session/topic must not kill it. (A portal-thread Stop shares
-    // this conversation key, but compaction refuses to start while a portal thread is
-    // open, so the overlap is limited to a thread opened after compaction began.)
+  stopGenerateMessage: (options) => {
+    // abort only a pre-send compaction registered for the CURRENT conversation AND the same
+    // thread context that started it. A Stop from another session/topic uses a different key;
+    // a Stop from a thread portal (threadId set) shares the conversation key but must not kill
+    // the main send's compaction — pre-send compaction only ever runs for the main
+    // conversation (threadId null), so it matches a main Stop and never a thread Stop.
     const { activeId, activeTopicId, preSendCompactionOperations } = get();
-    preSendCompactionOperations[messageMapKey(activeId, activeTopicId)]?.abortController.abort(
-      MESSAGE_CANCEL_FLAT,
-    );
+    const preSendCompaction = preSendCompactionOperations[messageMapKey(activeId, activeTopicId)];
+    if (preSendCompaction && (preSendCompaction.threadId ?? null) === (options?.threadId ?? null)) {
+      preSendCompaction.abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
 
     const { chatLoadingIdsAbortController, internal_toggleChatLoading } = get();
 

@@ -288,6 +288,31 @@ describe('generateAIChatV2 actions', () => {
         expect(internal_deleteMessage).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
         expect(result.current.preSendCompactionOperations).toEqual({});
       });
+
+      it('removes the stranded placeholder even after the user navigates away mid-abort', async () => {
+        const internal_deleteMessage = vi.fn(() => Promise.resolve());
+        const compactionSpy = vi.fn(async () => {
+          // user presses Stop, then switches to another topic before compaction settles;
+          // the server placeholder must still be cleaned up or it strands as a loading bubble
+          useChatStore.getState().stopGenerateMessage();
+          useChatStore.setState({ activeTopicId: 'another-topic' });
+          return { status: 'ineligible' } as any;
+        });
+        act(() => {
+          useChatStore.setState({
+            internal_deleteMessage,
+            triggerTokenThresholdMemoryCompaction: compactionSpy,
+          });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+        expect(internal_deleteMessage).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      });
     });
 
     describe('message creation', () => {

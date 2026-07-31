@@ -9,7 +9,10 @@ import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
-import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileReference';
+import {
+  extractKeyFromAppFileProxyUrl,
+  isPrivilegedStorageKey,
+} from '@/server/services/file/fileReference';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { FileListItem, QueryFileListSchema, UploadFileSchema } from '@/types/files';
 
@@ -55,6 +58,14 @@ export const fileRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // A user upload is never a generation asset or an avatar (both are written
+      // server-side). Refuse to mint a files row that would vouch for one, which the file
+      // proxy and image-reference presigning then trust as proof of ownership.
+      const storageKey = ctx.fileService.getKeyFromFullUrl(input.url);
+      if (storageKey && isPrivilegedStorageKey(storageKey)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
+      }
+
       const { isExist } = await ctx.fileModel.checkHash(input.hash!);
 
       const { id } = await ctx.fileModel.create(

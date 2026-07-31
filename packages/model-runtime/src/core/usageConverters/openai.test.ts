@@ -676,6 +676,30 @@ describe('convertOpenAIImageUsage', () => {
     });
   });
 
+  it('derives text input when image tokens are reported without text tokens', () => {
+    const usageWithImageOnlyDetails = {
+      input_tokens: 100,
+      input_tokens_details: {
+        image_tokens: 60,
+      },
+      output_tokens: 900,
+      total_tokens: 1000,
+    } as OpenAI.Images.ImagesResponse.Usage;
+
+    expect(convertOpenAIImageUsage(usageWithImageOnlyDetails, pricing)).toEqual({
+      // text input is derived as total - image (100 - 60 = 40), so image tokens are billed
+      // once via imageInput and not double-counted through the totalInputTokens fallback:
+      // 40 * 5/1M + 60 * 10/1M + 900 * 40/1M = 0.0368 (was 0.0374 with the double-count)
+      cost: 0.0368,
+      inputImageTokens: 60,
+      inputTextTokens: 40,
+      outputImageTokens: 900,
+      totalInputTokens: 100,
+      totalOutputTokens: 900,
+      totalTokens: 1000,
+    });
+  });
+
   it('should preserve reported zero modality counters', () => {
     const usageWithZeroes = {
       input_tokens: 0,
