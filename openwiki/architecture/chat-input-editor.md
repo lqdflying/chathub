@@ -107,6 +107,13 @@ browser: local DevTools and local `localStorage` never reach the app, and the ap
 console output never reaches the user — but the URL travels inbound and the mirrored
 DOM travels outbound, so the overlay is visible through the isolation layer.
 
+Field verification note: under DOM-mirroring isolation the *display* can show
+stale/duplicated text that does not exist in the editor state (a thin-client
+ghost — the app placeholder may even show through it). The `doc="…"` snapshot
+on the overlay's decision lines and the content of a sent message reflect the
+true state; if those are correct, the residual artifact is the isolation
+product's mirroring bug and cannot be fixed app-side.
+
 ## Dependency constraint: exactly one `lexical` instance
 
 The app pins `lexical: 0.38.2` as a direct dependency (the plugin and its tests import
