@@ -25,6 +25,7 @@ import { preferenceSelectors, settingsSelectors } from '@/store/user/selectors';
 
 import { useChatInputStore, useStoreApi } from '../store';
 import Placeholder from './Placeholder';
+import ReplacementTextPlugin from './ReplacementTextPlugin';
 
 const className = cx(css`
   p {
@@ -216,7 +217,9 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
       }}
       type={'text'}
       variant={'chat'}
-    />
+    >
+      <ReplacementTextPlugin />
+    </Editor>
   );
 });
 
