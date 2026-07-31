@@ -1,5 +1,7 @@
 import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS } from '@lobechat/prompts';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { mutate } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -96,6 +98,18 @@ beforeEach(() => {
 });
 
 describe('AgentSlice', () => {
+  describe('module boundary', () => {
+    it('loads chatService lazily to keep agent-store initialization acyclic', async () => {
+      const source = await readFile(
+        resolve(process.cwd(), 'src/store/agent/slices/chat/action.ts'),
+        'utf8',
+      );
+
+      expect(source).not.toMatch(/^\s*import\s+.*from ['"]@\/services\/chat['"];?$/m);
+      expect(source).toContain("await import('@/services/chat')");
+    });
+  });
+
   describe('addFilesToAgent', () => {
     it('passes the same originating checkpoint to config and knowledge refreshes', async () => {
       vi.spyOn(agentService, 'createAgentFiles').mockResolvedValue(undefined);

@@ -152,6 +152,12 @@ changes instead of a polling timer. Topic compaction and topic-summary injection
 limited to regular topic chats. Group chats and active/portal threads use their raw scoped history and
 cannot create, mutate, or consume a regular topic summary; assistant-wide memory remains available.
 
+Assistant-wide memory rollup is an agent-store action, while `ChatService` reads the agent store when
+assembling requests. The action therefore lazy-loads `@/services/chat` only when a rollup runs; a
+static import would create an agent-store initialization cycle in the Next.js server bundle. Because
+module loading is asynchronous, the action revalidates its captured account and agent context before
+calling the service.
+
 The daily browser marker is scoped by canonical account, session, and topic. An unresolved account
 does not write a marker, so a topic is not accidentally suppressed for another signed-in account.
 

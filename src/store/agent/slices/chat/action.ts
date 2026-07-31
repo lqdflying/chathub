@@ -17,7 +17,6 @@ import {
   useOnlyFetchOnceSWR,
 } from '@/libs/swr';
 import { agentService } from '@/services/agent';
-import { chatService } from '@/services/chat';
 import { sessionService } from '@/services/session';
 import { topicService } from '@/services/topic';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
@@ -251,6 +250,9 @@ export const createChatSlice: StateCreator<
 
       const prior = agentSelectors.getAgentConfigById(activeId)(get()).assistantMemory;
       const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
+
+      const { chatService } = await import('@/services/chat');
+      if (!isMutationContextCurrent(mutationContext)) return { success: false };
 
       let text = '';
       await chatService.fetchPresetTaskResult({
