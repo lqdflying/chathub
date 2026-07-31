@@ -4,6 +4,8 @@ import {
   $getRoot,
   $getSelection,
   $isRangeSelection,
+  COMMAND_PRIORITY_EDITOR,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
   type LexicalEditor,
   type NodeKey,
   createEditor,
@@ -15,7 +17,7 @@ import { registerReplacementTextRangeHandler } from './ReplacementTextPlugin';
 interface TestEditor {
   editor: LexicalEditor;
   rootElement: HTMLDivElement;
-  stopLexicalBeforeInput: (event: Event) => void;
+  stopLexicalBeforeInput: ReturnType<typeof vi.fn<(event: Event) => void>>;
   unregister: () => void;
 }
 
@@ -33,15 +35,36 @@ const createTestEditor = (): TestEditor => {
   document.body.append(rootElement);
   editor.setRootElement(rootElement);
 
-  const unregister = registerReplacementTextRangeHandler(editor);
-  const stopLexicalBeforeInput = (event: Event) => event.stopImmediatePropagation();
+  const unregisterControlledInsertion = editor.registerCommand(
+    CONTROLLED_TEXT_INSERTION_COMMAND,
+    (eventOrText) => {
+      const selection = $getSelection();
+
+      if (!$isRangeSelection(selection)) return false;
+
+      const text =
+        typeof eventOrText === 'string'
+          ? eventOrText
+          : eventOrText.dataTransfer?.getData('text/plain') || eventOrText.data;
+
+      if (text !== null) selection.insertText(text);
+
+      return true;
+    },
+    COMMAND_PRIORITY_EDITOR,
+  );
+  const unregisterRangeHandler = registerReplacementTextRangeHandler(editor);
+  const stopLexicalBeforeInput = vi.fn((event: Event) => event.stopImmediatePropagation());
   rootElement.addEventListener('beforeinput', stopLexicalBeforeInput, true);
 
   const testEditor = {
     editor,
     rootElement,
     stopLexicalBeforeInput,
-    unregister,
+    unregister: () => {
+      unregisterRangeHandler();
+      unregisterControlledInsertion();
+    },
   };
   testEditors.push(testEditor);
 
@@ -66,10 +89,25 @@ const dispatchBeforeInput = (
   target: HTMLElement,
   inputType: string,
   targetRanges: StaticRange[],
+  replacementText: string,
 ) => {
-  const event = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType });
+  const event = new InputEvent('beforeinput', {
+    bubbles: true,
+    cancelable: true,
+    data: inputType === 'insertText' ? replacementText : null,
+    inputType,
+  });
+
+  if (inputType === 'insertReplacementText') {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('text/plain', replacementText);
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+  }
+
   Object.defineProperty(event, 'getTargetRanges', { value: () => targetRanges });
   target.dispatchEvent(event);
+
+  return event;
 };
 
 const getDOMTextNode = (editor: LexicalEditor, key: NodeKey) => {
@@ -95,7 +133,7 @@ afterEach(() => {
 
 describe('registerReplacementTextRangeHandler', () => {
   it('replaces the suggested fragment instead of inserting at a stale caret', () => {
-    const { editor, rootElement } = createTestEditor();
+    const { editor, rootElement, stopLexicalBeforeInput } = createTestEditor();
     let textKey: NodeKey = '';
 
     editor.update(
@@ -109,27 +147,20 @@ describe('registerReplacementTextRangeHandler', () => {
     );
 
     const domTextNode = getDOMTextNode(editor, textKey);
-    dispatchBeforeInput(rootElement, 'insertReplacementText', [
-      createTargetRange(domTextNode, 4, domTextNode, 6),
-    ]);
-
-    editor.update(
-      () => {
-        const selection = $getSelection();
-        expect($isRangeSelection(selection)).toBe(true);
-        if (!$isRangeSelection(selection)) return;
-
-        expect([selection.anchor.offset, selection.focus.offset]).toEqual([4, 6]);
-        selection.insertText('see');
-      },
-      { discrete: true },
+    const event = dispatchBeforeInput(
+      rootElement,
+      'insertReplacementText',
+      [createTargetRange(domTextNode, 4, domTextNode, 6)],
+      'see',
     );
 
+    expect(event.defaultPrevented).toBe(true);
+    expect(stopLexicalBeforeInput).not.toHaveBeenCalled();
     expect(getTextContent(editor)).toBe('let see');
   });
 
   it('applies replacement ranges that span adjacent formatted text nodes', () => {
-    const { editor, rootElement } = createTestEditor();
+    const { editor, rootElement, stopLexicalBeforeInput } = createTestEditor();
     let firstTextKey: NodeKey = '';
     let secondTextKey: NodeKey = '';
 
@@ -145,36 +176,59 @@ describe('registerReplacementTextRangeHandler', () => {
       { discrete: true },
     );
 
-    dispatchBeforeInput(rootElement, 'insertReplacementText', [
-      createTargetRange(
-        getDOMTextNode(editor, firstTextKey),
-        4,
-        getDOMTextNode(editor, secondTextKey),
-        1,
-      ),
-    ]);
-
-    editor.update(
-      () => {
-        const selection = $getSelection();
-        expect($isRangeSelection(selection)).toBe(true);
-        if (!$isRangeSelection(selection)) return;
-
-        expect(selection.anchor.key).toBe(firstTextKey);
-        expect(selection.anchor.offset).toBe(4);
-        expect(selection.focus.key).toBe(secondTextKey);
-        expect(selection.focus.offset).toBe(1);
-        selection.insertText('see');
-      },
-      { discrete: true },
+    const event = dispatchBeforeInput(
+      rootElement,
+      'insertReplacementText',
+      [
+        createTargetRange(
+          getDOMTextNode(editor, firstTextKey),
+          4,
+          getDOMTextNode(editor, secondTextKey),
+          1,
+        ),
+      ],
+      'see',
     );
 
+    expect(event.defaultPrevented).toBe(true);
+    expect(stopLexicalBeforeInput).not.toHaveBeenCalled();
     expect(getTextContent(editor)).toBe('let see');
   });
 
   it.each([
-    ['a different input type', 'insertText', 4, 6],
+    ['a collapsed caret', 14, 14],
+    ['a stale non-collapsed selection', 0, 9],
+  ])('handles insertText replacement ranges with %s', (_label, anchorOffset, focusOffset) => {
+    const { editor, rootElement, stopLexicalBeforeInput } = createTestEditor();
+    let textKey: NodeKey = '';
+
+    editor.update(
+      () => {
+        const textNode = $createTextNode('something some');
+        textKey = textNode.getKey();
+        $getRoot().append($createParagraphNode().append(textNode));
+        textNode.select(anchorOffset, focusOffset);
+      },
+      { discrete: true },
+    );
+
+    const domTextNode = getDOMTextNode(editor, textKey);
+    const event = dispatchBeforeInput(
+      rootElement,
+      'insertText',
+      [createTargetRange(domTextNode, 10, domTextNode, 14)],
+      'something',
+    );
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(stopLexicalBeforeInput).not.toHaveBeenCalled();
+    expect(getTextContent(editor)).toBe('something something');
+  });
+
+  it.each([
+    ['a different input type', 'insertTranspose', 4, 6],
     ['a collapsed replacement range', 'insertReplacementText', 6, 6],
+    ['a collapsed insertText range', 'insertText', 6, 6],
   ])('ignores %s', (_label, inputType, startOffset, endOffset) => {
     const { editor, rootElement } = createTestEditor();
     let textKey: NodeKey = '';
@@ -190,9 +244,12 @@ describe('registerReplacementTextRangeHandler', () => {
     );
 
     const domTextNode = getDOMTextNode(editor, textKey);
-    dispatchBeforeInput(rootElement, inputType, [
-      createTargetRange(domTextNode, startOffset, domTextNode, endOffset),
-    ]);
+    dispatchBeforeInput(
+      rootElement,
+      inputType,
+      [createTargetRange(domTextNode, startOffset, domTextNode, endOffset)],
+      'see',
+    );
 
     editor.getEditorState().read(() => {
       const selection = $getSelection();
@@ -218,11 +275,14 @@ describe('registerReplacementTextRangeHandler', () => {
       { discrete: true },
     );
 
-    dispatchBeforeInput(rootElement, 'insertReplacementText', []);
+    dispatchBeforeInput(rootElement, 'insertReplacementText', [], 'see');
     const outsideTextNode = document.createTextNode('se');
-    dispatchBeforeInput(rootElement, 'insertReplacementText', [
-      createTargetRange(outsideTextNode, 0, outsideTextNode, 2),
-    ]);
+    dispatchBeforeInput(
+      rootElement,
+      'insertReplacementText',
+      [createTargetRange(outsideTextNode, 0, outsideTextNode, 2)],
+      'see',
+    );
 
     editor.getEditorState().read(() => {
       const selection = $getSelection();
@@ -252,9 +312,12 @@ describe('registerReplacementTextRangeHandler', () => {
     const nestedControl = document.createElement('input');
     rootElement.append(nestedControl);
     const domTextNode = getDOMTextNode(editor, textKey);
-    dispatchBeforeInput(nestedControl, 'insertReplacementText', [
-      createTargetRange(domTextNode, 4, domTextNode, 6),
-    ]);
+    dispatchBeforeInput(
+      nestedControl,
+      'insertReplacementText',
+      [createTargetRange(domTextNode, 4, domTextNode, 6)],
+      'see',
+    );
 
     editor.getEditorState().read(() => {
       const selection = $getSelection();

@@ -1,5 +1,11 @@
 import { useLexicalEditor } from '@lobehub/editor';
-import { $getSelection, $isRangeSelection, $isRootNode, type LexicalEditor } from 'lexical';
+import {
+  $getSelection,
+  $isRangeSelection,
+  $isRootNode,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
+  type LexicalEditor,
+} from 'lexical';
 import { memo } from 'react';
 
 export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
@@ -7,9 +13,12 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
   const handleBeforeInput = (event: Event) => {
     const inputEvent = event as InputEvent;
+    const isTextReplacement =
+      inputEvent.inputType === 'insertReplacementText' ||
+      (inputEvent.inputType === 'insertText' && inputEvent.data !== null);
 
     if (
-      inputEvent.inputType !== 'insertReplacementText' ||
+      !isTextReplacement ||
       inputEvent.target !== rootElement ||
       typeof inputEvent.getTargetRanges !== 'function'
     ) {
@@ -27,6 +36,8 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
       return;
     }
 
+    let handled = false;
+
     editor.update(
       () => {
         const selection = $getSelection();
@@ -34,9 +45,22 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
         if (!$isRangeSelection(selection) || $isRootNode(selection.anchor.getNode())) return;
 
         selection.applyDOMRange(targetRange);
+        handled = true;
+
+        if (!editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, inputEvent)) {
+          const transferredText = inputEvent.dataTransfer?.getData('text/plain');
+          const replacementText = transferredText || inputEvent.data;
+
+          if (replacementText !== null) selection.insertText(replacementText);
+        }
       },
       { discrete: true },
     );
+
+    if (handled) {
+      inputEvent.preventDefault();
+      inputEvent.stopImmediatePropagation();
+    }
   };
 
   return editor.registerRootListener((nextRootElement, previousRootElement) => {
