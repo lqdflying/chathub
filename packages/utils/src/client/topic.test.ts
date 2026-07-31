@@ -2,7 +2,7 @@ import { ChatTopic } from '@lobechat/types';
 import dayjs from 'dayjs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { groupTopicsByTime } from './topic';
+import { formatTopicActivityTime, groupTopicsByTime } from './topic';
 
 // Mock current date to ensure consistent test results
 const NOW = '2024-01-15T12:00:00Z';
@@ -11,6 +11,21 @@ beforeAll(() => {
   // Mock the current date
   vi.useFakeTimers();
   vi.setSystemTime(new Date(NOW));
+});
+
+describe('formatTopicActivityTime', () => {
+  const activityTime = new Date(2026, 6, 29, 14, 35).getTime();
+
+  it('formats the exact local date and time for English', () => {
+    expect(formatTopicActivityTime(activityTime, 'en-US')).toBe('Jul 29, 2026, 2:35 PM');
+  });
+
+  it('uses the requested locale without relative wording', () => {
+    const result = formatTopicActivityTime(activityTime, 'de-DE');
+
+    expect(result).toBe('29.07.2026, 14:35');
+    expect(result).not.toContain('ago');
+  });
 });
 
 describe('groupTopicsByTime', () => {

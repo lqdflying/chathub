@@ -11,7 +11,7 @@ import {
   Trash,
   Wand2,
 } from 'lucide-react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -23,7 +23,7 @@ import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 import { useGlobalStore } from '@/store/global';
 import { globalGeneralSelectors } from '@/store/global/selectors';
-import { formatTopicRelativeTime } from '@/utils/client/topic';
+import { formatTopicActivityTime } from '@/utils/client/topic';
 
 const useStyles = createStyles(({ css }) => ({
   content: css`
@@ -52,7 +52,6 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
 
   const mobile = useIsMobile();
   const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
-  const [, setActivityRefreshTime] = useState(() => Date.now());
 
   const openTopicInNewWindow = useGlobalStore((s) => s.openTopicInNewWindow);
 
@@ -77,17 +76,9 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
   ]);
   const { styles, theme } = useStyles();
 
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setActivityRefreshTime(Date.now());
-    }, 30_000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
-
   const activityTime = lastActivityAt ? new Date(lastActivityAt) : undefined;
   const activityLabel = activityTime
-    ? formatTopicRelativeTime(activityTime.getTime(), locale)
+    ? formatTopicActivityTime(activityTime.getTime(), locale)
     : undefined;
 
   const toggleEditing = (visible?: boolean) => {
@@ -116,15 +107,15 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
       },
       ...(isDesktop
         ? [
-          {
-            icon: <Icon icon={ExternalLink} />,
-            key: 'openInNewWindow',
-            label: '单独打开页面',
-            onClick: () => {
-              openTopicInNewWindow(activeId, id);
+            {
+              icon: <Icon icon={ExternalLink} />,
+              key: 'openInNewWindow',
+              label: '单独打开页面',
+              onClick: () => {
+                openTopicInNewWindow(activeId, id);
+              },
             },
-          },
-        ]
+          ]
         : []),
       {
         type: 'divider',
@@ -172,7 +163,16 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
         },
       },
     ],
-    [id, activeId, autoRenameTopicTitle, duplicateTopic, removeTopic, t, toggleEditing, openTopicInNewWindow],
+    [
+      id,
+      activeId,
+      autoRenameTopicTitle,
+      duplicateTopic,
+      removeTopic,
+      t,
+      toggleEditing,
+      openTopicInNewWindow,
+    ],
   );
 
   return (
@@ -224,6 +224,9 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
                   color: theme.colorTextDescription,
                   fontSize: 11,
                   lineHeight: '14px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
                 title={activityTime.toLocaleString(locale)}
               >

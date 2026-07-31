@@ -30,28 +30,11 @@ export const normalizeTopic = (topic: ChatTopic): ChatTopic => {
 export const getTopicActivityTimestamp = (topic: ChatTopic): number =>
   topic.lastActivityAt ?? topic.updatedAt ?? topic.createdAt;
 
-export const formatTopicRelativeTime = (
-  timestamp: number,
-  locale: string,
-  now: number = Date.now(),
-): string => {
-  const differenceInSeconds = Math.round((timestamp - now) / 1000);
-  const absoluteSeconds = Math.abs(differenceInSeconds);
-  const units = [
-    { divisor: 31_536_000, unit: 'year' as const },
-    { divisor: 2_592_000, unit: 'month' as const },
-    { divisor: 604_800, unit: 'week' as const },
-    { divisor: 86_400, unit: 'day' as const },
-    { divisor: 3600, unit: 'hour' as const },
-    { divisor: 60, unit: 'minute' as const },
-  ];
-  const selectedUnit = units.find(({ divisor }) => absoluteSeconds >= divisor) ?? units.at(-1)!;
-
-  return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
-    Math.round(differenceInSeconds / selectedUnit.divisor),
-    selectedUnit.unit,
-  );
-};
+export const formatTopicActivityTime = (timestamp: number, locale: string): string =>
+  new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(timestamp);
 
 const getTopicGroupId = (timestamp: number): TimeGroupId => {
   const date = dayjs(timestamp);
