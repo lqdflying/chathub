@@ -244,7 +244,13 @@ export const userRouter = router({
   updateSettings: userProcedure
     .input(z.object({}).passthrough())
     .mutation(async ({ ctx, input }) => {
-      const { keyVaults, ...res } = input as Partial<UserSettings>;
+      const {
+        image: _image,
+        keyVaults,
+        ...res
+      } = input as Partial<UserSettings> & {
+        image?: unknown;
+      };
 
       // Encrypt keyVaults
       let encryptedKeyVaults: string | null = null;

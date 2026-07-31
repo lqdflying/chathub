@@ -99,6 +99,7 @@ describe('UserModel', () => {
 
       await serverDB.insert(userSettings).values({
         id: userId,
+        image: { defaultImageNum: 8 },
         keyVaults: encryptedKeyVaults,
       });
 
@@ -106,6 +107,7 @@ describe('UserModel', () => {
 
       expect(state.userId).toBe(userId);
       expect(state.preference).toEqual(preference);
+      expect(state.settings).not.toHaveProperty('image');
       expect(state.settings.keyVaults).toEqual(keyVaults);
     });
 

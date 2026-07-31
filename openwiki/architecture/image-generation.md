@@ -41,7 +41,7 @@ records whether the current configuration can generate. If no usable image
 model is enabled, initialization settles with `isInit: true` and
 `isImageModelAvailable: false`; Image Settings shows its provider/model guidance
 instead of a loading skeleton, submission remains unavailable, and `imageNum`
-is set to the user's current default rather than retaining the store's
+is set to the deployment default rather than retaining the store's
 hardcoded initial value.
 
 ### Configuration bootstrap recovery
@@ -148,7 +148,7 @@ user state. While the active-scope request is pending they keep their existing
 loading UI. A `request-failed` state offers **Retry** through
 `refreshUserState`; an owner mismatch or signed-in identity whose scope remains
 unresolved offers **Sign in again**. The guard includes General, Chat
-Instruction, Default Assistant, legacy LLM, AI Provider, Image, TTS, Hotkeys,
+Instruction, Default Assistant, legacy LLM, AI Provider, TTS, Hotkeys,
 System Assistant, MCP, and Storage so account-owned mutations cannot silently
 no-op or report success before ownership is verified. Account-independent
 pages such as About and desktop Proxy remain usable.
@@ -186,6 +186,16 @@ replaying stale image state, and prevents a queued callback from running under a
 different account after an in-place authentication change. Persistence remains
 fire-and-forget to image controls, so a sync failure never blocks generation
 and does not stop later queued writes.
+
+The first-use image count is separate from user settings. Image bootstrap reads
+`GlobalServerConfig.image.defaultImageNum`, which is populated from
+`AI_IMAGE_DEFAULT_IMAGE_NUM` and falls back to `DEFAULT_IMAGE_CONFIG` (`4`).
+That deployment default is passed explicitly into initialization and
+revalidation for signed-in, local, and guest scopes; a valid remembered count
+always wins. The former `UserSettings.image.defaultImageNum` field is no longer
+hydrated, imported, exported, or accepted by settings updates. Its historical
+`user_settings.image` database column and migration remain in place as inert
+compatibility data, so this retirement requires no destructive migration.
 
 The dedicated `user.updateImageConfig` tRPC endpoint calls
 `UserModel.updateImageConfig`. PostgreSQL merges the partial update directly
@@ -437,7 +447,7 @@ size are equivalent and do not trigger a rebuild that would discard transient
 width, height, or aspect-ratio edits. For models with a discrete `size`
 parameter, persisted `null` means the model's declared default size and replaces
 any stale concrete size still held in memory.
-Missing, stale, or unsupported values use the user's default count and current
+Missing, stale, or unsupported values use the deployment default count and current
 model defaults. A removed, disabled, or unusable remembered model falls back to
 the first usable enabled image model while retaining a valid remembered image
 count. This automatic fallback changes only the active runtime configuration and
@@ -458,7 +468,7 @@ schema no longer supports. If no model is available, later provider updates can
 recover the settled configuration without reloading the workspace. Recovery
 prefers the remembered provider/model when it becomes usable, keeps the draft
 prompt, restores only valid persisted count and size preferences, and otherwise
-uses the user's current default count plus the newly available model's parameter
+uses the deployment default count plus the newly available model's parameter
 defaults. Manual selection or settings reuse of a usable model restores
 `isImageModelAvailable`. Reselecting the retained provider/model during manual
 recovery rebuilds its current parameter defaults while preserving the draft
@@ -505,8 +515,8 @@ atomically and exits before provider initialization when the claim fails. A
 late or duplicate dispatch therefore cannot revive an errored task or generate
 the same task twice.
 
-The user setting `MAX_DEFAULT_IMAGE_NUM` remains 20; it is a settings boundary,
-not the per-request generation limit.
+The deployment setting `MAX_DEFAULT_IMAGE_NUM` remains 20; it bounds
+`AI_IMAGE_DEFAULT_IMAGE_NUM`, not the per-request generation limit.
 
 Chat attachment context has a separate best-effort compatibility step before a
 provider call. Each `/webapi/files/...` image reference is independently

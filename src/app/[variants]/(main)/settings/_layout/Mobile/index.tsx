@@ -1,6 +1,6 @@
 'use client';
 
-import { useQueryState } from 'nuqs';
+import { parseAsStringEnum, useQueryState } from 'nuqs';
 
 import MobileContentLayout from '@/components/server/MobileNavLayout';
 import InitClientDB from '@/features/InitClientDB';
@@ -11,12 +11,13 @@ import SettingsContent from '../SettingsContent';
 import Header from './Header';
 
 const Layout = () => {
-  const [activeTab] = useQueryState('active', {
-    defaultValue: SettingsTabs.Common,
-  });
+  const [activeTab] = useQueryState(
+    'active',
+    parseAsStringEnum(Object.values(SettingsTabs)).withDefault(SettingsTabs.Common),
+  );
 
   return (
-    <MobileContentLayout header={<Header />}>
+    <MobileContentLayout header={<Header activeSettingsKey={activeTab} />}>
       <SettingsContent activeTab={activeTab} mobile={true} />
       <Footer />
       <InitClientDB />

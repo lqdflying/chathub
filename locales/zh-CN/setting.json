@@ -161,6 +161,26 @@
     },
     "waitingForMore": "更多模型正在 <1>计划接入</1> 中，敬请期待"
   },
+  "mcpManagement": {
+    "add": "添加 MCP 插件",
+    "confirmUninstall": "确认卸载该 MCP 插件？",
+    "description": "管理和配置已安装的 MCP 插件，可以启用或禁用插件，查看其运行状态。",
+    "editBtn": "立即编辑",
+    "editPrompt": "请前往编辑页面查看详情。",
+    "empty": "暂无已安装的 MCP 插件",
+    "library": "MCP 库",
+    "mcpRuntime": "MCP 运行时",
+    "tools": {
+      "empty": "此 MCP 服务器未提供任何工具。",
+      "error": "获取工具列表失败。",
+      "inputSchema": "参数定义",
+      "loading": "正在发现工具...",
+      "noDescription": "暂无描述",
+      "retry": "重试",
+      "title": "已发现的工具"
+    },
+    "uninstall": "卸载"
+  },
   "message": {
     "success": "更新成功"
   },
@@ -278,6 +298,34 @@
     "submit": "更新聊天偏好",
     "title": "聊天设置"
   },
+  "settingChatAppearance": {
+    "fontSize": {
+      "desc": "聊天内容的字体大小",
+      "marks": {
+        "normal": "标准"
+      },
+      "title": "字体大小"
+    },
+    "highlighterTheme": {
+      "title": "代码高亮主题"
+    },
+    "mermaidTheme": {
+      "title": "Mermaid 主题"
+    },
+    "title": "聊天外观",
+    "transitionMode": {
+      "desc": "聊天消息的过渡动画",
+      "options": {
+        "fadeIn": "淡入",
+        "none": {
+          "desc": "这取决于模型的响应输出方式，请自行测试。",
+          "value": "无"
+        },
+        "smooth": "平滑"
+      },
+      "title": "过渡动画"
+    }
+  },
   "settingChatMemory": {
     "assistanceLevel": {
       "balanced": "均衡",
@@ -327,34 +375,6 @@
     "submit": "保存",
     "topicCompactionHint": "仅当前活跃话题的滚动摘要，由压缩/总结生成；换话题后显示对应该话题的内容。",
     "topicCompactionSection": "当前话题压缩（本会话）"
-  },
-  "settingChatAppearance": {
-    "fontSize": {
-      "desc": "聊天内容的字体大小",
-      "marks": {
-        "normal": "标准"
-      },
-      "title": "字体大小"
-    },
-    "highlighterTheme": {
-      "title": "代码高亮主题"
-    },
-    "mermaidTheme": {
-      "title": "Mermaid 主题"
-    },
-    "title": "聊天外观",
-    "transitionMode": {
-      "desc": "聊天消息的过渡动画",
-      "options": {
-        "fadeIn": "淡入",
-        "none": {
-          "desc": "这取决于模型的响应输出方式，请自行测试。",
-          "value": "无"
-        },
-        "smooth": "平滑"
-      },
-      "title": "过渡动画"
-    }
   },
   "settingCommon": {
     "lang": {
@@ -464,13 +484,6 @@
     "remove": "移除成员",
     "removeFromGroup": "移出群组",
     "you": "你"
-  },
-  "settingImage": {
-    "defaultCount": {
-      "desc": "设置图像生成面板在创建新任务时的默认图片数量。",
-      "label": "默认图片数量",
-      "title": "图像设置"
-    }
   },
   "settingModel": {
     "enableMaxTokens": {
@@ -728,7 +741,6 @@
     "common": "通用设置",
     "experiment": "实验",
     "hotkey": "快捷键",
-    "image": "图像",
     "llm": "语言模型",
     "mcp-management": "MCP 管理",
     "provider": "AI 服务商",
@@ -750,25 +762,5 @@
       "store": "插件商店"
     },
     "title": "扩展插件"
-  },
-  "mcpManagement": {
-    "add": "添加 MCP 插件",
-    "confirmUninstall": "确认卸载该 MCP 插件？",
-    "description": "管理和配置已安装的 MCP 插件，可以启用或禁用插件，查看其运行状态。",
-    "editBtn": "立即编辑",
-    "editPrompt": "请前往编辑页面查看详情。",
-    "empty": "暂无已安装的 MCP 插件",
-    "library": "MCP 库",
-    "mcpRuntime": "MCP 运行时",
-    "tools": {
-      "empty": "此 MCP 服务器未提供任何工具。",
-      "error": "获取工具列表失败。",
-      "inputSchema": "参数定义",
-      "loading": "正在发现工具...",
-      "noDescription": "暂无描述",
-      "retry": "重试",
-      "title": "已发现的工具"
-    },
-    "uninstall": "卸载"
   }
 }

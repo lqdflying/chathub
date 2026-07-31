@@ -198,12 +198,12 @@ describe('user state ownership', () => {
         ...DEFAULT_PREFERENCE,
         imageConfig: { model: 'account-a-model', provider: 'account-a-provider' },
       },
-      settings: { image: { defaultImageNum: 8 } },
+      settings: { general: { fontSize: 18 } },
       userId: 'account-a',
     });
     useUserStore.setState({
       authUserId: 'account-b',
-      settings: { image: { defaultImageNum: 4 } },
+      settings: { general: { fontSize: 14 } },
       user: { id: 'account-b' },
     });
 
@@ -242,7 +242,7 @@ describe('user state ownership', () => {
       ],
       defaultSettings: {
         ...initialSettingsState.defaultSettings,
-        image: { defaultImageNum: 8 },
+        general: { ...initialSettingsState.defaultSettings.general, fontSize: 18 },
       },
       isOnboard: true,
       isUserStateInit: true,
@@ -254,7 +254,7 @@ describe('user state ownership', () => {
         },
       ],
       preference: settledPreference,
-      settings: { image: { defaultImageNum: 8 } },
+      settings: { general: { fontSize: 18 } },
       subscriptionPlan: Plans.Premium,
       user: { id: 'account-a' },
       userStateOwnerId: 'account-a',
@@ -267,7 +267,7 @@ describe('user state ownership', () => {
         ...DEFAULT_PREFERENCE,
         imageConfig: { model: 'account-b-model', provider: 'account-b-provider' },
       },
-      settings: { image: { defaultImageNum: 4 } },
+      settings: { general: { fontSize: 14 } },
       userId: 'account-b',
     });
 
@@ -551,7 +551,7 @@ describe('user state ownership', () => {
           enabledModels: ['account-a-model'],
         },
       },
-      settings: { image: { defaultImageNum: 8 } },
+      settings: { general: { fontSize: 18 } },
       subscriptionPlan: Plans.Premium,
       userStateOwnerId: 'account-a',
       userStateScope: 'user:account-a',

@@ -18,22 +18,13 @@ import { testFluxSchnellParamsSchema } from './test-fixtures';
 
 const fluxSchnellParamsSchema = testFluxSchnellParamsSchema;
 
-const { currentImageSettingsMock, updateImageConfigMock } = vi.hoisted(() => ({
-  currentImageSettingsMock: vi.fn(() => ({
-    defaultImageNum: 4,
-  })),
+const { updateImageConfigMock } = vi.hoisted(() => ({
   updateImageConfigMock: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('@/services/user', () => ({
   userService: {
     updateImageConfig: updateImageConfigMock,
-  },
-}));
-
-vi.mock('@/store/user/slices/settings/selectors', () => ({
-  settingsSelectors: {
-    currentImageSettings: currentImageSettingsMock,
   },
 }));
 
@@ -133,7 +124,6 @@ const initialTestState = {
 beforeEach(() => {
   vi.clearAllMocks();
   updateImageConfigMock.mockClear();
-  currentImageSettingsMock.mockReturnValue({ defaultImageNum: 4 });
   mockProviders[0].children = [testImageModels[0]];
   mockProviders[1].children = [testImageModels[1], testImageModels[2]];
   mockProviders[2].children = [testImageModels[3]];
@@ -238,12 +228,15 @@ describe('GenerationConfigAction', () => {
       });
 
       await waitFor(() => {
-        expect(updateImageConfigMock).toHaveBeenLastCalledWith({
-          imageNum: 8,
-          model: 'size-model',
-          provider: 'custom-provider',
-          size: '1536x1024',
-        });
+        expect(updateImageConfigMock).toHaveBeenLastCalledWith(
+          {
+            imageNum: 8,
+            model: 'size-model',
+            provider: 'custom-provider',
+            size: '1536x1024',
+          },
+          expect.any(AbortSignal),
+        );
       });
       // Signed-in writes must not touch the browser-local legacy keys.
       expect(useGlobalStore.getState().status.lastSelectedImageNum).toBeUndefined();
@@ -355,12 +348,15 @@ describe('GenerationConfigAction', () => {
       });
 
       await waitFor(() => {
-        expect(updateImageConfigMock).toHaveBeenLastCalledWith({
-          imageNum: 1,
-          model: 'gpt-image-2',
-          provider: 'openaicompatible',
-          size: '2048x2048',
-        });
+        expect(updateImageConfigMock).toHaveBeenLastCalledWith(
+          {
+            imageNum: 1,
+            model: 'gpt-image-2',
+            provider: 'openaicompatible',
+            size: '2048x2048',
+          },
+          expect.any(AbortSignal),
+        );
       });
     });
 
@@ -661,7 +657,6 @@ describe('GenerationConfigAction', () => {
     });
 
     it('should initialize with remembered model when user is logged in', () => {
-      currentImageSettingsMock.mockReturnValueOnce({ defaultImageNum: 6 });
       const { result } = renderHook(() => useImageStore());
 
       useImageStore.setState({
@@ -671,7 +666,14 @@ describe('GenerationConfigAction', () => {
       });
 
       act(() => {
-        result.current.initializeImageConfig('flux/schnell', 'fal');
+        result.current.initializeImageConfig(
+          'flux/schnell',
+          'fal',
+          undefined,
+          undefined,
+          undefined,
+          6,
+        );
       });
 
       expect(result.current.model).toBe('flux/schnell');
@@ -716,12 +718,7 @@ describe('GenerationConfigAction', () => {
       });
 
       act(() => {
-        result.current.initializeImageConfig(
-          'gpt-image-2',
-          'openaicompatible',
-          8,
-          '2048x2048',
-        );
+        result.current.initializeImageConfig('gpt-image-2', 'openaicompatible', 8, '2048x2048');
       });
 
       expect(result.current.imageNum).toBe(8);
@@ -741,12 +738,7 @@ describe('GenerationConfigAction', () => {
       });
 
       act(() => {
-        result.current.initializeImageConfig(
-          'gpt-image-2',
-          'openaicompatible',
-          8,
-          '1025x1024',
-        );
+        result.current.initializeImageConfig('gpt-image-2', 'openaicompatible', 8, '1025x1024');
       });
 
       expect(result.current.imageNum).toBe(8);
@@ -757,7 +749,6 @@ describe('GenerationConfigAction', () => {
     });
 
     it('should fall back to current defaults for invalid remembered count and size', () => {
-      currentImageSettingsMock.mockReturnValueOnce({ defaultImageNum: 6 });
       const { result } = renderHook(() => useImageStore());
 
       useImageStore.setState({
@@ -767,7 +758,14 @@ describe('GenerationConfigAction', () => {
       });
 
       act(() => {
-        result.current.initializeImageConfig('size-model', 'custom-provider', 0, 'invalid-size');
+        result.current.initializeImageConfig(
+          'size-model',
+          'custom-provider',
+          0,
+          'invalid-size',
+          undefined,
+          6,
+        );
       });
 
       expect(result.current.imageNum).toBe(6);
@@ -1143,7 +1141,6 @@ describe('GenerationConfigAction', () => {
     });
 
     it('should use current defaults when no preferences exist after an empty state', () => {
-      currentImageSettingsMock.mockReturnValue({ defaultImageNum: 8 });
       const { result } = renderHook(() => useImageStore());
 
       act(() => {
@@ -1161,7 +1158,14 @@ describe('GenerationConfigAction', () => {
       });
 
       act(() => {
-        result.current.initializeImageConfig();
+        result.current.initializeImageConfig(
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          8,
+        );
       });
 
       expect(result.current.imageNum).toBe(8);
@@ -1169,7 +1173,14 @@ describe('GenerationConfigAction', () => {
 
       mockProviders[1].children = [testImageModels[2]];
       act(() => {
-        result.current.revalidateImageConfig();
+        result.current.revalidateImageConfig(
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          8,
+        );
       });
 
       expect(result.current.isImageModelAvailable).toBe(true);

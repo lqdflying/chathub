@@ -5,7 +5,6 @@ import {
   Brain,
   Database,
   EthernetPort,
-  Image as ImageIcon,
   Info,
   KeyboardIcon,
   MessageSquareText,
@@ -65,11 +64,6 @@ export const useCategory = () => {
                 key: SettingsTabs.Provider,
                 label: t('tab.provider'),
               }),
-        {
-          icon: <Icon icon={ImageIcon} />,
-          key: SettingsTabs.Image,
-          label: t('tab.image'),
-        },
         enableSTT && {
           icon: <Icon icon={Mic2} />,
           key: SettingsTabs.TTS,

@@ -329,21 +329,27 @@ describe('userRouter', () => {
       expect(mockGateKeeper.encrypt).toHaveBeenCalledWith(JSON.stringify(mockSettings.keyVaults));
     });
 
-    it('should update settings without key vaults', async () => {
+    it('should update settings without key vaults and ignore legacy image defaults', async () => {
       const mockSettings = {
         general: { language: 'en-US' },
+        image: { defaultImageNum: 8 },
       };
+      const updateSetting = vi.fn().mockResolvedValue({ rowCount: 1 });
 
       vi.mocked(UserModel).mockImplementation(
         () =>
           ({
-            updateSetting: vi.fn().mockResolvedValue({ rowCount: 1 }),
+            updateSetting,
           }) as any,
       );
 
       await userRouter.createCaller({ ...mockCtx }).updateSettings(mockSettings);
 
       expect(UserModel).toHaveBeenCalledWith(serverDB, mockUserId);
+      expect(updateSetting).toHaveBeenCalledWith({
+        general: mockSettings.general,
+        keyVaults: null,
+      });
     });
   });
 });

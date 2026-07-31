@@ -494,13 +494,6 @@ export default {
     removeFromGroup: '移出群组',
     you: '你',
   },
-  settingImage: {
-    defaultCount: {
-      desc: '设置图像生成面板在创建新任务时的默认图片数量。',
-      label: '默认图片数量',
-      title: '图像设置',
-    },
-  },
   settingModel: {
     enableMaxTokens: {
       title: '开启单次回复限制',
@@ -757,7 +750,6 @@ export default {
     'common': '通用设置',
     'experiment': '实验',
     'hotkey': '快捷键',
-    'image': '图像',
     'llm': '语言模型',
     'mcp-management': 'MCP 管理',
     'provider': 'AI 服务商',

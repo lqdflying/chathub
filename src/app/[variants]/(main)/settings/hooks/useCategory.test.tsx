@@ -35,6 +35,14 @@ vi.mock('@/store/serverConfig', () => ({
 }));
 
 describe('desktop settings categories', () => {
+  it('does not expose the retired Image settings destination', () => {
+    const { result } = renderHook(() => useCategory());
+
+    expect(result.current.some((item) => item && 'key' in item && item.key === 'image')).toBe(
+      false,
+    );
+  });
+
   it('exposes Chat Instruction as a top-level destination', () => {
     const { result } = renderHook(() => useCategory());
 

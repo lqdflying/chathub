@@ -13,16 +13,20 @@ import { SettingsTabs } from '@/store/global/initialState';
 import { useSessionStore } from '@/store/session';
 import { mobileHeaderSticky } from '@/styles/mobileHeader';
 
-const Header = memo(() => {
+interface HeaderProps {
+  activeSettingsKey: SettingsTabs;
+}
+
+const Header = memo<HeaderProps>(({ activeSettingsKey }) => {
   const { t } = useTranslation('setting');
   const router = useQueryRoute();
   const showMobileWorkspace = useShowMobileWorkspace();
 
-  const [activeSettingsKey, setActiveSettingsKey] = useQueryState('active');
+  const [, setActiveSettingsKey] = useQueryState('active');
   const [providerName, setProviderName] = useQueryState('provider');
 
   const isSessionActive = useSessionStore((s) => !!s.activeId);
-  const isProvider = providerName ? true : false;
+  const isProvider = !!providerName;
 
   const handleBackClick = () => {
     if (isSessionActive && showMobileWorkspace) {

@@ -11,6 +11,7 @@ const {
   migrateImageConfigState,
   revalidateImageConfig,
   resetImageConfigAvailability,
+  serverConfigState,
   updateImageConfig,
   userState,
 } = vi.hoisted(() => {
@@ -56,6 +57,9 @@ const {
       },
     },
     imageState: { isInit: false },
+    serverConfigState: {
+      serverConfig: { image: { defaultImageNum: 6 } },
+    },
     initializeImageConfig: vi.fn(),
     migrateImageConfigState: vi.fn(async (imageConfig) => {
       await updateImageConfig(imageConfig);
@@ -143,6 +147,11 @@ vi.mock('@/store/image', () => ({
   ),
 }));
 
+vi.mock('@/store/serverConfig', () => ({
+  useServerConfigStore: <T>(selector: (state: typeof serverConfigState) => T) =>
+    selector(serverConfigState),
+}));
+
 vi.mock('@/store/user', () => ({
   useUserStore: Object.assign(
     <T>(selector: (state: typeof userState) => T) => selector(userState),
@@ -182,6 +191,7 @@ describe('useFetchAiImageConfig', () => {
       lastSelectedImageSize: '1536x1024',
     };
     imageState.isInit = false;
+    serverConfigState.serverConfig.image = { defaultImageNum: 6 };
     initializeImageConfig.mockReset();
     revalidateImageConfig.mockReset();
     resetImageConfigAvailability.mockClear();
@@ -224,6 +234,7 @@ describe('useFetchAiImageConfig', () => {
         8,
         '1536x1024',
         'user:user-id',
+        6,
       ),
     );
 
@@ -238,6 +249,7 @@ describe('useFetchAiImageConfig', () => {
       8,
       '1536x1024',
       'user:user-id',
+      6,
     );
 
     aiInfraState.enabledImageModelList = [
@@ -282,6 +294,7 @@ describe('useFetchAiImageConfig', () => {
         undefined,
         undefined,
         'user:account-b',
+        6,
       ),
     );
     expect(migrateImageConfigState).not.toHaveBeenCalled();
@@ -315,6 +328,7 @@ describe('useFetchAiImageConfig', () => {
       8,
       '1536x1024',
       'user:db-preference-user',
+      6,
     );
   });
 
@@ -337,6 +351,7 @@ describe('useFetchAiImageConfig', () => {
         8,
         '1536x1024',
         'local',
+        6,
       ),
     );
   });
@@ -360,6 +375,7 @@ describe('useFetchAiImageConfig', () => {
         8,
         '1536x1024',
         'guest',
+        6,
       ),
     );
     expect(updateImageConfig).not.toHaveBeenCalled();
@@ -383,6 +399,7 @@ describe('useFetchAiImageConfig', () => {
         8,
         '1536x1024',
         'user:user-id',
+        6,
       ),
     );
 
@@ -400,6 +417,7 @@ describe('useFetchAiImageConfig', () => {
         undefined,
         undefined,
         'guest',
+        6,
       ),
     );
   });
@@ -458,6 +476,7 @@ describe('useFetchAiImageConfig', () => {
         undefined,
         undefined,
         'user:in-place-login-user',
+        6,
       ),
     );
     expect(migrateImageConfigState).not.toHaveBeenCalled();
@@ -481,6 +500,7 @@ describe('useFetchAiImageConfig', () => {
         undefined,
         undefined,
         'user:user-id',
+        6,
       ),
     );
     expect(migrateImageConfigState).not.toHaveBeenCalled();

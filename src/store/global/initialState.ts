@@ -39,7 +39,6 @@ export enum SettingsTabs {
   ChatInstruction = 'chat-instruction',
   Common = 'common',
   Hotkey = 'hotkey',
-  Image = 'image',
   LLM = 'llm',
   Mcp = 'mcp',
   Provider = 'provider',

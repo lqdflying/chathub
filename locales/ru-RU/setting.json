@@ -292,6 +292,56 @@
       "title": "Анимация перехода"
     }
   },
+  "settingChatMemory": {
+    "assistanceLevel": {
+      "balanced": "Balanced",
+      "hint": "Applies suggested defaults for history and compression. You can still override in Chat preferences.",
+      "minimal": "Light",
+      "rich": "Rich",
+      "title": "Assist preset"
+    },
+    "contextCompactThreshold": {
+      "desc": "When estimated context use exceeds this share of the model window, try auto-compacting (estimate only).",
+      "title": "Compact when above"
+    },
+    "copy": "Copy",
+    "enableDailyMemorySummary": {
+      "desc": "Runs at most once per calendar day in this browser.",
+      "title": "Daily topic note"
+    },
+    "enableTokenThresholdAutoCompact": {
+      "desc": "Requires Limit history and Summarize history in Chat preferences.",
+      "title": "Auto-compact when context is full"
+    },
+    "enableUserMemoryArchive": {
+      "desc": "Store short summary snippets on the topic for the model to reuse.",
+      "title": "Topic snippets"
+    },
+    "export": "Export",
+    "compactionGroupTitle": "Compact",
+    "memoryGroupTitle": "Memory",
+    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) On this page — under Compact, pick preset and optional auto-compact or daily topic note; under Memory, optional topic snippets and periodic assistant merge.\n3) In chat — click the green token badge to see usage and compact manually.",
+    "guideTitle": "How to set up",
+    "previewHint": "Shows the active topic. Saving here does not change saved topic content.",
+    "previewSection": "Preview",
+    "submit": "Save",
+    "assistantMemoryHint": "Saved on this assistant and injected into every chat with it. This is separate from the topic compaction summary below.",
+    "assistantMemorySection": "Assistant memory (all chats)",
+    "saveAssistantMemory": "Save assistant memory",
+    "topicCompactionHint": "Rolling summary for the active topic only, produced by compact/summarize. Switches when you change topic.",
+    "topicCompactionSection": "Current topic compaction (this session)",
+    "enablePeriodicAssistantMemoryRollup": {
+      "desc": "At most once per UTC day per browser (localStorage), merge topic summaries from linked sessions into assistant memory using the system model.",
+      "title": "Periodic assistant memory merge"
+    },
+    "rollupAssistantMemory": "Generate assistant memory from topics",
+    "rollupConfirmDesc": "This will call the system model to merge topic compaction summaries from all sessions linked to this assistant into assistant memory, overwriting the text below (back up first if needed). Continue?",
+    "rollupConfirmOk": "Generate and overwrite",
+    "rollupConfirmTitle": "Generate assistant memory",
+    "rollupFailed": "Generation failed. Try again later.",
+    "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first.",
+    "rollupSuccess": "Assistant memory updated."
+  },
   "settingCommon": {
     "lang": {
       "autoMode": "Следовать за системой",
@@ -400,13 +450,6 @@
     "remove": "Удалить участника",
     "removeFromGroup": "Исключить из группы",
     "you": "Вы"
-  },
-  "settingImage": {
-    "defaultCount": {
-      "desc": "Установите количество изображений по умолчанию, создаваемых при запуске новой задачи генерации изображений.",
-      "label": "Количество изображений по умолчанию",
-      "title": "Настройки AI-рисования"
-    }
   },
   "settingModel": {
     "enableMaxTokens": {
@@ -663,7 +706,6 @@
     "common": "Общие настройки",
     "experiment": "Эксперимент",
     "hotkey": "Горячие клавиши",
-    "image": "AI-рисование",
     "llm": "Языковая модель",
     "provider": "Поставщик ИИ услуг",
     "proxy": "Сетевой прокси",
@@ -684,55 +726,5 @@
       "store": "Магазин плагинов"
     },
     "title": "Дополнительные инструменты"
-  },
-  "settingChatMemory": {
-    "assistanceLevel": {
-      "balanced": "Balanced",
-      "hint": "Applies suggested defaults for history and compression. You can still override in Chat preferences.",
-      "minimal": "Light",
-      "rich": "Rich",
-      "title": "Assist preset"
-    },
-    "contextCompactThreshold": {
-      "desc": "When estimated context use exceeds this share of the model window, try auto-compacting (estimate only).",
-      "title": "Compact when above"
-    },
-    "copy": "Copy",
-    "enableDailyMemorySummary": {
-      "desc": "Runs at most once per calendar day in this browser.",
-      "title": "Daily topic note"
-    },
-    "enableTokenThresholdAutoCompact": {
-      "desc": "Requires Limit history and Summarize history in Chat preferences.",
-      "title": "Auto-compact when context is full"
-    },
-    "enableUserMemoryArchive": {
-      "desc": "Store short summary snippets on the topic for the model to reuse.",
-      "title": "Topic snippets"
-    },
-    "export": "Export",
-    "compactionGroupTitle": "Compact",
-    "memoryGroupTitle": "Memory",
-    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) On this page — under Compact, pick preset and optional auto-compact or daily topic note; under Memory, optional topic snippets and periodic assistant merge.\n3) In chat — click the green token badge to see usage and compact manually.",
-    "guideTitle": "How to set up",
-    "previewHint": "Shows the active topic. Saving here does not change saved topic content.",
-    "previewSection": "Preview",
-    "submit": "Save",
-    "assistantMemoryHint": "Saved on this assistant and injected into every chat with it. This is separate from the topic compaction summary below.",
-    "assistantMemorySection": "Assistant memory (all chats)",
-    "saveAssistantMemory": "Save assistant memory",
-    "topicCompactionHint": "Rolling summary for the active topic only, produced by compact/summarize. Switches when you change topic.",
-    "topicCompactionSection": "Current topic compaction (this session)",
-    "enablePeriodicAssistantMemoryRollup": {
-      "desc": "At most once per UTC day per browser (localStorage), merge topic summaries from linked sessions into assistant memory using the system model.",
-      "title": "Periodic assistant memory merge"
-    },
-    "rollupAssistantMemory": "Generate assistant memory from topics",
-    "rollupConfirmDesc": "This will call the system model to merge topic compaction summaries from all sessions linked to this assistant into assistant memory, overwriting the text below (back up first if needed). Continue?",
-    "rollupConfirmOk": "Generate and overwrite",
-    "rollupConfirmTitle": "Generate assistant memory",
-    "rollupFailed": "Generation failed. Try again later.",
-    "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first.",
-    "rollupSuccess": "Assistant memory updated."
   }
 }

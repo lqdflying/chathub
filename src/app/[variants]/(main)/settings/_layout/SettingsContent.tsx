@@ -29,9 +29,6 @@ const componentMap = {
   [SettingsTabs.Provider]: dynamic(() => import('../provider'), {
     loading: () => <Loading />,
   }),
-  [SettingsTabs.Image]: dynamic(() => import('../image'), {
-    loading: () => <Loading />,
-  }),
   [SettingsTabs.TTS]: dynamic(() => import('../tts'), {
     loading: () => <Loading />,
   }),
@@ -60,7 +57,6 @@ const userStateDependentTabs = new Set<string>([
   SettingsTabs.ChatInstruction,
   SettingsTabs.Common,
   SettingsTabs.Hotkey,
-  SettingsTabs.Image,
   SettingsTabs.LLM,
   SettingsTabs.Mcp,
   SettingsTabs.Provider,

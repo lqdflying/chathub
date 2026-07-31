@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { PartialDeep } from 'type-fest';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { withSWR } from '~test-utils';
 
 import { DEFAULT_AGENT, DEFAULT_SETTINGS } from '@/const/settings';
@@ -9,8 +9,6 @@ import { useUserStore } from '@/store/user';
 import { LobeAgentSettings } from '@/types/session';
 import { UserSettings } from '@/types/user/settings';
 import { merge } from '@/utils/merge';
-
-vi.mock('zustand/traditional');
 
 // Mock userService
 vi.mock('@/services/user', () => ({
@@ -21,6 +19,16 @@ vi.mock('@/services/user', () => ({
 }));
 
 describe('SettingsAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useUserStore.setState({
+      defaultSettings: DEFAULT_SETTINGS,
+      settings: {},
+      updateSettingsSignal: undefined,
+      userMutationAbortControllers: [],
+    });
+  });
+
   describe('importAppSettings', () => {
     it('should import app settings', async () => {
       const { result } = renderHook(() => useUserStore());
@@ -68,6 +76,23 @@ describe('SettingsAction', () => {
   });
 
   describe('setSettings', () => {
+    it('ignores the retired per-user image default', async () => {
+      const { result } = renderHook(() => useUserStore());
+
+      await act(async () => {
+        await result.current.setSettings({
+          general: { fontSize: 13 },
+          image: { defaultImageNum: 8 },
+        } as PartialDeep<UserSettings>);
+      });
+
+      expect(result.current.settings).toEqual({ general: { fontSize: 13 } });
+      expect(userService.updateUserSettings).toHaveBeenCalledWith(
+        { general: { fontSize: 13 } },
+        expect.any(AbortSignal),
+      );
+    });
+
     it('should set partial settings', async () => {
       const { result } = renderHook(() => useUserStore());
       const partialSettings: PartialDeep<UserSettings> = { general: { fontSize: 12 } };

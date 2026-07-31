@@ -1,4 +1,8 @@
-import { MAX_IMAGE_GENERATION_COUNT, MIN_IMAGE_GENERATION_COUNT } from '@lobechat/const';
+import {
+  DEFAULT_IMAGE_CONFIG,
+  MAX_IMAGE_GENERATION_COUNT,
+  MIN_IMAGE_GENERATION_COUNT,
+} from '@lobechat/const';
 import isEqual from 'fast-deep-equal';
 import {
   AIImageModelCard,
@@ -15,7 +19,6 @@ import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { useGlobalStore } from '@/store/global';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
-import { settingsSelectors } from '@/store/user/slices/settings/selectors';
 
 import type { ImageStore } from '../../store';
 import { adaptSizeToRatio, parseRatio } from '../../utils/size';
@@ -51,13 +54,18 @@ export interface GenerationConfigAction {
 
   // 初始化相关方法
   resetImageConfigAvailability(preferenceOwner?: string): void;
-  _initializeDefaultImageConfig(preferenceOwner?: string, hasRememberedImageConfig?: boolean): void;
+  _initializeDefaultImageConfig(
+    preferenceOwner?: string,
+    hasRememberedImageConfig?: boolean,
+    defaultImageNum?: number,
+  ): void;
   initializeImageConfig(
     lastSelectedImageModel?: string,
     lastSelectedImageProvider?: string,
     lastSelectedImageNum?: number,
     lastSelectedImageSize?: string | null,
     preferenceOwner?: string,
+    defaultImageNum?: number,
   ): void;
   revalidateImageConfig(
     lastSelectedImageModel?: string,
@@ -65,6 +73,7 @@ export interface GenerationConfigAction {
     lastSelectedImageNum?: number,
     lastSelectedImageSize?: string | null,
     preferenceOwner?: string,
+    defaultImageNum?: number,
   ): void;
 }
 
@@ -97,6 +106,12 @@ function isValidImageCount(imageNum: number | undefined): imageNum is number {
     imageNum >= MIN_IMAGE_GENERATION_COUNT &&
     imageNum <= MAX_IMAGE_GENERATION_COUNT
   );
+}
+
+function resolveDefaultImageCount(defaultImageNum: number | undefined) {
+  return isValidImageCount(defaultImageNum)
+    ? defaultImageNum
+    : DEFAULT_IMAGE_CONFIG.defaultImageNum;
 }
 
 function isSupportedImageSize(
@@ -441,13 +456,17 @@ export const createGenerationConfigSlice: StateCreator<
     set((state) => ({ parameters: { ...state.parameters, seed } }), false, `reuseSeed/${seed}`);
   },
 
-  _initializeDefaultImageConfig: (preferenceOwner, hasRememberedImageConfig = false) => {
-    const { defaultImageNum } = settingsSelectors.currentImageSettings(useUserStore.getState());
+  _initializeDefaultImageConfig: (
+    preferenceOwner,
+    hasRememberedImageConfig = false,
+    defaultImageNum,
+  ) => {
+    const resolvedDefaultImageNum = resolveDefaultImageCount(defaultImageNum);
     const fallbackImageModel = getFirstUsableEnabledImageModel();
     if (!fallbackImageModel) {
       set(
         {
-          imageNum: defaultImageNum,
+          imageNum: resolvedDefaultImageNum,
           hasRememberedImageConfig,
           isImageModelAvailable: false,
           isInit: true,
@@ -464,7 +483,7 @@ export const createGenerationConfigSlice: StateCreator<
       const initialConfig = prepareInitializedImageConfig(
         fallbackImageModel.model,
         fallbackImageModel.provider,
-        defaultImageNum,
+        resolvedDefaultImageNum,
         undefined,
         undefined,
         currentPrompt,
@@ -495,9 +514,10 @@ export const createGenerationConfigSlice: StateCreator<
     lastSelectedImageNum,
     lastSelectedImageSize,
     preferenceOwner,
+    defaultImageNum,
   ) => {
     const { _initializeDefaultImageConfig } = get();
-    const { defaultImageNum } = settingsSelectors.currentImageSettings(useUserStore.getState());
+    const resolvedDefaultImageNum = resolveDefaultImageCount(defaultImageNum);
     const currentPrompt = get().parameters?.prompt;
     const hasRememberedImageConfig = !!lastSelectedImageModel && !!lastSelectedImageProvider;
 
@@ -506,7 +526,7 @@ export const createGenerationConfigSlice: StateCreator<
         const initialConfig = prepareInitializedImageConfig(
           lastSelectedImageModel,
           lastSelectedImageProvider,
-          defaultImageNum,
+          resolvedDefaultImageNum,
           lastSelectedImageNum,
           lastSelectedImageSize,
           currentPrompt,
@@ -526,7 +546,11 @@ export const createGenerationConfigSlice: StateCreator<
       } catch {
         const fallbackImageModel = getFirstUsableEnabledImageModel();
         if (!fallbackImageModel) {
-          _initializeDefaultImageConfig(preferenceOwner, hasRememberedImageConfig);
+          _initializeDefaultImageConfig(
+            preferenceOwner,
+            hasRememberedImageConfig,
+            resolvedDefaultImageNum,
+          );
           return;
         }
 
@@ -534,7 +558,7 @@ export const createGenerationConfigSlice: StateCreator<
           const initialConfig = prepareInitializedImageConfig(
             fallbackImageModel.model,
             fallbackImageModel.provider,
-            defaultImageNum,
+            resolvedDefaultImageNum,
             lastSelectedImageNum,
             undefined,
             currentPrompt,
@@ -564,7 +588,11 @@ export const createGenerationConfigSlice: StateCreator<
         }
       }
     } else {
-      _initializeDefaultImageConfig(preferenceOwner, hasRememberedImageConfig);
+      _initializeDefaultImageConfig(
+        preferenceOwner,
+        hasRememberedImageConfig,
+        resolvedDefaultImageNum,
+      );
     }
   },
 
@@ -574,6 +602,7 @@ export const createGenerationConfigSlice: StateCreator<
     lastSelectedImageNum,
     lastSelectedImageSize,
     preferenceOwner,
+    defaultImageNum,
   ) => {
     const {
       imageNum,
@@ -600,6 +629,7 @@ export const createGenerationConfigSlice: StateCreator<
         lastSelectedImageNum,
         lastSelectedImageSize,
         preferenceOwner,
+        defaultImageNum,
       );
       return;
     }
@@ -658,12 +688,12 @@ export const createGenerationConfigSlice: StateCreator<
       (lastSelectedImageSize === null && !rememberedEnabledModel?.parameters.size)
         ? currentImageSize
         : lastSelectedImageSize;
-    const { defaultImageNum } = settingsSelectors.currentImageSettings(useUserStore.getState());
+    const resolvedDefaultImageNum = resolveDefaultImageCount(defaultImageNum);
     try {
       const initialConfig = prepareInitializedImageConfig(
         nextImageModel.model,
         nextImageModel.provider,
-        defaultImageNum,
+        resolvedDefaultImageNum,
         rememberedImageNum,
         isRestoringSameRememberedModel ? rememberedImageSize : undefined,
         parameters?.prompt,

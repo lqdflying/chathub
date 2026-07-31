@@ -38,7 +38,9 @@ const Layout = memo<LayoutProps>((props) => {
       {md ? (
         <SideBar>{category}</SideBar>
       ) : (
-        <Header getContainer={() => ref.current!}>{category}</Header>
+        <Header activeKey={activeTab} getContainer={() => ref.current!}>
+          {category}
+        </Header>
       )}
       <SettingContainer maxWidth={'none'}>
         <SettingsContent activeTab={activeTab} mobile={false} showLLM={showLLM} />

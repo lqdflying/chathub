@@ -79,7 +79,6 @@ export class UserModel {
 
         settingsGeneral: userSettings.general,
         settingsHotkey: userSettings.hotkey,
-        settingsImage: userSettings.image,
         settingsKeyVaults: userSettings.keyVaults,
         settingsLanguageModel: userSettings.languageModel,
         settingsSystemAgent: userSettings.systemAgent,
@@ -110,7 +109,6 @@ export class UserModel {
       defaultAgent: state.settingsDefaultAgent || {},
       general: state.settingsGeneral || {},
       hotkey: state.settingsHotkey || {},
-      image: state.settingsImage || {},
       keyVaults: decryptKeyVaults,
       languageModel: state.settingsLanguageModel || {},
       systemAgent: state.settingsSystemAgent || {},

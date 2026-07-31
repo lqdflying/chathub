@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 
+import { DEFAULT_IMAGE_CONFIG } from '@/const/settings';
 import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { useImageStore } from '@/store/image';
+import { useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
@@ -48,6 +50,9 @@ export const useFetchAiImageConfig = () => {
     !!isLogin &&
     !!preferenceOwner &&
     (!isCurrentUserStateReady || !isCurrentProviderRuntimeReady);
+  const defaultImageNum = useServerConfigStore(
+    (state) => state.serverConfig.image?.defaultImageNum ?? DEFAULT_IMAGE_CONFIG.defaultImageNum,
+  );
 
   // DB-backed, cross-device image config for signed-in users.
   const imageConfig = useUserStore((s) => s.preference.imageConfig);
@@ -82,6 +87,7 @@ export const useFetchAiImageConfig = () => {
           resolvedImageConfig.imageNum,
           resolvedImageConfig.size,
           preferenceOwner,
+          defaultImageNum,
         );
         return;
       }
@@ -92,12 +98,14 @@ export const useFetchAiImageConfig = () => {
         resolvedImageConfig.imageNum,
         resolvedImageConfig.size,
         preferenceOwner,
+        defaultImageNum,
       );
     };
 
     initializeResolvedImageConfig();
   }, [
     enabledImageModelSignature,
+    defaultImageNum,
     isReadyForInit,
     isInitializedImageConfig,
     isLogin,

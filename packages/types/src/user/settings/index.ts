@@ -1,7 +1,6 @@
 import type { LobeAgentSettings } from '../../session';
 import { UserGeneralConfig } from './general';
 import { UserHotkeyConfig } from './hotkey';
-import { UserImageConfig } from './image';
 import { UserKeyVaults } from './keyVaults';
 import { UserModelProviderConfig } from './modelProvider';
 import { UserSystemAgentConfig } from './systemAgent';
@@ -27,7 +26,6 @@ export interface UserSettings {
   defaultAgent: UserDefaultAgent;
   general: UserGeneralConfig;
   hotkey: UserHotkeyConfig;
-  image: UserImageConfig;
   keyVaults: UserKeyVaults;
   languageModel: UserModelProviderConfig;
   systemAgent: UserSystemAgentConfig;

@@ -6,14 +6,11 @@ import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { shareService } from '@/services/share';
 import { userService } from '@/services/user';
 import type { UserStore } from '@/store/user';
+import { captureUserMutationSnapshot, isUserMutationCurrent } from '@/store/user/userMutation';
 import {
   createTrackedUserMutationController,
   releaseTrackedUserMutationController,
 } from '@/store/user/userMutationController';
-import {
-  captureUserMutationSnapshot,
-  isUserMutationCurrent,
-} from '@/store/user/userMutation';
 import { LobeAgentSettings } from '@/types/session';
 import {
   SystemAgentItem,
@@ -24,6 +21,14 @@ import {
 } from '@/types/user/settings';
 import { difference } from '@/utils/difference';
 import { merge } from '@/utils/merge';
+
+const omitLegacyImageSetting = (settings: PartialDeep<UserSettings>) => {
+  const { image: _image, ...activeSettings } = settings as PartialDeep<UserSettings> & {
+    image?: unknown;
+  };
+
+  return activeSettings as PartialDeep<UserSettings>;
+};
 
 export interface UserSettingsAction {
   importAppSettings: (settings: UserSettings) => Promise<void>;
@@ -76,10 +81,7 @@ export const createSettingsSlice: StateCreator<
     if (abortController && !abortController.signal.aborted)
       abortController.abort(MESSAGE_CANCEL_FLAT);
 
-    const newSignal = createTrackedUserMutationController(
-      set,
-      'internal_createSignal',
-    );
+    const newSignal = createTrackedUserMutationController(set, 'internal_createSignal');
 
     set({ updateSettingsSignal: newSignal }, false, 'signalForUpdateSettings');
 
@@ -88,10 +90,7 @@ export const createSettingsSlice: StateCreator<
 
   resetSettings: async () => {
     const mutationSnapshot = captureUserMutationSnapshot(get());
-    const abortController = createTrackedUserMutationController(
-      set,
-      'resetSettings',
-    );
+    const abortController = createTrackedUserMutationController(set, 'resetSettings');
 
     try {
       await userService.resetUserSettings(abortController.signal);
@@ -107,7 +106,7 @@ export const createSettingsSlice: StateCreator<
     const mutationSnapshot = captureUserMutationSnapshot(get());
     const { settings: prevSetting, defaultSettings } = get();
 
-    const nextSettings = merge(prevSetting, settings);
+    const nextSettings = merge(prevSetting, omitLegacyImageSetting(settings));
 
     if (isEqual(prevSetting, nextSettings)) return;
 
