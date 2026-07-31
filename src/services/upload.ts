@@ -89,8 +89,11 @@ class UploadService {
     // 服务端上传逻辑
     if (isServerMode) {
       // if is server mode, upload to server s3,
+      if (directory && directory !== 'ragEval') {
+        throw new Error('Unsupported server upload directory');
+      }
 
-      const data = await this.uploadToServerS3(file, { directory, onProgress, pathname, signal });
+      const data = await this.uploadToServerS3(file, { directory, onProgress, signal });
       return { data, success: true };
     }
 
@@ -174,21 +177,18 @@ class UploadService {
     {
       onProgress,
       directory,
-      pathname,
       signal,
     }: {
-      directory?: string;
+      directory?: 'ragEval';
       onProgress?: (status: FileUploadStatus, state: FileUploadState) => void;
-      pathname?: string;
       signal?: AbortSignal;
     },
   ): Promise<FileMetadata> => {
     signal?.throwIfAborted();
     const xhr = new XMLHttpRequest();
 
-    const { preSignUrl, ...result } = await this.getSignedUploadUrl(file, {
+    const { metadata, preSignUrl } = await this.getSignedUploadUrl(file, {
       directory,
-      pathname,
       signal,
     });
     signal?.throwIfAborted();
@@ -246,7 +246,7 @@ class UploadService {
       xhr.send(data);
     });
 
-    return result;
+    return metadata;
   };
 
   private uploadToDesktopS3 = async (
@@ -291,27 +291,12 @@ class UploadService {
 
   private getSignedUploadUrl = async (
     file: File,
-    options: { directory?: string; pathname?: string; signal?: AbortSignal } = {},
-  ): Promise<
-    FileMetadata & {
-      preSignUrl: string;
-    }
-  > => {
-    // 生成文件路径元数据
-    const { date, dirname, filename, pathname } = generateFilePathMetadata(file.name, options);
-
-    const preSignUrl = await lambdaClient.upload.createS3PreSignedUrl.mutate(
-      { pathname },
+    options: { directory?: 'ragEval'; signal?: AbortSignal } = {},
+  ): Promise<{ metadata: FileMetadata; preSignUrl: string }> => {
+    return lambdaClient.upload.createS3PreSignedUrl.mutate(
+      { filename: file.name, purpose: options.directory === 'ragEval' ? 'ragEval' : 'file' },
       { signal: options.signal },
     );
-
-    return {
-      date,
-      dirname,
-      filename,
-      path: pathname,
-      preSignUrl,
-    };
   };
 }
 

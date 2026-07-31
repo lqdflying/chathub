@@ -1,24 +1,22 @@
-import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { S3 } from '@/server/modules/S3';
-import { isValidUploadPathname } from '@/server/services/file/fileReference';
+import { createUploadTarget } from '@/server/services/file/uploadTarget';
 
 export const uploadRouter = router({
   createS3PreSignedUrl: authedProcedure
-    .input(z.object({ pathname: z.string() }))
-    .mutation(async ({ input }) => {
-      // Never sign a PUT for a privileged namespace (generation assets, avatars) or a
-      // traversal-shaped key — otherwise any authenticated user could write to another
-      // user's or the system's objects.
-      if (!isValidUploadPathname(input.pathname)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid upload pathname' });
-      }
-
+    .input(
+      z.object({
+        filename: z.string().min(1).max(255),
+        purpose: z.enum(['file', 'ragEval']).default('file'),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const metadata = createUploadTarget({ ...input, userId: ctx.userId });
       const s3 = new S3();
 
-      return await s3.createPreSignedUrl(input.pathname);
+      return { metadata, preSignUrl: await s3.createPreSignedUrl(metadata.path) };
     }),
 });
 

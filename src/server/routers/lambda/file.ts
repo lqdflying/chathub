@@ -9,10 +9,8 @@ import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
-import {
-  extractKeyFromAppFileProxyUrl,
-  isPrivilegedStorageKey,
-} from '@/server/services/file/fileReference';
+import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileReference';
+import { isUserUploadKey } from '@/server/services/file/uploadTarget';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { FileListItem, QueryFileListSchema, UploadFileSchema } from '@/types/files';
 
@@ -38,11 +36,11 @@ export const fileRouter = router({
 
   createFile: fileProcedure
     .input(
-      UploadFileSchema.omit({ url: true }).extend({
-        // The url a client stores becomes a key that ownership checks (resolvePublicUrl,
-        // the file proxy, image references) trust, so reject traversal-shaped and
-        // control-char values before they land in the row. This is a shape filter, not a
-        // full ownership guarantee — keys are still self-asserted, but unguessable UUIDs.
+      UploadFileSchema.omit({ hash: true, url: true }).extend({
+        hash: z.string().regex(/^[a-f\d]{64}$/i, 'invalid file hash'),
+        // The URL stored in a files row is later trusted by proxy and image ownership checks.
+        // Reject malformed shapes before the mutation applies its scoped-key or hash-canonical
+        // ownership rule.
         url: z
           .string()
           .max(1024)
@@ -58,31 +56,34 @@ export const fileRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // A user upload is never a generation asset or an avatar (both are written
-      // server-side). Refuse to mint a files row that would vouch for one, which the file
-      // proxy and image-reference presigning then trust as proof of ownership.
-      const storageKey = ctx.fileService.getKeyFromFullUrl(input.url);
-      if (storageKey && isPrivilegedStorageKey(storageKey)) {
+      const globalFile = await ctx.fileModel.checkHash(input.hash);
+      if (!globalFile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file hash' });
+
+      const isDesktopFile = input.url.startsWith('desktop://');
+      if (!globalFile.isExist && !isDesktopFile && !isUserUploadKey(input.url, ctx.userId, 'file')) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
       }
 
-      const { isExist } = await ctx.fileModel.checkHash(input.hash!);
+      const canonicalUrl = globalFile.isExist ? globalFile.url : input.url;
+      if (!canonicalUrl) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
+      }
 
       const { id } = await ctx.fileModel.create(
         {
           fileHash: input.hash,
-          fileType: input.fileType,
+          fileType: globalFile.isExist ? globalFile.fileType ?? input.fileType : input.fileType,
           knowledgeBaseId: input.knowledgeBaseId,
-          metadata: input.metadata,
+          metadata: globalFile.isExist ? globalFile.metadata ?? input.metadata : input.metadata,
           name: input.name,
-          size: input.size,
-          url: input.url,
+          size: globalFile.isExist ? globalFile.size ?? input.size : input.size,
+          url: canonicalUrl,
         },
         // if the file is not exist in global file, create a new one
-        !isExist,
+        !globalFile.isExist,
       );
 
-      return { id, url: await ctx.fileService.getUIFileUrl(input.url) };
+      return { id, url: await ctx.fileService.getUIFileUrl(canonicalUrl) };
     }),
   findById: fileProcedure
     .input(

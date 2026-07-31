@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { sha256 } from 'js-sha256';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileModel } from '@/database/models/file';
@@ -6,11 +7,19 @@ import { fileRouter } from '@/server/routers/lambda/file';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 
+const TEST_HASH = 'a'.repeat(64);
+
 // Patch: Use actual router context middleware to inject the correct models/services
 function createCallerWithCtx(partialCtx: any = {}) {
   // All mocks are spies
   const fileModel = {
-    checkHash: vi.fn().mockResolvedValue({ isExist: true }),
+    checkHash: vi.fn().mockResolvedValue({
+      fileType: 'image/png',
+      isExist: true,
+      metadata: { canonical: true },
+      size: 321,
+      url: 'files/canonical/file.png',
+    }),
     create: vi.fn().mockResolvedValue({ id: 'test-id' }),
     findById: vi.fn().mockResolvedValue(undefined),
     query: vi.fn().mockResolvedValue([]),
@@ -23,6 +32,7 @@ function createCallerWithCtx(partialCtx: any = {}) {
   const fileService = {
     getFullFileUrl: vi.fn().mockResolvedValue('full-url'),
     getKeyFromFullUrl: vi.fn(),
+    getUIFileUrl: vi.fn().mockResolvedValue('ui-url'),
     deleteFile: vi.fn().mockResolvedValue(undefined),
     deleteFiles: vi.fn().mockResolvedValue(undefined),
   };
@@ -103,6 +113,7 @@ vi.mock('@/server/services/file', () => ({
   FileService: vi.fn(() => ({
     getFullFileUrl: vi.fn(),
     getKeyFromFullUrl: vi.fn(),
+    getUIFileUrl: vi.fn(),
     deleteFile: vi.fn(),
     deleteFiles: vi.fn(),
   })),
@@ -149,7 +160,7 @@ describe('fileRouter', () => {
       ctx.fileModel.checkHash.mockResolvedValue(undefined);
       await expect(
         caller.createFile({
-          hash: 'test-hash',
+          hash: TEST_HASH,
           fileType: 'text',
           name: 'test.txt',
           size: 100,
@@ -161,7 +172,7 @@ describe('fileRouter', () => {
 
     const createFileWithUrl = (url: string) =>
       caller.createFile({
-        hash: 'test-hash',
+        hash: TEST_HASH,
         fileType: 'image/png',
         name: 'test.png',
         size: 100,
@@ -177,28 +188,59 @@ describe('fileRouter', () => {
       },
     );
 
-    it.each(['files/466737/uuid.png', 'desktop://documents/x.png'])(
-      'accepts a well-formed key or desktop url %j',
+    it.each([
+      `files/${sha256('test-user')}/466737/uuid.png`,
+      'desktop://documents/x.png',
+    ])(
+      'accepts a current-user scoped key or desktop url %j',
       async (url) => {
-        ctx.fileService.getUIFileUrl = vi.fn().mockResolvedValue('ui-url');
+        ctx.fileModel.checkHash.mockResolvedValue({ isExist: false });
 
         await expect(createFileWithUrl(url)).resolves.toEqual({ id: 'test-id', url: 'ui-url' });
         expect(ctx.fileModel.create).toHaveBeenCalledWith(
           expect.objectContaining({ url }),
-          false,
+          true,
         );
       },
     );
+
+    it('uses the canonical global-file values for an existing hash', async () => {
+      await expect(createFileWithUrl('files/victim/known-key.png')).resolves.toEqual({
+        id: 'test-id',
+        url: 'ui-url',
+      });
+
+      expect(ctx.fileModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileHash: TEST_HASH,
+          fileType: 'image/png',
+          metadata: { canonical: true },
+          size: 321,
+          url: 'files/canonical/file.png',
+        }),
+        false,
+      );
+      expect(ctx.fileService.getUIFileUrl).toHaveBeenCalledWith('files/canonical/file.png');
+    });
+
+    it('rejects a foreign or legacy key for a new hash', async () => {
+      ctx.fileModel.checkHash.mockResolvedValue({ isExist: false });
+
+      await expect(createFileWithUrl('files/466737/uuid.png')).rejects.toThrow(
+        'invalid file url',
+      );
+      await expect(
+        createFileWithUrl(`files/${sha256('other-user')}/466737/uuid.png`),
+      ).rejects.toThrow('invalid file url');
+      expect(ctx.fileModel.create).not.toHaveBeenCalled();
+    });
 
     it.each([
       'generations/images/other.png',
       'user/avatar/victim/a.png',
       'https://storage.example.com/generations/images/other.png',
     ])('rejects a key in a server-only namespace %j', async (url) => {
-      // the derived storage key is what the ownership checks trust, so gate on it
-      ctx.fileService.getKeyFromFullUrl = vi.fn((value: string) =>
-        value.replace(/^https?:\/\/[^/]+\//, ''),
-      );
+      ctx.fileModel.checkHash.mockResolvedValue({ isExist: false });
 
       await expect(createFileWithUrl(url)).rejects.toThrow('invalid file url');
       expect(ctx.fileModel.create).not.toHaveBeenCalled();

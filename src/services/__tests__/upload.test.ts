@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { fileEnv } from '@/envs/file';
 import { lambdaClient } from '@/libs/trpc/client';
 import { createHeaderWithAuth } from '@/services/_auth';
 import { API_ENDPOINTS } from '@/services/_url';
@@ -67,6 +66,12 @@ vi.mock('js-sha256', () => ({
 describe('UploadService', () => {
   const mockFile = new File(['test'], 'test.png', { type: 'image/png' });
   const mockPreSignUrl = 'https://example.com/presign';
+  const mockServerMetadata = {
+    date: '1',
+    dirname: 'files/account-scope/1',
+    filename: 'server-upload.png',
+    path: 'files/account-scope/1/server-upload.png',
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -241,7 +246,10 @@ describe('UploadService', () => {
       global.XMLHttpRequest = vi.fn(() => xhrMock) as any;
 
       // Mock createS3PreSignedUrl
-      vi.mocked(lambdaClient.upload.createS3PreSignedUrl.mutate).mockResolvedValue(mockPreSignUrl);
+      vi.mocked(lambdaClient.upload.createS3PreSignedUrl.mutate).mockResolvedValue({
+        metadata: mockServerMetadata,
+        preSignUrl: mockPreSignUrl,
+      });
     });
 
     it('should upload file successfully with progress', async () => {
@@ -258,12 +266,11 @@ describe('UploadService', () => {
 
       const result = await uploadService.uploadToServerS3(mockFile, { onProgress });
 
-      expect(result).toEqual({
-        date: '1',
-        dirname: `${fileEnv.NEXT_PUBLIC_S3_FILE_PATH}/1`,
-        filename: 'mock-uuid.png',
-        path: `${fileEnv.NEXT_PUBLIC_S3_FILE_PATH}/1/mock-uuid.png`,
-      });
+      expect(result).toEqual(mockServerMetadata);
+      expect(lambdaClient.upload.createS3PreSignedUrl.mutate).toHaveBeenCalledWith(
+        { filename: 'test.png', purpose: 'file' },
+        { signal: undefined },
+      );
     });
 
     it('should report progress during upload', async () => {
@@ -332,7 +339,7 @@ describe('UploadService', () => {
       await expect(uploadService.uploadToServerS3(mockFile, {})).rejects.toBe('Bad Request');
     });
 
-    it('should use custom directory when provided', async () => {
+    it('should request the RAG upload purpose when provided', async () => {
       const xhr = new XMLHttpRequest();
       vi.spyOn(xhr, 'addEventListener').mockImplementation((event, handler) => {
         if (event === 'load') {
@@ -341,28 +348,26 @@ describe('UploadService', () => {
         }
       });
 
+      const ragMetadata = {
+        date: '1',
+        dirname: 'ragEval/account-scope/1',
+        filename: 'dataset.jsonl',
+        path: 'ragEval/account-scope/1/dataset.jsonl',
+      };
+      vi.mocked(lambdaClient.upload.createS3PreSignedUrl.mutate).mockResolvedValueOnce({
+        metadata: ragMetadata,
+        preSignUrl: mockPreSignUrl,
+      });
+
       const result = await uploadService.uploadToServerS3(mockFile, {
-        directory: 'custom/dir',
+        directory: 'ragEval',
       });
 
-      expect(result.dirname).toContain('custom/dir');
-    });
-
-    it('should use custom pathname when provided', async () => {
-      const xhr = new XMLHttpRequest();
-      vi.spyOn(xhr, 'addEventListener').mockImplementation((event, handler) => {
-        if (event === 'load') {
-          // @ts-expect-error - mock implementation
-          handler({ target: { status: 200 } });
-        }
-      });
-
-      const customPath = 'custom/path/file.png';
-      const result = await uploadService.uploadToServerS3(mockFile, {
-        pathname: customPath,
-      });
-
-      expect(result.path).toBe(customPath);
+      expect(result).toEqual(ragMetadata);
+      expect(lambdaClient.upload.createS3PreSignedUrl.mutate).toHaveBeenCalledWith(
+        { filename: 'test.png', purpose: 'ragEval' },
+        { signal: undefined },
+      );
     });
   });
 

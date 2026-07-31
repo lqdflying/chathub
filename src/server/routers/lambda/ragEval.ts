@@ -26,6 +26,7 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { keyVaults, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { createAsyncCaller } from '@/server/routers/async';
 import { FileService } from '@/server/services/file';
+import { isUserUploadKey } from '@/server/services/file/uploadTarget';
 
 const ragEvalProcedure = authedProcedure
   .use(serverDatabase)
@@ -142,6 +143,10 @@ export const ragEvalRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      if (!isUserUploadKey(input.pathname, ctx.userId, 'ragEval')) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid RAG import pathname' });
+      }
+
       const dataStr = await ctx.fileService.getFileContent(input.pathname);
       const items = JSONL.parse<InsertEvalDatasetRecord>(dataStr);
 
