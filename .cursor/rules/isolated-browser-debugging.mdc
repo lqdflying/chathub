@@ -1,0 +1,68 @@
+---
+description: Methodology for debugging client-side input bugs inside isolated / remote-browser-isolation environments (thin clients, synthetic events), and the permanent replacement-debug overlay
+alwaysApply: false
+---
+
+# Debugging client input in isolated / remote browsers
+
+Use this methodology whenever a client-side bug (typing, IME, OS text
+suggestions, clipboard, selection) reproduces only in a "sandbox browser",
+enterprise browser, or VDI-style environment and not locally.
+
+## 1. Recognize remote browser isolation (RBI) first
+
+Check the local DevTools console for thin-client bootstrap logs (e.g.
+`Safeview.i.start`, `thin-client-min.js`, vendor build ids). If present, the
+app is executing in a **remote** browser; the user's screen shows a mirrored
+copy and their input is re-synthesized remotely. Consequences (the two-universe
+rule):
+
+- Local DevTools **cannot** see the app's console output.
+- Local `localStorage` / console commands **never** reach the app.
+- `data:` URLs render locally, bypassing isolation — useful as a control test
+  for OS-level behavior, but they prove nothing about the isolated path.
+
+## 2. Design debug channels that cross the boundary
+
+- **Inbound: the URL.** A query/hash flag (e.g. `?replacement_debug=1`) reaches
+  the remote browser; persist it to the app-side `localStorage` on sight so it
+  survives SPA navigation. Provide `=0` to clear.
+- **Outbound: the page DOM.** Render diagnostics into a fixed on-page overlay —
+  the mirrored DOM streams back to the user, so they can screenshot it.
+  `console.debug` is kept only for regular browsers.
+
+Reference implementation: `src/features/ChatInput/InputEditor/ReplacementTextPlugin.tsx`
+(`replacement_debug` flag, `#replacement-debug-overlay`). User-facing doc: wiki
+`Debug-and-Diagnostics` → "Chat Input Replacement Debug". Internals:
+`openwiki/architecture/chat-input-editor.md`.
+
+**The overlay is a permanent, opt-in diagnostic. Do not remove it during
+refactors** — it is the only working debug channel in isolated deployments.
+
+## 3. Log the facts that classify input events
+
+For each `beforeinput`/`input`/`textInput`/`keydown`/`composition*` event log:
+`inputType`, `data`, `dataTransfer` types + `text/plain`, `isTrusted`,
+`cancelable`, `isComposing`, `getTargetRanges()` (may throw — catch it), plus
+every routing **decision** the handler takes. Decisions matter as much as raw
+events: they prove which code path ran in the field.
+
+## 4. Interpret with these invariants
+
+- `isTrusted === false` (synthetic, injector-dispatched): the event has **no
+  native default action**. Nobody applies the edit unless page code does.
+  Injectors (isolation thin clients, Grammarly-class overlays) dispatch such
+  events *expecting the editor to perform them*, and typically dispatch a
+  paired synthetic `input` event that naive handlers double-process.
+- `cancelable === false`: `preventDefault()` is a silent no-op.
+- Target ranges from isolation layers can be bogus (collapsed, offset 0,
+  outside the editor) — validate before use.
+- A trusted, non-cancelable event (real IME/autocorrect) is applied by the
+  browser itself: never re-apply it; reconcile from the DOM.
+
+## 5. Verification pattern
+
+Field-captured event sequences become unit-test replays: reproduce the exact
+shape (trust, cancelable, payload, ranges, paired events, same-task dispatch)
+in the test suite before claiming a fix. See the "isolation thin-client
+acceptance sequence" tests in `ReplacementTextPlugin.test.ts`.
