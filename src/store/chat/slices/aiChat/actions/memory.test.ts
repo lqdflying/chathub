@@ -404,6 +404,60 @@ describe('chat memory actions', () => {
     expect(topicService.updateTopic).not.toHaveBeenCalled();
   });
 
+  it('does not persist a summary when Stop lands after the summarizer finishes', async () => {
+    const controller = new AbortController();
+    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+      await onFinish?.('summary produced before cancellation', {} as any);
+      controller.abort();
+    });
+
+    const result = await useChatStore
+      .getState()
+      .triggerTokenThresholdMemoryCompaction(controller);
+
+    expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
+    expect(topicService.updateTopic).not.toHaveBeenCalled();
+  });
+
+  it('restores the prior summary when Stop races the persistence write', async () => {
+    const controller = new AbortController();
+    const previousMetadata = {
+      historySummaryLastMessageId: 'a1',
+      model: 'previous-model',
+      provider: 'previous-provider',
+    };
+    setConversation({
+      topicMaps: {
+        [SESSION_ID]: [
+          {
+            createdAt: 1,
+            historySummary: 'previous summary',
+            id: TOPIC_ID,
+            metadata: previousMetadata,
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+    vi.mocked(topicService.updateTopic).mockReset();
+    vi.mocked(topicService.updateTopic).mockImplementationOnce(async () => {
+      controller.abort();
+    });
+    vi.mocked(topicService.updateTopic).mockResolvedValue(undefined);
+
+    const result = await useChatStore
+      .getState()
+      .triggerTokenThresholdMemoryCompaction(controller);
+
+    expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
+    expect(topicService.updateTopic).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(topicService.updateTopic).mock.calls[1]).toEqual([
+      TOPIC_ID,
+      { historySummary: 'previous summary', metadata: previousMetadata },
+    ]);
+  });
+
   it('skips count estimates when no complete turn has expired', async () => {
     vi.spyOn(agentChatConfigSelectors, 'historyCount').mockReturnValue(20);
 

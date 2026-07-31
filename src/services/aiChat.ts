@@ -1,6 +1,7 @@
 import {
   ContextExportRequestContext,
   ContextExportRequestSnapshot,
+  CreateAssistantMessageServerParams,
   SendMessageServerParams,
   StructureOutputParams,
 } from '@lobechat/types';
@@ -22,6 +23,16 @@ type GenerateJSONWithContextResult =
     };
 
 class AiChatService {
+  createAssistantMessageInServer = async (
+    params: CreateAssistantMessageServerParams,
+    abortController: AbortController,
+  ) => {
+    return lambdaClient.aiChat.createAssistantMessageInServer.mutate(cleanObject(params), {
+      context: { showNotification: false },
+      signal: abortController.signal,
+    });
+  };
+
   sendMessageInServer = async (
     params: SendMessageServerParams,
     abortController: AbortController,

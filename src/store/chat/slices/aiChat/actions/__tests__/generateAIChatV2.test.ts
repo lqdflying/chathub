@@ -37,6 +37,28 @@ vi.mock('@/const/version', async (importOriginal) => {
 // Mock aiChatService for V2 server flow
 vi.mock('@/services/aiChat', () => ({
   aiChatService: {
+    createAssistantMessageInServer: vi.fn(async (params: any) => {
+      const topicId = params.topicId ?? TEST_IDS.TOPIC_ID;
+      return {
+        messages: [
+          {
+            content: TEST_CONTENT.USER_MESSAGE,
+            id: params.parentId,
+            role: 'user',
+            sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
+            topicId,
+          } as any,
+          {
+            content: LOADING_FLAT,
+            id: params.assistantMessageId,
+            parentId: params.parentId,
+            role: 'assistant',
+            sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
+            topicId,
+          } as any,
+        ],
+      };
+    }),
     sendMessageInServer: vi.fn(async (params: any) => {
       const userId = TEST_IDS.USER_MESSAGE_ID;
       const assistantId = TEST_IDS.ASSISTANT_MESSAGE_ID;
@@ -49,13 +71,6 @@ vi.mock('@/services/aiChat', () => ({
             content: params.newUserMessage?.content ?? '',
             id: userId,
             role: 'user',
-            sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
-            topicId,
-          } as any,
-          {
-            content: LOADING_FLAT,
-            id: assistantId,
-            role: 'assistant',
             sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
             topicId,
           } as any,
@@ -265,7 +280,7 @@ describe('generateAIChatV2 actions', () => {
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
-      it('skips agent runtime and removes the placeholder when compaction is aborted', async () => {
+      it('skips placeholder creation and agent runtime when compaction is aborted', async () => {
         const internal_deleteMessage = vi.fn(() => Promise.resolve());
         const compactionSpy = vi.fn(async () => {
           // simulate the user pressing Stop while the pre-send compaction is running
@@ -285,15 +300,14 @@ describe('generateAIChatV2 actions', () => {
         });
 
         expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
-        expect(internal_deleteMessage).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
+        expect(aiChatService.createAssistantMessageInServer).not.toHaveBeenCalled();
+        expect(internal_deleteMessage).not.toHaveBeenCalled();
         expect(result.current.preSendCompactionOperations).toEqual({});
       });
 
-      it('removes the stranded placeholder even after the user navigates away mid-abort', async () => {
+      it('does not create a placeholder after the user navigates away mid-abort', async () => {
         const internal_deleteMessage = vi.fn(() => Promise.resolve());
         const compactionSpy = vi.fn(async () => {
-          // user presses Stop, then switches to another topic before compaction settles;
-          // the server placeholder must still be cleaned up or it strands as a loading bubble
           useChatStore.getState().stopGenerateMessage();
           useChatStore.setState({ activeTopicId: 'another-topic' });
           return { status: 'ineligible' } as any;
@@ -311,7 +325,38 @@ describe('generateAIChatV2 actions', () => {
         });
 
         expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
-        expect(internal_deleteMessage).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
+        expect(aiChatService.createAssistantMessageInServer).not.toHaveBeenCalled();
+        expect(internal_deleteMessage).not.toHaveBeenCalled();
+      });
+
+      it('does not create a placeholder after account ownership changes during compaction', async () => {
+        const compactionDeferred = createDeferred<any>();
+        let currentUserScope = 'user:account-a';
+        useUserStore.setState({ isUserStateInit: true, userStateScope: currentUserScope });
+        vi.spyOn(authSelectors, 'currentUserScope').mockImplementation(() => currentUserScope);
+        const compactionSpy = vi.fn(() => compactionDeferred.promise);
+        useChatStore.setState({ triggerTokenThresholdMemoryCompaction: compactionSpy });
+        const { result } = renderHook(() => useChatStore());
+
+        let sendPromise!: Promise<void>;
+        act(() => {
+          sendPromise = result.current.sendMessageInServer({
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+        await vi.waitFor(() => expect(compactionSpy).toHaveBeenCalled());
+
+        currentUserScope = 'user:account-b';
+        useUserStore.setState({ userStateScope: currentUserScope });
+        compactionDeferred.resolve({ status: 'ineligible' });
+        await act(async () => {
+          await sendPromise;
+        });
+
+        expect(aiChatService.createAssistantMessageInServer).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+        currentUserScope = 'user:account-a';
+        useUserStore.setState({ userStateScope: currentUserScope });
       });
     });
 
@@ -326,10 +371,6 @@ describe('generateAIChatV2 actions', () => {
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           {
             expectedConversationVersion: 7,
-            newAssistantMessage: {
-              model: DEFAULT_MODEL,
-              provider: DEFAULT_PROVIDER,
-            },
             newTopic: undefined,
             newUserMessage: {
               content: TEST_CONTENT.USER_MESSAGE,
@@ -340,6 +381,19 @@ describe('generateAIChatV2 actions', () => {
             topicId: TEST_IDS.TOPIC_ID,
           },
           expect.anything(),
+        );
+        expect(aiChatService.createAssistantMessageInServer).toHaveBeenCalledWith(
+          {
+            assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+            expectedConversationVersion: 7,
+            model: DEFAULT_MODEL,
+            parentId: TEST_IDS.USER_MESSAGE_ID,
+            provider: DEFAULT_PROVIDER,
+            sessionId: TEST_IDS.SESSION_ID,
+            threadId: undefined,
+            topicId: TEST_IDS.TOPIC_ID,
+          },
+          expect.any(AbortController),
         );
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
@@ -425,10 +479,6 @@ describe('generateAIChatV2 actions', () => {
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           {
             expectedConversationVersion: 7,
-            newAssistantMessage: {
-              model: DEFAULT_MODEL,
-              provider: DEFAULT_PROVIDER,
-            },
             newTopic: undefined,
             newUserMessage: {
               content: TEST_CONTENT.USER_MESSAGE,
@@ -453,10 +503,6 @@ describe('generateAIChatV2 actions', () => {
         expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           {
             expectedConversationVersion: 7,
-            newAssistantMessage: {
-              model: DEFAULT_MODEL,
-              provider: DEFAULT_PROVIDER,
-            },
             newTopic: undefined,
             newUserMessage: {
               content: TEST_CONTENT.EMPTY,

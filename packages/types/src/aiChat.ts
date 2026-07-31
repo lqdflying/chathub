@@ -13,10 +13,6 @@ export interface SendNewMessage {
 
 export interface SendMessageServerParams {
   expectedConversationVersion?: number;
-  newAssistantMessage: {
-    model: string;
-    provider: string;
-  };
   newTopic?: {
     title?: string;
     topicMessageIds?: string[];
@@ -30,10 +26,6 @@ export interface SendMessageServerParams {
 
 export const AiSendMessageServerSchema = z.object({
   expectedConversationVersion: z.number().optional(),
-  newAssistantMessage: z.object({
-    model: z.string().optional(),
-    provider: z.string().optional(),
-  }),
   newTopic: z
     .object({
       title: z.string().optional(),
@@ -49,7 +41,34 @@ export const AiSendMessageServerSchema = z.object({
   topicId: z.string().optional(),
 });
 
+export interface CreateAssistantMessageServerParams {
+  assistantMessageId: string;
+  expectedConversationVersion?: number;
+  model: string;
+  parentId: string;
+  provider: string;
+  sessionId?: string;
+  threadId?: string;
+  topicId?: string;
+}
+
+export const AiCreateAssistantMessageSchema = z.object({
+  assistantMessageId: z.string().regex(/^msg_[\dA-Za-z]{14}$/),
+  expectedConversationVersion: z.number().optional(),
+  model: z.string().min(1),
+  parentId: z.string().min(1),
+  provider: z.string().min(1),
+  sessionId: z.string().optional(),
+  threadId: z.string().optional(),
+  topicId: z.string().optional(),
+});
+
+export interface CreateAssistantMessageServerResponse {
+  messages: UIChatMessage[];
+}
+
 export interface SendMessageServerResponse {
+  /** Reserved server-generated ID. The assistant row is created after pre-send compaction. */
   assistantMessageId: string;
   isCreateNewTopic: boolean;
   messages: UIChatMessage[];

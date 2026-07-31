@@ -17,11 +17,11 @@ export const useSendThreadMessage = () => {
   const canNotSend = useChatStore(threadSelectors.isSendButtonDisabledByMessage);
   const generating = useChatStore((s) => threadSelectors.isThreadAIGenerating(s));
   const stopGenerate = useChatStore((s) => s.stopGenerateMessage);
-  const activeThreadId = useChatStore((s) => s.activeThreadId);
+  const portalThreadId = useChatStore((s) => s.portalThreadId);
   // scope the Stop to this thread so it can't abort the main conversation's pre-send compaction
   const stop = useCallback(
-    () => stopGenerate({ threadId: activeThreadId ?? null }),
-    [stopGenerate, activeThreadId],
+    () => stopGenerate({ threadId: portalThreadId ?? null }),
+    [stopGenerate, portalThreadId],
   );
   const [sendMessage, updateInputMessage] = useChatStore((s) => [
     s.sendThreadMessage,

@@ -1,6 +1,8 @@
 import {
+  AiCreateAssistantMessageSchema,
   AiSendMessageServerSchema,
   ContextExportRequestContextSchema,
+  CreateAssistantMessageServerResponse,
   SendMessageServerResponse,
   StructureOutputSchema,
 } from '@lobechat/types';
@@ -10,6 +12,7 @@ import debug from 'debug';
 import { LOADING_FLAT } from '@/const/message';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
+import { idGenerator } from '@/database/utils/idGenerator';
 import { pino } from '@/libs/logger';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
@@ -39,6 +42,81 @@ const aiChatProcedure = authedProcedure.use(serverDatabase).use(async (opts) => 
 });
 
 export const aiChatRouter = router({
+  createAssistantMessageInServer: aiChatProcedure
+    .input(AiCreateAssistantMessageSchema)
+    .mutation(async ({ input, ctx }) => {
+      await withConversationWriteLockOrThrow(
+        ctx.serverDB,
+        ctx.userId,
+        async (transaction) => {
+          const messageModel = new MessageModel(transaction, ctx.userId);
+          const parentMessage = await messageModel.findById(input.parentId);
+          const matchesConversation = (message: {
+            sessionId?: string | null;
+            threadId?: string | null;
+            topicId?: string | null;
+          }) =>
+            (message.sessionId ?? undefined) === input.sessionId &&
+            (message.topicId ?? undefined) === input.topicId &&
+            (message.threadId ?? undefined) === input.threadId;
+
+          if (
+            !parentMessage ||
+            parentMessage.role !== 'user' ||
+            !matchesConversation(parentMessage)
+          ) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'invalid assistant message context',
+            });
+          }
+
+          const existingMessage = await messageModel.findById(input.assistantMessageId);
+          if (existingMessage) {
+            const isSamePlaceholder =
+              existingMessage.role === 'assistant' &&
+              existingMessage.parentId === input.parentId &&
+              existingMessage.model === input.model &&
+              existingMessage.provider === input.provider &&
+              matchesConversation(existingMessage);
+
+            if (!isSamePlaceholder) {
+              throw new TRPCError({
+                code: 'CONFLICT',
+                message: 'assistant message id is already in use',
+              });
+            }
+
+            return true;
+          }
+
+          await messageModel.create(
+            {
+              content: LOADING_FLAT,
+              fromModel: input.model,
+              fromProvider: input.provider,
+              parentId: input.parentId,
+              role: 'assistant',
+              sessionId: input.sessionId!,
+              threadId: input.threadId,
+              topicId: input.topicId,
+            },
+            input.assistantMessageId,
+          );
+
+          return true;
+        },
+        input.expectedConversationVersion,
+      );
+
+      const { messages } = await ctx.aiChatService.getMessagesAndTopics({
+        sessionId: input.sessionId,
+        topicId: input.topicId,
+      });
+
+      return { messages } as CreateAssistantMessageServerResponse;
+    }),
+
   outputJSON: aiChatProcedure.input(StructureOutputSchema).mutation(async ({ input }) => {
     log('outputJSON called with provider: %s, model: %s', input.provider, input.model);
     log('messages count: %d', input.messages.length);
@@ -193,25 +271,11 @@ export const aiChatRouter = router({
 
           log('user message created with id: %s', userMessageItem.id);
 
-          log(
-            'creating assistant message with model: %s, provider: %s',
-            input.newAssistantMessage.model,
-            input.newAssistantMessage.provider,
-          );
-          const assistantMessageItem = await messageModel.create({
-            content: LOADING_FLAT,
-            fromModel: input.newAssistantMessage.model,
-            fromProvider: input.newAssistantMessage.provider,
-            parentId: userMessageItem.id,
-            role: 'assistant',
-            sessionId: input.sessionId!,
-            threadId: input.threadId,
-            topicId,
-          });
-          log('assistant message created with id: %s', assistantMessageItem.id);
+          const assistantMessageId = idGenerator('messages', 14);
+          log('reserved assistant message id: %s', assistantMessageId);
 
           return {
-            assistantMessageId: assistantMessageItem.id,
+            assistantMessageId,
             isCreateNewTopic,
             topicId,
             userMessageId: userMessageItem.id,
@@ -230,7 +294,7 @@ export const aiChatRouter = router({
 
       log('retrieved %d messages, %d topics', messages.length, topics?.length ?? 0);
       pino.debug(
-        `sendMessageInServer completed in ${Date.now() - start}ms (sessionId=${input.sessionId}, model=${input.newAssistantMessage.model})`,
+        `sendMessageInServer completed in ${Date.now() - start}ms (sessionId=${input.sessionId})`,
       );
 
       return {

@@ -211,8 +211,8 @@ export const generateAIChatV2: StateCreator<
 
     let data: SendMessageServerResponse | undefined;
     let operationWasCurrent = false;
+    const { model, provider } = agentSelectors.currentAgentConfig(getAgentStoreState());
     try {
-      const { model, provider } = agentSelectors.currentAgentConfig(getAgentStoreState());
       data = await aiChatService.sendMessageInServer(
         {
           expectedConversationVersion,
@@ -230,7 +230,6 @@ export const generateAIChatV2: StateCreator<
               }
             : undefined,
           sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
-          newAssistantMessage: { model, provider: provider! },
         },
         abortController,
       );
@@ -299,8 +298,8 @@ export const generateAIChatV2: StateCreator<
     //  update assistant update to make it rerank
     getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
 
-    // Get the current messages to generate AI response
-    // remove the latest assistant message id
+    // The current server only returns persisted user history here. Keep filtering the
+    // reserved ID for compatibility with an older server during rolling deployments.
     const baseMessages = data.messages.filter((item) => item.id !== data.assistantMessageId);
     const activeContextExportCaptureId =
       contextExportCaptureId ?? (!isWelcomeQuestion ? get().consumeContextExportArm() : undefined);
@@ -397,17 +396,50 @@ export const generateAIChatV2: StateCreator<
       );
       try {
         await get().triggerTokenThresholdMemoryCompaction(compactionController);
+        if (compactionController.signal.aborted || !isCurrentConversation()) return;
+
+        let placeholderMessages: UIChatMessage[];
+        try {
+          const placeholder = await aiChatService.createAssistantMessageInServer(
+            {
+              assistantMessageId: data.assistantMessageId,
+              expectedConversationVersion,
+              model,
+              parentId: data.userMessageId,
+              provider: provider!,
+              sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
+              threadId: activeThreadId,
+              topicId: data.topicId,
+            },
+            compactionController,
+          );
+          placeholderMessages = placeholder.messages;
+        } catch (error) {
+          if (compactionController.signal.aborted) {
+            if (isCurrentConversation()) {
+              await get().internal_deleteMessage(data.assistantMessageId);
+            }
+            return;
+          }
+          throw error;
+        }
+
+        if (compactionController.signal.aborted) {
+          if (isCurrentConversation()) {
+            await get().internal_deleteMessage(data.assistantMessageId);
+          }
+          return;
+        }
+        if (!isCurrentConversation()) return;
+
+        get().internal_refreshAiChat({
+          messages: placeholderMessages,
+          sessionId: activeId,
+          topicId: data.topicId,
+        });
       } finally {
         clearCompactionOperation();
       }
-      if (compactionController.signal.aborted) {
-        // the server already created the assistant placeholder; a stranded LOADING_FLAT
-        // message would render a loading bubble forever — remove it even if the user has
-        // since navigated away, or it survives in the DB and re-renders on refetch
-        await get().internal_deleteMessage(data.assistantMessageId);
-        return;
-      }
-      if (!isCurrentConversation()) return;
 
       await internal_execAgentRuntime({
         conversationContext,

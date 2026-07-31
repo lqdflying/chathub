@@ -226,6 +226,9 @@ async function runCompactionFromStore(
   }
 
   const beforeEstimate = await estimateContextUsageAsync({ agentState, chatState: state });
+  if (abortController?.signal.aborted) {
+    return compactionResult('ineligible', { reason: 'aborted' });
+  }
   if (!isCurrentRequest())
     return compactionResult('ineligible', { reason: 'conversation_changed' });
 
@@ -259,6 +262,9 @@ async function runCompactionFromStore(
       previousSummary: pending.previousSummary,
       targetRatio: low,
     });
+    if (abortController?.signal.aborted) {
+      return compactionResult('ineligible', { reason: 'aborted' });
+    }
     candidateMessages = selected.messages;
     targetReachable = selected.targetReachable;
   }
@@ -297,6 +303,9 @@ async function runCompactionFromStore(
       sessionId: requestedSessionId,
       topicId: requestedTopicId,
     });
+    if (abortController?.signal.aborted) {
+      return compactionResult('ineligible', { reason: 'aborted' });
+    }
     if (!isCurrentRequest()) {
       return compactionResult('ineligible', { reason: 'conversation_changed' });
     }
@@ -318,6 +327,7 @@ async function runCompactionFromStore(
 
   const processedMessages = processedBatches.flat();
   const compactedThroughMessageId = processedMessages.at(-1)!.id;
+  const previousHistorySummary = topic.historySummary ?? '';
   const previousMetadata = topic.metadata ?? {};
   const previousArchives = previousMetadata.memoryArchives ?? [];
   const archiveExcerpt = historySummary.slice(0, 600);
@@ -340,6 +350,9 @@ async function runCompactionFromStore(
       memoryArchives: nextArchives,
     },
   });
+  if (abortController?.signal.aborted) {
+    return compactionResult('ineligible', { reason: 'aborted' });
+  }
   if (!isCurrentRequest())
     return compactionResult('ineligible', { reason: 'conversation_changed' });
 
@@ -386,6 +399,9 @@ async function runCompactionFromStore(
 
   // Re-check right before the write to shrink the window where an invalidation
   // (e.g. the user edited/deleted an included message) races this persist.
+  if (abortController?.signal.aborted) {
+    return compactionResult('ineligible', { reason: 'aborted' });
+  }
   if (!isCurrentRequest())
     return compactionResult('ineligible', { reason: 'conversation_changed' });
 
@@ -413,6 +429,18 @@ async function runCompactionFromStore(
         .catch(console.error);
     }
     return compactionResult('ineligible', { reason: 'conversation_changed' });
+  }
+
+  if (abortController?.signal.aborted) {
+    if (isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
+      await topicService
+        .updateTopic(requestedTopicId, {
+          historySummary: previousHistorySummary,
+          metadata: previousMetadata,
+        })
+        .catch(console.error);
+    }
+    return compactionResult('ineligible', { reason: 'aborted' });
   }
 
   if (isCurrentRequest()) {
