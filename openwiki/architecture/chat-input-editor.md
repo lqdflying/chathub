@@ -43,26 +43,41 @@ event and never inserts on `beforeinput`.
 the editor root plus one high-priority command handler:
 
 - **`beforeinput` (capture, runs before Lexical's bubble handler)** — classifies
-  `insertReplacementText` events. Trustworthy events (trusted, cancelable, not
-  composing, with a payload and either a usable same-block target range or an
-  inferable typed-word prefix) get *selection repair only*: the target range is
-  applied when the Lexical selection is stale/non-collapsed, or the typed prefix is
-  selected when no usable range exists. Lexical's own handler then performs the
-  `preventDefault` + controlled insertion. Untrustworthy events are flagged with
-  Lexical's internal `_lexicalHandled` property so Lexical skips them entirely; the
-  browser applies the edit once and Lexical's `onInput` reconciliation
-  (`$updateSelectedTextFromDOM` + `$flushMutations`) syncs the DOM into the model
-  (the ProseMirror posture). Events whose `getTargetRanges` *throws* are always
-  flagged, because Lexical calls it without a try/catch and would crash mid-handler.
-  Multi-character `insertText` events get the same selection repair (never flagging),
-  keeping Lexical's normal typing bookkeeping intact.
-- **`input` (capture)** — a residual guard for environments that ignore
-  `preventDefault`: if the immediately-preceding trusted replacement was
-  default-prevented yet an `input` event still arrives and the DOM text of the
-  selection anchor diverges from the model, the plugin flags the `input` event (so
-  Lexical does not import the doubled DOM) and rewrites the DOM from the model by
-  marking the text node dirty in a discrete update. In compliant browsers a prevented
-  edit produces no `input` event, so this is a no-op.
+  `insertReplacementText` events into three routes:
+  - **Controlled** (the common case): the event carries a payload and either a
+    usable same-block target range or an inferable word target, and is not
+    mid-composition. The plugin does *selection repair only* — applies the target
+    range when the Lexical selection is stale/non-collapsed, or selects the typed
+    word when no usable range exists — then lets Lexical's own handler perform the
+    `preventDefault` + controlled insertion. **Synthetic events (`isTrusted ===
+    false`) take this route too**: field capture from a remote-browser-isolation
+    thin client (Menlo Safeview class) showed acceptance arrives as an untrusted,
+    non-cancelable `insertReplacementText` with a `text/plain` payload and a bogus
+    collapsed target range. Synthetic events have **no native default action** —
+    the injector expects the editor to perform the replacement, so handing them
+    "back to the browser" silently drops the suggestion. For synthetic events the
+    word inference also accepts whole-word corrections ("teh" → "the"), since
+    there is no native edit to fall back on.
+  - **Native fallback** (flagged with Lexical's `_lexicalHandled` skip property so
+    Lexical ignores the event): mid-composition events, **trusted** non-cancelable
+    events (a real IME/autocorrect acceptance the browser applies itself),
+    payload-less events (Chromium ≤142), and events with neither a usable range
+    nor an inferable word. The browser applies the edit once and Lexical's
+    `onInput` reconciliation (`$updateSelectedTextFromDOM` + `$flushMutations`)
+    syncs the DOM into the model (the ProseMirror posture). Events whose
+    `getTargetRanges` *throws* are always flagged, because Lexical calls it
+    without a try/catch and would crash mid-handler.
+  - Multi-character `insertText` events get the same selection repair (never
+    flagging), keeping Lexical's normal typing bookkeeping intact.
+- **`input` (capture)** — pairs each controlled `beforeinput` with its follow-up
+  `input` event and stops Lexical's `onInput` from double-processing it. Two
+  pairings exist: a **synthetic pair** (untrusted armed event + untrusted input —
+  injectors always dispatch one, and their events can never be default-prevented),
+  and a **trusted prevented pair** (in compliant browsers a prevented edit fires no
+  `input` at all, so its arrival means the environment ignored `preventDefault`).
+  In both cases the `input` event is flagged; if the DOM text of the selection
+  anchor additionally diverges from the model, the DOM is rewritten from the model
+  by marking the text node dirty in a discrete update.
 - **`CONTROLLED_TEXT_INSERTION_COMMAND` at `COMMAND_PRIORITY_CRITICAL`** — for
   `insertReplacementText` InputEvent payloads, inserts the `text/plain` payload only,
   stripping trailing newlines and mapping interior newlines to spaces. This bypasses

@@ -475,30 +475,78 @@ describe('ReplacementTextPlugin', () => {
       expect(getParagraphCount(editor)).toBe(1);
     });
 
-    it('hands an untrusted replacement to its injector and absorbs the result', async () => {
+    it('applies a synthetic injector replacement itself and suppresses the paired input', async () => {
+      // Synthetic events have no native default action: the injector (isolation thin
+      // client, overlay extension) expects the editor to perform the replacement, and
+      // dispatches a paired input event that must not double-insert through lexical.
       const { editor } = createTestEditor();
       const key = initText(editor, 'let se', 6);
       const domText = getDOMTextNode(editor, key);
 
-      const beforeInput = dispatchBeforeInput(getParagraphElement(editor), {
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
         inputType: 'insertReplacementText',
         plain: 'see',
-        ranges: [createTargetRange(domText, 4, domText, 6)],
+        ranges: [createTargetRange(domText, 0, domText, 0)],
         trusted: false,
       });
-      await flush();
-
-      expect(beforeInput.defaultPrevented).toBe(false);
-      expect(getText(editor)).toBe('let se');
-
-      applyNativeEdit(editor, key, 'let see');
       dispatchInput(getParagraphElement(editor), {
+        data: 'see',
         inputType: 'insertReplacementText',
         trusted: false,
       });
       await flush();
 
       expect(getText(editor)).toBe('let see');
+      expect(getParagraphCount(editor)).toBe(1);
+    });
+
+    it('replays the isolation thin-client acceptance sequence without duplication', async () => {
+      // Exact shape captured in the field: data=null, text/plain payload with a
+      // trailing space, untrusted, non-cancelable, bogus collapsed target range,
+      // synchronously followed by a synthetic input carrying the data.
+      const { editor } = createTestEditor();
+      const key = initText(editor, 'fore', 4);
+      const domText = getDOMTextNode(editor, key);
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        data: null,
+        inputType: 'insertReplacementText',
+        plain: 'forever ',
+        ranges: [createTargetRange(domText, 0, domText, 0)],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: 'forever ',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('forever ');
+      expect(getParagraphCount(editor)).toBe(1);
+    });
+
+    it('applies synthetic corrections by replacing the whole typed word', async () => {
+      const { editor } = createTestEditor();
+      initText(editor, 'let teh', 7);
+
+      dispatchBeforeInput(getParagraphElement(editor), {
+        cancelable: false,
+        inputType: 'insertReplacementText',
+        plain: 'the',
+        ranges: [],
+        trusted: false,
+      });
+      dispatchInput(getParagraphElement(editor), {
+        data: 'the',
+        inputType: 'insertReplacementText',
+        trusted: false,
+      });
+      await flush();
+
+      expect(getText(editor)).toBe('let the');
       expect(getParagraphCount(editor)).toBe(1);
     });
 
@@ -775,7 +823,7 @@ describe('ReplacementTextPlugin', () => {
 
       expect(overlay).not.toBeNull();
       expect(overlay?.textContent).toContain('beforeinput insertReplacementText');
-      expect(overlay?.textContent).toContain('decision: trusted (target-range path)');
+      expect(overlay?.textContent).toContain('decision: controlled (target-range path');
       expect(getText(editor)).toBe('let see');
     });
 

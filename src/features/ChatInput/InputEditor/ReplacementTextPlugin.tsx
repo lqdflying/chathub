@@ -35,12 +35,7 @@ const getReplacementText = (event: InputEvent) => {
   return transferredText || event.data || null;
 };
 
-const getWordPrefixLength = (text: string, cursorOffset: number, replacementText: string) => {
-  const replacementWord = replacementText.trim();
-
-  if (!replacementWord || /\s/u.test(replacementWord)) return 0;
-
-  const textBeforeCursor = text.slice(0, cursorOffset);
+const getCurrentWord = (textBeforeCursor: string) => {
   let currentWord = '';
 
   if (typeof Intl.Segmenter === 'function') {
@@ -58,11 +53,30 @@ const getWordPrefixLength = (text: string, cursorOffset: number, replacementText
     currentWord = textBeforeCursor.match(/[\p{L}\p{M}\p{N}_]+$/u)?.[0] || '';
   }
 
+  return currentWord;
+};
+
+const getWordReplaceLength = (
+  text: string,
+  cursorOffset: number,
+  replacementText: string,
+  // Corrections ("teh" → "the") replace the whole typed word rather than extending a
+  // prefix. Only the synthetic-injector path opts in: there is no native edit to fall
+  // back on, so dropping the suggestion would lose it entirely.
+  allowWholeWord: boolean,
+) => {
+  const replacementWord = replacementText.trim();
+
+  if (!replacementWord || /\s/u.test(replacementWord)) return 0;
+
+  const currentWord = getCurrentWord(text.slice(0, cursorOffset));
+
   if (!currentWord) return 0;
 
-  return replacementWord.toLocaleLowerCase().startsWith(currentWord.toLocaleLowerCase())
-    ? currentWord.length
-    : 0;
+  if (replacementWord.toLocaleLowerCase().startsWith(currentWord.toLocaleLowerCase()))
+    return currentWord.length;
+
+  return allowWholeWord ? currentWord.length : 0;
 };
 
 // Lexical's stopLexicalPropagation flag: its root event wrapper skips any event carrying
@@ -221,7 +235,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     return { blocked: false, range: withinOneBlock ? range : null };
   };
 
-  const getInferredPrefixLength = (replacementText: string) =>
+  const getInferredReplaceLength = (replacementText: string, allowWholeWord: boolean) =>
     editor.getEditorState().read(() => {
       const selection = $getSelection();
 
@@ -232,10 +246,11 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
       if (!$isTextNode(anchorNode)) return 0;
 
-      return getWordPrefixLength(
+      return getWordReplaceLength(
         anchorNode.getTextContent(),
         selection.anchor.offset,
         replacementText,
+        allowWholeWord,
       );
     });
 
@@ -299,10 +314,13 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     if (!isReplacement && !isExpandedInsert) return;
 
     const composing = inputEvent.isComposing || editor.isComposing();
+    const synthetic = !inputEvent.isTrusted;
     const replacementText = getReplacementText(inputEvent);
     const { blocked, range: targetRange } = resolveTargetRange(inputEvent);
-    const prefixLength =
-      !targetRange && replacementText ? getInferredPrefixLength(replacementText) : 0;
+    const replaceLength =
+      !targetRange && replacementText
+        ? getInferredReplaceLength(replacementText, synthetic && isReplacement)
+        : 0;
 
     if (blocked) {
       if (debugEnabled) debugPrint('decision: native (getTargetRanges throws)');
@@ -311,18 +329,19 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     }
 
     if (isReplacement) {
-      // When the edit cannot be safely re-done by lexical (mid-composition, synthetic
-      // or non-cancelable events, or no payload/range to work from — e.g. Chromium
-      // ≤142 sends insertReplacementText with neither data nor dataTransfer), hand it
-      // back to the browser entirely: the native edit lands once and lexical's input
-      // reconciliation syncs the DOM into the model. Fighting these events is how the
-      // suggestion ends up applied twice.
+      // Hand the event back to the browser when the edit cannot be safely re-done by
+      // lexical: mid-composition, a trusted non-cancelable event (a real IME/autocorrect
+      // acceptance the browser will apply itself), no payload (Chromium ≤142 sends
+      // insertReplacementText with neither data nor dataTransfer), or no target to
+      // replace. Synthetic events (browser-isolation thin clients, overlay extensions)
+      // are NOT handed back: they have no native default action — nobody applies the
+      // edit unless the editor does — so with a payload and a target they take the
+      // controlled path below.
       const nativeFallback =
         composing ||
-        !inputEvent.isTrusted ||
-        !inputEvent.cancelable ||
+        (!synthetic && !inputEvent.cancelable) ||
         !replacementText ||
-        (!targetRange && prefixLength === 0);
+        (!targetRange && replaceLength === 0);
 
       if (nativeFallback) {
         if (debugEnabled)
@@ -331,7 +350,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
               inputEvent.isTrusted ? 1 : 0
             } cancel=${inputEvent.cancelable ? 1 : 0} payload=${
               replacementText === null ? 0 : 1
-            } range=${targetRange === null ? 0 : 1} prefix=${prefixLength})`,
+            } range=${targetRange === null ? 0 : 1} replace=${replaceLength})`,
           );
         setLexicalHandled(inputEvent);
         return;
@@ -343,11 +362,13 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     // Only repair the selection; lexical's own beforeinput handler performs the
     // preventDefault and the controlled insertion.
     if (targetRange) {
-      if (debugEnabled) debugPrint('decision: trusted (target-range path)');
+      if (debugEnabled)
+        debugPrint(`decision: controlled (target-range path, synth=${synthetic ? 1 : 0})`);
       applyRangeIfSelectionStale(targetRange);
-    } else if (prefixLength > 0) {
-      if (debugEnabled) debugPrint(`decision: trusted (prefix=${prefixLength})`);
-      selectTypedPrefix(prefixLength);
+    } else if (replaceLength > 0) {
+      if (debugEnabled)
+        debugPrint(`decision: controlled (replace=${replaceLength}, synth=${synthetic ? 1 : 0})`);
+      selectTypedPrefix(replaceLength);
     } else {
       return;
     }
@@ -365,10 +386,24 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
     const inputEvent = event as InputEvent;
 
     if (!isEditorTarget(inputEvent.target)) return;
-    // A prevented beforeinput produces no input event in compliant browsers, so this
-    // only triggers where the environment applied the native edit anyway.
-    if (!armed.event.defaultPrevented) return;
+
+    // A prevented trusted beforeinput produces no input event in compliant browsers.
+    // Synthetic injectors dispatch a paired input event regardless (and their events
+    // can never be default-prevented), so those are matched by trust instead.
+    const syntheticPair = !armed.event.isTrusted && !inputEvent.isTrusted;
+
+    if (!syntheticPair && !armed.event.defaultPrevented) return;
     if (inputEvent.timeStamp - armed.timeStamp > 100) return;
+
+    // The model already holds the controlled insertion; stop lexical's input handler
+    // from processing this event — both its data path (a second controlled insert) and
+    // its DOM-sync path (importing a doubled DOM) would duplicate the suggestion.
+    setLexicalHandled(inputEvent);
+
+    if (debugEnabled)
+      debugPrint(
+        `input suppressed (${syntheticPair ? 'synthetic pair' : 'prevented edit still fired'})`,
+      );
 
     const staleNodeKey = editor.getEditorState().read(() => {
       const selection = $getSelection();
@@ -388,12 +423,7 @@ export const registerReplacementTextRangeHandler = (editor: LexicalEditor) => {
 
     if (staleNodeKey === null) return;
 
-    if (debugEnabled) debugPrint('guard: DOM diverged after prevented edit — repairing from model');
-
-    // The model already holds the controlled insertion; stop lexical's input handler
-    // from copying the doubled DOM text back in, and rewrite the DOM from the model
-    // (marking the node dirty makes the reconciler diff against the live DOM value).
-    setLexicalHandled(inputEvent);
+    if (debugEnabled) debugPrint('guard: DOM diverged from model — repairing from model');
     editor.update(
       () => {
         const node = $getNodeByKey(staleNodeKey);
