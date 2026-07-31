@@ -189,6 +189,20 @@ describe('fileRouter', () => {
         );
       },
     );
+
+    it.each([
+      'generations/images/other.png',
+      'user/avatar/victim/a.png',
+      'https://storage.example.com/generations/images/other.png',
+    ])('rejects a key in a server-only namespace %j', async (url) => {
+      // the derived storage key is what the ownership checks trust, so gate on it
+      ctx.fileService.getKeyFromFullUrl = vi.fn((value: string) =>
+        value.replace(/^https?:\/\/[^/]+\//, ''),
+      );
+
+      await expect(createFileWithUrl(url)).rejects.toThrow('invalid file url');
+      expect(ctx.fileModel.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('findById', () => {

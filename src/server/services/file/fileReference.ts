@@ -1,5 +1,23 @@
 export const APP_FILE_PROXY_PATH_PREFIX = '/webapi/files/';
 
+// Namespaces written server-side only — image-generation assets (via FileService.uploadMedia,
+// no files row) and avatars (via s3.uploadBuffer). A client upload never legitimately targets
+// them, so a client-supplied key that lands here is an attempt to obtain a presigned PUT for,
+// or assert `files` ownership of, another user's or the system's objects.
+export const isPrivilegedStorageKey = (key: string): boolean =>
+  key.startsWith('generations/') || key.startsWith('user/');
+
+// Validate a client-supplied upload/presign target: reject privileged namespaces and
+// traversal/control-char/absolute/backslash shapes before a presigned URL is minted for it.
+export const isValidUploadPathname = (pathname: string): boolean =>
+  pathname.length > 0 &&
+  pathname.length <= 1024 &&
+  !pathname.startsWith('/') &&
+  !pathname.includes('\\') &&
+  !isPrivilegedStorageKey(pathname) &&
+  ![...pathname].some((char) => char.charCodeAt(0) <= 0x1F) &&
+  !pathname.split('/').some((segment) => segment === '..' || segment === '.');
+
 // URL.pathname keeps %2F/%5C encoded, so a decoded segment can smuggle in separators
 // ('..%2f..%2fx' → '../../x') — reject them, and control chars too. Next.js decodes
 // catch-all params before they reach a route handler, so the file-proxy route must

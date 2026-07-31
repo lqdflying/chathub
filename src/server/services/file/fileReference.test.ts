@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractKeyFromAppFileProxyUrl, isValidFileProxyKeySegments } from './fileReference';
+import {
+  extractKeyFromAppFileProxyUrl,
+  isPrivilegedStorageKey,
+  isValidFileProxyKeySegments,
+  isValidUploadPathname,
+} from './fileReference';
 
 describe('extractKeyFromAppFileProxyUrl', () => {
   it('extracts and decodes nested keys from app-proxy URLs', () => {
@@ -105,5 +110,32 @@ describe('isValidFileProxyKeySegments', () => {
 
   it('rejects an empty segment list', () => {
     expect(isValidFileProxyKeySegments([])).toBe(false);
+  });
+});
+
+describe('isPrivilegedStorageKey', () => {
+  it('flags server-only namespaces and passes ordinary upload keys', () => {
+    expect(isPrivilegedStorageKey('generations/images/x.png')).toBe(true);
+    expect(isPrivilegedStorageKey('user/avatar/1/x.png')).toBe(true);
+    expect(isPrivilegedStorageKey('files/466737/uuid.png')).toBe(false);
+    expect(isPrivilegedStorageKey('ragEval/x.csv')).toBe(false);
+  });
+});
+
+describe('isValidUploadPathname', () => {
+  it('accepts an ordinary client upload path', () => {
+    expect(isValidUploadPathname('files/2026-07-30/uuid.png')).toBe(true);
+    expect(isValidUploadPathname('ragEval/uuid.csv')).toBe(true);
+  });
+
+  it('rejects privileged namespaces, traversal, absolute, backslash and control chars', () => {
+    expect(isValidUploadPathname('generations/images/x.png')).toBe(false);
+    expect(isValidUploadPathname('user/avatar/victim/x.png')).toBe(false);
+    expect(isValidUploadPathname('files/../generations/x.png')).toBe(false);
+    expect(isValidUploadPathname('/abs/x.png')).toBe(false);
+    expect(isValidUploadPathname('files/a\\b.png')).toBe(false);
+    expect(isValidUploadPathname(`files/a${String.fromCharCode(1)}b.png`)).toBe(false);
+    expect(isValidUploadPathname('')).toBe(false);
+    expect(isValidUploadPathname(`files/${'a'.repeat(1024)}.png`)).toBe(false);
   });
 });
