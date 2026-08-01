@@ -6,7 +6,13 @@ import {
   TracePayload,
 } from '@lobechat/types';
 
+export interface AgentMemoryPayload {
+  dynamicMemory?: string;
+  fixedMemory?: string;
+}
+
 export interface FetchOptions extends FetchSSEOptions {
+  agentMemory?: AgentMemoryPayload;
   contextExportRequest?: ContextExportRequestContext;
   historySummary?: string;
   isWelcomeQuestion?: boolean;

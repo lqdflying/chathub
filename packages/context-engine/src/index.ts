@@ -11,6 +11,7 @@ export { ContextEngine } from './pipeline';
 
 // Context Providers
 export {
+  AgentMemoryProvider,
   HistorySummaryProvider,
   InboxGuideProvider,
   SystemRoleInjector,

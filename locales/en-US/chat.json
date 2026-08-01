@@ -440,6 +440,7 @@
     "viewCaptured": "View captured context"
   },
   "tokenDetails": {
+    "assistantMemory": "Assistant Memory",
     "chatInstruction": "Chat Instruction",
     "chats": "Chat Messages",
     "groupOrchestration": "Group Orchestration",

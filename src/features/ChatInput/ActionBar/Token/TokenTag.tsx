@@ -45,12 +45,14 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
     chatsToken,
     historySummaryToken,
     maxTokens,
+    memoryToken,
     roleSettingsToken,
     toolsToken,
     totalToken,
   } = useEstimatedContextUsage(conversationSource);
   const contextExportAllocation = useMemo(
     () => ({
+      assistantMemory: memoryToken,
       chatInstruction: chatInstructionToken,
       chatMessages: chatsToken,
       historySummary: historySummaryToken,
@@ -62,6 +64,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
       chatInstructionToken,
       chatsToken,
       historySummaryToken,
+      memoryToken,
       roleSettingsToken,
       toolsToken,
       totalToken,
@@ -107,6 +110,12 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
             id: 'roleSettings',
             title: t('tokenDetails.roleSettings'),
             value: roleSettingsToken,
+          },
+          {
+            color: theme.purple,
+            id: 'assistantMemory',
+            title: t('tokenDetails.assistantMemory'),
+            value: memoryToken,
           },
           {
             color: theme.geekblue,

@@ -1,37 +1,26 @@
 import type { TopicMemoryArchiveEntry } from '@lobechat/types';
 
-import { normalizeAssistantMemoryText } from './assistantMemory';
-
 interface BuildHistorySummaryForRequestParams {
   archives?: TopicMemoryArchiveEntry[];
-  assistantMemory?: string;
   enableCompressHistory?: boolean;
   enableUserMemoryArchive?: boolean;
   topicSummary?: string;
 }
-
-/**
- * Merge assistant-wide notes with the active topic’s compaction summary for a single
- * `historySummary` payload (wrapped once by the context engine).
- */
-export const combineAssistantMemoryWithTopicSummary = (
-  assistantMemory: string | undefined,
-  topicSummaryWithArchives: string | undefined,
-): string | undefined => {
-  const am = normalizeAssistantMemoryText(assistantMemory);
-  const ts = (topicSummaryWithArchives ?? '').trim();
-  if (!am && !ts) return undefined;
-  if (!am) return ts;
-  if (!ts) return am;
-  return `## Assistant memory\n\n${am}\n\n---\n\n## Current topic summary\n\n${ts}`;
-};
 
 const formatArchiveTime = (at: number): string => {
   const date = new Date(at);
   return Number.isNaN(date.getTime()) ? 'unknown time' : date.toISOString();
 };
 
-/** Append recent topic memory archive excerpts after the rolling history summary text. */
+const MAX_INJECTED_ARCHIVES = 8;
+
+/**
+ * Append recent topic memory archive excerpts after the rolling history summary text.
+ *
+ * Archive excerpts are prefixes of successive versions of the same cumulative
+ * summary, so entries contained in the current summary (or in a newer kept
+ * excerpt) are dropped instead of injected as near-duplicates.
+ */
 export const appendMemoryArchivesToHistorySummary = (
   summaryContent: string | undefined,
   archives: TopicMemoryArchiveEntry[] | undefined,
@@ -39,30 +28,51 @@ export const appendMemoryArchivesToHistorySummary = (
 ): string | undefined => {
   if (!enabled || !archives?.length) return summaryContent;
 
-  const block = archives
-    .slice(-8)
-    .map((a) => `[${formatArchiveTime(a.at)}] ${a.summaryExcerpt}`)
+  const base = (summaryContent ?? '').trim();
+
+  const keptExcerpts: string[] = [];
+  const keptNewestFirst = [...archives].reverse().filter((entry) => {
+    const excerpt = (entry.summaryExcerpt ?? '').trim();
+    if (!excerpt) return false;
+    if (base.includes(excerpt)) return false;
+    if (keptExcerpts.some((seen) => seen.includes(excerpt))) return false;
+    keptExcerpts.push(excerpt);
+    return true;
+  });
+
+  const block = keptNewestFirst
+    .slice(0, MAX_INJECTED_ARCHIVES)
+    .reverse()
+    .map((a) => `[${formatArchiveTime(a.at)}] ${a.summaryExcerpt.trim()}`)
     .join('\n');
 
   if (!block) return summaryContent;
 
-  const base = (summaryContent ?? '').trim();
   const header = '### Memory archive (recent snapshots)';
   if (!base) return `${header}\n${block}`;
 
   return `${base}\n\n${header}\n${block}`;
 };
 
+/**
+ * Build the topic-scoped history summary payload (wrapped once by the context
+ * engine). Assistant memory is no longer merged here — it is injected
+ * separately via the `AgentMemoryProvider`.
+ */
 export const buildHistorySummaryForRequest = ({
   archives,
-  assistantMemory,
   enableCompressHistory,
   enableUserMemoryArchive,
   topicSummary,
 }: BuildHistorySummaryForRequestParams): string | undefined => {
-  const topicSummaryBlock = enableCompressHistory
-    ? appendMemoryArchivesToHistorySummary(topicSummary, archives, !!enableUserMemoryArchive)
-    : undefined;
+  if (!enableCompressHistory) return undefined;
 
-  return combineAssistantMemoryWithTopicSummary(assistantMemory, topicSummaryBlock);
+  const summary = appendMemoryArchivesToHistorySummary(
+    topicSummary,
+    archives,
+    !!enableUserMemoryArchive,
+  );
+
+  const trimmed = (summary ?? '').trim();
+  return trimmed || undefined;
 };

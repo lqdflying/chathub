@@ -95,6 +95,7 @@ interface FetchAITaskResultParams extends FetchSSEOptions {
 
 interface CreateAssistantMessageStream extends FetchSSEOptions {
   abortController?: AbortController;
+  agentMemory?: FetchOptions['agentMemory'];
   contextExportRequest?: FetchOptions['contextExportRequest'];
   historySummary?: string;
   isWelcomeQuestion?: boolean;
@@ -144,6 +145,7 @@ class ChatService {
 
     // Apply context engineering with preprocessing configuration
     let oaiMessages = await contextEngineering({
+      agentMemory: options?.agentMemory,
       enableHistoryCount: agentChatConfigSelectors.enableHistoryCount(agentStoreState),
       existingSystemRolePolicy: 'prepend',
       historyCount: agentChatConfigSelectors.historyCount(agentStoreState),
@@ -315,6 +317,7 @@ class ChatService {
     onFinish,
     trace,
     isWelcomeQuestion,
+    agentMemory,
     historySummary,
     toolCacheDebug,
     contextExportRequest,
@@ -327,6 +330,7 @@ class ChatService {
         ...(toolCacheDebug ? { debugToolCache: toolCacheDebug } : {}),
       },
       {
+        agentMemory,
         contextExportRequest,
         historySummary,
         isWelcomeQuestion,

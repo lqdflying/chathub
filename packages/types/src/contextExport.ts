@@ -15,6 +15,7 @@ export type ContextExportContinuationReason = 'initial' | 'tool';
 export type ContextExportRequestStatus = 'capturing' | 'complete' | 'error' | 'partial';
 
 export interface ContextExportAllocation {
+  assistantMemory?: number;
   chatInstruction?: number;
   chatMessages?: number;
   groupOrchestration?: number;
@@ -67,6 +68,7 @@ export interface ContextExportRequestContext {
 export const ContextExportRequestContextSchema = z.object({
   allocation: z
     .object({
+      assistantMemory: z.number().nonnegative().optional(),
       chatInstruction: z.number().nonnegative().optional(),
       chatMessages: z.number().nonnegative().optional(),
       groupOrchestration: z.number().nonnegative().optional(),

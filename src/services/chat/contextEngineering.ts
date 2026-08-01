@@ -1,5 +1,6 @@
 import { INBOX_GUIDE_SYSTEMROLE, INBOX_SESSION_ID, isDesktop, isServerMode } from '@lobechat/const';
 import {
+  AgentMemoryProvider,
   ContextEngine,
   HistorySummaryProvider,
   HistoryTruncateProcessor,
@@ -14,7 +15,7 @@ import {
   ToolNameResolver,
   ToolSystemRoleProvider,
 } from '@lobechat/context-engine';
-import { historySummaryPrompt } from '@lobechat/prompts';
+import { agentMemoryPrompt, historySummaryPrompt } from '@lobechat/prompts';
 import { OpenAIChatMessage, UIChatMessage } from '@lobechat/types';
 import { VARIABLE_GENERATORS } from '@lobechat/utils/client';
 
@@ -63,6 +64,7 @@ const resolveProxyImageUrls = async (messages: UIChatMessage[]): Promise<UIChatM
 };
 
 interface ContextEngineeringContext {
+  agentMemory?: { dynamicMemory?: string; fixedMemory?: string };
   enableHistoryCount?: boolean;
   existingSystemRolePolicy?: 'prepend' | 'skip';
   historyCount?: number;
@@ -78,6 +80,7 @@ interface ContextEngineeringContext {
 }
 
 export const contextEngineering = async ({
+  agentMemory,
   messages = [],
   tools,
   model,
@@ -102,6 +105,11 @@ export const contextEngineering = async ({
 
       // 2. System role injection (agent's system role)
       new SystemRoleInjector({ existingSystemRolePolicy, systemRole }),
+
+      // 2.5 Two-tier agent memory injection (fixed + dynamic). Placed right after the
+      // system role so the rarely-changing memory block stays in the stable prompt
+      // prefix, ahead of the more volatile blocks below (prompt-cache stability).
+      new AgentMemoryProvider({ ...agentMemory, formatAgentMemory: agentMemoryPrompt }),
 
       // 3. Inbox guide system role injection
       new InboxGuideProvider({

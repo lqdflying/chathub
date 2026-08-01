@@ -1,3 +1,5 @@
+import { agentMemoryPrompt } from '@lobechat/prompts';
+
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -11,6 +13,7 @@ import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
 import { encodeAsync } from '@/utils/tokenizer';
 
+import { normalizeAssistantMemoryText } from './assistantMemory';
 import { selectMessagesForContext } from './contextCompaction';
 import { buildHistorySummaryForRequest } from './memoryArchivePrompt';
 
@@ -45,6 +48,7 @@ export const estimateContextUsageAsync = async ({
   chatsToken: number;
   contextMessages: ReturnType<typeof chatSelectors.mainAIChats>;
   historySummaryToken: number;
+  memoryToken: number;
   totalToken: number;
 }> => {
   const input = chatState.inputMessage || '';
@@ -59,19 +63,22 @@ export const estimateContextUsageAsync = async ({
   const memoryArchives = overrides
     ? overrides.memoryArchives
     : activeTopic?.metadata?.memoryArchives;
-  const assistantMemory =
-    agentSelectors.currentAgentConfig(agentState).assistantMemory ?? undefined;
+  const agentConfig = agentSelectors.currentAgentConfig(agentState);
   const chatConfig = agentChatConfigSelectors.currentChatConfig(agentState);
   const enableHistoryCount = agentChatConfigSelectors.enableHistoryCount(agentState);
   const enableHistoryCompaction = !!enableHistoryCount && !!chatConfig.enableCompressHistory;
   const historySummaryForRequest =
     buildHistorySummaryForRequest({
       archives: memoryArchives,
-      assistantMemory,
       enableCompressHistory: enableHistoryCompaction,
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: historySummary,
     }) || '';
+  // mirrors the AgentMemoryProvider injection built in internal_fetchAIChatMessage
+  const agentMemoryForRequest = agentMemoryPrompt({
+    dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
+    fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
+  });
 
   const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
   const systemRole = composeSystemRole(
@@ -104,17 +111,24 @@ export const estimateContextUsageAsync = async ({
   });
   const chatsString = chats.map((chat) => chat.content).join('');
 
-  const [systemRoleToken, historySummaryToken, toolsToken, chatsToken, inputToken] =
+  const [systemRoleToken, memoryToken, historySummaryToken, toolsToken, chatsToken, inputToken] =
     await Promise.all(
-      [systemRole, historySummaryForRequest, toolsString, chatsString, input].map((value) =>
-        countTokens(value || ''),
-      ),
+      [
+        systemRole,
+        agentMemoryForRequest,
+        historySummaryForRequest,
+        toolsString,
+        chatsString,
+        input,
+      ].map((value) => countTokens(value || '')),
     );
 
   return {
     chatsToken,
     contextMessages: chats,
     historySummaryToken,
-    totalToken: systemRoleToken + historySummaryToken + toolsToken + chatsToken + inputToken,
+    memoryToken,
+    totalToken:
+      systemRoleToken + memoryToken + historySummaryToken + toolsToken + chatsToken + inputToken,
   };
 };

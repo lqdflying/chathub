@@ -140,6 +140,10 @@ const ContextExportControl = memo<ContextExportControlProps>(({ allocation }) =>
             },
             { label: t('tokenDetails.roleSettings'), value: selectedAllocation.roleSettings },
             {
+              label: t('tokenDetails.assistantMemory'),
+              value: selectedAllocation.assistantMemory,
+            },
+            {
               label: t('tokenDetails.groupOrchestration'),
               value: selectedAllocation.groupOrchestration,
             },

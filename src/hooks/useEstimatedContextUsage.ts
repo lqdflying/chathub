@@ -1,5 +1,7 @@
+import { agentMemoryPrompt } from '@lobechat/prompts';
 import { useMemo } from 'react';
 
+import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { selectMessagesForContext } from '@/helpers/contextCompaction';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { createChatToolsEngine } from '@/helpers/toolEngineering';
@@ -22,6 +24,7 @@ export interface EstimatedContextUsage {
   historySummaryToken: number;
   inputTokenCount: number;
   maxTokens: number;
+  memoryToken: number;
   ratio: number;
   roleSettingsToken: number;
   systemRoleToken: number;
@@ -44,11 +47,12 @@ export const useEstimatedContextUsage = (
       s.activeSessionType !== 'group' && !s.activeThreadId && !s.portalThreadId,
     ]);
 
-  const [systemRole, model, provider, assistantMemory] = useAgentStore((s) => [
+  const [systemRole, model, provider, assistantMemory, fixedMemory] = useAgentStore((s) => [
     agentSelectors.currentAgentSystemRole(s),
     agentSelectors.currentAgentModel(s) as string,
     agentSelectors.currentAgentModelProvider(s) as string,
     agentSelectors.currentAgentConfig(s).assistantMemory ?? '',
+    agentSelectors.currentAgentConfig(s).fixedMemory ?? '',
   ]);
 
   const [historyCount, enableHistoryCount, enableCompressHistory, enableUserMemoryArchive] =
@@ -126,7 +130,6 @@ export const useEstimatedContextUsage = (
     () =>
       buildHistorySummaryForRequest({
         archives: memoryArchives,
-        assistantMemory: assistantMemory || undefined,
         enableCompressHistory:
           conversationSource === 'main' &&
           enableCompressHistory &&
@@ -136,7 +139,6 @@ export const useEstimatedContextUsage = (
         topicSummary: historySummary,
       }) || '',
     [
-      assistantMemory,
       enableCompressHistory,
       enableHistoryCount,
       enableUserMemoryArchive,
@@ -146,8 +148,18 @@ export const useEstimatedContextUsage = (
       conversationSource,
     ],
   );
+  // mirrors the AgentMemoryProvider injection built in internal_fetchAIChatMessage
+  const agentMemoryBlock = useMemo(
+    () =>
+      agentMemoryPrompt({
+        dynamicMemory: normalizeAssistantMemoryText(assistantMemory) || undefined,
+        fixedMemory: fixedMemory.trim() || undefined,
+      }),
+    [assistantMemory, fixedMemory],
+  );
+  const memoryToken = useTokenCount(agentMemoryBlock);
   const historySummaryToken = useTokenCount(memorySummary);
-  const totalToken = systemRoleToken + historySummaryToken + toolsToken + chatsToken;
+  const totalToken = systemRoleToken + memoryToken + historySummaryToken + toolsToken + chatsToken;
   const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
 
   return {
@@ -156,6 +168,7 @@ export const useEstimatedContextUsage = (
     historySummaryToken,
     inputTokenCount,
     maxTokens,
+    memoryToken,
     ratio,
     roleSettingsToken,
     systemRoleToken,

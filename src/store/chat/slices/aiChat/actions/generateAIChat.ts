@@ -16,6 +16,7 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
+import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
@@ -816,7 +817,11 @@ export const generateAIChat: StateCreator<
 
     const agentStoreState = getAgentStoreState();
     const agentConfig = params?.agentConfig || agentSelectors.currentAgentConfig(agentStoreState);
-    const chatConfig = agentChatConfigSelectors.currentChatConfig(agentStoreState);
+    // Use the target agent's own chat config for member/agent-scoped requests instead of
+    // leaking the host session's config (mirrors currentChatConfig's raw `|| {}` shape).
+    const chatConfig = params?.agentConfig
+      ? params.agentConfig.chatConfig || {}
+      : agentChatConfigSelectors.currentChatConfig(agentStoreState);
 
     // ================================== //
     //   messages uniformly preprocess    //
@@ -858,11 +863,17 @@ export const generateAIChat: StateCreator<
       !!chatConfig.enableCompressHistory;
     const historySummaryForRequest = buildHistorySummaryForRequest({
       archives: activeTopic?.metadata?.memoryArchives,
-      assistantMemory: agentConfig.assistantMemory ?? undefined,
       enableCompressHistory: enableHistoryCompaction,
       enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
       topicSummary: activeTopic?.historySummary,
     });
+    // Two-tier assistant memory for the target agent (member requests carry their own
+    // config via params.agentConfig); injected by AgentMemoryProvider, separate from
+    // the topic history summary.
+    const agentMemoryForRequest = {
+      dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
+      fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
+    };
     const requestMessages = enableHistoryCompaction
       ? getMessagesAfterHistorySummaryCursor(
           messages,
@@ -879,6 +890,7 @@ export const generateAIChat: StateCreator<
     try {
       await chatService.createAssistantMessageStream({
         abortController,
+        agentMemory: agentMemoryForRequest,
         contextExportRequest,
         params: {
           messages: requestMessages,

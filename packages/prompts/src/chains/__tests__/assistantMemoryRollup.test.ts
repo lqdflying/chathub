@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
   ASSISTANT_MEMORY_ROLLUP_MAX_CHARS_PER_TOPIC,
   ASSISTANT_MEMORY_ROLLUP_MAX_PRIOR_CHARS,
   ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
@@ -51,6 +52,38 @@ describe('buildAssistantMemoryRollupUserContent', () => {
     expect(body).not.toContain('summary-40');
     expect(body).toContain('…');
   });
+
+  it('includes fixed memory as read-only context when provided', () => {
+    const body = buildAssistantMemoryRollupUserContent(
+      'prior',
+      [{ historySummary: 'hello', sessionId: 's1', title: 'A' }],
+      { fixedMemory: 'user is vegetarian' },
+    );
+
+    expect(body).toContain('## Fixed memory (read-only context');
+    expect(body).toContain('user is vegetarian');
+    // fixed memory comes before prior memory and topics
+    expect(body.indexOf('Fixed memory')).toBeLessThan(body.indexOf('Prior dynamic memory'));
+  });
+
+  it('omits the fixed memory section when absent', () => {
+    const body = buildAssistantMemoryRollupUserContent('prior', [
+      { historySummary: 'hello', sessionId: 's1', title: 'A' },
+    ]);
+
+    expect(body).not.toContain('Fixed memory');
+  });
+
+  it('uses the incremental header when only changed topics are listed', () => {
+    const body = buildAssistantMemoryRollupUserContent(
+      'prior',
+      [{ historySummary: 'hello', sessionId: 's1', title: 'A' }],
+      { incremental: true },
+    );
+
+    expect(body).toContain('## Changed topic summaries since the last rollup');
+    expect(body).toContain('Keep prior-memory content about unlisted topics.');
+  });
 });
 
 describe('chainAssistantMemoryRollup', () => {
@@ -66,15 +99,53 @@ describe('chainAssistantMemoryRollup', () => {
     expect(r.messages?.[1]?.content).toContain('t');
   });
 
-  it('instructs the model to keep durable memory under the strict target', () => {
+  it('frames the task as selective extraction, not consolidation', () => {
     const r = chainAssistantMemoryRollup({
       priorAssistantMemory: '',
       topics: [{ historySummary: 'done task', sessionId: 'x', title: 'y' }],
     });
 
-    const system = r.messages?.[0]?.content;
-    expect(system).toContain('durable information');
-    expect(system).toContain('completed tasks');
-    expect(system).toContain(`${ASSISTANT_MEMORY_TARGET_TOKENS} tokens`);
+    const system = r.messages?.[0]?.content as string;
+    expect(system).toContain('NOT to consolidate');
+    expect(system).toContain('Admission test');
+    expect(system).toContain('future, unrelated conversation');
+    expect(system).toContain('never by topic or conversation');
+    expect(system).toContain('"Topic N: ..." structure is forbidden');
+    expect(system).toContain('Completed or resolved tasks');
+    expect(system).toContain(`${ASSISTANT_MEMORY_TARGET_TOKENS} tokens is a ceiling, not a goal`);
+  });
+
+  it('keeps existing entries verbatim unless superseded (anti-drift)', () => {
+    const r = chainAssistantMemoryRollup({
+      priorAssistantMemory: 'p',
+      topics: [{ historySummary: 't', sessionId: 'x', title: 'y' }],
+    });
+
+    const system = r.messages?.[0]?.content as string;
+    expect(system).toContain('edit it minimally');
+    expect(system).toContain('keep existing entries verbatim');
+  });
+
+  it('offers the NO_CHANGES sentinel path in both messages', () => {
+    const r = chainAssistantMemoryRollup({
+      priorAssistantMemory: 'p',
+      topics: [{ historySummary: 't', sessionId: 'x', title: 'y' }],
+    });
+
+    expect(r.messages?.[0]?.content).toContain(
+      `output exactly ${ASSISTANT_MEMORY_NO_CHANGES_SENTINEL}`,
+    );
+    expect(r.messages?.[1]?.content).toContain(ASSISTANT_MEMORY_NO_CHANGES_SENTINEL);
+  });
+
+  it('forbids duplicating fixed memory when provided', () => {
+    const r = chainAssistantMemoryRollup({
+      fixedMemory: 'fixed',
+      priorAssistantMemory: 'p',
+      topics: [{ historySummary: 't', sessionId: 'x', title: 'y' }],
+    });
+
+    expect(r.messages?.[0]?.content).toContain('never copy, restate, or contradict it');
+    expect(r.messages?.[1]?.content).toContain('## Fixed memory');
   });
 });

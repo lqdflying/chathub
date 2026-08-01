@@ -358,6 +358,92 @@ describe('contextEngineering', () => {
     expect(systemMessage!.content).toContain(historySummary);
     expect(Object.keys(systemMessage!).length).toEqual(2);
   });
+
+  it('should inject two-tier agent memory into system message when provided', async () => {
+    const messages: UIChatMessage[] = [
+      {
+        role: 'user',
+        content: 'Hello',
+        createdAt: Date.now(),
+        id: 'test-agent-memory',
+        meta: {},
+        updatedAt: Date.now(),
+      },
+    ];
+
+    const result = await contextEngineering({
+      agentMemory: {
+        dynamicMemory: 'User is currently migrating service Y.',
+        fixedMemory: 'User prefers concise answers.',
+      },
+      messages,
+      model: 'gpt-4',
+      provider: 'openai',
+      systemRole: 'You are a test assistant.',
+    });
+
+    const systemMessage = result.find((msg) => msg.role === 'system');
+    expect(systemMessage).toBeDefined();
+    const content = systemMessage!.content as string;
+    expect(content).toContain('<assistant_memory>');
+    expect(content).toContain('<fixed_memory>');
+    expect(content).toContain('User prefers concise answers.');
+    expect(content).toContain('<dynamic_memory>');
+    expect(content).toContain('User is currently migrating service Y.');
+    // memory sits after the agent system role (stable prefix ordering)
+    expect(content.indexOf('You are a test assistant.')).toBeLessThan(
+      content.indexOf('<assistant_memory>'),
+    );
+  });
+
+  it('should place agent memory before the history summary in the system message', async () => {
+    const messages: UIChatMessage[] = [
+      {
+        role: 'user',
+        content: 'Hello',
+        createdAt: Date.now(),
+        id: 'test-agent-memory-order',
+        meta: {},
+        updatedAt: Date.now(),
+      },
+    ];
+
+    const result = await contextEngineering({
+      agentMemory: { fixedMemory: 'pinned note' },
+      historySummary: 'volatile topic summary',
+      messages,
+      model: 'gpt-4',
+      provider: 'openai',
+    });
+
+    const systemMessage = result.find((msg) => msg.role === 'system');
+    expect(systemMessage).toBeDefined();
+    const content = systemMessage!.content as string;
+    expect(content.indexOf('pinned note')).toBeLessThan(content.indexOf('volatile topic summary'));
+  });
+
+  it('should not inject an agent memory block when both tiers are empty', async () => {
+    const messages: UIChatMessage[] = [
+      {
+        role: 'user',
+        content: 'Hello',
+        createdAt: Date.now(),
+        id: 'test-agent-memory-empty',
+        meta: {},
+        updatedAt: Date.now(),
+      },
+    ];
+
+    const result = await contextEngineering({
+      agentMemory: { dynamicMemory: '  ', fixedMemory: '' },
+      messages,
+      model: 'gpt-4',
+      provider: 'openai',
+    });
+
+    expect(result.find((msg) => msg.role === 'system')).toBeUndefined();
+  });
+
   describe('getAssistantContent', () => {
     it('should handle assistant message with imageList and content', async () => {
       // Mock isCanUseVision to return true for vision models

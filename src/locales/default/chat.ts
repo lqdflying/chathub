@@ -484,6 +484,7 @@ export default {
     on: '开启宽屏模式',
   },
   tokenDetails: {
+    assistantMemory: '助手记忆',
     chatInstruction: '聊天指令',
     chats: '会话消息',
     groupOrchestration: '群组编排',
