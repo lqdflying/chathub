@@ -402,6 +402,14 @@
       "message_count": "Message count",
       "scheduled": "Scheduled",
       "token_threshold": "Context usage"
+    },
+    "viewer": {
+      "copy": "Copy",
+      "copySuccess": "Copied",
+      "empty": "This topic has no compaction summary yet.",
+      "export": "Export Markdown",
+      "open": "View topic summary",
+      "title": "Topic compaction summary"
     }
   },
   "contextExport": {

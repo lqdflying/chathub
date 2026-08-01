@@ -7,6 +7,7 @@ import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
+import TopicSummaryViewer from '@/features/TopicSummaryViewer';
 import {
   EstimatedContextConversationSource,
   useEstimatedContextUsage,
@@ -14,6 +15,7 @@ import {
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
+import { topicSelectors } from '@/store/chat/selectors';
 
 import ActionPopover from '../components/ActionPopover';
 import ContextExportControl from './ContextExportControl';
@@ -26,6 +28,12 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
   const { t } = useTranslation(['chat', 'components']);
   const theme = useTheme();
   const [compacting, setCompacting] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+
+  const activeTopicId = useChatStore((s) => s.activeTopicId);
+  const hasTopicSummary = useChatStore(
+    (s) => !!topicSelectors.currentActiveTopicSummary(s)?.content,
+  );
 
   const canManualCompact = useAgentStore(
     (s) =>
@@ -196,6 +204,20 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
           {t('memoryCompaction.compactNow')}
         </Button>
       )}
+      {conversationSource !== 'portal' && isRegularTopic && (
+        <Button
+          block
+          disabled={!hasTopicSummary}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setSummaryOpen(true);
+          }}
+          size={'small'}
+        >
+          {t('memoryCompaction.viewer.open')}
+        </Button>
+      )}
       <ContextExportControl allocation={contextExportAllocation} />
     </Flexbox>
   );
@@ -213,6 +235,13 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
         }}
         value={totalToken}
       />
+      {summaryOpen && activeTopicId && (
+        <TopicSummaryViewer
+          onClose={() => setSummaryOpen(false)}
+          open
+          topicId={activeTopicId}
+        />
+      )}
     </ActionPopover>
   );
 });

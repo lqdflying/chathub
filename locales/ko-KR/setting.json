@@ -316,13 +316,10 @@
       "desc": "Store short summary snippets on the topic for the model to reuse.",
       "title": "Topic snippets"
     },
-    "export": "Export",
     "compactionGroupTitle": "Compact",
     "memoryGroupTitle": "Memory",
     "guideTitle": "How to set up",
     "submit": "Save",
-    "topicCompactionHint": "Rolling summary for the active topic only, produced by compact/summarize. Switches when you change topic.",
-    "topicCompactionSection": "Current topic compaction (this session)",
     "rollupFailed": "Generation failed. Try again later.",
     "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first."
   },

@@ -13,7 +13,6 @@ import { FORM_STYLE } from '@/const/layoutTokens';
 import { selectors, useStore } from '../store';
 import DynamicMemory from './DynamicMemory';
 import FixedMemory from './FixedMemory';
-import TopicCompaction from './TopicCompaction';
 
 const AgentMemory = memo(() => {
   const { t } = useTranslation('setting');
@@ -139,7 +138,6 @@ const AgentMemory = memo(() => {
         variant={'borderless'}
         {...FORM_STYLE}
       />
-      <TopicCompaction />
     </Flexbox>
   );
 });

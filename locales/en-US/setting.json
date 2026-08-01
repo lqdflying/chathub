@@ -371,13 +371,12 @@
       "desc": "Store short summary snippets on the topic for the model to reuse.",
       "title": "Topic snippets"
     },
-    "export": "Export",
     "fixedMemory": {
-      "hint": "Durable content you maintain yourself (Markdown), injected into every chat with this assistant. Automatic summarization never modifies or overwrites it.",
+      "hint": "Durable content maintained by you (and the assistant's memory tool), injected into every chat with this assistant. Automatic summarization never modifies or overwrites it.",
       "placeholder": "Write down what this assistant should always remember: preferences, rules, project background…",
       "title": "Fixed memory (user-curated)"
     },
-    "guide": "1) Fixed memory is yours — automation never touches it. Dynamic memory is distilled incrementally from topic compaction summaries; you can edit it, regenerate it, or restore the previous version at any time.\n2) Topic compaction requires Limit history messages and Summarize history in Chat preferences.\n3) In chat, click the green usage badge to inspect context usage and compact manually.",
+    "guide": "1) Fixed memory is yours — the assistant can also append entries (#1, #2, …) via its built-in tool, and automatic summarization never rewrites it.\n2) Dynamic memory is distilled incrementally from topic compaction summaries; you can edit, regenerate, or restore the previous version at any time.\n3) Topic compaction requires Limit history messages and Summarize history in Chat preferences; in chat, click the green usage badge to inspect usage, view the topic summary, and compact manually.",
     "guideTitle": "How to set up",
     "memoryGroupTitle": "Memory",
     "notActiveAgentTooltip": "Available only while this assistant is the active session",
@@ -396,9 +395,7 @@
     "rollupSuccess": "Dynamic memory updated.",
     "saveFailedWithReason": "Save failed: {{reason}}",
     "saveSuccess": "Saved.",
-    "submit": "Save",
-    "topicCompactionHint": "Rolling summary for the active topic only, produced by compact/summarize. Switches when you change topic.",
-    "topicCompactionSection": "Current topic compaction (this session)"
+    "submit": "Save"
   },
   "settingCommon": {
     "lang": {

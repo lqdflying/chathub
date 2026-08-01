@@ -316,13 +316,10 @@
       "desc": "Store short summary snippets on the topic for the model to reuse.",
       "title": "Topic snippets"
     },
-    "export": "Export",
     "compactionGroupTitle": "Compact",
     "memoryGroupTitle": "Memory",
     "guideTitle": "How to set up",
     "submit": "Save",
-    "topicCompactionHint": "僅目前活躍話題的滾動摘要，由壓縮／總結產生；切換話題後會顯示對應該話題的內容。",
-    "topicCompactionSection": "目前話題壓縮（此工作階段）",
     "rollupFailed": "Generation failed. Try again later.",
     "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first."
   },

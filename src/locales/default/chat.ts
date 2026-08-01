@@ -276,6 +276,14 @@ export default {
       scheduled: '定时',
       token_threshold: '预估上下文占用',
     },
+    viewer: {
+      copy: '复制',
+      copySuccess: '已复制',
+      empty: '该话题暂无压缩摘要',
+      export: '导出 Markdown',
+      open: '查看话题摘要',
+      title: '话题压缩摘要',
+    },
   },
 
   mention: {

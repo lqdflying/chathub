@@ -7,17 +7,19 @@ import {
   LucideLoader2,
   MoreVertical,
   PencilLine,
+  ScrollText,
   Star,
   Trash,
   Wand2,
 } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import BubblesLoading from '@/components/BubblesLoading';
 import { LOADING_FLAT } from '@/const/message';
 import { isDesktop } from '@/const/version';
+import TopicSummaryViewer from '@/features/TopicSummaryViewer';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
@@ -48,7 +50,11 @@ interface TopicContentProps {
 }
 
 const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, showMore }) => {
-  const { t } = useTranslation(['topic', 'common']);
+  const { t } = useTranslation(['topic', 'common', 'chat']);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const hasSummary = useChatStore(
+    (s) => !!(topicSelectors.getTopicById(id)(s)?.historySummary || '').trim(),
+  );
 
   const mobile = useIsMobile();
   const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
@@ -136,6 +142,18 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
       //     configService.exportSingleTopic(sessionId, id);
       //   },
       // },
+      ...(hasSummary
+        ? [
+            {
+              icon: <Icon icon={ScrollText} />,
+              key: 'viewCompactionSummary',
+              label: t('memoryCompaction.viewer.open', { ns: 'chat' }),
+              onClick: () => {
+                setSummaryOpen(true);
+              },
+            },
+          ]
+        : []),
       {
         type: 'divider',
       },
@@ -168,6 +186,7 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
       activeId,
       autoRenameTopicTitle,
       duplicateTopic,
+      hasSummary,
       removeTopic,
       t,
       toggleEditing,
@@ -270,6 +289,9 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
             size={'small'}
           />
         </Dropdown>
+      )}
+      {summaryOpen && (
+        <TopicSummaryViewer onClose={() => setSummaryOpen(false)} open topicId={id} />
       )}
     </Flexbox>
   );
