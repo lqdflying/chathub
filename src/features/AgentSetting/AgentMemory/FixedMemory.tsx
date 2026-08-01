@@ -2,6 +2,7 @@
 
 import { Button, Form } from '@lobehub/ui';
 import { EditableMessage } from '@lobehub/ui/chat';
+import { App } from 'antd';
 import { PenLineIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -19,6 +20,7 @@ import { useStore } from '../store';
  */
 const FixedMemory = memo(() => {
   const { t } = useTranslation('setting');
+  const { message } = App.useApp();
   const [editing, setEditing] = useState(false);
   const [fixedMemory, updateConfig] = useStore((s) => [s.config.fixedMemory, s.setAgentConfig]);
 
@@ -53,7 +55,14 @@ const FixedMemory = memo(() => {
                   variant: 'chat',
                 }}
                 onChange={(value) => {
-                  updateConfig({ fixedMemory: value });
+                  // the write can fail after the optimistic local update — surface it
+                  Promise.resolve(updateConfig({ fixedMemory: value })).catch((error) => {
+                    message.error(
+                      t('settingChatMemory.saveFailedWithReason', {
+                        reason: (error as Error)?.message || String(error ?? 'unknown error'),
+                      }),
+                    );
+                  });
                 }}
                 onEditingChange={setEditing}
                 placeholder={t('settingChatMemory.fixedMemory.placeholder')}

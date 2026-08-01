@@ -88,6 +88,10 @@ const AgentSettings = memo<AgentSettingsProps>(({ agentId, onClose, open }) => {
       if (agentSession) {
         // Use the internal agent store function with the specific session ID
         await useAgentStore.getState().internal_updateAgentConfig(agentSession.id, config);
+      } else {
+        // surface the miss instead of silently dropping the write — callers now
+        // show error toasts, and a silent no-op looks like a successful save
+        throw new Error(`no agent session found for agent ${agentId}`);
       }
     } else {
       // Use the global update function for current session

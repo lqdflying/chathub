@@ -1,7 +1,7 @@
 'use client';
 
 import { ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS } from '@lobechat/prompts';
-import { Button, Input, Modal, Tooltip, Typography, message } from 'antd';
+import { App, Button, Input, Tooltip, Typography } from 'antd';
 import { type ReactNode, memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
@@ -20,15 +20,24 @@ const formatTime = (iso: string | undefined) => {
   return Number.isNaN(time.getTime()) ? undefined : time.toLocaleString();
 };
 
+const errorReason = (error: unknown) =>
+  (error as Error)?.message || String(error ?? 'unknown error');
+
 /**
  * Auto-summarized dynamic memory: the rollup rewrites it incrementally; the
  * user can still inspect, edit, clear, regenerate, and restore the previous
  * version. Reads/writes go through the scoped AgentSetting store so every
  * surface (workspace drawer, defaults page, group member) targets the agent
  * it is actually showing.
+ *
+ * Every action reports success or failure via toast, and UI state is applied
+ * optimistically instead of waiting on the write promise — a config write can
+ * be aborted after the server committed it, so the promise alone is not a
+ * reliable signal of what happened.
  */
 const DynamicMemory = memo(() => {
   const { t } = useTranslation('setting');
+  const { message, modal } = App.useApp();
 
   const [assistantMemory, assistantMemoryMeta, updateConfig] = useStore((s) => [
     s.config.assistantMemory ?? '',
@@ -55,76 +64,108 @@ const DynamicMemory = memo(() => {
     if (!dirty) setDraft(assistantMemory);
   }, [assistantMemory, dirty]);
 
+  // after a failed write the client cannot tell whether the server committed
+  // (an abort can land post-commit) — refetch so the UI converges on DB truth
+  const reconcileAfterError = useCallback(() => {
+    if (!isActiveSessionTarget || !activeSessionId) return;
+    void useAgentStore.getState().internal_refreshAgentConfig(activeSessionId);
+  }, [isActiveSessionTarget, activeSessionId]);
+
   const onSave = useCallback(async () => {
     setSaving(true);
+    const next = normalizeAssistantMemoryText(draft);
+    setDraft(next);
+    setDirty(false);
     try {
-      const next = normalizeAssistantMemoryText(draft);
       await updateConfig({ assistantMemory: next });
-      setDraft(next);
-      setDirty(false);
+      message.success(t('settingChatMemory.saveSuccess'));
+    } catch (error) {
+      message.error(t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }));
+      reconcileAfterError();
     } finally {
       setSaving(false);
     }
-  }, [draft, updateConfig]);
+  }, [draft, updateConfig, message, t, reconcileAfterError]);
 
   const onClear = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       content: t('settingChatMemory.clearConfirm'),
       okButtonProps: { danger: true },
       okText: t('settingChatMemory.clear'),
-      onOk: async () => {
-        await updateConfig({ assistantMemory: '' });
+      // returns void so the modal closes immediately; the write continues with
+      // its own loading state and reports via toast
+      onOk: () => {
         setDraft('');
         setDirty(false);
+        setSaving(true);
+        void (async () => {
+          try {
+            await updateConfig({ assistantMemory: '' });
+            message.success(t('settingChatMemory.clearSuccess'));
+          } catch (error) {
+            message.error(
+              t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }),
+            );
+            reconcileAfterError();
+          } finally {
+            setSaving(false);
+          }
+        })();
       },
       title: t('settingChatMemory.clear'),
     });
-  }, [t, updateConfig]);
+  }, [modal, message, t, updateConfig, reconcileAfterError]);
 
   const onCopy = useCallback(async () => {
     if (!assistantMemory) return;
     await navigator.clipboard.writeText(assistantMemory);
     message.success(t('settingChatMemory.copySuccess'));
-  }, [assistantMemory, t]);
+  }, [assistantMemory, message, t]);
 
   const onRollup = useCallback(() => {
-    Modal.confirm({
+    modal.confirm({
       content: t('settingChatMemory.rollupConfirmDesc'),
       okText: t('settingChatMemory.rollupConfirmOk'),
-      onOk: async () => {
+      onOk: () => {
         setRollingUp(true);
-        try {
-          const result = await rollupAssistantMemory({ force: true, trigger: 'manual' });
-          if (result.status === 'success') {
-            setDirty(false);
-            if (result.horizonTruncated) {
-              message.info(
-                t('settingChatMemory.rollupHorizonHint', {
-                  count: ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
-                }),
+        void (async () => {
+          try {
+            const result = await rollupAssistantMemory({ force: true, trigger: 'manual' });
+            if (result.status === 'success') {
+              setDirty(false);
+              if (result.horizonTruncated) {
+                message.info(
+                  t('settingChatMemory.rollupHorizonHint', {
+                    count: ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
+                  }),
+                );
+              }
+              message.success(t('settingChatMemory.rollupSuccess'));
+            } else if (result.status === 'skipped') {
+              message.warning(
+                result.reason === 'no_changes'
+                  ? t('settingChatMemory.rollupNoChanges')
+                  : t('settingChatMemory.rollupSkipped'),
+              );
+            } else {
+              message.error(
+                result.reason
+                  ? t('settingChatMemory.rollupFailedWithReason', { reason: result.reason })
+                  : t('settingChatMemory.rollupFailed'),
               );
             }
-            message.success(t('settingChatMemory.rollupSuccess'));
-          } else if (result.status === 'skipped') {
-            message.warning(
-              result.reason === 'no_changes'
-                ? t('settingChatMemory.rollupNoChanges')
-                : t('settingChatMemory.rollupSkipped'),
-            );
-          } else {
+          } catch (error) {
             message.error(
-              result.reason
-                ? t('settingChatMemory.rollupFailedWithReason', { reason: result.reason })
-                : t('settingChatMemory.rollupFailed'),
+              t('settingChatMemory.rollupFailedWithReason', { reason: errorReason(error) }),
             );
+          } finally {
+            setRollingUp(false);
           }
-        } finally {
-          setRollingUp(false);
-        }
+        })();
       },
       title: t('settingChatMemory.rollupConfirmTitle'),
     });
-  }, [rollupAssistantMemory, t]);
+  }, [modal, message, rollupAssistantMemory, t]);
 
   const onRestore = useCallback(async () => {
     setRestoring(true);
@@ -136,10 +177,13 @@ const DynamicMemory = memo(() => {
       } else {
         message.warning(t('settingChatMemory.restoreUnavailable'));
       }
+    } catch (error) {
+      message.error(t('settingChatMemory.saveFailedWithReason', { reason: errorReason(error) }));
+      reconcileAfterError();
     } finally {
       setRestoring(false);
     }
-  }, [restoreAssistantMemoryBackup, t]);
+  }, [restoreAssistantMemoryBackup, message, t, reconcileAfterError]);
 
   const lastRollupAt = formatTime(assistantMemoryMeta?.lastRollupAt);
   const hasBackup = !!assistantMemoryMeta?.previousMemory?.text;
@@ -198,7 +242,7 @@ const DynamicMemory = memo(() => {
         <Button disabled={!assistantMemory} onClick={onCopy}>
           {t('settingChatMemory.copy')}
         </Button>
-        <Button danger disabled={!assistantMemory && !draft} onClick={onClear}>
+        <Button danger disabled={!assistantMemory && !draft} loading={saving} onClick={onClear}>
           {t('settingChatMemory.clear')}
         </Button>
       </Flexbox>

@@ -211,6 +211,15 @@ The settings Memory tab edits both tiers through the scoped AgentSetting store, 
 page and group-member drawers target the agent they display; rollup and restore act on the active
 session's agent and are disabled elsewhere.
 
+Memory UI actions do not gate their visible state on the write promise: config writes share an
+abort-controller slot that a newer write may abort after the server already committed, so the
+promise alone cannot distinguish "failed" from "superseded post-commit". Actions apply local state
+optimistically, report success/failure via toast, and on failure refetch the agent config to
+converge on the database truth. `updateAgentConfig` releases the shared abort slot when its request
+settles, so completed requests can no longer be aborted retroactively; aborting a genuinely
+in-flight previous write (rapid slider edits) is preserved. The scoped store's `onConfigChange` may
+return a promise and is awaited, so write failures propagate to the settings UI on every surface.
+
 Compaction persists the summary, cursor, archive data, and bounded debug log in one topic update. The
 debug entry records trigger, result, watermarks, before/after estimates, and cursor. Pre-send work
 checks its abort signal after every awaited phase and immediately before persistence. If Stop races a

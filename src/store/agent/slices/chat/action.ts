@@ -581,13 +581,22 @@ export const createChatSlice: StateCreator<
 
       const controller = get().internal_createAbortController('updateAgentConfigSignal');
 
-      await get().internal_updateAgentConfig(
-        activeId,
-        config,
-        controller.signal,
-        mutationContext,
-        () => isMutationContextCurrent(mutationContext),
-      );
+      try {
+        await get().internal_updateAgentConfig(
+          activeId,
+          config,
+          controller.signal,
+          mutationContext,
+          () => isMutationContextCurrent(mutationContext),
+        );
+      } finally {
+        // release the shared slot once this request settles, so a later unrelated
+        // config write can no longer abort an already-completed one (a post-commit
+        // abort made the UI reject a write the server had persisted)
+        if (get().updateAgentConfigSignal === controller) {
+          set({ updateAgentConfigSignal: undefined }, false, 'updateAgentConfig/releaseSignal');
+        }
+      }
     },
     useFetchAgentConfig: (isLogin, sessionId) => {
       const requestedScope = useUserStore(authSelectors.currentUserScope);

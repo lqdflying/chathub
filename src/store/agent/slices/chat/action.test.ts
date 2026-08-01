@@ -334,6 +334,64 @@ describe('AgentSlice', () => {
       refreshMock.mockRestore();
     });
 
+    it('releases the abort-controller slot when the request settles', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      const updateSessionConfigMock = vi
+        .spyOn(sessionService, 'updateSessionConfig')
+        .mockResolvedValue(undefined);
+
+      let firstSignal: AbortSignal | undefined;
+      updateSessionConfigMock.mockImplementation(async (_id, _data, signal) => {
+        firstSignal ??= signal;
+      });
+
+      await act(async () => {
+        await result.current.updateAgentConfig({ model: 'a' });
+      });
+
+      // slot cleared on settle, so nothing can abort the completed request later
+      expect(useAgentStore.getState().updateAgentConfigSignal).toBeUndefined();
+
+      await act(async () => {
+        await result.current.updateAgentConfig({ model: 'b' });
+      });
+
+      expect(firstSignal?.aborted).toBe(false);
+      expect(useAgentStore.getState().updateAgentConfigSignal).toBeUndefined();
+
+      updateSessionConfigMock.mockRestore();
+    });
+
+    it('still aborts a previous IN-FLIGHT request when a new write starts', async () => {
+      const release = createDeferred<void>();
+      const { result } = renderHook(() => useAgentStore());
+      const signals: AbortSignal[] = [];
+      const updateSessionConfigMock = vi
+        .spyOn(sessionService, 'updateSessionConfig')
+        .mockImplementation(async (_id, _data, signal) => {
+          signals.push(signal!);
+          if (signals.length === 1) await release.promise;
+        });
+
+      let first!: Promise<void>;
+      act(() => {
+        first = result.current.updateAgentConfig({ model: 'a' });
+      });
+      await waitFor(() => expect(signals).toHaveLength(1));
+
+      await act(async () => {
+        await result.current.updateAgentConfig({ model: 'b' });
+      });
+
+      expect(signals[0].aborted).toBe(true);
+      release.resolve();
+      await act(async () => {
+        await first;
+      });
+
+      updateSessionConfigMock.mockRestore();
+    });
+
     it('should not update config if there is no current session', async () => {
       const { result } = renderHook(() => useAgentStore());
       const config = { model: 'gpt-3.5-turbo' };

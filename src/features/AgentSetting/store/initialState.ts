@@ -11,7 +11,8 @@ export interface State {
   loading?: boolean;
   loadingState?: LoadingState;
   meta: MetaData;
-  onConfigChange?: (config: LobeAgentConfig) => void;
+  /** May return a promise; `dispatchConfig` awaits it so write failures propagate to callers. */
+  onConfigChange?: (config: LobeAgentConfig) => Promise<void> | void;
   onMetaChange?: (meta: MetaData) => void;
 }
 

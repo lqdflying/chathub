@@ -341,6 +341,7 @@ export default {
     },
     clear: '清空',
     clearConfirm: '将清空该助手的动态记忆（固定记忆不受影响）。是否继续？',
+    clearSuccess: '已清空动态记忆',
     compactionGroupTitle: '压缩',
     contextCompactThreshold: {
       desc: '达到该比例时自动压缩，目标水位固定低 20 个百分点（默认 80% → 60%）',
@@ -396,6 +397,8 @@ export default {
     rollupNoChanges: '话题摘要没有新的持久信息，动态记忆保持不变',
     rollupSkipped: '没有可用的「话题压缩摘要」，请先在各话题中触发压缩/总结',
     rollupSuccess: '动态记忆已更新',
+    saveFailedWithReason: '保存失败：{{reason}}',
+    saveSuccess: '已保存',
     submit: '保存',
     topicCompactionHint:
       '仅当前活跃话题的滚动摘要，由压缩/总结生成；换话题后显示对应该话题的内容。',

@@ -56,9 +56,7 @@ const Page = memo((props: AgentPageType) => {
         id={INBOX_SESSION_ID}
         loading={!isUserStateInit}
         meta={meta}
-        onConfigChange={(config) => {
-          updateAgent({ config });
-        }}
+        onConfigChange={(config) => updateAgent({ config })}
         onMetaChange={(meta) => {
           updateAgent({ meta });
         }}

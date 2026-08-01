@@ -336,6 +336,7 @@
     },
     "clear": "Clear",
     "clearConfirm": "This clears the assistant's dynamic memory (fixed memory is untouched). Continue?",
+    "clearSuccess": "Dynamic memory cleared.",
     "compactionGroupTitle": "Compact",
     "contextCompactThreshold": {
       "desc": "When estimated context use exceeds this share of the model window, try auto-compacting (estimate only).",
@@ -389,6 +390,8 @@
     "rollupNoChanges": "No new durable information in the topic summaries — dynamic memory left unchanged.",
     "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first.",
     "rollupSuccess": "Dynamic memory updated.",
+    "saveFailedWithReason": "Save failed: {{reason}}",
+    "saveSuccess": "Saved.",
     "submit": "Save",
     "topicCompactionHint": "Rolling summary for the active topic only, produced by compact/summarize. Switches when you change topic.",
     "topicCompactionSection": "Current topic compaction (this session)"
