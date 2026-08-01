@@ -350,6 +350,14 @@ export default {
     recheckDependencies: '重新检查',
     skipDependencies: '跳过检查',
   },
+  memory: {
+    apiName: {
+      deleteMemory: '删除记忆',
+      saveMemory: '保存记忆',
+      updateMemory: '更新记忆',
+    },
+    title: '记忆',
+  },
   /** Moonshot Kimi built-in `$web_search` (provider-native tool, not a Lobe plugin) */
 moonshotBuiltinWebSearch: {
     title: 'Kimi 联网搜索',

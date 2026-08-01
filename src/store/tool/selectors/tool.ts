@@ -66,7 +66,10 @@ const getMetaById =
   (s: ToolStoreState): MetaData | undefined => {
     const item = metaList(showDalle)(s).find((m) => m.identifier === id);
 
-    if (!item) return;
+    if (!item)
+      // hidden builtins (e.g. memory, web-browsing) are excluded from the picker
+      // meta list, but their tool messages still resolve title/avatar through here
+      return s.builtinTools.find((tool) => tool.identifier === id)?.manifest?.meta;
 
     if (item.meta) return item.meta;
 

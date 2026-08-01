@@ -348,6 +348,14 @@
     "recheckDependencies": "Recheck",
     "skipDependencies": "Skip Check"
   },
+  "memory": {
+    "apiName": {
+      "deleteMemory": "Delete memory",
+      "saveMemory": "Save memory",
+      "updateMemory": "Update memory"
+    },
+    "title": "Memory"
+  },
   "pluginList": "Plugin List",
   "protocolInstall": {
     "actions": {

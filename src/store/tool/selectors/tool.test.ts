@@ -51,6 +51,16 @@ const mockState = {
         meta: { title: 'Builtin 1', description: 'Builtin 1 description' },
       } as LobeChatPluginManifest,
     },
+    {
+      type: 'builtin',
+      hidden: true,
+      identifier: 'builtin-hidden',
+      manifest: {
+        identifier: 'builtin-hidden',
+        api: [{ name: 'hidden-api' }],
+        meta: { avatar: '🧠', title: 'Hidden Builtin' },
+      } as LobeChatPluginManifest,
+    },
   ],
   pluginInstallLoading: {
     'plugin-1': false,
@@ -113,6 +123,16 @@ describe('toolSelectors', () => {
     it('should return undefined for non-existent identifier', () => {
       const result = toolSelectors.getMetaById('non-existent')(mockState);
       expect(result).toBeUndefined();
+    });
+
+    it('should resolve hidden builtin meta from the manifest (e.g. the memory tool)', () => {
+      // hidden tools are excluded from metaList (picker) but must still resolve
+      // meta for the tool-message header/avatar instead of "Unknown Plugin"
+      expect(toolSelectors.metaList()(mockState).map((m) => m.identifier)).not.toContain(
+        'builtin-hidden',
+      );
+      const result = toolSelectors.getMetaById('builtin-hidden')(mockState);
+      expect(result).toEqual({ avatar: '🧠', title: 'Hidden Builtin' });
     });
   });
 
