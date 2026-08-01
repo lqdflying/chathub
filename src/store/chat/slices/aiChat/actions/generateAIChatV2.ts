@@ -157,7 +157,6 @@ export const generateAIChatV2: StateCreator<
     // 构造服务端模式临时消息的本地媒体预览（优先使用 base64Url）
     // Note: base64Url is a self-contained data URL that requires no network fetch.
     // fileUrl is an S3/OSS URL that the server may not be able to fetch (network/credentials).
-    // Always prefer base64Url when available to ensure VisionRoutingProcessor can access it.
     const filesInStore = getFileStoreState().chatUploadFileList;
     const getImageUrl = (f: (typeof filesInStore)[0]): string => {
       // Prefer base64Url: self-contained, no network fetch needed

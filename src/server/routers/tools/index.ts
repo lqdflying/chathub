@@ -2,7 +2,6 @@ import { publicProcedure, router } from '@/libs/trpc/lambda';
 
 import { mcpOAuthRouter } from './mcpOAuth';
 import { mcpRouter } from './mcp';
-import { minimaxVisionRouter } from './minimaxVision';
 import { searchRouter } from './search';
 import { telemetryRouter } from './telemetry';
 
@@ -10,7 +9,6 @@ export const toolsRouter = router({
   healthcheck: publicProcedure.query(() => "i'm live!"),
   mcp: mcpRouter,
   mcpOAuth: mcpOAuthRouter,
-  minimaxVision: minimaxVisionRouter,
   search: searchRouter,
   telemetry: telemetryRouter,
 });

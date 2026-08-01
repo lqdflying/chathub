@@ -19,7 +19,6 @@ export {
 } from './providers';
 
 // Processors
-export type { VisionRoutingConfig } from './processors';
 export {
   getSlicedMessages,
   GroupMessageFlattenProcessor,
@@ -30,7 +29,6 @@ export {
   PlaceholderVariablesProcessor,
   ToolCallProcessor,
   ToolMessageReorder,
-  VisionRoutingProcessor,
 } from './processors';
 
 // Tools Engine
