@@ -1,7 +1,8 @@
 'use client';
 
 import { Form, type FormGroupItemType } from '@lobehub/ui';
-import { Alert, InputNumber, Select, Switch } from 'antd';
+import { Alert, App, InputNumber, Select, Switch } from 'antd';
+import { useTheme } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +17,8 @@ import FixedMemory from './FixedMemory';
 
 const AgentMemory = memo(() => {
   const { t } = useTranslation('setting');
+  const { message } = App.useApp();
+  const theme = useTheme();
   const [form] = Form.useForm();
   const updateConfig = useStore((s) => s.setChatConfig);
   const config = useStore(selectors.currentChatConfig, isEqual);
@@ -71,15 +74,6 @@ const AgentMemory = memo(() => {
     children: [
       {
         children: <Switch />,
-        desc: t('settingChatMemory.enableAssistantMemory.desc'),
-        label: t('settingChatMemory.enableAssistantMemory.title'),
-        layout: 'horizontal',
-        minWidth: undefined,
-        name: 'enableAssistantMemory',
-        valuePropName: 'checked',
-      },
-      {
-        children: <Switch />,
         desc: t('settingChatMemory.enableUserMemoryArchive.desc'),
         label: t('settingChatMemory.enableUserMemoryArchive.title'),
         layout: 'horizontal',
@@ -109,6 +103,34 @@ const AgentMemory = memo(() => {
         showIcon
         type={'info'}
       />
+      <Flexbox
+        align={'center'}
+        gap={16}
+        horizontal
+        justify={'space-between'}
+        paddingInline={4}
+      >
+        <Flexbox gap={4}>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>
+            {t('settingChatMemory.enableAssistantMemory.title')}
+          </div>
+          <div style={{ color: theme.colorTextDescription, fontSize: 12 }}>
+            {t('settingChatMemory.enableAssistantMemory.desc')}
+          </div>
+        </Flexbox>
+        <Switch
+          checked={memoryEnabled}
+          onChange={(checked) => {
+            Promise.resolve(updateConfig({ enableAssistantMemory: checked })).catch((error) => {
+              message.error(
+                t('settingChatMemory.saveFailedWithReason', {
+                  reason: (error as Error)?.message || String(error ?? 'unknown error'),
+                }),
+              );
+            });
+          }}
+        />
+      </Flexbox>
       {memoryEnabled && <FixedMemory />}
       {memoryEnabled && <DynamicMemory />}
       <Form
