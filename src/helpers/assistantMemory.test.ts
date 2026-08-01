@@ -2,6 +2,7 @@ import { ASSISTANT_MEMORY_MAX_CHARS } from '@lobechat/prompts';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  appendFixedMemoryEntry,
   capAssistantMemoryByTokensAsync,
   hashText,
   normalizeAssistantMemoryText,
@@ -46,6 +47,40 @@ describe('normalizeAssistantMemoryText', () => {
     const text = normalizeAssistantMemoryText('a'.repeat(ASSISTANT_MEMORY_MAX_CHARS + 500));
 
     expect(text.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
+  });
+});
+
+describe('appendFixedMemoryEntry', () => {
+  it('starts at #1 on an empty doc', () => {
+    expect(appendFixedMemoryEntry('', 'likes tea')).toEqual({ doc: '#1: likes tea', index: 1 });
+    expect(appendFixedMemoryEntry(undefined, 'likes tea')).toEqual({
+      doc: '#1: likes tea',
+      index: 1,
+    });
+  });
+
+  it('appends after the highest existing index', () => {
+    const { doc, index } = appendFixedMemoryEntry('#1: a\n#2: b', 'c');
+    expect(index).toBe(3);
+    expect(doc).toBe('#1: a\n#2: b\n#3: c');
+  });
+
+  it('survives user deletions and gaps without collisions', () => {
+    // user deleted #2; highest is #5
+    const { doc, index } = appendFixedMemoryEntry('#1: a\n#5: e', 'f');
+    expect(index).toBe(6);
+    expect(doc.endsWith('#6: f')).toBe(true);
+  });
+
+  it('ignores non-entry lines and inline hashes', () => {
+    const base = '## Notes\nsome #3 text mid-line\n#2: real entry';
+    const { index } = appendFixedMemoryEntry(base, 'x');
+    expect(index).toBe(3);
+  });
+
+  it('trims content and doc edges', () => {
+    const { doc } = appendFixedMemoryEntry('  #1: a  ', '  spaced  ');
+    expect(doc).toBe('#1: a\n#2: spaced');
   });
 });
 

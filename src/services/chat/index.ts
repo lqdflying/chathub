@@ -97,6 +97,7 @@ interface CreateAssistantMessageStream extends FetchSSEOptions {
   abortController?: AbortController;
   agentMemory?: FetchOptions['agentMemory'];
   contextExportRequest?: FetchOptions['contextExportRequest'];
+  enableMemoryTool?: boolean;
   historySummary?: string;
   isWelcomeQuestion?: boolean;
   onContextEngineered?: FetchOptions['onContextEngineered'];
@@ -124,10 +125,13 @@ class ChatService {
 
     const pluginIds = [...(enabledPlugins || [])];
 
-    const toolsEngine = createChatToolsEngine({
-      model: payload.model,
-      provider: payload.provider!,
-    });
+    const toolsEngine = createChatToolsEngine(
+      {
+        model: payload.model,
+        provider: payload.provider!,
+      },
+      { enableMemoryTool: options?.enableMemoryTool },
+    );
 
     const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
       model: payload.model,
@@ -318,6 +322,7 @@ class ChatService {
     trace,
     isWelcomeQuestion,
     agentMemory,
+    enableMemoryTool,
     historySummary,
     toolCacheDebug,
     contextExportRequest,
@@ -332,6 +337,7 @@ class ChatService {
       {
         agentMemory,
         contextExportRequest,
+        enableMemoryTool,
         historySummary,
         isWelcomeQuestion,
         onAbort,

@@ -8,6 +8,7 @@ import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 
 import { getToolStoreState } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
+import { MemoryManifest } from '@/tools/memory';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { getSearchConfig } from '../getSearchConfig';
@@ -53,10 +54,25 @@ export const createToolsEngine = (config: ToolsEngineConfig = {}): ToolsEngine =
   });
 };
 
-export const createChatToolsEngine = (workingModel: WorkingModel) =>
+export interface ChatToolsEngineOptions {
+  /**
+   * Include the implicit save-memory tool for this request. Callers pass it
+   * explicitly (from the target agent's enableAssistantMemory + session kind)
+   * instead of this helper reading stores ambiently, which would create an
+   * import cycle with the chat store.
+   */
+  enableMemoryTool?: boolean;
+}
+
+export const createChatToolsEngine = (
+  workingModel: WorkingModel,
+  options?: ChatToolsEngineOptions,
+) =>
   createToolsEngine({
     // Add WebBrowsingManifest as default tool
-    defaultToolIds: [WebBrowsingManifest.identifier],
+    defaultToolIds: options?.enableMemoryTool
+      ? [WebBrowsingManifest.identifier, MemoryManifest.identifier]
+      : [WebBrowsingManifest.identifier],
     // Create search-aware enableChecker for this request
     enableChecker: ({ pluginId }) => {
       // Check platform-specific constraints (e.g., LocalSystem desktop-only)
@@ -68,6 +84,11 @@ export const createChatToolsEngine = (workingModel: WorkingModel) =>
       if (pluginId === WebBrowsingManifest.identifier) {
         const searchConfig = getSearchConfig(workingModel.model, workingModel.provider);
         return searchConfig.useApplicationBuiltinSearchTool;
+      }
+
+      // The implicit memory tool is only ever request-injected, never agent-selected
+      if (pluginId === MemoryManifest.identifier) {
+        return !!options?.enableMemoryTool;
       }
 
       // For all other plugins, enable by default

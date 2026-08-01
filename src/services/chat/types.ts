@@ -14,6 +14,8 @@ export interface AgentMemoryPayload {
 export interface FetchOptions extends FetchSSEOptions {
   agentMemory?: AgentMemoryPayload;
   contextExportRequest?: ContextExportRequestContext;
+  /** Include the implicit save-memory tool for this request */
+  enableMemoryTool?: boolean;
   historySummary?: string;
   isWelcomeQuestion?: boolean;
   onContextEngineered?: (snapshot: {

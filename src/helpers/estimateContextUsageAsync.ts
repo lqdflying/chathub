@@ -95,7 +95,14 @@ export const estimateContextUsageAsync = async ({
   const pluginIds = agentSelectors.currentAgentPlugins(agentState);
 
   const toolState = getToolStoreState();
-  const toolsEngine = createChatToolsEngine({ model, provider });
+  const toolsEngine = createChatToolsEngine(
+    { model, provider },
+    {
+      enableMemoryTool:
+        agentChatConfigSelectors.enableAssistantMemory(agentState) &&
+        chatState.activeSessionType !== 'group',
+    },
+  );
   const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
     model,
     provider,

@@ -5,6 +5,7 @@ import { ChatStore } from '@/store/chat/store';
 import { ChatDallEAction, dalleSlice } from './dalle';
 import { ChatCodeInterpreterAction, codeInterpreterSlice } from './interpreter';
 import { LocalFileAction, localSystemSlice } from './localSystem';
+import { MemoryAction, memorySlice } from './memory';
 import { MinimaxVisionAction, minimaxVisionSlice } from './minimaxVision';
 import { SearchAction, searchSlice } from './search';
 
@@ -14,7 +15,8 @@ export interface ChatBuiltinToolAction
     SearchAction,
     LocalFileAction,
     ChatCodeInterpreterAction,
-    MinimaxVisionAction {}
+    MinimaxVisionAction,
+    MemoryAction {}
 
 export const chatToolSlice: StateCreator<
   ChatStore,
@@ -27,4 +29,5 @@ export const chatToolSlice: StateCreator<
   ...localSystemSlice(...params),
   ...codeInterpreterSlice(...params),
   ...minimaxVisionSlice(...params),
+  ...memorySlice(...params),
 });

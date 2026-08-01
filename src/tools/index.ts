@@ -6,6 +6,7 @@ import { ArtifactsManifest } from './artifacts';
 import { CodeInterpreterManifest } from './code-interpreter';
 import { DalleManifest } from './dalle';
 import { LocalSystemManifest } from './local-system';
+import { MemoryManifest } from './memory';
 import { MinimaxVisionManifest } from './minimax-vision';
 import { WebBrowsingManifest } from './web-browsing';
 
@@ -30,6 +31,14 @@ export const builtinTools: LobeBuiltinTool[] = [
     hidden: true,
     identifier: WebBrowsingManifest.identifier,
     manifest: WebBrowsingManifest,
+    type: 'builtin',
+  },
+  {
+    // implicit tool: injected per-request when assistant memory is enabled,
+    // never offered in the plugin picker
+    hidden: true,
+    identifier: MemoryManifest.identifier,
+    manifest: MemoryManifest,
     type: 'builtin',
   },
   {

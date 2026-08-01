@@ -28,6 +28,9 @@
     "readFiles": "Read Files",
     "readFilesError": "Failed to read files, please check if the file path is correct"
   },
+  "memory": {
+    "saved": "Saved to fixed memory #{{index}}"
+  },
   "search": {
     "createNewSearch": "Create a new search record",
     "emptyResult": "No results found, please modify your keywords and try again",

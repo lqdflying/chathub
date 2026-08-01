@@ -59,6 +59,25 @@ export const hashText = (text: string): string => {
   return `${(hash >>> 0).toString(36)}-${text.length.toString(36)}`;
 };
 
+/**
+ * Append one numbered entry (`#N: …`) to the fixed-memory doc, claude-Projects
+ * style. Next index = highest existing `#N:` line + 1, so user edits/deletions
+ * never cause collisions.
+ */
+export const appendFixedMemoryEntry = (
+  doc: string | null | undefined,
+  content: string,
+): { doc: string; index: number } => {
+  const base = (doc ?? '').trim();
+  let maxIndex = 0;
+  for (const match of base.matchAll(/^#(\d+):/gm)) {
+    maxIndex = Math.max(maxIndex, Number(match[1]));
+  }
+  const index = maxIndex + 1;
+  const entry = `#${index}: ${content.trim()}`;
+  return { doc: base ? `${base}\n${entry}` : entry, index };
+};
+
 /** Allow slightly over target before trimming, so borderline outputs are kept intact. */
 const TOKEN_CAP_TOLERANCE = 1.15;
 

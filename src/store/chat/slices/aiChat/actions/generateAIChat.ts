@@ -883,6 +883,14 @@ export const generateAIChat: StateCreator<
           activeTopic?.metadata?.historySummaryLastMessageId,
         )
       : messages;
+    // the implicit save-memory tool writes to the ACTIVE session's agent, so it is
+    // offered only for that agent's own sends (never group/member requests)
+    const enableMemoryTool =
+      chatConfig.enableAssistantMemory !== false &&
+      get().activeSessionType !== 'group' &&
+      !params?.groupId &&
+      !params?.agentId &&
+      !messages.some(({ groupId }) => !!groupId);
     const contextExportRequest = params?.contextExportCaptureId
       ? get().createContextExportRequest(
           params.contextExportCaptureId,
@@ -895,6 +903,7 @@ export const generateAIChat: StateCreator<
         abortController,
         agentMemory: agentMemoryForRequest,
         contextExportRequest,
+        enableMemoryTool,
         params: {
           messages: requestMessages,
           model,

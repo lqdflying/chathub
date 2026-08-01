@@ -71,8 +71,13 @@ export const useEstimatedContextUsage = (
   const generalInstruction = useUserStore(userGeneralSettingsSelectors.generalInstruction);
   const composedSystemRole = composeSystemRole(generalInstruction, systemRole);
 
+  const isGroupSession = useChatStore((s) => s.activeSessionType === 'group');
+
   const toolsString = useToolStore((s) => {
-    const toolsEngine = createChatToolsEngine({ model, provider });
+    const toolsEngine = createChatToolsEngine(
+      { model, provider },
+      { enableMemoryTool: enableAssistantMemory && !isGroupSession },
+    );
     const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
       model,
       provider,
