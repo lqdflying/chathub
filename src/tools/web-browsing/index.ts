@@ -13,7 +13,7 @@ export const WebBrowsingManifest: BuiltinToolManifest = {
   api: [
     {
       description:
-        'a search service. Useful for when you need to answer questions about current events. Input should be a search query. Output is a JSON array of the query results',
+        'Search the web via a metasearch service. Use it to find sources, facts, and current information. Returns a JSON array of results (title, url, content snippet).',
       name: WebBrowsingApiName.search,
       parameters: {
         properties: {
@@ -22,7 +22,7 @@ export const WebBrowsingManifest: BuiltinToolManifest = {
             type: 'string',
           },
           searchCategories: {
-            description: 'The search categories you can set:',
+            description: 'Optional categories to scope the search',
             items: {
               enum: ['general', 'images', 'news', 'science', 'videos'],
               type: 'string',
@@ -30,7 +30,8 @@ export const WebBrowsingManifest: BuiltinToolManifest = {
             type: 'array',
           },
           searchEngines: {
-            description: 'The search engines you can use:',
+            description:
+              'Optional specific engines to query; omit to let the metasearch choose',
             items: {
               enum: [
                 'google',
@@ -57,7 +58,7 @@ export const WebBrowsingManifest: BuiltinToolManifest = {
             type: 'array',
           },
           searchTimeRange: {
-            description: 'The time range you can set:',
+            description: 'Optional recency window for results',
             enum: ['anytime', 'day', 'week', 'month', 'year'],
             type: 'string',
           },
@@ -68,12 +69,12 @@ export const WebBrowsingManifest: BuiltinToolManifest = {
     },
     {
       description:
-        'A crawler can visit page content. Output is a JSON object of title, content, url and website',
+        'Retrieve the full content of a single web page. Returns a JSON object with title, content, url, and website.',
       name: WebBrowsingApiName.crawlSinglePage,
       parameters: {
         properties: {
           url: {
-            description: 'The url need to be crawled',
+            description: 'The URL to crawl',
             type: 'string',
           },
         },
@@ -83,13 +84,13 @@ export const WebBrowsingManifest: BuiltinToolManifest = {
     },
     {
       description:
-        'A crawler can visit multi pages. If need to visit multi website, use this one. Output is an array of JSON object of title, content, url and website',
+        'Retrieve the full content of several web pages in one call, for comparison or multi-source verification. Returns an array of JSON objects with title, content, url, and website.',
       name: WebBrowsingApiName.crawlMultiPages,
       parameters: {
         properties: {
           urls: {
             items: {
-              description: 'The urls need to be crawled',
+              description: 'The URLs to crawl',
               type: 'string',
             },
             type: 'array',
