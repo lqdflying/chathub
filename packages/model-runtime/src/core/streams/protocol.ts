@@ -388,6 +388,7 @@ export function convertIterableToStream<T>(stream: AsyncIterable<T>) {
 export const tapAsyncIterable = <T>(
   source: T,
   observer: (chunk: T extends AsyncIterable<infer U> ? U : never) => void,
+  onDone?: () => void,
 ): T => {
   if (
     source === null ||
@@ -403,6 +404,19 @@ export const tapAsyncIterable = <T>(
   const iterator = asyncSource[Symbol.asyncIterator]();
   type Item = T extends AsyncIterable<infer U> ? U : never;
 
+  // fires once on natural completion or cancellation, never on both
+  let doneNotified = false;
+  const notifyDone = () => {
+    if (doneNotified) return;
+    doneNotified = true;
+    try {
+      onDone?.();
+    } catch (err) {
+      // Observer failures must never break the production stream.
+      console.warn('[debug-tap] onDone threw:', err);
+    }
+  };
+
   const tappedIterator = {
     [Symbol.asyncIterator]() {
       return this;
@@ -416,10 +430,13 @@ export const tapAsyncIterable = <T>(
           // Observer failures must never break the production stream.
           console.warn('[debug-tap] observer threw:', err);
         }
+      } else {
+        notifyDone();
       }
       return result as IteratorResult<Item>;
     },
     async return(value?: any): Promise<IteratorResult<Item>> {
+      notifyDone();
       // Forward cancellation to the underlying iterator so the upstream fetch
       // is actually aborted.
       if (typeof iterator.return === 'function') {

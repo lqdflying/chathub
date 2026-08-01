@@ -536,6 +536,58 @@ describe('tapAsyncIterable', () => {
     expect(returnSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('should call onDone exactly once when the stream completes naturally', async () => {
+    const onDone = vi.fn();
+    const source = (async function* () {
+      yield 1;
+      yield 2;
+    })();
+
+    const tapped = tapAsyncIterable(source, () => {}, onDone) as any;
+
+    for await (const item of tapped) void item;
+    // extra next() after completion must not re-fire onDone
+    await tapped.next();
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('should call onDone on early cancellation, and only once', async () => {
+    const onDone = vi.fn();
+    const source = {
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next: async () => ({ done: false, value: 'x' }),
+      return: async () => ({ done: true, value: undefined }),
+    };
+
+    const tapped = tapAsyncIterable(source, () => {}, onDone) as any;
+    await tapped.next();
+    await tapped.return();
+    await tapped.return();
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('should keep the stream alive when onDone throws', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const source = (async function* () {
+      yield 1;
+    })();
+
+    const tapped = tapAsyncIterable(source, () => {}, () => {
+      throw new Error('logger died');
+    });
+
+    const results: number[] = [];
+    for await (const item of tapped) results.push(item);
+
+    expect(results).toEqual([1]);
+    expect(warnSpy).toHaveBeenCalledWith('[debug-tap] onDone threw:', expect.any(Error));
+    warnSpy.mockRestore();
+  });
+
   it('should convert iterator errors after the first item into an error chunk', async () => {
     let readCount = 0;
     const source = {

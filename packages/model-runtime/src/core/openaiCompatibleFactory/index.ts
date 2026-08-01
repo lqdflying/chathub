@@ -29,7 +29,11 @@ import type { ModelCacheSupportState } from '../../types/cacheDiagnostics';
 import { AgentRuntimeErrorType, ILobeAgentRuntimeErrorType } from '../../types/error';
 import { CreateImagePayload, CreateImageResponse } from '../../types/image';
 import { AgentRuntimeError } from '../../utils/createError';
-import { debugResponse } from '../../utils/debugStream';
+import {
+  createChunkDebugTap,
+  debugRequestPayload,
+  debugResponse,
+} from '../../utils/debugStream';
 import { desensitizeUrl } from '../../utils/desensitizeUrl';
 import { getModelPropertyWithFallback } from '../../utils/getFallbackModelProperty';
 import { getModelPricing } from '../../utils/getModelPricing';
@@ -523,8 +527,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             provider: this.id,
             route: '/chat/completions',
           });
-          console.log('[requestPayload]');
-          console.log(JSON.stringify(finalPayload), '\n');
+          debugRequestPayload(finalPayload);
         }
 
         if (customClient?.createChatCompletionStream) {
@@ -574,9 +577,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             response as Stream<OpenAI.ChatCompletionChunk>;
 
           if (debugParams?.chatCompletion?.()) {
-            prodStream = tapAsyncIterable(prodStream, (chunk) => {
-              console.log(JSON.stringify(chunk));
-            });
+            const chunkTap = createChunkDebugTap();
+            prodStream = tapAsyncIterable(prodStream, chunkTap.onChunk, chunkTap.onDone);
           }
 
           return StreamingResponse(
@@ -1213,8 +1215,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       } as OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams;
 
       if (debugParams?.responses?.()) {
-        console.log('[requestPayload]');
-        console.log(JSON.stringify(postPayload), '\n');
+        debugRequestPayload(postPayload);
       }
 
       log('sending responses.create request');
@@ -1299,9 +1300,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           }, options?.signal) as Stream<OpenAI.Responses.ResponseStreamEvent>;
 
         if (debugParams?.responses?.()) {
-          prodStream = tapAsyncIterable(prodStream, (chunk) => {
-            console.log(JSON.stringify(chunk));
-          });
+          const chunkTap = createChunkDebugTap();
+          prodStream = tapAsyncIterable(prodStream, chunkTap.onChunk, chunkTap.onDone);
         }
 
         return StreamingResponse(

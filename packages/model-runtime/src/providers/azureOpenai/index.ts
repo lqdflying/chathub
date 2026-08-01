@@ -27,6 +27,7 @@ import {
 import { AgentRuntimeErrorType } from '../../types/error';
 import { CreateImagePayload, CreateImageResponse } from '../../types/image';
 import { AgentRuntimeError } from '../../utils/createError';
+import { createChunkDebugTap } from '../../utils/debugStream';
 import { StreamingResponse } from '../../utils/response';
 import { sanitizeError } from '../../utils/sanitizeError';
 
@@ -159,9 +160,8 @@ export class LobeAzureOpenAI implements LobeRuntimeAI {
       if (enableStreaming) {
         let stream = response as Stream<OpenAI.ChatCompletionChunk>;
         if (process.env.DEBUG_AZURE_CHAT_COMPLETION === '1') {
-          stream = tapAsyncIterable(stream, (chunk) => {
-            console.log(JSON.stringify(chunk));
-          });
+          const chunkTap = createChunkDebugTap();
+          stream = tapAsyncIterable(stream, chunkTap.onChunk, chunkTap.onDone);
         }
         return StreamingResponse(
           OpenAIStream(stream, {

@@ -20,6 +20,7 @@ import {
 } from '../../types';
 import { AgentRuntimeErrorType } from '../../types/error';
 import { AgentRuntimeError } from '../../utils/createError';
+import { createChunkDebugTap, debugRequestPayload } from '../../utils/debugStream';
 import { desensitizeUrl } from '../../utils/desensitizeUrl';
 import { getModelPricing } from '../../utils/getModelPricing';
 import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
@@ -235,8 +236,7 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
           provider: this.id,
           route: '/v1/messages',
         });
-        console.log('[requestPayload]');
-        console.log(JSON.stringify(anthropicPayload), '\n');
+        debugRequestPayload(anthropicPayload);
       }
 
       await options?.onRequestPrepared?.(requestPayload, { apiMode: 'messages' });
@@ -245,9 +245,8 @@ export class LobeAnthropicAI implements LobeRuntimeAI {
       });
 
       if (this.isDebug()) {
-        response = tapAsyncIterable(response, (chunk) => {
-          console.log(JSON.stringify(chunk));
-        });
+        const chunkTap = createChunkDebugTap();
+        response = tapAsyncIterable(response, chunkTap.onChunk, chunkTap.onDone);
       }
 
       const pricing = await getModelPricing(payload.model, this.id);
