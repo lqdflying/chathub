@@ -10,6 +10,8 @@ export interface AgentState {
   agentConfigInitMap: Record<string, boolean>;
   agentMap: Record<string, PartialDeep<LobeAgentConfig>>;
   agentSettingInstance?: AgentSettingsInstance | null;
+  /** Agent ids with a dynamic-memory rollup in flight (survives UI unmounts). */
+  assistantMemoryRollingAgentIds: string[];
   defaultAgentConfig: LobeAgentConfig;
   inboxAgentRequestScope?: string;
   inboxAgentScope?: string;
@@ -24,6 +26,7 @@ export const initialAgentChatState: AgentState = {
   activeId: 'inbox',
   agentConfigInitMap: {},
   agentMap: {},
+  assistantMemoryRollingAgentIds: [],
   defaultAgentConfig: DEFAULT_AGENT_CONFIG,
   inboxAgentRequestScope: undefined,
   inboxAgentScope: undefined,

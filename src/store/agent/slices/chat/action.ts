@@ -310,18 +310,21 @@ export const createChatSlice: StateCreator<
         return { reason: 'disabled', status: 'skipped' };
       }
 
-      const mutationContext = captureMutationContext();
-      if (!mutationContext) return { reason: 'no_account', status: 'failed' };
+      // currency is ACCOUNT-level only: the user may navigate to other sessions while
+      // the rollup runs in the background; the result is written to the CAPTURED
+      // session's agent. Only an account switch / scope reset aborts.
+      const checkpoint = captureStoreMutationContext();
+      if (!checkpoint) return { reason: 'no_account', status: 'failed' };
 
-      const { activeAgentId, activeId } = mutationContext;
+      const { activeAgentId, activeId } = get();
       if (!activeAgentId || !activeId) return { reason: 'no_agent', status: 'failed' };
 
-      const jobKey = `${mutationContext.accountSnapshot.scope}:${activeAgentId}`;
+      const jobKey = `${checkpoint.accountSnapshot.scope}:${activeAgentId}`;
       const inFlight = rollupJobs.get(jobKey);
       if (inFlight) return inFlight;
 
       const run = async (): Promise<AssistantMemoryRollupResult> => {
-        const isCurrentRequest = () => isMutationContextCurrent(mutationContext);
+        const isCurrentRequest = () => isStoreMutationContextCurrent(checkpoint);
         const force = !!options?.force;
 
         const config = agentSelectors.getAgentConfigById(activeId)(get());
@@ -416,10 +419,11 @@ export const createChatSlice: StateCreator<
         const nowISO = () => new Date().toISOString();
         const writeConfigPatch = async (patch: PartialDeep<LobeAgentConfig>) =>
           get().internal_updateAgentConfig(
+            // the CAPTURED session id — the user may have navigated elsewhere meanwhile
             activeId,
             patch,
             undefined,
-            mutationContext,
+            checkpoint,
             isCurrentRequest,
           );
 
@@ -476,15 +480,29 @@ export const createChatSlice: StateCreator<
         // sibling sessions bound to this agent hold their own agent-config SWR key;
         // revalidate them all so they pick up the new memory doc
         await mutateAccountSWRByPredicate(
-          mutationContext.accountSnapshot.scope,
+          checkpoint.accountSnapshot.scope,
           (key) =>
             Array.isArray(key) &&
             key[0] === FETCH_AGENT_CONFIG_KEY &&
-            key[1] === mutationContext.accountSnapshot.scope,
+            key[1] === checkpoint.accountSnapshot.scope,
         );
 
         return { horizonTruncated, status: 'success' };
       };
+
+      // surface the in-flight state in the store so UI spinners survive unmounts
+      if (!get().assistantMemoryRollingAgentIds.includes(activeAgentId)) {
+        set(
+          {
+            assistantMemoryRollingAgentIds: [
+              ...get().assistantMemoryRollingAgentIds,
+              activeAgentId,
+            ],
+          },
+          false,
+          'rollupAssistantMemory/start',
+        );
+      }
 
       const job = run()
         .catch(
@@ -495,6 +513,15 @@ export const createChatSlice: StateCreator<
         )
         .finally(() => {
           rollupJobs.delete(jobKey);
+          set(
+            {
+              assistantMemoryRollingAgentIds: get().assistantMemoryRollingAgentIds.filter(
+                (id) => id !== activeAgentId,
+              ),
+            },
+            false,
+            'rollupAssistantMemory/end',
+          );
         });
       rollupJobs.set(jobKey, job);
       return job;

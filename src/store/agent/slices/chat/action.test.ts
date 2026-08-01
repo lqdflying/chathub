@@ -831,6 +831,83 @@ describe('AgentSlice', () => {
       resetAgentState();
     });
 
+    it('keeps running and writes to the captured session when the user switches sessions', async () => {
+      const llmRelease = createDeferred<void>();
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent();
+      seedTopics();
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+        await llmRelease.promise;
+        await onFinish?.('merged memory');
+      });
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      let rollupPromise!: ReturnType<typeof result.current.rollupAssistantMemory>;
+      act(() => {
+        rollupPromise = result.current.rollupAssistantMemory();
+      });
+      await waitFor(() => expect(chatService.fetchPresetTaskResult).toHaveBeenCalled());
+
+      // user navigates to another session/agent within the same account
+      act(() => {
+        useAgentStore.setState({ activeAgentId: 'agent-2', activeId: 'session-2' } as any);
+      });
+      llmRelease.resolve();
+
+      let response!: Awaited<typeof rollupPromise>;
+      await act(async () => {
+        response = await rollupPromise;
+      });
+
+      expect(response.status).toBe('success');
+      // the write targets the CAPTURED session, not the now-active one
+      expect(updateMock).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ assistantMemory: expect.any(String) }),
+        undefined,
+        expect.any(Object),
+        expect.any(Function),
+      );
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
+    it('exposes in-flight state via assistantMemoryRollingAgentIds', async () => {
+      const llmRelease = createDeferred<void>();
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent();
+      seedTopics();
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+        await llmRelease.promise;
+        await onFinish?.('memory');
+      });
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      let rollupPromise!: ReturnType<typeof result.current.rollupAssistantMemory>;
+      act(() => {
+        rollupPromise = result.current.rollupAssistantMemory();
+      });
+      await waitFor(() =>
+        expect(useAgentStore.getState().assistantMemoryRollingAgentIds).toContain('agent-1'),
+      );
+
+      llmRelease.resolve();
+      await act(async () => {
+        await rollupPromise;
+      });
+      expect(useAgentStore.getState().assistantMemoryRollingAgentIds).not.toContain('agent-1');
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
     it('does not write memory after an A-to-B-to-A account reset', async () => {
       const rollupFinished = createDeferred<void>();
       const { result } = renderHook(() => useAgentStore());

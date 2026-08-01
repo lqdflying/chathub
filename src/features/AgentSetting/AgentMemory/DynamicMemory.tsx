@@ -52,6 +52,11 @@ const DynamicMemory = memo(() => {
 
   const rollupAssistantMemory = useAgentStore((s) => s.rollupAssistantMemory);
   const restoreAssistantMemoryBackup = useAgentStore((s) => s.restoreAssistantMemoryBackup);
+  // in-flight state lives in the store, so the spinner survives closing/reopening
+  // the drawer or switching sessions while the rollup keeps running
+  const isRollingInStore = useAgentStore(
+    (s) => !!s.activeAgentId && s.assistantMemoryRollingAgentIds.includes(s.activeAgentId),
+  );
 
   const [draft, setDraft] = useState(assistantMemory);
   const [dirty, setDirty] = useState(false);
@@ -225,7 +230,11 @@ const DynamicMemory = memo(() => {
         </Button>
         {!isDeprecatedEdition &&
           withGate(
-            <Button disabled={!isActiveSessionTarget} loading={rollingUp} onClick={onRollup}>
+            <Button
+              disabled={!isActiveSessionTarget}
+              loading={rollingUp || (isActiveSessionTarget && isRollingInStore)}
+              onClick={onRollup}
+            >
               {t('settingChatMemory.regenerate')}
             </Button>,
           )}
