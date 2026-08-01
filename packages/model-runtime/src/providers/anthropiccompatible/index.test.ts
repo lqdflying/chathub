@@ -106,7 +106,16 @@ describe('LobeAnthropicCompatibleAI', () => {
         });
         await response.text();
 
-        expect(logSpy).toHaveBeenCalledWith(JSON.stringify(messageStart));
+        // stream events are merged into one consolidated record at stream end
+        const record = logSpy.mock.calls
+          .map(([line]) => line)
+          .find((line) => typeof line === 'string' && line.includes('message_debug'));
+        expect(record).toBeDefined();
+        expect(JSON.parse(record as string)).toMatchObject({
+          finishReason: 'end_turn',
+          id: 'message_debug',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        });
         const providerDebugCall = logSpy.mock.calls.find(
           ([label]) => label === '[provider-debug:request]',
         );

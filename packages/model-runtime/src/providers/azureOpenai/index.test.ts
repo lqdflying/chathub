@@ -538,7 +538,17 @@ describe('LobeAzureOpenAI', () => {
           });
           await response.text();
 
-          expect(logSpy).toHaveBeenCalledWith(JSON.stringify(completionChunk));
+          // delta chunks are merged into one consolidated record at stream end
+          const record = logSpy.mock.calls
+            .map(([line]) => line)
+            .find((line) => typeof line === 'string' && line.includes('chatcmpl-debug'));
+          expect(record).toBeDefined();
+          expect(JSON.parse(record as string)).toMatchObject({
+            finishReason: 'stop',
+            id: 'chatcmpl-debug',
+            model: 'text-davinci-003',
+            text: 'Debug stream content',
+          });
         } finally {
           logSpy.mockRestore();
           delete process.env.DEBUG_AZURE_CHAT_COMPLETION;

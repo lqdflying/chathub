@@ -392,7 +392,16 @@ describe('LobeMoonshotAI debug', () => {
       } as any);
       await response.text();
 
-      expect(logSpy).toHaveBeenCalledWith(JSON.stringify(chatChunk));
+      // delta chunks are merged into one consolidated record at stream end
+      const record = logSpy.mock.calls
+        .map(([line]) => line)
+        .find((line) => typeof line === 'string' && line.includes('chatcmpl-moonshot-debug'));
+      expect(record).toBeDefined();
+      expect(JSON.parse(record as string)).toMatchObject({
+        finishReason: 'stop',
+        id: 'chatcmpl-moonshot-debug',
+        text: 'Hello',
+      });
       const providerDebugCall = logSpy.mock.calls.find(
         ([label]) => label === '[provider-debug:request]',
       );

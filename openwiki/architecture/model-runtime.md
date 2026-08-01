@@ -140,7 +140,7 @@ Moonshot, MiniMax, DeepSeek, and Anthropic-compatible troubleshooting can use pr
 - `DEBUG_DEEPSEEK_CHAT_COMPLETION=1`
 - `DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1`
 
-Use this first for endpoint/path problems such as `url.not_found`, then inspect the full payload/stream logs only if the structured request shape is not enough. Those logs are human-readable: the request payload is pretty-printed with each message's content emitted as raw text under a `[message N] role=… (size)` header (Anthropic's top-level system prompt gets its own `[system]` section), and streams log `[stream start]` / `[chunk N]` markers followed by an end-of-stream summary that reassembles the streamed text, reasoning, tool calls, and usage. The full debug logs can include prompt and response content.
+Use this first for endpoint/path problems such as `url.not_found`, then inspect the full payload/stream logs only if the structured request shape is not enough. Those logs are one-record-per-line JSON: the request logs a `[requestPayload]` marker followed by the entire payload as a single compact JSON line, and streams log `[stream start]` / `[stream finished]` markers with delta chunks merged into one consolidated JSON record of the assembled response (id, model, finish reason, text, reasoning, tool calls, usage) — only chunks of unrecognized shape are logged individually. The full debug logs can include prompt and response content.
 
 ## Context export request boundary
 

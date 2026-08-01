@@ -312,7 +312,16 @@ describe('LobeOpenAI', () => {
           });
           await response.text();
 
-          expect(consoleLogSpy).toHaveBeenCalledWith(JSON.stringify(completionChunk));
+          // delta chunks are merged into one consolidated record at stream end
+          const record = consoleLogSpy.mock.calls
+            .map(([line]) => line)
+            .find((line) => typeof line === 'string' && line.includes('debug-completion'));
+          expect(record).toBeDefined();
+          expect(JSON.parse(record as string)).toMatchObject({
+            id: 'debug-completion',
+            model: 'text-davinci-003',
+            text: 'Debug stream content',
+          });
         } finally {
           process.env.DEBUG_OPENAI_CHAT_COMPLETION = originalDebugValue;
         }

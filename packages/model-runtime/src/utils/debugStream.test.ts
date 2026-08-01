@@ -132,7 +132,7 @@ describe('debugRequestPayload', () => {
 
   const loggedLines = () => consoleLogSpy.mock.calls.map((call) => String(call[0]));
 
-  it('pretty-prints the payload and each message content as raw text', () => {
+  it('logs one marker line and the whole payload as ONE compact JSON line', () => {
     debugRequestPayload({
       messages: [
         { content: 'line one\nline two', role: 'system' },
@@ -140,49 +140,18 @@ describe('debugRequestPayload', () => {
       ],
       model: 'kimi-k3',
       stream: true,
+      tools: [{ function: { name: 'search', parameters: { type: 'object' } }, type: 'function' }],
     });
 
     const lines = loggedLines();
+    expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^\[requestPayload\]/);
-    // rest of the payload is pretty-printed without the messages
-    expect(lines[1]).toContain('"model": "kimi-k3"');
-    expect(lines[1]).not.toContain('messages');
-    // message content appears as real text, not a JSON-escaped line
-    expect(lines).toContain('[message 0] role=system (17 chars)');
-    expect(lines).toContain('line one\nline two');
-    expect(lines).toContain('[message 1] role=user (2 chars)');
-  });
-
-  it('keeps non-content message fields visible as a compact suffix', () => {
-    debugRequestPayload({
-      messages: [{ content: '', role: 'assistant', tool_calls: [{ id: 'call_1' }] }],
-      model: 'm',
-    });
-
-    const header = loggedLines().find((line) => line.startsWith('[message 0]'));
-    expect(header).toContain('tool_calls');
-    expect(header).toContain('call_1');
-  });
-
-  it('prints an anthropic-style top-level system prompt as its own section', () => {
-    debugRequestPayload({
-      messages: [{ content: 'hi', role: 'user' }],
-      model: 'claude',
-      system: 'be helpful',
-    });
-
-    const lines = loggedLines();
-    expect(lines).toContain('[system] (10 chars)');
-    expect(lines).toContain('be helpful');
-  });
-
-  it('prints responses-API input items like messages', () => {
-    debugRequestPayload({
-      input: [{ content: 'question', role: 'user' }],
-      model: 'o3',
-    });
-
-    expect(loggedLines()).toContain('[message 0] role=user (8 chars)');
+    // one complete record: model, messages, and tools all in the same line,
+    // with multi-line content JSON-escaped instead of spread across lines
+    expect(lines[1]).toContain('"model":"kimi-k3"');
+    expect(lines[1]).toContain('"content":"line one\\nline two"');
+    expect(lines[1]).toContain('"name":"search"');
+    expect(lines[1]).not.toContain('\n');
   });
 
   it('never throws on circular payloads', () => {
@@ -190,6 +159,7 @@ describe('debugRequestPayload', () => {
     circular.self = circular;
 
     expect(() => debugRequestPayload(circular)).not.toThrow();
+    expect(loggedLines()).toHaveLength(2);
   });
 });
 
@@ -206,24 +176,35 @@ describe('createChunkDebugTap', () => {
 
   const loggedLines = () => consoleLogSpy.mock.calls.map((call) => String(call[0]));
 
-  it('marks stream start/chunks and assembles text and usage at the end', () => {
+  it('merges delta chunks into ONE consolidated JSON record — no per-chunk lines', () => {
     const tap = createChunkDebugTap();
 
-    tap.onChunk({ choices: [{ delta: { content: 'Hello ' }, index: 0 }] });
-    tap.onChunk({ choices: [{ delta: { content: 'world' }, index: 0 }] });
+    tap.onChunk({
+      choices: [{ delta: { content: 'Hello ' }, index: 0 }],
+      id: 'chatcmpl-1',
+      model: 'kimi-k3',
+    });
+    tap.onChunk({ choices: [{ delta: { content: 'world' }, finish_reason: 'stop', index: 0 }] });
     tap.onChunk({ choices: [], usage: { total_tokens: 42 } });
     tap.onDone();
 
     const lines = loggedLines();
+    // exactly: [stream start], [stream finished], one consolidated record
+    expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^\[stream start\]/);
-    expect(lines.filter((line) => line.startsWith('[chunk '))).toHaveLength(3);
-    expect(lines).toContain('[stream finished] total chunks: 3');
-    expect(lines).toContain('[assembled text]');
-    expect(lines).toContain('Hello world');
-    expect(lines.some((line) => line.startsWith('[usage]') && line.includes('42'))).toBe(true);
+    expect(lines[1]).toBe('[stream finished] total chunks: 3');
+    const record = JSON.parse(lines[2]);
+    expect(record).toEqual({
+      finishReason: 'stop',
+      id: 'chatcmpl-1',
+      model: 'kimi-k3',
+      text: 'Hello world',
+      usage: { total_tokens: 42 },
+    });
+    expect(lines[2]).not.toContain('\n');
   });
 
-  it('assembles reasoning and streamed tool calls', () => {
+  it('merges reasoning and streamed tool calls into the record', () => {
     const tap = createChunkDebugTap();
 
     tap.onChunk({ choices: [{ delta: { reasoning_content: 'thinking…' }, index: 0 }] });
@@ -243,34 +224,42 @@ describe('createChunkDebugTap', () => {
     tap.onDone();
 
     const lines = loggedLines();
-    expect(lines).toContain('[assembled reasoning]');
-    expect(lines).toContain('thinking…');
-    expect(lines).toContain('[tool call 0] search {"a":1}');
+    expect(lines).toHaveLength(3);
+    const record = JSON.parse(lines[2]);
+    expect(record.reasoning).toBe('thinking…');
+    expect(record.toolCalls).toEqual([{ arguments: '{"a":1}', index: 0, name: 'search' }]);
   });
 
-  it('assembles responses-API output_text deltas', () => {
+  it('merges responses-API output_text deltas into the record', () => {
     const tap = createChunkDebugTap();
 
     tap.onChunk({ delta: 'answer ', type: 'response.output_text.delta' });
     tap.onChunk({ delta: 'here', type: 'response.output_text.delta' });
-    tap.onChunk({ response: { usage: { total_tokens: 7 } }, type: 'response.completed' });
+    tap.onChunk({
+      response: { id: 'resp-1', usage: { total_tokens: 7 } },
+      type: 'response.completed',
+    });
     tap.onDone();
 
     const lines = loggedLines();
-    expect(lines).toContain('[assembled text]');
-    expect(lines).toContain('answer here');
-    expect(lines.some((line) => line.startsWith('[usage]') && line.includes('7'))).toBe(true);
+    expect(lines).toHaveLength(3);
+    const record = JSON.parse(lines[2]);
+    expect(record.text).toBe('answer here');
+    expect(record.id).toBe('resp-1');
+    expect(record.usage).toEqual({ total_tokens: 7 });
   });
 
-  it('still logs chunks of unknown shape without a summary', () => {
+  it('logs unknown chunk shapes individually and omits an empty record', () => {
     const tap = createChunkDebugTap();
 
     tap.onChunk('raw sse line');
     tap.onDone();
 
     const lines = loggedLines();
-    expect(lines).toContain('"raw sse line"');
-    expect(lines).toContain('[stream finished] total chunks: 1');
-    expect(lines).not.toContain('[assembled text]');
+    expect(lines).toEqual([
+      expect.stringMatching(/^\[stream start\]/),
+      '"raw sse line"',
+      '[stream finished] total chunks: 1',
+    ]);
   });
 });
