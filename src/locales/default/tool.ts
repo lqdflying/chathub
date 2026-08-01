@@ -29,7 +29,9 @@ export default {
     readFilesError: '读取文件失败，请检查文件路径是否正确',
   },
   memory: {
+    deleted: '已删除一条固定记忆（其余条目已重新编号）',
     saved: '已保存到固定记忆 #{{index}}',
+    updated: '已更新固定记忆 #{{index}}',
   },
   search: {
     createNewSearch: '创建新的搜索记录',

@@ -10,6 +10,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import { FORM_STYLE } from '@/const/layoutTokens';
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
+import { renumberFixedMemoryEntries } from '@/helpers/assistantMemory';
 
 import { useStore } from '../store';
 
@@ -55,8 +56,12 @@ const FixedMemory = memo(() => {
                   variant: 'chat',
                 }}
                 onChange={(value) => {
+                  // dense renumbering on user save: deleting #2 makes #3 become #2;
+                  // only `#N:` lines are rewritten, free-form markdown stays untouched.
                   // the write can fail after the optimistic local update — surface it
-                  Promise.resolve(updateConfig({ fixedMemory: value })).catch((error) => {
+                  Promise.resolve(
+                    updateConfig({ fixedMemory: renumberFixedMemoryEntries(value) }),
+                  ).catch((error) => {
                     message.error(
                       t('settingChatMemory.saveFailedWithReason', {
                         reason: (error as Error)?.message || String(error ?? 'unknown error'),

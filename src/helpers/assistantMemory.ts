@@ -78,6 +78,119 @@ export const appendFixedMemoryEntry = (
   return { doc: base ? `${base}\n${entry}` : entry, index };
 };
 
+const FIXED_MEMORY_ENTRY_LINE = /^#(\d+):\s?(.*)$/;
+
+export interface FixedMemoryEntry {
+  content: string;
+  index: number;
+}
+
+export type FixedMemoryMutationError = 'mismatch' | 'not_found';
+
+/** Numbered entries (`#N: …` lines) in order of appearance; other lines are ignored. */
+export const parseFixedMemoryEntries = (doc: string | null | undefined): FixedMemoryEntry[] => {
+  const entries: FixedMemoryEntry[] = [];
+  for (const line of (doc ?? '').split('\n')) {
+    const match = FIXED_MEMORY_ENTRY_LINE.exec(line);
+    if (match) entries.push({ content: match[2].trim(), index: Number(match[1]) });
+  }
+  return entries;
+};
+
+/**
+ * Rewrite entry numbers densely (#1…#N by order of appearance) so deleting `#2`
+ * makes `#3` become `#2`. Non-entry lines (headers, free markdown) are preserved
+ * verbatim in place.
+ */
+export const renumberFixedMemoryEntries = (doc: string | null | undefined): string => {
+  let next = 0;
+  return (doc ?? '')
+    .split('\n')
+    .map((line) => {
+      const match = FIXED_MEMORY_ENTRY_LINE.exec(line);
+      if (!match) return line;
+      next += 1;
+      return `#${next}: ${match[2].trim()}`;
+    })
+    .join('\n')
+    .trim();
+};
+
+/** Compact feedback list for tool error results, so the model can self-correct. */
+export const formatFixedMemoryEntries = (
+  entries: FixedMemoryEntry[],
+  capPerEntry = 80,
+): string =>
+  entries
+    .map(
+      ({ content, index }) =>
+        `#${index}: ${content.length > capPerEntry ? `${content.slice(0, capPerEntry)}…` : content}`,
+    )
+    .join('\n');
+
+const findEntryLine = (
+  lines: string[],
+  index: number,
+): { content: string; line: number } | undefined => {
+  for (const [lineNumber, line] of lines.entries()) {
+    const match = FIXED_MEMORY_ENTRY_LINE.exec(line);
+    if (match && Number(match[1]) === index) {
+      return { content: match[2].trim(), line: lineNumber };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Replace the content of entry `#index` after verifying it still contains the
+ * `match` snippet — numbers can shift between the memory injection the model
+ * saw and the write, so an unverified index must never mutate blindly.
+ */
+export const updateFixedMemoryEntry = (
+  doc: string | null | undefined,
+  index: number,
+  match: string,
+  content: string,
+):
+  | { doc: string; entry: FixedMemoryEntry }
+  | { entries: FixedMemoryEntry[]; error: FixedMemoryMutationError } => {
+  const lines = (doc ?? '').split('\n');
+  const target = findEntryLine(lines, index);
+  if (!target) return { entries: parseFixedMemoryEntries(doc), error: 'not_found' };
+  if (!target.content.includes(match.trim())) {
+    return { entries: parseFixedMemoryEntries(doc), error: 'mismatch' };
+  }
+
+  const nextContent = content.trim();
+  lines[target.line] = `#${index}: ${nextContent}`;
+  return { doc: lines.join('\n').trim(), entry: { content: nextContent, index } };
+};
+
+/**
+ * Remove entry `#index` after `match` verification, then renumber the remaining
+ * entries densely.
+ */
+export const deleteFixedMemoryEntry = (
+  doc: string | null | undefined,
+  index: number,
+  match: string,
+):
+  | { doc: string; removed: FixedMemoryEntry }
+  | { entries: FixedMemoryEntry[]; error: FixedMemoryMutationError } => {
+  const lines = (doc ?? '').split('\n');
+  const target = findEntryLine(lines, index);
+  if (!target) return { entries: parseFixedMemoryEntries(doc), error: 'not_found' };
+  if (!target.content.includes(match.trim())) {
+    return { entries: parseFixedMemoryEntries(doc), error: 'mismatch' };
+  }
+
+  lines.splice(target.line, 1);
+  return {
+    doc: renumberFixedMemoryEntries(lines.join('\n')),
+    removed: { content: target.content, index },
+  };
+};
+
 /** Allow slightly over target before trimming, so borderline outputs are kept intact. */
 const TOKEN_CAP_TOLERANCE = 1.15;
 

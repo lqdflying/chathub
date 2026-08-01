@@ -4,8 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   appendFixedMemoryEntry,
   capAssistantMemoryByTokensAsync,
+  deleteFixedMemoryEntry,
+  formatFixedMemoryEntries,
   hashText,
   normalizeAssistantMemoryText,
+  parseFixedMemoryEntries,
+  renumberFixedMemoryEntries,
+  updateFixedMemoryEntry,
 } from './assistantMemory';
 
 const { encodeAsync } = vi.hoisted(() => ({ encodeAsync: vi.fn() }));
@@ -81,6 +86,79 @@ describe('appendFixedMemoryEntry', () => {
   it('trims content and doc edges', () => {
     const { doc } = appendFixedMemoryEntry('  #1: a  ', '  spaced  ');
     expect(doc).toBe('#1: a\n#2: spaced');
+  });
+});
+
+describe('renumberFixedMemoryEntries', () => {
+  it('renumbers gapped entries densely by appearance order', () => {
+    expect(renumberFixedMemoryEntries('#1: a\n#5: e\n#9: x')).toBe('#1: a\n#2: e\n#3: x');
+  });
+
+  it('preserves non-entry lines verbatim and in place', () => {
+    const doc = '## Notes\n#2: b\nfree text with #7 inline\n#4: d';
+    expect(renumberFixedMemoryEntries(doc)).toBe('## Notes\n#1: b\nfree text with #7 inline\n#2: d');
+  });
+
+  it('appending after renumber stays dense', () => {
+    const dense = renumberFixedMemoryEntries('#1: a\n#5: e');
+    const { doc, index } = appendFixedMemoryEntry(dense, 'c');
+    expect(index).toBe(3);
+    expect(doc).toBe('#1: a\n#2: e\n#3: c');
+  });
+});
+
+describe('updateFixedMemoryEntry', () => {
+  it('rewrites the verified entry only', () => {
+    const outcome = updateFixedMemoryEntry('#1: likes tea\n#2: uses pnpm', 2, 'pnpm', 'uses bun');
+    expect(outcome).toEqual({
+      doc: '#1: likes tea\n#2: uses bun',
+      entry: { content: 'uses bun', index: 2 },
+    });
+  });
+
+  it('refuses a mismatched entry and returns the current list', () => {
+    const outcome = updateFixedMemoryEntry('#1: likes tea', 1, 'coffee', 'x');
+    expect(outcome).toEqual({
+      entries: [{ content: 'likes tea', index: 1 }],
+      error: 'mismatch',
+    });
+  });
+
+  it('reports not_found for a missing index', () => {
+    const outcome = updateFixedMemoryEntry('#1: likes tea', 3, 'tea', 'x');
+    expect(outcome).toMatchObject({ error: 'not_found' });
+  });
+});
+
+describe('deleteFixedMemoryEntry', () => {
+  it('removes the verified entry and renumbers the remainder', () => {
+    const outcome = deleteFixedMemoryEntry('#1: a\n#2: b\n#3: c', 2, 'b');
+    expect(outcome).toEqual({
+      doc: '#1: a\n#2: c',
+      removed: { content: 'b', index: 2 },
+    });
+  });
+
+  it('keeps non-entry lines while renumbering', () => {
+    const outcome = deleteFixedMemoryEntry('## Notes\n#1: a\n#2: b', 1, 'a');
+    expect(outcome).toEqual({
+      doc: '## Notes\n#1: b',
+      removed: { content: 'a', index: 1 },
+    });
+  });
+
+  it('refuses on mismatch without modifying anything', () => {
+    const outcome = deleteFixedMemoryEntry('#1: a', 1, 'zzz');
+    expect(outcome).toMatchObject({ error: 'mismatch' });
+  });
+});
+
+describe('parse/format fixed memory entries', () => {
+  it('parses entries in order and formats capped previews', () => {
+    const entries = parseFixedMemoryEntries(`#2: ${'x'.repeat(100)}\n#1: short`);
+    expect(entries.map((e) => e.index)).toEqual([2, 1]);
+    const formatted = formatFixedMemoryEntries(entries, 10);
+    expect(formatted).toBe(`#2: ${'x'.repeat(10)}…\n#1: short`);
   });
 });
 

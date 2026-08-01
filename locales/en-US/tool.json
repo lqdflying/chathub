@@ -29,7 +29,9 @@
     "readFilesError": "Failed to read files, please check if the file path is correct"
   },
   "memory": {
-    "saved": "Saved to fixed memory #{{index}}"
+    "deleted": "Deleted a fixed-memory entry (remaining entries renumbered)",
+    "saved": "Saved to fixed memory #{{index}}",
+    "updated": "Updated fixed memory #{{index}}"
   },
   "search": {
     "createNewSearch": "Create a new search record",

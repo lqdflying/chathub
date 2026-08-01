@@ -180,16 +180,24 @@ when off, nothing is injected, estimators count zero, the scheduler and manual r
 (`disabled`), the save-memory tool is not offered, and the Memory tab collapses to the master
 switch. Stateless assistants opt out with one toggle.
 
-The model can also write into fixed memory through an implicit builtin tool
-(`lobe-memory` / `saveMemory`, hidden from the plugin picker). Request inclusion is explicit:
+The model can also maintain fixed memory through an implicit builtin tool (`lobe-memory`,
+hidden from the plugin picker) with full CRUD: `saveMemory` appends, `updateMemory` rewrites
+one entry, `deleteMemory` removes one. Request inclusion is explicit:
 `createChatToolsEngine` takes an `enableMemoryTool` option threaded from
 `internal_fetchAIChatMessage` — enabled only for the active agent's own sends (never
 group/member requests, whose ambient write target would be the wrong agent) — and both token
 estimators pass the same flag so schema-token estimates stay in lockstep; the option keeps
-ambient store reads out of `toolEngineering`, avoiding an import cycle. Saves append numbered
-`#N: …` lines (next index = highest existing `#N:` + 1, so user edits never collide), are
-serialized through a promise chain (tool calls in one turn run concurrently), and write via the
-id-targeted `internal_updateAgentConfig` rather than the abortable shared-slot path.
+ambient store reads out of `toolEngineering`, avoiding an import cycle.
+
+Entries are numbered `#N: …` lines and the numbering is kept dense: the fixed-memory editor
+renumbers on every user save and `deleteMemory` renumbers the remainder, so deleting `#2`
+makes `#3` become `#2`. Because numbers are injected at turn start and can shift underneath a
+running turn, update/delete are content-verified: each call carries the index plus a `match`
+snippet; on `not_found`/`mismatch` the tool refuses the write and returns the current numbered
+entry list as the tool result so the model self-corrects within the same turn. All three
+writes serialize through one promise chain (tool calls in a turn run concurrently) and use the
+id-targeted `internal_updateAgentConfig` rather than the abortable shared-slot path. Only
+`#N:` lines are ever renumbered — free-form markdown in the doc is preserved verbatim.
 
 The rollup is a selective extractor, not a consolidator. The prompt admits an item only if it
 would change behavior in a future unrelated conversation, requires category-organized output
