@@ -45,6 +45,37 @@ in via `NEXT_PUBLIC_APP_TAG` so the in-app About page shows the canary version; 
 bump `package.json` for canaries. A failed build cannot be re-run manually — fix, then
 delete the bad tag and have the user push the next `N`. Docs-only commits never get a tag.
 
+## GitHub Wiki updates (cloud sessions)
+
+Cloud-session GitHub credentials are scoped to the main repository (`lqdflying/chathub`)
+and **cannot push to the wiki repository** (`lqdflying/chathub.wiki` — the local `wiki/`
+clone, branch `master`; see `AGENTS.md` / `.cursor/rules/documentation-policy.mdc`).
+Use the **patch-based handoff**, mirroring the canary-tag division of labor:
+
+1. Claude commits the wiki change locally in the `wiki/` clone (verify it first with
+   `git -C wiki branch -avv`; if `wiki/` is absent, report that instead of cloning it
+   implicitly), then generates a portable patch:
+
+   ```bash
+   git -C wiki format-patch -1 --stdout > wiki-updates.patch
+   ```
+
+   Batch several wiki commits into one patch with `-N` (or a range) when needed, and
+   provide the patch file to the user for download.
+2. The **user applies and pushes from their local machine** (full SSH access):
+
+   ```bash
+   cd path/to/chathub.wiki
+   git am /path/to/wiki-updates.patch
+   git push
+   ```
+
+   They can inspect it first with `git am --show-current-patch < wiki-updates.patch`.
+
+`git format-patch` + `git am` preserves author, date, and message — the wiki history looks
+the same as a direct push, with no credential sharing. The handoff is async: keep
+developing while the user applies it.
+
 ## Cloud environment quirks
 
 - **Dependency install**: `cdn.sheetjs.com` is blocked by the egress proxy, so a plain
