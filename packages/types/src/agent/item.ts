@@ -4,6 +4,7 @@ import { FileItem } from '../files';
 import { KnowledgeBaseItem } from '../knowledgeBase';
 import { FewShots } from '../llm';
 import { LobeAgentChatConfig } from './chatConfig';
+import { AssistantMemoryMeta } from './memory';
 import { LobeAgentTTSConfig } from './tts';
 
 export interface LobeAgentConfig {
@@ -60,10 +61,22 @@ export interface LobeAgentConfig {
   virtual?: boolean;
 
   /**
-   * Long-form notes persisted on this assistant and injected into every chat with it
-   * (separate from per-topic `historySummary` / compaction).
+   * Dynamic memory: auto-rolled-up notes persisted on this assistant and injected into
+   * every chat with it (separate from per-topic `historySummary` / compaction).
    */
   assistantMemory?: string;
+
+  /**
+   * Rollup bookkeeping for `assistantMemory`: per-topic watermarks, one-slot undo
+   * backup, and last-error/backoff state. See {@link AssistantMemoryMeta}.
+   */
+  assistantMemoryMeta?: AssistantMemoryMeta;
+
+  /**
+   * Fixed memory: user-curated markdown document, always injected into every chat
+   * with this assistant and never modified by automatic summarization.
+   */
+  fixedMemory?: string;
 }
 
 export type LobeAgentConfigKeys =
@@ -96,4 +109,6 @@ export interface AgentItem {
   virtual?: boolean | null;
 
   assistantMemory?: string | null;
+  assistantMemoryMeta?: AssistantMemoryMeta | null;
+  fixedMemory?: string | null;
 }

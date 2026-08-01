@@ -834,5 +834,14 @@
     "bps": true,
     "folderMillis": 1785116997268,
     "hash": "559a8d52cb56d8a6ad08546c12f2c505847685a4091c3f3810c3bbdfb982652c"
+  },
+  {
+    "sql": [
+      "ALTER TABLE \"agents\" ADD COLUMN IF NOT EXISTS \"assistant_memory_meta\" jsonb;",
+      "\nALTER TABLE \"agents\" ADD COLUMN IF NOT EXISTS \"fixed_memory\" text;\n"
+    ],
+    "bps": true,
+    "folderMillis": 1785556136717,
+    "hash": "ad368aa500ccf06ba0a77297f095dcb3206c658f489506b5c5e1854a43674a61"
   }
 ]

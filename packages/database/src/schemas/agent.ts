@@ -60,8 +60,17 @@ export const agents = pgTable(
     openingMessage: text('opening_message'),
     openingQuestions: text('opening_questions').array().default([]),
 
-    /** Cross-session notes for this assistant; injected with (after) topic compression summary. */
+    /** Dynamic memory: auto-rolled-up cross-session notes for this assistant. */
     assistantMemory: text('assistant_memory'),
+    /**
+     * Rollup bookkeeping for `assistantMemory` (topic watermarks, undo backup, error/backoff).
+     * Kept as an untyped jsonb (like `params`/`fewShots`) so drizzle-zod insert-schema
+     * inference stays unchanged; app code types it via `AssistantMemoryMeta` on
+     * `AgentItem`/`LobeAgentConfig` in `@lobechat/types`.
+     */
+    assistantMemoryMeta: jsonb('assistant_memory_meta'),
+    /** Fixed memory: user-curated markdown doc, always injected, never auto-modified. */
+    fixedMemory: text('fixed_memory'),
 
     ...timestamps,
   },
