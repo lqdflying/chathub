@@ -8,6 +8,7 @@ The main entrypoint is `src/services/chat/contextEngineering.ts`. It constructs 
 
 - history truncation
 - system-role injection
+- two-tier agent memory injection (fixed + dynamic)
 - inbox guide injection
 - tool system-role injection
 - history summary injection
@@ -17,6 +18,11 @@ The main entrypoint is `src/services/chat/contextEngineering.ts`. It constructs 
 - tool call processing
 - tool message reordering
 - message cleanup
+
+Agent memory sits immediately after the system role on purpose: the rarely-changing
+memory block stays in the stable prompt prefix (fixed memory changes only on user
+edits, dynamic memory at most daily), ahead of the more volatile inbox/tool/summary
+blocks, which preserves provider prompt-cache hit rates.
 
 ## Chat Instruction composition
 
@@ -152,14 +158,58 @@ changes instead of a polling timer. Topic compaction and topic-summary injection
 limited to regular topic chats. Group chats and active/portal threads use their raw scoped history and
 cannot create, mutate, or consume a regular topic summary; assistant-wide memory remains available.
 
+The daily browser marker is scoped by canonical account, session, and topic. An unresolved account
+does not write a marker, so a topic is not accidentally suppressed for another signed-in account.
+
+## Two-tier assistant memory
+
+Each agent carries two memory tiers on the `agents` row. `fixed_memory` is a user-curated
+markdown document: always injected when non-empty, never read from or written to by automation
+(it is passed to the rollup prompt only as do-not-duplicate context). `assistant_memory` is the
+dynamic tier: a small durable-facts document the rollup maintains, with its bookkeeping in the
+`assistant_memory_meta` jsonb (per-topic watermarks, a one-slot previous-version backup, and
+last-error/backoff state). Both tiers are injected by `AgentMemoryProvider` inside an
+`<assistant_memory>` wrapper right after the agent system role — durable memory no longer ships
+inside the `<chat_history_summary>` framing, and `HistorySummaryProvider` now carries only the
+topic-scoped summary. The token popover and async estimator report the memory block as its own
+allocation bucket, and member/agent-scoped requests inject the target agent's own memory and chat
+config rather than the host session's.
+
+The rollup is a selective extractor, not a consolidator. The prompt admits an item only if it
+would change behavior in a future unrelated conversation, requires category-organized output
+(never per-topic digests), and allows an exact `NO_CHANGES` sentinel reply; a sentinel run
+advances watermarks without rewriting the document. Dirtiness is a hash of each topic's
+compaction summary text: unchanged topics are never re-fed to the model, and a fully clean pass
+costs zero LLM calls. Manual "regenerate" passes `force` for a full rebuild. Output is bounded
+twice — `max_tokens` on the request and a token-based post-cap (CJK-safe, replacing the old
+char-only cap) — and multilingual preamble stripping guards the stored text. A refusal, error, or
+empty output never overwrites the document; it records `lastError`, whose attempt count drives an
+exponential backoff (10 min base, 6 h cap) honored by scheduled runs. Successful runs keep the
+prior document in the one-slot backup, and `restoreAssistantMemoryBackup` swaps it with the
+current text so restoring twice is a redo.
+
+Rollup runs are single-flight per account scope and agent; the scheduler and the manual button
+join the same in-flight job. The rollup day-marker is account-scoped
+(`lobe_assistant_memory_rollup_<scope>_<agentId>`) on the local calendar day, written on success
+and on genuine no-op skips but not on failures or backoff skips, and the scheduler interval reads
+all state inside its tick so switching agents never resets it. The legacy Dexie edition cannot
+list topics for the rollup, so scheduler, action, and UI buttons are gated off there while fixed
+memory continues to work. After a successful write, every agent-config SWR key in the account
+scope is revalidated so sibling sessions bound to the same agent drop their stale copy.
+
 Assistant-wide memory rollup is an agent-store action, while `ChatService` reads the agent store when
 assembling requests. The action therefore lazy-loads `@/services/chat` only when a rollup runs; a
 static import would create an agent-store initialization cycle in the Next.js server bundle. Because
 module loading is asynchronous, the action revalidates its captured account and agent context before
 calling the service.
 
-The daily browser marker is scoped by canonical account, session, and topic. An unresolved account
-does not write a marker, so a topic is not accidentally suppressed for another signed-in account.
+The memory-archive snippets attached to a topic are prefixes of successive versions of the same
+cumulative summary, so injection drops any excerpt already contained in the current summary text or
+in a newer kept excerpt instead of repeating it.
+
+The settings Memory tab edits both tiers through the scoped AgentSetting store, so the defaults
+page and group-member drawers target the agent they display; rollup and restore act on the active
+session's agent and are disabled elsewhere.
 
 Compaction persists the summary, cursor, archive data, and bounded debug log in one topic update. The
 debug entry records trigger, result, watermarks, before/after estimates, and cursor. Pre-send work
@@ -208,7 +258,10 @@ Useful test locations include:
 
 - `packages/context-engine/src/processors/__tests__/MessageContent.test.ts`
 - `packages/context-engine/src/processors/__tests__/PlaceholderVariables.test.ts`
+- `packages/context-engine/src/providers/__tests__/AgentMemoryProvider.test.ts`
 - `src/services/chat/contextEngineering.test.ts`
+- `src/store/agent/slices/chat/action.test.ts` (rollup watermarks/backoff/undo)
+- `src/features/Conversation/components/ContextMemory/AssistantMemoryRollupScheduler.test.tsx`
 
 ## Key source references
 
