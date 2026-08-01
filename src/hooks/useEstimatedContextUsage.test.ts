@@ -86,6 +86,7 @@ vi.mock('@/store/agent/selectors', () => ({
       enableCompressHistory: false,
       enableUserMemoryArchive: false,
     }),
+    enableAssistantMemory: () => true,
     enableHistoryCount: (state: ReturnType<typeof mocks.getAgentState>) => state.enableHistoryCount,
     historyCount: (state: ReturnType<typeof mocks.getAgentState>) => state.historyCount,
   },

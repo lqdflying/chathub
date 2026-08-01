@@ -75,10 +75,12 @@ export const estimateContextUsageAsync = async ({
       topicSummary: historySummary,
     }) || '';
   // mirrors the AgentMemoryProvider injection built in internal_fetchAIChatMessage
-  const agentMemoryForRequest = agentMemoryPrompt({
-    dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
-    fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
-  });
+  const agentMemoryForRequest = agentChatConfigSelectors.enableAssistantMemory(agentState)
+    ? agentMemoryPrompt({
+        dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
+        fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
+      })
+    : '';
 
   const generalInstruction = userGeneralSettingsSelectors.generalInstruction(getUserStoreState());
   const systemRole = composeSystemRole(

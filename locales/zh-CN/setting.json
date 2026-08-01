@@ -351,6 +351,10 @@
       "save": "保存修改",
       "title": "动态记忆（自动汇总）"
     },
+    "enableAssistantMemory": {
+      "desc": "关闭后该助手不注入固定/动态记忆、不进行汇总，也不提供记忆保存工具（适合无状态助手）",
+      "title": "启用助手记忆"
+    },
     "enableDailyMemorySummary": {
       "desc": "每个自然日最多一次（本浏览器记录）",
       "title": "每日话题备忘"

@@ -351,6 +351,10 @@
       "save": "Save changes",
       "title": "Dynamic memory (auto-summarized)"
     },
+    "enableAssistantMemory": {
+      "desc": "When off, this assistant injects no fixed/dynamic memory, never rolls up, and offers no save-memory tool (for stateless assistants).",
+      "title": "Enable assistant memory"
+    },
     "enableDailyMemorySummary": {
       "desc": "Runs at most once per calendar day in this browser.",
       "title": "Daily topic note"

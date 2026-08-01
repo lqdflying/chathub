@@ -66,8 +66,19 @@ const AgentMemory = memo(() => {
     title: t('settingChatMemory.compactionGroupTitle'),
   };
 
+  const memoryEnabled = config.enableAssistantMemory !== false;
+
   const memoryGroup: FormGroupItemType = {
     children: [
+      {
+        children: <Switch />,
+        desc: t('settingChatMemory.enableAssistantMemory.desc'),
+        label: t('settingChatMemory.enableAssistantMemory.title'),
+        layout: 'horizontal',
+        minWidth: undefined,
+        name: 'enableAssistantMemory',
+        valuePropName: 'checked',
+      },
       {
         children: <Switch />,
         desc: t('settingChatMemory.enableUserMemoryArchive.desc'),
@@ -80,6 +91,7 @@ const AgentMemory = memo(() => {
       {
         children: <Switch />,
         desc: t('settingChatMemory.enablePeriodicAssistantMemoryRollup.desc'),
+        hidden: !memoryEnabled,
         label: t('settingChatMemory.enablePeriodicAssistantMemoryRollup.title'),
         layout: 'horizontal',
         minWidth: undefined,
@@ -98,8 +110,8 @@ const AgentMemory = memo(() => {
         showIcon
         type={'info'}
       />
-      <FixedMemory />
-      <DynamicMemory />
+      {memoryEnabled && <FixedMemory />}
+      {memoryEnabled && <DynamicMemory />}
       <Form
         footer={
           <Form.SubmitFooter

@@ -27,6 +27,7 @@ export const DEFAULT_AGENT_CHAT_CONFIG: LobeAgentChatConfig = {
   autoCreateTopicThreshold: 2,
   contextCompactThreshold: 0.8,
   displayMode: 'chat',
+  enableAssistantMemory: true,
   enableAutoCreateTopic: true,
   enableCompressHistory: true,
   enableDailyMemorySummary: false,

@@ -47,13 +47,15 @@ export const useEstimatedContextUsage = (
       s.activeSessionType !== 'group' && !s.activeThreadId && !s.portalThreadId,
     ]);
 
-  const [systemRole, model, provider, assistantMemory, fixedMemory] = useAgentStore((s) => [
-    agentSelectors.currentAgentSystemRole(s),
-    agentSelectors.currentAgentModel(s) as string,
-    agentSelectors.currentAgentModelProvider(s) as string,
-    agentSelectors.currentAgentConfig(s).assistantMemory ?? '',
-    agentSelectors.currentAgentConfig(s).fixedMemory ?? '',
-  ]);
+  const [systemRole, model, provider, assistantMemory, fixedMemory, enableAssistantMemory] =
+    useAgentStore((s) => [
+      agentSelectors.currentAgentSystemRole(s),
+      agentSelectors.currentAgentModel(s) as string,
+      agentSelectors.currentAgentModelProvider(s) as string,
+      agentSelectors.currentAgentConfig(s).assistantMemory ?? '',
+      agentSelectors.currentAgentConfig(s).fixedMemory ?? '',
+      agentChatConfigSelectors.enableAssistantMemory(s),
+    ]);
 
   const [historyCount, enableHistoryCount, enableCompressHistory, enableUserMemoryArchive] =
     useAgentStore((s) => [
@@ -151,11 +153,13 @@ export const useEstimatedContextUsage = (
   // mirrors the AgentMemoryProvider injection built in internal_fetchAIChatMessage
   const agentMemoryBlock = useMemo(
     () =>
-      agentMemoryPrompt({
-        dynamicMemory: normalizeAssistantMemoryText(assistantMemory) || undefined,
-        fixedMemory: fixedMemory.trim() || undefined,
-      }),
-    [assistantMemory, fixedMemory],
+      enableAssistantMemory
+        ? agentMemoryPrompt({
+            dynamicMemory: normalizeAssistantMemoryText(assistantMemory) || undefined,
+            fixedMemory: fixedMemory.trim() || undefined,
+          })
+        : '',
+    [assistantMemory, fixedMemory, enableAssistantMemory],
   );
   const memoryToken = useTokenCount(agentMemoryBlock);
   const historySummaryToken = useTokenCount(memorySummary);

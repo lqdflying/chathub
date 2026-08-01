@@ -123,6 +123,12 @@ export interface LobeAgentChatConfig {
   /** Fraction of model context window (0.5–0.99) before token-based auto compact */
   contextCompactThreshold?: number;
 
+  /**
+   * Master switch for assistant memory (fixed + dynamic): injection, rollup, and the
+   * save-memory tool. Default true; turn off for stateless assistants.
+   */
+  enableAssistantMemory?: boolean;
+
   /** Opt-in: client-side daily compaction per session/topic */
   enableDailyMemorySummary?: boolean;
 
@@ -146,6 +152,7 @@ export const AgentChatConfigSchema = z.object({
   autoCreateTopicThreshold: z.number().default(2),
   contextCompactThreshold: z.number().min(0.5).max(0.99).optional(),
   displayMode: z.enum(['chat', 'docs']).optional(),
+  enableAssistantMemory: z.boolean().optional(),
   enableAutoCreateTopic: z.boolean().optional(),
   enableCompressHistory: z.boolean().optional(),
   enableDailyMemorySummary: z.boolean().optional(),

@@ -37,6 +37,7 @@ const AssistantMemoryRollupScheduler = () => {
       const agent = getAgentStoreState();
       const cfg = agentChatConfigSelectors.currentChatConfig(agent);
 
+      if (cfg.enableAssistantMemory === false) return;
       if (!cfg.enablePeriodicAssistantMemoryRollup) return;
       if (!agent.activeAgentId || !chat.activeId) return;
       if (isGroupSessionContext(chat.activeSessionType)) return;

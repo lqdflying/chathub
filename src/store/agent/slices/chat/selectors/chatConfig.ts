@@ -68,6 +68,10 @@ const contextCompactThreshold = (s: AgentStoreState) =>
   currentAgentChatConfig(s).contextCompactThreshold ??
   DEFAULT_AGENT_CHAT_CONFIG.contextCompactThreshold!;
 
+const enableAssistantMemory = (s: AgentStoreState) =>
+  currentAgentChatConfig(s).enableAssistantMemory ??
+  DEFAULT_AGENT_CHAT_CONFIG.enableAssistantMemory!;
+
 const enableDailyMemorySummary = (s: AgentStoreState) =>
   currentAgentChatConfig(s).enableDailyMemorySummary ??
   DEFAULT_AGENT_CHAT_CONFIG.enableDailyMemorySummary!;
@@ -82,6 +86,7 @@ export const agentChatConfigSelectors = {
   contextCompactThreshold,
   currentChatConfig: currentAgentChatConfig,
   displayMode,
+  enableAssistantMemory,
   enableDailyMemorySummary,
   enableHistoryCount,
   enableHistoryDivider,

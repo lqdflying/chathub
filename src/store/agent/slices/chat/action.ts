@@ -45,7 +45,7 @@ import { KnowledgeItem } from '@/types/knowledgeBase';
 import { merge } from '@/utils/merge';
 
 import type { AgentStore } from '../../store';
-import { agentSelectors } from './selectors';
+import { agentChatConfigSelectors, agentSelectors } from './selectors';
 
 /**
  * 助手接口
@@ -306,6 +306,9 @@ export const createChatSlice: StateCreator<
     rollupAssistantMemory: async (options) => {
       // the legacy Dexie topic service cannot list rollup rows (it throws)
       if (isDeprecatedEdition) return { reason: 'unsupported_mode', status: 'skipped' };
+      if (!agentChatConfigSelectors.enableAssistantMemory(get())) {
+        return { reason: 'disabled', status: 'skipped' };
+      }
 
       const mutationContext = captureMutationContext();
       if (!mutationContext) return { reason: 'no_account', status: 'failed' };

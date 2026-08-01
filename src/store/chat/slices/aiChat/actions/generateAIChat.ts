@@ -869,11 +869,14 @@ export const generateAIChat: StateCreator<
     });
     // Two-tier assistant memory for the target agent (member requests carry their own
     // config via params.agentConfig); injected by AgentMemoryProvider, separate from
-    // the topic history summary.
-    const agentMemoryForRequest = {
-      dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
-      fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
-    };
+    // the topic history summary. Absent flag means enabled (default true).
+    const agentMemoryForRequest =
+      chatConfig.enableAssistantMemory === false
+        ? {}
+        : {
+            dynamicMemory: normalizeAssistantMemoryText(agentConfig.assistantMemory) || undefined,
+            fixedMemory: (agentConfig.fixedMemory ?? '').trim() || undefined,
+          };
     const requestMessages = enableHistoryCompaction
       ? getMessagesAfterHistorySummaryCursor(
           messages,
