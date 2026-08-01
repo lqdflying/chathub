@@ -181,9 +181,9 @@ Client-dispatched completions are reported through
 `telemetry.reportToolCompletion`. Each report contains its own call-ID hash and
 `diagnosticId`, the shared batch correlation, a bounded result-shape summary,
 runtime type, terminal outcome, and tool-name hash. Explicitly correlated nested
-Tools RPC calls use isolated requests so parallel web-search, MiniMax-vision,
-MCP, persistence, and telemetry operations cannot inherit a sibling's
-diagnostic header. Uncorrelated Tools procedures remain batchable.
+Tools RPC calls use isolated requests so parallel web-search, MCP, persistence,
+and telemetry operations cannot inherit a sibling's diagnostic header.
+Uncorrelated Tools procedures remain batchable.
 
 MCP `call_tool_complete` and `call_tool_failed` records inherit the same
 per-call `diagnosticId` from the isolated Tools RPC request. The validated MCP
