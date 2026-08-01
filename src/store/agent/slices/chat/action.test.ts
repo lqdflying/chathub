@@ -1,4 +1,9 @@
-import { ASSISTANT_MEMORY_MAX_CHARS, ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS } from '@lobechat/prompts';
+import {
+  ASSISTANT_MEMORY_MAX_CHARS,
+  ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
+  ASSISTANT_MEMORY_ROLLUP_MAX_OUTPUT_TOKENS,
+  ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
+} from '@lobechat/prompts';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -6,6 +11,7 @@ import { mutate } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { INBOX_SESSION_ID } from '@/const/session';
+import { hashText } from '@/helpers/assistantMemory';
 import { agentService } from '@/services/agent';
 import { chatService } from '@/services/chat';
 import { globalService } from '@/services/global';
@@ -32,6 +38,12 @@ vi.mock('@/const/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/const/auth')>()),
   enableAuth: true,
 }));
+// vitest runs without server/pglite env flags, which reads as the deprecated edition
+// and would short-circuit rollupAssistantMemory
+vi.mock('@/const/version', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/const/version')>()),
+  isDeprecatedEdition: false,
+}));
 vi.mock('@/services/chat', () => ({
   chatService: {
     fetchPresetTaskResult: vi.fn(),
@@ -41,6 +53,9 @@ vi.mock('@/services/topic', () => ({
   topicService: {
     listTopicsForAgentMemoryRollup: vi.fn(),
   },
+}));
+vi.mock('@/utils/tokenizer', () => ({
+  encodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
 }));
 vi.mock('@/store/electron', () => ({
   getElectronStoreState: () => ({}),
@@ -452,9 +467,7 @@ describe('AgentSlice', () => {
   });
 
   describe('rollupAssistantMemory', () => {
-    it('should save normalized capped assistant memory from topic summaries', async () => {
-      const { result } = renderHook(() => useAgentStore());
-
+    const seedAgent = (config: Record<string, any> = {}) => {
       act(() => {
         useAgentStore.setState({
           activeAgentId: 'agent-1',
@@ -462,13 +475,15 @@ describe('AgentSlice', () => {
           agentMap: {
             'session-1': {
               assistantMemory: 'old memory',
+              ...config,
             },
           },
         } as any);
       });
+    };
 
-      const listTopicsMock = vi.mocked(topicService.listTopicsForAgentMemoryRollup);
-      listTopicsMock.mockResolvedValue([
+    const seedTopics = () => {
+      vi.mocked(topicService.listTopicsForAgentMemoryRollup).mockResolvedValue([
         {
           historySummary: 'User prefers concise answers.',
           id: 'topic-1',
@@ -477,6 +492,22 @@ describe('AgentSlice', () => {
           updatedAt: new Date(),
         },
       ]);
+    };
+
+    const resetAgentState = () => {
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: undefined,
+          activeId: INBOX_SESSION_ID,
+          agentMap: {},
+        } as any);
+      });
+    };
+
+    it('should save normalized capped assistant memory with watermarks and undo backup', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent();
+      seedTopics();
 
       const fetchPresetTaskResultMock = vi.mocked(chatService.fetchPresetTaskResult);
       fetchPresetTaskResultMock.mockImplementation(async ({ onFinish }) => {
@@ -493,8 +524,15 @@ describe('AgentSlice', () => {
 
       const response = await result.current.rollupAssistantMemory();
 
-      expect(response).toEqual({ success: true });
-      expect(listTopicsMock).toHaveBeenCalledWith('agent-1', ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS);
+      expect(response).toEqual({ horizonTruncated: false, status: 'success' });
+      expect(topicService.listTopicsForAgentMemoryRollup).toHaveBeenCalledWith(
+        'agent-1',
+        ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
+      );
+
+      // request carries an output cap
+      const params = fetchPresetTaskResultMock.mock.calls[0][0].params as any;
+      expect(params.max_tokens).toBe(ASSISTANT_MEMORY_ROLLUP_MAX_OUTPUT_TOKENS);
 
       expect(updateMock).toHaveBeenCalledWith(
         'session-1',
@@ -503,21 +541,236 @@ describe('AgentSlice', () => {
         expect.any(Object),
         expect.any(Function),
       );
-      const savedMemory = updateMock.mock.calls[0][1].assistantMemory as string;
+      const patch = updateMock.mock.calls[0][1] as any;
+      const savedMemory = patch.assistantMemory as string;
       expect(savedMemory).not.toContain('```');
       expect(savedMemory).not.toMatch(/^Here is/i);
       expect(savedMemory.length).toBeLessThanOrEqual(ASSISTANT_MEMORY_MAX_CHARS);
 
-      listTopicsMock.mockReset();
-      fetchPresetTaskResultMock.mockReset();
-      updateMock.mockRestore();
-      act(() => {
-        useAgentStore.setState({
-          activeAgentId: undefined,
-          activeId: INBOX_SESSION_ID,
-          agentMap: {},
-        } as any);
+      // full meta object: cleared error, fresh watermarks, prior kept as undo backup
+      expect(patch.assistantMemoryMeta).toEqual({
+        lastError: null,
+        lastRollupAt: expect.any(String),
+        previousMemory: { at: expect.any(String), text: 'old memory' },
+        topicWatermarks: [
+          {
+            summaryHash: hashText('User prefers concise answers.'),
+            topicId: 'topic-1',
+            updatedAt: expect.any(Number),
+          },
+        ],
       });
+
+      // sibling sessions of this agent get revalidated (A6)
+      expect(mutateAccountSWRByPredicate).toHaveBeenCalledWith(
+        'user:user-id',
+        expect.any(Function),
+      );
+      const predicate = vi.mocked(mutateAccountSWRByPredicate).mock.calls.at(-1)![1] as (
+        key: unknown,
+      ) => boolean;
+      expect(predicate(['FETCH_AGENT_CONFIG', 'user:user-id', 'sibling-session'])).toBe(true);
+      expect(predicate(['FETCH_AGENT_KNOWLEDGE', 'user:user-id', 'agent-1'])).toBe(false);
+      expect(predicate(['FETCH_AGENT_CONFIG', 'user:other', 'sibling-session'])).toBe(false);
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
+    it('joins concurrent calls into a single in-flight rollup', async () => {
+      const llmStarted = createDeferred<void>();
+      const llmRelease = createDeferred<void>();
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent();
+      seedTopics();
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+        llmStarted.resolve();
+        await llmRelease.promise;
+        await onFinish?.('merged memory');
+      });
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      const first = result.current.rollupAssistantMemory();
+      await llmStarted.promise;
+      const second = result.current.rollupAssistantMemory();
+      llmRelease.resolve();
+
+      const [firstResult, secondResult] = await Promise.all([first, second]);
+
+      expect(firstResult.status).toBe('success');
+      expect(secondResult).toBe(firstResult);
+      expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(1);
+      expect(updateMock).toHaveBeenCalledTimes(1);
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
+    it('skips without an LLM call when no topic summary changed since the watermarks', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent({
+        assistantMemoryMeta: {
+          topicWatermarks: [
+            {
+              summaryHash: hashText('User prefers concise answers.'),
+              topicId: 'topic-1',
+              updatedAt: 1,
+            },
+          ],
+        },
+      });
+      seedTopics();
+
+      const response = await result.current.rollupAssistantMemory();
+
+      expect(response).toEqual({
+        horizonTruncated: false,
+        reason: 'no_changes',
+        status: 'skipped',
+      });
+      expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+
+      resetAgentState();
+    });
+
+    it('force rebuild ignores clean watermarks and reprocesses every topic', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent({
+        assistantMemoryMeta: {
+          topicWatermarks: [
+            {
+              summaryHash: hashText('User prefers concise answers.'),
+              topicId: 'topic-1',
+              updatedAt: 1,
+            },
+          ],
+        },
+      });
+      seedTopics();
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+        await onFinish?.('rebuilt memory');
+      });
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      const response = await result.current.rollupAssistantMemory({ force: true });
+
+      expect(response.status).toBe('success');
+      expect(chatService.fetchPresetTaskResult).toHaveBeenCalledTimes(1);
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
+    it('advances watermarks without touching the doc on the NO_CHANGES sentinel', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent({
+        assistantMemoryMeta: {
+          previousMemory: { at: 'earlier', text: 'older backup' },
+        },
+      });
+      seedTopics();
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+        await onFinish?.(ASSISTANT_MEMORY_NO_CHANGES_SENTINEL);
+      });
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      const response = await result.current.rollupAssistantMemory();
+
+      expect(response).toEqual({
+        horizonTruncated: false,
+        reason: 'no_changes',
+        status: 'skipped',
+      });
+      const patch = updateMock.mock.calls[0][1] as any;
+      expect(patch.assistantMemory).toBeUndefined();
+      expect(patch.assistantMemoryMeta.previousMemory).toBeUndefined();
+      expect(patch.assistantMemoryMeta.lastError).toBeNull();
+      expect(patch.assistantMemoryMeta.topicWatermarks).toHaveLength(1);
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
+    it('records lastError with incremented attempts and preserves memory on failure', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent({
+        assistantMemoryMeta: {
+          lastError: { at: '2000-01-01T00:00:00.000Z', attempts: 2, message: 'earlier' },
+        },
+      });
+      seedTopics();
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onError }) => {
+        onError?.(new Error('provider exploded'), undefined);
+      });
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      const response = await result.current.rollupAssistantMemory();
+
+      expect(response).toEqual({ reason: 'provider exploded', status: 'failed' });
+      const patch = updateMock.mock.calls[0][1] as any;
+      expect(patch.assistantMemory).toBeUndefined();
+      expect(patch.assistantMemoryMeta.lastError).toEqual({
+        at: expect.any(String),
+        attempts: 3,
+        message: 'provider exploded',
+      });
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
+    it('honors the failure backoff for scheduled runs but not manual ones', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent({
+        assistantMemoryMeta: {
+          lastError: { at: new Date().toISOString(), attempts: 1, message: 'boom' },
+        },
+      });
+      seedTopics();
+
+      const scheduled = await result.current.rollupAssistantMemory({ trigger: 'scheduled' });
+      expect(scheduled).toEqual({ reason: 'backoff', status: 'skipped' });
+      expect(topicService.listTopicsForAgentMemoryRollup).not.toHaveBeenCalled();
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ onFinish }) => {
+        await onFinish?.('manual retry output');
+      });
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      const manual = await result.current.rollupAssistantMemory({ trigger: 'manual' });
+      expect(manual.status).toBe('success');
+
+      updateMock.mockRestore();
+      resetAgentState();
+    });
+
+    it('returns skipped when there is no compacted topic summary', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      seedAgent();
+      vi.mocked(topicService.listTopicsForAgentMemoryRollup).mockResolvedValue([
+        { historySummary: '  ', id: 'topic-1', sessionId: 's', title: 't', updatedAt: new Date() },
+      ]);
+
+      const response = await result.current.rollupAssistantMemory();
+
+      expect(response).toEqual({ reason: 'no_summaries', status: 'skipped' });
+      expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+
+      resetAgentState();
     });
 
     it('does not write memory after an A-to-B-to-A account reset', async () => {
@@ -599,9 +852,78 @@ describe('AgentSlice', () => {
         response = await rollupPromise;
       });
 
-      expect(response).toEqual({ success: false });
+      expect(response).toEqual({ reason: 'stale_context', status: 'failed' });
       expect(updateSessionConfig).not.toHaveBeenCalled();
       expect(useAgentStore.getState().agentMap['account-a-returned-session']).toBeUndefined();
+    });
+  });
+
+  describe('restoreAssistantMemoryBackup', () => {
+    it('swaps current memory with the backup so restoring twice is a redo', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: 'agent-1',
+          activeId: 'session-1',
+          agentMap: {
+            'session-1': {
+              assistantMemory: 'current memory',
+              assistantMemoryMeta: {
+                previousMemory: { at: 'earlier', text: 'previous memory' },
+              },
+            },
+          },
+        } as any);
+      });
+
+      const updateMock = vi
+        .spyOn(result.current, 'internal_updateAgentConfig')
+        .mockResolvedValue(undefined);
+
+      await expect(result.current.restoreAssistantMemoryBackup()).resolves.toBe(true);
+
+      expect(updateMock).toHaveBeenCalledWith(
+        'session-1',
+        {
+          assistantMemory: 'previous memory',
+          assistantMemoryMeta: {
+            previousMemory: { at: expect.any(String), text: 'current memory' },
+          },
+        },
+        undefined,
+        expect.any(Object),
+        expect.any(Function),
+      );
+
+      updateMock.mockRestore();
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: undefined,
+          activeId: INBOX_SESSION_ID,
+          agentMap: {},
+        } as any);
+      });
+    });
+
+    it('returns false when there is no backup', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: 'agent-1',
+          activeId: 'session-1',
+          agentMap: { 'session-1': { assistantMemory: 'current memory' } },
+        } as any);
+      });
+
+      await expect(result.current.restoreAssistantMemoryBackup()).resolves.toBe(false);
+
+      act(() => {
+        useAgentStore.setState({
+          activeAgentId: undefined,
+          activeId: INBOX_SESSION_ID,
+          agentMap: {},
+        } as any);
+      });
     });
   });
 

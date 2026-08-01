@@ -67,11 +67,11 @@ const AgentMemoryPreview = memo(() => {
       onOk: async () => {
         setRollingUp(true);
         try {
-          const r = await rollupAssistantMemory();
-          if (r.skipped) {
-            message.warning(t('settingChatMemory.rollupSkipped'));
-          } else if (r.success) {
+          const r = await rollupAssistantMemory({ force: true, trigger: 'manual' });
+          if (r.status === 'success') {
             message.success(t('settingChatMemory.rollupSuccess'));
+          } else if (r.status === 'skipped') {
+            message.warning(t('settingChatMemory.rollupSkipped'));
           } else {
             message.error(t('settingChatMemory.rollupFailed'));
           }

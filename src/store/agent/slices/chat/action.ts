@@ -1,4 +1,9 @@
-import { ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS, chainAssistantMemoryRollup } from '@lobechat/prompts';
+import {
+  ASSISTANT_MEMORY_NO_CHANGES_SENTINEL,
+  ASSISTANT_MEMORY_ROLLUP_MAX_OUTPUT_TOKENS,
+  ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
+  chainAssistantMemoryRollup,
+} from '@lobechat/prompts';
 import { TraceNameMap } from '@lobechat/types';
 import isEqual from 'fast-deep-equal';
 import { produce } from 'immer';
@@ -9,13 +14,19 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
-import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
+import { isDeprecatedEdition } from '@/const/version';
+import {
+  capAssistantMemoryByTokensAsync,
+  hashText,
+  normalizeAssistantMemoryText,
+} from '@/helpers/assistantMemory';
 import {
   mutateAccountSWR,
   mutateAccountSWRByPredicate,
   useClientDataSWR,
   useOnlyFetchOnceSWR,
 } from '@/libs/swr';
+import type { TopicMemoryRollupRow } from '@/database/models/topic';
 import { agentService } from '@/services/agent';
 import { sessionService } from '@/services/session';
 import { topicService } from '@/services/topic';
@@ -24,7 +35,12 @@ import { AgentState } from '@/store/agent/slices/chat/initialState';
 import { isSessionListCacheKey } from '@/store/session/sessionListKey';
 import { useUserStore } from '@/store/user';
 import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
-import { LobeAgentChatConfig, LobeAgentConfig } from '@/types/agent';
+import {
+  AssistantMemoryMeta,
+  AssistantMemoryTopicWatermark,
+  LobeAgentChatConfig,
+  LobeAgentConfig,
+} from '@/types/agent';
 import { KnowledgeItem } from '@/types/knowledgeBase';
 import { merge } from '@/utils/merge';
 
@@ -65,8 +81,16 @@ export interface AgentChatAction {
   removeKnowledgeBaseFromAgent: (knowledgeBaseId: string) => Promise<void>;
 
   removePlugin: (id: string) => void;
-  /** LLM-merge topic compaction summaries across sessions for this agent into assistantMemory. */
-  rollupAssistantMemory: () => Promise<{ skipped?: boolean; success: boolean }>;
+  /** Swap `assistantMemory` with its one-slot backup; restoring twice is a redo. */
+  restoreAssistantMemoryBackup: () => Promise<boolean>;
+  /**
+   * Incrementally fold changed topic compaction summaries for this agent into the
+   * dynamic memory doc (`assistantMemory`). Fixed memory is passed to the prompt as
+   * read-only context only and is never modified.
+   */
+  rollupAssistantMemory: (
+    options?: AssistantMemoryRollupOptions,
+  ) => Promise<AssistantMemoryRollupResult>;
   toggleFile: (id: string, open?: boolean) => Promise<void>;
   toggleKnowledgeBase: (id: string, open?: boolean) => Promise<void>;
 
@@ -91,6 +115,29 @@ export interface AgentChatAction {
 
 const FETCH_AGENT_CONFIG_KEY = 'FETCH_AGENT_CONFIG';
 const FETCH_AGENT_KNOWLEDGE_KEY = 'FETCH_AGENT_KNOWLEDGE';
+
+export interface AssistantMemoryRollupOptions {
+  /** Rebuild from every topic summary, ignoring watermarks (manual "regenerate"). */
+  force?: boolean;
+  /** Scheduled runs honor the failure backoff; manual runs bypass it. */
+  trigger?: 'manual' | 'scheduled';
+}
+
+export interface AssistantMemoryRollupResult {
+  /** The topic listing hit its LIMIT — older topics were not considered. */
+  horizonTruncated?: boolean;
+  reason?: string;
+  status: 'failed' | 'skipped' | 'success';
+}
+
+/** Per scope+agent single-flight guard: concurrent calls join the in-flight rollup. */
+const rollupJobs = new Map<string, Promise<AssistantMemoryRollupResult>>();
+
+const ROLLUP_BACKOFF_BASE_MS = 10 * 60 * 1000;
+const ROLLUP_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
+
+const rollupBackoffDelayMs = (attempts: number) =>
+  Math.min(ROLLUP_BACKOFF_BASE_MS * 2 ** (Math.max(1, attempts) - 1), ROLLUP_BACKOFF_MAX_MS);
 
 interface AgentMutationCheckpoint {
   accountSnapshot: NonNullable<ReturnType<typeof captureAccountMutationSnapshot>>;
@@ -232,66 +279,222 @@ export const createChatSlice: StateCreator<
 
       await get().togglePlugin(id, false, mutationContext);
     },
-    rollupAssistantMemory: async () => {
+    restoreAssistantMemoryBackup: async () => {
       const mutationContext = captureMutationContext();
-      if (!mutationContext) return { success: false };
+      if (!mutationContext?.activeId) return false;
+      const { activeId } = mutationContext;
 
-      const { activeAgentId, activeId } = mutationContext;
-      if (!activeAgentId || !activeId) return { success: false };
+      const config = agentSelectors.getAgentConfigById(activeId)(get());
+      const previous = config.assistantMemoryMeta?.previousMemory;
+      if (!previous?.text) return false;
 
-      const rows = await topicService.listTopicsForAgentMemoryRollup(
-        activeAgentId,
-        ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
-      );
-      if (!isMutationContextCurrent(mutationContext)) return { success: false };
-
-      const topics = rows.filter((row) => (row.historySummary ?? '').trim().length > 0);
-      if (topics.length === 0) return { skipped: true, success: false };
-
-      const prior = agentSelectors.getAgentConfigById(activeId)(get()).assistantMemory;
-      const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
-
-      const { chatService } = await import('@/services/chat');
-      if (!isMutationContextCurrent(mutationContext)) return { success: false };
-
-      let text = '';
-      await chatService.fetchPresetTaskResult({
-        onFinish: async (resultText) => {
-          text = resultText;
-        },
-        params: {
-          ...chainAssistantMemoryRollup({
-            priorAssistantMemory: prior ?? undefined,
-            topics: topics.map((topic) => ({
-              historySummary: topic.historySummary,
-              sessionId: topic.sessionId,
-              title: topic.title,
-            })),
-          }),
-          model,
-          provider,
-          stream: false,
-        },
-        trace: {
-          sessionId: activeId,
-          traceName: TraceNameMap.AssistantMemoryRollup,
-        },
-      });
-      if (!isMutationContextCurrent(mutationContext)) return { success: false };
-
-      const next = normalizeAssistantMemoryText(text);
-      if (!next) return { success: false };
-
+      const current = normalizeAssistantMemoryText(config.assistantMemory);
       await get().internal_updateAgentConfig(
         activeId,
-        { assistantMemory: next },
+        {
+          assistantMemory: previous.text,
+          assistantMemoryMeta: {
+            previousMemory: current ? { at: new Date().toISOString(), text: current } : null,
+          },
+        },
         undefined,
         mutationContext,
         () => isMutationContextCurrent(mutationContext),
       );
-      if (!isMutationContextCurrent(mutationContext)) return { success: false };
+      return isMutationContextCurrent(mutationContext);
+    },
+    rollupAssistantMemory: async (options) => {
+      // the legacy Dexie topic service cannot list rollup rows (it throws)
+      if (isDeprecatedEdition) return { reason: 'unsupported_mode', status: 'skipped' };
 
-      return { success: true };
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return { reason: 'no_account', status: 'failed' };
+
+      const { activeAgentId, activeId } = mutationContext;
+      if (!activeAgentId || !activeId) return { reason: 'no_agent', status: 'failed' };
+
+      const jobKey = `${mutationContext.accountSnapshot.scope}:${activeAgentId}`;
+      const inFlight = rollupJobs.get(jobKey);
+      if (inFlight) return inFlight;
+
+      const run = async (): Promise<AssistantMemoryRollupResult> => {
+        const isCurrentRequest = () => isMutationContextCurrent(mutationContext);
+        const force = !!options?.force;
+
+        const config = agentSelectors.getAgentConfigById(activeId)(get());
+        const meta: AssistantMemoryMeta = config.assistantMemoryMeta ?? {};
+        const prior = normalizeAssistantMemoryText(config.assistantMemory);
+        const fixed = (config.fixedMemory ?? '').trim();
+
+        // scheduled runs honor the failure backoff so a broken provider cannot hot-loop
+        if (options?.trigger === 'scheduled' && meta.lastError) {
+          const lastAt = Date.parse(meta.lastError.at);
+          if (
+            Number.isFinite(lastAt) &&
+            Date.now() - lastAt < rollupBackoffDelayMs(meta.lastError.attempts)
+          ) {
+            return { reason: 'backoff', status: 'skipped' };
+          }
+        }
+
+        // the deprecated-edition guard above keeps the void-returning legacy service out
+        const rows =
+          ((await topicService.listTopicsForAgentMemoryRollup(
+            activeAgentId,
+            ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS,
+          )) as TopicMemoryRollupRow[] | undefined) ?? [];
+        if (!isCurrentRequest()) return { reason: 'stale_context', status: 'failed' };
+
+        const topics = rows.filter((row) => (row.historySummary ?? '').trim().length > 0);
+        if (topics.length === 0) return { reason: 'no_summaries', status: 'skipped' };
+
+        const horizonTruncated = rows.length >= ASSISTANT_MEMORY_ROLLUP_MAX_TOPICS;
+
+        // dirty = the summary text itself changed since the recorded watermark
+        const watermarkByTopic = new Map(
+          (meta.topicWatermarks ?? []).map((mark) => [mark.topicId, mark.summaryHash]),
+        );
+        const nextWatermarks: AssistantMemoryTopicWatermark[] = topics.map((topic) => ({
+          summaryHash: hashText((topic.historySummary ?? '').trim()),
+          topicId: topic.id,
+          updatedAt: new Date(topic.updatedAt).valueOf(),
+        }));
+        const dirty = topics.filter(
+          (topic, index) => watermarkByTopic.get(topic.id) !== nextWatermarks[index].summaryHash,
+        );
+        if (!force && dirty.length === 0) {
+          return { horizonTruncated, reason: 'no_changes', status: 'skipped' };
+        }
+
+        const promptTopics = force ? topics : dirty;
+        const incremental = !force && dirty.length < topics.length;
+
+        const { model, provider } = systemAgentSelectors.historyCompress(useUserStore.getState());
+
+        const { chatService } = await import('@/services/chat');
+        if (!isCurrentRequest()) return { reason: 'stale_context', status: 'failed' };
+
+        let failureMessage: string | undefined;
+        let text = '';
+        try {
+          await chatService.fetchPresetTaskResult({
+            onError: (error) => {
+              failureMessage = error?.message || 'request failed';
+            },
+            onFinish: async (resultText) => {
+              text = resultText;
+            },
+            params: {
+              ...chainAssistantMemoryRollup({
+                fixedMemory: fixed || undefined,
+                incremental,
+                priorAssistantMemory: prior || undefined,
+                topics: promptTopics.map((topic) => ({
+                  historySummary: topic.historySummary,
+                  sessionId: topic.sessionId,
+                  title: topic.title,
+                })),
+              }),
+              max_tokens: ASSISTANT_MEMORY_ROLLUP_MAX_OUTPUT_TOKENS,
+              model,
+              provider,
+              stream: false,
+            },
+            trace: {
+              sessionId: activeId,
+              traceName: TraceNameMap.AssistantMemoryRollup,
+            },
+          });
+        } catch (error) {
+          failureMessage = (error as Error)?.message || 'request failed';
+        }
+        if (!isCurrentRequest()) return { reason: 'stale_context', status: 'failed' };
+
+        const nowISO = () => new Date().toISOString();
+        const writeConfigPatch = async (patch: PartialDeep<LobeAgentConfig>) =>
+          get().internal_updateAgentConfig(
+            activeId,
+            patch,
+            undefined,
+            mutationContext,
+            isCurrentRequest,
+          );
+
+        // sentinel: nothing durable changed — advance watermarks, keep the doc untouched
+        // (also match the normalized form in case the model wrapped it in a fence)
+        const isNoChangesOutput =
+          !failureMessage &&
+          (text.trim() === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL ||
+            normalizeAssistantMemoryText(text) === ASSISTANT_MEMORY_NO_CHANGES_SENTINEL);
+        if (isNoChangesOutput) {
+          await writeConfigPatch({
+            assistantMemoryMeta: {
+              lastError: null,
+              lastRollupAt: nowISO(),
+              topicWatermarks: nextWatermarks,
+            },
+          });
+          return { horizonTruncated, reason: 'no_changes', status: 'skipped' };
+        }
+
+        const next = failureMessage
+          ? ''
+          : await capAssistantMemoryByTokensAsync(normalizeAssistantMemoryText(text));
+        if (!isCurrentRequest()) return { reason: 'stale_context', status: 'failed' };
+
+        if (!next) {
+          // never overwrite the doc with a refusal/empty output; record the failure for backoff
+          const message = failureMessage || 'empty rollup output';
+          await writeConfigPatch({
+            assistantMemoryMeta: {
+              lastError: {
+                at: nowISO(),
+                attempts: (meta.lastError?.attempts ?? 0) + 1,
+                message,
+              },
+            },
+          });
+          return { reason: message, status: 'failed' };
+        }
+
+        await writeConfigPatch({
+          assistantMemory: next,
+          // full meta object: the watermark array is replaced wholesale (config merge
+          // replaces arrays), so watermarks of deleted topics prune themselves
+          assistantMemoryMeta: {
+            lastError: null,
+            lastRollupAt: nowISO(),
+            previousMemory: prior ? { at: nowISO(), text: prior } : null,
+            topicWatermarks: nextWatermarks,
+          },
+        });
+        if (!isCurrentRequest()) return { reason: 'stale_context', status: 'failed' };
+
+        // sibling sessions bound to this agent hold their own agent-config SWR key;
+        // revalidate them all so they pick up the new memory doc
+        await mutateAccountSWRByPredicate(
+          mutationContext.accountSnapshot.scope,
+          (key) =>
+            Array.isArray(key) &&
+            key[0] === FETCH_AGENT_CONFIG_KEY &&
+            key[1] === mutationContext.accountSnapshot.scope,
+        );
+
+        return { horizonTruncated, status: 'success' };
+      };
+
+      const job = run()
+        .catch(
+          (error): AssistantMemoryRollupResult => ({
+            reason: (error as Error)?.message || 'exception',
+            status: 'failed',
+          }),
+        )
+        .finally(() => {
+          rollupJobs.delete(jobKey);
+        });
+      rollupJobs.set(jobKey, job);
+      return job;
     },
     toggleFile: async (id, open) => {
       const mutationContext = captureMutationContext();
