@@ -164,7 +164,7 @@ does not write a marker, so a topic is not accidentally suppressed for another s
 ## Two-tier assistant memory
 
 Each agent carries two memory tiers on the `agents` row. `fixed_memory` is a user-curated
-markdown document: always injected when non-empty, never read from or written to by automation
+markdown document: always injected when non-empty, never rewritten by automation
 (it is passed to the rollup prompt only as do-not-duplicate context). `assistant_memory` is the
 dynamic tier: a small durable-facts document the rollup maintains, with its bookkeeping in the
 `assistant_memory_meta` jsonb (per-topic watermarks, a one-slot previous-version backup, and
@@ -174,6 +174,22 @@ inside the `<chat_history_summary>` framing, and `HistorySummaryProvider` now ca
 topic-scoped summary. The token popover and async estimator report the memory block as its own
 allocation bucket, and member/agent-scoped requests inject the target agent's own memory and chat
 config rather than the host session's.
+
+The whole feature is gated per assistant by `chatConfig.enableAssistantMemory` (default on):
+when off, nothing is injected, estimators count zero, the scheduler and manual rollup skip
+(`disabled`), the save-memory tool is not offered, and the Memory tab collapses to the master
+switch. Stateless assistants opt out with one toggle.
+
+The model can also write into fixed memory through an implicit builtin tool
+(`lobe-memory` / `saveMemory`, hidden from the plugin picker). Request inclusion is explicit:
+`createChatToolsEngine` takes an `enableMemoryTool` option threaded from
+`internal_fetchAIChatMessage` — enabled only for the active agent's own sends (never
+group/member requests, whose ambient write target would be the wrong agent) — and both token
+estimators pass the same flag so schema-token estimates stay in lockstep; the option keeps
+ambient store reads out of `toolEngineering`, avoiding an import cycle. Saves append numbered
+`#N: …` lines (next index = highest existing `#N:` + 1, so user edits never collide), are
+serialized through a promise chain (tool calls in one turn run concurrently), and write via the
+id-targeted `internal_updateAgentConfig` rather than the abortable shared-slot path.
 
 The rollup is a selective extractor, not a consolidator. The prompt admits an item only if it
 would change behavior in a future unrelated conversation, requires category-organized output
@@ -189,7 +205,12 @@ prior document in the one-slot backup, and `restoreAssistantMemoryBackup` swaps 
 current text so restoring twice is a redo.
 
 Rollup runs are single-flight per account scope and agent; the scheduler and the manual button
-join the same in-flight job. The rollup day-marker is account-scoped
+join the same in-flight job. Rollup currency is ACCOUNT-level only: the target session/agent is
+captured at start, so the user can navigate to other sessions while the rollup runs in the
+background and the result is still written to the captured agent — only an account switch or
+scope reset aborts. In-flight agent ids are exposed in store state
+(`assistantMemoryRollingAgentIds`) so the Regenerate spinner survives unmounts and navigation.
+The rollup day-marker is account-scoped
 (`lobe_assistant_memory_rollup_<scope>_<agentId>`) on the local calendar day, written on success
 and on genuine no-op skips but not on failures or backoff skips, and the scheduler interval reads
 all state inside its tick so switching agents never resets it. The legacy Dexie edition cannot
@@ -209,7 +230,10 @@ in a newer kept excerpt instead of repeating it.
 
 The settings Memory tab edits both tiers through the scoped AgentSetting store, so the defaults
 page and group-member drawers target the agent they display; rollup and restore act on the active
-session's agent and are disabled elsewhere.
+session's agent and are disabled elsewhere. The topic compaction summary is topic-scoped and
+therefore lives outside assistant settings: a shared `TopicSummaryViewer` drawer (markdown +
+model tag + copy/export) opens from the token-badge popover for the active topic and from each
+topic's dropdown menu for any topic with a summary.
 
 Memory UI actions do not gate their visible state on the write promise: config writes share an
 abort-controller slot that a newer write may abort after the server already committed, so the

@@ -5,6 +5,15 @@ Instructions for Claude Code working in this repository. General agent rules liv
 `git-and-release.mdc` for the full release flow). This file adds what those docs do not
 cover: how to operate from the **Claude Code cloud/remote environment**.
 
+## Git workflow (cloud sessions)
+
+The session's designated `claude/*` branch is the working branch. **When already on any
+non-`main` branch, keep committing successive rounds (fixes, features, docs) to that same
+branch — do not create additional branches per fix/feature.** This deliberately avoids
+branch chains; distinct commit messages separate the phases (aligned with `AGENTS.md`).
+Create a new branch only when currently on `main` or when the user explicitly asks for an
+isolation branch.
+
 ## Canary / testing image builds (cloud sessions)
 
 Docker images are built **only by pushing a git tag** (`v*.*.*` or `v*.*.*-canary.*`) —
