@@ -9,8 +9,7 @@
     "opening": "Настройки начала",
     "plugin": "Настройки плагина",
     "prompt": "Настройки роли",
-    "tts": "Сервис озвучивания текста",
-    "memory": "Context"
+    "tts": "Сервис озвучивания текста"
   },
   "analytics": {
     "telemetry": {
@@ -320,27 +319,12 @@
     "export": "Export",
     "compactionGroupTitle": "Compact",
     "memoryGroupTitle": "Memory",
-    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) On this page — under Compact, pick preset and optional auto-compact or daily topic note; under Memory, optional topic snippets and periodic assistant merge.\n3) In chat — click the green token badge to see usage and compact manually.",
     "guideTitle": "How to set up",
-    "previewHint": "Shows the active topic. Saving here does not change saved topic content.",
-    "previewSection": "Preview",
     "submit": "Save",
-    "assistantMemoryHint": "Saved on this assistant and injected into every chat with it. This is separate from the topic compaction summary below.",
-    "assistantMemorySection": "Assistant memory (all chats)",
-    "saveAssistantMemory": "Save assistant memory",
     "topicCompactionHint": "Rolling summary for the active topic only, produced by compact/summarize. Switches when you change topic.",
     "topicCompactionSection": "Current topic compaction (this session)",
-    "enablePeriodicAssistantMemoryRollup": {
-      "desc": "At most once per UTC day per browser (localStorage), merge topic summaries from linked sessions into assistant memory using the system model.",
-      "title": "Periodic assistant memory merge"
-    },
-    "rollupAssistantMemory": "Generate assistant memory from topics",
-    "rollupConfirmDesc": "This will call the system model to merge topic compaction summaries from all sessions linked to this assistant into assistant memory, overwriting the text below (back up first if needed). Continue?",
-    "rollupConfirmOk": "Generate and overwrite",
-    "rollupConfirmTitle": "Generate assistant memory",
     "rollupFailed": "Generation failed. Try again later.",
-    "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first.",
-    "rollupSuccess": "Assistant memory updated."
+    "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first."
   },
   "settingCommon": {
     "lang": {

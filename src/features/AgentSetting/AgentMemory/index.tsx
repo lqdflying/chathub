@@ -10,8 +10,10 @@ import { Flexbox } from 'react-layout-kit';
 import { assistanceLevelToChatConfigPatch, type AssistanceLevel } from '@/const/assistanceLevel';
 import { FORM_STYLE } from '@/const/layoutTokens';
 
-import AgentMemoryPreview from '../AgentChat/AgentMemoryPreview';
 import { selectors, useStore } from '../store';
+import DynamicMemory from './DynamicMemory';
+import FixedMemory from './FixedMemory';
+import TopicCompaction from './TopicCompaction';
 
 const AgentMemory = memo(() => {
   const { t } = useTranslation('setting');
@@ -96,6 +98,8 @@ const AgentMemory = memo(() => {
         showIcon
         type={'info'}
       />
+      <FixedMemory />
+      <DynamicMemory />
       <Form
         footer={
           <Form.SubmitFooter
@@ -123,7 +127,7 @@ const AgentMemory = memo(() => {
         variant={'borderless'}
         {...FORM_STYLE}
       />
-      <AgentMemoryPreview />
+      <TopicCompaction />
     </Flexbox>
   );
 });

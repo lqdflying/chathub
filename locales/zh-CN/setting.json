@@ -4,7 +4,7 @@
   },
   "agentTab": {
     "chat": "聊天偏好",
-    "memory": "上下文",
+    "memory": "记忆",
     "meta": "助手信息",
     "modal": "模型设置",
     "opening": "开场设置",
@@ -334,14 +334,29 @@
       "rich": "丰富",
       "title": "协助预设"
     },
+    "clear": "清空",
+    "clearConfirm": "将清空该助手的动态记忆（固定记忆不受影响）。是否继续？",
+    "compactionGroupTitle": "压缩",
     "contextCompactThreshold": {
-      "desc": "当预估上下文占用超过模型窗口的该比例时尝试自动压缩（估算值，仅供参考）",
+      "desc": "达到该比例时自动压缩，目标水位固定低 20 个百分点（默认 80% → 60%）",
       "title": "超过比例时压缩"
     },
     "copy": "复制",
+    "copySuccess": "已复制",
+    "dynamicMemory": {
+      "empty": "暂无动态记忆；可等待自动汇总生成，或点击「立即重新生成」",
+      "hint": "由模型从各话题压缩摘要中提炼的持久信息（偏好、规则、项目状态、未完成的承诺），注入与该助手的每次对话；只做增量更新，不会逐话题堆积会话内容。可手动编辑后保存。",
+      "lastUpdated": "更新于 {{time}}",
+      "save": "保存修改",
+      "title": "动态记忆（自动汇总）"
+    },
     "enableDailyMemorySummary": {
       "desc": "每个自然日最多一次（本浏览器记录）",
       "title": "每日话题备忘"
+    },
+    "enablePeriodicAssistantMemoryRollup": {
+      "desc": "每个自然日最多一次（本浏览器按账号记录），仅增量汇总有变化的话题摘要；无变化时不消耗模型调用",
+      "title": "定时更新动态记忆"
     },
     "enableTokenThresholdAutoCompact": {
       "desc": "需先在「聊天偏好」开启限制历史消息数与历史总结",
@@ -351,27 +366,29 @@
       "desc": "在话题元数据中保留摘要片段供模型参考",
       "title": "话题记忆片段"
     },
-    "enablePeriodicAssistantMemoryRollup": {
-      "desc": "每个自然日最多尝试一次（本浏览器记录），用系统助手模型合并各会话话题摘要到助手记忆",
-      "title": "定时合并助手记忆"
-    },
-    "assistantMemoryHint": "保存在该助手名下，会在与该助手的每次对话中一并注入模型上下文（与下方「当前话题压缩」不同）。",
-    "assistantMemorySection": "助手记忆（跨会话）",
     "export": "导出 Markdown",
-    "compactionGroupTitle": "压缩",
-    "memoryGroupTitle": "记忆",
-    "guide": "1）打开「聊天偏好」→ 开启「限制历史消息数」与「历史总结」，设置附带条数。\n2）本页上半「压缩」可设协助预设、自动压缩与每日话题备忘；下半「记忆」可设话题片段与定时合并助手记忆。\n3）聊天中点击绿色「用量」标签可查看明细并手动压缩。",
+    "fixedMemory": {
+      "hint": "仅由你维护的持久内容（Markdown），注入与该助手的每次对话；自动汇总永远不会修改或覆盖它。",
+      "placeholder": "记录希望助手永远记住的信息：偏好、规则、项目背景…",
+      "title": "固定记忆（用户维护）"
+    },
+    "guide": "1）「固定记忆」由你维护、永不被自动修改；「动态记忆」由模型从话题压缩摘要增量提炼，可随时编辑、重新生成或恢复上一版。\n2）话题压缩需先在「聊天偏好」开启「限制历史消息数」与「历史总结」。\n3）聊天中点击绿色「用量」标签可查看各部分占用并手动压缩。",
     "guideTitle": "设置步骤",
-    "previewHint": "预览依赖当前活跃话题；保存助手设置不会直接改写话题内容。",
-    "previewSection": "预览",
-    "rollupAssistantMemory": "从话题摘要生成助手记忆",
-    "rollupConfirmDesc": "将使用「系统助手」模型，把已有关联会话中话题的压缩摘要合并进助手记忆，并覆盖下方文本框（可先自行备份）。是否继续？",
-    "rollupConfirmOk": "生成并覆盖",
-    "rollupConfirmTitle": "生成助手记忆",
+    "memoryGroupTitle": "记忆",
+    "notActiveAgentTooltip": "仅当该助手为当前会话时可用",
+    "regenerate": "立即重新生成",
+    "restorePrevious": "恢复上一版",
+    "restoreSuccess": "已恢复上一版动态记忆（再次点击可撤销恢复）",
+    "restoreUnavailable": "没有可恢复的历史版本",
+    "rollupConfirmDesc": "将读取全部话题压缩摘要并重写动态记忆；原内容会保留为上一版，可随时通过「恢复上一版」找回。是否继续？",
+    "rollupConfirmOk": "重新生成",
+    "rollupConfirmTitle": "重新生成动态记忆",
     "rollupFailed": "生成失败，请稍后重试",
-    "rollupSkipped": "没有可用的「话题压缩摘要」，请先在各话题中触发压缩或总结",
-    "rollupSuccess": "助手记忆已更新",
-    "saveAssistantMemory": "保存助手记忆",
+    "rollupFailedWithReason": "生成失败：{{reason}}",
+    "rollupHorizonHint": "话题数已达上限（{{count}}），较早的话题未参与本次汇总",
+    "rollupNoChanges": "话题摘要没有新的持久信息，动态记忆保持不变",
+    "rollupSkipped": "没有可用的「话题压缩摘要」，请先在各话题中触发压缩/总结",
+    "rollupSuccess": "动态记忆已更新",
     "submit": "保存",
     "topicCompactionHint": "仅当前活跃话题的滚动摘要，由压缩/总结生成；换话题后显示对应该话题的内容。",
     "topicCompactionSection": "当前话题压缩（本会话）"

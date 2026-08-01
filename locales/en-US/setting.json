@@ -4,7 +4,7 @@
   },
   "agentTab": {
     "chat": "Chat Preferences",
-    "memory": "Context",
+    "memory": "Memory",
     "meta": "Assistant Info",
     "modal": "Model Settings",
     "opening": "Opening Settings",
@@ -334,14 +334,29 @@
       "rich": "Rich",
       "title": "Assist preset"
     },
+    "clear": "Clear",
+    "clearConfirm": "This clears the assistant's dynamic memory (fixed memory is untouched). Continue?",
+    "compactionGroupTitle": "Compact",
     "contextCompactThreshold": {
       "desc": "When estimated context use exceeds this share of the model window, try auto-compacting (estimate only).",
       "title": "Compact when above"
     },
     "copy": "Copy",
+    "copySuccess": "Copied",
+    "dynamicMemory": {
+      "empty": "No dynamic memory yet. Wait for the automatic update, or click Regenerate now.",
+      "hint": "Durable facts the model extracts from topic compaction summaries (preferences, standing rules, project state, open commitments), injected into every chat with this assistant. Updates are incremental and never pile up per-topic recaps. You can edit it and save.",
+      "lastUpdated": "Updated {{time}}",
+      "save": "Save changes",
+      "title": "Dynamic memory (auto-summarized)"
+    },
     "enableDailyMemorySummary": {
       "desc": "Runs at most once per calendar day in this browser.",
       "title": "Daily topic note"
+    },
+    "enablePeriodicAssistantMemoryRollup": {
+      "desc": "At most once per calendar day (tracked per account in this browser). Only topics whose summary changed are re-summarized; no model call happens when nothing changed.",
+      "title": "Periodic dynamic memory update"
     },
     "enableTokenThresholdAutoCompact": {
       "desc": "Requires Limit history and Summarize history in Chat preferences.",
@@ -351,27 +366,29 @@
       "desc": "Store short summary snippets on the topic for the model to reuse.",
       "title": "Topic snippets"
     },
-    "enablePeriodicAssistantMemoryRollup": {
-      "desc": "At most once per UTC day per browser (localStorage), merge topic summaries from linked sessions into assistant memory using the system model.",
-      "title": "Periodic assistant memory merge"
-    },
-    "assistantMemoryHint": "Saved on this assistant and injected into every chat with it. This is separate from the topic compaction summary below.",
-    "assistantMemorySection": "Assistant memory (all chats)",
     "export": "Export",
-    "compactionGroupTitle": "Compact",
-    "memoryGroupTitle": "Memory",
-    "guide": "1) Chat preferences — turn on Limit history messages and Summarize history, then set how many messages to keep.\n2) On this page — under Compact, pick preset and optional auto-compact or daily topic note; under Memory, optional topic snippets and periodic assistant merge.\n3) In chat — click the green token badge to see usage and compact manually.",
+    "fixedMemory": {
+      "hint": "Durable content you maintain yourself (Markdown), injected into every chat with this assistant. Automatic summarization never modifies or overwrites it.",
+      "placeholder": "Write down what this assistant should always remember: preferences, rules, project background…",
+      "title": "Fixed memory (user-curated)"
+    },
+    "guide": "1) Fixed memory is yours — automation never touches it. Dynamic memory is distilled incrementally from topic compaction summaries; you can edit it, regenerate it, or restore the previous version at any time.\n2) Topic compaction requires Limit history messages and Summarize history in Chat preferences.\n3) In chat, click the green usage badge to inspect context usage and compact manually.",
     "guideTitle": "How to set up",
-    "previewHint": "Shows the active topic. Saving here does not change saved topic content.",
-    "previewSection": "Preview",
-    "rollupAssistantMemory": "Generate assistant memory from topics",
-    "rollupConfirmDesc": "This will call the system model to merge topic compaction summaries from all sessions linked to this assistant into assistant memory, overwriting the text below (back up first if needed). Continue?",
-    "rollupConfirmOk": "Generate and overwrite",
-    "rollupConfirmTitle": "Generate assistant memory",
+    "memoryGroupTitle": "Memory",
+    "notActiveAgentTooltip": "Available only while this assistant is the active session",
+    "regenerate": "Regenerate now",
+    "restorePrevious": "Restore previous",
+    "restoreSuccess": "Previous dynamic memory restored (click again to undo the restore).",
+    "restoreUnavailable": "No previous version to restore.",
+    "rollupConfirmDesc": "This re-reads every topic compaction summary and rewrites the dynamic memory. The current content is kept as the previous version and can be restored at any time. Continue?",
+    "rollupConfirmOk": "Regenerate",
+    "rollupConfirmTitle": "Regenerate dynamic memory",
     "rollupFailed": "Generation failed. Try again later.",
+    "rollupFailedWithReason": "Generation failed: {{reason}}",
+    "rollupHorizonHint": "Topic limit reached ({{count}}); older topics were not included in this update.",
+    "rollupNoChanges": "No new durable information in the topic summaries — dynamic memory left unchanged.",
     "rollupSkipped": "No topic compaction summaries found. Enable compress/history on topics first.",
-    "rollupSuccess": "Assistant memory updated.",
-    "saveAssistantMemory": "Save assistant memory",
+    "rollupSuccess": "Dynamic memory updated.",
     "submit": "Save",
     "topicCompactionHint": "Rolling summary for the active topic only, produced by compact/summarize. Switches when you change topic.",
     "topicCompactionSection": "Current topic compaction (this session)"
