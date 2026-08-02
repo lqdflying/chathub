@@ -27,6 +27,7 @@ import { pluginRouter } from './plugin';
 import { ragEvalRouter } from './ragEval';
 import { sessionRouter } from './session';
 import { sessionGroupRouter } from './sessionGroup';
+import { skillRouter } from './skill';
 import { threadRouter } from './thread';
 import { topicRouter } from './topic';
 import { uploadRouter } from './upload';
@@ -58,6 +59,7 @@ export const lambdaRouter = router({
   ragEval: ragEvalRouter,
   session: sessionRouter,
   sessionGroup: sessionGroupRouter,
+  skill: skillRouter,
   thread: threadRouter,
   topic: topicRouter,
   upload: uploadRouter,

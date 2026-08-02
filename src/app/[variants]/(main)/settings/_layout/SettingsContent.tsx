@@ -50,6 +50,9 @@ const componentMap = {
   [SettingsTabs.Mcp]: dynamic(() => import('../mcp'), {
     loading: () => <Loading />,
   }),
+  [SettingsTabs.Skills]: dynamic(() => import('../skills'), {
+    loading: () => <Loading />,
+  }),
 };
 
 const userStateDependentTabs = new Set<string>([
@@ -59,6 +62,7 @@ const userStateDependentTabs = new Set<string>([
   SettingsTabs.Hotkey,
   SettingsTabs.LLM,
   SettingsTabs.Mcp,
+  SettingsTabs.Skills,
   SettingsTabs.Provider,
   SettingsTabs.Storage,
   SettingsTabs.SystemAgent,

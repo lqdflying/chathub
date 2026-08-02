@@ -44,6 +44,7 @@ export const getAppConfig = () => {
 
       PLUGINS_INDEX_URL: z.string().url(),
       PLUGIN_SETTINGS: z.string().optional(),
+      SKILLS_INDEX_URL: z.string().url().optional(),
 
       APP_URL: z.string().optional(),
       INTERNAL_APP_URL: z.string().optional(),
@@ -77,6 +78,7 @@ export const getAppConfig = () => {
         : PLUGINS_INDEX_URL,
 
       PLUGIN_SETTINGS: process.env.PLUGIN_SETTINGS,
+      SKILLS_INDEX_URL: process.env.SKILLS_INDEX_URL || undefined,
 
       VERCEL_EDGE_CONFIG: process.env.VERCEL_EDGE_CONFIG,
 

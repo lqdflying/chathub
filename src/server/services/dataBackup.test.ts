@@ -35,6 +35,7 @@ const createV2Backup = (data: DataBackupV2['data'] = {}): DataBackupV2 => ({
     threads: [],
     topics: [],
     userInstalledPlugins: [],
+    userInstalledSkills: [],
     userMemories: [],
     userMemoriesContexts: [],
     userMemoriesExperiences: [],

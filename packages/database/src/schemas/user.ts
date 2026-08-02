@@ -1,6 +1,14 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix  */
 import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
-import { boolean, integer, jsonb, pgTable, primaryKey, text } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
 import { DEFAULT_PREFERENCE } from '@/const/user';
 import { CustomPluginParams } from '@/types/tool/plugin';
@@ -73,3 +81,31 @@ export const userInstalledPlugins = pgTable(
 
 export type NewInstalledPlugin = typeof userInstalledPlugins.$inferInsert;
 export type InstalledPluginItem = typeof userInstalledPlugins.$inferSelect;
+
+export const userInstalledSkills = pgTable(
+  'user_installed_skills',
+  {
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    identifier: text('identifier').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull(),
+    instructions: text('instructions').notNull(),
+    sourceType: text('source_type', { enum: ['github', 'registry', 'url'] as const }).notNull(),
+    sourceUrl: text('source_url'),
+    sourceRef: text('source_ref'),
+    contentHash: text('content_hash').notNull(),
+    ...timestamps,
+  },
+  (self) => ({
+    id: primaryKey({ columns: [self.userId, self.identifier] }),
+    contentHashIndex: uniqueIndex('user_installed_skills_user_hash_unique').on(
+      self.userId,
+      self.contentHash,
+    ),
+  }),
+);
+
+export type NewInstalledSkill = typeof userInstalledSkills.$inferInsert;
+export type InstalledSkillItem = typeof userInstalledSkills.$inferSelect;

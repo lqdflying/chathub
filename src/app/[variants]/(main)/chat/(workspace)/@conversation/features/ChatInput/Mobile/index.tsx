@@ -24,6 +24,7 @@ const leftActions: ActionKeys[] = [
   'fileUpload',
   'knowledgeBase',
   'tools',
+  'skills',
   '---',
   ['history', 'stt', 'clear'],
   'mainToken',

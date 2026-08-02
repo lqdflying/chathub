@@ -15,6 +15,7 @@ import { StateCreator } from 'zustand/vanilla';
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
 import { isDeprecatedEdition } from '@/const/version';
+import type { TopicMemoryRollupRow } from '@/database/models/topic';
 import {
   capAssistantMemoryByTokensAsync,
   hashText,
@@ -26,7 +27,6 @@ import {
   useClientDataSWR,
   useOnlyFetchOnceSWR,
 } from '@/libs/swr';
-import type { TopicMemoryRollupRow } from '@/database/models/topic';
 import { agentService } from '@/services/agent';
 import { sessionService } from '@/services/session';
 import { topicService } from '@/services/topic';
@@ -46,6 +46,8 @@ import { merge } from '@/utils/merge';
 
 import type { AgentStore } from '../../store';
 import { agentChatConfigSelectors, agentSelectors } from './selectors';
+
+const nowISO = () => new Date().toISOString();
 
 /**
  * 助手接口
@@ -99,6 +101,7 @@ export interface AgentChatAction {
     open?: boolean,
     mutationContext?: AgentMutationContext,
   ) => Promise<void>;
+  toggleSkill: (id: string, open?: boolean) => Promise<void>;
   updateAgentChatConfig: (config: Partial<LobeAgentChatConfig>) => Promise<void>;
   updateAgentConfig: (
     config: PartialDeep<LobeAgentConfig>,
@@ -416,7 +419,6 @@ export const createChatSlice: StateCreator<
         }
         if (!isCurrentRequest()) return { reason: 'stale_context', status: 'failed' };
 
-        const nowISO = () => new Date().toISOString();
         const writeConfigPatch = async (patch: PartialDeep<LobeAgentConfig>) =>
           get().internal_updateAgentConfig(
             // the CAPTURED session id — the user may have navigated elsewhere meanwhile
@@ -505,12 +507,10 @@ export const createChatSlice: StateCreator<
       }
 
       const job = run()
-        .catch(
-          (error): AssistantMemoryRollupResult => ({
-            reason: (error as Error)?.message || 'exception',
-            status: 'failed',
-          }),
-        )
+        .catch((error): AssistantMemoryRollupResult => ({
+          reason: (error as Error)?.message || 'exception',
+          status: 'failed',
+        }))
         .finally(() => {
           rollupJobs.delete(jobKey);
           set(
@@ -576,6 +576,22 @@ export const createChatSlice: StateCreator<
               plugins.splice(index, 1);
             }
           }
+        });
+      });
+
+      await get().updateAgentConfig(config, mutationContext);
+    },
+    toggleSkill: async (id, open) => {
+      const mutationContext = captureMutationContext();
+      if (!mutationContext) return;
+
+      const originConfig = agentSelectors.currentAgentConfig(get());
+      const config = produce(originConfig, (draft) => {
+        draft.skills = produce(draft.skills || [], (skills) => {
+          const index = skills.indexOf(id);
+          const shouldOpen = open ?? index === -1;
+          if (shouldOpen && index === -1) skills.push(id);
+          if (!shouldOpen && index !== -1) skills.splice(index, 1);
         });
       });
 

@@ -6,6 +6,7 @@ import Model from './Model';
 import STT from './STT';
 import SaveTopic from './SaveTopic';
 import Search from './Search';
+import Skills from './Skills';
 import { GroupChatToken, MainToken, PortalToken } from './Token';
 import Tools from './Tools';
 import Typo from './Typo';
@@ -23,6 +24,7 @@ export const actionMap = {
   portalToken: PortalToken,
   saveTopic: SaveTopic,
   search: Search,
+  skills: Skills,
   stt: STT,
   tools: Tools,
   typo: Typo,

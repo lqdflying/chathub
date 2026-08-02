@@ -9,6 +9,7 @@ import {
   MessageCleanupProcessor,
   MessageContentProcessor,
   PlaceholderVariablesProcessor,
+  SkillInstructionsProvider,
   SystemRoleInjector,
   ToolCallProcessor,
   ToolMessageReorder,
@@ -75,6 +76,20 @@ interface ContextEngineeringContext {
   model: string;
   provider: string;
   sessionId?: string;
+  skills?: {
+    activated?: Array<{
+      description: string;
+      identifier: string;
+      instructions?: string;
+      name: string;
+    }>;
+    available?: Array<{
+      description: string;
+      identifier: string;
+      instructions?: string;
+      name: string;
+    }>;
+  };
   systemRole?: string;
   tools?: string[];
 }
@@ -86,6 +101,7 @@ export const contextEngineering = async ({
   model,
   provider,
   systemRole,
+  skills,
   inputTemplate,
   enableHistoryCount,
   existingSystemRolePolicy,
@@ -110,6 +126,8 @@ export const contextEngineering = async ({
       // system role so the rarely-changing memory block stays in the stable prompt
       // prefix, ahead of the more volatile blocks below (prompt-cache stability).
       new AgentMemoryProvider({ ...agentMemory, formatAgentMemory: agentMemoryPrompt }),
+
+      new SkillInstructionsProvider(skills),
 
       // 3. Inbox guide system role injection
       new InboxGuideProvider({

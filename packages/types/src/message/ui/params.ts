@@ -76,6 +76,7 @@ export interface SendMessageParams {
    * Additional metadata for the message (e.g., mentioned users)
    */
   metadata?: Record<string, any>;
+  activatedSkillIds?: string[];
   onlyAddUserMessage?: boolean;
 }
 

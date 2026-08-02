@@ -88,6 +88,11 @@ export const useCategory = () => {
           label: t('tab.mcp-management'),
         },
         {
+          icon: <Icon icon={Sparkles} />,
+          key: SettingsTabs.Skills,
+          label: t('tab.skills'),
+        },
+        {
           icon: <Icon icon={Database} />,
           key: SettingsTabs.Storage,
           label: t('tab.storage'),

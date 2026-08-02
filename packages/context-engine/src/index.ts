@@ -10,10 +10,12 @@ export type { ContextEngineConfig } from './pipeline';
 export { ContextEngine } from './pipeline';
 
 // Context Providers
+export type { SkillInstructionItem, SkillInstructionsConfig } from './providers';
 export {
   AgentMemoryProvider,
   HistorySummaryProvider,
   InboxGuideProvider,
+  SkillInstructionsProvider,
   SystemRoleInjector,
   ToolSystemRoleProvider,
 } from './providers';

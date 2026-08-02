@@ -6,6 +6,7 @@ export const DATA_BACKUP_TABLES = [
   'users',
   'userSettings',
   'userInstalledPlugins',
+  'userInstalledSkills',
   'aiProviders',
   'aiModels',
   'userMemories',

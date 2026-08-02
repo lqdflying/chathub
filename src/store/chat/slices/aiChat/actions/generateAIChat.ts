@@ -106,6 +106,7 @@ const collectDependentRewindIds = (
 };
 
 interface ProcessMessageParams {
+  activatedSkillIds?: string[];
   conversationContext?: ConversationContext;
   contextExportCaptureId?: string;
   expectedConversationVersion?: number;
@@ -240,7 +241,14 @@ export const generateAIChat: StateCreator<
     await get().internal_resendMessage(id, { traceId });
   },
 
-  sendMessage: async ({ message, files, onlyAddUserMessage, isWelcomeQuestion }) => {
+  sendMessage: async ({
+    activatedSkillIds,
+    message,
+    metadata,
+    files,
+    onlyAddUserMessage,
+    isWelcomeQuestion,
+  }) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const {
       internal_coreProcessMessage,
@@ -278,6 +286,8 @@ export const generateAIChat: StateCreator<
         files,
         isWelcomeQuestion,
         message,
+        activatedSkillIds,
+        metadata,
         onlyAddUserMessage,
       });
 
@@ -292,6 +302,12 @@ export const generateAIChat: StateCreator<
       // if there is activeTopicId，then add topicId to message
       topicId: activeTopicId,
       threadId: activeThreadId,
+      metadata: {
+        ...metadata,
+        ...(activatedSkillIds?.length
+          ? { skills: { activated: [...new Set(activatedSkillIds)] } }
+          : {}),
+      },
     };
 
     const agentConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
@@ -393,10 +409,7 @@ export const generateAIChat: StateCreator<
     // controller, so Stop needs a dedicated per-conversation handle to abort it
     // (see stopGenerateMessage). Read the local controller after the await — a later
     // overlapping send may have replaced the registered operation.
-    const compactionKey = messageMapKey(
-      conversationContext.sessionId,
-      conversationContext.topicId,
-    );
+    const compactionKey = messageMapKey(conversationContext.sessionId, conversationContext.topicId);
     const compactionController = new AbortController();
     const clearCompactionOperation = () => {
       set(
@@ -441,6 +454,7 @@ export const generateAIChat: StateCreator<
       if (!isCurrentConversation()) return;
 
       await internal_coreProcessMessage(messages, id, {
+        activatedSkillIds,
         conversationContext,
         contextExportCaptureId,
         expectedConversationVersion,
@@ -904,12 +918,14 @@ export const generateAIChat: StateCreator<
         agentMemory: agentMemoryForRequest,
         contextExportRequest,
         enableMemoryTool,
+        activatedSkillIds: params?.activatedSkillIds,
         params: {
           messages: requestMessages,
           model,
           provider,
           ...agentConfig.params,
           plugins: agentConfig.plugins,
+          skills: agentConfig.skills,
         },
         historySummary: historySummaryForRequest,
         onContextEngineered: ({ engineeredInput, metadata, request }) => {

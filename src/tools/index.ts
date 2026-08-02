@@ -7,12 +7,19 @@ import { CodeInterpreterManifest } from './code-interpreter';
 import { DalleManifest } from './dalle';
 import { LocalSystemManifest } from './local-system';
 import { MemoryManifest } from './memory';
+import { SkillLoaderManifest } from './skills';
 import { WebBrowsingManifest } from './web-browsing';
 
 export const builtinTools: LobeBuiltinTool[] = [
   {
     identifier: ArtifactsManifest.identifier,
     manifest: ArtifactsManifest,
+    type: 'builtin',
+  },
+  {
+    hidden: true,
+    identifier: SkillLoaderManifest.identifier,
+    manifest: SkillLoaderManifest,
     type: 'builtin',
   },
   {

@@ -195,6 +195,7 @@ COPY --from=builder /app/scripts/migrateServerDB/ensureConversationVersion.cjs /
 COPY --from=builder /app/scripts/migrateServerDB/ensureMessageOrder.cjs /app/ensureMessageOrder.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureMcpOAuthTokens.cjs /app/ensureMcpOAuthTokens.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensurePicbedImages.cjs /app/ensurePicbedImages.cjs
+COPY --from=builder /app/scripts/migrateServerDB/ensureSkillsStorage.cjs /app/ensureSkillsStorage.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureTopicLastActivity.cjs /app/ensureTopicLastActivity.cjs
 COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 

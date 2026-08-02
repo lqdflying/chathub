@@ -1,4 +1,5 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix , typescript-sort-keys/interface */
+import { SkillMessageMetadata } from '../../skill';
 
 export interface ModelTokensUsage {
   // Input tokens breakdown
@@ -64,4 +65,6 @@ export interface ModelPerformance {
   latency?: number;
 }
 
-export interface MessageMetadata extends ModelUsage, ModelPerformance {}
+export interface MessageMetadata extends ModelUsage, ModelPerformance {
+  skills?: SkillMessageMetadata;
+}

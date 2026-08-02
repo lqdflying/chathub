@@ -39,6 +39,7 @@ export const agents = pgTable(
     backgroundColor: text('background_color'),
 
     plugins: jsonb('plugins').$type<string[]>().default([]),
+    skills: jsonb('skills').$type<string[]>().default([]),
 
     clientId: text('client_id'),
 

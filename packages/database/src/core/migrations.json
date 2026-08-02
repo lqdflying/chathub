@@ -843,5 +843,15 @@
     "bps": true,
     "folderMillis": 1785556136717,
     "hash": "ad368aa500ccf06ba0a77297f095dcb3206c658f489506b5c5e1854a43674a61"
+  },
+  {
+    "sql": [
+      "ALTER TABLE \"agents\" ADD COLUMN IF NOT EXISTS \"skills\" jsonb DEFAULT '[]'::jsonb;\n",
+      "\nCREATE TABLE IF NOT EXISTS \"user_installed_skills\" (\n\t\"user_id\" text NOT NULL,\n\t\"identifier\" text NOT NULL,\n\t\"name\" text NOT NULL,\n\t\"description\" text NOT NULL,\n\t\"instructions\" text NOT NULL,\n\t\"source_type\" text NOT NULL,\n\t\"source_url\" text,\n\t\"source_ref\" text,\n\t\"content_hash\" text NOT NULL,\n\t\"accessed_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"updated_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\tCONSTRAINT \"user_installed_skills_user_id_identifier_pk\" PRIMARY KEY(\"user_id\",\"identifier\"),\n\tCONSTRAINT \"user_installed_skills_user_hash_unique\" UNIQUE(\"user_id\",\"content_hash\")\n);\n",
+      "\nDO $$ BEGIN\n ALTER TABLE \"user_installed_skills\" ADD CONSTRAINT \"user_installed_skills_user_id_users_id_fk\" FOREIGN KEY (\"user_id\") REFERENCES \"public\".\"users\"(\"id\") ON DELETE cascade ON UPDATE no action;\nEXCEPTION\n WHEN duplicate_object THEN null;\nEND $$;\n"
+    ],
+    "bps": true,
+    "folderMillis": 1785686400000,
+    "hash": "275547938ec7f612e6b709a9391d14edafbc4e88e0cd175eee142da5ec32e78d"
   }
 ]

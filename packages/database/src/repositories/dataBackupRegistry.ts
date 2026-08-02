@@ -33,6 +33,12 @@ export const DATA_BACKUP_REGISTRY: readonly DataBackupTableConfig[] = [
     userField: 'userId',
   },
   {
+    conflictFields: ['identifier'],
+    idStrategy: 'junction',
+    table: 'userInstalledSkills',
+    userField: 'userId',
+  },
+  {
     conflictFields: ['id'],
     idStrategy: 'natural',
     table: 'aiProviders',

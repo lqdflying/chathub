@@ -67,6 +67,7 @@ export interface AIGenerateV2Action {
    * including preprocessing and postprocessing steps
    */
   internal_execAgentRuntime: (params: {
+    activatedSkillIds?: string[];
     conversationContext?: ConversationContext;
     contextExportCaptureId?: string;
     expectedConversationVersion?: number;
@@ -105,11 +106,13 @@ export const generateAIChatV2: StateCreator<
   AIGenerateV2Action
 > = (set, get) => ({
   sendMessageInServer: async ({
+    activatedSkillIds,
     contextExportCaptureId,
     expectedConversationVersion: capturedConversationVersion,
     files,
     isWelcomeQuestion,
     message,
+    metadata,
     onlyAddUserMessage,
   }) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
@@ -193,6 +196,12 @@ export const generateAIChatV2: StateCreator<
       threadId: activeThreadId,
       imageList: tempImages.length > 0 ? tempImages : undefined,
       videoList: tempVideos.length > 0 ? tempVideos : undefined,
+      metadata: {
+        ...metadata,
+        ...(activatedSkillIds?.length
+          ? { skills: { activated: [...new Set(activatedSkillIds)] } }
+          : {}),
+      },
     });
     get().internal_toggleMessageLoading(true, tempId);
 
@@ -218,6 +227,12 @@ export const generateAIChatV2: StateCreator<
           newUserMessage: {
             content: message,
             files: fileIdList,
+            metadata: {
+              ...metadata,
+              ...(activatedSkillIds?.length
+                ? { skills: { activated: [...new Set(activatedSkillIds)] } }
+                : {}),
+            },
           },
           // if there is activeTopicId，then add topicId to message
           topicId: activeTopicId,
@@ -356,10 +371,7 @@ export const generateAIChatV2: StateCreator<
     // cancel path only aborts while isLoading), so the pre-send compaction needs its own
     // controller, registered under the conversation key so stopGenerateMessage can reach
     // it. A server-created topic is already folded into conversationContext at this point.
-    const compactionKey = messageMapKey(
-      conversationContext.sessionId,
-      conversationContext.topicId,
-    );
+    const compactionKey = messageMapKey(conversationContext.sessionId, conversationContext.topicId);
     const compactionController = new AbortController();
     const clearCompactionOperation = () => {
       set(
@@ -441,6 +453,7 @@ export const generateAIChatV2: StateCreator<
       }
 
       await internal_execAgentRuntime({
+        activatedSkillIds,
         conversationContext,
         contextExportCaptureId: activeContextExportCaptureId,
         expectedConversationVersion,

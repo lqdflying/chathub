@@ -42,6 +42,7 @@ describe('parseConfigFile', () => {
         threads: [],
         topics: [],
         userInstalledPlugins: [],
+        userInstalledSkills: [],
         userMemories: [],
         userMemoriesContexts: [],
         userMemoriesExperiences: [],

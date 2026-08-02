@@ -30,6 +30,7 @@ import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import { isDesktop } from '@/const/version';
 import { getSearchConfig } from '@/helpers/getSearchConfig';
 import { createChatToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
+import { skillService } from '@/services/skill';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
@@ -95,6 +96,7 @@ interface FetchAITaskResultParams extends FetchSSEOptions {
 
 interface CreateAssistantMessageStream extends FetchSSEOptions {
   abortController?: AbortController;
+  activatedSkillIds?: string[];
   agentMemory?: FetchOptions['agentMemory'];
   contextExportRequest?: FetchOptions['contextExportRequest'];
   enableMemoryTool?: boolean;
@@ -108,7 +110,13 @@ interface CreateAssistantMessageStream extends FetchSSEOptions {
 
 class ChatService {
   createAssistantMessage = async (
-    { plugins: enabledPlugins, messages, ...params }: GetChatCompletionPayload,
+    {
+      activatedSkillIds: requestActivatedSkillIds,
+      messages,
+      plugins: enabledPlugins,
+      skills: availableSkillIds,
+      ...params
+    }: GetChatCompletionPayload & { activatedSkillIds?: string[]; skills?: string[] },
     options?: FetchOptions,
   ) => {
     const payload = merge(
@@ -124,13 +132,34 @@ class ChatService {
     // =================== 1. preprocess tools =================== //
 
     const pluginIds = [...(enabledPlugins || [])];
+    const enabledSkillIds = [...new Set(availableSkillIds || [])];
+    const installedSkillMetadata = enabledSkillIds.length
+      ? await skillService.getInstalledSkills()
+      : [];
+    const availableSkills = enabledSkillIds
+      .map((identifier) => installedSkillMetadata.find((skill) => skill.identifier === identifier))
+      .filter(Boolean);
+    const installedEnabledSkillIds = availableSkills.map(({ identifier }) => identifier);
+    const installedEnabledSkillIdSet = new Set(installedEnabledSkillIds);
+    const messageActivatedSkillIds = [...messages]
+      .reverse()
+      .find(({ role, metadata }) => role === 'user' && metadata?.skills?.activated)?.metadata
+      ?.skills?.activated;
+    const requestedSkillIds =
+      options?.activatedSkillIds ?? requestActivatedSkillIds ?? messageActivatedSkillIds;
+    const activatedSkillIds = [...new Set(requestedSkillIds || [])].filter((identifier) =>
+      installedEnabledSkillIdSet.has(identifier),
+    );
+    const activatedSkills = activatedSkillIds.length
+      ? await skillService.resolveSkills(activatedSkillIds)
+      : [];
 
     const toolsEngine = createChatToolsEngine(
       {
         model: payload.model,
         provider: payload.provider!,
       },
-      { enableMemoryTool: options?.enableMemoryTool },
+      { enableMemoryTool: options?.enableMemoryTool, enabledSkillIds: installedEnabledSkillIds },
     );
 
     const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
@@ -160,6 +189,10 @@ class ChatService {
       model: payload.model,
       provider: payload.provider!,
       sessionId: options?.trace?.sessionId,
+      skills: {
+        activated: activatedSkills,
+        available: availableSkills,
+      },
       systemRole,
       tools: enabledToolIds,
     });
@@ -323,6 +356,7 @@ class ChatService {
     isWelcomeQuestion,
     agentMemory,
     enableMemoryTool,
+    activatedSkillIds,
     historySummary,
     toolCacheDebug,
     contextExportRequest,
@@ -335,6 +369,7 @@ class ChatService {
         ...(toolCacheDebug ? { debugToolCache: toolCacheDebug } : {}),
       },
       {
+        activatedSkillIds,
         agentMemory,
         contextExportRequest,
         enableMemoryTool,

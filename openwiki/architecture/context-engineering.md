@@ -55,6 +55,16 @@ This pipeline is the reason the app can support features like:
 - file/image context handling
 - provider-specific formatting for messages and placeholders
 
+## Skill instruction loading
+
+Skill metadata is included in the request context only when the active
+assistant has skills enabled. The full `SKILL.md` body is resolved after turn
+activation, either from picker/slash-command metadata or from the hidden
+`load_skill` builtin. `SkillInstructionsProvider` keeps the metadata and body
+blocks separate, so installing or enabling a skill does not inject its
+instructions into unrelated turns. See [Agent Skills](../integrations/skills.md)
+for the storage, source validation, and activation contract.
+
 ## Context allocation and export
 
 The token popover separates `Chat Instruction`, `Role Settings`, plugin settings,

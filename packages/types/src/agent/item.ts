@@ -8,24 +8,41 @@ import { AssistantMemoryMeta } from './memory';
 import { LobeAgentTTSConfig } from './tts';
 
 export interface LobeAgentConfig {
+  /**
+   * Dynamic memory: auto-rolled-up notes persisted on this assistant and injected into
+   * every chat with it (separate from per-topic `historySummary` / compaction).
+   */
+  assistantMemory?: string;
+  /**
+   * Rollup bookkeeping for `assistantMemory`: per-topic watermarks, one-slot undo
+   * backup, and last-error/backoff state. See {@link AssistantMemoryMeta}.
+   */
+  assistantMemoryMeta?: AssistantMemoryMeta;
   chatConfig: LobeAgentChatConfig;
   fewShots?: FewShots;
   files?: FileItem[];
+  /**
+   * Fixed memory: user-curated markdown document, always injected into every chat
+   * with this assistant and never modified by automatic summarization.
+   */
+  fixedMemory?: string;
+
   id?: string;
   /**
    * knowledge bases
    */
   knowledgeBases?: KnowledgeBaseItem[];
+
   /**
    * 角色所使用的语言模型
    * @default gpt-4o-mini
    */
   model: string;
-
   /**
    * 开场白
    */
   openingMessage?: string;
+
   /**
    * 开场问题
    */
@@ -35,6 +52,7 @@ export interface LobeAgentConfig {
    * 语言模型参数
    */
   params: LLMParams;
+
   /**
    * 启用的插件
    */
@@ -44,6 +62,9 @@ export interface LobeAgentConfig {
    *  模型供应商
    */
   provider?: string;
+
+  /** Skills whose metadata is available to this assistant. */
+  skills?: string[];
 
   /**
    * 系统角色
@@ -59,32 +80,15 @@ export interface LobeAgentConfig {
    * Flag for assistants generated automatically (e.g., from templates)
    */
   virtual?: boolean;
-
-  /**
-   * Dynamic memory: auto-rolled-up notes persisted on this assistant and injected into
-   * every chat with it (separate from per-topic `historySummary` / compaction).
-   */
-  assistantMemory?: string;
-
-  /**
-   * Rollup bookkeeping for `assistantMemory`: per-topic watermarks, one-slot undo
-   * backup, and last-error/backoff state. See {@link AssistantMemoryMeta}.
-   */
-  assistantMemoryMeta?: AssistantMemoryMeta;
-
-  /**
-   * Fixed memory: user-curated markdown document, always injected into every chat
-   * with this assistant and never modified by automatic summarization.
-   */
-  fixedMemory?: string;
 }
 
 export type LobeAgentConfigKeys =
-  | keyof LobeAgentConfig
-  | ['params', keyof LobeAgentConfig['params']];
+  keyof LobeAgentConfig | ['params', keyof LobeAgentConfig['params']];
 
 // Agent database item type (independent from schema)
 export interface AgentItem {
+  assistantMemory?: string | null;
+  assistantMemoryMeta?: AssistantMemoryMeta | null;
   avatar?: string | null;
   backgroundColor?: string | null;
   chatConfig?: LobeAgentChatConfig | null;
@@ -92,6 +96,7 @@ export interface AgentItem {
   createdAt: Date;
   description?: string | null;
   fewShots?: any | null;
+  fixedMemory?: string | null;
   id: string;
   model?: string | null;
   openingMessage?: string | null;
@@ -99,6 +104,7 @@ export interface AgentItem {
   params?: any;
   plugins?: string[];
   provider?: string | null;
+  skills?: string[];
   slug?: string | null;
   systemRole?: string | null;
   tags?: string[];
@@ -107,8 +113,4 @@ export interface AgentItem {
   updatedAt: Date;
   userId: string;
   virtual?: boolean | null;
-
-  assistantMemory?: string | null;
-  assistantMemoryMeta?: AssistantMemoryMeta | null;
-  fixedMemory?: string | null;
 }

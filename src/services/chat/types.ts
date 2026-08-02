@@ -12,6 +12,7 @@ export interface AgentMemoryPayload {
 }
 
 export interface FetchOptions extends FetchSSEOptions {
+  activatedSkillIds?: string[];
   agentMemory?: AgentMemoryPayload;
   contextExportRequest?: ContextExportRequestContext;
   /** Include the implicit save-memory tool for this request */

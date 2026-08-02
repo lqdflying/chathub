@@ -20,10 +20,7 @@ import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { messageService } from '@/services/message';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
@@ -216,7 +213,7 @@ export interface ChatGroupChatAction {
   /** Route an already-persisted user message without creating a duplicate user row. */
   internal_routeGroupUserMessage: (
     groupId: string,
-    message: Pick<UIChatMessage, 'content' | 'targetId'>,
+    message: Pick<UIChatMessage, 'content' | 'metadata' | 'targetId'>,
     immediateSupervisor?: boolean,
     expectedConversationVersion?: number,
     contextExportCaptureId?: string,
@@ -300,7 +297,14 @@ export const chatAiGroupChat: StateCreator<
   };
 
   return {
-    sendGroupMessage: async ({ groupId, message, files, onlyAddUserMessage, targetMemberId }) => {
+    sendGroupMessage: async ({
+      groupId,
+      message,
+      files,
+      metadata,
+      onlyAddUserMessage,
+      targetMemberId,
+    }) => {
       const accountMutationSnapshot = captureAccountMutationSnapshot(getUserStoreState());
       if (!accountMutationSnapshot) return;
 
@@ -333,6 +337,7 @@ export const chatAiGroupChat: StateCreator<
           files: files?.map((f) => f.id),
           role: 'user',
           groupId,
+          metadata,
           sessionId: useSessionStore.getState().activeId,
           topicId: activeTopicId,
           targetId: targetMemberId,
@@ -355,6 +360,7 @@ export const chatAiGroupChat: StateCreator<
             groupId,
             {
               content: message,
+              metadata,
               targetId: targetMemberId,
             },
             false,

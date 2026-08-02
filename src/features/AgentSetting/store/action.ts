@@ -67,6 +67,7 @@ export interface Action extends PublicAction {
   streamUpdateMetaArray: (key: keyof MetaData) => any;
   streamUpdateMetaString: (key: keyof MetaData) => any;
   toggleAgentPlugin: (pluginId: string, state?: boolean) => void;
+  toggleAgentSkill: (skillId: string, state?: boolean) => void;
 
   /**
    * 更新加载状态
@@ -387,6 +388,9 @@ export const store: StateCreator<Store, [['zustand/devtools', never]]> = (set, g
 
   toggleAgentPlugin: (id, state) => {
     get().dispatchConfig({ pluginId: id, state, type: 'togglePlugin' });
+  },
+  toggleAgentSkill: (id, state) => {
+    get().dispatchConfig({ skillId: id, state, type: 'toggleSkill' });
   },
 
   updateLoadingState: (key, value) => {

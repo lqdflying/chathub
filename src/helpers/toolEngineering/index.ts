@@ -9,6 +9,7 @@ import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 import { getToolStoreState } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { MemoryManifest } from '@/tools/memory';
+import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { getSearchConfig } from '../getSearchConfig';
@@ -62,6 +63,7 @@ export interface ChatToolsEngineOptions {
    * import cycle with the chat store.
    */
   enableMemoryTool?: boolean;
+  enabledSkillIds?: string[];
 }
 
 export const createChatToolsEngine = (
@@ -70,9 +72,11 @@ export const createChatToolsEngine = (
 ) =>
   createToolsEngine({
     // Add WebBrowsingManifest as default tool
-    defaultToolIds: options?.enableMemoryTool
-      ? [WebBrowsingManifest.identifier, MemoryManifest.identifier]
-      : [WebBrowsingManifest.identifier],
+    defaultToolIds: [
+      WebBrowsingManifest.identifier,
+      ...(options?.enableMemoryTool ? [MemoryManifest.identifier] : []),
+      ...(options?.enabledSkillIds?.length ? [SkillLoaderManifest.identifier] : []),
+    ],
     // Create search-aware enableChecker for this request
     enableChecker: ({ pluginId }) => {
       // Check platform-specific constraints (e.g., LocalSystem desktop-only)
@@ -89,6 +93,10 @@ export const createChatToolsEngine = (
       // The implicit memory tool is only ever request-injected, never agent-selected
       if (pluginId === MemoryManifest.identifier) {
         return !!options?.enableMemoryTool;
+      }
+
+      if (pluginId === SkillLoaderManifest.identifier) {
+        return !!options?.enabledSkillIds?.length;
       }
 
       // For all other plugins, enable by default

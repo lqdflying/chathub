@@ -10,6 +10,7 @@ export default {
     opening: '开场设置',
     plugin: '插件设置',
     prompt: '角色设定',
+    skills: '技能设置',
     tts: '语音服务',
   },
   analytics: {
@@ -187,7 +188,6 @@ export default {
   message: {
     success: '更新成功',
   },
-
   plugin: {
     addMCPPlugin: '添加 MCP 插件',
     addTooltip: '自定义插件',
@@ -232,6 +232,7 @@ export default {
     },
     title: '助手信息',
   },
+
   settingAppearance: {
     animationMode: {
       agile: '敏捷',
@@ -642,6 +643,20 @@ export default {
       title: '语音合成声源',
     },
   },
+  skills: {
+    agentTitle: '当前助手可用技能',
+    confirmUninstall: '确认卸载该技能？',
+    emptySelect: '请选择一个技能查看详情',
+    groupName: '技能（本条消息）',
+    install: '安装技能',
+    lazyLoading: '仅在明确启用时加载完整指令',
+    localSource: '自定义来源',
+    registry: '技能注册表',
+    search: '搜索已安装技能',
+    source: 'SKILL.md 地址',
+    title: '技能',
+    unknownCommand: '未启用技能 /{{name}}，该命令将作为普通文本发送。',
+  },
   storage: {
     actions: {
       export: {
@@ -777,6 +792,7 @@ export default {
     'mcp-management': 'MCP 管理',
     'provider': 'AI 服务商',
     'proxy': '网络代理',
+    'skills': '技能管理',
     'storage': '数据存储',
     'sync': '云端同步',
     'system-agent': '系统助手',

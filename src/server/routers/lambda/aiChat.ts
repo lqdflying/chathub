@@ -263,6 +263,7 @@ export const aiChatRouter = router({
           const userMessageItem = await messageModel.create({
             content: input.newUserMessage.content,
             files: input.newUserMessage.files,
+            metadata: input.newUserMessage.metadata,
             role: 'user',
             sessionId: input.sessionId!,
             threadId: input.threadId,

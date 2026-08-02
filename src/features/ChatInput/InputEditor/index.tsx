@@ -20,6 +20,9 @@ import { memo, useEffect, useMemo, useRef } from 'react';
 import { useHotkeysContext } from 'react-hotkeys-hook';
 import { useTranslation } from 'react-i18next';
 
+import { useAgentStore } from '@/store/agent';
+import { agentSelectors } from '@/store/agent/selectors';
+import { useSkillStore } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { preferenceSelectors, settingsSelectors } from '@/store/user/selectors';
 
@@ -49,6 +52,24 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
   const hotkey = useUserStore(settingsSelectors.getHotkeyById(HotkeyEnum.AddUserMessage));
   const { enableScope, disableScope } = useHotkeysContext();
   const { t } = useTranslation(['editor', 'chat']);
+  const enabledSkillIds = useAgentStore(agentSelectors.currentAgentSkills);
+  const installedSkills = useSkillStore((s) => s.installedSkills);
+  const skillSlashItems = useMemo(
+    () =>
+      installedSkills
+        .filter(({ identifier }) => enabledSkillIds.includes(identifier))
+        .map((skill) => ({
+          key: skill.identifier,
+          label: `${skill.name} - ${skill.description}`,
+          onSelect: (editor: any) => {
+            const current = String(editor.getDocument('markdown') || '').trimStart();
+            if (current.startsWith(`/${skill.identifier}`)) return;
+            editor.setDocument('markdown', `/${skill.identifier} ${current}`.trim());
+            editor.focus();
+          },
+        })),
+    [enabledSkillIds, installedSkills],
+  );
 
   const isChineseInput = useRef(false);
 
@@ -195,6 +216,7 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
       placeholder={<Placeholder />}
       slashOption={{
         items: [
+          ...skillSlashItems,
           {
             icon: Table2Icon,
             key: 'table',

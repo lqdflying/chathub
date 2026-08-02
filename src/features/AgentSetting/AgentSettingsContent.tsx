@@ -11,6 +11,7 @@ import AgentModal from './AgentModal';
 import AgentOpening from './AgentOpening';
 import AgentPlugin from './AgentPlugin';
 import AgentPrompt from './AgentPrompt';
+import AgentSkill from './AgentSkill';
 import AgentTTS from './AgentTTS';
 
 export interface AgentSettingsContentProps {
@@ -34,6 +35,7 @@ const AgentSettingsContent = memo<AgentSettingsContentProps>(({ tab, loadingSkel
       {tab === ChatSettingsTabs.Modal && <AgentModal />}
       {tab === ChatSettingsTabs.TTS && <AgentTTS />}
       {enablePlugins && tab === ChatSettingsTabs.Plugin && <AgentPlugin />}
+      {tab === ChatSettingsTabs.Skills && <AgentSkill />}
     </>
   );
 });

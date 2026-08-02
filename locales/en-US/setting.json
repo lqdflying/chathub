@@ -10,6 +10,7 @@
     "opening": "Opening Settings",
     "plugin": "Plugin Settings",
     "prompt": "Role Configuration",
+    "skills": "Skill Settings",
     "tts": "Voice Service"
   },
   "analytics": {
@@ -635,6 +636,20 @@
       "title": "Text-to-Speech Voice"
     }
   },
+  "skills": {
+    "agentTitle": "Skills available to this assistant",
+    "confirmUninstall": "Confirm uninstall this skill?",
+    "emptySelect": "Select a skill to view details",
+    "groupName": "Skills (this message)",
+    "install": "Install skill",
+    "lazyLoading": "Full instructions load only when explicitly activated",
+    "localSource": "Custom source",
+    "registry": "Skill registry",
+    "search": "Search installed skills",
+    "source": "SKILL.md URL",
+    "title": "Skills",
+    "unknownCommand": "Skill /{{name}} is not enabled; the command will be sent as plain text."
+  },
   "storage": {
     "actions": {
       "export": {
@@ -768,6 +783,7 @@
     "hotkey": "Hotkeys",
     "llm": "Language Model",
     "mcp-management": "MCP Management",
+    "skills": "Skills",
     "provider": "AI Service Provider",
     "proxy": "Network Proxy",
     "storage": "Data Storage",

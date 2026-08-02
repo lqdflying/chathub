@@ -24,6 +24,7 @@ export enum ChatSettingsTabs {
   Opening = 'opening',
   Plugin = 'plugin',
   Prompt = 'prompt',
+  Skills = 'skills',
   TTS = 'tts',
 }
 
@@ -43,6 +44,7 @@ export enum SettingsTabs {
   Mcp = 'mcp',
   Provider = 'provider',
   Proxy = 'proxy',
+  Skills = 'skills',
   Storage = 'storage',
   SystemAgent = 'system-agent',
   TTS = 'tts',

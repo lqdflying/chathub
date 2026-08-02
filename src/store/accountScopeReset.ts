@@ -15,6 +15,8 @@ import { useKnowledgeBaseStore } from '@/store/knowledgeBase';
 import { initialState as initialKnowledgeBaseState } from '@/store/knowledgeBase/initialState';
 import { useSessionStore } from '@/store/session';
 import { initialState as initialSessionState } from '@/store/session/initialState';
+import { useSkillStore } from '@/store/skill';
+import { initialState as initialSkillState } from '@/store/skill/initialState';
 import { useToolStore } from '@/store/tool';
 import { initialState as initialToolState } from '@/store/tool/initialState';
 import { useUserStore } from '@/store/user';
@@ -121,6 +123,8 @@ export const resetAccountScopedStores = (reason: string): void => {
     ...initialKnowledgeBaseState,
     scopeGeneration: knowledgeBaseState.scopeGeneration + 1,
   });
+
+  useSkillStore.setState(initialSkillState);
 
   const toolState = useToolStore.getState();
   toolState.updatePluginSettingsSignal?.abort(reason);

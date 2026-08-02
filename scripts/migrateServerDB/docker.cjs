@@ -9,6 +9,7 @@ const { ensureConversationVersionColumn } = require('./ensureConversationVersion
 const { ensureMessageOrderColumn } = require('./ensureMessageOrder.cjs');
 const { ensureMcpOAuthTokensTable } = require('./ensureMcpOAuthTokens.cjs');
 const { ensurePicbedImagesTable } = require('./ensurePicbedImages.cjs');
+const { ensureSkillsStorage } = require('./ensureSkillsStorage.cjs');
 const { ensureTopicLastActivityColumn } = require('./ensureTopicLastActivity.cjs');
 
 // SAFETY NET: Every new Drizzle migration that adds a table or column MUST also
@@ -38,6 +39,7 @@ const runMigrations = async () => {
   await ensureConversationVersionColumn(client);
   await ensureMcpOAuthTokensTable(client);
   await ensurePicbedImagesTable(client);
+  await ensureSkillsStorage(client);
   await ensureMessageOrderColumn(client);
   await ensureTopicLastActivityColumn(client);
 
