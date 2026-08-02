@@ -930,7 +930,6 @@ export const generateAIChat: StateCreator<
           provider,
           ...agentConfig.params,
           plugins: agentConfig.plugins,
-          skills: agentConfig.skills,
         },
         historySummary: historySummaryForRequest,
         onContextEngineered: ({ engineeredInput, metadata, request }) => {

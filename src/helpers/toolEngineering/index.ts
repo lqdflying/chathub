@@ -9,7 +9,6 @@ import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 import { getToolStoreState } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { MemoryManifest } from '@/tools/memory';
-import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { getSearchConfig } from '../getSearchConfig';
@@ -61,9 +60,8 @@ export interface ChatToolsEngineOptions {
    * explicitly (from the target agent's enableAssistantMemory + session kind)
    * instead of this helper reading stores ambiently, which would create an
    * import cycle with the chat store.
-   */
+  */
   enableMemoryTool?: boolean;
-  enabledSkillIds?: string[];
 }
 
 export const createChatToolsEngine = (
@@ -75,7 +73,6 @@ export const createChatToolsEngine = (
     defaultToolIds: [
       WebBrowsingManifest.identifier,
       ...(options?.enableMemoryTool ? [MemoryManifest.identifier] : []),
-      ...(options?.enabledSkillIds?.length ? [SkillLoaderManifest.identifier] : []),
     ],
     // Create search-aware enableChecker for this request
     enableChecker: ({ pluginId }) => {
@@ -93,10 +90,6 @@ export const createChatToolsEngine = (
       // The implicit memory tool is only ever request-injected, never agent-selected
       if (pluginId === MemoryManifest.identifier) {
         return !!options?.enableMemoryTool;
-      }
-
-      if (pluginId === SkillLoaderManifest.identifier) {
-        return !!options?.enabledSkillIds?.length;
       }
 
       // For all other plugins, enable by default

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ChatSettingsTabs } from '@/store/global/initialState';
 
@@ -29,25 +29,14 @@ vi.mock('./AgentModal', () => ({ default: () => <div>AgentModal</div> }));
 vi.mock('./AgentOpening', () => ({ default: () => <div>AgentOpening</div> }));
 vi.mock('./AgentPlugin', () => ({ default: () => <div>AgentPlugin</div> }));
 vi.mock('./AgentPrompt', () => ({ default: () => <div>AgentPrompt</div> }));
-vi.mock('./AgentSkill', () => ({ default: () => <div>AgentSkill</div> }));
 vi.mock('./AgentTTS', () => ({ default: () => <div>AgentTTS</div> }));
 
-describe('AgentSettingsContent skills feature gate', () => {
-  beforeEach(() => {
-    serverConfigState.featureFlags.enableSkills = true;
-  });
+describe('AgentSettingsContent removed Skills tab', () => {
+  it('does not render content for a legacy Skills tab value', () => {
+    const { container } = render(
+      <AgentSettingsContent loadingSkeleton={null} tab={'skills' as ChatSettingsTabs} />,
+    );
 
-  it('renders the Skills tab when enabled', () => {
-    render(<AgentSettingsContent loadingSkeleton={null} tab={ChatSettingsTabs.Skills} />);
-
-    expect(screen.getByText('AgentSkill')).toBeTruthy();
-  });
-
-  it('does not render stale Skills tab content when disabled', () => {
-    serverConfigState.featureFlags.enableSkills = false;
-
-    render(<AgentSettingsContent loadingSkeleton={null} tab={ChatSettingsTabs.Skills} />);
-
-    expect(screen.queryByText('AgentSkill')).toBeNull();
+    expect(container.textContent).toBe('');
   });
 });

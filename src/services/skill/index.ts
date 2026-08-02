@@ -3,7 +3,6 @@ import { isDesktop } from '@/const/version';
 import { ClientSkillService } from './client';
 import { ServerSkillService } from './server';
 
-export * from './activation';
 export * from './parser';
 export * from './registry';
 export * from './type';

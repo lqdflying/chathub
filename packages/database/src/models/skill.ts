@@ -71,6 +71,24 @@ export class SkillModel {
       ),
     });
 
+  update = async (
+    identifier: string,
+    params: { contentHash: string; description: string; instructions: string },
+  ) => {
+    const [result] = await this.db
+      .update(userInstalledSkills)
+      .set({ ...params, updatedAt: new Date() })
+      .where(
+        and(
+          eq(userInstalledSkills.identifier, identifier),
+          eq(userInstalledSkills.userId, this.userId),
+        ),
+      )
+      .returning();
+
+    return result;
+  };
+
   deleteAll = async () =>
     this.db.delete(userInstalledSkills).where(eq(userInstalledSkills.userId, this.userId));
 }

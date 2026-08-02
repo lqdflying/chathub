@@ -8,7 +8,6 @@ import {
   Library,
   MessagesSquare,
   Mic2,
-  Sparkles,
   UserCircle,
 } from 'lucide-react';
 import { useMemo } from 'react';
@@ -29,7 +28,7 @@ export const useCategory = ({ mobile }: UseCategoryOptions = {}) => {
   const iconSize = mobile ? 20 : undefined;
   const id = useSessionStore((s) => s.activeId);
   const isInbox = id === INBOX_SESSION_ID;
-  const { enablePlugins, enableSkills } = useServerConfigStore(featureFlagsSelectors);
+  const { enablePlugins } = useServerConfigStore(featureFlagsSelectors);
 
   const cateItems: MenuProps['items'] = useMemo(
     () =>
@@ -74,13 +73,8 @@ export const useCategory = ({ mobile }: UseCategoryOptions = {}) => {
           key: ChatSettingsTabs.Plugin,
           label: t('agentTab.plugin'),
         },
-        enableSkills && {
-          icon: <Icon icon={Sparkles} size={iconSize} />,
-          key: ChatSettingsTabs.Skills,
-          label: t('agentTab.skills'),
-        },
       ].filter(Boolean) as MenuProps['items'],
-    [t, isInbox, enablePlugins, enableSkills],
+    [t, isInbox, enablePlugins],
   );
 
   return cateItems;

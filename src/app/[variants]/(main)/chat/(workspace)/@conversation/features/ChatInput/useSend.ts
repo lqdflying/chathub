@@ -1,9 +1,7 @@
 import { useAnalytics } from '@lobehub/analytics/react';
 import { useCallback, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 
 import { useGeminiChineseWarning } from '@/hooks/useGeminiChineseWarning';
-import { parseSkillActivations } from '@/services/skill/activation';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { getChatStoreState, useChatStore } from '@/store/chat';
@@ -11,7 +9,7 @@ import { aiChatSelectors, chatSelectors, topicSelectors } from '@/store/chat/sel
 import { fileChatSelectors, useFileStore } from '@/store/file';
 import { mentionSelectors, useMentionStore } from '@/store/mention';
 import { useSessionStore } from '@/store/session';
-import { sessionMetaSelectors, sessionSelectors } from '@/store/session/selectors';
+import { sessionMetaSelectors } from '@/store/session/selectors';
 import { getSkillSelectionKey, getSkillStoreState, skillSelectors } from '@/store/skill';
 import { getUserStoreState } from '@/store/user';
 
@@ -48,7 +46,6 @@ export const useSend = () => {
     aiChatSelectors.isCurrentPreSendCompacting(s),
   ]);
   const { analytics } = useAnalytics();
-  const { t } = useTranslation('setting');
   const checkGeminiChineseWarning = useGeminiChineseWarning();
 
   // 使用订阅以保持最新文件列表
@@ -82,23 +79,12 @@ export const useSend = () => {
       threadId: store.activeThreadId,
       topicId: store.activeTopicId,
     });
-    const enabledSkillIds = agentSelectors.currentAgentSkills(getAgentStoreState());
-    const parsedSkills = parseSkillActivations(inputMessage, enabledSkillIds);
-    const selectedSkillIds = skillSelectors
-      .selectedSkillIds(selectionKey)(getSkillStoreState())
-      .filter((id) => enabledSkillIds.includes(id));
-    const activatedSkillIds = [
-      ...new Set([...parsedSkills.activatedSkillIds, ...selectedSkillIds]),
-    ];
-    const messageToSend = parsedSkills.content;
-    if (parsedSkills.unknownSkillIds.length > 0) {
-      const { notification } = await import('@/components/AntdStaticMethods');
-      for (const name of parsedSkills.unknownSkillIds) {
-        notification?.warning({
-          message: t('skills.unknownCommand', { name, ns: 'setting' }),
-        });
-      }
-    }
+    const skillState = getSkillStoreState();
+    const installedSkillIds = new Set(skillState.installedSkills.map(({ identifier }) => identifier));
+    const activatedSkillIds = skillSelectors
+      .selectedSkillIds(selectionKey)(skillState)
+      .filter((id) => installedSkillIds.has(id));
+    const messageToSend = inputMessage;
     // 发送时再取一次最新的文件列表，防止闭包拿到旧值
     const fileList = fileChatSelectors.chatUploadFileList(useFileStore.getState());
 
@@ -121,8 +107,6 @@ export const useSend = () => {
     } else {
       sendMessage({ activatedSkillIds, files: fileList, message: messageToSend, ...params });
     }
-
-    getSkillStoreState().clearSelectedSkills(selectionKey);
 
     clearChatUploadFileList();
     mainInputEditor.setExpand(false);
@@ -204,7 +188,6 @@ export const useSendGroupMessage = () => {
     chatSelectors.isSupervisorLoading(s.activeId)(s),
   );
   const { analytics } = useAnalytics();
-  const { t } = useTranslation('setting');
   const checkGeminiChineseWarning = useGeminiChineseWarning();
 
   const fileList = fileChatSelectors.chatUploadFileList(useFileStore.getState());
@@ -247,38 +230,23 @@ export const useSendGroupMessage = () => {
         threadId: store.activeThreadId,
         topicId: store.activeTopicId,
       });
-      const groupSkillIds = [
-        ...new Set(
-          sessionSelectors
-            .currentGroupAgents(useSessionStore.getState())
-            .flatMap((agent) => agent.skills || []),
-        ),
-      ];
-      const parsedSkills = parseSkillActivations(inputMessage, groupSkillIds);
-      const selectedSkillIds = skillSelectors
-        .selectedSkillIds(selectionKey)(getSkillStoreState())
-        .filter((id) => groupSkillIds.includes(id));
-      const activatedSkillIds = [
-        ...new Set([...parsedSkills.activatedSkillIds, ...selectedSkillIds]),
-      ];
-      if (parsedSkills.unknownSkillIds.length > 0) {
-        const { notification } = await import('@/components/AntdStaticMethods');
-        for (const name of parsedSkills.unknownSkillIds) {
-          notification?.warning({
-            message: t('skills.unknownCommand', { name, ns: 'setting' }),
-          });
-        }
-      }
+      const skillState = getSkillStoreState();
+      const installedSkillIds = new Set(
+        skillState.installedSkills.map(({ identifier }) => identifier),
+      );
+      const activatedSkillIds = skillSelectors
+        .selectedSkillIds(selectionKey)(skillState)
+        .filter((id) => installedSkillIds.has(id));
 
       // if there is no message and no files, then we should not send the message
-      if (!parsedSkills.content && fileList.length === 0) return;
+      if (!inputMessage && fileList.length === 0) return;
 
       // Check for Chinese text warning with Gemini model
       const agentStore = getAgentStoreState();
       const currentModel = agentSelectors.currentAgentModel(agentStore);
       const shouldContinue = await checkGeminiChineseWarning({
         model: currentModel,
-        prompt: parsedSkills.content,
+        prompt: inputMessage,
         scenario: 'chat',
       });
 
@@ -295,7 +263,7 @@ export const useSendGroupMessage = () => {
               .map((name) => `@${name}`)
               .join(' ')}`
           : '';
-      const messageWithMentions = `${parsedSkills.content}${mentionText}`.trim();
+      const messageWithMentions = `${inputMessage}${mentionText}`.trim();
 
       sendGroupMessage({
         files: fileList,
@@ -307,8 +275,6 @@ export const useSendGroupMessage = () => {
         targetMemberId: params.targetMemberId,
         ...params,
       });
-
-      getSkillStoreState().clearSelectedSkills(selectionKey);
 
       clearChatUploadFileList();
       mainInputEditor.setExpand(false);
@@ -343,7 +309,6 @@ export const useSendGroupMessage = () => {
       canNotSend,
       fileList,
       clearChatUploadFileList,
-      t,
       updateInputMessage,
       analytics,
       checkGeminiChineseWarning,

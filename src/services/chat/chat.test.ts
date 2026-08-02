@@ -203,7 +203,7 @@ describe('ChatService', () => {
       expect(resolveSkillsSpy).toHaveBeenCalledWith(['reviewer']);
     });
 
-    it('resolves at most the first 16 enabled skill activations', async () => {
+    it('resolves at most the first 16 installed skill activations', async () => {
       const identifiers = Array.from(
         { length: MAX_ACTIVE_SKILLS + 2 },
         (_, index) => `skill-${index + 1}`,
@@ -233,7 +233,7 @@ describe('ChatService', () => {
       expect(resolveSkillsSpy).toHaveBeenCalledWith(identifiers.slice(0, MAX_ACTIVE_SKILLS));
     });
 
-    it('resolves a skill from compact loader metadata and strips legacy persisted instructions', async () => {
+    it('sanitizes legacy loader messages without activating their skill metadata', async () => {
       const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
       vi.spyOn(skillService, 'getInstalledSkills').mockResolvedValue([
         {
@@ -301,7 +301,7 @@ describe('ChatService', () => {
         skills: ['reviewer'],
       });
 
-      expect(resolveSkillsSpy).toHaveBeenCalledWith(['reviewer']);
+      expect(resolveSkillsSpy).not.toHaveBeenCalled();
       const requestMessages = getChatCompletionSpy.mock.calls[0][0].messages!;
       const toolMessage = requestMessages.find((message) => message.role === 'tool');
       expect(JSON.parse(String(toolMessage?.content))).toEqual({
@@ -312,6 +312,52 @@ describe('ChatService', () => {
       });
       expect(JSON.stringify(requestMessages)).not.toContain(
         'Legacy persisted instructions must be removed.',
+      );
+    });
+
+    it('injects selected instructions without offering the hidden skill loader', async () => {
+      const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+      vi.spyOn(skillService, 'getInstalledSkills').mockResolvedValue([
+        {
+          contentHash: 'hash-reviewer',
+          createdAt: new Date(0),
+          description: 'Review code.',
+          identifier: 'reviewer',
+          name: 'reviewer',
+          sourceType: 'url',
+          updatedAt: new Date(0),
+        },
+      ]);
+      vi.spyOn(skillService, 'resolveSkills').mockResolvedValue([
+        {
+          contentHash: 'hash-reviewer',
+          createdAt: new Date(0),
+          description: 'Review code.',
+          identifier: 'reviewer',
+          instructions: 'Inspect the request carefully.',
+          name: 'reviewer',
+          sourceType: 'url',
+          updatedAt: new Date(0),
+        },
+      ]);
+
+      await chatService.createAssistantMessage({
+        activatedSkillIds: ['reviewer'],
+        messages: [{ content: 'Review this.', id: 'user-1', role: 'user' }],
+        model: 'gpt-4',
+        plugins: [],
+        provider: 'openai',
+      });
+
+      const request = getChatCompletionSpy.mock.calls[0][0];
+      expect(JSON.stringify(request.messages)).toContain('<activated_skills>');
+      expect(JSON.stringify(request.messages)).not.toContain('<available_skills>');
+      expect(request.tools).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: 'lobe-skill-loader____load_skill' }),
+          }),
+        ]),
       );
     });
 

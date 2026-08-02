@@ -20,6 +20,7 @@ vi.mock('@/services/skill', () => ({
     getInstalledSkills: vi.fn(),
     installSkillFromUrl: vi.fn(),
     uninstallSkill: vi.fn(),
+    updateSkill: vi.fn(),
   },
 }));
 
@@ -30,6 +31,7 @@ describe('skill store actions', () => {
     vi.mocked(skillService.getInstalledSkills).mockResolvedValue([]);
     vi.mocked(skillService.installSkillFromUrl).mockResolvedValue('reviewer');
     vi.mocked(skillService.uninstallSkill).mockResolvedValue();
+    vi.mocked(skillService.updateSkill).mockResolvedValue();
     useUserStore.setState({ authUserId: undefined, isLoaded: false, user: undefined });
     useSkillStore.setState({
       installedSkills: [],
@@ -100,6 +102,19 @@ describe('skill store actions', () => {
     await useSkillStore.getState().installSkillFromUrl(params);
 
     expect(skillService.installSkillFromUrl).toHaveBeenCalledWith(params);
+    expect(mutateAccountSWR).toHaveBeenCalledWith(['installed-skills', 'local']);
+  });
+
+  it('updates a skill and revalidates the installed-skills cache', async () => {
+    const params = {
+      description: 'Updated description.',
+      identifier: 'reviewer',
+      instructions: 'Updated instructions.',
+    };
+
+    await useSkillStore.getState().updateSkill(params);
+
+    expect(skillService.updateSkill).toHaveBeenCalledWith(params);
     expect(mutateAccountSWR).toHaveBeenCalledWith(['installed-skills', 'local']);
   });
 });

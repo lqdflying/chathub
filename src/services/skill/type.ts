@@ -16,6 +16,12 @@ export interface InstallSkillParams {
   sourceUrl?: string;
 }
 
+export interface UpdateSkillParams {
+  description: string;
+  identifier: string;
+  instructions: string;
+}
+
 export interface SkillService {
   getInstalledSkills: () => Promise<InstalledSkillItem[]>;
   getSkill: (identifier: string) => Promise<SkillRecord | undefined>;
@@ -30,4 +36,5 @@ export interface SkillService {
   resolveSkills: (identifiers: string[]) => Promise<SkillRecord[]>;
   searchRegistry: (query?: string) => Promise<SkillRegistryResult>;
   uninstallSkill: (identifier: string) => Promise<void>;
+  updateSkill: (params: UpdateSkillParams) => Promise<void>;
 }

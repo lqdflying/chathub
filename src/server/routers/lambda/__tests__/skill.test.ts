@@ -31,6 +31,7 @@ Summarize the supplied document.
 
 describe('skillRouter', () => {
   const create = vi.fn();
+  const update = vi.fn();
 
   const createCaller = () =>
     skillRouter.createCaller({
@@ -48,9 +49,11 @@ describe('skillRouter', () => {
           delete: vi.fn(),
           findById: vi.fn(),
           query: vi.fn(),
+          update,
         }) as never,
     );
     create.mockResolvedValue(undefined);
+    update.mockResolvedValue({ identifier: 'summarize-text' });
     ssrfSafeFetch.mockResolvedValue(new Response(skillDocument, { status: 200 }));
   });
 
@@ -173,5 +176,49 @@ describe('skillRouter', () => {
         sourceUrl: 'https://example.com/SKILL.md',
       }),
     ).rejects.toMatchObject({ code: 'PAYLOAD_TOO_LARGE' });
+  });
+
+  it('updates editable fields while keeping the identifier fixed', async () => {
+    await createCaller().updateSkill({
+      description: 'Updated description.',
+      identifier: 'summarize-text',
+      instructions: 'Use the updated workflow.',
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      'summarize-text',
+      expect.objectContaining({
+        contentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        description: 'Updated description.',
+        instructions: 'Use the updated workflow.',
+      }),
+    );
+  });
+
+  it('reports a missing skill during update', async () => {
+    update.mockResolvedValueOnce(undefined);
+
+    await expect(
+      createCaller().updateSkill({
+        description: 'Updated description.',
+        identifier: 'missing-skill',
+        instructions: 'Use the updated workflow.',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('maps duplicate edited content to CONFLICT', async () => {
+    update.mockRejectedValueOnce({
+      code: '23505',
+      constraint: 'user_installed_skills_user_hash_unique',
+    });
+
+    await expect(
+      createCaller().updateSkill({
+        description: 'Duplicate description.',
+        identifier: 'summarize-text',
+        instructions: 'Duplicate instructions.',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
   });
 });

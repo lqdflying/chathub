@@ -637,19 +637,23 @@
     }
   },
   "skills": {
-    "agentTitle": "当前助手可用技能",
     "confirmUninstall": "确认卸载该技能？",
+    "description": "描述",
     "details": "技能详情",
+    "edit": "编辑技能",
     "emptySelect": "请选择一个技能查看详情",
-    "groupName": "技能（本条消息）",
+    "groupName": "技能",
+    "identifier": "标识符",
     "install": "安装技能",
     "installModes": {
       "file": "本地文件",
       "url": "链接"
     },
     "installSuccess": "技能已安装",
-    "lazyLoading": "仅在明确启用时加载完整指令",
+    "instructions": "Markdown 指令",
+    "lazyLoading": "仅加载在对话输入栏中启用的技能指令",
     "localSource": "自定义来源",
+    "notFound": "找不到该技能",
     "registry": "技能注册表",
     "resourcesSkipped": "已安装 {{name}}，其中 {{skipped}} 个附带文件未导入。",
     "search": "搜索已安装技能",
@@ -660,9 +664,10 @@
       "registry": "注册表",
       "url": "链接"
     },
+    "save": "保存",
     "title": "技能",
     "uninstall": "卸载技能",
-    "unknownCommand": "技能 /{{name}} 未启用，该命令将作为普通文本发送。",
+    "updateSuccess": "技能已更新",
     "uploadSkill": "选择 .skill 文件"
   },
   "storage": {

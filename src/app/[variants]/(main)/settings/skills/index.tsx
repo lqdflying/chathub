@@ -1,9 +1,9 @@
 'use client';
 
-import { Button, DraggablePanel, Empty, Input } from '@lobehub/ui';
-import { App, Form, Modal, Segmented, Tag, Upload } from 'antd';
+import { Button, DraggablePanel, Empty, Input, TextArea } from '@lobehub/ui';
+import { App, Form, Modal, Segmented, Skeleton, Tag, Upload } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
-import { Download, FileUp, Link2, Search, Trash2 } from 'lucide-react';
+import { Download, FileUp, Link2, Pencil, Search, Trash2 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
@@ -33,12 +33,19 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
   const installSkill = useSkillStore((s) => s.installSkill);
   const installSkillFromUrl = useSkillStore((s) => s.installSkillFromUrl);
   const uninstall = useSkillStore((s) => s.uninstallSkill);
+  const updateSkill = useSkillStore((s) => s.updateSkill);
   const useFetchSkills = useSkillStore((s) => s.useFetchSkills);
   const [selectedId, setSelectedId] = useState<string>();
   const [search, setSearch] = useState('');
   const [source, setSource] = useState('');
   const [installMode, setInstallMode] = useState<'file' | 'url'>('file');
   const [installing, setInstalling] = useState(false);
+  const [editDescription, setEditDescription] = useState('');
+  const [editIdentifier, setEditIdentifier] = useState('');
+  const [editInstructions, setEditInstructions] = useState('');
+  const [editLoading, setEditLoading] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
   const [sourceModalOpen, setSourceModalOpen] = useState(false);
   const [registryItems, setRegistryItems] = useState<
     Awaited<ReturnType<typeof skillService.searchRegistry>>['items']
@@ -146,6 +153,44 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
     });
   };
 
+  const openEditor = async () => {
+    if (!selected) return;
+    setEditIdentifier(selected.identifier);
+    setEditDescription('');
+    setEditInstructions('');
+    setEditModalOpen(true);
+    setEditLoading(true);
+    try {
+      const skill = await skillService.getSkill(selected.identifier);
+      if (!skill) throw new Error(t('skills.notFound'));
+      setEditDescription(skill.description);
+      setEditInstructions(skill.instructions);
+    } catch (error) {
+      setEditModalOpen(false);
+      messageApi.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const saveEditor = async () => {
+    if (!editIdentifier || !editDescription.trim() || !editInstructions.trim()) return;
+    setEditSaving(true);
+    try {
+      await updateSkill({
+        description: editDescription,
+        identifier: editIdentifier,
+        instructions: editInstructions,
+      });
+      setEditModalOpen(false);
+      messageApi.success(t('skills.updateSuccess'));
+    } catch (error) {
+      messageApi.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
   const skillList = (
     <Flexbox gap={4} height={mobile ? undefined : '100%'} padding={8} style={{ overflowY: 'auto' }}>
       {filtered.map((skill) => (
@@ -227,14 +272,23 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
         </Flexbox>
         <Flexbox align={'center'} horizontal justify={mobile ? 'space-between' : undefined}>
           <Tag>{t(`skills.sourceTypes.${selected.sourceType}`)}</Tag>
-          <Button
-            aria-label={t('skills.uninstall')}
-            danger
-            icon={Trash2}
-            onClick={uninstallSelected}
-            size={mobile ? 'middle' : 'small'}
-            title={t('skills.uninstall')}
-          />
+          <Flexbox align={'center'} gap={4} horizontal>
+            <Button
+              aria-label={t('skills.edit')}
+              icon={Pencil}
+              onClick={openEditor}
+              size={mobile ? 'middle' : 'small'}
+              title={t('skills.edit')}
+            />
+            <Button
+              aria-label={t('skills.uninstall')}
+              danger
+              icon={Trash2}
+              onClick={uninstallSelected}
+              size={mobile ? 'middle' : 'small'}
+              title={t('skills.uninstall')}
+            />
+          </Flexbox>
         </Flexbox>
       </Flexbox>
       <Flexbox gap={12} padding={16}>
@@ -243,7 +297,6 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
             ? selected.sourceRef || t('skills.localSource')
             : selected.sourceUrl || t('skills.localSource')}
         </span>
-        <code style={{ overflowWrap: 'anywhere' }}>{selected.contentHash}</code>
         <span>{t('skills.lazyLoading')}</span>
       </Flexbox>
     </>
@@ -320,6 +373,43 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
           {skillDetail}
         </Modal>
       )}
+      <Modal
+        centered
+        confirmLoading={editSaving}
+        okButtonProps={{
+          disabled:
+            editLoading || !editDescription.trim() || !editIdentifier || !editInstructions.trim(),
+        }}
+        okText={t('skills.save')}
+        onCancel={() => setEditModalOpen(false)}
+        onOk={saveEditor}
+        open={editModalOpen}
+        title={t('skills.edit')}
+      >
+        {editLoading ? (
+          <Skeleton active paragraph={{ rows: 8 }} title={false} />
+        ) : (
+          <Form layout="vertical">
+            <Form.Item label={t('skills.identifier')}>
+              <Input disabled value={editIdentifier} />
+            </Form.Item>
+            <Form.Item label={t('skills.description')} required>
+              <Input
+                maxLength={1024}
+                onChange={(event) => setEditDescription(event.target.value)}
+                value={editDescription}
+              />
+            </Form.Item>
+            <Form.Item label={t('skills.instructions')} required>
+              <TextArea
+                autoSize={{ maxRows: 18, minRows: 10 }}
+                onChange={(event) => setEditInstructions(event.target.value)}
+                value={editInstructions}
+              />
+            </Form.Item>
+          </Form>
+        )}
+      </Modal>
       <Modal
         centered
         footer={null}

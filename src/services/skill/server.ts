@@ -15,4 +15,6 @@ export class ServerSkillService implements SkillService {
   uninstallSkill = async (identifier: string) => {
     await lambdaClient.skill.removeSkill.mutate({ identifier });
   };
+  updateSkill: SkillService['updateSkill'] = (params) =>
+    lambdaClient.skill.updateSkill.mutate(params);
 }

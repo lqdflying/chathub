@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
   };
   const skillState = {
     clearSelectedSkills: vi.fn(),
+    installedSkills: [{ identifier: 'reviewer' }],
     selectedSkillIds: ['reviewer'],
   };
 
@@ -131,42 +132,49 @@ describe('workspace skill-aware send hooks', () => {
     vi.clearAllMocks();
     mocks.chatState.inputMessage = '/reviewer';
     mocks.fileState.files = [];
+    mocks.skillState.installedSkills = [{ identifier: 'reviewer' }];
     mocks.skillState.selectedSkillIds = ['reviewer'];
   });
 
-  it('preserves a command-only draft in single-agent chat', async () => {
-    const { result } = renderHook(() => useSend());
-
-    await act(() => result.current.send());
-
-    expect(mocks.chatState.sendMessage).not.toHaveBeenCalled();
-    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
-    expect(mocks.fileState.clearChatUploadFileList).not.toHaveBeenCalled();
-    expect(mocks.editor.clearContent).not.toHaveBeenCalled();
-  });
-
-  it('allows a command-only activation when a file is attached', async () => {
-    mocks.fileState.files = [{ id: 'file-1' }];
+  it('sends slash-like text literally and retains the composer selection', async () => {
     const { result } = renderHook(() => useSend());
 
     await act(() => result.current.send());
 
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ activatedSkillIds: ['reviewer'], message: '' }),
+      expect.objectContaining({ activatedSkillIds: ['reviewer'], message: '/reviewer' }),
     );
-    expect(mocks.skillState.clearSelectedSkills).toHaveBeenCalledWith('session-1:main');
+    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
+    expect(mocks.fileState.clearChatUploadFileList).toHaveBeenCalled();
     expect(mocks.editor.clearContent).toHaveBeenCalled();
   });
 
-  it('preserves a command-only draft in group chat', async () => {
+  it('filters a stale selection that is no longer installed', async () => {
+    mocks.chatState.inputMessage = 'Review this';
+    mocks.skillState.selectedSkillIds = ['missing'];
+    const { result } = renderHook(() => useSend());
+
+    await act(() => result.current.send());
+
+    expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ activatedSkillIds: [], message: 'Review this' }),
+    );
+  });
+
+  it('sends persistent global selections as group metadata', async () => {
     const { result } = renderHook(() => useSendGroupMessage());
 
     await act(() => result.current.send());
 
-    expect(mocks.chatState.sendGroupMessage).not.toHaveBeenCalled();
+    expect(mocks.chatState.sendGroupMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '/reviewer',
+        metadata: { skills: { activated: ['reviewer'] } },
+      }),
+    );
     expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
-    expect(mocks.fileState.clearChatUploadFileList).not.toHaveBeenCalled();
-    expect(mocks.editor.clearContent).not.toHaveBeenCalled();
-    expect(mocks.chatState.updateInputMessage).not.toHaveBeenCalled();
+    expect(mocks.fileState.clearChatUploadFileList).toHaveBeenCalled();
+    expect(mocks.editor.clearContent).toHaveBeenCalled();
+    expect(mocks.chatState.updateInputMessage).toHaveBeenCalledWith('');
   });
 });

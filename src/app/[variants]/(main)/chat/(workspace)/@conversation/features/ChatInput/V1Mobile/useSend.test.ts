@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => {
   };
   const skillState = {
     clearSelectedSkills: vi.fn(),
+    installedSkills: [{ identifier: 'reviewer' }, { identifier: 'group-reviewer' }],
     selectedSkillIds: [] as string[],
   };
 
@@ -107,38 +108,44 @@ describe('V1 mobile skill-aware send hook', () => {
     mocks.chatState.activeSessionType = 'agent';
     mocks.chatState.inputMessage = '/reviewer Review this';
     mocks.fileState.files = [];
+    mocks.skillState.installedSkills = [
+      { identifier: 'reviewer' },
+      { identifier: 'group-reviewer' },
+    ];
     mocks.skillState.selectedSkillIds = [];
   });
 
-  it('strips a slash activation and passes it to single-agent send', async () => {
+  it('sends slash-like input literally without activating a skill', async () => {
     const { result } = renderHook(() => useSendMessage());
 
     await act(() => result.current.send());
 
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith({
-      activatedSkillIds: ['reviewer'],
+      activatedSkillIds: [],
       files: [],
-      message: 'Review this',
+      message: '/reviewer Review this',
     });
-    expect(mocks.skillState.clearSelectedSkills).toHaveBeenCalledWith('session-1:default:main');
+    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
     expect(mocks.chatState.updateInputMessage).toHaveBeenCalledWith('');
     expect(mocks.track).toHaveBeenCalledWith(expect.objectContaining({ name: 'send_message' }));
   });
 
-  it('preserves a command-only draft when there is no attachment', async () => {
+  it('sends command-only text as a normal message', async () => {
     mocks.chatState.inputMessage = '/reviewer';
     const { result } = renderHook(() => useSendMessage());
 
     await act(() => result.current.send());
 
-    expect(mocks.chatState.sendMessage).not.toHaveBeenCalled();
+    expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ activatedSkillIds: [], message: '/reviewer' }),
+    );
     expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
-    expect(mocks.chatState.updateInputMessage).not.toHaveBeenCalled();
+    expect(mocks.chatState.updateInputMessage).toHaveBeenCalledWith('');
   });
 
   it('sends group activations as message metadata', async () => {
     mocks.chatState.activeSessionType = 'group';
-    mocks.chatState.inputMessage = '/group-reviewer Review this';
+    mocks.chatState.inputMessage = 'Review this';
     mocks.skillState.selectedSkillIds = ['group-reviewer'];
     const { result } = renderHook(() => useSendMessage());
 
@@ -167,5 +174,6 @@ describe('V1 mobile skill-aware send hook', () => {
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ activatedSkillIds: ['reviewer'], message: 'Review this' }),
     );
+    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
   });
 });

@@ -1,9 +1,9 @@
 # Agent Skills
 
-ChatHub skills are installable `SKILL.md` instruction bundles. Their metadata is
-available to the picker and settings UI, while the instruction body is loaded
-only for an explicitly activated skill. This keeps normal prompts small and
-prevents an installed skill from silently changing every request.
+ChatHub skills are globally installed `SKILL.md` instruction bundles. Installed
+skills are available from the topic composer, while instruction bodies are
+resolved only for the skills checked in that conversation. This keeps normal
+prompts small and makes the composer the sole activation authority.
 
 ## Storage and service boundary
 
@@ -14,7 +14,10 @@ the body; `findById()` and `resolveSkills()` are the full-content boundary.
 
 The app-facing service is under `src/services/skill/`. The server router in
 `src/server/routers/lambda/skill.ts` provides metadata listing, full lookup,
-install, uninstall, activation resolution, and optional registry search.
+install, edit, uninstall, activation resolution, and optional registry search.
+Edits keep the identifier and source metadata immutable, validate a canonical
+`SKILL.md`, and update the description, instruction body, content hash, and
+timestamp for the account-owned record.
 Install-by-URL is HTTPS-only, rejects URL credentials, follows no redirects,
 uses SSRF-safe fetching, and enforces a 128 KiB body limit. GitHub repository,
 blob, and tree URLs are normalized to raw content before fetching.
@@ -49,9 +52,9 @@ as `CONFLICT`. Registry configuration and malformed upstream registry JSON
 remain internal server faults.
 
 Uninstall is a single database transaction: it deletes the installed record
-and removes that identifier from every `agents.skills` array owned by the same
-user. The skill store also prunes loaded agent and group-member caches so the
-current tab reflects the database change immediately.
+and removes that identifier from every legacy `agents.skills` array owned by
+the same user. Those arrays remain for data compatibility but no longer gate
+the UI or runtime. The skill store also prunes pending composer selections.
 
 ## Skill format and sources
 
@@ -78,72 +81,54 @@ When a registry result is installed, its identifier is carried as the expected
 identity; installation fails if the downloaded frontmatter `name` differs.
 
 Skills UI is enabled by default. `FEATURE_FLAGS="-skills"` maps to
-`enableSkills: false` and hides the global Settings entry, assistant Skills tab,
-ChatInput picker, and editor skill slash items. This is a presentation gate: it
-does not delete installed records or rewrite saved assistant skill IDs.
+`enableSkills: false` and hides the global Settings entry and ChatInput picker.
+This is a presentation gate: it does not delete installed records or rewrite
+legacy assistant skill IDs.
 
 The Skills management page has separate desktop and mobile layouts. Mobile
 Settings includes a feature-gated Skills destination; selecting a list item
 opens its details in a modal instead of retaining the desktop split panel. The
 install dialog defaults to local-file upload and also retains URL installation.
+Both layouts provide an editor for description and Markdown instructions. The
+identifier is read-only, source provenance is preserved, and the content hash
+is internal metadata rather than an end-user detail.
 
 ## Activation flow
 
-An assistant opts into installed skills from its Skills settings tab. For a
-turn, the user can select skills with the Sparkles picker or type one or more
-leading slash commands, for example `/summarizer /reviewer Please inspect this`.
-Recognized commands are removed from the prompt and their identifiers are
-stored in message metadata. Unknown slash commands remain normal text and
-produce a warning.
+Every globally installed skill appears in the Sparkles picker in desktop and
+mobile composers. Checkbox state is keyed by session, topic, and thread. It
+persists across sends and in-app navigation for the current browser session,
+until the user unchecks it. Reloading the app or changing accounts resets the
+in-memory state, and uninstalling a skill prunes it from every selection.
 
-Choosing a skill from the editor slash menu toggles the same pending selection
-shown in the Sparkles picker; it does not rewrite or round-trip the editor
-document. A manually typed known command with no remaining text and no
-attachment is a no-op, preserving the draft and pending selections. Input is
-returned byte-for-byte when no known command is consumed, including leading
-whitespace.
+Skill names are not editor slash commands. Text such as `/reviewer` is sent
+byte-for-byte as normal user content, while unrelated editor slash actions such
+as table insertion remain available.
 
-Picker state is keyed by session, topic, and thread. A pending choice therefore
-stays with its draft conversation and only that conversation's choices are
-cleared after a send.
+Send hooks intersect checked IDs with the current globally installed metadata
+and store those IDs in latest-turn message metadata. The chat service repeats
+the account-scoped installed check, deduplicates the IDs, applies the existing
+16-skill limit, and calls `resolveSkills()` only for that set.
+`SkillInstructionsProvider` injects the selected instruction bodies in
+`<activated_skills>`; unchecked skill names and descriptions are not disclosed
+through an `<available_skills>` block.
 
-The chat service first reads enabled metadata, intersects requested IDs with
-the assistant's enabled IDs, and calls `resolveSkills()` only for that
-intersection. `SkillInstructionsProvider` then injects an
-`<available_skills>` metadata block and an `<activated_skills>` block containing
-the selected instruction bodies. Activation candidates use the first non-empty
-list from runtime options, request parameters, then latest-turn message
-metadata. After deduplication and enabled-skill filtering, at most the first 16
-identifiers are resolved. Activation lookup is anchored to the latest user
-message and tool results that follow it; metadata from an older user turn cannot
-reactivate a skill on a later request.
+The hidden `lobe-skill-loader` is no longer offered to models and new loader
+calls are not executed. The manifest, compact renderer, and request sanitizer
+remain only so historical loader rows render safely and any legacy persisted
+instruction body is removed before context engineering. Loader-result metadata
+cannot activate a skill.
 
-The hidden `lobe-skill-loader` builtin gives the model a dynamic path: when
-skills are enabled, the model can call `load_skill` with an identifier. The
-tool verifies that the identifier is enabled for the current assistant and
-loads exactly that skill body for the continuation. The stored tool result is a
-compact marker containing identity, hash, and status plus activation metadata;
-the instruction body is resolved again for the continuation instead of being
-written into chat history. Legacy loader results are stripped to the same
-compact shape before context engineering. The builtin is not shown in the
-normal tool picker. Its chat row uses a localized title and renders the compact
-marker as a short loaded confirmation.
-
-Group turns use the same message-metadata contract. Slash commands and picker
-selection are intersected with the union of the participating members' enabled
-skills; each member's runtime prompt receives only its own enabled activation.
-The Sparkles picker is present in the active V1 mobile composer and the regular
-desktop group composer. The mobile send hook uses the same conversation-keyed
-selection, slash parsing, unknown-command warning, and group metadata contract
-as the desktop editor. A command-only mobile draft remains untouched unless a
-file is attached.
+Group turns use the same conversation-scoped global selection and message
+metadata contract. Every participating member receives the explicitly selected
+installed skills; member-level legacy `skills` arrays do not filter them.
 
 ## Change points and tests
 
 When changing this feature, review the parser, registry adapter, server router,
 archive parser, `src/services/chat/index.ts`, the context-engine provider, the
-desktop and mobile ChatInput pickers/send hooks, and the assistant/settings
-stores together. Focused coverage lives in
+desktop and mobile ChatInput pickers/send hooks, and the global skill store
+together. Focused coverage lives in
 `src/services/skill/*.test.ts`,
 `packages/context-engine/src/providers/__tests__/SkillInstructionsProvider.test.ts`,
 and `packages/database/src/models/__tests__/skill.test.ts`.

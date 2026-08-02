@@ -4,7 +4,12 @@ import { clientDB } from '@/database/client/db';
 import { SkillModel } from '@/database/models/skill';
 import { BaseClientService } from '@/services/baseClientService';
 
-import { assertExpectedSkillIdentifier, parseSkill, resolveSkillSource } from './parser';
+import {
+  assertExpectedSkillIdentifier,
+  parseSkill,
+  resolveSkillSource,
+  serializeSkill,
+} from './parser';
 import { InstallSkillParams, SkillService } from './type';
 
 export class ClientSkillService extends BaseClientService implements SkillService {
@@ -63,5 +68,18 @@ export class ClientSkillService extends BaseClientService implements SkillServic
   searchRegistry: SkillService['searchRegistry'] = async () => ({ configured: false, items: [] });
   uninstallSkill = async (identifier: string) => {
     await this.model.delete(identifier);
+  };
+  updateSkill: SkillService['updateSkill'] = async ({
+    description,
+    identifier,
+    instructions,
+  }) => {
+    const parsed = parseSkill(serializeSkill({ description, identifier, instructions }));
+    const updated = await this.model.update(identifier, {
+      contentHash: parsed.contentHash,
+      description: parsed.description,
+      instructions: parsed.instructions,
+    });
+    if (!updated) throw new Error('Skill not found');
   };
 }

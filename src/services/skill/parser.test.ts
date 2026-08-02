@@ -4,6 +4,7 @@ import {
   assertExpectedSkillIdentifier,
   parseSkill,
   resolveSkillSource,
+  serializeSkill,
 } from './parser';
 
 const skillDocument = `---
@@ -40,6 +41,22 @@ describe('skill parser', () => {
       'expected "summarize-text", received "unexpected-skill"',
     );
     expect(() => assertExpectedSkillIdentifier('summarize-text', 'summarize-text')).not.toThrow();
+  });
+
+  it('serializes editable fields into a canonical skill document', () => {
+    const parsed = parseSkill(
+      serializeSkill({
+        description: 'Review code carefully.',
+        identifier: 'reviewer',
+        instructions: 'Inspect every changed line.',
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      description: 'Review code carefully.',
+      instructions: 'Inspect every changed line.',
+      name: 'reviewer',
+    });
   });
 
   it('normalizes GitHub repository and blob sources to raw SKILL.md URLs', () => {

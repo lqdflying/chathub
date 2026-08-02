@@ -2,12 +2,7 @@ import { Sparkles } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { useAgentStore } from '@/store/agent';
-import { agentSelectors } from '@/store/agent/selectors';
-import { useChatStore } from '@/store/chat';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
-import { useSessionStore } from '@/store/session';
-import { sessionSelectors } from '@/store/session/selectors';
 import { useSkillStore } from '@/store/skill';
 
 import Action from '../components/Action';
@@ -17,15 +12,7 @@ const Skills = memo(() => {
   const { t } = useTranslation('setting');
   const { enableSkills } = useServerConfigStore(featureFlagsSelectors);
   const items = useControls();
-  const activeSessionType = useChatStore((s) => s.activeSessionType);
-  const agentSkillIds = useAgentStore(agentSelectors.currentAgentSkills);
-  const groupSkillIds = useSessionStore((s) => [
-    ...new Set(sessionSelectors.currentGroupAgents(s).flatMap((agent) => agent.skills || [])),
-  ]);
-  const enabledSkillIds = activeSessionType === 'group' ? groupSkillIds : agentSkillIds;
-  const hasSkills = useSkillStore((s) =>
-    s.installedSkills.some(({ identifier }) => enabledSkillIds.includes(identifier)),
-  );
+  const hasSkills = useSkillStore((s) => s.installedSkills.length > 0);
   const isLoading = useSkillStore((s) => s.isLoading);
 
   if (!enableSkills || !hasSkills) return null;

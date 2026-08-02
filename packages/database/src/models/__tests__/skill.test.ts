@@ -78,4 +78,49 @@ describe('SkillModel', () => {
     expect(await skillModel.findById('summarize-text')).toBeUndefined();
     expect(await new SkillModel(serverDB, otherUserId).findById('summarize-text')).toBeDefined();
   });
+
+  it('updates only the owning user skill while preserving its source metadata', async () => {
+    const otherUserId = 'skill-db-other';
+    await serverDB.insert(users).values({ id: otherUserId });
+    await serverDB.insert(userInstalledSkills).values([
+      {
+        contentHash: 'hash-own-before',
+        description: 'Original own description.',
+        identifier: 'reviewer',
+        instructions: 'Original own instructions.',
+        name: 'reviewer',
+        sourceRef: 'reviewer.skill',
+        sourceType: 'file',
+        userId,
+      },
+      {
+        contentHash: 'hash-other-before',
+        description: 'Original other description.',
+        identifier: 'reviewer',
+        instructions: 'Original other instructions.',
+        name: 'reviewer',
+        sourceType: 'url',
+        sourceUrl: 'https://example.com/SKILL.md',
+        userId: otherUserId,
+      },
+    ]);
+
+    await skillModel.update('reviewer', {
+      contentHash: 'hash-own-after',
+      description: 'Updated own description.',
+      instructions: 'Updated own instructions.',
+    });
+
+    expect(await skillModel.findById('reviewer')).toMatchObject({
+      contentHash: 'hash-own-after',
+      description: 'Updated own description.',
+      instructions: 'Updated own instructions.',
+      sourceRef: 'reviewer.skill',
+      sourceType: 'file',
+    });
+    expect(await new SkillModel(serverDB, otherUserId).findById('reviewer')).toMatchObject({
+      contentHash: 'hash-other-before',
+      description: 'Original other description.',
+    });
+  });
 });

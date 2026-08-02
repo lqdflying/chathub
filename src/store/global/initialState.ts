@@ -24,7 +24,6 @@ export enum ChatSettingsTabs {
   Opening = 'opening',
   Plugin = 'plugin',
   Prompt = 'prompt',
-  Skills = 'skills',
   TTS = 'tts',
 }
 

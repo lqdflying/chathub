@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,14 +7,20 @@ import SkillsManagement from './index';
 vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
+  descriptionInputProps: undefined as any,
+  editModalProps: undefined as any,
+  getSkill: vi.fn(),
   installSkill: vi.fn(),
   installSkillFromUrl: vi.fn(),
+  installedSkills: [] as any[],
+  instructionsInputProps: undefined as any,
   parseSkillArchive: vi.fn(),
   registryButtonProps: undefined as any,
   searchInputProps: undefined as any,
   searchRegistry: vi.fn(),
   translate: vi.fn((key: string) => key),
   uninstallSkill: vi.fn(),
+  updateSkill: vi.fn(),
   uploadProps: undefined as any,
   useFetchSkills: vi.fn(),
 }));
@@ -31,7 +37,7 @@ vi.mock('@lobehub/ui', () => {
     Button: (props: any) => {
       if (props.type === 'text') mocks.registryButtonProps = props;
       return (
-        <button disabled={props.disabled} onClick={props.onClick}>
+        <button aria-label={props['aria-label']} disabled={props.disabled} onClick={props.onClick}>
           {props.children}
         </button>
       );
@@ -40,6 +46,11 @@ vi.mock('@lobehub/ui', () => {
     Empty,
     Input: (props: any) => {
       if (props.placeholder === 'skills.search') mocks.searchInputProps = props;
+      if (!props.disabled && !props.placeholder) mocks.descriptionInputProps = props;
+      return null;
+    },
+    TextArea: (props: any) => {
+      mocks.instructionsInputProps = props;
       return null;
     },
   };
@@ -55,8 +66,12 @@ vi.mock('antd', () => {
       useApp: () => appContext,
     },
     Form,
-    Modal: ({ children }: { children?: React.ReactNode }) => children ?? null,
+    Modal: (props: any) => {
+      if (props.title === 'skills.edit') mocks.editModalProps = props;
+      return props.children ?? null;
+    },
     Segmented: () => null,
+    Skeleton: () => null,
     Tag: ({ children }: { children?: React.ReactNode }) => children ?? null,
     Upload: {
       Dragger: (props: any) => {
@@ -82,7 +97,7 @@ vi.mock('react-layout-kit', () => ({
 }));
 
 vi.mock('@/services/skill', () => ({
-  skillService: { searchRegistry: mocks.searchRegistry },
+  skillService: { getSkill: mocks.getSkill, searchRegistry: mocks.searchRegistry },
 }));
 
 vi.mock('@/services/skill/archive', () => ({
@@ -90,15 +105,17 @@ vi.mock('@/services/skill/archive', () => ({
 }));
 
 vi.mock('@/store/skill', () => {
-  const state = {
-    installSkill: mocks.installSkill,
-    installSkillFromUrl: mocks.installSkillFromUrl,
-    installedSkills: [],
-    uninstallSkill: mocks.uninstallSkill,
-    useFetchSkills: mocks.useFetchSkills,
+  return {
+    useSkillStore: (selector: (state: any) => unknown) =>
+      selector({
+        installSkill: mocks.installSkill,
+        installSkillFromUrl: mocks.installSkillFromUrl,
+        installedSkills: mocks.installedSkills,
+        uninstallSkill: mocks.uninstallSkill,
+        updateSkill: mocks.updateSkill,
+        useFetchSkills: mocks.useFetchSkills,
+      }),
   };
-
-  return { useSkillStore: (selector: (state: typeof state) => unknown) => selector(state) };
 });
 
 describe('SkillsManagement registry search', () => {
@@ -115,6 +132,10 @@ describe('SkillsManagement registry search', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mocks.searchInputProps = undefined;
+    mocks.descriptionInputProps = undefined;
+    mocks.editModalProps = undefined;
+    mocks.installedSkills = [];
+    mocks.instructionsInputProps = undefined;
     mocks.uploadProps = undefined;
     mocks.installSkill.mockResolvedValue(undefined);
     mocks.parseSkillArchive.mockResolvedValue({
@@ -124,6 +145,7 @@ describe('SkillsManagement registry search', () => {
     });
     mocks.registryButtonProps = undefined;
     mocks.searchRegistry.mockResolvedValue({ configured: true, items: [] });
+    mocks.updateSkill.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -209,5 +231,42 @@ describe('SkillsManagement registry search', () => {
       skipped: 2,
     });
     expect(appContext.message.warning).toHaveBeenCalledWith('skills.resourcesSkipped');
+  });
+
+  it('hides the internal hash and updates editable skill fields', async () => {
+    mocks.installedSkills = [
+      {
+        contentHash: '0aa43aabbd8b0fac2da7749a78c7346644742c9ce06c50ecff81a9a66eb70452',
+        description: 'Review code.',
+        identifier: 'reviewer',
+        name: 'Reviewer',
+        sourceRef: 'reviewer.skill',
+        sourceType: 'file',
+      },
+    ];
+    mocks.getSkill.mockResolvedValue({
+      ...mocks.installedSkills[0],
+      instructions: 'Review every changed line.',
+    });
+    const { container } = render(<SkillsManagement />);
+
+    act(() => screen.getByText('Reviewer').closest('button')?.click());
+
+    expect(container.textContent).not.toContain(mocks.installedSkills[0].contentHash);
+
+    await act(() => screen.getByRole('button', { name: 'skills.edit' }).click());
+    act(() => mocks.descriptionInputProps.onChange({ target: { value: 'Updated review.' } }));
+    act(() =>
+      mocks.instructionsInputProps.onChange({ target: { value: 'Use the updated workflow.' } }),
+    );
+    await act(() => mocks.editModalProps.onOk());
+
+    expect(mocks.getSkill).toHaveBeenCalledWith('reviewer');
+    expect(mocks.updateSkill).toHaveBeenCalledWith({
+      description: 'Updated review.',
+      identifier: 'reviewer',
+      instructions: 'Use the updated workflow.',
+    });
+    expect(appContext.message.success).toHaveBeenCalledWith('skills.updateSuccess');
   });
 });

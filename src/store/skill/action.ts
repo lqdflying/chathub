@@ -3,7 +3,7 @@ import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
-import { InstallSkillParams, skillService } from '@/services/skill';
+import { InstallSkillParams, UpdateSkillParams, skillService } from '@/services/skill';
 import { useAgentStore } from '@/store/agent';
 import { useSessionStore } from '@/store/session';
 import { useUserStore } from '@/store/user';
@@ -24,6 +24,7 @@ export interface SkillAction {
   refreshSkills: () => Promise<void>;
   toggleSelectedSkill: (identifier: string, enabled?: boolean, conversationKey?: string) => void;
   uninstallSkill: (identifier: string) => Promise<void>;
+  updateSkill: (params: UpdateSkillParams) => Promise<void>;
   useFetchSkills: () => SWRResponse<InstalledSkillItem[]>;
 }
 
@@ -133,6 +134,10 @@ export const createSkillSlice: StateCreator<
       sessions: pruneSessions(sessionState.sessions),
     });
 
+    await get().refreshSkills();
+  },
+  updateSkill: async (params) => {
+    await skillService.updateSkill(params);
     await get().refreshSkills();
   },
   useFetchSkills: () => {

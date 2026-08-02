@@ -5,7 +5,7 @@ import { Skeleton } from 'antd';
 import { useTheme } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { useQueryState } from 'nuqs';
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 
 import { INBOX_SESSION_ID } from '@/const/session';
 import { AgentSettings } from '@/features/AgentSetting';
@@ -26,6 +26,11 @@ const Page = memo((props: AgentPageType) => {
   const [tab, setTab] = useQueryState('tab', {
     defaultValue: ChatSettingsTabs.Prompt,
   });
+  const activeTab = tab === 'skills' ? ChatSettingsTabs.Prompt : (tab as ChatSettingsTabs);
+
+  useEffect(() => {
+    if (tab === 'skills') void setTab(ChatSettingsTabs.Prompt);
+  }, [setTab, tab]);
   const config = useUserStore(settingsSelectors.defaultAgentConfig, isEqual);
   const meta = useUserStore(settingsSelectors.defaultAgentMeta, isEqual);
   const [updateAgent, isUserStateInit] = useUserStore((s) => [
@@ -42,7 +47,7 @@ const Page = memo((props: AgentPageType) => {
     <>
       {mobile && (
         <Tabs
-          activeKey={tab}
+          activeKey={activeTab}
           compact
           items={cateItems as any}
           onChange={(value) => setTab(value as ChatSettingsTabs)}
@@ -60,7 +65,7 @@ const Page = memo((props: AgentPageType) => {
         onMetaChange={(meta) => {
           updateAgent({ meta });
         }}
-        tab={tab as ChatSettingsTabs}
+        tab={activeTab}
       />
     </>
   )

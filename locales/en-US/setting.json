@@ -637,19 +637,23 @@
     }
   },
   "skills": {
-    "agentTitle": "Skills available to this assistant",
     "confirmUninstall": "Confirm uninstall this skill?",
+    "description": "Description",
     "details": "Skill details",
+    "edit": "Edit skill",
     "emptySelect": "Select a skill to view details",
-    "groupName": "Skills (this message)",
+    "groupName": "Skills",
+    "identifier": "Identifier",
     "install": "Install skill",
     "installModes": {
       "file": "Local file",
       "url": "URL"
     },
     "installSuccess": "Skill installed",
-    "lazyLoading": "Full instructions load only when explicitly activated",
+    "instructions": "Markdown instructions",
+    "lazyLoading": "Only skills enabled in the composer load their instructions",
     "localSource": "Custom source",
+    "notFound": "Skill not found",
     "registry": "Skill registry",
     "resourcesSkipped": "Installed {{name}}. {{skipped}} bundled file(s) were skipped.",
     "search": "Search installed skills",
@@ -660,9 +664,10 @@
       "registry": "Registry",
       "url": "URL"
     },
+    "save": "Save",
     "title": "Skills",
     "uninstall": "Uninstall skill",
-    "unknownCommand": "Skill /{{name}} is not enabled; the command will be sent as plain text.",
+    "updateSuccess": "Skill updated",
     "uploadSkill": "Choose a .skill file"
   },
   "storage": {

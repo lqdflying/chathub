@@ -7,7 +7,6 @@ import { ChatCodeInterpreterAction, codeInterpreterSlice } from './interpreter';
 import { LocalFileAction, localSystemSlice } from './localSystem';
 import { MemoryAction, memorySlice } from './memory';
 import { SearchAction, searchSlice } from './search';
-import { SkillAction, skillSlice } from './skill';
 
 export interface ChatBuiltinToolAction
   extends
@@ -15,8 +14,7 @@ export interface ChatBuiltinToolAction
     SearchAction,
     LocalFileAction,
     ChatCodeInterpreterAction,
-    MemoryAction,
-    SkillAction {}
+    MemoryAction {}
 
 export const chatToolSlice: StateCreator<
   ChatStore,
@@ -29,5 +27,4 @@ export const chatToolSlice: StateCreator<
   ...localSystemSlice(...params),
   ...codeInterpreterSlice(...params),
   ...memorySlice(...params),
-  ...skillSlice(...params),
 });

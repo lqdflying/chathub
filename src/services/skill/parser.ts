@@ -15,6 +15,20 @@ export interface NormalizedSkillSource {
   sourceUrl: string;
 }
 
+export const serializeSkill = ({
+  description,
+  identifier,
+  instructions,
+}: {
+  description: string;
+  identifier: string;
+  instructions: string;
+}) =>
+  matter.stringify(instructions.trim(), {
+    description: description.trim(),
+    name: identifier,
+  });
+
 export const assertExpectedSkillIdentifier = (actual: string, expected?: string) => {
   if (expected && actual !== expected) {
     throw new Error(`Skill identifier mismatch: expected "${expected}", received "${actual}"`);

@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,8 +14,6 @@ const mocks = vi.hoisted(() => ({
     activeTopicId: 'topic-1',
   },
   editorProps: undefined as any,
-  enableSkills: true,
-  toggleSelectedSkill: vi.fn(),
 }));
 
 vi.mock('@lobehub/editor', () => ({
@@ -78,7 +76,7 @@ vi.mock('@/store/chat', () => ({
 }));
 
 vi.mock('@/store/serverConfig', () => ({
-  featureFlagsSelectors: () => ({ enableSkills: mocks.enableSkills }),
+  featureFlagsSelectors: () => ({ enableSkills: true }),
   useServerConfigStore: (selector: (state: object) => unknown) => selector({}),
 }));
 
@@ -95,7 +93,7 @@ vi.mock('@/store/skill', () => {
     installedSkills: [
       { description: 'Review code carefully.', identifier: 'reviewer', name: 'Reviewer' },
     ],
-    toggleSelectedSkill: mocks.toggleSelectedSkill,
+    toggleSelectedSkill: vi.fn(),
   };
 
   return {
@@ -136,34 +134,13 @@ vi.mock('../store', () => ({
 vi.mock('./Placeholder', () => ({ default: () => null }));
 vi.mock('./ReplacementTextPlugin', () => ({ default: () => null }));
 
-describe('InputEditor skill slash items', () => {
+describe('InputEditor slash items', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.editorProps = undefined;
-    mocks.enableSkills = true;
   });
 
-  it('toggles the scoped selection without rewriting the editor document', () => {
-    render(<InputEditor />);
-    const skillItem = mocks.editorProps.slashOption.items.find(
-      (item: { key: string }) => item.key === 'reviewer',
-    );
-    const editor = { focus: vi.fn(), setDocument: vi.fn() };
-
-    act(() => skillItem.onSelect(editor));
-
-    expect(mocks.toggleSelectedSkill).toHaveBeenCalledWith(
-      'reviewer',
-      true,
-      'session-1:topic-1:thread-1',
-    );
-    expect(editor.setDocument).not.toHaveBeenCalled();
-    expect(editor.focus).toHaveBeenCalled();
-  });
-
-  it('omits skill slash items when the feature is disabled', () => {
-    mocks.enableSkills = false;
-
+  it('keeps editor commands without exposing installed skills', () => {
     render(<InputEditor />);
 
     expect(
@@ -171,5 +148,8 @@ describe('InputEditor skill slash items', () => {
         (item: { key: string }) => item.key === 'reviewer',
       ),
     ).toBe(false);
+    expect(
+      mocks.editorProps.slashOption.items.some((item: { key: string }) => item.key === 'table'),
+    ).toBe(true);
   });
 });

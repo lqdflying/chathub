@@ -149,14 +149,7 @@ const collectLatestTurnSkillIds = (messages: UIChatMessage[]) => {
   }
   if (latestUserIndex < 0) return;
 
-  const ids = [
-    ...getActivatedSkillIdsFromMetadata(messages[latestUserIndex]),
-    ...messages
-      .slice(latestUserIndex + 1)
-      .flatMap((message) =>
-        message.role === 'tool' ? getActivatedSkillIdsFromMetadata(message) : [],
-      ),
-  ];
+  const ids = getActivatedSkillIdsFromMetadata(messages[latestUserIndex]);
 
   return ids.length > 0 ? [...new Set(ids)] : undefined;
 };
@@ -196,7 +189,7 @@ class ChatService {
       activatedSkillIds: requestActivatedSkillIds,
       messages,
       plugins: enabledPlugins,
-      skills: availableSkillIds,
+      skills: _legacyAvailableSkillIds,
       ...params
     }: GetChatCompletionPayload & { activatedSkillIds?: string[]; skills?: string[] },
     options?: FetchOptions,
@@ -215,23 +208,20 @@ class ChatService {
     // =================== 1. preprocess tools =================== //
 
     const pluginIds = [...(enabledPlugins || [])];
-    const enabledSkillIds = [...new Set(availableSkillIds || [])];
-    const installedSkillMetadata = enabledSkillIds.length
-      ? await skillService.getInstalledSkills()
-      : [];
-    const availableSkills = enabledSkillIds
-      .map((identifier) => installedSkillMetadata.find((skill) => skill.identifier === identifier))
-      .filter(Boolean);
-    const installedEnabledSkillIds = availableSkills.map(({ identifier }) => identifier);
-    const installedEnabledSkillIdSet = new Set(installedEnabledSkillIds);
     const messageActivatedSkillIds = collectLatestTurnSkillIds(sanitizedMessages);
     const requestedSkillIds = firstNonEmpty(
       options?.activatedSkillIds,
       requestActivatedSkillIds,
       messageActivatedSkillIds,
     );
+    const installedSkillMetadata = requestedSkillIds.length
+      ? await skillService.getInstalledSkills()
+      : [];
+    const installedSkillIdSet = new Set(
+      installedSkillMetadata.map(({ identifier }) => identifier),
+    );
     const activatedSkillIds = [...new Set(requestedSkillIds)]
-      .filter((identifier) => installedEnabledSkillIdSet.has(identifier))
+      .filter((identifier) => installedSkillIdSet.has(identifier))
       .slice(0, MAX_ACTIVE_SKILLS);
     const activatedSkills = activatedSkillIds.length
       ? await skillService.resolveSkills(activatedSkillIds)
@@ -242,7 +232,7 @@ class ChatService {
         model: payload.model,
         provider: payload.provider!,
       },
-      { enableMemoryTool: options?.enableMemoryTool, enabledSkillIds: installedEnabledSkillIds },
+      { enableMemoryTool: options?.enableMemoryTool },
     );
 
     const { tools, enabledToolIds } = toolsEngine.generateToolsDetailed({
@@ -274,7 +264,6 @@ class ChatService {
       sessionId: options?.trace?.sessionId,
       skills: {
         activated: activatedSkills,
-        available: availableSkills,
       },
       systemRole,
       tools: enabledToolIds,

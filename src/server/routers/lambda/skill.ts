@@ -12,6 +12,7 @@ import {
   assertExpectedSkillIdentifier,
   parseSkill,
   resolveSkillSource,
+  serializeSkill,
 } from '@/services/skill/parser';
 import { parseSkillRegistry } from '@/services/skill/registry';
 
@@ -74,6 +75,12 @@ const installInputSchema = z.object({
   sourceRef: z.string().max(255).optional(),
   sourceType: sourceTypeSchema,
   sourceUrl: z.string().url().optional(),
+});
+
+const updateInputSchema = z.object({
+  description: z.string().max(1024),
+  identifier: z.string().max(64).refine(isSkillName),
+  instructions: z.string().max(MAX_SKILL_BYTES),
 });
 
 const persistSkill = async (
@@ -268,6 +275,29 @@ export const skillRouter = router({
         items: parseSkillRegistry(payload, input.query),
       };
     }),
+
+  updateSkill: skillProcedure.input(updateInputSchema).mutation(async ({ input, ctx }) => {
+    const parsed = asBadRequest(() => parseSkill(serializeSkill(input)));
+
+    try {
+      const updated = await ctx.skillModel.update(input.identifier, {
+        contentHash: parsed.contentHash,
+        description: parsed.description,
+        instructions: parsed.instructions,
+      });
+      if (!updated) throw new TRPCError({ code: 'NOT_FOUND', message: 'Skill not found' });
+    } catch (error) {
+      if (error instanceof TRPCError) throw error;
+      if (isDuplicateContentError(error)) {
+        throw new TRPCError({
+          cause: error,
+          code: 'CONFLICT',
+          message: 'A skill with identical content is already installed under a different identifier',
+        });
+      }
+      throw error;
+    }
+  }),
 });
 
 export type SkillRouter = typeof skillRouter;

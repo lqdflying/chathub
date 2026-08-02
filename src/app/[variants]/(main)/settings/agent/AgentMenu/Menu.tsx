@@ -11,7 +11,12 @@ const Menu = memo(() => {
     defaultValue: ChatSettingsTabs.Prompt,
   });
 
-  return <AgentCategory setTab={setTab} tab={tab} />;
+  return (
+    <AgentCategory
+      setTab={setTab}
+      tab={tab === 'skills' ? ChatSettingsTabs.Prompt : (tab as ChatSettingsTabs)}
+    />
+  );
 });
 
 export default Menu;

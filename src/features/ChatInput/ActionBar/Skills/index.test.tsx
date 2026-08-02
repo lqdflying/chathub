@@ -10,25 +10,11 @@ const serverConfigState = vi.hoisted(() => ({
   featureFlags: { enableSkills: true },
 }));
 const skillContext = vi.hoisted(() => ({
-  activeSessionType: 'agent' as 'agent' | 'group',
-  agentSkillIds: ['reviewer'],
-  groupSkillIds: ['group-reviewer'],
+  installedSkills: [{ identifier: 'reviewer' }],
 }));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
-}));
-
-vi.mock('@/store/agent', () => ({
-  useAgentStore: (selector: (state: object) => unknown) => selector({}),
-}));
-
-vi.mock('@/store/agent/selectors', () => ({
-  agentSelectors: { currentAgentSkills: () => skillContext.agentSkillIds },
-}));
-
-vi.mock('@/store/chat', () => ({
-  useChatStore: (selector: (state: typeof skillContext) => unknown) => selector(skillContext),
 }));
 
 vi.mock('@/store/serverConfig', () => ({
@@ -40,19 +26,9 @@ vi.mock('@/store/serverConfig', () => ({
 vi.mock('@/store/skill', () => ({
   useSkillStore: (selector: (state: object) => unknown) =>
     selector({
-      installedSkills: [{ identifier: 'reviewer' }, { identifier: 'group-reviewer' }],
+      installedSkills: skillContext.installedSkills,
       isLoading: false,
     }),
-}));
-
-vi.mock('@/store/session', () => ({
-  useSessionStore: (selector: (state: typeof skillContext) => unknown) => selector(skillContext),
-}));
-
-vi.mock('@/store/session/selectors', () => ({
-  sessionSelectors: {
-    currentGroupAgents: () => [{ skills: skillContext.groupSkillIds }],
-  },
 }));
 
 vi.mock('../components/Action', () => ({
@@ -64,12 +40,10 @@ vi.mock('./useControls', () => ({ useControls: () => [] }));
 describe('ChatInput Skills action feature gate', () => {
   beforeEach(() => {
     serverConfigState.featureFlags.enableSkills = true;
-    skillContext.activeSessionType = 'agent';
-    skillContext.agentSkillIds = ['reviewer'];
-    skillContext.groupSkillIds = ['group-reviewer'];
+    skillContext.installedSkills = [{ identifier: 'reviewer' }];
   });
 
-  it('renders when enabled skills are available', () => {
+  it('renders when a global skill is installed', () => {
     render(<Skills />);
 
     expect(screen.getByText('skills.title')).toBeTruthy();
@@ -83,12 +57,11 @@ describe('ChatInput Skills action feature gate', () => {
     expect(screen.queryByText('skills.title')).toBeNull();
   });
 
-  it('renders for a group skill even when the current agent has no skills', () => {
-    skillContext.activeSessionType = 'group';
-    skillContext.agentSkillIds = [];
+  it('renders nothing when no global skill is installed', () => {
+    skillContext.installedSkills = [];
 
     render(<Skills />);
 
-    expect(screen.getByText('skills.title')).toBeTruthy();
+    expect(screen.queryByText('skills.title')).toBeNull();
   });
 });
