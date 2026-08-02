@@ -6,7 +6,12 @@ import { SkillModel } from '@/database/models/skill';
 import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { MAX_SKILL_BYTES, parseSkill, resolveSkillSource } from '@/services/skill/parser';
+import {
+  MAX_SKILL_BYTES,
+  assertExpectedSkillIdentifier,
+  parseSkill,
+  resolveSkillSource,
+} from '@/services/skill/parser';
 import { parseSkillRegistry } from '@/services/skill/registry';
 
 const skillProcedure = authedProcedure
@@ -27,8 +32,14 @@ const installInputSchema = z.object({
   sourceUrl: z.string().url().optional(),
 });
 
-const persistSkill = async (model: SkillModel, input: z.infer<typeof installInputSchema>) => {
+const persistSkill = async (
+  model: SkillModel,
+  input: z.infer<typeof installInputSchema>,
+  expectedIdentifier?: string,
+) => {
   const parsed = parseSkill(input.instructions);
+  assertExpectedSkillIdentifier(parsed.name, expectedIdentifier);
+
   const identifier = input.identifier || parsed.name;
   const source = input.sourceUrl
     ? resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef)
@@ -119,6 +130,7 @@ export const skillRouter = router({
     .input(
       z.object({
         authorization: z.string().max(4096).optional(),
+        expectedIdentifier: z.string().max(64).refine(isSkillName).optional(),
         sourceRef: z.string().max(255).optional(),
         sourceType: sourceTypeSchema,
         sourceUrl: z.string().url(),
@@ -128,12 +140,16 @@ export const skillRouter = router({
       const source = resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef);
       const instructions = await fetchText(source.sourceUrl, MAX_SKILL_BYTES, input.authorization);
 
-      return persistSkill(ctx.skillModel, {
-        instructions,
-        sourceRef: source.sourceRef,
-        sourceType: source.sourceType,
-        sourceUrl: source.sourceUrl,
-      });
+      return persistSkill(
+        ctx.skillModel,
+        {
+          instructions,
+          sourceRef: source.sourceRef,
+          sourceType: source.sourceType,
+          sourceUrl: source.sourceUrl,
+        },
+        input.expectedIdentifier,
+      );
     }),
 
   removeSkill: skillProcedure

@@ -3,15 +3,33 @@ import { useTranslation } from 'react-i18next';
 
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
-import { useSkillStore } from '@/store/skill';
+import { useChatStore } from '@/store/chat';
+import { useSessionStore } from '@/store/session';
+import { sessionSelectors } from '@/store/session/selectors';
+import { getSkillSelectionKey, skillSelectors, useSkillStore } from '@/store/skill';
 
 import CheckboxItem from '../components/CheckbokWithLoading';
 
 export const useControls = (): ItemType[] => {
   const { t } = useTranslation('setting');
-  const enabledIds = useAgentStore(agentSelectors.currentAgentSkills);
+  const [activeSessionType, activeId, activeTopicId, activeThreadId] = useChatStore((s) => [
+    s.activeSessionType,
+    s.activeId,
+    s.activeTopicId,
+    s.activeThreadId,
+  ]);
+  const agentSkillIds = useAgentStore(agentSelectors.currentAgentSkills);
+  const groupSkillIds = useSessionStore((s) => [
+    ...new Set(sessionSelectors.currentGroupAgents(s).flatMap((agent) => agent.skills || [])),
+  ]);
+  const enabledIds = activeSessionType === 'group' ? groupSkillIds : agentSkillIds;
+  const selectionKey = getSkillSelectionKey({
+    sessionId: activeId,
+    threadId: activeThreadId,
+    topicId: activeTopicId,
+  });
   const skills = useSkillStore((s) => s.installedSkills);
-  const selected = useSkillStore((s) => s.selectedSkillIds);
+  const selected = useSkillStore(skillSelectors.selectedSkillIds(selectionKey));
   const toggle = useSkillStore((s) => s.toggleSelectedSkill);
   const useFetchSkills = useSkillStore((s) => s.useFetchSkills);
 
@@ -28,7 +46,7 @@ export const useControls = (): ItemType[] => {
               checked={selected.includes(skill.identifier)}
               id={skill.identifier}
               label={skill.name}
-              onUpdate={async (id, enabled) => toggle(id, enabled)}
+              onUpdate={async (id, enabled) => toggle(id, enabled, selectionKey)}
             />
           ),
         })),

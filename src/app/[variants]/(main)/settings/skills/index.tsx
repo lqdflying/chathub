@@ -133,7 +133,12 @@ const SkillsManagement = memo(() => {
                     key={item.identifier}
                     onClick={async () => {
                       try {
-                        await skillService.installSkillFromUrl(item);
+                        await skillService.installSkillFromUrl({
+                          expectedIdentifier: item.identifier,
+                          sourceRef: item.sourceRef,
+                          sourceType: item.sourceType,
+                          sourceUrl: item.sourceUrl,
+                        });
                         await refresh();
                       } catch (error) {
                         messageApi.error(error instanceof Error ? error.message : String(error));

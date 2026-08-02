@@ -12,7 +12,7 @@ import { fileChatSelectors, useFileStore } from '@/store/file';
 import { mentionSelectors, useMentionStore } from '@/store/mention';
 import { useSessionStore } from '@/store/session';
 import { sessionMetaSelectors, sessionSelectors } from '@/store/session/selectors';
-import { getSkillStoreState } from '@/store/skill';
+import { getSkillSelectionKey, getSkillStoreState, skillSelectors } from '@/store/skill';
 import { getUserStoreState } from '@/store/user';
 
 export interface UseSendMessageParams {
@@ -77,11 +77,16 @@ export const useSend = () => {
     if (chatSelectors.isAIGenerating(store)) return;
 
     const inputMessage = store.inputMessage;
+    const selectionKey = getSkillSelectionKey({
+      sessionId: store.activeId,
+      threadId: store.activeThreadId,
+      topicId: store.activeTopicId,
+    });
     const enabledSkillIds = agentSelectors.currentAgentSkills(getAgentStoreState());
     const parsedSkills = parseSkillActivations(inputMessage, enabledSkillIds);
-    const selectedSkillIds = getSkillStoreState().selectedSkillIds.filter((id) =>
-      enabledSkillIds.includes(id),
-    );
+    const selectedSkillIds = skillSelectors
+      .selectedSkillIds(selectionKey)(getSkillStoreState())
+      .filter((id) => enabledSkillIds.includes(id));
     const activatedSkillIds = [
       ...new Set([...parsedSkills.activatedSkillIds, ...selectedSkillIds]),
     ];
@@ -117,7 +122,7 @@ export const useSend = () => {
       sendMessage({ activatedSkillIds, files: fileList, message: messageToSend, ...params });
     }
 
-    getSkillStoreState().clearSelectedSkills();
+    getSkillStoreState().clearSelectedSkills(selectionKey);
 
     clearChatUploadFileList();
     mainInputEditor.setExpand(false);
@@ -237,6 +242,11 @@ export const useSendGroupMessage = () => {
         return;
 
       const inputMessage = store.inputMessage;
+      const selectionKey = getSkillSelectionKey({
+        sessionId: store.activeId,
+        threadId: store.activeThreadId,
+        topicId: store.activeTopicId,
+      });
       const groupSkillIds = [
         ...new Set(
           sessionSelectors
@@ -245,9 +255,9 @@ export const useSendGroupMessage = () => {
         ),
       ];
       const parsedSkills = parseSkillActivations(inputMessage, groupSkillIds);
-      const selectedSkillIds = getSkillStoreState().selectedSkillIds.filter((id) =>
-        groupSkillIds.includes(id),
-      );
+      const selectedSkillIds = skillSelectors
+        .selectedSkillIds(selectionKey)(getSkillStoreState())
+        .filter((id) => groupSkillIds.includes(id));
       const activatedSkillIds = [
         ...new Set([...parsedSkills.activatedSkillIds, ...selectedSkillIds]),
       ];
@@ -298,7 +308,7 @@ export const useSendGroupMessage = () => {
         ...params,
       });
 
-      getSkillStoreState().clearSelectedSkills();
+      getSkillStoreState().clearSelectedSkills(selectionKey);
 
       clearChatUploadFileList();
       mainInputEditor.setExpand(false);

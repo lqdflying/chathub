@@ -260,9 +260,7 @@ describe('generateAIChatV2 actions', () => {
       it('registers a fresh stoppable AbortController while compaction runs and clears it', async () => {
         let compactingDuringRun = false;
         const compactionSpy = vi.fn(async () => {
-          compactingDuringRun = aiChatSelectors.isCurrentPreSendCompacting(
-            useChatStore.getState(),
-          );
+          compactingDuringRun = aiChatSelectors.isCurrentPreSendCompacting(useChatStore.getState());
           return { status: 'ineligible' } as any;
         });
         act(() => {
@@ -396,6 +394,26 @@ describe('generateAIChatV2 actions', () => {
           expect.any(AbortController),
         );
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+      });
+
+      it('persists deduplicated activated skill metadata on the server user message', async () => {
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({
+            activatedSkillIds: ['reviewer', 'reviewer'],
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            newUserMessage: expect.objectContaining({
+              metadata: { skills: { activated: ['reviewer'] } },
+            }),
+          }),
+          expect.anything(),
+        );
       });
 
       it('should skip creating new topic when auto-create topic is disabled', async () => {

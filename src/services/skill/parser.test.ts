@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeSkillSource, parseSkill, resolveSkillSource } from './parser';
+import {
+  assertExpectedSkillIdentifier,
+  normalizeSkillSource,
+  parseSkill,
+  resolveSkillSource,
+} from './parser';
 
 const skillDocument = `---
 name: summarize-text
@@ -29,6 +34,13 @@ describe('skill parser', () => {
     expect(() =>
       parseSkill(skillDocument.replace('Follow the requested output format exactly.', '')),
     ).toThrow('instructions cannot be empty');
+  });
+
+  it('rejects downloaded skill content that does not match the registry identifier', () => {
+    expect(() => assertExpectedSkillIdentifier('unexpected-skill', 'summarize-text')).toThrow(
+      'expected "summarize-text", received "unexpected-skill"',
+    );
+    expect(() => assertExpectedSkillIdentifier('summarize-text', 'summarize-text')).not.toThrow();
   });
 
   it('normalizes GitHub repository and blob sources to raw SKILL.md URLs', () => {

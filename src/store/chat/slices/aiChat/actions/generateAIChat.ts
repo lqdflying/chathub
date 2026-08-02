@@ -293,6 +293,16 @@ export const generateAIChat: StateCreator<
 
     set({ isCreatingMessage: true }, false, n('creatingMessage/start'));
 
+    const messageMetadata =
+      metadata || activatedSkillIds?.length
+        ? {
+            ...metadata,
+            ...(activatedSkillIds?.length
+              ? { skills: { activated: [...new Set(activatedSkillIds)] } }
+              : {}),
+          }
+        : undefined;
+
     const newMessage: CreateMessageParams = {
       content: message,
       // if message has attached with files, then add files to message and the agent
@@ -302,12 +312,7 @@ export const generateAIChat: StateCreator<
       // if there is activeTopicId，then add topicId to message
       topicId: activeTopicId,
       threadId: activeThreadId,
-      metadata: {
-        ...metadata,
-        ...(activatedSkillIds?.length
-          ? { skills: { activated: [...new Set(activatedSkillIds)] } }
-          : {}),
-      },
+      ...(messageMetadata && { metadata: messageMetadata }),
     };
 
     const agentConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());

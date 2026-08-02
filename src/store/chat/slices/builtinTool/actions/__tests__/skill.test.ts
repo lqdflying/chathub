@@ -23,7 +23,7 @@ describe('skill loader action', () => {
     });
   });
 
-  it('loads the full body only after an enabled skill is requested', async () => {
+  it('loads an enabled skill without persisting its instruction body', async () => {
     vi.mocked(skillService.getSkill).mockResolvedValue({
       contentHash: 'hash-reviewer',
       createdAt: new Date(0),
@@ -46,9 +46,10 @@ describe('skill loader action', () => {
       JSON.stringify({
         contentHash: 'hash-reviewer',
         identifier: 'reviewer',
-        instructions: 'Inspect correctness and tests.',
         name: 'reviewer',
+        status: 'loaded',
       }),
+      { metadata: { skills: { activated: ['reviewer'] } } },
     );
   });
 

@@ -4,7 +4,7 @@ import { clientDB } from '@/database/client/db';
 import { SkillModel } from '@/database/models/skill';
 import { BaseClientService } from '@/services/baseClientService';
 
-import { parseSkill, resolveSkillSource } from './parser';
+import { assertExpectedSkillIdentifier, parseSkill, resolveSkillSource } from './parser';
 import { InstallSkillParams, SkillService } from './type';
 
 export class ClientSkillService extends BaseClientService implements SkillService {
@@ -38,8 +38,13 @@ export class ClientSkillService extends BaseClientService implements SkillServic
       headers: params.authorization ? { authorization: params.authorization } : undefined,
     });
     if (!response.ok) throw new Error(`Skill source returned HTTP ${response.status}`);
+
+    const instructions = await response.text();
+    const parsed = parseSkill(instructions);
+    assertExpectedSkillIdentifier(parsed.name, params.expectedIdentifier);
+
     return this.installSkill({
-      instructions: await response.text(),
+      instructions,
       sourceRef: source.sourceRef,
       sourceType: source.sourceType,
       sourceUrl: source.sourceUrl,

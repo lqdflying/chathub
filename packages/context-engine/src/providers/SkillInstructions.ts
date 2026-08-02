@@ -17,7 +17,7 @@ export interface SkillInstructionsConfig {
   available?: SkillInstructionItem[];
 }
 
-const formatSkillBlock = (config: SkillInstructionsConfig) => {
+const formatSkillBlock = (config: SkillInstructionsConfig = {}) => {
   const available = (config.available || [])
     .map(({ description, identifier }) => `- ${identifier}: ${description}`)
     .join('\n');
@@ -40,7 +40,7 @@ export class SkillInstructionsProvider extends BaseProvider {
   readonly name = 'SkillInstructionsProvider';
 
   constructor(
-    private config: SkillInstructionsConfig,
+    private config: SkillInstructionsConfig = {},
     options: ProcessorOptions = {},
   ) {
     super(options);

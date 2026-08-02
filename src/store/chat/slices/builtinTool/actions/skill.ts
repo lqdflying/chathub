@@ -60,9 +60,10 @@ export const skillSlice: StateCreator<ChatStore, [['zustand/devtools', never]], 
       JSON.stringify({
         contentHash: skill.contentHash,
         identifier: skill.identifier,
-        instructions: skill.instructions,
         name: skill.name,
+        status: 'loaded',
       }),
+      { metadata: { skills: { activated: [skill.identifier] } } },
     );
     return true;
   },

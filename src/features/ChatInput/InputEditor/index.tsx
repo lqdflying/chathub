@@ -22,6 +22,9 @@ import { useTranslation } from 'react-i18next';
 
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
+import { useChatStore } from '@/store/chat';
+import { useSessionStore } from '@/store/session';
+import { sessionSelectors } from '@/store/session/selectors';
 import { useSkillStore } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { preferenceSelectors, settingsSelectors } from '@/store/user/selectors';
@@ -52,7 +55,12 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
   const hotkey = useUserStore(settingsSelectors.getHotkeyById(HotkeyEnum.AddUserMessage));
   const { enableScope, disableScope } = useHotkeysContext();
   const { t } = useTranslation(['editor', 'chat']);
-  const enabledSkillIds = useAgentStore(agentSelectors.currentAgentSkills);
+  const activeSessionType = useChatStore((s) => s.activeSessionType);
+  const agentSkillIds = useAgentStore(agentSelectors.currentAgentSkills);
+  const groupSkillIds = useSessionStore((s) => [
+    ...new Set(sessionSelectors.currentGroupAgents(s).flatMap((agent) => agent.skills || [])),
+  ]);
+  const enabledSkillIds = activeSessionType === 'group' ? groupSkillIds : agentSkillIds;
   const installedSkills = useSkillStore((s) => s.installedSkills);
   const skillSlashItems = useMemo(
     () =>

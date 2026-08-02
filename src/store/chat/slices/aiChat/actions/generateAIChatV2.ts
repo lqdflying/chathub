@@ -184,6 +184,16 @@ export const generateAIChatV2: StateCreator<
         alt: f.file?.name || f.id,
       }));
 
+    const messageMetadata =
+      metadata || activatedSkillIds?.length
+        ? {
+            ...metadata,
+            ...(activatedSkillIds?.length
+              ? { skills: { activated: [...new Set(activatedSkillIds)] } }
+              : {}),
+          }
+        : undefined;
+
     // use optimistic update to avoid the slow waiting
     const tempId = get().internal_createTmpMessage({
       content: message,
@@ -196,12 +206,7 @@ export const generateAIChatV2: StateCreator<
       threadId: activeThreadId,
       imageList: tempImages.length > 0 ? tempImages : undefined,
       videoList: tempVideos.length > 0 ? tempVideos : undefined,
-      metadata: {
-        ...metadata,
-        ...(activatedSkillIds?.length
-          ? { skills: { activated: [...new Set(activatedSkillIds)] } }
-          : {}),
-      },
+      ...(messageMetadata && { metadata: messageMetadata }),
     });
     get().internal_toggleMessageLoading(true, tempId);
 
@@ -227,12 +232,7 @@ export const generateAIChatV2: StateCreator<
           newUserMessage: {
             content: message,
             files: fileIdList,
-            metadata: {
-              ...metadata,
-              ...(activatedSkillIds?.length
-                ? { skills: { activated: [...new Set(activatedSkillIds)] } }
-                : {}),
-            },
+            ...(messageMetadata && { metadata: messageMetadata }),
           },
           // if there is activeTopicId，then add topicId to message
           topicId: activeTopicId,

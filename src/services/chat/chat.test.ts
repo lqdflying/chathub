@@ -10,6 +10,7 @@ import { DEFAULT_USER_AVATAR } from '@/const/meta';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import * as isCanUseFCModule from '@/helpers/isCanUseFC';
 import * as toolEngineeringModule from '@/helpers/toolEngineering';
+import { skillService } from '@/services/skill';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 import { useToolStore } from '@/store/tool';
@@ -123,6 +124,126 @@ describe('ChatService', () => {
           messages: expect.anything(),
         }),
         undefined,
+      );
+    });
+
+    it('does not reactivate a skill from an older user turn', async () => {
+      const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+      vi.spyOn(skillService, 'getInstalledSkills').mockResolvedValue([
+        {
+          contentHash: 'hash-reviewer',
+          createdAt: new Date(0),
+          description: 'Review code.',
+          identifier: 'reviewer',
+          name: 'reviewer',
+          sourceType: 'url',
+          updatedAt: new Date(0),
+        },
+      ]);
+      const resolveSkillsSpy = vi.spyOn(skillService, 'resolveSkills').mockResolvedValue([]);
+      const messages = [
+        {
+          content: 'Review this.',
+          id: 'old-user',
+          metadata: { skills: { activated: ['reviewer'] } },
+          role: 'user',
+        },
+        { content: 'Reviewed.', id: 'old-assistant', role: 'assistant' },
+        { content: 'Now answer normally.', id: 'latest-user', role: 'user' },
+      ] as UIChatMessage[];
+
+      await chatService.createAssistantMessage({
+        messages,
+        model: 'gpt-4',
+        plugins: [],
+        provider: 'openai',
+        skills: ['reviewer'],
+      });
+
+      expect(resolveSkillsSpy).not.toHaveBeenCalled();
+      const requestMessages = getChatCompletionSpy.mock.calls[0][0].messages!;
+      expect(JSON.stringify(requestMessages)).not.toContain('<activated_skills>');
+    });
+
+    it('resolves a skill from compact loader metadata and strips legacy persisted instructions', async () => {
+      const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+      vi.spyOn(skillService, 'getInstalledSkills').mockResolvedValue([
+        {
+          contentHash: 'hash-reviewer',
+          createdAt: new Date(0),
+          description: 'Review code.',
+          identifier: 'reviewer',
+          name: 'reviewer',
+          sourceType: 'url',
+          updatedAt: new Date(0),
+        },
+      ]);
+      const resolveSkillsSpy = vi.spyOn(skillService, 'resolveSkills').mockResolvedValue([
+        {
+          contentHash: 'hash-reviewer',
+          createdAt: new Date(0),
+          description: 'Review code.',
+          identifier: 'reviewer',
+          instructions: 'Inspect the current request carefully.',
+          name: 'reviewer',
+          sourceType: 'url',
+          updatedAt: new Date(0),
+        },
+      ]);
+      const messages = [
+        { content: 'Review this.', id: 'user-1', role: 'user' },
+        {
+          content: '',
+          id: 'assistant-1',
+          role: 'assistant',
+          tools: [
+            {
+              apiName: 'load_skill',
+              arguments: '{"name":"reviewer"}',
+              id: 'call-1',
+              identifier: 'lobe-skill-loader',
+              type: 'builtin',
+            },
+          ],
+        },
+        {
+          content: JSON.stringify({
+            contentHash: 'hash-reviewer',
+            identifier: 'reviewer',
+            instructions: 'Legacy persisted instructions must be removed.',
+            name: 'reviewer',
+          }),
+          id: 'tool-1',
+          plugin: {
+            apiName: 'load_skill',
+            arguments: '{"name":"reviewer"}',
+            identifier: 'lobe-skill-loader',
+            type: 'builtin',
+          },
+          role: 'tool',
+          tool_call_id: 'call-1',
+        },
+      ] as UIChatMessage[];
+
+      await chatService.createAssistantMessage({
+        messages,
+        model: 'gpt-4',
+        plugins: [],
+        provider: 'openai',
+        skills: ['reviewer'],
+      });
+
+      expect(resolveSkillsSpy).toHaveBeenCalledWith(['reviewer']);
+      const requestMessages = getChatCompletionSpy.mock.calls[0][0].messages!;
+      const toolMessage = requestMessages.find((message) => message.role === 'tool');
+      expect(JSON.parse(String(toolMessage?.content))).toEqual({
+        contentHash: 'hash-reviewer',
+        identifier: 'reviewer',
+        name: 'reviewer',
+        status: 'loaded',
+      });
+      expect(JSON.stringify(requestMessages)).not.toContain(
+        'Legacy persisted instructions must be removed.',
       );
     });
 
@@ -313,7 +434,9 @@ describe('ChatService', () => {
         'should normalize GPT-5 effort for %s from %s to %s',
         async (model, savedEffort, expectedEffort) => {
           const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
-          const messages = [{ content: 'Test GPT-5 reasoning effort', role: 'user' }] as UIChatMessage[];
+          const messages = [
+            { content: 'Test GPT-5 reasoning effort', role: 'user' },
+          ] as UIChatMessage[];
 
           vi.spyOn(aiModelSelectors, 'isModelHasExtendParams').mockReturnValue(() => true);
           vi.spyOn(aiModelSelectors, 'modelExtendParams').mockReturnValue(() => [

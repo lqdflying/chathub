@@ -79,6 +79,84 @@ type ChatStreamInputParams = Partial<Omit<ChatStreamPayload, 'messages'>> & {
   messages?: (UIChatMessage | OpenAIChatMessage)[];
 };
 
+const SKILL_LOADER_IDENTIFIER = 'lobe-skill-loader';
+
+const getActivatedSkillIdsFromMetadata = (message?: UIChatMessage): string[] => {
+  const activated = message?.metadata?.skills?.activated;
+  return Array.isArray(activated)
+    ? activated.filter((identifier): identifier is string => typeof identifier === 'string')
+    : [];
+};
+
+const parseJsonRecord = (content: unknown): Record<string, unknown> | undefined => {
+  if (typeof content !== 'string') return;
+
+  try {
+    const parsed = JSON.parse(content);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return;
+  }
+};
+
+const isSkillLoaderToolMessage = (message: UIChatMessage) =>
+  message.role === 'tool' && message.plugin?.identifier === SKILL_LOADER_IDENTIFIER;
+
+const sanitizeSkillLoaderMessages = (messages: UIChatMessage[]): UIChatMessage[] =>
+  messages.map((message) => {
+    if (!isSkillLoaderToolMessage(message)) return message;
+
+    const payload = parseJsonRecord(message.content);
+    const identifier = typeof payload?.identifier === 'string' ? payload.identifier : undefined;
+    const activated = getActivatedSkillIdsFromMetadata(message);
+    const metadataActivated = activated.length > 0 ? activated : identifier ? [identifier] : [];
+    const metadata =
+      metadataActivated.length > 0
+        ? {
+            ...message.metadata,
+            skills: {
+              ...message.metadata?.skills,
+              activated: [...new Set(metadataActivated)],
+            },
+          }
+        : message.metadata;
+
+    if (!identifier) return metadata === message.metadata ? message : { ...message, metadata };
+
+    return {
+      ...message,
+      content: JSON.stringify({
+        ...(typeof payload?.contentHash === 'string' ? { contentHash: payload.contentHash } : {}),
+        identifier,
+        name: typeof payload?.name === 'string' ? payload.name : identifier,
+        status: 'loaded',
+      }),
+      metadata,
+    };
+  });
+
+const collectLatestTurnSkillIds = (messages: UIChatMessage[]) => {
+  let latestUserIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === 'user') {
+      latestUserIndex = index;
+      break;
+    }
+  }
+  if (latestUserIndex < 0) return;
+
+  const ids = [
+    ...getActivatedSkillIdsFromMetadata(messages[latestUserIndex]),
+    ...messages
+      .slice(latestUserIndex + 1)
+      .flatMap((message) =>
+        message.role === 'tool' ? getActivatedSkillIdsFromMetadata(message) : [],
+      ),
+  ];
+
+  return ids.length > 0 ? [...new Set(ids)] : undefined;
+};
+
 interface FetchAITaskResultParams extends FetchSSEOptions {
   abortController?: AbortController;
   onError?: (e: Error, rawError?: any) => void;
@@ -128,6 +206,7 @@ class ChatService {
     );
 
     const searchConfig = getSearchConfig(payload.model, payload.provider!);
+    const sanitizedMessages = sanitizeSkillLoaderMessages(messages);
 
     // =================== 1. preprocess tools =================== //
 
@@ -141,10 +220,7 @@ class ChatService {
       .filter(Boolean);
     const installedEnabledSkillIds = availableSkills.map(({ identifier }) => identifier);
     const installedEnabledSkillIdSet = new Set(installedEnabledSkillIds);
-    const messageActivatedSkillIds = [...messages]
-      .reverse()
-      .find(({ role, metadata }) => role === 'user' && metadata?.skills?.activated)?.metadata
-      ?.skills?.activated;
+    const messageActivatedSkillIds = collectLatestTurnSkillIds(sanitizedMessages);
     const requestedSkillIds =
       options?.activatedSkillIds ?? requestActivatedSkillIds ?? messageActivatedSkillIds;
     const activatedSkillIds = [...new Set(requestedSkillIds || [])].filter((identifier) =>
@@ -185,7 +261,7 @@ class ChatService {
       historySummary: options?.historySummary,
       inputTemplate: chatConfig.inputTemplate,
       isWelcomeQuestion: options?.isWelcomeQuestion,
-      messages,
+      messages: sanitizedMessages,
       model: payload.model,
       provider: payload.provider!,
       sessionId: options?.trace?.sessionId,

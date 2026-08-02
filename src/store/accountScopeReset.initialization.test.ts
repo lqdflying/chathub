@@ -21,13 +21,13 @@ describe('accountScopeReset module initialization', () => {
         },
       ],
       isLoading: false,
-      selectedSkillIds: ['account-a-skill'],
+      selectedSkillIdsByConversation: { 'session:topic:main': ['account-a-skill'] },
     });
 
     accountScopeResetModule.resetAccountScopedStores('Account changed');
 
     expect(useSkillStore.getState().installedSkills).toEqual([]);
-    expect(useSkillStore.getState().selectedSkillIds).toEqual([]);
+    expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({});
     expect(useSkillStore.getState().isLoading).toBe(true);
   }, 30_000);
 });

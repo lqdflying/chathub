@@ -21,6 +21,7 @@ export interface SkillService {
   installSkill: (params: InstallSkillParams) => Promise<string>;
   installSkillFromUrl: (params: {
     authorization?: string;
+    expectedIdentifier?: string;
     sourceRef?: string;
     sourceType: SkillSourceType;
     sourceUrl: string;

@@ -1,7 +1,7 @@
-import { and, desc, eq } from 'drizzle-orm';
 import type { InstalledSkillItem } from '@lobechat/types';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
-import { NewInstalledSkill, userInstalledSkills } from '../schemas';
+import { NewInstalledSkill, agents, userInstalledSkills } from '../schemas';
 import { LobeChatDatabase } from '../type';
 
 export class SkillModel {
@@ -27,14 +27,24 @@ export class SkillModel {
   };
 
   delete = async (identifier: string) =>
-    this.db
-      .delete(userInstalledSkills)
-      .where(
-        and(
-          eq(userInstalledSkills.identifier, identifier),
-          eq(userInstalledSkills.userId, this.userId),
-        ),
-      );
+    this.db.transaction(async (tx) => {
+      await tx
+        .update(agents)
+        .set({
+          skills: sql`${agents.skills} - ${identifier}`,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(agents.userId, this.userId), sql`${agents.skills} ? ${identifier}`));
+
+      return tx
+        .delete(userInstalledSkills)
+        .where(
+          and(
+            eq(userInstalledSkills.identifier, identifier),
+            eq(userInstalledSkills.userId, this.userId),
+          ),
+        );
+    });
 
   query = async (): Promise<InstalledSkillItem[]> =>
     this.db

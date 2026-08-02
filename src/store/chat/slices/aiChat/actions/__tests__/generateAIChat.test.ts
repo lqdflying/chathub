@@ -99,8 +99,7 @@ describe('chatMessage actions', () => {
     });
 
     describe('pre-send compaction', () => {
-      const realTriggerCompaction =
-        useChatStore.getState().triggerTokenThresholdMemoryCompaction;
+      const realTriggerCompaction = useChatStore.getState().triggerTokenThresholdMemoryCompaction;
 
       afterEach(() => {
         act(() => {
@@ -148,9 +147,7 @@ describe('chatMessage actions', () => {
       it('tracks a stoppable operation while compaction runs and clears it afterwards', async () => {
         let compactingDuringRun = false;
         const compactionSpy = vi.fn(async () => {
-          compactingDuringRun = aiChatSelectors.isCurrentPreSendCompacting(
-            useChatStore.getState(),
-          );
+          compactingDuringRun = aiChatSelectors.isCurrentPreSendCompacting(useChatStore.getState());
           return { status: 'ineligible' } as any;
         });
         act(() => {
@@ -229,6 +226,24 @@ describe('chatMessage actions', () => {
           { expectedConversationVersion: 7 },
         );
         expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+      });
+
+      it('persists deduplicated activated skill metadata on the user message', async () => {
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({
+            activatedSkillIds: ['reviewer', 'reviewer'],
+            message: TEST_CONTENT.USER_MESSAGE,
+          });
+        });
+
+        expect(messageService.createMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            metadata: { skills: { activated: ['reviewer'] } },
+          }),
+          { expectedConversationVersion: 7 },
+        );
       });
 
       it('should send message with files attached', async () => {

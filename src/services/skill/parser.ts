@@ -15,6 +15,12 @@ export interface NormalizedSkillSource {
   sourceUrl: string;
 }
 
+export const assertExpectedSkillIdentifier = (actual: string, expected?: string) => {
+  if (expected && actual !== expected) {
+    throw new Error(`Skill identifier mismatch: expected "${expected}", received "${actual}"`);
+  }
+};
+
 export const parseSkill = (raw: string): ParsedSkill => {
   if (new TextEncoder().encode(raw).byteLength > MAX_SKILL_BYTES) {
     throw new Error('Skill instructions exceed the 128 KiB limit');

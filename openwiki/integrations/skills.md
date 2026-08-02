@@ -19,6 +19,11 @@ Install-by-URL is HTTPS-only, rejects URL credentials, follows no redirects,
 uses SSRF-safe fetching, and enforces a 128 KiB body limit. GitHub repository,
 blob, and tree URLs are normalized to raw content before fetching.
 
+Uninstall is a single database transaction: it deletes the installed record
+and removes that identifier from every `agents.skills` array owned by the same
+user. The skill store also prunes loaded agent and group-member caches so the
+current tab reflects the database change immediately.
+
 ## Skill format and sources
 
 The source document must be Markdown with YAML frontmatter containing:
@@ -40,6 +45,8 @@ The optional `SKILLS_INDEX_URL` environment variable points to a JSON registry.
 The registry may be an array or an object containing `skills`, `items`, or
 `results`; each entry supplies an identifier, description, and HTTPS source URL
 (or a GitHub repository/path/ref tuple). Registry search returns metadata only.
+When a registry result is installed, its identifier is carried as the expected
+identity; installation fails if the downloaded frontmatter `name` differs.
 
 ## Activation flow
 
@@ -50,16 +57,26 @@ Recognized commands are removed from the prompt and their identifiers are
 stored in message metadata. Unknown slash commands remain normal text and
 produce a warning.
 
+Picker state is keyed by session, topic, and thread. A pending choice therefore
+stays with its draft conversation and only that conversation's choices are
+cleared after a send.
+
 The chat service first reads enabled metadata, intersects requested IDs with
 the assistant's enabled IDs, and calls `resolveSkills()` only for that
 intersection. `SkillInstructionsProvider` then injects an
 `<available_skills>` metadata block and an `<activated_skills>` block containing
-the selected instruction bodies.
+the selected instruction bodies. Activation lookup is anchored to the latest
+user message and tool results that follow it; metadata from an older user turn
+cannot reactivate a skill on a later request.
 
 The hidden `lobe-skill-loader` builtin gives the model a dynamic path: when
 skills are enabled, the model can call `load_skill` with an identifier. The
 tool verifies that the identifier is enabled for the current assistant and
-loads exactly that skill body for the continuation. It is not shown in the
+loads exactly that skill body for the continuation. The stored tool result is a
+compact marker containing identity, hash, and status plus activation metadata;
+the instruction body is resolved again for the continuation instead of being
+written into chat history. Legacy loader results are stripped to the same
+compact shape before context engineering. The builtin is not shown in the
 normal tool picker.
 
 Group turns use the same message-metadata contract. Slash commands and picker

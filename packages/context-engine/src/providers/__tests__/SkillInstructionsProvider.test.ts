@@ -11,6 +11,13 @@ const createContext = (): PipelineContext => ({
 });
 
 describe('SkillInstructionsProvider', () => {
+  it('accepts an omitted config for non-chat context pipelines', async () => {
+    const result = await new SkillInstructionsProvider(undefined).process(createContext());
+
+    expect(result.messages).toEqual(createContext().messages);
+    expect(result.metadata.skills).toBeUndefined();
+  });
+
   it('injects metadata for available skills without their instructions', async () => {
     const result = await new SkillInstructionsProvider({
       activated: [],
