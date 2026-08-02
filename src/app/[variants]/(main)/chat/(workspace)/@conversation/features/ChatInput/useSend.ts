@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useGeminiChineseWarning } from '@/hooks/useGeminiChineseWarning';
-import { parseSkillActivations } from '@/services/skill';
+import { parseSkillActivations } from '@/services/skill/activation';
 import { getAgentStoreState } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { getChatStoreState, useChatStore } from '@/store/chat';
@@ -103,7 +103,7 @@ export const useSend = () => {
     const fileList = fileChatSelectors.chatUploadFileList(useFileStore.getState());
 
     // if there is no message and no image, then we should not send the message
-    if (!inputMessage && fileList.length === 0) return;
+    if (!messageToSend && fileList.length === 0) return;
 
     // Check for Chinese text warning with Gemini model
     const agentStore = getAgentStoreState();
@@ -271,7 +271,7 @@ export const useSendGroupMessage = () => {
       }
 
       // if there is no message and no files, then we should not send the message
-      if (!inputMessage && fileList.length === 0) return;
+      if (!parsedSkills.content && fileList.length === 0) return;
 
       // Check for Chinese text warning with Gemini model
       const agentStore = getAgentStoreState();

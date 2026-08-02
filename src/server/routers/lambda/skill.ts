@@ -1,4 +1,5 @@
-import { isSkillName } from '@lobechat/types';
+import { MAX_ACTIVE_SKILLS, isSkillName } from '@lobechat/types';
+import { TRPCError } from '@trpc/server';
 import { ssrfSafeFetch } from 'ssrf-safe-fetch';
 import { z } from 'zod';
 
@@ -22,6 +23,50 @@ const skillProcedure = authedProcedure
 
 const sourceTypeSchema = z.enum(['github', 'registry', 'url']);
 
+const asBadRequest = <T>(operation: () => T): T => {
+  try {
+    return operation();
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+
+    throw new TRPCError({
+      cause: error,
+      code: 'BAD_REQUEST',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
+const isDuplicateContentError = (error: unknown): boolean => {
+  const cause =
+    error && typeof error === 'object' && 'cause' in error
+      ? (error as { cause?: unknown }).cause
+      : undefined;
+
+  return [error, cause].some((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return false;
+    const databaseError = candidate as {
+      code?: unknown;
+      constraint?: unknown;
+      message?: unknown;
+    };
+
+    return (
+      databaseError.constraint === 'user_installed_skills_user_hash_unique' ||
+      (databaseError.code === '23505' &&
+        String(databaseError.message ?? '').includes(
+          'user_installed_skills_user_hash_unique',
+        ))
+    );
+  });
+};
+
+const skillSourceTooLargeError = () =>
+  new TRPCError({
+    code: 'PAYLOAD_TOO_LARGE',
+    message: 'Skill source exceeds the size limit',
+  });
+
 const installInputSchema = z.object({
   description: z.string().max(1024).optional(),
   identifier: z.string().max(64).refine(isSkillName).optional(),
@@ -37,36 +82,53 @@ const persistSkill = async (
   input: z.infer<typeof installInputSchema>,
   expectedIdentifier?: string,
 ) => {
-  const parsed = parseSkill(input.instructions);
-  assertExpectedSkillIdentifier(parsed.name, expectedIdentifier);
+  const { identifier, parsed, source } = asBadRequest(() => {
+    const parsedSkill = parseSkill(input.instructions);
+    assertExpectedSkillIdentifier(parsedSkill.name, expectedIdentifier);
 
-  const identifier = input.identifier || parsed.name;
-  const source = input.sourceUrl
-    ? resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef)
-    : undefined;
-
-  await model.create({
-    contentHash: parsed.contentHash,
-    description: input.description || parsed.description,
-    identifier,
-    instructions: parsed.instructions,
-    name: input.name || parsed.name,
-    sourceRef: source?.sourceRef || input.sourceRef,
-    sourceType: source?.sourceType || input.sourceType,
-    sourceUrl: source?.sourceUrl,
+    return {
+      identifier: input.identifier || parsedSkill.name,
+      parsed: parsedSkill,
+      source: input.sourceUrl
+        ? resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef)
+        : undefined,
+    };
   });
+
+  try {
+    await model.create({
+      contentHash: parsed.contentHash,
+      description: input.description || parsed.description,
+      identifier,
+      instructions: parsed.instructions,
+      name: input.name || parsed.name,
+      sourceRef: source?.sourceRef || input.sourceRef,
+      sourceType: source?.sourceType || input.sourceType,
+      sourceUrl: source?.sourceUrl,
+    });
+  } catch (error) {
+    if (isDuplicateContentError(error)) {
+      throw new TRPCError({
+        cause: error,
+        code: 'CONFLICT',
+        message:
+          'A skill with identical content is already installed under a different identifier',
+      });
+    }
+    throw error;
+  }
 
   return identifier;
 };
 
 const readBoundedResponse = async (response: Response, maxBytes: number) => {
   const declaredLength = Number(response.headers.get('content-length') || 0);
-  if (declaredLength > maxBytes) throw new Error('Skill source exceeds the size limit');
+  if (declaredLength > maxBytes) throw skillSourceTooLargeError();
 
   if (!response.body) {
     const text = await response.text();
     if (new TextEncoder().encode(text).byteLength > maxBytes) {
-      throw new Error('Skill source exceeds the size limit');
+      throw skillSourceTooLargeError();
     }
     return text;
   }
@@ -83,7 +145,7 @@ const readBoundedResponse = async (response: Response, maxBytes: number) => {
     totalBytes += value.byteLength;
     if (totalBytes > maxBytes) {
       await reader.cancel();
-      throw new Error('Skill source exceeds the size limit');
+      throw skillSourceTooLargeError();
     }
     chunks.push(value);
   }
@@ -108,7 +170,12 @@ const fetchText = async (sourceUrl: string, maxBytes: number, authorization?: st
       redirect: 'error',
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`Skill source returned HTTP ${response.status}`);
+    if (!response.ok) {
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `Skill source returned HTTP ${response.status}`,
+      });
+    }
     return await readBoundedResponse(response, maxBytes);
   } finally {
     clearTimeout(timeout);
@@ -137,7 +204,9 @@ export const skillRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const source = resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef);
+      const source = asBadRequest(() =>
+        resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef),
+      );
       const instructions = await fetchText(source.sourceUrl, MAX_SKILL_BYTES, input.authorization);
 
       return persistSkill(
@@ -157,7 +226,7 @@ export const skillRouter = router({
     .mutation(({ input, ctx }) => ctx.skillModel.delete(input.identifier)),
 
   resolveSkills: skillProcedure
-    .input(z.object({ identifiers: z.array(z.string().max(64)).max(16) }))
+    .input(z.object({ identifiers: z.array(z.string().max(64)).max(MAX_ACTIVE_SKILLS) }))
     .query(async ({ input, ctx }) => {
       const records = await Promise.all(
         [...new Set(input.identifiers)].map((identifier) => ctx.skillModel.findById(identifier)),

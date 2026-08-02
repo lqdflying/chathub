@@ -503,7 +503,14 @@ settings: {
   },
   
 showInPortal: '请在工作区中查看详情',
-  
+
+skillLoader: {
+    apiName: {
+      load_skill: '加载技能',
+    },
+    title: '技能加载器',
+  },
+
 store: {
     actions: {
       cancel: '取消安装',

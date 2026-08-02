@@ -2,7 +2,7 @@ import { InstalledSkillItem } from '@lobechat/types';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
-import { useClientDataSWR } from '@/libs/swr';
+import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { InstallSkillParams, skillService } from '@/services/skill';
 import { useAgentStore } from '@/store/agent';
 import { useSessionStore } from '@/store/session';
@@ -54,33 +54,15 @@ export const createSkillSlice: StateCreator<
   refreshSkills: async () => {
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());
     if (!requestedScope) {
-      set({ installedSkills: [], isLoading: false, selectedSkillIdsByConversation: {} });
+      set(
+        { installedSkills: [], isLoading: false, selectedSkillIdsByConversation: {} },
+        false,
+        'refreshSkills/noScope',
+      );
       return;
     }
 
-    set({ isLoading: true }, false, 'refreshSkills/start');
-    try {
-      const installedSkills = await skillService.getInstalledSkills();
-      if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
-      const validIds = new Set(installedSkills.map(({ identifier }) => identifier));
-      const selectedSkillIdsByConversation = Object.fromEntries(
-        Object.entries(get().selectedSkillIdsByConversation)
-          .map(([key, ids]) => [key, ids.filter((id) => validIds.has(id))])
-          .filter(([, ids]) => ids.length > 0),
-      );
-      set(
-        {
-          installedSkills,
-          selectedSkillIdsByConversation,
-        },
-        false,
-        'refreshSkills/success',
-      );
-    } finally {
-      if (authSelectors.currentUserScope(useUserStore.getState()) === requestedScope) {
-        set({ isLoading: false }, false, 'refreshSkills/end');
-      }
-    }
+    await mutateAccountSWR(['installed-skills', requestedScope]);
   },
   toggleSelectedSkill: (identifier, enabled, conversationKey = 'global') => {
     const current = get().selectedSkillIdsByConversation[conversationKey] || [];

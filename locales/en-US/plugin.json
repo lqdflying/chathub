@@ -491,6 +491,12 @@
     "title": "Configure Plugin Marketplace"
   },
   "showInPortal": "Please view details in the workspace",
+  "skillLoader": {
+    "apiName": {
+      "load_skill": "Load skill"
+    },
+    "title": "Skill loader"
+  },
   "store": {
     "actions": {
       "cancel": "Cancel Installation",

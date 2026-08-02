@@ -32,7 +32,7 @@ export const parseSkillActivations = (
 
   return {
     activatedSkillIds: [...new Set(activatedSkillIds)],
-    content: remaining,
+    content: activatedSkillIds.length > 0 ? remaining : content,
     unknownSkillIds: [...new Set(unknownSkillIds)],
   };
 };

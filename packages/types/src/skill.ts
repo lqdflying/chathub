@@ -35,6 +35,8 @@ export interface SkillMessageMetadata {
   activated: string[];
 }
 
+export const MAX_ACTIVE_SKILLS = 16;
+
 export const SKILL_NAME_PATTERN = /^[\da-z]+(?:-[\da-z]+)*$/;
 
 export const isSkillName = (value: string) =>

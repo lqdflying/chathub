@@ -80,6 +80,9 @@
     "summaryTooltip": "Summarize the current content",
     "viewMoreResults": "View {{results}} more results"
   },
+  "skillLoader": {
+    "loaded": "Loaded skill: {{name}}"
+  },
   "updateArgs": {
     "duplicateKeyError": "Field key must be unique",
     "form": {

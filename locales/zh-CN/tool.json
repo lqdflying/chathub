@@ -80,6 +80,9 @@
     "summaryTooltip": "总结当前内容",
     "viewMoreResults": "查看更多 {{results}} 个结果"
   },
+  "skillLoader": {
+    "loaded": "已加载技能：{{name}}"
+  },
   "updateArgs": {
     "duplicateKeyError": "字段键必须唯一",
     "form": {

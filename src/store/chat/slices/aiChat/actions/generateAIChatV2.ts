@@ -757,6 +757,7 @@ export const generateAIChatV2: StateCreator<
       conversationContext,
       messages,
       messageId: assistantId,
+      // Keep params intact because it carries activatedSkillIds through the server-mode runtime.
       params,
       model,
       provider: provider!,

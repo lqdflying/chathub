@@ -31,4 +31,30 @@ describe('parseSkillActivations', () => {
       unknownSkillIds: [],
     });
   });
+
+  it('preserves leading whitespace when no skill command is consumed', () => {
+    expect(parseSkillActivations('  indented code', [])).toEqual({
+      activatedSkillIds: [],
+      content: '  indented code',
+      unknownSkillIds: [],
+    });
+  });
+
+  it('preserves the original content when the first command is unknown', () => {
+    expect(parseSkillActivations('  /not-enabled hello', ['summarize-text'])).toEqual({
+      activatedSkillIds: [],
+      content: '  /not-enabled hello',
+      unknownSkillIds: ['not-enabled'],
+    });
+  });
+
+  it('keeps an unknown command after consuming a known command', () => {
+    expect(
+      parseSkillActivations('/summarize-text /not-enabled hi', ['summarize-text']),
+    ).toEqual({
+      activatedSkillIds: ['summarize-text'],
+      content: '/not-enabled hi',
+      unknownSkillIds: ['not-enabled'],
+    });
+  });
 });

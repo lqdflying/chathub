@@ -15,6 +15,7 @@ import { toolSelectors } from '@/store/tool/selectors';
 import { shinyTextStylish } from '@/styles/loading';
 import { LocalSystemManifest } from '@/tools/local-system';
 import { MemoryManifest } from '@/tools/memory';
+import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
 import BuiltinPluginTitle from './BuiltinPluginTitle';
@@ -68,6 +69,11 @@ const ToolTitle = memo<ToolTitleProps>(({ identifier, messageId, index, apiName,
         apiName: t(`memory.apiName.${apiName}`, apiName),
         id: MemoryManifest.identifier,
         title: t('memory.title'),
+      },
+      {
+        apiName: t('skillLoader.apiName.load_skill', apiName),
+        id: SkillLoaderManifest.identifier,
+        title: t('skillLoader.title'),
       },
       {
         apiName,

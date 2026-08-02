@@ -25,8 +25,9 @@ const SkillsManagement = memo(() => {
   const { styles } = useStyles();
   const detailRef = useRef<HTMLDivElement>(null);
   const skills = useSkillStore((s) => s.installedSkills);
-  const refresh = useSkillStore((s) => s.refreshSkills);
+  const installSkillFromUrl = useSkillStore((s) => s.installSkillFromUrl);
   const uninstall = useSkillStore((s) => s.uninstallSkill);
+  const useFetchSkills = useSkillStore((s) => s.useFetchSkills);
   const [selectedId, setSelectedId] = useState<string>();
   const [search, setSearch] = useState('');
   const [source, setSource] = useState('');
@@ -36,9 +37,7 @@ const SkillsManagement = memo(() => {
   >([]);
   const selected = skills.find(({ identifier }) => identifier === selectedId);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  useFetchSkills();
 
   useEffect(() => {
     let active = true;
@@ -75,13 +74,12 @@ const SkillsManagement = memo(() => {
   const installFromSource = async () => {
     if (!source.trim()) return;
     try {
-      await skillService.installSkillFromUrl({
+      await installSkillFromUrl({
         sourceType: source.includes('github.com') ? 'github' : 'url',
         sourceUrl: source.trim(),
       });
       setSource('');
       setSourceModalOpen(false);
-      await refresh();
     } catch (error) {
       messageApi.error(error instanceof Error ? error.message : String(error));
     }
@@ -133,13 +131,12 @@ const SkillsManagement = memo(() => {
                     key={item.identifier}
                     onClick={async () => {
                       try {
-                        await skillService.installSkillFromUrl({
+                        await installSkillFromUrl({
                           expectedIdentifier: item.identifier,
                           sourceRef: item.sourceRef,
                           sourceType: item.sourceType,
                           sourceUrl: item.sourceUrl,
                         });
-                        await refresh();
                       } catch (error) {
                         messageApi.error(error instanceof Error ? error.message : String(error));
                       }
@@ -180,8 +177,14 @@ const SkillsManagement = memo(() => {
                     modal.confirm({
                       centered: true,
                       onOk: async () => {
-                        await uninstall(selected.identifier);
-                        setSelectedId(undefined);
+                        try {
+                          await uninstall(selected.identifier);
+                          setSelectedId(undefined);
+                        } catch (error) {
+                          messageApi.error(
+                            error instanceof Error ? error.message : String(error),
+                          );
+                        }
                       },
                       title: t('skills.confirmUninstall'),
                     })

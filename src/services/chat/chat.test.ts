@@ -2,6 +2,7 @@ import { LobeTool } from '@lobechat/types';
 import { UIChatMessage } from '@lobechat/types';
 import { ChatErrorType } from '@lobechat/types';
 import { ChatStreamPayload } from '@lobechat/types';
+import { MAX_ACTIVE_SKILLS } from '@lobechat/types';
 import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 import { act } from '@testing-library/react';
 import { type Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -163,6 +164,73 @@ describe('ChatService', () => {
       expect(resolveSkillsSpy).not.toHaveBeenCalled();
       const requestMessages = getChatCompletionSpy.mock.calls[0][0].messages!;
       expect(JSON.stringify(requestMessages)).not.toContain('<activated_skills>');
+    });
+
+    it('falls back to message metadata when explicit activation arrays are empty', async () => {
+      vi.spyOn(skillService, 'getInstalledSkills').mockResolvedValue([
+        {
+          contentHash: 'hash-reviewer',
+          createdAt: new Date(0),
+          description: 'Review code.',
+          identifier: 'reviewer',
+          name: 'reviewer',
+          sourceType: 'url',
+          updatedAt: new Date(0),
+        },
+      ]);
+      const resolveSkillsSpy = vi.spyOn(skillService, 'resolveSkills').mockResolvedValue([]);
+      const messages = [
+        {
+          content: 'Review this.',
+          id: 'latest-user',
+          metadata: { skills: { activated: ['reviewer'] } },
+          role: 'user',
+        },
+      ] as UIChatMessage[];
+
+      await chatService.createAssistantMessage(
+        {
+          activatedSkillIds: [],
+          messages,
+          model: 'gpt-4',
+          plugins: [],
+          provider: 'openai',
+          skills: ['reviewer'],
+        },
+        { activatedSkillIds: [] },
+      );
+
+      expect(resolveSkillsSpy).toHaveBeenCalledWith(['reviewer']);
+    });
+
+    it('resolves at most the first 16 enabled skill activations', async () => {
+      const identifiers = Array.from(
+        { length: MAX_ACTIVE_SKILLS + 2 },
+        (_, index) => `skill-${index + 1}`,
+      );
+      vi.spyOn(skillService, 'getInstalledSkills').mockResolvedValue(
+        identifiers.map((identifier) => ({
+          contentHash: `hash-${identifier}`,
+          createdAt: new Date(0),
+          description: `Description for ${identifier}`,
+          identifier,
+          name: identifier,
+          sourceType: 'url',
+          updatedAt: new Date(0),
+        })),
+      );
+      const resolveSkillsSpy = vi.spyOn(skillService, 'resolveSkills').mockResolvedValue([]);
+
+      await chatService.createAssistantMessage({
+        activatedSkillIds: [...identifiers, identifiers[0]],
+        messages: [{ content: 'Use several skills.', id: 'user-1', role: 'user' }],
+        model: 'gpt-4',
+        plugins: [],
+        provider: 'openai',
+        skills: identifiers,
+      });
+
+      expect(resolveSkillsSpy).toHaveBeenCalledWith(identifiers.slice(0, MAX_ACTIVE_SKILLS));
     });
 
     it('resolves a skill from compact loader metadata and strips legacy persisted instructions', async () => {

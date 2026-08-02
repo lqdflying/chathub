@@ -8,9 +8,17 @@ import { useUserStore } from '@/store/user';
 
 import { useSkillStore } from './store';
 
+const mutateAccountSWR = vi.hoisted(() => vi.fn());
+
+vi.mock('@/libs/swr', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/libs/swr')>()),
+  mutateAccountSWR,
+}));
+
 vi.mock('@/services/skill', () => ({
   skillService: {
     getInstalledSkills: vi.fn(),
+    installSkillFromUrl: vi.fn(),
     uninstallSkill: vi.fn(),
   },
 }));
@@ -18,7 +26,9 @@ vi.mock('@/services/skill', () => ({
 describe('skill store actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mutateAccountSWR.mockResolvedValue(undefined);
     vi.mocked(skillService.getInstalledSkills).mockResolvedValue([]);
+    vi.mocked(skillService.installSkillFromUrl).mockResolvedValue('reviewer');
     vi.mocked(skillService.uninstallSkill).mockResolvedValue();
     useUserStore.setState({ authUserId: undefined, isLoaded: false, user: undefined });
     useSkillStore.setState({
@@ -70,6 +80,7 @@ describe('skill store actions', () => {
     await useSkillStore.getState().uninstallSkill('reviewer');
 
     expect(skillService.uninstallSkill).toHaveBeenCalledWith('reviewer');
+    expect(mutateAccountSWR).toHaveBeenCalledWith(['installed-skills', 'local']);
     expect(useAgentStore.getState().agentMap['session-1'].skills).toEqual(['keep-skill']);
     expect(useAgentStore.getState().agentMap['session-2'].skills).toEqual(['other-skill']);
     expect(useAgentStore.getState().defaultAgentConfig.skills).toEqual([]);
@@ -78,5 +89,17 @@ describe('skill store actions', () => {
       expect(members[0].skills).toEqual(['keep-skill']);
       expect(members[1].skills).toEqual(['other-skill']);
     }
+  });
+
+  it('installs a skill from URL and revalidates the installed-skills cache', async () => {
+    const params = {
+      sourceType: 'url' as const,
+      sourceUrl: 'https://example.com/SKILL.md',
+    };
+
+    await useSkillStore.getState().installSkillFromUrl(params);
+
+    expect(skillService.installSkillFromUrl).toHaveBeenCalledWith(params);
+    expect(mutateAccountSWR).toHaveBeenCalledWith(['installed-skills', 'local']);
   });
 });

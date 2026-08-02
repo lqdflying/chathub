@@ -19,6 +19,18 @@ Install-by-URL is HTTPS-only, rejects URL credentials, follows no redirects,
 uses SSRF-safe fetching, and enforces a 128 KiB body limit. GitHub repository,
 blob, and tree URLs are normalized to raw content before fetching.
 
+Installed metadata is owned by the account-scoped SWR key
+`['installed-skills', scope]`. Settings and chat consumers mount the same
+`useFetchSkills` subscription, while install and uninstall actions revalidate
+that key. The hook's success handler is the single point that updates the skill
+store and removes stale pending selections.
+
+The router maps invalid documents, sources, registry identity mismatches, and
+non-success source responses to `BAD_REQUEST`; bounded-fetch overflow is
+`PAYLOAD_TOO_LARGE`. A second identifier with the same content hash is reported
+as `CONFLICT`. Registry configuration and malformed upstream registry JSON
+remain internal server faults.
+
 Uninstall is a single database transaction: it deletes the installed record
 and removes that identifier from every `agents.skills` array owned by the same
 user. The skill store also prunes loaded agent and group-member caches so the
@@ -57,6 +69,13 @@ Recognized commands are removed from the prompt and their identifiers are
 stored in message metadata. Unknown slash commands remain normal text and
 produce a warning.
 
+Choosing a skill from the editor slash menu toggles the same pending selection
+shown in the Sparkles picker; it does not rewrite or round-trip the editor
+document. A manually typed known command with no remaining text and no
+attachment is a no-op, preserving the draft and pending selections. Input is
+returned byte-for-byte when no known command is consumed, including leading
+whitespace.
+
 Picker state is keyed by session, topic, and thread. A pending choice therefore
 stays with its draft conversation and only that conversation's choices are
 cleared after a send.
@@ -65,9 +84,12 @@ The chat service first reads enabled metadata, intersects requested IDs with
 the assistant's enabled IDs, and calls `resolveSkills()` only for that
 intersection. `SkillInstructionsProvider` then injects an
 `<available_skills>` metadata block and an `<activated_skills>` block containing
-the selected instruction bodies. Activation lookup is anchored to the latest
-user message and tool results that follow it; metadata from an older user turn
-cannot reactivate a skill on a later request.
+the selected instruction bodies. Activation candidates use the first non-empty
+list from runtime options, request parameters, then latest-turn message
+metadata. After deduplication and enabled-skill filtering, at most the first 16
+identifiers are resolved. Activation lookup is anchored to the latest user
+message and tool results that follow it; metadata from an older user turn cannot
+reactivate a skill on a later request.
 
 The hidden `lobe-skill-loader` builtin gives the model a dynamic path: when
 skills are enabled, the model can call `load_skill` with an identifier. The
@@ -77,7 +99,8 @@ compact marker containing identity, hash, and status plus activation metadata;
 the instruction body is resolved again for the continuation instead of being
 written into chat history. Legacy loader results are stripped to the same
 compact shape before context engineering. The builtin is not shown in the
-normal tool picker.
+normal tool picker. Its chat row uses a localized title and renders the compact
+marker as a short loaded confirmation.
 
 Group turns use the same message-metadata contract. Slash commands and picker
 selection are intersected with the union of the participating members' enabled

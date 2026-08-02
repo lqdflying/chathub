@@ -25,7 +25,7 @@ import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
-import { useSkillStore } from '@/store/skill';
+import { getSkillSelectionKey, useSkillStore } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { preferenceSelectors, settingsSelectors } from '@/store/user/selectors';
 
@@ -70,9 +70,13 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
           key: skill.identifier,
           label: `${skill.name} - ${skill.description}`,
           onSelect: (editor: any) => {
-            const current = String(editor.getDocument('markdown') || '').trimStart();
-            if (current.startsWith(`/${skill.identifier}`)) return;
-            editor.setDocument('markdown', `/${skill.identifier} ${current}`.trim());
+            const chat = useChatStore.getState();
+            const selectionKey = getSkillSelectionKey({
+              sessionId: chat.activeId,
+              threadId: chat.activeThreadId,
+              topicId: chat.activeTopicId,
+            });
+            useSkillStore.getState().toggleSelectedSkill(skill.identifier, true, selectionKey);
             editor.focus();
           },
         })),

@@ -15,6 +15,7 @@ import {
 } from '@lobechat/model-runtime';
 import {
   ChatErrorType,
+  MAX_ACTIVE_SKILLS,
   ToolCacheDebugMetadata,
   TracePayload,
   TraceTagMap,
@@ -80,6 +81,9 @@ type ChatStreamInputParams = Partial<Omit<ChatStreamPayload, 'messages'>> & {
 };
 
 const SKILL_LOADER_IDENTIFIER = 'lobe-skill-loader';
+
+const firstNonEmpty = (...lists: (string[] | undefined)[]) =>
+  lists.find((list) => list && list.length > 0) || [];
 
 const getActivatedSkillIdsFromMetadata = (message?: UIChatMessage): string[] => {
   const activated = message?.metadata?.skills?.activated;
@@ -221,11 +225,14 @@ class ChatService {
     const installedEnabledSkillIds = availableSkills.map(({ identifier }) => identifier);
     const installedEnabledSkillIdSet = new Set(installedEnabledSkillIds);
     const messageActivatedSkillIds = collectLatestTurnSkillIds(sanitizedMessages);
-    const requestedSkillIds =
-      options?.activatedSkillIds ?? requestActivatedSkillIds ?? messageActivatedSkillIds;
-    const activatedSkillIds = [...new Set(requestedSkillIds || [])].filter((identifier) =>
-      installedEnabledSkillIdSet.has(identifier),
+    const requestedSkillIds = firstNonEmpty(
+      options?.activatedSkillIds,
+      requestActivatedSkillIds,
+      messageActivatedSkillIds,
     );
+    const activatedSkillIds = [...new Set(requestedSkillIds)]
+      .filter((identifier) => installedEnabledSkillIdSet.has(identifier))
+      .slice(0, MAX_ACTIVE_SKILLS);
     const activatedSkills = activatedSkillIds.length
       ? await skillService.resolveSkills(activatedSkillIds)
       : [];
