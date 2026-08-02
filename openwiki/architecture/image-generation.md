@@ -14,8 +14,8 @@ The route is selected with `SidebarTabKey.Image` and is controlled by the
 - Mobile uses the bottom navigation order Chat, Image, Me. The workspace remains
   in the main viewport; header actions open Image Settings in an 88dvh bottom
   drawer and Image Topics in a full-height right drawer.
-- Discover remains a separate route and desktop action. It is no longer the
-  middle mobile navigation item.
+- Discover remains available to existing direct links, but it is no longer a
+  desktop or mobile navigation action and is excluded from search indexing.
 
 The Ant Design drawers provide focus trapping, Escape handling, close controls,
 and focus return. Header actions expose `aria-controls` and `aria-expanded`.

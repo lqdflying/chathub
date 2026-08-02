@@ -10,7 +10,7 @@ import {
   highlighterThemes,
   mermaidThemes,
 } from '@lobehub/ui';
-import { Skeleton } from 'antd';
+import { Skeleton, Switch } from 'antd';
 import { useTheme } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { Loader2Icon, TriangleAlert } from 'lucide-react';
@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next';
 
 import { FORM_STYLE } from '@/const/layoutTokens';
 import { useUserStore } from '@/store/user';
-import { settingsSelectors } from '@/store/user/selectors';
+import { preferenceSelectors, settingsSelectors } from '@/store/user/selectors';
 
 import ChatPreview from './ChatPreview';
 import ChatTransitionPreview from './ChatTransitionPreview';
@@ -29,14 +29,40 @@ import MermaidPreview from './MermaidPreview';
 const ChatAppearance = memo(() => {
   const { t } = useTranslation('setting');
   const { general } = useUserStore(settingsSelectors.currentSettings, isEqual);
+  const inputMarkdownRender = useUserStore(preferenceSelectors.inputMarkdownRender);
   const theme = useTheme();
-  const [setSettings, isUserStateInit] = useUserStore((s) => [s.setSettings, s.isUserStateInit]);
+  const [setSettings, updatePreference, isUserStateInit] = useUserStore((s) => [
+    s.setSettings,
+    s.updatePreference,
+    s.isUserStateInit,
+  ]);
   const [loading, setLoading] = useState(false);
+  const [inputMarkdownLoading, setInputMarkdownLoading] = useState(false);
 
   if (!isUserStateInit) return <Skeleton active paragraph={{ rows: 5 }} title={false} />;
 
   const themeItems: FormGroupItemType = {
     children: [
+      {
+        children: (
+          <Switch
+            aria-label={t('settingChatAppearance.inputMarkdown.title')}
+            checked={inputMarkdownRender}
+            loading={inputMarkdownLoading}
+            onChange={async (checked) => {
+              setInputMarkdownLoading(true);
+              try {
+                await updatePreference({ disableInputMarkdownRender: !checked });
+              } finally {
+                setInputMarkdownLoading(false);
+              }
+            }}
+          />
+        ),
+        desc: t('settingChatAppearance.inputMarkdown.desc'),
+        label: t('settingChatAppearance.inputMarkdown.title'),
+        minWidth: undefined,
+      },
       {
         children: (
           <ChatTransitionPreview key={general.transitionMode} mode={general.transitionMode} />

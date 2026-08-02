@@ -168,7 +168,6 @@
     "editBtn": "Edit Now",
     "editPrompt": "Please go to the edit page to view details.",
     "empty": "No MCP plugins installed",
-    "library": "MCP Library",
     "mcpRuntime": "MCP Runtime",
     "tools": {
       "empty": "This MCP server did not provide any tools.",
@@ -308,6 +307,10 @@
     },
     "highlighterTheme": {
       "title": "Code Highlight Theme"
+    },
+    "inputMarkdown": {
+      "desc": "Render Markdown formatting in the message input as you type.",
+      "title": "Input Markdown Rendering"
     },
     "mermaidTheme": {
       "title": "Mermaid Theme"

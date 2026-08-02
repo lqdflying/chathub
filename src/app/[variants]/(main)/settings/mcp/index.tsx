@@ -1,19 +1,17 @@
 'use client';
 
-import { MCP } from '@lobehub/icons';
 import { Button, DraggablePanel, Icon } from '@lobehub/ui';
 import { App, Empty, Input } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
 import isEqual from 'fast-deep-equal';
 import { Package, PackagePlus, Search } from 'lucide-react';
-import Link from 'next/link';
 import { memo, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
-import PluginItem from '@/features/PluginStore/InstalledList/List/Item';
-import PluginDevModal from '@/features/PluginDevModal';
 import ToolsPanel from '@/features/MCPManagement/ToolsPanel';
+import PluginDevModal from '@/features/PluginDevModal';
+import PluginItem from '@/features/PluginStore/InstalledList/List/Item';
 import { useFetchInstalledPlugins } from '@/hooks/useFetchInstalledPlugins';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
@@ -130,20 +128,10 @@ const McpManagement = memo(() => {
           open={showDevModal}
         />
         <Center height={'75vh'} paddingBlock={40}>
-          <Empty
-            description={t('mcpManagement.empty')}
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
-            <Flexbox gap={8} horizontal justify={'center'}>
-              <Button icon={PackagePlus} onClick={handleAdd}>
-                {t('mcpManagement.add')}
-              </Button>
-              <Link href="/discover/mcp">
-                <Button icon={<MCP className="anticon" size={16} />}>
-                  {t('mcpManagement.library')}
-                </Button>
-              </Link>
-            </Flexbox>
+          <Empty description={t('mcpManagement.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE}>
+            <Button icon={PackagePlus} onClick={handleAdd}>
+              {t('mcpManagement.add')}
+            </Button>
           </Empty>
         </Center>
       </>
@@ -191,11 +179,6 @@ const McpManagement = memo(() => {
             <Button icon={PackagePlus} onClick={handleAdd} size={'small'}>
               {t('mcpManagement.add')}
             </Button>
-            <Link href="/discover/mcp">
-              <Button icon={<MCP className="anticon" size={16} />} size={'small'}>
-                {t('mcpManagement.library')}
-              </Button>
-            </Link>
           </Flexbox>
         </Flexbox>
 
@@ -219,11 +202,7 @@ const McpManagement = memo(() => {
               {filteredList.map((item) => {
                 const plugin = installedPlugins.find((p) => p.identifier === item.identifier);
                 const runtimeType = plugin?.runtimeType as
-                  | 'mcp'
-                  | 'default'
-                  | 'markdown'
-                  | 'standalone'
-                  | undefined;
+                  'mcp' | 'default' | 'markdown' | 'standalone' | undefined;
 
                 return (
                   <PluginItem
@@ -271,10 +250,7 @@ const McpManagement = memo(() => {
                   >
                     {t('mcpManagement.editBtn')}
                   </Button>
-                  <Button
-                    onClick={() => handleUninstall(selectedId)}
-                    size="small"
-                  >
+                  <Button onClick={() => handleUninstall(selectedId)} size="small">
                     {t('mcpManagement.uninstall')}
                   </Button>
                 </Flexbox>

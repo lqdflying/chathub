@@ -9,6 +9,14 @@ input pipeline: `ReplacementTextPlugin.tsx`, which makes OS-level text replaceme
 autocorrect, spellcheck corrections) behave correctly, including in sandboxed/isolated
 browsers.
 
+## Input Markdown rendering preference
+
+The editor's live Markdown rendering control lives in **Settings → Common →
+Chat Appearance**. It persists through `UserPreference.disableInputMarkdownRender`;
+the `inputMarkdownRender` selector deliberately exposes the inverse so the UI
+switch reads positively. The retired `/labs` destination redirects to Common
+settings, preserving old bookmarks without keeping a separate experimental page.
+
 ## Why the plugin exists
 
 Accepting an OS text suggestion arrives as a `beforeinput` event with
@@ -46,11 +54,11 @@ the editor root plus one high-priority command handler:
   `insertReplacementText` events into three routes:
   - **Controlled** (the common case): the event carries a payload and either a
     usable same-block target range or an inferable word target, and is not
-    mid-composition. The plugin does *selection repair only* — applies the target
+    mid-composition. The plugin does _selection repair only_ — applies the target
     range when the Lexical selection is stale/non-collapsed, or selects the typed
     word when no usable range exists — then lets Lexical's own handler perform the
     `preventDefault` + controlled insertion. **Synthetic events (`isTrusted ===
-    false`) take this route too**: field capture from a remote-browser-isolation
+false`) take this route too**: field capture from a remote-browser-isolation
     thin client (Menlo Safeview class) showed acceptance arrives as an untrusted,
     non-cancelable `insertReplacementText` with a `text/plain` payload and a bogus
     collapsed target range. Synthetic events have **no native default action** —
@@ -65,7 +73,7 @@ the editor root plus one high-priority command handler:
     nor an inferable word. The browser applies the edit once and Lexical's
     `onInput` reconciliation (`$updateSelectedTextFromDOM` + `$flushMutations`)
     syncs the DOM into the model (the ProseMirror posture). Events whose
-    `getTargetRanges` *throws* are always flagged, because Lexical calls it
+    `getTargetRanges` _throws_ are always flagged, because Lexical calls it
     without a try/catch and would crash mid-handler.
   - Multi-character `insertText` events get the same selection repair (never
     flagging), keeping Lexical's normal typing bookkeeping intact.
@@ -107,7 +115,7 @@ browser: local DevTools and local `localStorage` never reach the app, and the ap
 console output never reaches the user — but the URL travels inbound and the mirrored
 DOM travels outbound, so the overlay is visible through the isolation layer.
 
-Field verification note: under DOM-mirroring isolation the *display* can show
+Field verification note: under DOM-mirroring isolation the _display_ can show
 stale/duplicated text that does not exist in the editor state (a thin-client
 ghost — the app placeholder may even show through it). The `doc="…"` snapshot
 on the overlay's decision lines and the content of a sent message reflect the
@@ -125,7 +133,7 @@ After dependency changes, `pnpm why lexical` must show a single `lexical@0.38.2`
 
 ## Testing constraints (happy-dom)
 
-`ReplacementTextPlugin.test.ts` runs against Lexical's *real* event handlers, which
+`ReplacementTextPlugin.test.ts` runs against Lexical's _real_ event handlers, which
 requires working around happy-dom divergences from browsers:
 
 - happy-dom's `InputEvent` lacks `getTargetRanges`, and Lexical computes

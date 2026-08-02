@@ -13,18 +13,6 @@ const robots = (): MetadataRoute.Robots => {
     host: getCanonicalUrl(),
     rules: [
       {
-        allow: ['/discover/*'],
-        userAgent: ['Facebot', 'facebookexternalhit'],
-      },
-      {
-        allow: ['/discover/*'],
-        userAgent: 'LinkedInBot',
-      },
-      {
-        allow: ['/discover/*'],
-        userAgent: 'Twitterbot',
-      },
-      {
         allow: ['/'],
         disallow: ['/api/*', '/login', '/signup', '/knowledge/*'],
         userAgent: '*',

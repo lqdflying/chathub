@@ -1,5 +1,5 @@
 import { ActionIcon, ActionIconProps, Hotkey } from '@lobehub/ui';
-import { Compass, FolderClosed, Image as ImageIcon, MessageSquare, Wrench } from 'lucide-react';
+import { FolderClosed, Image as ImageIcon, MessageSquare, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -29,8 +29,7 @@ export interface TopActionProps {
 const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
   const { t } = useTranslation('common');
   const switchBackToChat = useGlobalStore((s) => s.switchBackToChat);
-  const { showMarket, enableKnowledgeBase, showAiImage } =
-    useServerConfigStore(featureFlagsSelectors);
+  const { enableKnowledgeBase, showAiImage } = useServerConfigStore(featureFlagsSelectors);
   const hotkey = useUserStore(settingsSelectors.getHotkeyById(HotkeyEnum.NavigateToChat));
 
   // Check if server mode is enabled
@@ -38,7 +37,6 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
 
   const isChatActive = tab === SidebarTabKey.Chat && !isPinned;
   const isFilesActive = tab === SidebarTabKey.Files;
-  const isDiscoverActive = tab === SidebarTabKey.Discover;
   const isImageActive = tab === SidebarTabKey.Image;
   const isToolsActive = tab === SidebarTabKey.Tools;
 
@@ -102,17 +100,6 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
           tooltipProps={{ placement: 'right' }}
         />
       </Link>
-      {showMarket && (
-        <Link aria-label={t('tab.discover')} href={'/discover'}>
-          <ActionIcon
-            active={isDiscoverActive}
-            icon={Compass}
-            size={ICON_SIZE}
-            title={t('tab.discover')}
-            tooltipProps={{ placement: 'right' }}
-          />
-        </Link>
-      )}
     </Flexbox>
   );
 });

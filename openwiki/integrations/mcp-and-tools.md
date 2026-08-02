@@ -25,6 +25,18 @@ The root README positions Tools Hub as part of ChatHub's differentiation from up
 
 The README also calls out MCP OAuth auto-discovery and server-side token storage as a major feature area.
 
+## Discover catalog compatibility
+
+Discover is retained as a direct-route compatibility surface for existing MCP
+and plugin deep links, but it is not a primary product entry point. The desktop
+sidebar and MCP Settings page do not link to it, its routes are marked
+`noindex`, and Discover/plugin entries are omitted from generated sitemaps.
+Keep the shared discovery service, store, types, and `/discover` routes intact
+unless a later migration replaces every plugin and MCP consumer.
+
+MCP Settings installs custom servers through **Add MCP Plugin** and manages the
+installed list. It no longer presents a marketplace shortcut.
+
 ## Built-in tools
 
 Tools live under `src/app/[variants]/(main)/tools/` and share the left-side

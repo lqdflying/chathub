@@ -72,27 +72,12 @@ const renderTopActions = (props: TopActionProps = {}) => {
 };
 
 describe('TopActions', () => {
-  it('should render Chat, Image and Market by default', () => {
+  it('renders primary destinations without Discover', () => {
     renderTopActions();
 
     expect(screen.getByText('tab.chat')).toBeTruthy();
     expect(screen.getByText('tab.aiImage')).toBeTruthy();
-    expect(screen.getByText('tab.discover')).toBeTruthy();
-  });
-
-  it('should render only Chat icon when `-market` is set', () => {
-    act(() => {
-      createServerConfigStore().setState({
-        featureFlags: {
-          ...createServerConfigStore().getState().featureFlags,
-          showMarket: false,
-        },
-      });
-    });
-
-    renderTopActions();
-
-    expect(screen.getByText('tab.chat')).toBeTruthy();
+    expect(screen.getByText('tab.tools')).toBeTruthy();
     expect(screen.queryByText('tab.discover')).toBeNull();
   });
 
@@ -136,7 +121,7 @@ describe('TopActions', () => {
     const { result: store } = renderHook(() => useGlobalStore((s) => s));
     const switchBackToChat = vi.spyOn(store.current, 'switchBackToChat');
 
-    renderTopActions({ tab: SidebarTabKey.Discover });
+    renderTopActions({ tab: SidebarTabKey.Tools });
     fireEvent.click(screen.getByText('Mocked Link /chat'));
 
     expect(switchBackToChat).toBeCalledWith('1');

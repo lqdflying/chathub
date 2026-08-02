@@ -171,7 +171,6 @@ export default {
     editBtn: '编辑',
     editPrompt: '请前往编辑页面查看详情。',
     empty: '暂无已安装的 MCP 插件',
-    library: 'MCP 库',
     mcpRuntime: 'MCP 运行时',
     tools: {
       empty: '此 MCP 服务器未提供任何工具。',
@@ -313,6 +312,10 @@ export default {
     },
     highlighterTheme: {
       title: '代码高亮主题',
+    },
+    inputMarkdown: {
+      desc: '在输入消息时实时渲染 Markdown 格式。',
+      title: '输入框 Markdown 渲染',
     },
     mermaidTheme: {
       title: 'Mermaid 主题',

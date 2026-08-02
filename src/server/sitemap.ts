@@ -1,13 +1,10 @@
-import { flatten } from 'lodash-es';
 import { MetadataRoute } from 'next';
 import qs from 'query-string';
-import urlJoin from 'url-join';
 
 import { serverFeatureFlags } from '@/config/featureFlags';
 import { DEFAULT_LANG } from '@/const/locale';
 import { SITEMAP_BASE_URL } from '@/const/url';
 import { Locales, locales as allLocales } from '@/locales/resources';
-import { DiscoverService } from '@/server/services/discover';
 import { getCanonicalUrl } from '@/server/utils/url';
 import { isDev } from '@/utils/env';
 
@@ -22,26 +19,13 @@ export interface SitemapItem {
 }
 
 export enum SitemapType {
-  Mcp = 'mcp',
   Pages = 'pages',
-  Plugins = 'plugins',
 }
 
 export const LAST_MODIFIED = new Date().toISOString();
 
-// 每页条目数量
-const ITEMS_PER_PAGE = 100;
-
 export class Sitemap {
   sitemapIndexs = [{ id: SitemapType.Pages }];
-
-  private discoverService = new DiscoverService();
-
-  // 获取插件总页数
-  async getPluginPageCount(): Promise<number> {
-    const list = await this.discoverService.getPluginIdentifiers();
-    return Math.ceil(list.length / ITEMS_PER_PAGE);
-  }
 
   private _generateSitemapLink(url: string) {
     return [
@@ -142,20 +126,10 @@ export class Sitemap {
     );
   }
 
-  async getIndex(): Promise<string> {
+  getIndex(): string {
     const staticSitemaps = this.sitemapIndexs.map((item) =>
       this._generateSitemapLink(
         getCanonicalUrl(SITEMAP_BASE_URL, isDev ? item.id : `${item.id}.xml`),
-      ),
-    );
-
-    // 获取需要分页的类型的页数
-    const pluginPages = await this.getPluginPageCount();
-
-    // 生成分页sitemap链接
-    const paginatedSitemaps = Array.from({ length: pluginPages }, (_, i) =>
-      this._generateSitemapLink(
-        getCanonicalUrl(SITEMAP_BASE_URL, isDev ? `plugins-${i + 1}` : `plugins-${i + 1}.xml`),
       ),
     );
 
@@ -163,34 +137,8 @@ export class Sitemap {
       '<?xml version="1.0" encoding="UTF-8"?>',
       '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
       ...staticSitemaps,
-      ...paginatedSitemaps,
       '</sitemapindex>',
     ].join('\n');
-  }
-
-  async getPlugins(page?: number): Promise<MetadataRoute.Sitemap> {
-    const list = await this.discoverService.getPluginIdentifiers();
-
-    if (page !== undefined) {
-      const startIndex = (page - 1) * ITEMS_PER_PAGE;
-      const endIndex = startIndex + ITEMS_PER_PAGE;
-      const pagePlugins = list.slice(startIndex, endIndex);
-
-      const sitmap = pagePlugins.map((item) =>
-        this._genSitemap(urlJoin('/discover/plugin', item.identifier), {
-          lastModified: item?.lastModified || LAST_MODIFIED,
-        }),
-      );
-      return flatten(sitmap);
-    }
-
-    // 如果没有指定页数，返回所有（向后兼容）
-    const sitmap = list.map((item) =>
-      this._genSitemap(urlJoin('/discover/plugin', item.identifier), {
-        lastModified: item?.lastModified || LAST_MODIFIED,
-      }),
-    );
-    return flatten(sitmap);
   }
 
   async getPage(): Promise<MetadataRoute.Sitemap> {
@@ -202,9 +150,6 @@ export class Sitemap {
       /* ↓ cloud slot ↓ */
 
       /* ↑ cloud slot ↑ */
-      ...this._genSitemap('/discover', { changeFrequency: 'daily', priority: 0.7 }),
-      ...this._genSitemap('/discover/mcp', { changeFrequency: 'daily', priority: 0.7 }),
-      ...this._genSitemap('/discover/plugin', { changeFrequency: 'daily', priority: 0.7 }),
     ].filter(Boolean);
   }
   getRobots() {
