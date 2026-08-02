@@ -21,7 +21,8 @@ const skillProcedure = authedProcedure
     opts.next({ ctx: { skillModel: new SkillModel(opts.ctx.serverDB, opts.ctx.userId) } }),
   );
 
-const sourceTypeSchema = z.enum(['github', 'registry', 'url']);
+const remoteSourceTypeSchema = z.enum(['github', 'registry', 'url']);
+const sourceTypeSchema = z.enum(['file', 'github', 'registry', 'url']);
 
 const asBadRequest = <T>(operation: () => T): T => {
   try {
@@ -54,9 +55,7 @@ const isDuplicateContentError = (error: unknown): boolean => {
     return (
       databaseError.constraint === 'user_installed_skills_user_hash_unique' ||
       (databaseError.code === '23505' &&
-        String(databaseError.message ?? '').includes(
-          'user_installed_skills_user_hash_unique',
-        ))
+        String(databaseError.message ?? '').includes('user_installed_skills_user_hash_unique'))
     );
   });
 };
@@ -83,15 +82,20 @@ const persistSkill = async (
   expectedIdentifier?: string,
 ) => {
   const { identifier, parsed, source } = asBadRequest(() => {
+    if (input.sourceType === 'file' && input.sourceUrl) {
+      throw new Error('Local skill files cannot include a source URL');
+    }
+
     const parsedSkill = parseSkill(input.instructions);
     assertExpectedSkillIdentifier(parsedSkill.name, expectedIdentifier);
 
     return {
       identifier: input.identifier || parsedSkill.name,
       parsed: parsedSkill,
-      source: input.sourceUrl
-        ? resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef)
-        : undefined,
+      source:
+        input.sourceUrl && input.sourceType !== 'file'
+          ? resolveSkillSource(input.sourceUrl, input.sourceType, input.sourceRef)
+          : undefined,
     };
   });
 
@@ -111,8 +115,7 @@ const persistSkill = async (
       throw new TRPCError({
         cause: error,
         code: 'CONFLICT',
-        message:
-          'A skill with identical content is already installed under a different identifier',
+        message: 'A skill with identical content is already installed under a different identifier',
       });
     }
     throw error;
@@ -199,7 +202,7 @@ export const skillRouter = router({
         authorization: z.string().max(4096).optional(),
         expectedIdentifier: z.string().max(64).refine(isSkillName).optional(),
         sourceRef: z.string().max(255).optional(),
-        sourceType: sourceTypeSchema,
+        sourceType: remoteSourceTypeSchema,
         sourceUrl: z.string().url(),
       }),
     )

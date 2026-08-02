@@ -62,6 +62,46 @@ describe('skillRouter', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('persists a local skill file without a remote source URL', async () => {
+    await createCaller().installSkill({
+      instructions: skillDocument,
+      sourceRef: 'summarize-text.skill',
+      sourceType: 'file',
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identifier: 'summarize-text',
+        sourceRef: 'summarize-text.skill',
+        sourceType: 'file',
+        sourceUrl: undefined,
+      }),
+    );
+  });
+
+  it('rejects a local skill file that includes a source URL', async () => {
+    await expect(
+      createCaller().installSkill({
+        instructions: skillDocument,
+        sourceType: 'file',
+        sourceUrl: 'https://example.com/SKILL.md',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('does not accept local files through the remote URL installer', async () => {
+    await expect(
+      createCaller().installSkillFromUrl({
+        sourceType: 'file' as never,
+        sourceUrl: 'https://example.com/SKILL.md',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+
+    expect(ssrfSafeFetch).not.toHaveBeenCalled();
+  });
+
   it('maps invalid source URLs to BAD_REQUEST', async () => {
     await expect(
       createCaller().installSkillFromUrl({

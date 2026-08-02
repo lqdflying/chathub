@@ -1,5 +1,6 @@
 import {
   InstalledSkillItem,
+  RemoteSkillSourceType,
   SkillRecord,
   SkillRegistryResult,
   SkillSourceType,
@@ -23,7 +24,7 @@ export interface SkillService {
     authorization?: string;
     expectedIdentifier?: string;
     sourceRef?: string;
-    sourceType: SkillSourceType;
+    sourceType: RemoteSkillSourceType;
     sourceUrl: string;
   }) => Promise<string>;
   resolveSkills: (identifiers: string[]) => Promise<SkillRecord[]>;

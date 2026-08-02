@@ -7,6 +7,7 @@ import { memo, useRef, useState } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import { ActionKeys } from '@/features/ChatInput/ActionBar/config';
+import { MOBILE_CHAT_LEFT_ACTIONS } from '@/features/ChatInput/ActionBar/presets';
 import { useInitAgentConfig } from '@/hooks/useInitAgentConfig';
 import { useChatStore } from '@/store/chat';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
@@ -16,15 +17,6 @@ import Files from './Files';
 import InputArea from './InputArea';
 import SendButton from './Send';
 import { useSendMessage } from './useSend';
-
-const defaultLeftActions: ActionKeys[] = [
-  'model',
-  'search',
-  'fileUpload',
-  'knowledgeBase',
-  'tools',
-  'mainToken',
-];
 
 const defaultRightActions: ActionKeys[] = ['saveTopic', 'clear'];
 
@@ -72,7 +64,7 @@ const MobileChatInput = memo(() => {
           <>
             <Files />
             <ActionBar
-              leftActions={defaultLeftActions}
+              leftActions={MOBILE_CHAT_LEFT_ACTIONS}
               padding={'0 8px'}
               rightActions={defaultRightActions}
             />

@@ -9,6 +9,11 @@ vi.stubGlobal('React', React);
 const serverConfigState = vi.hoisted(() => ({
   featureFlags: { enableSkills: true },
 }));
+const skillContext = vi.hoisted(() => ({
+  activeSessionType: 'agent' as 'agent' | 'group',
+  agentSkillIds: ['reviewer'],
+  groupSkillIds: ['group-reviewer'],
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -19,7 +24,11 @@ vi.mock('@/store/agent', () => ({
 }));
 
 vi.mock('@/store/agent/selectors', () => ({
-  agentSelectors: { currentAgentSkills: () => ['reviewer'] },
+  agentSelectors: { currentAgentSkills: () => skillContext.agentSkillIds },
+}));
+
+vi.mock('@/store/chat', () => ({
+  useChatStore: (selector: (state: typeof skillContext) => unknown) => selector(skillContext),
 }));
 
 vi.mock('@/store/serverConfig', () => ({
@@ -31,9 +40,19 @@ vi.mock('@/store/serverConfig', () => ({
 vi.mock('@/store/skill', () => ({
   useSkillStore: (selector: (state: object) => unknown) =>
     selector({
-      installedSkills: [{ identifier: 'reviewer' }],
+      installedSkills: [{ identifier: 'reviewer' }, { identifier: 'group-reviewer' }],
       isLoading: false,
     }),
+}));
+
+vi.mock('@/store/session', () => ({
+  useSessionStore: (selector: (state: typeof skillContext) => unknown) => selector(skillContext),
+}));
+
+vi.mock('@/store/session/selectors', () => ({
+  sessionSelectors: {
+    currentGroupAgents: () => [{ skills: skillContext.groupSkillIds }],
+  },
 }));
 
 vi.mock('../components/Action', () => ({
@@ -45,6 +64,9 @@ vi.mock('./useControls', () => ({ useControls: () => [] }));
 describe('ChatInput Skills action feature gate', () => {
   beforeEach(() => {
     serverConfigState.featureFlags.enableSkills = true;
+    skillContext.activeSessionType = 'agent';
+    skillContext.agentSkillIds = ['reviewer'];
+    skillContext.groupSkillIds = ['group-reviewer'];
   });
 
   it('renders when enabled skills are available', () => {
@@ -59,5 +81,14 @@ describe('ChatInput Skills action feature gate', () => {
     render(<Skills />);
 
     expect(screen.queryByText('skills.title')).toBeNull();
+  });
+
+  it('renders for a group skill even when the current agent has no skills', () => {
+    skillContext.activeSessionType = 'group';
+    skillContext.agentSkillIds = [];
+
+    render(<Skills />);
+
+    expect(screen.getByText('skills.title')).toBeTruthy();
   });
 });

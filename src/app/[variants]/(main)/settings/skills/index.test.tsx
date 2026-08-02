@@ -7,15 +7,18 @@ import SkillsManagement from './index';
 vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
+  installSkill: vi.fn(),
   installSkillFromUrl: vi.fn(),
+  parseSkillArchive: vi.fn(),
   searchInputProps: undefined as any,
   searchRegistry: vi.fn(),
   uninstallSkill: vi.fn(),
+  uploadProps: undefined as any,
   useFetchSkills: vi.fn(),
 }));
 
 const appContext = vi.hoisted(() => ({
-  message: { error: vi.fn() },
+  message: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
   modal: { confirm: vi.fn() },
 }));
 
@@ -34,10 +37,9 @@ vi.mock('@lobehub/ui', () => {
 });
 
 vi.mock('antd', () => {
-  const Form = Object.assign(
-    ({ children }: { children?: React.ReactNode }) => children ?? null,
-    { Item: ({ children }: { children?: React.ReactNode }) => children ?? null },
-  );
+  const Form = Object.assign(({ children }: { children?: React.ReactNode }) => children ?? null, {
+    Item: ({ children }: { children?: React.ReactNode }) => children ?? null,
+  });
 
   return {
     App: {
@@ -45,7 +47,14 @@ vi.mock('antd', () => {
     },
     Form,
     Modal: ({ children }: { children?: React.ReactNode }) => children ?? null,
+    Segmented: () => null,
     Tag: ({ children }: { children?: React.ReactNode }) => children ?? null,
+    Upload: {
+      Dragger: (props: any) => {
+        mocks.uploadProps = props;
+        return props.children ?? null;
+      },
+    },
   };
 });
 
@@ -67,8 +76,13 @@ vi.mock('@/services/skill', () => ({
   skillService: { searchRegistry: mocks.searchRegistry },
 }));
 
+vi.mock('@/services/skill/archive', () => ({
+  parseSkillArchive: mocks.parseSkillArchive,
+}));
+
 vi.mock('@/store/skill', () => {
   const state = {
+    installSkill: mocks.installSkill,
     installSkillFromUrl: mocks.installSkillFromUrl,
     installedSkills: [],
     uninstallSkill: mocks.uninstallSkill,
@@ -83,6 +97,13 @@ describe('SkillsManagement registry search', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mocks.searchInputProps = undefined;
+    mocks.uploadProps = undefined;
+    mocks.installSkill.mockResolvedValue(undefined);
+    mocks.parseSkillArchive.mockResolvedValue({
+      bundledResourceCount: 2,
+      identifier: 'reviewer',
+      instructions: 'skill instructions',
+    });
     mocks.searchRegistry.mockResolvedValue({ configured: true, items: [] });
   });
 
@@ -104,5 +125,20 @@ describe('SkillsManagement registry search', () => {
 
     expect(mocks.searchRegistry).toHaveBeenCalledTimes(1);
     expect(mocks.searchRegistry).toHaveBeenCalledWith('review');
+  });
+
+  it('installs a local .skill file and warns when bundled resources are skipped', async () => {
+    render(<SkillsManagement mobile />);
+    const file = new File(['archive'], 'reviewer.skill');
+
+    await act(() => mocks.uploadProps.beforeUpload(file));
+
+    expect(mocks.parseSkillArchive).toHaveBeenCalledWith(file);
+    expect(mocks.installSkill).toHaveBeenCalledWith({
+      instructions: 'skill instructions',
+      sourceRef: 'reviewer.skill',
+      sourceType: 'file',
+    });
+    expect(appContext.message.warning).toHaveBeenCalledWith('skills.resourcesSkipped');
   });
 });

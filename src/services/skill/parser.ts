@@ -1,4 +1,4 @@
-import { SkillMetadata, SkillSourceType, isSkillName } from '@lobechat/types';
+import { RemoteSkillSourceType, SkillMetadata, isSkillName } from '@lobechat/types';
 import matter from 'gray-matter';
 import { sha256 } from 'js-sha256';
 
@@ -11,7 +11,7 @@ export interface ParsedSkill extends SkillMetadata {
 
 export interface NormalizedSkillSource {
   sourceRef?: string;
-  sourceType: SkillSourceType;
+  sourceType: RemoteSkillSourceType;
   sourceUrl: string;
 }
 
@@ -85,7 +85,7 @@ const normalizeGitHubSource = (url: URL, requestedRef?: string) => {
 
 export const resolveSkillSource = (
   source: string,
-  requestedType: SkillSourceType = 'url',
+  requestedType: RemoteSkillSourceType = 'url',
   requestedRef?: string,
 ): NormalizedSkillSource => {
   const url = new URL(source);

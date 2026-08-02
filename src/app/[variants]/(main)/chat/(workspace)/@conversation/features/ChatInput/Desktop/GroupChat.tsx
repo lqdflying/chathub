@@ -9,6 +9,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import { DEFAULT_AVATAR } from '@/const/meta';
 import { type ActionKeys, ChatInputProvider, DesktopChatInput } from '@/features/ChatInput';
+import { GROUP_CHAT_LEFT_ACTIONS } from '@/features/ChatInput/ActionBar/presets';
 import WideScreenContainer from '@/features/Conversation/components/WideScreenContainer';
 import { useChatStore } from '@/store/chat';
 import { aiChatSelectors } from '@/store/chat/selectors';
@@ -18,15 +19,6 @@ import { sessionSelectors } from '@/store/session/selectors';
 import { useSendGroupMessage } from '../useSend';
 import MessageFromUrl from './MessageFromUrl';
 import { useSendMenuItems } from './useSendMenuItems';
-
-const leftActions: ActionKeys[] = [
-  'typo',
-  'fileUpload',
-  'knowledgeBase',
-  '---',
-  ['stt', 'clear'],
-  'groupChatToken',
-];
 
 const dmLeftActions: ActionKeys[] = ['typo', 'fileUpload', 'knowledgeBase', '---', ['stt']];
 
@@ -89,7 +81,7 @@ const Desktop = memo((props: { targetMemberId?: string }) => {
         if (!instance) return;
         useChatStore.setState({ mainInputEditor: instance });
       }}
-      leftActions={isDMPortal ? dmLeftActions : leftActions}
+      leftActions={isDMPortal ? dmLeftActions : GROUP_CHAT_LEFT_ACTIONS}
       mentionItems={mentionItems}
       onMarkdownContentChange={(content) => {
         useChatStore.setState({ inputMessage: content });

@@ -92,7 +92,9 @@ export const userInstalledSkills = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull(),
     instructions: text('instructions').notNull(),
-    sourceType: text('source_type', { enum: ['github', 'registry', 'url'] as const }).notNull(),
+    sourceType: text('source_type', {
+      enum: ['file', 'github', 'registry', 'url'] as const,
+    }).notNull(),
     sourceUrl: text('source_url'),
     sourceRef: text('source_ref'),
     contentHash: text('content_hash').notNull(),

@@ -1,4 +1,4 @@
-import { InstalledSkillItem } from '@lobechat/types';
+import { InstalledSkillItem, RemoteSkillSourceType } from '@lobechat/types';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -18,7 +18,7 @@ export interface SkillAction {
     authorization?: string;
     expectedIdentifier?: string;
     sourceRef?: string;
-    sourceType: 'github' | 'registry' | 'url';
+    sourceType: RemoteSkillSourceType;
     sourceUrl: string;
   }) => Promise<void>;
   refreshSkills: () => Promise<void>;

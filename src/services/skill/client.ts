@@ -17,9 +17,13 @@ export class ClientSkillService extends BaseClientService implements SkillServic
     this.model.findById(identifier) as Promise<SkillRecord | undefined>;
   installSkill = async (params: InstallSkillParams) => {
     const parsed = parseSkill(params.instructions);
-    const source = params.sourceUrl
-      ? resolveSkillSource(params.sourceUrl, params.sourceType, params.sourceRef)
-      : undefined;
+    if (params.sourceUrl && params.sourceType === 'file') {
+      throw new Error('Local skill files cannot include a source URL');
+    }
+    const source =
+      params.sourceUrl && params.sourceType !== 'file'
+        ? resolveSkillSource(params.sourceUrl, params.sourceType, params.sourceRef)
+        : undefined;
     await this.model.create({
       contentHash: parsed.contentHash,
       description: params.description || parsed.description,

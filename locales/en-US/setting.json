@@ -639,16 +639,31 @@
   "skills": {
     "agentTitle": "Skills available to this assistant",
     "confirmUninstall": "Confirm uninstall this skill?",
+    "details": "Skill details",
     "emptySelect": "Select a skill to view details",
     "groupName": "Skills (this message)",
     "install": "Install skill",
+    "installModes": {
+      "file": "Local file",
+      "url": "URL"
+    },
+    "installSuccess": "Skill installed",
     "lazyLoading": "Full instructions load only when explicitly activated",
     "localSource": "Custom source",
     "registry": "Skill registry",
+    "resourcesSkipped": "Installed {{name}}. {{count}} bundled file(s) were skipped.",
     "search": "Search installed skills",
     "source": "SKILL.md URL",
+    "sourceTypes": {
+      "file": "Local file",
+      "github": "GitHub",
+      "registry": "Registry",
+      "url": "URL"
+    },
     "title": "Skills",
-    "unknownCommand": "Skill /{{name}} is not enabled; the command will be sent as plain text."
+    "uninstall": "Uninstall skill",
+    "unknownCommand": "Skill /{{name}} is not enabled; the command will be sent as plain text.",
+    "uploadSkill": "Choose a .skill file"
   },
   "storage": {
     "actions": {

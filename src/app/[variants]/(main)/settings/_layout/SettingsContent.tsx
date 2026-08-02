@@ -181,7 +181,11 @@ const SettingsContent = ({ mobile, activeTab, showLLM = true }: SettingsContentP
     if (!Component) return null;
 
     const componentProps: { mobile?: boolean } = {};
-    if ([SettingsTabs.About, SettingsTabs.Agent, SettingsTabs.Provider].includes(tab as any)) {
+    if (
+      [SettingsTabs.About, SettingsTabs.Agent, SettingsTabs.Provider, SettingsTabs.Skills].includes(
+        tab as any,
+      )
+    ) {
       componentProps.mobile = mobile;
     }
 

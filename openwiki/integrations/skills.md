@@ -19,6 +19,22 @@ Install-by-URL is HTTPS-only, rejects URL credentials, follows no redirects,
 uses SSRF-safe fetching, and enforces a 128 KiB body limit. GitHub repository,
 blob, and tree URLs are normalized to raw content before fetching.
 
+Local `.skill` imports are handled in the browser by
+`src/services/skill/archive.ts`. The archive is decompressed with `fflate`, but
+only `SKILL.md` is materialized. Accepted layouts contain either a root-level
+`SKILL.md` or one top-level folder containing `SKILL.md`; for the folder layout,
+the folder and frontmatter names must match. Absolute paths, parent traversal,
+backslashes, invalid UTF-8, multiple skill documents, archives over 30 MiB, and
+archives with more than 1024 files are rejected. The `SKILL.md` body retains the
+same 128 KiB limit as URL installs.
+
+Packaged scripts, references, assets, and other resource files are counted but
+not extracted or persisted. The settings UI warns after installation when any
+such resources were skipped. The persisted source type is `file`, the original
+archive filename is kept as `sourceRef`, and local imports cannot carry a
+remote source URL. This scope supports instruction-only Claude `.skill`
+packages without exposing archive paths or executable payloads to the server.
+
 Installed metadata is owned by the account-scoped SWR key
 `['installed-skills', scope]`. Settings and chat consumers mount the same
 `useFetchSkills` subscription, while install and uninstall actions revalidate
@@ -65,6 +81,11 @@ Skills UI is enabled by default. `FEATURE_FLAGS="-skills"` maps to
 ChatInput picker, and editor skill slash items. This is a presentation gate: it
 does not delete installed records or rewrite saved assistant skill IDs.
 
+The Skills management page has separate desktop and mobile layouts. Mobile
+Settings includes a feature-gated Skills destination; selecting a list item
+opens its details in a modal instead of retaining the desktop split panel. The
+install dialog defaults to local-file upload and also retains URL installation.
+
 ## Activation flow
 
 An assistant opts into installed skills from its Skills settings tab. For a
@@ -110,12 +131,18 @@ marker as a short loaded confirmation.
 Group turns use the same message-metadata contract. Slash commands and picker
 selection are intersected with the union of the participating members' enabled
 skills; each member's runtime prompt receives only its own enabled activation.
+The Sparkles picker is present in the active V1 mobile composer and the regular
+desktop group composer. The mobile send hook uses the same conversation-keyed
+selection, slash parsing, unknown-command warning, and group metadata contract
+as the desktop editor. A command-only mobile draft remains untouched unless a
+file is attached.
 
 ## Change points and tests
 
 When changing this feature, review the parser, registry adapter, server router,
-`src/services/chat/index.ts`, the context-engine provider, the ChatInput picker,
-and the assistant/settings stores together. Focused coverage lives in
+archive parser, `src/services/chat/index.ts`, the context-engine provider, the
+desktop and mobile ChatInput pickers/send hooks, and the assistant/settings
+stores together. Focused coverage lives in
 `src/services/skill/*.test.ts`,
 `packages/context-engine/src/providers/__tests__/SkillInstructionsProvider.test.ts`,
 and `packages/database/src/models/__tests__/skill.test.ts`.

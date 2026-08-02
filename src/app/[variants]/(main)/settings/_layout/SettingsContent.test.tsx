@@ -34,9 +34,14 @@ vi.mock('next/dynamic', () => ({
     const loaderIndex = dynamicLoaderState.nextIndex;
     dynamicLoaderState.nextIndex += 1;
 
-    const DynamicComponent = () => {
+    const DynamicComponent = ({ mobile }: { mobile?: boolean }) => {
       void loader();
-      return <div data-testid={`settings-component-${loaderIndex}`} />;
+      return (
+        <div
+          data-mobile={mobile ? 'true' : 'false'}
+          data-testid={`settings-component-${loaderIndex}`}
+        />
+      );
     };
 
     return DynamicComponent;
@@ -125,6 +130,12 @@ describe('SettingsContent', () => {
 
     expect(screen.getByTestId('settings-component-1')).not.toBeNull();
     expect(screen.queryByTestId('settings-component-0')).toBeNull();
+  });
+
+  it('renders the Skills page with its mobile layout', () => {
+    render(<SettingsContent activeTab={SettingsTabs.Skills} mobile />);
+
+    expect(screen.getByTestId('settings-component-12').dataset.mobile).toBe('true');
   });
 
   it('retries a current-scope request failure and restores the tab loading UI', async () => {

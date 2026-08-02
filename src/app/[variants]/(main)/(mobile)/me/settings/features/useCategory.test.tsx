@@ -6,6 +6,9 @@ import { SettingsTabs } from '@/store/global/initialState';
 import { useCategory } from './useCategory';
 
 const routerPush = vi.fn();
+const serverConfigState = vi.hoisted(() => ({
+  featureFlags: { enableSkills: true, showLLM: true },
+}));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
@@ -20,14 +23,15 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/store/serverConfig', () => ({
-  featureFlagsSelectors: (state: { featureFlags: { showLLM: boolean } }) => state.featureFlags,
-  useServerConfigStore: (selector: (state: { featureFlags: { showLLM: boolean } }) => unknown) =>
-    selector({ featureFlags: { showLLM: true } }),
+  featureFlagsSelectors: (state: typeof serverConfigState) => state.featureFlags,
+  useServerConfigStore: (selector: (state: typeof serverConfigState) => unknown) =>
+    selector(serverConfigState),
 }));
 
 describe('mobile settings categories', () => {
   beforeEach(() => {
     routerPush.mockReset();
+    serverConfigState.featureFlags.enableSkills = true;
   });
 
   it('routes the Chat Instruction destination to its settings tab', () => {
@@ -47,5 +51,26 @@ describe('mobile settings categories', () => {
     });
 
     expect(routerPush).toHaveBeenCalledWith('/settings?active=chat-instruction');
+  });
+
+  it('routes the Skills destination when the feature is enabled', () => {
+    const { result } = renderHook(() => useCategory());
+    const skillsItem = result.current.find((item) => item.key === SettingsTabs.Skills);
+
+    expect(skillsItem).toEqual(expect.objectContaining({ label: 'tab.skills' }));
+
+    act(() => {
+      skillsItem?.onClick?.();
+    });
+
+    expect(routerPush).toHaveBeenCalledWith('/settings?active=skills');
+  });
+
+  it('hides the Skills destination when the feature is disabled', () => {
+    serverConfigState.featureFlags.enableSkills = false;
+
+    const { result } = renderHook(() => useCategory());
+
+    expect(result.current.some((item) => item.key === SettingsTabs.Skills)).toBe(false);
   });
 });

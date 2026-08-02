@@ -1,4 +1,6 @@
-export type SkillSourceType = 'github' | 'registry' | 'url';
+export type RemoteSkillSourceType = 'github' | 'registry' | 'url';
+
+export type SkillSourceType = 'file' | RemoteSkillSourceType;
 
 export interface SkillMetadata {
   description: string;
@@ -8,7 +10,7 @@ export interface SkillMetadata {
 export interface SkillCatalogItem extends SkillMetadata {
   identifier: string;
   sourceRef?: string;
-  sourceType: SkillSourceType;
+  sourceType: RemoteSkillSourceType;
   sourceUrl: string;
 }
 

@@ -1,6 +1,7 @@
 import { Bot, Brain, Info, MessageSquareText, Mic2, Settings2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
+
 import { CellProps } from '@/components/Cell';
 import { isDeprecatedEdition } from '@/const/version';
 import { SettingsTabs } from '@/store/global/initialState';
@@ -9,7 +10,7 @@ import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfi
 export const useCategory = () => {
   const router = useRouter();
   const { t } = useTranslation('setting');
-  const { showLLM } = useServerConfigStore(featureFlagsSelectors);
+  const { enableSkills, showLLM } = useServerConfigStore(featureFlagsSelectors);
 
   const items: CellProps[] = [
     {
@@ -44,6 +45,11 @@ export const useCategory = () => {
       icon: Bot,
       key: SettingsTabs.Agent,
       label: t('tab.agent'),
+    },
+    enableSkills && {
+      icon: Sparkles,
+      key: SettingsTabs.Skills,
+      label: t('tab.skills'),
     },
     {
       icon: Info,
