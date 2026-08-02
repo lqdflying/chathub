@@ -21,15 +21,17 @@ const useStyles = createStyles(({ css, token }) => ({
     padding-block: 6px;
     padding-inline: 10px;
   `,
-  image: css`
-    cursor: zoom-in;
-
+  media: css`
     display: block;
 
     width: 100%;
     height: 112px;
 
     object-fit: cover;
+    background: ${token.colorBgLayout};
+  `,
+  previewImage: css`
+    cursor: zoom-in;
   `,
   timestamp: css`
     padding-block: 0 4px;
@@ -43,19 +45,21 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
 }));
 
-interface ImageCardProps {
+interface MediaCardProps {
   createdAt: Date;
+  fileType: string;
   id: string;
   name: string;
   onDelete: (id: string) => void;
   url: string;
 }
 
-const ImageCard = memo<ImageCardProps>(({ id, name, url, createdAt, onDelete }) => {
-  const { styles } = useStyles();
+const MediaCard = memo<MediaCardProps>(({ id, name, url, fileType, createdAt, onDelete }) => {
+  const { styles, cx } = useStyles();
   const { t } = useTranslation('tools');
   const { message } = App.useApp();
   const [copied, setCopied] = useState(false);
+  const isVideo = fileType.startsWith('video/');
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(url);
@@ -66,17 +70,35 @@ const ImageCard = memo<ImageCardProps>(({ id, name, url, createdAt, onDelete }) 
 
   return (
     <Flexbox className={styles.card}>
-      <Image
-        alt={name}
-        className={styles.image}
-        preview={{ src: url }}
-        src={url}
-        wrapperStyle={{ display: 'block' }}
-      />
+      {isVideo ? (
+        <video
+          aria-label={name}
+          className={styles.media}
+          controls
+          playsInline
+          preload={'metadata'}
+          src={url}
+        />
+      ) : (
+        <Image
+          alt={name}
+          className={cx(styles.media, styles.previewImage)}
+          preview={{ src: url }}
+          src={url}
+          wrapperStyle={{ display: 'block' }}
+        />
+      )}
       <Flexbox align={'center'} className={styles.footer} horizontal>
-        <Input className={styles.urlInput} readOnly size={'small'} value={url} />
+        <Input
+          aria-label={t('picbed.mediaUrl')}
+          className={styles.urlInput}
+          readOnly
+          size={'small'}
+          value={url}
+        />
         <Tooltip title={t('picbed.copy')}>
           <ActionIcon
+            aria-label={t('picbed.copy')}
             icon={copied ? Check : Copy}
             onClick={handleCopy}
             size={{ blockSize: 26, size: 13 }}
@@ -84,6 +106,7 @@ const ImageCard = memo<ImageCardProps>(({ id, name, url, createdAt, onDelete }) 
         </Tooltip>
         <Tooltip title={t('picbed.delete')}>
           <ActionIcon
+            aria-label={t('picbed.delete')}
             icon={Trash2}
             onClick={() => onDelete(id)}
             size={{ blockSize: 26, size: 13 }}
@@ -97,4 +120,4 @@ const ImageCard = memo<ImageCardProps>(({ id, name, url, createdAt, onDelete }) 
   );
 });
 
-export default ImageCard;
+export default MediaCard;

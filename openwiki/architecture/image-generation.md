@@ -350,14 +350,17 @@ scope, so an older write that already started must settle before a newer title
 is persisted; the newer title therefore remains authoritative during concurrent
 or A-to-B-to-A summary sequences.
 
-Picbed uses the same account scope as a React identity key, aborts active uploads
-when that scope unmounts, and checks scope before every file, after object
-storage upload, and before record creation. The scope and `AbortSignal` continue
-through pre-signing and the tRPC mutation. Shared transport middleware compares
-the asserted scope with the raw authenticated identity before every Picbed list,
-delete, or create procedure, and record creation retains its input-level scope
-check as defense in depth. An object uploaded for account A therefore cannot be
-registered to account B after an in-place account switch.
+Picbed hosts both images and videos. It uses the same account scope as a React
+identity key, aborts active uploads when that scope unmounts, and checks scope
+before every file, after object storage upload, and before record creation. The
+scope and `AbortSignal` continue through pre-signing and the tRPC mutation.
+Shared media validation accepts only `image/*` and `video/*`; videos are capped
+at 20 MiB inclusive before S3 upload and again when the Lambda create input is
+parsed. Shared transport middleware compares the asserted scope with the raw
+authenticated identity before every Picbed list, delete, or create procedure,
+and record creation retains its input-level scope check as defense in depth. An
+object uploaded for account A therefore cannot be registered to account B after
+an in-place account switch.
 
 Telemetry-consent SWR entries use `['checkTrace', currentUserScope]`; no entry is
 read while authentication scope is unresolved. This prevents one account's

@@ -2,16 +2,17 @@ import { App } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { PicbedUploadResult, picbedService } from '@/services/picbed';
+import { PicbedMediaValidationReason, validatePicbedMediaFile } from '@/helpers/picbedMedia';
+import { PicbedMediaUploadResult, picbedService } from '@/services/picbed';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
-const getFilesFromDataTransferItems = async (items: DataTransferItem[]): Promise<File[]> => {
+export const getFilesFromDataTransferItems = (items: DataTransferItem[]): File[] => {
   const files: File[] = [];
   for (const item of items) {
     if (item.kind === 'file') {
       const file = item.getAsFile();
-      if (file && file.type.startsWith('image/')) files.push(file);
+      if (file) files.push(file);
     }
   }
   return files;
@@ -25,8 +26,32 @@ export const usePicbedUpload = (requestedScope: string | undefined, onSuccess?: 
   const activeUploadControllerRef = useRef<AbortController | undefined>(undefined);
 
   const uploadFiles = useCallback(
-    async (files: File[]): Promise<PicbedUploadResult[] | undefined> => {
+    async (files: File[]): Promise<PicbedMediaUploadResult[] | undefined> => {
       if (!requestedScope || files.length === 0) return;
+
+      const validFiles: File[] = [];
+      const invalidReasons = new Map<PicbedMediaValidationReason, string | undefined>();
+      for (const file of files) {
+        const validation = validatePicbedMediaFile(file);
+        if (validation.isValid) {
+          validFiles.push(file);
+          continue;
+        }
+
+        if (!invalidReasons.has(validation.reason)) {
+          invalidReasons.set(validation.reason, validation.actualSize);
+        }
+      }
+
+      for (const [reason, actualSize] of invalidReasons) {
+        message.error(
+          reason === 'videoSizeExceeded'
+            ? t('picbed.videoSizeExceeded', { actualSize })
+            : t('picbed.unsupportedType'),
+        );
+      }
+
+      if (validFiles.length === 0) return;
 
       activeUploadControllerRef.current?.abort();
       const abortController = new AbortController();
@@ -40,11 +65,11 @@ export const usePicbedUpload = (requestedScope: string | undefined, onSuccess?: 
       };
 
       setUploading(true);
-      const results: PicbedUploadResult[] = [];
+      const results: PicbedMediaUploadResult[] = [];
       try {
-        for (const file of files) {
+        for (const file of validFiles) {
           assertCurrentUpload();
-          const result = await picbedService.uploadImage(
+          const result = await picbedService.uploadMedia(
             file,
             requestedScope,
             abortController.signal,
@@ -80,23 +105,26 @@ export const usePicbedUpload = (requestedScope: string | undefined, onSuccess?: 
   );
 
   const handlePaste = useCallback(
-    async (e: ClipboardEvent) => {
+    (e: ClipboardEvent) => {
       if (!e.clipboardData) return;
       const items = Array.from(e.clipboardData.items);
-      const files = await getFilesFromDataTransferItems(items);
-      if (files.length > 0) uploadFiles(files);
+      const files = getFilesFromDataTransferItems(items);
+      if (files.length > 0) {
+        e.preventDefault();
+        void uploadFiles(files);
+      }
     },
     [uploadFiles],
   );
 
   const handleDrop = useCallback(
-    async (e: DragEvent) => {
+    (e: DragEvent) => {
       e.preventDefault();
       setIsDragging(false);
       if (!e.dataTransfer?.items) return;
       const items = Array.from(e.dataTransfer.items);
-      const files = await getFilesFromDataTransferItems(items);
-      uploadFiles(files);
+      const files = getFilesFromDataTransferItems(items);
+      void uploadFiles(files);
     },
     [uploadFiles],
   );

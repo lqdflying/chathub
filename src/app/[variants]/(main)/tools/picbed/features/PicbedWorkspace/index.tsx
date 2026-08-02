@@ -1,9 +1,9 @@
 'use client';
 
 import { Icon } from '@lobehub/ui';
-import { App, Empty, Image, Pagination, Spin, Typography, Upload } from 'antd';
+import { App, Empty, Image, Pagination, Spin, Typography, Upload, type UploadProps } from 'antd';
 import { createStyles } from 'antd-style';
-import { ImageUp } from 'lucide-react';
+import { CloudUpload } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
@@ -13,19 +13,37 @@ import { sensitiveAccountScope } from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
-import ImageCard from './ImageCard';
+import MediaCard from './MediaCard';
 import { usePicbedUpload } from './usePicbedUpload';
 
 const useStyles = createStyles(({ css, token }) => ({
+  desktopUploadCopy: css`
+    @media (max-width: 600px) {
+      display: none;
+    }
+  `,
   dropZone: css`
+    box-sizing: border-box;
     cursor: pointer;
 
+    width: 100%;
+    min-width: 0;
     padding-block: 40px;
     padding-inline: 24px;
     border: 2px dashed ${token.colorBorder};
     border-radius: ${token.borderRadiusLG}px;
 
     text-align: center;
+    overflow-wrap: anywhere;
+
+    :global(.ant-upload-drag-container) {
+      min-width: 0;
+    }
+
+    @media (max-width: 600px) {
+      padding-block: 24px;
+      padding-inline: 8px;
+    }
 
     transition:
       border-color 0.2s,
@@ -39,15 +57,22 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
   grid: css`
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(154px, 100%), 1fr));
     gap: 12px;
+  `,
+  mobileUploadCopy: css`
+    display: none;
+
+    @media (max-width: 600px) {
+      display: inline;
+    }
   `,
   title: css`
     margin-block-end: 0 !important;
   `,
 }));
 
-interface ImageRecord {
+interface PicbedMediaRecord {
   createdAt: Date;
   fileType: string;
   id: string;
@@ -64,15 +89,15 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
   const { styles, cx } = useStyles();
   const { t } = useTranslation('tools');
   const { message } = App.useApp();
-  const [images, setImages] = useState<ImageRecord[]>([]);
+  const [media, setMedia] = useState<PicbedMediaRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
 
-  const loadImages = useCallback(async () => {
+  const loadMedia = useCallback(async () => {
     const scopeAtRequestStart = requestedScope;
     if (!scopeAtRequestStart) {
-      setImages([]);
+      setMedia([]);
       setLoading(false);
       return;
     }
@@ -82,7 +107,7 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
       const list = await picbedService.list();
       if (authSelectors.currentUserScope(useUserStore.getState()) !== scopeAtRequestStart) return;
 
-      setImages(list as ImageRecord[]);
+      setMedia(list as PicbedMediaRecord[]);
     } finally {
       if (authSelectors.currentUserScope(useUserStore.getState()) === scopeAtRequestStart) {
         setLoading(false);
@@ -90,34 +115,37 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
     }
   }, [requestedScope]);
 
-  const { isDragging, uploadFiles, uploading } = usePicbedUpload(requestedScope, loadImages);
+  const handleUploadSuccess = useCallback(() => {
+    setPage(1);
+    void loadMedia();
+  }, [loadMedia]);
+
+  const { isDragging, uploadFiles, uploading } = usePicbedUpload(
+    requestedScope,
+    handleUploadSuccess,
+  );
 
   useEffect(() => {
-    void loadImages();
-  }, [loadImages]);
+    void loadMedia();
+  }, [loadMedia]);
 
-  const handleUpload = async (files: File[]) => {
-    const scopeAtRequestStart = requestedScope;
-    const results = await uploadFiles(files);
-    if (results && authSelectors.currentUserScope(useUserStore.getState()) === scopeAtRequestStart) {
-      setPage(1);
-      void loadImages();
-    }
+  const handleUpload = (files: File[]) => {
+    void uploadFiles(files);
   };
 
-  const pagedImages = images.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pagedMedia = media.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleDelete = async (id: string) => {
     const scopeAtRequestStart = requestedScope;
     await picbedService.delete(id);
     if (authSelectors.currentUserScope(useUserStore.getState()) !== scopeAtRequestStart) return;
 
-    setImages((prev) => prev.filter((img) => img.id !== id));
+    setMedia((prev) => prev.filter((item) => item.id !== id));
     message.success(t('picbed.delete'));
   };
 
-  const handleFileSelect = (file: File) => {
-    void handleUpload([file]);
+  const handleFileSelect: UploadProps['beforeUpload'] = (file, fileList) => {
+    if (file.uid === fileList[0]?.uid) handleUpload(fileList);
     return false;
   };
 
@@ -128,16 +156,28 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
       </Typography.Title>
 
       <Upload.Dragger
-        accept={'image/*'}
+        accept={'image/*,video/*'}
+        aria-label={t('picbed.upload')}
         beforeUpload={handleFileSelect}
         className={cx(styles.dropZone, isDragging && 'dragging')}
+        multiple
+        onDrop={(event) => event.stopPropagation()}
         showUploadList={false}
       >
         <Spin spinning={uploading}>
           <Flexbox align={'center'} gap={8}>
-            <Icon icon={ImageUp} size={32} />
-            <Typography.Text type={'secondary'}>{t('picbed.upload')}</Typography.Text>
-            <Typography.Text style={{ fontSize: 12 }} type={'secondary'}>
+            <Icon icon={CloudUpload} size={32} />
+            <Typography.Text className={styles.desktopUploadCopy} type={'secondary'}>
+              {t('picbed.upload')}
+            </Typography.Text>
+            <Typography.Text className={styles.mobileUploadCopy} type={'secondary'}>
+              {t('picbed.uploadShort')}
+            </Typography.Text>
+            <Typography.Text
+              className={styles.desktopUploadCopy}
+              style={{ fontSize: 12 }}
+              type={'secondary'}
+            >
               {t('picbed.dragTip')}
             </Typography.Text>
           </Flexbox>
@@ -148,33 +188,34 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
         <Flexbox align={'center'} justify={'center'} padding={40}>
           <Spin />
         </Flexbox>
-      ) : images.length === 0 ? (
+      ) : media.length === 0 ? (
         <Empty description={t('picbed.empty')} />
       ) : (
         <>
           <Image.PreviewGroup>
             <div className={styles.grid}>
-              {pagedImages.map((img) => (
-                <ImageCard
-                  createdAt={img.createdAt}
-                  id={img.id}
-                  key={img.id}
-                  name={img.name}
+              {pagedMedia.map((item) => (
+                <MediaCard
+                  createdAt={item.createdAt}
+                  fileType={item.fileType}
+                  id={item.id}
+                  key={item.id}
+                  name={item.name}
                   onDelete={handleDelete}
-                  url={img.url}
+                  url={item.url}
                 />
               ))}
             </div>
           </Image.PreviewGroup>
-          {images.length > PAGE_SIZE && (
+          {media.length > PAGE_SIZE && (
             <Flexbox align={'center'}>
               <Pagination
                 current={page}
                 onChange={setPage}
                 pageSize={PAGE_SIZE}
                 showSizeChanger={false}
-                showTotal={(total) => `${total} images`}
-                total={images.length}
+                showTotal={(total) => t('picbed.total', { count: total })}
+                total={media.length}
               />
             </Flexbox>
           )}

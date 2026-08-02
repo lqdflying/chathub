@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PICBED_VIDEO_SIZE_LIMIT } from '@/helpers/picbedMedia';
 import { lambdaClient } from '@/libs/trpc/client';
 import { uploadService } from '@/services/upload';
 import { useUserStore } from '@/store/user';
@@ -45,7 +46,7 @@ describe('PicbedService', () => {
     });
 
     await expect(
-      picbedService.uploadImage(file, 'user:account-a', new AbortController().signal),
+      picbedService.uploadMedia(file, 'user:account-a', new AbortController().signal),
     ).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(uploadFileToS3Spy).not.toHaveBeenCalled();
@@ -73,7 +74,7 @@ describe('PicbedService', () => {
     });
 
     await expect(
-      picbedService.uploadImage(file, 'user:account-a', new AbortController().signal),
+      picbedService.uploadMedia(file, 'user:account-a', new AbortController().signal),
     ).rejects.toMatchObject({ name: 'AbortError' });
 
     expect(lambdaClient.picbed.create.mutate).not.toHaveBeenCalled();
@@ -101,7 +102,11 @@ describe('PicbedService', () => {
       userId: 'account-a',
     });
 
-    await picbedService.uploadImage(file, 'user:account-a', abortController.signal);
+    await picbedService.uploadMedia(file, 'user:account-a', abortController.signal);
+
+    expect(uploadService.uploadFileToS3).toHaveBeenCalledWith(file, {
+      signal: abortController.signal,
+    });
 
     expect(lambdaClient.picbed.create.mutate).toHaveBeenCalledWith(
       {
@@ -113,5 +118,54 @@ describe('PicbedService', () => {
       },
       { signal: abortController.signal },
     );
+  });
+
+  it('rejects unsupported files before storage upload', async () => {
+    const file = new File(['document'], 'document.pdf', { type: 'application/pdf' });
+    const uploadFileToS3Spy = vi.spyOn(uploadService, 'uploadFileToS3');
+
+    await expect(picbedService.uploadMedia(file, 'user:account-a')).rejects.toThrow(
+      'Invalid Picbed media: unsupportedType',
+    );
+
+    expect(uploadFileToS3Spy).not.toHaveBeenCalled();
+    expect(lambdaClient.picbed.create.mutate).not.toHaveBeenCalled();
+  });
+
+  it('accepts a video at 20 MiB and rejects a larger video before storage upload', async () => {
+    const boundaryVideo = new File(['video'], 'boundary.mp4', { type: 'video/mp4' });
+    Object.defineProperty(boundaryVideo, 'size', { value: PICBED_VIDEO_SIZE_LIMIT });
+    const oversizedVideo = new File(['video'], 'oversized.mp4', { type: 'video/mp4' });
+    Object.defineProperty(oversizedVideo, 'size', { value: PICBED_VIDEO_SIZE_LIMIT + 1 });
+    const uploadFileToS3Spy = vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+      data: {
+        date: '1',
+        dirname: 'picbed/1',
+        filename: 'boundary.mp4',
+        path: 'picbed/1/boundary.mp4',
+      },
+      success: true,
+    });
+    vi.mocked(lambdaClient.picbed.create.mutate).mockResolvedValue({
+      createdAt: new Date(),
+      fileType: boundaryVideo.type,
+      id: 'video-id',
+      name: boundaryVideo.name,
+      size: boundaryVideo.size,
+      url: 'https://example.com/boundary.mp4',
+      userId: 'account-a',
+    });
+
+    await expect(picbedService.uploadMedia(boundaryVideo, 'user:account-a')).resolves.toMatchObject(
+      {
+        fileType: 'video/mp4',
+        id: 'video-id',
+      },
+    );
+    await expect(picbedService.uploadMedia(oversizedVideo, 'user:account-a')).rejects.toThrow(
+      'Invalid Picbed media: videoSizeExceeded',
+    );
+
+    expect(uploadFileToS3Spy).toHaveBeenCalledTimes(1);
   });
 });

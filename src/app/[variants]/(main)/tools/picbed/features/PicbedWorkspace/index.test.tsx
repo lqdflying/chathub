@@ -41,7 +41,19 @@ vi.mock('antd', () => ({
     Title: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
   },
   Upload: {
-    Dragger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Dragger: ({
+      accept,
+      children,
+      multiple,
+    }: {
+      accept: string;
+      children: React.ReactNode;
+      multiple: boolean;
+    }) => (
+      <div data-accept={accept} data-multiple={String(multiple)} data-testid={'picbed-upload'}>
+        {children}
+      </div>
+    ),
   },
 }));
 
@@ -64,8 +76,10 @@ vi.mock('react-layout-kit', () => ({
   Flexbox: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-vi.mock('./ImageCard', () => ({
-  default: ({ name }: { name: string }) => <div>{name}</div>,
+vi.mock('./MediaCard', () => ({
+  default: ({ fileType, name }: { fileType: string; name: string }) => (
+    <div data-file-type={fileType}>{name}</div>
+  ),
 }));
 
 vi.mock('./usePicbedUpload', () => ({
@@ -105,6 +119,10 @@ describe('Picbed ownership bootstrap', () => {
 
     render(<PicbedWorkspace />);
 
+    const upload = screen.getByTestId('picbed-upload');
+    expect(upload.getAttribute('data-accept')).toBe('image/*,video/*');
+    expect(upload.getAttribute('data-multiple')).toBe('true');
+
     await waitFor(() => {
       expect(screen.getByText('picbed.empty')).not.toBeNull();
     });
@@ -121,6 +139,8 @@ describe('Picbed ownership bootstrap', () => {
     await waitFor(() => {
       expect(picbedService.list).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByText('verified-account-image.png')).not.toBeNull();
+    expect(screen.getByText('verified-account-image.png').getAttribute('data-file-type')).toBe(
+      'image/png',
+    );
   });
 });

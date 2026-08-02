@@ -124,7 +124,7 @@ ChatHub's built-in Moonshot route is `https://api.moonshot.cn/v1`. The global Ki
 
 ## Key Features
 
-- **Tools Hub** — Picbed (S3-backed image hosting), API Tester (browser-based REST client), Password Generator, extensible sidebar
+- **Tools Hub** — Picbed (S3-backed image and video hosting), API Tester (browser-based REST client), Password Generator, extensible sidebar
 - **Model extension options (gear menu)** — Per-provider compact popovers wired from the model bank; MiniMax context trimming before API calls to avoid overflow errors. [Details →](https://github.com/lqdflying/chathub/wiki/Model-Extension-Options)
 - **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction)
 - **MCP OAuth** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side. [Details →](https://github.com/lqdflying/chathub/wiki/MCP-OAuth)

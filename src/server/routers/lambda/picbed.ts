@@ -1,11 +1,30 @@
-import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { z } from 'zod';
 
 import { enableAuth } from '@/const/auth';
 import { PicbedModel } from '@/database/models/picbed';
+import { PICBED_VIDEO_SIZE_LIMIT, isPicbedMediaType } from '@/helpers/picbedMedia';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
+
+const picbedCreateInput = z
+  .object({
+    fileType: z.string().refine(isPicbedMediaType, 'Only image and video media are supported'),
+    name: z.string(),
+    requestedScope: z.string(),
+    size: z.number(),
+    url: z.string(),
+  })
+  .superRefine(({ fileType, size }, ctx) => {
+    if (fileType.startsWith('video/') && size > PICBED_VIDEO_SIZE_LIMIT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Video files must not exceed 20 MiB',
+        path: ['size'],
+      });
+    }
+  });
 
 const picbedProcedure = authedProcedure
   .use(verifiedAccountScope)
@@ -21,45 +40,33 @@ const picbedProcedure = authedProcedure
   });
 
 export const picbedRouter = router({
-  create: picbedProcedure
-    .input(
-      z.object({
-        fileType: z.string(),
-        name: z.string(),
-        requestedScope: z.string(),
-        size: z.number(),
-        url: z.string(),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const authenticatedUserId =
-        ctx.clerkAuth?.userId ?? ctx.nextAuth?.id ?? ctx.oidcAuth?.sub ?? ctx.userId;
-      const isCurrentOwner = enableAuth
-        ? input.requestedScope === `user:${authenticatedUserId}`
-        : input.requestedScope === 'local';
+  create: picbedProcedure.input(picbedCreateInput).mutation(async ({ ctx, input }) => {
+    const authenticatedUserId =
+      ctx.clerkAuth?.userId ?? ctx.nextAuth?.id ?? ctx.oidcAuth?.sub ?? ctx.userId;
+    const isCurrentOwner = enableAuth
+      ? input.requestedScope === `user:${authenticatedUserId}`
+      : input.requestedScope === 'local';
 
-      if (!isCurrentOwner) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'Picbed upload account changed',
-        });
-      }
-
-      const record = await ctx.picbedModel.create({
-        fileType: input.fileType,
-        name: input.name,
-        size: input.size,
-        url: input.url,
+    if (!isCurrentOwner) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Picbed upload account changed',
       });
-      const fullUrl = await ctx.fileService.getFullFileUrl(record.url);
-      return { ...record, url: fullUrl };
-    }),
+    }
 
-  delete: picbedProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.picbedModel.delete(input.id);
-    }),
+    const record = await ctx.picbedModel.create({
+      fileType: input.fileType,
+      name: input.name,
+      size: input.size,
+      url: input.url,
+    });
+    const fullUrl = await ctx.fileService.getFullFileUrl(record.url);
+    return { ...record, url: fullUrl };
+  }),
+
+  delete: picbedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+    return ctx.picbedModel.delete(input.id);
+  }),
 
   list: picbedProcedure.query(async ({ ctx }) => {
     const records = await ctx.picbedModel.query();

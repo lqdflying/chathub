@@ -18,7 +18,7 @@ The service chooses between `desktopClient` and `toolsClient` depending on wheth
 
 The root README positions Tools Hub as part of ChatHub's differentiation from upstream LobeChat. It mentions built-in tools such as:
 
-- Picbed, backed by S3-compatible storage
+- Picbed image and video hosting, backed by S3-compatible storage
 - API Tester
 - Password Generator
 - an extensible sidebar for additional tools
@@ -43,6 +43,22 @@ Tools live under `src/app/[variants]/(main)/tools/` and share the left-side
 tools navigation in `src/app/[variants]/(main)/tools/_layout/Desktop/Nav.tsx`.
 The `tools` i18n namespace is sourced from `src/locales/default/tools.ts` and
 served through `locales/en-US/tools.json` and `locales/zh-CN/tools.json`.
+
+### Picbed
+
+Picbed accepts browser-reported `image/*` and `video/*` files from the picker,
+drag and drop, or the global paste handler (including Ctrl+V and Command+V).
+`src/helpers/picbedMedia.ts` is the shared contract for client and Lambda input:
+unsupported MIME types are rejected, and videos may be at most 20 MiB
+inclusive. A mixed batch reports each invalid reason once, skips those files,
+and continues uploading valid files sequentially. Successful URLs are copied to
+the clipboard as a newline-delimited list.
+
+The workspace keeps image records in the Ant Design preview group and renders
+videos with native controls, inline playback, metadata preload, and no autoplay.
+Both use the same fixed-height media viewport and the existing 20-item
+pagination. `src/services/picbed.ts` validates before S3 upload, and the Lambda
+create schema repeats MIME and video-size validation before persistence.
 
 ### API Tester
 

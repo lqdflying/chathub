@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getServerDB } from '@/database/core/db-adaptor';
 import { PicbedModel } from '@/database/models/picbed';
+import { PICBED_VIDEO_SIZE_LIMIT } from '@/helpers/picbedMedia';
 
 import { picbedRouter } from '../picbed';
 
@@ -68,6 +69,52 @@ describe('picbedRouter', () => {
       size: input.size,
       url: input.url,
     });
+  });
+
+  it('accepts video metadata at the 20 MiB boundary', async () => {
+    const videoInput = {
+      ...input,
+      fileType: 'video/mp4',
+      name: 'video.mp4',
+      size: PICBED_VIDEO_SIZE_LIMIT,
+      url: 'picbed/1/video.mp4',
+    };
+    create.mockResolvedValue({
+      ...videoInput,
+      createdAt: new Date(),
+      id: 'video-id',
+      userId: 'account-a',
+    });
+    const caller = picbedRouter.createCaller({
+      accountScope: 'user:account-a',
+      clerkAuth: { userId: 'account-a' },
+      userId: 'account-a',
+    } as never);
+
+    await caller.create(videoInput);
+
+    expect(create).toHaveBeenCalledWith({
+      fileType: videoInput.fileType,
+      name: videoInput.name,
+      size: videoInput.size,
+      url: videoInput.url,
+    });
+  });
+
+  it.each([
+    ['unsupported type', { fileType: 'application/pdf' }],
+    ['oversized video', { fileType: 'video/mp4', size: PICBED_VIDEO_SIZE_LIMIT + 1 }],
+  ])('rejects %s metadata before persistence', async (_caseName, override) => {
+    const caller = picbedRouter.createCaller({
+      accountScope: 'user:account-a',
+      clerkAuth: { userId: 'account-a' },
+      userId: 'account-a',
+    } as never);
+
+    await expect(caller.create({ ...input, ...override })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it.each([

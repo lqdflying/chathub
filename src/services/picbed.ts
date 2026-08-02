@@ -1,12 +1,10 @@
+import { validatePicbedMediaFile } from '@/helpers/picbedMedia';
 import { lambdaClient } from '@/libs/trpc/client';
 import { uploadService } from '@/services/upload';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
 
-export interface PicbedUploadResult {
+export interface PicbedMediaUploadResult {
   fileType: string;
   id: string;
   name: string;
@@ -15,11 +13,16 @@ export interface PicbedUploadResult {
 }
 
 class PicbedService {
-  uploadImage = async (
+  uploadMedia = async (
     file: File,
     requestedScope: string,
     signal?: AbortSignal,
-  ): Promise<PicbedUploadResult> => {
+  ): Promise<PicbedMediaUploadResult> => {
+    const validation = validatePicbedMediaFile(file);
+    if (!validation.isValid) {
+      throw new TypeError(`Invalid Picbed media: ${validation.reason}`);
+    }
+
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const assertCurrentOwnership = () => {
       signal?.throwIfAborted();
@@ -34,10 +37,7 @@ class PicbedService {
     };
 
     assertCurrentOwnership();
-    const { data: metadata, success } = await uploadService.uploadFileToS3(file, {
-      signal,
-      skipCheckFileType: true,
-    });
+    const { data: metadata, success } = await uploadService.uploadFileToS3(file, { signal });
 
     assertCurrentOwnership();
     if (!success) throw new Error('Upload failed');
