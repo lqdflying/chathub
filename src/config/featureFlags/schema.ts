@@ -22,6 +22,7 @@ export const FeatureFlagsSchema = z.object({
   edit_agent: FeatureFlagValue.optional(),
 
   plugins: FeatureFlagValue.optional(),
+  skills: FeatureFlagValue.optional(),
   dalle: FeatureFlagValue.optional(),
   ai_image: FeatureFlagValue.optional(),
   speech_to_text: FeatureFlagValue.optional(),
@@ -83,6 +84,7 @@ export const DEFAULT_FEATURE_FLAGS: IFeatureFlags = {
   edit_agent: true,
 
   plugins: true,
+  skills: true,
   dalle: true,
   ai_image: true,
 
@@ -126,6 +128,7 @@ export const mapFeatureFlagsEnvToState = (config: IFeatureFlags, userId?: string
     showApiKeyManage: evaluateFeatureFlag(config.api_key_manage, userId),
 
     enablePlugins: evaluateFeatureFlag(config.plugins, userId),
+    enableSkills: evaluateFeatureFlag(config.skills, userId),
     showDalle: evaluateFeatureFlag(config.dalle, userId),
     showAiImage: evaluateFeatureFlag(config.ai_image, userId),
     showChangelog: evaluateFeatureFlag(config.changelog, userId),

@@ -23,6 +23,7 @@ describe('createServerConfigStore', () => {
 
     expect(store.getState().featureFlags).toHaveProperty('showLLM');
     expect(store.getState().featureFlags).toHaveProperty('enablePlugins');
+    expect(store.getState().featureFlags).toHaveProperty('enableSkills', true);
     expect(store.getState()).toMatchObject({
       serverConfig: { telemetry: {}, aiProvider: {} },
     });

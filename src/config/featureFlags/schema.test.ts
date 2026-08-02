@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { FeatureFlagsSchema, evaluateFeatureFlag, mapFeatureFlagsEnvToState } from './schema';
+import {
+  DEFAULT_FEATURE_FLAGS,
+  FeatureFlagsSchema,
+  evaluateFeatureFlag,
+  mapFeatureFlagsEnvToState,
+} from './schema';
 
 describe('FeatureFlagsSchema', () => {
   it('should validate correct feature flags with boolean values', () => {
@@ -12,6 +17,7 @@ describe('FeatureFlagsSchema', () => {
       edit_agent: false,
       dalle: true,
       ai_image: true,
+      skills: false,
     });
 
     expect(result.success).toBe(true);
@@ -53,6 +59,10 @@ describe('FeatureFlagsSchema', () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('enables skills by default', () => {
+    expect(DEFAULT_FEATURE_FLAGS.skills).toBe(true);
   });
 });
 
@@ -109,6 +119,7 @@ describe('mapFeatureFlagsEnvToState', () => {
       check_updates: true,
       welcome_suggest: true,
       plugins: true,
+      skills: false,
       knowledge_base: false,
       rag_eval: true,
       clerk_sign_up: false,
@@ -133,6 +144,7 @@ describe('mapFeatureFlagsEnvToState', () => {
       showOpenAIProxyUrl: false,
       showApiKeyManage: false,
       enablePlugins: true,
+      enableSkills: false,
       showDalle: true,
       showAiImage: true,
       showChangelog: false,

@@ -60,6 +60,11 @@ The registry may be an array or an object containing `skills`, `items`, or
 When a registry result is installed, its identifier is carried as the expected
 identity; installation fails if the downloaded frontmatter `name` differs.
 
+Skills UI is enabled by default. `FEATURE_FLAGS="-skills"` maps to
+`enableSkills: false` and hides the global Settings entry, assistant Skills tab,
+ChatInput picker, and editor skill slash items. This is a presentation gate: it
+does not delete installed records or rewrite saved assistant skill IDs.
+
 ## Activation flow
 
 An assistant opts into installed skills from its Skills settings tab. For a

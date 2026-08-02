@@ -29,7 +29,7 @@ export const useCategory = ({ mobile }: UseCategoryOptions = {}) => {
   const iconSize = mobile ? 20 : undefined;
   const id = useSessionStore((s) => s.activeId);
   const isInbox = id === INBOX_SESSION_ID;
-  const { enablePlugins } = useServerConfigStore(featureFlagsSelectors);
+  const { enablePlugins, enableSkills } = useServerConfigStore(featureFlagsSelectors);
 
   const cateItems: MenuProps['items'] = useMemo(
     () =>
@@ -74,13 +74,13 @@ export const useCategory = ({ mobile }: UseCategoryOptions = {}) => {
           key: ChatSettingsTabs.Plugin,
           label: t('agentTab.plugin'),
         },
-        {
+        enableSkills && {
           icon: <Icon icon={Sparkles} size={iconSize} />,
           key: ChatSettingsTabs.Skills,
           label: t('agentTab.skills'),
         },
       ].filter(Boolean) as MenuProps['items'],
-    [t, isInbox, enablePlugins],
+    [t, isInbox, enablePlugins, enableSkills],
   );
 
   return cateItems;

@@ -46,20 +46,23 @@ const SkillsManagement = memo(() => {
       return;
     }
 
-    void skillService
-      .searchRegistry(search)
-      .then((result) => {
-        if (active) setRegistryItems(result.items);
-      })
-      .catch((error) => {
-        if (active) {
-          setRegistryItems([]);
-          messageApi.error(error instanceof Error ? error.message : String(error));
-        }
-      });
+    const timeout = setTimeout(() => {
+      void skillService
+        .searchRegistry(search)
+        .then((result) => {
+          if (active) setRegistryItems(result.items);
+        })
+        .catch((error) => {
+          if (active) {
+            setRegistryItems([]);
+            messageApi.error(error instanceof Error ? error.message : String(error));
+          }
+        });
+    }, 300);
 
     return () => {
       active = false;
+      clearTimeout(timeout);
     };
   }, [messageApi, search]);
 

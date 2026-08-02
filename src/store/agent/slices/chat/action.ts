@@ -101,7 +101,6 @@ export interface AgentChatAction {
     open?: boolean,
     mutationContext?: AgentMutationContext,
   ) => Promise<void>;
-  toggleSkill: (id: string, open?: boolean) => Promise<void>;
   updateAgentChatConfig: (config: Partial<LobeAgentChatConfig>) => Promise<void>;
   updateAgentConfig: (
     config: PartialDeep<LobeAgentConfig>,
@@ -576,22 +575,6 @@ export const createChatSlice: StateCreator<
               plugins.splice(index, 1);
             }
           }
-        });
-      });
-
-      await get().updateAgentConfig(config, mutationContext);
-    },
-    toggleSkill: async (id, open) => {
-      const mutationContext = captureMutationContext();
-      if (!mutationContext) return;
-
-      const originConfig = agentSelectors.currentAgentConfig(get());
-      const config = produce(originConfig, (draft) => {
-        draft.skills = produce(draft.skills || [], (skills) => {
-          const index = skills.indexOf(id);
-          const shouldOpen = open ?? index === -1;
-          if (shouldOpen && index === -1) skills.push(id);
-          if (!shouldOpen && index !== -1) skills.splice(index, 1);
         });
       });
 

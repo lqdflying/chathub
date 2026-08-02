@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { getSkillSelectionKey, useSkillStore } from '@/store/skill';
@@ -55,6 +56,7 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
   const hotkey = useUserStore(settingsSelectors.getHotkeyById(HotkeyEnum.AddUserMessage));
   const { enableScope, disableScope } = useHotkeysContext();
   const { t } = useTranslation(['editor', 'chat']);
+  const { enableSkills } = useServerConfigStore(featureFlagsSelectors);
   const activeSessionType = useChatStore((s) => s.activeSessionType);
   const agentSkillIds = useAgentStore(agentSelectors.currentAgentSkills);
   const groupSkillIds = useSessionStore((s) => [
@@ -64,7 +66,8 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
   const installedSkills = useSkillStore((s) => s.installedSkills);
   const skillSlashItems = useMemo(
     () =>
-      installedSkills
+      enableSkills
+        ? installedSkills
         .filter(({ identifier }) => enabledSkillIds.includes(identifier))
         .map((skill) => ({
           key: skill.identifier,
@@ -79,8 +82,9 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
             useSkillStore.getState().toggleSelectedSkill(skill.identifier, true, selectionKey);
             editor.focus();
           },
-        })),
-    [enabledSkillIds, installedSkills],
+        }))
+        : [],
+    [enableSkills, enabledSkillIds, installedSkills],
   );
 
   const isChineseInput = useRef(false);

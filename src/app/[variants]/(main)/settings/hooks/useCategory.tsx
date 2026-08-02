@@ -23,7 +23,9 @@ import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfi
 export const useCategory = () => {
   const { t } = useTranslation('setting');
   const mobile = useServerConfigStore((s) => s.isMobile);
-  const { showLLM, enableSTT, hideDocs } = useServerConfigStore(featureFlagsSelectors);
+  const { showLLM, enableSkills, enableSTT, hideDocs } = useServerConfigStore(
+    featureFlagsSelectors,
+  );
 
   const cateItems: MenuProps['items'] = useMemo(
     () =>
@@ -87,7 +89,7 @@ export const useCategory = () => {
           key: SettingsTabs.Mcp,
           label: t('tab.mcp-management'),
         },
-        {
+        enableSkills && {
           icon: <Icon icon={Sparkles} />,
           key: SettingsTabs.Skills,
           label: t('tab.skills'),
@@ -103,7 +105,7 @@ export const useCategory = () => {
           label: t('tab.about'),
         },
       ].filter(Boolean) as MenuProps['items'],
-    [t, showLLM, enableSTT, hideDocs, mobile],
+    [t, showLLM, enableSkills, enableSTT, hideDocs, mobile],
   );
 
   return cateItems;

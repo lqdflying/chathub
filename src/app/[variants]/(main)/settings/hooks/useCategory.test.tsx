@@ -1,12 +1,17 @@
 import { renderHook } from '@testing-library/react';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsTabs } from '@/store/global/initialState';
 
 import { useCategory } from './useCategory';
 
 vi.stubGlobal('React', React);
+
+const serverConfigState = vi.hoisted(() => ({
+  featureFlags: { enableSkills: true, enableSTT: true, hideDocs: false, showLLM: true },
+  isMobile: false,
+}));
 
 vi.mock('@lobehub/ui', () => ({
   Icon: () => null,
@@ -20,21 +25,22 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/store/serverConfig', () => ({
   featureFlagsSelectors: (state: {
-    featureFlags: { enableSTT: boolean; hideDocs: boolean; showLLM: boolean };
+    featureFlags: {
+      enableSkills: boolean;
+      enableSTT: boolean;
+      hideDocs: boolean;
+      showLLM: boolean;
+    };
   }) => state.featureFlags,
-  useServerConfigStore: (
-    selector: (state: {
-      featureFlags: { enableSTT: boolean; hideDocs: boolean; showLLM: boolean };
-      isMobile: boolean;
-    }) => unknown,
-  ) =>
-    selector({
-      featureFlags: { enableSTT: true, hideDocs: false, showLLM: true },
-      isMobile: false,
-    }),
+  useServerConfigStore: (selector: (state: typeof serverConfigState) => unknown) =>
+    selector(serverConfigState),
 }));
 
 describe('desktop settings categories', () => {
+  beforeEach(() => {
+    serverConfigState.featureFlags.enableSkills = true;
+  });
+
   it('does not expose the retired Image settings destination', () => {
     const { result } = renderHook(() => useCategory());
 
@@ -54,5 +60,15 @@ describe('desktop settings categories', () => {
         }),
       ]),
     );
+  });
+
+  it('hides Skills when the feature is disabled', () => {
+    serverConfigState.featureFlags.enableSkills = false;
+
+    const { result } = renderHook(() => useCategory());
+
+    expect(
+      result.current.some((item) => item && 'key' in item && item.key === SettingsTabs.Skills),
+    ).toBe(false);
   });
 });

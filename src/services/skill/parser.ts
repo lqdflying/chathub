@@ -47,8 +47,6 @@ export const parseSkill = (raw: string): ParsedSkill => {
   };
 };
 
-export const normalizeSkillIdentifier = (name: string) => name.trim().toLowerCase();
-
 const ensureSkillFile = (path: string) => {
   const normalized = path.replaceAll(/^\/+|\/+$/g, '');
   if (!normalized) return 'SKILL.md';
@@ -109,5 +107,3 @@ export const resolveSkillSource = (
     sourceUrl: url.toString(),
   };
 };
-
-export const normalizeSkillSource = (source: string) => resolveSkillSource(source).sourceUrl;

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   assertExpectedSkillIdentifier,
-  normalizeSkillSource,
   parseSkill,
   resolveSkillSource,
 } from './parser';
@@ -44,7 +43,7 @@ describe('skill parser', () => {
   });
 
   it('normalizes GitHub repository and blob sources to raw SKILL.md URLs', () => {
-    expect(normalizeSkillSource('https://github.com/acme/example')).toBe(
+    expect(resolveSkillSource('https://github.com/acme/example').sourceUrl).toBe(
       'https://raw.githubusercontent.com/acme/example/main/SKILL.md',
     );
     expect(resolveSkillSource('https://github.com/acme/example/blob/main/docs/SKILL.md')).toEqual({

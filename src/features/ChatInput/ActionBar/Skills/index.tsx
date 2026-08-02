@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useSkillStore } from '@/store/skill';
 
 import Action from '../components/Action';
@@ -11,6 +12,7 @@ import { useControls } from './useControls';
 
 const Skills = memo(() => {
   const { t } = useTranslation('setting');
+  const { enableSkills } = useServerConfigStore(featureFlagsSelectors);
   const items = useControls();
   const enabledSkillIds = useAgentStore(agentSelectors.currentAgentSkills);
   const hasSkills = useSkillStore((s) =>
@@ -18,7 +20,7 @@ const Skills = memo(() => {
   );
   const isLoading = useSkillStore((s) => s.isLoading);
 
-  if (!hasSkills) return null;
+  if (!enableSkills || !hasSkills) return null;
 
   return (
     <Action
