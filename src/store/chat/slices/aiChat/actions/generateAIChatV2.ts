@@ -31,6 +31,7 @@ import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { getFileStoreState } from '@/store/file/store';
 import { getSessionStoreState } from '@/store/session';
+import { getSkillSelectionKey, getSkillStoreState } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { normalizeTopic } from '@/utils/client/topic';
@@ -260,6 +261,19 @@ export const generateAIChatV2: StateCreator<
       if (data.isCreateNewTopic && data.topicId) {
         conversationContext = { ...conversationContext, topicId: data.topicId };
         await get().switchTopic(data.topicId, true);
+        if (!isCurrentConversation()) return;
+        getSkillStoreState().moveSelectedSkills(
+          getSkillSelectionKey({
+            sessionId: activeId,
+            threadId: activeThreadId,
+            topicId: activeTopicId,
+          }),
+          getSkillSelectionKey({
+            sessionId: activeId,
+            threadId: activeThreadId,
+            topicId: data.topicId,
+          }),
+        );
       }
     } catch (e) {
       if (e instanceof TRPCClientError) {

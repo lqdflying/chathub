@@ -12,7 +12,6 @@ import { authSelectors } from '@/store/user/selectors';
 import { SkillStore } from './store';
 
 export interface SkillAction {
-  clearSelectedSkills: (conversationKey?: string) => void;
   installSkill: (params: InstallSkillParams) => Promise<void>;
   installSkillFromUrl: (params: {
     authorization?: string;
@@ -21,6 +20,7 @@ export interface SkillAction {
     sourceType: RemoteSkillSourceType;
     sourceUrl: string;
   }) => Promise<void>;
+  moveSelectedSkills: (fromKey: string, toKey: string) => void;
   refreshSkills: () => Promise<void>;
   toggleSelectedSkill: (identifier: string, enabled?: boolean, conversationKey?: string) => void;
   uninstallSkill: (identifier: string) => Promise<void>;
@@ -34,16 +34,6 @@ export const createSkillSlice: StateCreator<
   [],
   SkillAction
 > = (set, get) => ({
-  clearSelectedSkills: (conversationKey) => {
-    if (!conversationKey) {
-      set({ selectedSkillIdsByConversation: {} }, false, 'clearSelectedSkills/all');
-      return;
-    }
-
-    const next = { ...get().selectedSkillIdsByConversation };
-    delete next[conversationKey];
-    set({ selectedSkillIdsByConversation: next }, false, 'clearSelectedSkills');
-  },
   installSkill: async (params) => {
     await skillService.installSkill(params);
     await get().refreshSkills();
@@ -51,6 +41,16 @@ export const createSkillSlice: StateCreator<
   installSkillFromUrl: async (params) => {
     await skillService.installSkillFromUrl(params);
     await get().refreshSkills();
+  },
+  moveSelectedSkills: (fromKey, toKey) => {
+    const selectedSkillIdsByConversation = get().selectedSkillIdsByConversation;
+    const selectedSkillIds = selectedSkillIdsByConversation[fromKey];
+    if (!selectedSkillIds?.length || fromKey === toKey) return;
+
+    const next = { ...selectedSkillIdsByConversation };
+    delete next[fromKey];
+    next[toKey] = [...new Set([...(next[toKey] || []), ...selectedSkillIds])];
+    set({ selectedSkillIdsByConversation: next }, false, 'moveSelectedSkills');
   },
   refreshSkills: async () => {
     const requestedScope = authSelectors.currentUserScope(useUserStore.getState());

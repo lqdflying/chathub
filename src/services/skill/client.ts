@@ -4,6 +4,7 @@ import { clientDB } from '@/database/client/db';
 import { SkillModel } from '@/database/models/skill';
 import { BaseClientService } from '@/services/baseClientService';
 
+import { normalizeDuplicateSkillContentError } from './errors';
 import {
   assertExpectedSkillIdentifier,
   parseSkill,
@@ -29,16 +30,20 @@ export class ClientSkillService extends BaseClientService implements SkillServic
       params.sourceUrl && params.sourceType !== 'file'
         ? resolveSkillSource(params.sourceUrl, params.sourceType, params.sourceRef)
         : undefined;
-    await this.model.create({
-      contentHash: parsed.contentHash,
-      description: params.description || parsed.description,
-      identifier: params.identifier || parsed.name,
-      instructions: parsed.instructions,
-      name: params.name || parsed.name,
-      sourceRef: source?.sourceRef || params.sourceRef,
-      sourceType: source?.sourceType || params.sourceType,
-      sourceUrl: source?.sourceUrl,
-    });
+    try {
+      await this.model.create({
+        contentHash: parsed.contentHash,
+        description: params.description || parsed.description,
+        identifier: params.identifier || parsed.name,
+        instructions: parsed.instructions,
+        name: params.name || parsed.name,
+        sourceRef: source?.sourceRef || params.sourceRef,
+        sourceType: source?.sourceType || params.sourceType,
+        sourceUrl: source?.sourceUrl,
+      });
+    } catch (error) {
+      throw normalizeDuplicateSkillContentError(error);
+    }
     return params.identifier || parsed.name;
   };
   installSkillFromUrl: SkillService['installSkillFromUrl'] = async (params) => {
@@ -69,17 +74,18 @@ export class ClientSkillService extends BaseClientService implements SkillServic
   uninstallSkill = async (identifier: string) => {
     await this.model.delete(identifier);
   };
-  updateSkill: SkillService['updateSkill'] = async ({
-    description,
-    identifier,
-    instructions,
-  }) => {
+  updateSkill: SkillService['updateSkill'] = async ({ description, identifier, instructions }) => {
     const parsed = parseSkill(serializeSkill({ description, identifier, instructions }));
-    const updated = await this.model.update(identifier, {
-      contentHash: parsed.contentHash,
-      description: parsed.description,
-      instructions: parsed.instructions,
-    });
+    let updated;
+    try {
+      updated = await this.model.update(identifier, {
+        contentHash: parsed.contentHash,
+        description: parsed.description,
+        instructions: parsed.instructions,
+      });
+    } catch (error) {
+      throw normalizeDuplicateSkillContentError(error);
+    }
     if (!updated) throw new Error('Skill not found');
   };
 }

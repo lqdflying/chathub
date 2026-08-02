@@ -21,8 +21,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/store/chat', () => ({
-  useChatStore: (selector: (state: typeof mocks.chatState) => unknown) =>
-    selector(mocks.chatState),
+  useChatStore: (selector: (state: typeof mocks.chatState) => unknown) => selector(mocks.chatState),
 }));
 
 vi.mock('@/store/skill', () => {
@@ -43,7 +42,9 @@ vi.mock('@/store/skill', () => {
       `${sessionId}:${topicId}:${threadId}`,
     skillSelectors: {
       selectedSkillIds: (key: string) => (store: typeof state) =>
-        store.selectedSkillIdsByConversation[key as keyof typeof store.selectedSkillIdsByConversation] || [],
+        store.selectedSkillIdsByConversation[
+          key as keyof typeof store.selectedSkillIdsByConversation
+        ] || [],
     },
     useSkillStore: (selector: (store: typeof state) => unknown) => selector(state),
   };

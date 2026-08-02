@@ -7,7 +7,6 @@ import { merge } from '@/utils/merge';
 export type ConfigDispatch =
   | { config: Partial<any>; type: 'update' }
   | { pluginId: string; state?: boolean; type: 'togglePlugin' }
-  | { skillId: string; state?: boolean; type: 'toggleSkill' }
   | { type: 'reset' };
 
 export const configReducer = (state: LobeAgentConfig, payload: ConfigDispatch): LobeAgentConfig => {
@@ -41,17 +40,6 @@ export const configReducer = (state: LobeAgentConfig, payload: ConfigDispatch): 
         } else {
           config.plugins.push(id);
         }
-      });
-    }
-
-    case 'toggleSkill': {
-      return produce(state, (config) => {
-        const { skillId, state } = payload;
-        config.skills ||= [];
-        const index = config.skills.indexOf(skillId);
-        const shouldEnable = state ?? index === -1;
-        if (shouldEnable && index === -1) config.skills.push(skillId);
-        if (!shouldEnable && index !== -1) config.skills.splice(index, 1);
       });
     }
 

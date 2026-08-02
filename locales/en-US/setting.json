@@ -10,7 +10,6 @@
     "opening": "Opening Settings",
     "plugin": "Plugin Settings",
     "prompt": "Role Configuration",
-    "skills": "Skill Settings",
     "tts": "Voice Service"
   },
   "analytics": {
@@ -656,6 +655,7 @@
     "notFound": "Skill not found",
     "registry": "Skill registry",
     "resourcesSkipped": "Installed {{name}}. {{skipped}} bundled file(s) were skipped.",
+    "save": "Save",
     "search": "Search installed skills",
     "source": "SKILL.md URL",
     "sourceTypes": {
@@ -664,7 +664,6 @@
       "registry": "Registry",
       "url": "URL"
     },
-    "save": "Save",
     "title": "Skills",
     "uninstall": "Uninstall skill",
     "updateSuccess": "Skill updated",

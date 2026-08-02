@@ -12,6 +12,7 @@ import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { aiChatSelectors } from '@/store/chat/selectors';
 import { useSessionStore } from '@/store/session';
+import { getSkillSelectionKey, useSkillStore } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
@@ -98,6 +99,7 @@ const createDeferred = <Value>() => {
 beforeEach(() => {
   resetTestEnvironment();
   setupMockSelectors();
+  useSkillStore.setState({ selectedSkillIdsByConversation: {} });
 
   // Setup default spies that most tests need
   spyOnMessageService();
@@ -1014,7 +1016,14 @@ describe('generateAIChatV2 actions', () => {
 
     it('should automatically switch to newly created topic when no active topic exists', async () => {
       const { result } = renderHook(() => useChatStore());
-      const mockSwitchTopic = vi.fn();
+      const mockSwitchTopic = vi.fn(async (topicId: string) => {
+        useChatStore.setState({ activeTopicId: topicId });
+      });
+      const sourceSelectionKey = getSkillSelectionKey({ sessionId: TEST_IDS.SESSION_ID });
+      const targetSelectionKey = getSkillSelectionKey({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      });
 
       await act(async () => {
         useChatStore.setState({
@@ -1022,10 +1031,14 @@ describe('generateAIChatV2 actions', () => {
           activeTopicId: undefined,
           switchTopic: mockSwitchTopic,
         });
+        useSkillStore.getState().toggleSelectedSkill('reviewer', true, sourceSelectionKey);
         await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
       });
 
       expect(mockSwitchTopic).toHaveBeenCalledWith(TEST_IDS.TOPIC_ID, true);
+      expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({
+        [targetSelectionKey]: ['reviewer'],
+      });
     });
 
     it('should not switch topic when active topic already exists', async () => {

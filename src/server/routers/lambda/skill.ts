@@ -8,6 +8,10 @@ import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import {
+  DUPLICATE_SKILL_CONTENT_MESSAGE,
+  isDuplicateSkillContentError,
+} from '@/services/skill/errors';
+import {
   MAX_SKILL_BYTES,
   assertExpectedSkillIdentifier,
   parseSkill,
@@ -37,28 +41,6 @@ const asBadRequest = <T>(operation: () => T): T => {
       message: error instanceof Error ? error.message : String(error),
     });
   }
-};
-
-const isDuplicateContentError = (error: unknown): boolean => {
-  const cause =
-    error && typeof error === 'object' && 'cause' in error
-      ? (error as { cause?: unknown }).cause
-      : undefined;
-
-  return [error, cause].some((candidate) => {
-    if (!candidate || typeof candidate !== 'object') return false;
-    const databaseError = candidate as {
-      code?: unknown;
-      constraint?: unknown;
-      message?: unknown;
-    };
-
-    return (
-      databaseError.constraint === 'user_installed_skills_user_hash_unique' ||
-      (databaseError.code === '23505' &&
-        String(databaseError.message ?? '').includes('user_installed_skills_user_hash_unique'))
-    );
-  });
 };
 
 const skillSourceTooLargeError = () =>
@@ -118,11 +100,11 @@ const persistSkill = async (
       sourceUrl: source?.sourceUrl,
     });
   } catch (error) {
-    if (isDuplicateContentError(error)) {
+    if (isDuplicateSkillContentError(error)) {
       throw new TRPCError({
         cause: error,
         code: 'CONFLICT',
-        message: 'A skill with identical content is already installed under a different identifier',
+        message: DUPLICATE_SKILL_CONTENT_MESSAGE,
       });
     }
     throw error;
@@ -288,11 +270,11 @@ export const skillRouter = router({
       if (!updated) throw new TRPCError({ code: 'NOT_FOUND', message: 'Skill not found' });
     } catch (error) {
       if (error instanceof TRPCError) throw error;
-      if (isDuplicateContentError(error)) {
+      if (isDuplicateSkillContentError(error)) {
         throw new TRPCError({
           cause: error,
           code: 'CONFLICT',
-          message: 'A skill with identical content is already installed under a different identifier',
+          message: DUPLICATE_SKILL_CONTENT_MESSAGE,
         });
       }
       throw error;

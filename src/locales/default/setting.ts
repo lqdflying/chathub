@@ -10,7 +10,6 @@ export default {
     opening: '开场设置',
     plugin: '插件设置',
     prompt: '角色设定',
-    skills: '技能设置',
     tts: '语音服务',
   },
   analytics: {

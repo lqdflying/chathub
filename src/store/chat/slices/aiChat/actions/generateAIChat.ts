@@ -33,6 +33,7 @@ import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
 import { useSessionStore } from '@/store/session';
+import { getSkillSelectionKey, getSkillStoreState } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { Action, setNamespace } from '@/utils/storeDebug';
@@ -389,6 +390,18 @@ export const generateAIChat: StateCreator<
       conversationContext = messageConversationContext;
       await get().switchTopic(newTopicId, true);
       if (!isCurrentConversation()) return;
+      getSkillStoreState().moveSelectedSkills(
+        getSkillSelectionKey({
+          sessionId: activeId,
+          threadId: activeThreadId,
+          topicId: activeTopicId,
+        }),
+        getSkillSelectionKey({
+          sessionId: activeId,
+          threadId: activeThreadId,
+          topicId: newTopicId,
+        }),
+      );
 
       // delete previous messages
       // remove the temp message map

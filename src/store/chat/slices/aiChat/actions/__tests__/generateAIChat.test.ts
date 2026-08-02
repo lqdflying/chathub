@@ -9,6 +9,7 @@ import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
+import { getSkillSelectionKey, useSkillStore } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
@@ -35,6 +36,7 @@ beforeEach(() => {
   resetTestEnvironment();
   setupMockSelectors();
   useUserStore.setState({ ownershipInvalidationGeneration: 0 });
+  useSkillStore.setState({ selectedSkillIdsByConversation: {} });
 
   // Setup default spies that most tests need
   spyOnMessageService();
@@ -345,7 +347,14 @@ describe('chatMessage actions', () => {
         const { result } = renderHook(() => useChatStore());
 
         const createTopicMock = vi.fn(() => Promise.resolve(TEST_IDS.NEW_TOPIC_ID));
-        const switchTopicMock = vi.fn();
+        const switchTopicMock = vi.fn(async (topicId: string) => {
+          useChatStore.setState({ activeTopicId: topicId });
+        });
+        const sourceSelectionKey = getSkillSelectionKey({ sessionId: TEST_IDS.SESSION_ID });
+        const targetSelectionKey = getSkillSelectionKey({
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.NEW_TOPIC_ID,
+        });
 
         act(() => {
           setupMockSelectors({
@@ -363,6 +372,7 @@ describe('chatMessage actions', () => {
             },
             switchTopic: switchTopicMock,
           });
+          useSkillStore.getState().toggleSelectedSkill('reviewer', true, sourceSelectionKey);
         });
 
         await act(async () => {
@@ -371,6 +381,9 @@ describe('chatMessage actions', () => {
 
         expect(createTopicMock).toHaveBeenCalled();
         expect(switchTopicMock).toHaveBeenCalledWith(TEST_IDS.NEW_TOPIC_ID, true);
+        expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({
+          [targetSelectionKey]: ['reviewer'],
+        });
       });
 
       it('does not continue auto-topic creation after ownership invalidates', async () => {

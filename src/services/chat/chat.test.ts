@@ -158,7 +158,6 @@ describe('ChatService', () => {
         model: 'gpt-4',
         plugins: [],
         provider: 'openai',
-        skills: ['reviewer'],
       });
 
       expect(resolveSkillsSpy).not.toHaveBeenCalled();
@@ -195,7 +194,6 @@ describe('ChatService', () => {
           model: 'gpt-4',
           plugins: [],
           provider: 'openai',
-          skills: ['reviewer'],
         },
         { activatedSkillIds: [] },
       );
@@ -227,7 +225,6 @@ describe('ChatService', () => {
         model: 'gpt-4',
         plugins: [],
         provider: 'openai',
-        skills: identifiers,
       });
 
       expect(resolveSkillsSpy).toHaveBeenCalledWith(identifiers.slice(0, MAX_ACTIVE_SKILLS));
@@ -298,7 +295,6 @@ describe('ChatService', () => {
         model: 'gpt-4',
         plugins: [],
         provider: 'openai',
-        skills: ['reviewer'],
       });
 
       expect(resolveSkillsSpy).not.toHaveBeenCalled();

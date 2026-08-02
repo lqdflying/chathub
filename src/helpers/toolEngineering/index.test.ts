@@ -59,6 +59,26 @@ vi.mock('@/store/tool', () => ({
         } as unknown as LobeChatPluginManifest,
         type: 'builtin' as const,
       },
+      {
+        identifier: 'lobe-skill-loader',
+        manifest: {
+          api: [
+            {
+              description: 'Load an enabled skill',
+              name: 'load_skill',
+              parameters: {
+                properties: { name: { type: 'string' } },
+                required: ['name'],
+                type: 'object',
+              },
+            },
+          ],
+          identifier: 'lobe-skill-loader',
+          meta: { title: 'Skill loader' },
+          type: 'builtin',
+        } as unknown as LobeChatPluginManifest,
+        type: 'builtin' as const,
+      },
     ],
   }),
 }));
@@ -165,6 +185,28 @@ describe('toolEngineering', () => {
 
       expect(result.enabledToolIds).toEqual(['search', 'lobe-web-browsing']);
       expect(result.enabledToolIds).toHaveLength(2);
+    });
+
+    it('should deny the internal skill loader when explicitly requested', () => {
+      const toolsEngine = createChatToolsEngine({
+        model: 'gpt-4',
+        provider: 'openai',
+      });
+
+      const result = toolsEngine.generateToolsDetailed({
+        model: 'gpt-4',
+        provider: 'openai',
+        toolIds: ['lobe-skill-loader'],
+      });
+
+      expect(result.enabledToolIds).not.toContain('lobe-skill-loader');
+      expect(result.tools).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: expect.stringContaining('load_skill') }),
+          }),
+        ]),
+      );
     });
   });
 

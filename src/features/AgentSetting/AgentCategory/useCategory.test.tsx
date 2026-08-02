@@ -7,7 +7,7 @@ import { useCategory } from './useCategory';
 vi.stubGlobal('React', React);
 
 const serverConfigState = vi.hoisted(() => ({
-  featureFlags: { enablePlugins: true, enableSkills: true },
+  featureFlags: { enablePlugins: true },
 }));
 
 vi.mock('@lobehub/ui', () => ({ Icon: () => null }));
@@ -31,6 +31,8 @@ describe('agent settings categories', () => {
   it('does not include the removed assistant Skills category', () => {
     const { result } = renderHook(() => useCategory());
 
-    expect(result.current).not.toEqual(expect.arrayContaining([expect.objectContaining({ key: 'skills' })]));
+    expect(result.current).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'skills' })]),
+    );
   });
 });

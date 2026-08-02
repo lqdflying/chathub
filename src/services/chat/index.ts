@@ -189,9 +189,8 @@ class ChatService {
       activatedSkillIds: requestActivatedSkillIds,
       messages,
       plugins: enabledPlugins,
-      skills: _legacyAvailableSkillIds,
       ...params
-    }: GetChatCompletionPayload & { activatedSkillIds?: string[]; skills?: string[] },
+    }: GetChatCompletionPayload & { activatedSkillIds?: string[] },
     options?: FetchOptions,
   ) => {
     const payload = merge(
@@ -217,9 +216,7 @@ class ChatService {
     const installedSkillMetadata = requestedSkillIds.length
       ? await skillService.getInstalledSkills()
       : [];
-    const installedSkillIdSet = new Set(
-      installedSkillMetadata.map(({ identifier }) => identifier),
-    );
+    const installedSkillIdSet = new Set(installedSkillMetadata.map(({ identifier }) => identifier));
     const activatedSkillIds = [...new Set(requestedSkillIds)]
       .filter((identifier) => installedSkillIdSet.has(identifier))
       .slice(0, MAX_ACTIVE_SKILLS);

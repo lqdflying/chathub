@@ -27,18 +27,17 @@ export const useControls = (): ItemType[] => {
 
   return [
     {
-      children: skills
-        .map((skill) => ({
-          key: skill.identifier,
-          label: (
-            <CheckboxItem
-              checked={selected.includes(skill.identifier)}
-              id={skill.identifier}
-              label={skill.name}
-              onUpdate={async (id, enabled) => toggle(id, enabled, selectionKey)}
-            />
-          ),
-        })),
+      children: skills.map((skill) => ({
+        key: skill.identifier,
+        label: (
+          <CheckboxItem
+            checked={selected.includes(skill.identifier)}
+            id={skill.identifier}
+            label={skill.name}
+            onUpdate={async (id, enabled) => toggle(id, enabled, selectionKey)}
+          />
+        ),
+      })),
       key: 'skills',
       label: t('skills.groupName'),
       type: 'group',

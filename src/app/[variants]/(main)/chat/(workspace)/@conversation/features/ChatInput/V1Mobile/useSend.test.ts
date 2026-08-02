@@ -19,7 +19,6 @@ const mocks = vi.hoisted(() => {
     files: [] as any[],
   };
   const skillState = {
-    clearSelectedSkills: vi.fn(),
     installedSkills: [{ identifier: 'reviewer' }, { identifier: 'group-reviewer' }],
     selectedSkillIds: [] as string[],
   };
@@ -52,7 +51,6 @@ vi.mock('@/store/agent', () => ({
 vi.mock('@/store/agent/selectors', () => ({
   agentSelectors: {
     currentAgentModel: () => 'gpt-4',
-    currentAgentSkills: () => ['reviewer'],
   },
 }));
 
@@ -81,14 +79,6 @@ vi.mock('@/store/file', () => ({
     (selector: (state: typeof mocks.fileState) => unknown) => selector(mocks.fileState),
     { getState: () => mocks.fileState },
   ),
-}));
-
-vi.mock('@/store/session', () => ({
-  useSessionStore: { getState: () => ({}) },
-}));
-
-vi.mock('@/store/session/selectors', () => ({
-  sessionSelectors: { currentGroupAgents: () => [{ skills: ['group-reviewer'] }] },
 }));
 
 vi.mock('@/store/skill', () => ({
@@ -125,7 +115,6 @@ describe('V1 mobile skill-aware send hook', () => {
       files: [],
       message: '/reviewer Review this',
     });
-    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
     expect(mocks.chatState.updateInputMessage).toHaveBeenCalledWith('');
     expect(mocks.track).toHaveBeenCalledWith(expect.objectContaining({ name: 'send_message' }));
   });
@@ -139,7 +128,6 @@ describe('V1 mobile skill-aware send hook', () => {
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ activatedSkillIds: [], message: '/reviewer' }),
     );
-    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
     expect(mocks.chatState.updateInputMessage).toHaveBeenCalledWith('');
   });
 
@@ -174,6 +162,5 @@ describe('V1 mobile skill-aware send hook', () => {
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ activatedSkillIds: ['reviewer'], message: 'Review this' }),
     );
-    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
   });
 });

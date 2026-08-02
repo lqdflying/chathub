@@ -68,8 +68,6 @@ const currentAgentPlugins = (s: AgentStoreState) => {
   return config?.plugins || [];
 };
 
-const currentAgentSkills = (s: AgentStoreState) => currentAgentConfig(s).skills || [];
-
 /**
  * Get displayable agent plugins by filtering out platform-specific tools
  * that shouldn't be shown in the current environment
@@ -178,7 +176,6 @@ export const agentSelectors = {
   currentAgentModel,
   currentAgentModelProvider,
   currentAgentPlugins,
-  currentAgentSkills,
   currentAgentSystemRole,
   currentAgentTTS,
   currentAgentTTSVoice,

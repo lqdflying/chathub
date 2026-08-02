@@ -45,16 +45,31 @@ describe('skill store actions', () => {
     useSessionStore.setState({ defaultSessions: [], pinnedSessions: [], sessions: [] });
   });
 
-  it('keeps pending selections isolated by conversation', () => {
+  it('moves pending selections to a new conversation key and merges existing selections', () => {
     const actions = useSkillStore.getState();
 
-    actions.toggleSelectedSkill('reviewer', true, 'session-a:topic-a:main');
-    actions.toggleSelectedSkill('summarizer', true, 'session-b:topic-b:main');
-    actions.clearSelectedSkills('session-a:topic-a:main');
+    actions.toggleSelectedSkill('reviewer', true, 'session-a:default:main');
+    actions.toggleSelectedSkill('shared', true, 'session-a:default:main');
+    actions.toggleSelectedSkill('summarizer', true, 'session-a:topic-a:main');
+    actions.toggleSelectedSkill('shared', true, 'session-a:topic-a:main');
+    actions.moveSelectedSkills('session-a:default:main', 'session-a:topic-a:main');
 
     expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({
-      'session-b:topic-b:main': ['summarizer'],
+      'session-a:topic-a:main': ['summarizer', 'shared', 'reviewer'],
     });
+  });
+
+  it('does not update state when a selection move has no source or uses the same key', () => {
+    const selectedSkillIdsByConversation = { 'session-a:default:main': ['reviewer'] };
+    useSkillStore.setState({ selectedSkillIdsByConversation });
+
+    const actions = useSkillStore.getState();
+    actions.moveSelectedSkills('missing', 'session-a:topic-a:main');
+    actions.moveSelectedSkills('session-a:default:main', 'session-a:default:main');
+
+    expect(useSkillStore.getState().selectedSkillIdsByConversation).toBe(
+      selectedSkillIdsByConversation,
+    );
   });
 
   it('prunes uninstalled skills from loaded agent and group caches', async () => {

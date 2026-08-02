@@ -9,6 +9,7 @@ import { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 import { getToolStoreState } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 import { MemoryManifest } from '@/tools/memory';
+import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { getSearchConfig } from '../getSearchConfig';
@@ -60,7 +61,7 @@ export interface ChatToolsEngineOptions {
    * explicitly (from the target agent's enableAssistantMemory + session kind)
    * instead of this helper reading stores ambiently, which would create an
    * import cycle with the chat store.
-  */
+   */
   enableMemoryTool?: boolean;
 }
 
@@ -78,6 +79,12 @@ export const createChatToolsEngine = (
     enableChecker: ({ pluginId }) => {
       // Check platform-specific constraints (e.g., LocalSystem desktop-only)
       if (!shouldEnableTool(pluginId)) {
+        return false;
+      }
+
+      // Skills are activated exclusively through the composer control. Keep the
+      // loader manifest registered so historical tool calls can still render.
+      if (pluginId === SkillLoaderManifest.identifier) {
         return false;
       }
 

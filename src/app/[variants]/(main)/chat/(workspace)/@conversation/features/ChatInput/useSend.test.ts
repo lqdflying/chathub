@@ -27,7 +27,6 @@ const mocks = vi.hoisted(() => {
     files: [] as any[],
   };
   const skillState = {
-    clearSelectedSkills: vi.fn(),
     installedSkills: [{ identifier: 'reviewer' }],
     selectedSkillIds: ['reviewer'],
   };
@@ -60,7 +59,6 @@ vi.mock('@/store/agent', () => ({
 vi.mock('@/store/agent/selectors', () => ({
   agentSelectors: {
     currentAgentModel: () => 'gpt-4',
-    currentAgentSkills: () => ['reviewer'],
   },
 }));
 
@@ -106,15 +104,13 @@ vi.mock('@/store/mention', () => ({
 }));
 
 vi.mock('@/store/session', () => ({
-  useSessionStore: Object.assign(
-    (selector: (state: object) => unknown) => selector({}),
-    { getState: () => ({}) },
-  ),
+  useSessionStore: Object.assign((selector: (state: object) => unknown) => selector({}), {
+    getState: () => ({}),
+  }),
 }));
 
 vi.mock('@/store/session/selectors', () => ({
   sessionMetaSelectors: { getAgentMetaByAgentId: () => () => ({}) },
-  sessionSelectors: { currentGroupAgents: () => [{ skills: ['reviewer'] }] },
 }));
 
 vi.mock('@/store/skill', () => ({
@@ -144,7 +140,6 @@ describe('workspace skill-aware send hooks', () => {
     expect(mocks.chatState.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ activatedSkillIds: ['reviewer'], message: '/reviewer' }),
     );
-    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
     expect(mocks.fileState.clearChatUploadFileList).toHaveBeenCalled();
     expect(mocks.editor.clearContent).toHaveBeenCalled();
   });
@@ -172,7 +167,6 @@ describe('workspace skill-aware send hooks', () => {
         metadata: { skills: { activated: ['reviewer'] } },
       }),
     );
-    expect(mocks.skillState.clearSelectedSkills).not.toHaveBeenCalled();
     expect(mocks.fileState.clearChatUploadFileList).toHaveBeenCalled();
     expect(mocks.editor.clearContent).toHaveBeenCalled();
     expect(mocks.chatState.updateInputMessage).toHaveBeenCalledWith('');

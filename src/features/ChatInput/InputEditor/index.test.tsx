@@ -7,12 +7,6 @@ import InputEditor from './index';
 vi.stubGlobal('React', React);
 
 const mocks = vi.hoisted(() => ({
-  chatState: {
-    activeId: 'session-1',
-    activeSessionType: 'agent',
-    activeThreadId: 'thread-1',
-    activeTopicId: 'topic-1',
-  },
   editorProps: undefined as any,
 }));
 
@@ -60,52 +54,6 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-vi.mock('@/store/agent', () => ({
-  useAgentStore: (selector: (state: object) => unknown) => selector({}),
-}));
-
-vi.mock('@/store/agent/selectors', () => ({
-  agentSelectors: { currentAgentSkills: () => ['reviewer'] },
-}));
-
-vi.mock('@/store/chat', () => ({
-  useChatStore: Object.assign(
-    (selector: (state: typeof mocks.chatState) => unknown) => selector(mocks.chatState),
-    { getState: () => mocks.chatState },
-  ),
-}));
-
-vi.mock('@/store/serverConfig', () => ({
-  featureFlagsSelectors: () => ({ enableSkills: true }),
-  useServerConfigStore: (selector: (state: object) => unknown) => selector({}),
-}));
-
-vi.mock('@/store/session', () => ({
-  useSessionStore: (selector: (state: object) => unknown) => selector({}),
-}));
-
-vi.mock('@/store/session/selectors', () => ({
-  sessionSelectors: { currentGroupAgents: () => [] },
-}));
-
-vi.mock('@/store/skill', () => {
-  const skillState = {
-    installedSkills: [
-      { description: 'Review code carefully.', identifier: 'reviewer', name: 'Reviewer' },
-    ],
-    toggleSelectedSkill: vi.fn(),
-  };
-
-  return {
-    getSkillSelectionKey: ({ sessionId, threadId, topicId }: Record<string, string>) =>
-      `${sessionId}:${topicId}:${threadId}`,
-    useSkillStore: Object.assign(
-      (selector: (state: typeof skillState) => unknown) => selector(skillState),
-      { getState: () => skillState },
-    ),
-  };
-});
-
 vi.mock('@/store/user', () => ({
   useUserStore: (selector: (state: object) => unknown) => selector({}),
 }));
@@ -144,9 +92,7 @@ describe('InputEditor slash items', () => {
     render(<InputEditor />);
 
     expect(
-      mocks.editorProps.slashOption.items.some(
-        (item: { key: string }) => item.key === 'reviewer',
-      ),
+      mocks.editorProps.slashOption.items.some((item: { key: string }) => item.key === 'reviewer'),
     ).toBe(false);
     expect(
       mocks.editorProps.slashOption.items.some((item: { key: string }) => item.key === 'table'),

@@ -80,7 +80,9 @@ export const useSend = () => {
       topicId: store.activeTopicId,
     });
     const skillState = getSkillStoreState();
-    const installedSkillIds = new Set(skillState.installedSkills.map(({ identifier }) => identifier));
+    const installedSkillIds = new Set(
+      skillState.installedSkills.map(({ identifier }) => identifier),
+    );
     const activatedSkillIds = skillSelectors
       .selectedSkillIds(selectionKey)(skillState)
       .filter((id) => installedSkillIds.has(id));

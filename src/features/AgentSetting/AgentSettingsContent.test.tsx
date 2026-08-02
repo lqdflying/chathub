@@ -9,7 +9,7 @@ import AgentSettingsContent from './AgentSettingsContent';
 vi.stubGlobal('React', React);
 
 const serverConfigState = vi.hoisted(() => ({
-  featureFlags: { enablePlugins: true, enableSkills: true },
+  featureFlags: { enablePlugins: true },
 }));
 
 vi.mock('@/features/AgentSetting/store', () => ({
