@@ -9,12 +9,7 @@ import { MemoryAction, memorySlice } from './memory';
 import { SearchAction, searchSlice } from './search';
 
 export interface ChatBuiltinToolAction
-  extends
-    ChatDallEAction,
-    SearchAction,
-    LocalFileAction,
-    ChatCodeInterpreterAction,
-    MemoryAction {}
+  extends ChatDallEAction, SearchAction, LocalFileAction, ChatCodeInterpreterAction, MemoryAction {}
 
 export const chatToolSlice: StateCreator<
   ChatStore,
