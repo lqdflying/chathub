@@ -28,11 +28,12 @@ const mocks = vi.hoisted(() => {
     checkGeminiChineseWarning: vi.fn().mockResolvedValue(true),
     fileState,
     skillState,
+    track: vi.fn(),
   };
 });
 
 vi.mock('@lobehub/analytics/react', () => ({
-  useAnalytics: () => ({ analytics: { track: vi.fn() } }),
+  useAnalytics: () => ({ analytics: { track: mocks.track } }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -121,6 +122,7 @@ describe('V1 mobile skill-aware send hook', () => {
     });
     expect(mocks.skillState.clearSelectedSkills).toHaveBeenCalledWith('session-1:default:main');
     expect(mocks.chatState.updateInputMessage).toHaveBeenCalledWith('');
+    expect(mocks.track).toHaveBeenCalledWith(expect.objectContaining({ name: 'send_message' }));
   });
 
   it('preserves a command-only draft when there is no attachment', async () => {
@@ -150,6 +152,9 @@ describe('V1 mobile skill-aware send hook', () => {
       onlyAddUserMessage: undefined,
     });
     expect(mocks.chatState.sendMessage).not.toHaveBeenCalled();
+    expect(mocks.track).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'send_group_message' }),
+    );
   });
 
   it('includes a skill selected from the composer menu', async () => {

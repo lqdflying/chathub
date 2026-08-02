@@ -132,7 +132,7 @@ export const useSendMessage = () => {
       const messageType = fileList.length === 0 ? 'text' : hasImages ? 'image' : 'file';
 
       analytics?.track({
-        name: 'send_message',
+        name: store.activeSessionType === 'group' ? 'send_group_message' : 'send_message',
         properties: {
           chat_id: store.activeId || 'unknown',
           current_topic: topicSelectors.currentActiveTopic(store)?.title || null,

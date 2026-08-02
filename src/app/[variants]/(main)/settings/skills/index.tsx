@@ -114,8 +114,8 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
       if (archive.bundledResourceCount > 0) {
         messageApi.warning(
           t('skills.resourcesSkipped', {
-            count: archive.bundledResourceCount,
             name: archive.identifier,
+            skipped: archive.bundledResourceCount,
           }),
         );
       } else {
@@ -173,8 +173,10 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
           <small>{t('skills.registry')}</small>
           {registryItems.map((item) => (
             <Button
+              disabled={installing}
               key={item.identifier}
               onClick={async () => {
+                setInstalling(true);
                 try {
                   await installSkillFromUrl({
                     expectedIdentifier: item.identifier,
@@ -182,8 +184,11 @@ const SkillsManagement = memo<SkillsManagementProps>(({ mobile = false }) => {
                     sourceType: item.sourceType,
                     sourceUrl: item.sourceUrl,
                   });
+                  messageApi.success(t('skills.installSuccess'));
                 } catch (error) {
                   messageApi.error(error instanceof Error ? error.message : String(error));
+                } finally {
+                  setInstalling(false);
                 }
               }}
               style={{

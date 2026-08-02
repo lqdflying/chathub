@@ -21,12 +21,13 @@ blob, and tree URLs are normalized to raw content before fetching.
 
 Local `.skill` imports are handled in the browser by
 `src/services/skill/archive.ts`. The archive is decompressed with `fflate`, but
-only `SKILL.md` is materialized. Accepted layouts contain either a root-level
-`SKILL.md` or one top-level folder containing `SKILL.md`; for the folder layout,
-the folder and frontmatter names must match. Absolute paths, parent traversal,
+only `SKILL.md` is materialized. It may be at the archive root or inside one
+top-level folder; for the folder layout, the folder and frontmatter names must
+match. Other files may appear elsewhere in the archive and are counted as
+skipped resources rather than rejected. Absolute paths, parent traversal,
 backslashes, invalid UTF-8, multiple skill documents, archives over 30 MiB, and
-archives with more than 1024 files are rejected. The `SKILL.md` body retains the
-same 128 KiB limit as URL installs.
+archives with more than 1024 files are rejected. The `SKILL.md` body retains
+the same 128 KiB limit as URL installs.
 
 Packaged scripts, references, assets, and other resource files are counted but
 not extracted or persisted. The settings UI warns after installation when any

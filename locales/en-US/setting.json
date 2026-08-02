@@ -651,7 +651,7 @@
     "lazyLoading": "Full instructions load only when explicitly activated",
     "localSource": "Custom source",
     "registry": "Skill registry",
-    "resourcesSkipped": "Installed {{name}}. {{count}} bundled file(s) were skipped.",
+    "resourcesSkipped": "Installed {{name}}. {{skipped}} bundled file(s) were skipped.",
     "search": "Search installed skills",
     "source": "SKILL.md URL",
     "sourceTypes": {

@@ -651,7 +651,7 @@
     "lazyLoading": "仅在明确启用时加载完整指令",
     "localSource": "自定义来源",
     "registry": "技能注册表",
-    "resourcesSkipped": "已安装 {{name}}，其中 {{count}} 个附带文件未导入。",
+    "resourcesSkipped": "已安装 {{name}}，其中 {{skipped}} 个附带文件未导入。",
     "search": "搜索已安装技能",
     "source": "SKILL.md 地址",
     "sourceTypes": {
