@@ -10,6 +10,11 @@ core relational state, not full PostgreSQL or object-storage disaster recovery.
 `mode`, the source database's actual `schemaHash`,
 `secretStrategy: deployment-keyed`, and whitelisted table arrays.
 
+New exports always write `mode: postgres`. The importer still recognizes
+`mode: pglite` in old version 2 files and unversioned version 1 table exports.
+That compatibility is input-only; it does not enable a browser database at
+runtime.
+
 The canonical registry in
 `packages/database/src/repositories/dataBackupRegistry.ts` controls both
 directions:
@@ -95,13 +100,29 @@ and is deliberately removed rather than guessed.
 ## Compatibility and security
 
 - Version 2 rejects unknown tables and future formats.
-- Unversioned v1 table backups may contain old excluded tables; non-empty
-  unsupported tables are reported as ignored.
+- Version 2 files from the retired PGlite edition remain importable when their
+  schema hash is known.
+- Unversioned v1 table backups from the older IndexedDB/Dexie edition may
+  contain old excluded tables; non-empty unsupported tables are reported as
+  ignored.
 - Known source migration hashes at or before the target are accepted.
 - Newer and unknown hashes are rejected before mutation.
 - Vault plaintext is never added to a backup or error response.
 - Auth, OAuth, RBAC, API keys, files, binary objects, RAG data, and derived
   caches are outside this contract.
+
+## Moving from a retired local edition
+
+There is no direct connection from a server deployment to data stored inside a
+user's old browser profile. Before removing or clearing the old edition, create
+its JSON export and retain the file. Deploy the current PostgreSQL edition,
+sign in as the destination account, then import that file from **Settings ->
+Storage**.
+
+Do not copy IndexedDB or PGlite files into the container and do not expect an
+automatic startup migration. If the original browser data remains but no JSON
+export was created, recovery must be performed with the old application version
+that can still read that browser profile; the current server cannot inspect it.
 
 ## Verification
 

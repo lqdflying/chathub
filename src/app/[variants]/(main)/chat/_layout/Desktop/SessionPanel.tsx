@@ -7,7 +7,6 @@ import { PropsWithChildren, memo, useEffect, useMemo, useState } from 'react';
 
 import { withSuspense } from '@/components/withSuspense';
 import { CHAT_PANEL_GAP, FOLDER_WIDTH } from '@/const/layoutTokens';
-import { useIsSingleMode } from '@/hooks/useIsSingleMode';
 import { usePinnedAgentState } from '@/hooks/usePinnedAgentState';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
@@ -35,8 +34,6 @@ export const useStyles = createStyles(({ css, token }) => ({
 }));
 
 const SessionPanel = memo<PropsWithChildren>(({ children }) => {
-  const isSingleMode = useIsSingleMode();
-
   const { md = true } = useResponsive();
 
   const [isPinned] = usePinnedAgentState();
@@ -77,12 +74,6 @@ const SessionPanel = memo<PropsWithChildren>(({ children }) => {
   const { appearance } = useThemeMode();
 
   const SessionPanel = useMemo(() => {
-    if (isSingleMode) {
-      // 在单一模式下，仍然渲染 children 以确保 SessionHydration 等逻辑组件正常工作
-      // 但使用隐藏样式而不是 return null
-      return <div style={{ display: 'none' }}>{children}</div>;
-    }
-
     return (
       <DraggablePanel
         className={styles.panel}
@@ -111,7 +102,7 @@ const SessionPanel = memo<PropsWithChildren>(({ children }) => {
         </DraggablePanelContainer>
       </DraggablePanel>
     );
-  }, [sessionsWidth, md, isPinned, sessionExpandable, tmpWidth, appearance, isSingleMode]);
+  }, [sessionsWidth, md, isPinned, sessionExpandable, tmpWidth, appearance]);
 
   return SessionPanel;
 });

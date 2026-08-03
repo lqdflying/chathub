@@ -158,41 +158,18 @@ export const oidcConsents = pgTable(
   }),
 );
 
-/**
- * 通用认证凭证传递表
- * 用于在不同客户端（桌面端、浏览器插件、移动端等）之间安全传递认证凭证
- *
- * 工作流程:
- * 1. 客户端生成唯一的 handoff ID
- * 2. 将 handoff ID 作为参数附加到 OAuth redirect_uri
- * 3. 认证成功后，中间页将凭证存储到此表
- * 4. 客户端轮询此表获取凭证
- * 5. 成功获取后立即删除记录
- */
+/** Transient state for server-managed OAuth authorization flows such as MCP OAuth. */
 export const oauthHandoffs = pgTable('oauth_handoffs', {
-  /**
-   * 由客户端生成的一次性唯一标识符
-   * 用于客户端轮询时认领自己的凭证
-   */
+  /** One-time OAuth state identifier. */
   id: text('id').primaryKey(),
 
-  /**
-   * 客户端类型标识
-   * 如: 'desktop', 'browser-extension', 'mobile-app' 等
-   */
+  /** Server flow identifier, for example `mcp-oauth`. */
   client: varchar('client', { length: 50 }).notNull(),
 
-  /**
-   * 凭证数据的 JSON 载荷
-   * 灵活存储不同认证流程所需的各种数据
-   * 当前主要包含: { code: string; state: string }
-   */
+  /** Short-lived flow metadata, including PKCE and callback state. */
   payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
 
-  /**
-   * 时间戳字段，用于 TTL 控制
-   * 凭证应在创建后 5 分钟内被消费，否则视为过期
-   */
+  /** Timestamp fields used for expiry and cleanup. */
   ...timestamps,
 });
 

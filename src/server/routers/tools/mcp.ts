@@ -9,7 +9,6 @@ import {
   CHATHUB_MCP_INVOCATION_ID_PATTERN,
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
 } from '@/const/tools';
-import { isDesktop, isServerMode } from '@/const/version';
 import { MessageModel } from '@/database/models/message';
 import {
   protectExternalToolCacheDebugMetadata,
@@ -21,7 +20,6 @@ import {
   logToolsDebugSafe,
   summarizeToolsDebugValue,
 } from '@/libs/logger/toolsDebug';
-import { passwordProcedure } from '@/libs/trpc/edge';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { type MCPOAuthContext, mcpService } from '@/server/services/mcp';
@@ -36,26 +34,8 @@ const httpParamsSchema = z.object({
   url: z.string().url(),
 });
 
-const stdioParamsSchema = z.object({
-  args: z.array(z.string()).optional().default([]),
-  command: z.string().min(1),
-  name: z.string().min(1),
-  type: z.literal('stdio'),
-});
-
-// Union schema for MCPClientParams
-const mcpClientParamsSchema = z.union([httpParamsSchema, stdioParamsSchema]);
-
-const checkStdioEnvironment = (params: z.infer<typeof mcpClientParamsSchema>) => {
-  if (params.type === 'stdio' && !isDesktop) {
-    throw new TRPCError({
-      code: 'BAD_REQUEST',
-      message: 'Stdio MCP type is not supported in web environment.',
-    });
-  }
-};
-
-const mcpProcedure = isServerMode ? authedProcedure : passwordProcedure;
+const mcpClientParamsSchema = httpParamsSchema;
+const mcpProcedure = authedProcedure;
 const hashSchema = z.string().regex(/^[\da-f]{16}$/);
 const toolCacheDebugSchema = z
   .object({
@@ -146,12 +126,10 @@ export const mcpRouter = router({
     .input(mcpClientParamsSchema)
     .use(serverDatabase)
     .query(async ({ input, ctx }) => {
-      checkStdioEnvironment(input);
-
       let resolvedParams = input;
       let oauthContext: MCPOAuthContext | undefined;
 
-      if (input.type === 'http' && input.auth?.type === 'oauth2') {
+      if (input.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
         if (token?.accessToken) {
@@ -168,12 +146,10 @@ export const mcpRouter = router({
     .input(mcpClientParamsSchema)
     .use(serverDatabase)
     .query(async ({ input, ctx }) => {
-      checkStdioEnvironment(input);
-
       let resolvedParams = input;
       let oauthContext: MCPOAuthContext | undefined;
 
-      if (input.type === 'http' && input.auth?.type === 'oauth2') {
+      if (input.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
         if (token?.accessToken) {
@@ -190,12 +166,10 @@ export const mcpRouter = router({
     .input(mcpClientParamsSchema)
     .use(serverDatabase)
     .query(async ({ input, ctx }) => {
-      checkStdioEnvironment(input);
-
       let resolvedParams = input;
       let oauthContext: MCPOAuthContext | undefined;
 
-      if (input.type === 'http' && input.auth?.type === 'oauth2') {
+      if (input.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.name);
         if (token?.accessToken) {
@@ -222,34 +196,29 @@ export const mcpRouter = router({
     .use(serverDatabase)
     .mutation(async ({ input, ctx }) => {
       const startedAt = Date.now();
-      checkStdioEnvironment(input.params);
-
-      const messageModel =
-        isServerMode && ctx.userId ? new MessageModel(ctx.serverDB, ctx.userId) : undefined;
-      if (messageModel) {
-        const invocationRegistered = await messageModel.beginMCPResultInvocation(
-          input.messageId,
-          input.invocationId,
-        );
-        if (!invocationRegistered) {
-          logToolsDebugSafe('tool_result_persistence_failed', {
-            errorKind: 'message_not_found',
-            failurePhase: 'server_database',
-            operation: 'persist_tool_result',
-            outcome: 'failed',
-            phase: 'invocation_registration',
-          });
-          throw new TRPCError({
-            code: 'NOT_FOUND',
-            message: 'The MCP tool message is unavailable.',
-          });
-        }
+      const messageModel = new MessageModel(ctx.serverDB, ctx.userId);
+      const invocationRegistered = await messageModel.beginMCPResultInvocation(
+        input.messageId,
+        input.invocationId,
+      );
+      if (!invocationRegistered) {
+        logToolsDebugSafe('tool_result_persistence_failed', {
+          errorKind: 'message_not_found',
+          failurePhase: 'server_database',
+          operation: 'persist_tool_result',
+          outcome: 'failed',
+          phase: 'invocation_registration',
+        });
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'The MCP tool message is unavailable.',
+        });
       }
 
       let resolvedParams = input.params;
       let oauthContext: MCPOAuthContext | undefined;
 
-      if (input.params.type === 'http' && input.params.auth?.type === 'oauth2') {
+      if (input.params.auth?.type === 'oauth2') {
         const oauthService = new McpOAuthService(ctx.serverDB);
         const token = await oauthService.getOAuthToken(ctx.userId!, input.params.name);
         if (token?.accessToken) {
@@ -270,47 +239,44 @@ export const mcpRouter = router({
 
       try {
         const serialized = JSON.stringify(data);
-        let persistence: 'client_required' | 'failed' | 'persisted' | 'superseded' =
-          'client_required';
+        let persistence: 'failed' | 'persisted' | 'superseded';
 
-        if (isServerMode && ctx.userId) {
-          logToolsDebugSafe('tool_result_persistence_started', {
-            operation: 'persist_tool_result',
-            phase: 'server_database',
-          });
+        logToolsDebugSafe('tool_result_persistence_started', {
+          operation: 'persist_tool_result',
+          phase: 'server_database',
+        });
 
-          try {
-            const persisted = await messageModel!.persistMCPResult(
-              input.messageId,
-              input.invocationId,
-              serialized,
-            );
+        try {
+          const persisted = await messageModel.persistMCPResult(
+            input.messageId,
+            input.invocationId,
+            serialized,
+          );
 
-            if (!persisted) {
-              persistence = 'superseded';
-              logToolsDebugSafe('tool_result_persistence_failed', {
-                errorKind: 'invocation_superseded',
-                failurePhase: 'server_database',
-                operation: 'persist_tool_result',
-                outcome: 'failed',
-              });
-            } else {
-              persistence = 'persisted';
-              logToolsDebugSafe('tool_result_persistence_complete', {
-                operation: 'persist_tool_result',
-                outcome: 'persisted',
-                phase: 'server_database',
-              });
-            }
-          } catch (error) {
-            persistence = 'failed';
+          if (!persisted) {
+            persistence = 'superseded';
             logToolsDebugSafe('tool_result_persistence_failed', {
-              ...describeToolsDebugError(error),
+              errorKind: 'invocation_superseded',
               failurePhase: 'server_database',
               operation: 'persist_tool_result',
               outcome: 'failed',
             });
+          } else {
+            persistence = 'persisted';
+            logToolsDebugSafe('tool_result_persistence_complete', {
+              operation: 'persist_tool_result',
+              outcome: 'persisted',
+              phase: 'server_database',
+            });
           }
+        } catch (error) {
+          persistence = 'failed';
+          logToolsDebugSafe('tool_result_persistence_failed', {
+            ...describeToolsDebugError(error),
+            failurePhase: 'server_database',
+            operation: 'persist_tool_result',
+            outcome: 'failed',
+          });
         }
 
         logToolsDebugSafe('call_tool_complete', {
@@ -341,8 +307,6 @@ export const mcpRouter = router({
     )
     .use(serverDatabase)
     .mutation(async ({ input, ctx }) => {
-      if (!isServerMode || !ctx.userId) return null;
-
       const recovered = await new MessageModel(ctx.serverDB, ctx.userId).recoverMCPResult(
         input.messageId,
         input.invocationId,

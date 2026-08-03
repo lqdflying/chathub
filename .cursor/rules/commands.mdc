@@ -8,7 +8,6 @@ alwaysApply: true
 ```bash
 # Development
 bun run dev         # Next.js dev server on :3010
-bun run dev:desktop # Desktop (Electron) renderer on :3015
 
 # Build — agents must not run these locally for verification
 bun run build        # Production build (user-operated only)

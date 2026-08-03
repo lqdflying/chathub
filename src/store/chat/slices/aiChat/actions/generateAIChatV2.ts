@@ -1,6 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
-import { DEFAULT_AGENT_CHAT_CONFIG, INBOX_SESSION_ID, isDesktop } from '@lobechat/const';
+import { DEFAULT_AGENT_CHAT_CONFIG, INBOX_SESSION_ID } from '@lobechat/const';
 import { knowledgeBaseQAPrompts } from '@lobechat/prompts';
 import {
   ChatImageItem,
@@ -798,23 +798,6 @@ export const generateAIChatV2: StateCreator<
         threadId: params?.threadId,
         inPortalThread: params?.inPortalThread,
       });
-    } else {
-      // 显示桌面通知（仅在桌面端且窗口隐藏时）
-      if (isDesktop) {
-        try {
-          // 动态导入桌面通知服务，避免在非桌面端环境中导入
-          const { desktopNotificationService } =
-            await import('@/services/electron/desktopNotification');
-
-          await desktopNotificationService.showNotification({
-            body: content,
-            title: t('notification.finishChatGeneration', { ns: 'electron' }),
-          });
-        } catch (error) {
-          // 静默处理错误，不影响正常流程
-          console.error('Desktop notification error:', error);
-        }
-      }
     }
 
     if (!params.threadId && !params.inPortalThread) {

@@ -1,6 +1,4 @@
 import {
-  DesktopHotkeyEnum,
-  DesktopHotkeyItem,
   HotkeyEnum,
   HotkeyGroupEnum,
   HotkeyItem,
@@ -107,20 +105,5 @@ export const HOTKEYS_REGISTRATION: HotkeyRegistration = [
     id: HotkeyEnum.ClearCurrentMessages,
     keys: combineKeys([KeyEnum.Alt, KeyEnum.Shift, KeyEnum.Backspace]),
     scopes: [HotkeyScopeEnum.Chat],
-  },
-];
-
-type DesktopHotkeyRegistration = DesktopHotkeyItem[];
-
-// 桌面端快捷键配置
-export const DESKTOP_HOTKEYS_REGISTRATION: DesktopHotkeyRegistration = [
-  {
-    id: DesktopHotkeyEnum.ShowApp,
-    keys: combineKeys([KeyEnum.Ctrl, 'e']),
-  },
-  {
-    id: DesktopHotkeyEnum.OpenSettings,
-    keys: combineKeys([KeyEnum.Mod, KeyEnum.Comma]),
-    nonEditable: true,
   },
 ];

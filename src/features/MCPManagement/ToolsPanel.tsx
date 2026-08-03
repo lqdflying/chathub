@@ -8,8 +8,6 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
-import { isDesktop } from '@/const/version';
-import { desktopClient } from '@/libs/trpc/client/desktop';
 import { toolsClient } from '@/libs/trpc/client/tools';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -66,9 +64,9 @@ const useStyles = createStyles(({ css, token }) => ({
     line-height: 20px;
   `,
   wrapper: css`
+    overflow-y: auto;
     height: 100%;
     padding: 16px;
-    overflow-y: auto;
   `,
 }));
 
@@ -94,10 +92,7 @@ const ToolCard = memo<{ tool: DiscoveredTool }>(({ tool }) => {
 
   return (
     <Block gap={8} padding={16}>
-      <div
-        className={styles.apiHeader}
-        onClick={() => setExpanded(!expanded)}
-      >
+      <div className={styles.apiHeader} onClick={() => setExpanded(!expanded)}>
         <Flexbox gap={8}>
           <div className={styles.apiTitle}>{tool.name}</div>
           <div className={styles.apiDesc}>
@@ -127,9 +122,7 @@ const ToolCard = memo<{ tool: DiscoveredTool }>(({ tool }) => {
                   {isRequired && <span className={styles.required}>*</span>}
                   {param.type && <Tag className={styles.typeTag}>{param.type}</Tag>}
                 </div>
-                <div className={styles.paramDesc}>
-                  {param.description || '-'}
-                </div>
+                <div className={styles.paramDesc}>{param.description || '-'}</div>
               </div>
             );
           })}
@@ -142,7 +135,6 @@ const ToolCard = memo<{ tool: DiscoveredTool }>(({ tool }) => {
 interface ToolsPanelProps {
   identifier: string;
   mcpConnection: {
-    args?: string[];
     auth?: {
       accessToken?: string;
       clientId?: string;
@@ -152,10 +144,8 @@ interface ToolsPanelProps {
       token?: string;
       type: 'none' | 'bearer' | 'oauth2';
     };
-    command?: string;
-    env?: Record<string, string>;
     headers?: Record<string, string>;
-    type: 'http' | 'stdio';
+    type: string;
     url?: string;
   };
 }
@@ -175,37 +165,17 @@ const ToolsPanel = memo<ToolsPanelProps>(({ identifier, mcpConnection }) => {
     setError(null);
 
     try {
-      let result: any;
-
-      if (mcpConnection.type === 'http') {
-        const params: any = {
-          name: identifier,
-          type: 'http' as const,
-          url: mcpConnection.url,
-        };
-        if (mcpConnection.auth?.type !== 'none') {
-          params.auth = mcpConnection.auth;
-        }
-        if (mcpConnection.headers) {
-          params.headers = mcpConnection.headers;
-        }
-        result = await toolsClient.mcp.listTools.query(params);
-      } else if (isDesktop) {
-        // stdio MCP — only supported on desktop
-        result = await desktopClient.mcp.listTools.query({
-          args: mcpConnection.args || [],
-          command: mcpConnection.command || '',
-          env: mcpConnection.env,
-          name: identifier,
-          type: 'stdio' as const,
-        });
-      } else {
-        // stdio not supported in web mode
-        if (fetchId !== fetchIdRef.current) return;
-        setError('Stdio MCP tools can only be discovered in the desktop app.');
-        setLoading(false);
-        return;
+      if (mcpConnection.type !== 'http' || !mcpConnection.url) {
+        throw new Error('This MCP plugin uses an unsupported local transport.');
       }
+      const params: any = {
+        name: identifier,
+        type: 'http' as const,
+        url: mcpConnection.url,
+      };
+      if (mcpConnection.auth?.type !== 'none') params.auth = mcpConnection.auth;
+      if (mcpConnection.headers) params.headers = mcpConnection.headers;
+      const result = await toolsClient.mcp.listTools.query(params);
 
       // Guard against stale responses from rapid selection changes
       if (fetchId !== fetchIdRef.current) return;
@@ -241,7 +211,12 @@ const ToolsPanel = memo<ToolsPanelProps>(({ identifier, mcpConnection }) => {
       <Center height={'100%'} padding={16} width={'100%'}>
         <Alert
           action={
-            <Button icon={<Icon icon={RefreshCw} />} onClick={fetchTools} size="small" type="primary">
+            <Button
+              icon={<Icon icon={RefreshCw} />}
+              onClick={fetchTools}
+              size="small"
+              type="primary"
+            >
               {t('mcpManagement.tools.retry')}
             </Button>
           }
@@ -257,10 +232,7 @@ const ToolsPanel = memo<ToolsPanelProps>(({ identifier, mcpConnection }) => {
   if (!tools || tools.length === 0) {
     return (
       <Center height={'100%'} width={'100%'}>
-        <Empty
-          description={t('mcpManagement.tools.empty')}
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-        />
+        <Empty description={t('mcpManagement.tools.empty')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
       </Center>
     );
   }
@@ -268,9 +240,7 @@ const ToolsPanel = memo<ToolsPanelProps>(({ identifier, mcpConnection }) => {
   // Tools list
   return (
     <Flexbox className={styles.wrapper} height={'100%'} style={{ overflowY: 'auto' }}>
-      <Flexbox
-        style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}
-      >
+      <Flexbox style={{ fontSize: 14, fontWeight: 500, marginBottom: 12 }}>
         {t('mcpManagement.tools.title')} ({tools.length})
       </Flexbox>
       <Flexbox direction="vertical" gap={4}>

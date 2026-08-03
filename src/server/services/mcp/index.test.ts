@@ -53,10 +53,10 @@ describe('MCPService', () => {
 
   describe('structured tool diagnostics', () => {
     const mockParams = {
-      args: ['--private-argument'],
-      command: 'private-command',
+      headers: { Authorization: 'Bearer private-header' },
       name: 'private-mcp-name',
-      type: 'stdio' as const,
+      type: 'http' as const,
+      url: 'https://private.example.com/mcp?token=private-query',
     };
 
     it('emits safe list-tools metadata as prefixed JSON', async () => {
@@ -78,7 +78,7 @@ describe('MCPService', () => {
         expect(record).toMatchObject({ count: 1, debugLevel: 'safe' });
         expect(record.durationMs).toEqual(expect.any(Number));
         expect(debugCall![1]).not.toMatch(
-          /private-argument|private-command|private-mcp-name|private-tool-name|private description/,
+          /private-header|private-query|private-mcp-name|private-tool-name|private description/,
         );
       } finally {
         consoleLogSpy.mockRestore();
@@ -134,7 +134,9 @@ describe('MCPService', () => {
       userId: 'user-id',
     });
 
-    const initializeClientWithOAuth = async (oauthContext: ReturnType<typeof createOAuthContext>) => {
+    const initializeClientWithOAuth = async (
+      oauthContext: ReturnType<typeof createOAuthContext>,
+    ) => {
       vi.mocked((mcpService as any).getClient).mockRestore();
       const constructedClient = {
         initialize: vi.fn().mockResolvedValue(undefined),
@@ -161,7 +163,8 @@ describe('MCPService', () => {
         { accessToken: 'fresh-token' },
       );
 
-      const { constructorOptions, constructorParams } = await initializeClientWithOAuth(oauthContext);
+      const { constructorOptions, constructorParams } =
+        await initializeClientWithOAuth(oauthContext);
       const tokenGetter = constructorOptions.tokenGetter;
 
       await expect(tokenGetter()).resolves.toBe('fresh-token');
@@ -221,9 +224,8 @@ describe('MCPService', () => {
   describe('callTool', () => {
     const mockParams = {
       name: 'test-mcp',
-      type: 'stdio' as const,
-      command: 'test-command',
-      args: ['--test'],
+      type: 'http' as const,
+      url: 'https://example.com/mcp',
     };
 
     it('should return original data when content array is empty', async () => {
@@ -356,9 +358,8 @@ describe('MCPService', () => {
   describe('listTools', () => {
     const mockParams = {
       name: 'test-mcp',
-      type: 'stdio' as const,
-      command: 'test-command',
-      args: ['--test'],
+      type: 'http' as const,
+      url: 'https://example.com/mcp',
     };
 
     it('should successfully list tools and transform to LobeChatPluginApi format', async () => {

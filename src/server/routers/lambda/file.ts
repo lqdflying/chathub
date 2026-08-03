@@ -59,8 +59,7 @@ export const fileRouter = router({
       const globalFile = await ctx.fileModel.checkHash(input.hash);
       if (!globalFile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file hash' });
 
-      const isDesktopFile = input.url.startsWith('desktop://');
-      if (!globalFile.isExist && !isDesktopFile && !isUserUploadKey(input.url, ctx.userId, 'file')) {
+      if (!globalFile.isExist && !isUserUploadKey(input.url, ctx.userId, 'file')) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
       }
 

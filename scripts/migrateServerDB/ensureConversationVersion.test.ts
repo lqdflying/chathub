@@ -1,6 +1,5 @@
 // @vitest-environment node
-import { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const {
   CONVERSATION_VERSION_SQL,
@@ -8,65 +7,42 @@ const {
 } = require('./ensureConversationVersion.cjs');
 
 describe('ensureConversationVersionColumn', () => {
-  let client: PGlite | undefined;
-
-  afterEach(async () => {
-    await client?.close();
-    client = undefined;
+  it('defines a non-null integer column with a zero default', () => {
+    expect(CONVERSATION_VERSION_SQL).toContain(
+      'ADD COLUMN IF NOT EXISTS "conversation_version" integer',
+    );
+    expect(CONVERSATION_VERSION_SQL).toContain('SET "conversation_version" = 0');
+    expect(CONVERSATION_VERSION_SQL).toContain('ALTER COLUMN "conversation_version" SET DEFAULT 0');
+    expect(CONVERSATION_VERSION_SQL).toContain('ALTER COLUMN "conversation_version" SET NOT NULL');
   });
 
-  it('creates the dedicated conversation version with the required constraints', async () => {
-    client = new PGlite();
-    await client.exec(`
-      CREATE TABLE "users" (
-        "id" text PRIMARY KEY NOT NULL
-      );
-      INSERT INTO "users" ("id") VALUES ('user-1');
-    `);
+  it('does not mutate a complete schema', async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [{ columnExists: true, hasZeroDefault: true, isNotNull: true }],
+    });
 
-    await client.exec(CONVERSATION_VERSION_SQL);
+    await ensureConversationVersionColumn({ query });
 
-    const users = await client.query<{ conversation_version: number }>(`
-      SELECT "conversation_version"
-      FROM "users"
-      WHERE "id" = 'user-1';
-    `);
-    expect(users.rows).toEqual([{ conversation_version: 0 }]);
-
-    const columns = await client.query<{
-      column_default: string;
-      is_nullable: string;
-    }>(`
-      SELECT column_default, is_nullable
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'users'
-        AND column_name = 'conversation_version';
-    `);
-    expect(columns.rows).toEqual([{ column_default: '0', is_nullable: 'NO' }]);
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
-  it('repairs a partial nullable column and preserves existing versions', async () => {
-    client = new PGlite();
-    await client.exec(`
-      CREATE TABLE "users" (
-        "id" text PRIMARY KEY NOT NULL,
-        "conversation_version" integer
-      );
-      INSERT INTO "users" ("id", "conversation_version")
-      VALUES ('user-1', NULL), ('user-2', 7);
-    `);
+  it('backfills a partial column before finalizing it', async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [{ columnExists: true, hasZeroDefault: false, isNotNull: false }],
+      })
+      .mockResolvedValueOnce({ rows: [{ hasNullRows: true }] })
+      .mockResolvedValue({ rows: [] });
 
-    await ensureConversationVersionColumn(client);
+    await ensureConversationVersionColumn({ query });
 
-    const users = await client.query<{ conversation_version: number; id: string }>(`
-      SELECT "id", "conversation_version"
-      FROM "users"
-      ORDER BY "id";
-    `);
-    expect(users.rows).toEqual([
-      { conversation_version: 0, id: 'user-1' },
-      { conversation_version: 7, id: 'user-2' },
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      expect.stringContaining('information_schema.columns'),
+      expect.stringContaining('IS NULL'),
+      expect.stringContaining('ADD COLUMN IF NOT EXISTS'),
+      expect.stringContaining('SET "conversation_version" = 0'),
+      expect.stringContaining('SET DEFAULT 0'),
     ]);
   });
 });

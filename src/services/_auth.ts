@@ -1,4 +1,4 @@
-import { LOBE_CHAT_AUTH_HEADER, isDeprecatedEdition } from '@lobechat/const';
+import { LOBE_CHAT_AUTH_HEADER } from '@lobechat/const';
 import {
   AnthropicCompatibleKeyVault,
   AzureOpenAIKeyVault,
@@ -73,24 +73,17 @@ export const createPayloadWithKeyVaults = (provider: string) => {
   assertActiveUserStateOwnership();
   let keyVaults = {};
 
-  // TODO: remove this condition in V2.0
-  if (isDeprecatedEdition) {
-    keyVaults = keyVaultsConfigSelectors.getVaultByProvider(provider as any)(
-      useUserStore.getState(),
-    );
-  } else {
-    const userState = useUserStore.getState();
-    const runtimeState = useAiInfraStore.getState();
-    const expectedRuntimeScope = authSelectors.currentUserScope(userState);
-    const isCurrentRuntimeReady =
-      !!expectedRuntimeScope &&
-      runtimeState.runtimeStateRequestScope === expectedRuntimeScope &&
-      runtimeState.runtimeStateScope === expectedRuntimeScope;
+  const userState = useUserStore.getState();
+  const runtimeState = useAiInfraStore.getState();
+  const expectedRuntimeScope = authSelectors.currentUserScope(userState);
+  const isCurrentRuntimeReady =
+    !!expectedRuntimeScope &&
+    runtimeState.runtimeStateRequestScope === expectedRuntimeScope &&
+    runtimeState.runtimeStateScope === expectedRuntimeScope;
 
-    keyVaults = isCurrentRuntimeReady
-      ? aiProviderSelectors.providerKeyVaults(provider)(runtimeState) || {}
-      : {};
-  }
+  keyVaults = isCurrentRuntimeReady
+    ? aiProviderSelectors.providerKeyVaults(provider)(runtimeState) || {}
+    : {};
 
   const runtimeProvider = resolveRuntimeProvider(provider);
 

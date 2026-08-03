@@ -169,6 +169,26 @@
     "setInitialMembers": "Teammitglieder auswählen"
   },
   "members": "Mitglieder",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "Mitglieder erwähnen"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "Bild hochladen",
       "tooltip": "Hochladen"
     },
-    "clientMode": {
-      "actionFiletip": "Datei hochladen",
-      "actionTooltip": "Hochladen",
-      "disabled": "Das aktuelle Modell unterstützt keine visuelle Erkennung und Dateianalyse. Bitte wechseln Sie das Modell, um diese Funktionen zu nutzen.",
-      "fileNotSupported": "Im Browser-Modus wird das Hochladen von Dateien derzeit nicht unterstützt, nur Bilder sind erlaubt",
-      "visionNotSupported": "Das aktuelle Modell unterstützt keine visuelle Erkennung. Bitte wechseln Sie das Modell, um diese Funktion zu nutzen."
-    },
     "preview": {
       "prepareTasks": "Vorbereitung der Teile...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "Die Videodatei darf nicht größer als 20 MB sein, die aktuelle Dateigröße beträgt {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "Das aktuelle Modell unterstützt keine visuelle Erkennung. Bitte wechseln Sie das Modell, um diese Funktion zu nutzen."
   },
   "you": "du",
-  "zenMode": "Fokusmodus",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "Fokusmodus"
 }

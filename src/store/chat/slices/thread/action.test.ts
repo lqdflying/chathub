@@ -15,12 +15,6 @@ import { useChatStore } from '../../store';
 
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
-// Mock version constants
-vi.mock('@/const/version', () => ({
-  isDeprecatedEdition: false,
-  isDesktop: false,
-}));
-
 // Mock threadService
 vi.mock('@/services/thread', () => ({
   threadService: {

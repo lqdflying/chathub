@@ -7,7 +7,6 @@ import { Center, Flexbox } from 'react-layout-kit';
 
 import { ProductLogo } from '@/components/Branding';
 import { OFFICIAL_URL, imageUrl } from '@/const/url';
-import { isServerMode } from '@/const/version';
 import UserAvatar from '@/features/User/UserAvatar';
 
 import AiHeatmaps from '../AiHeatmaps';
@@ -94,7 +93,7 @@ const useStyles = createStyles(({ css, token, stylish, cx, responsive }) => ({
 const Preview = memo(() => {
   const { styles } = useStyles();
   const { t } = useTranslation('auth');
-  const isOfficial = !isServerMode && OFFICIAL_URL.includes(location.host);
+  const isOfficial = OFFICIAL_URL.includes(location.host);
 
   return (
     <div className={styles.preview}>

@@ -37,16 +37,6 @@
     },
     "title": "Ủy quyền thất bại"
   },
-  "handoff": {
-    "desc": {
-      "processing": "Ứng dụng đang xử lý quyền truy cập, sắp chuyển sang trang tiếp theo...",
-      "success": "Đã cố gắng mở ứng dụng trên máy tính. Nếu ứng dụng không tự động mở, vui lòng chuyển đổi thủ công. Bạn có thể đóng cửa sổ trình duyệt này sau."
-    },
-    "title": {
-      "processing": "Đang xử lý quyền truy cập...",
-      "success": "Quyền truy cập đã hoàn tất"
-    }
-  },
   "login": {
     "button": "Xác nhận đăng nhập",
     "description": "Ứng dụng {{clientName}} yêu cầu sử dụng tài khoản của bạn để đăng nhập",

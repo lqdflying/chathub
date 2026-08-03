@@ -170,7 +170,6 @@ export const codeInterpreterSlice: StateCreator<
       try {
         const uploadResult = await useFileStore.getState().uploadWithProgress({
           file: file.data,
-          skipCheckFileType: true,
         });
         if (!invocationIsCurrent()) return;
 

@@ -169,6 +169,26 @@
     "setInitialMembers": "Выберите участников команды"
   },
   "members": "Участники",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "Упомянуть участника"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "Загрузить изображение",
       "tooltip": "Загрузить"
     },
-    "clientMode": {
-      "actionFiletip": "Загрузить файл",
-      "actionTooltip": "Загрузить",
-      "disabled": "Текущая модель не поддерживает визуальное распознавание и анализ файлов, пожалуйста, переключитесь на другую модель",
-      "fileNotSupported": "В режиме браузера загрузка файлов не поддерживается, разрешена только загрузка изображений",
-      "visionNotSupported": "Текущая модель не поддерживает визуальное распознавание, пожалуйста, переключитесь на другую модель для использования"
-    },
     "preview": {
       "prepareTasks": "Подготовка блоков...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "Размер видеофайла не должен превышать 20 МБ, текущий размер файла: {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "Текущая модель не поддерживает визуальное распознавание, пожалуйста, переключитесь на другую модель для использования"
   },
   "you": "ты",
-  "zenMode": "Режим концентрации",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "Режим концентрации"
 }

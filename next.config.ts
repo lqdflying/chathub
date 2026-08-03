@@ -5,14 +5,12 @@ import ReactComponentName from 'react-scan/react-component-name/webpack';
 
 const isProd = process.env.NODE_ENV === 'production';
 const buildWithDocker = process.env.DOCKER === 'true';
-const isDesktop = process.env.NEXT_PUBLIC_IS_DESKTOP_APP === '1';
 const enableReactScan = !!process.env.REACT_SCAN_MONITOR_API_KEY;
-const isUsePglite = process.env.NEXT_PUBLIC_CLIENT_DB === 'pglite';
 const shouldUseCSP = process.env.ENABLED_CSP === '1';
 
 // if you need to proxy the api endpoint to remote server
 
-const isStandaloneMode = buildWithDocker || isDesktop;
+const isStandaloneMode = buildWithDocker;
 
 const standaloneConfig: NextConfig = {
   output: 'standalone',
@@ -285,7 +283,7 @@ const nextConfig: NextConfig = {
   ],
 
   // when external packages in dev mode with turbopack, this config will lead to bundle error
-  serverExternalPackages: isProd ? ['@electric-sql/pglite', "pdfkit"] : ["pdfkit"],
+  serverExternalPackages: ['pdfkit'],
   transpilePackages: ['pdfjs-dist', 'mermaid'],
 
   typescript: {
@@ -304,8 +302,7 @@ const nextConfig: NextConfig = {
       layers: true,
     };
 
-    // 开启该插件会导致 pglite 的 fs bundler 被改表
-    if (enableReactScan && !isUsePglite) {
+    if (enableReactScan) {
       config.plugins.push(ReactComponentName({}));
     }
 
@@ -356,13 +353,12 @@ const noWrapper = (config: NextConfig) => config;
 
 const withBundleAnalyzer = process.env.ANALYZE === 'true' ? analyzer() : noWrapper;
 
-const withPWA =
-  isProd && !isDesktop
-    ? withSerwistInit({
+const withPWA = isProd
+  ? withSerwistInit({
       register: false,
       swDest: 'public/sw.js',
       swSrc: 'src/app/sw.ts',
     })
-    : noWrapper;
+  : noWrapper;
 
 export default withBundleAnalyzer(withPWA(nextConfig as NextConfig));

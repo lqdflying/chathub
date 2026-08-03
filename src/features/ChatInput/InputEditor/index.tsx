@@ -1,4 +1,3 @@
-import { isDesktop } from '@lobechat/const';
 import { HotkeyEnum, KeyEnum } from '@lobechat/types';
 import { isCommandPressed } from '@lobechat/utils';
 import {
@@ -155,20 +154,6 @@ const InputEditor = memo<{ defaultRows?: number }>(({ defaultRows = 2 }) => {
       }}
       onCompositionStart={() => {
         isChineseInput.current = true;
-      }}
-      onContextMenu={async ({ event: e, editor }) => {
-        if (isDesktop) {
-          e.preventDefault();
-          const { electronSystemService } = await import('@/services/electron/system');
-
-          const selectionValue = editor.getSelectionDocument('markdown') as unknown as string;
-          const hasSelection = !!selectionValue;
-
-          await electronSystemService.showContextMenu('editor', {
-            hasSelection,
-            value: selectionValue,
-          });
-        }
       }}
       onFocus={() => {
         enableScope(HotkeyEnum.AddUserMessage);

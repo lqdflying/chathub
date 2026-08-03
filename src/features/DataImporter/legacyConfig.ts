@@ -4,12 +4,7 @@ import { notification } from '@/components/AntdStaticMethods';
 import { Migration } from '@/migrations';
 import { ConfigFile } from '@/types/exportConfig';
 
-/**
- * V2 删除该方法
- * 不再需要 Migration.migrate
- * @deprecated
- */
-export const importConfigFile = async (
+export const importLegacyConfigFile = async (
   file: File,
   onConfigImport: (config: ConfigFile) => Promise<void>,
 ) => {
@@ -18,7 +13,6 @@ export const importConfigFile = async (
   try {
     const config = JSON.parse(text);
 
-    // it means the config file is exported from a newer version
     if ('schemaHash' in config) {
       notification.error({
         description: t('import.incompatible.description', { ns: 'error' }),
@@ -35,7 +29,7 @@ export const importConfigFile = async (
     notification.error({
       description: t('import.importConfigFile.description', {
         ns: 'error',
-        reason: (error as any).message,
+        reason: (error as Error).message,
       }),
       message: t('import.importConfigFile.title', { ns: 'error' }),
     });

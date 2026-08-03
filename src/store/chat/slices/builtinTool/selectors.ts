@@ -9,12 +9,10 @@ const isInterpreterExecuting = (id: string) => (s: ChatStoreState) =>
   s.codeInterpreterExecuting[id];
 
 const isSearXNGSearching = (id: string) => (s: ChatStoreState) => s.searchLoading[id];
-const isSearchingLocalFiles = (id: string) => (s: ChatStoreState) => s.localFileLoading[id];
 
 export const chatToolSelectors = {
   isDallEImageGenerating,
   isGeneratingDallEImage,
   isInterpreterExecuting,
   isSearXNGSearching,
-  isSearchingLocalFiles,
 };

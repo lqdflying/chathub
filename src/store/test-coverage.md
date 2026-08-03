@@ -503,14 +503,14 @@ bunx eslint src/store/[domain]/
 
 - **Coverage**: \~76% overall (+76 tests, 2 new test files)
 - **New Test Files**:
-  - `tool/slices/mcpStore/action.test.ts` - 41 tests (1,120 LOC) covering MCP plugin management
+  - `tool/slices/mcpStore/action.test.ts` - focused coverage for HTTP MCP plugin management
   - `file/slices/fileManager/action.test.ts` - 35 tests (692 LOC) covering file management operations
 - **Actions Tested**:
   - **mcpStore** (7 main actions): updateMCPInstallProgress, cancelInstallMCPPlugin, cancelMcpConnectionTest, testMcpConnection, uninstallMCPPlugin, loadMoreMCPPlugins, resetMCPPluginList, useFetchMCPPluginList, installMCPPlugin
   - **fileManager** (15 actions): dispatchDockFileList, embeddingChunks, parseFilesToChunks, pushDockFileList, reEmbeddingChunks, reParseFile, refreshFileList, removeAllFiles, removeFileItem, removeFiles, toggleEmbeddingIds, toggleParsingIds, useFetchFileItem, useFetchFileManage
 - **Features Tested**:
-  - MCP plugin installation flow (normal, resume, with dependencies, with config)
-  - MCP connection testing (HTTP and STDIO)
+  - MCP plugin installation flow (HTTP endpoint selection and configuration)
+  - MCP connection testing over Streamable HTTP
   - MCP plugin lifecycle (install, uninstall, list management)
   - File upload and processing workflows
   - File chunk embedding and parsing

@@ -85,13 +85,11 @@ export class FileService {
   /**
    * 获取UI代理文件URL（用于浏览器显示，通过应用代理路由，需要登录）
    * Returns a URL routed through the app server (/webapi/files/[...key]),
-   * so end-users only see the app domain. Falls back to getFullFileUrl when
-   * APP_URL is not configured (e.g. desktop mode).
+   * so end-users only see the app domain.
    */
   public async getUIFileUrl(url?: string | null): Promise<string> {
     if (!url) return '';
     const appUrl = appEnv.APP_URL;
-    if (!appUrl) return this.getFullFileUrl(url);
     const key = this.getKeyFromFullUrl(url);
     return urlJoin(appUrl, 'webapi/files', key);
   }

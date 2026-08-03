@@ -10,12 +10,6 @@ import { authSelectors } from '@/store/user/selectors';
 
 import AssistantMemoryRollupScheduler from './AssistantMemoryRollupScheduler';
 
-// vitest runs without server/pglite env flags, which reads as the deprecated edition
-vi.mock('@/const/version', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/const/version')>()),
-  isDeprecatedEdition: false,
-}));
-
 const CHECK_MS = 120_000;
 
 const todayLocal = () => {

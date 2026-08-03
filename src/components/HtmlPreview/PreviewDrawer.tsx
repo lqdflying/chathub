@@ -7,8 +7,6 @@ import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { isDesktop } from '@/const/version';
-import { TITLE_BAR_HEIGHT } from '@/features/ElectronTitlebar';
 
 const useStyles = createStyles(({ css }) => ({
   container: css`
@@ -94,7 +92,7 @@ const HtmlPreviewDrawer = memo<HtmlPreviewDrawerProps>(({ content, open, onClose
   return (
     <Drawer
       destroyOnHidden
-      height={isDesktop ? `calc(100vh - ${TITLE_BAR_HEIGHT}px)` : '100vh'}
+      height={'100vh'}
       onClose={onClose}
       open={open}
       placement="bottom"

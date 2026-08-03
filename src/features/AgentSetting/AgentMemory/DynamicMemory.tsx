@@ -6,7 +6,6 @@ import { type ReactNode, memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { isDeprecatedEdition } from '@/const/version';
 import Tokens from '@/features/AgentSetting/AgentPrompt/TokenTag';
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { useAgentStore } from '@/store/agent/store';
@@ -228,26 +227,24 @@ const DynamicMemory = memo(() => {
         <Button disabled={!dirty} loading={saving} onClick={onSave} type={'primary'}>
           {t('settingChatMemory.dynamicMemory.save')}
         </Button>
-        {!isDeprecatedEdition &&
-          withGate(
-            <Button
-              disabled={!isActiveSessionTarget}
-              loading={rollingUp || (isActiveSessionTarget && isRollingInStore)}
-              onClick={onRollup}
-            >
-              {t('settingChatMemory.regenerate')}
-            </Button>,
-          )}
-        {!isDeprecatedEdition &&
-          withGate(
-            <Button
-              disabled={!isActiveSessionTarget || !hasBackup}
-              loading={restoring}
-              onClick={onRestore}
-            >
-              {t('settingChatMemory.restorePrevious')}
-            </Button>,
-          )}
+        {withGate(
+          <Button
+            disabled={!isActiveSessionTarget}
+            loading={rollingUp || (isActiveSessionTarget && isRollingInStore)}
+            onClick={onRollup}
+          >
+            {t('settingChatMemory.regenerate')}
+          </Button>,
+        )}
+        {withGate(
+          <Button
+            disabled={!isActiveSessionTarget || !hasBackup}
+            loading={restoring}
+            onClick={onRestore}
+          >
+            {t('settingChatMemory.restorePrevious')}
+          </Button>,
+        )}
         <Button disabled={!assistantMemory} onClick={onCopy}>
           {t('settingChatMemory.copy')}
         </Button>

@@ -4,7 +4,6 @@ import { memo, useId, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { isServerMode } from '@/const/version';
 import SharePdf from '@/features/ShareModal/SharePdf';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
@@ -43,14 +42,11 @@ const ShareModal = memo<ShareModalProps>(({ onCancel, open, message }) => {
       },
     ];
 
-    // Only add PDF tab in server mode
-    if (isServerMode) {
-      items.push({
-        children: <SharePdf message={message} />,
-        key: Tab.PDF,
-        label: t('shareModal.pdf'),
-      });
-    }
+    items.push({
+      children: <SharePdf message={message} />,
+      key: Tab.PDF,
+      label: t('shareModal.pdf'),
+    });
 
     return items;
   }, [isMobile, message, uniqueId, t]);

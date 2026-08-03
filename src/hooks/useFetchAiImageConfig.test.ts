@@ -271,7 +271,7 @@ describe('useFetchAiImageConfig', () => {
     await vi.waitFor(() => expect(revalidateImageConfig).toHaveBeenCalledTimes(3));
   });
 
-  it('does not migrate unowned browser-local config into an authenticated preference', async () => {
+  it('does not migrate unowned guest config into an authenticated preference', async () => {
     userState.preference = { imageConfig: {} };
     userState.authUserId = 'account-b';
     userState.currentUserScope = 'user:account-b';
@@ -356,7 +356,7 @@ describe('useFetchAiImageConfig', () => {
     );
   });
 
-  it('restores browser-local preferences for a signed-out user', async () => {
+  it('restores guest preferences for a signed-out user', async () => {
     aiInfraState.isInitialized = true;
     aiInfraState.requestScope = 'guest';
     aiInfraState.scope = 'guest';
@@ -483,7 +483,7 @@ describe('useFetchAiImageConfig', () => {
     expect(updateImageConfig).not.toHaveBeenCalled();
   });
 
-  it('initializes an empty authenticated preference without browser-local fallback', async () => {
+  it('initializes an empty authenticated preference without a guest fallback', async () => {
     globalState.status = {};
     userState.preference = { imageConfig: {} };
     aiInfraState.isInitialized = true;

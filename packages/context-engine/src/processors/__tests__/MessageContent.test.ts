@@ -4,17 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PipelineContext } from '../../types';
 import { MessageContentProcessor } from '../MessageContent';
 
-vi.mock('@lobechat/utils/imageToBase64', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@lobechat/utils/imageToBase64')>();
-  return {
-    ...actual,
-    imageUrlToBase64: vi.fn().mockResolvedValue({
-      base64: 'base64-data',
-      mimeType: 'image/png',
-    }),
-  };
-});
-
 const createContext = (messages: UIChatMessage[]): PipelineContext => ({
   initialState: { messages: [] } as any,
   messages,
@@ -119,7 +108,7 @@ describe('MessageContentProcessor', () => {
       expect(result.messages[0].content).toBe('Hello');
     });
 
-    it('should process local image URLs to base64', async () => {
+    it('should preserve image URLs for server-side model requests', async () => {
       mockIsCanUseVision.mockReturnValue(true);
 
       const processor = new MessageContentProcessor({
@@ -146,7 +135,7 @@ describe('MessageContentProcessor', () => {
       const result = await processor.process(createContext(messages));
 
       const content = result.messages[0].content as any[];
-      expect(content[1].image_url.url).toBe('data:image/png;base64,base64-data');
+      expect(content[1].image_url.url).toBe('http://127.0.0.1:3000/image.jpg');
     });
   });
 

@@ -7,7 +7,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_MODEL_PROVIDER_LIST } from '@/config/modelProviders';
-import { clientDB, initializeDB } from '@/database/client/db';
+import { getTestDB } from '../../models/__tests__/_util';
 import {
   AiProviderDetailItem,
   AiProviderListItem,
@@ -26,10 +26,9 @@ const mockProviderConfigs = {
 let repo: AiInfraRepos;
 
 beforeEach(async () => {
-  await initializeDB();
   vi.clearAllMocks();
 
-  repo = new AiInfraRepos(clientDB as any, userId, mockProviderConfigs);
+  repo = new AiInfraRepos(await getTestDB(), userId, mockProviderConfigs);
 });
 
 describe('AiInfraRepos', () => {

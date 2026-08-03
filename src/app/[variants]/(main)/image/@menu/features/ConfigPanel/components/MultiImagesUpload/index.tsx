@@ -689,7 +689,6 @@ const MultiImagesUpload: FC<MultiImagesUploadProps> = memo(
               setDisplayItems((prev) => prev.filter((displayItem) => displayItem.id !== item.id));
             }
           },
-          skipCheckFileType: true,
         }),
       );
 

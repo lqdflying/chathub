@@ -3,10 +3,7 @@ import { useTheme } from 'antd-style';
 import Link from 'next/link';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
-import urlJoin from 'url-join';
 
-import { OFFICIAL_URL } from '@/const/url';
-import { isDesktop } from '@/const/version';
 import PlanIcon from '@/features/PlanIcon';
 import { Plans } from '@/types/subscription';
 
@@ -36,14 +33,7 @@ const PlanTag = memo<PlanTagProps>(({ type = PlanType.Preview }) => {
   const isFree = type === Plans.Free;
 
   return (
-    <Link
-      href={urlJoin(
-        isDesktop ? OFFICIAL_URL : '/',
-        isFree ? '/subscription/plans' : '/subscription/usage',
-      )}
-      style={{ cursor: 'pointer' }}
-      target={isDesktop ? '_blank' : undefined}
-    >
+    <Link href={isFree ? '/subscription/plans' : '/subscription/usage'} style={{ cursor: 'pointer' }}>
       <PlanIcon plan={type} size={22} type={'tag'} />
     </Link>
   );

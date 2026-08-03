@@ -60,12 +60,6 @@
       "advanced": {
         "title": "高級設置"
       },
-      "args": {
-        "desc": "傳遞給執行命令的參數列表，一般在這裡輸入 MCP 伺服器名稱，或啟動腳本路徑",
-        "label": "命令參數",
-        "placeholder": "例如：mcp-hello-world",
-        "required": "請輸入啟動參數"
-      },
       "auth": {
         "bear": "API Key",
         "desc": "選擇 MCP 伺服器的認證方式",
@@ -82,29 +76,10 @@
       "avatar": {
         "label": "插件圖示"
       },
-      "command": {
-        "desc": "用於啟動 MCP STDIO Server 的可執行檔或腳本",
-        "label": "命令",
-        "placeholder": "例如：npx / uv / docker 等",
-        "required": "請輸入啟動命令"
-      },
       "desc": {
         "desc": "添加插件的描述說明",
         "label": "插件描述",
         "placeholder": "補充該插件的使用說明和場景等資訊"
-      },
-      "endpoint": {
-        "desc": "輸入你的 MCP Streamable HTTP Server 的地址",
-        "label": "MCP Endpoint URL"
-      },
-      "env": {
-        "add": "新增一行",
-        "desc": "輸入你的 MCP Server 所需要的環境變數",
-        "duplicateKeyError": "欄位鍵必須唯一",
-        "formValidationFailed": "表單驗證失敗，請檢查參數格式",
-        "keyRequired": "欄位鍵不能為空",
-        "label": "MCP Server 環境變數",
-        "stringifyError": "無法序列化參數，請檢查參數格式"
       },
       "headers": {
         "add": "新增一行",
@@ -125,21 +100,8 @@
         "invalidJson": "無效的 JSON 格式",
         "invalidStructure": "JSON 格式無效"
       },
-      "stdioNotSupported": "當前環境不支援 stdio 類型的 MCP 插件",
       "testConnection": "測試連接",
       "testConnectionTip": "測試連接成功後 MCP 插件才可以被正常使用",
-      "type": {
-        "desc": "選擇 MCP 插件的通訊方式，網頁版只支援 Streamable HTTP",
-        "httpFeature1": "相容網頁版與桌面端",
-        "httpFeature2": "連接遠端 MCP 伺服器, 無需額外安裝配置",
-        "httpShortDesc": "基於串流式 HTTP 的通訊協議",
-        "label": "MCP 插件類型",
-        "stdioFeature1": "更低的通訊延遲, 適合本地執行",
-        "stdioFeature2": "需在本地安裝運行 MCP 伺服器",
-        "stdioNotAvailable": "STDIO 模式僅在桌面版可用",
-        "stdioShortDesc": "基於標準輸入輸出的通訊協議",
-        "title": "MCP 插件類型"
-      },
       "url": {
         "desc": "輸入你的 MCP Server Streamable HTTP 地址，不支援 SSE 模式",
         "invalid": "請輸入有效的 URL 地址",
@@ -249,19 +211,7 @@
     "content": "調用插件中...",
     "plugin": "插件運行中..."
   },
-  "localSystem": {
-    "apiName": {
-      "listLocalFiles": "查看檔案列表",
-      "moveLocalFiles": "移動檔案",
-      "readLocalFile": "讀取檔案內容",
-      "renameLocalFile": "重新命名",
-      "searchLocalFiles": "搜尋檔案",
-      "writeLocalFile": "寫入檔案"
-    },
-    "title": "本地檔案"
-  },
   "mcpInstall": {
-    "CHECKING_INSTALLATION": "檢查安裝環境...",
     "COMPLETED": "安裝完成",
     "CONFIGURATION_REQUIRED": "請完成相關配置後繼續安裝",
     "ERROR": "安裝錯誤",
@@ -271,101 +221,23 @@
     "configurationDescription": "該 MCP 插件需要配置參數才能正常使用，請填寫必要的配置信息",
     "configurationRequired": "配置插件參數",
     "continueInstall": "繼續安裝",
-    "dependenciesDescription": "此插件需要安裝以下系統依賴才能正常工作，請按照指引安裝缺失的依賴項，然後點擊重新檢查繼續安裝。",
-    "dependenciesRequired": "請安裝插件的系統依賴",
-    "dependencyStatus": {
-      "installed": "已安裝",
-      "notInstalled": "未安裝",
-      "requiredVersion": "需要版本: {{version}}"
-    },
     "errorDetails": {
-      "args": "參數",
-      "command": "命令",
       "connectionParams": "連接參數",
-      "env": "環境變數",
-      "errorOutput": "錯誤日誌",
-      "exitCode": "退出碼",
       "hideDetails": "收起詳情",
       "originalError": "原始錯誤",
-      "showDetails": "查看詳情"
+      "showDetails": "查看詳情",
+      "connectionType": "連接參數"
     },
     "errorTypes": {
       "AUTHORIZATION_ERROR": "授權驗證錯誤",
       "CONNECTION_FAILED": "連接失敗",
       "INITIALIZATION_TIMEOUT": "初始化超時",
-      "PROCESS_SPAWN_ERROR": "進程啟動失敗",
       "UNKNOWN_ERROR": "未知錯誤",
       "VALIDATION_ERROR": "參數驗證失敗"
     },
-    "installError": "MCP 插件安裝失敗，失敗原因： {{detail}}",
-    "installMethods": {
-      "manual": "手動安裝:",
-      "recommended": "推薦安裝方式:"
-    },
-    "recheckDependencies": "重新檢查",
-    "skipDependencies": "跳過檢查"
+    "installError": "MCP 插件安裝失敗，失敗原因： {{detail}}"
   },
   "pluginList": "插件列表",
-  "protocolInstall": {
-    "actions": {
-      "install": "安裝",
-      "installAnyway": "仍要安裝",
-      "installed": "已安裝"
-    },
-    "config": {
-      "args": "參數",
-      "command": "命令",
-      "env": "環境變數",
-      "headers": "請求標頭",
-      "title": "配置信息",
-      "type": {
-        "http": "類型: HTTP",
-        "label": "類型",
-        "stdio": "類型: Stdio"
-      },
-      "url": "服務地址"
-    },
-    "custom": {
-      "badge": "自定義插件",
-      "security": {
-        "description": "此插件未經過官方驗證，安裝可能存在安全風險！請確保您信任插件來源。",
-        "title": "⚠️ 安全風險提示"
-      },
-      "title": "安裝自定義插件"
-    },
-    "marketplace": {
-      "title": "安裝第三方插件",
-      "trustedBy": "由 {{name}} 提供",
-      "unverified": {
-        "title": "未經驗證的第三方插件",
-        "warning": "此插件來自未驗證的第三方市場，安裝前請確認您信任該來源。"
-      },
-      "verified": "已驗證"
-    },
-    "messages": {
-      "connectionTestFailed": "連接測試失敗",
-      "installError": "插件安裝失敗，請重試",
-      "installSuccess": "插件 {{name}} 安裝成功！",
-      "manifestError": "獲取插件詳情失敗，請檢查網路連接後重試",
-      "manifestNotFound": "未能獲取插件描述文件"
-    },
-    "meta": {
-      "author": "作者",
-      "homepage": "主頁",
-      "identifier": "標識符",
-      "source": "來源",
-      "version": "版本"
-    },
-    "official": {
-      "badge": "LobeHub 官方插件",
-      "description": "此插件由 LobeHub 官方開發和維護，經過嚴格的安全審核，可放心使用。",
-      "loadingMessage": "正在獲取插件詳情...",
-      "loadingTitle": "載入中",
-      "title": "安裝官方插件"
-    },
-    "title": "安裝 MCP 插件",
-    "warning": "⚠️ 請確認您信任此插件的來源，惡意插件可能會危害您的系統安全。"
-  },
   "search": {
     "apiName": {
       "crawlMultiPages": "讀取多個頁面內容",
@@ -411,14 +283,11 @@
       "title": "插件配置"
     },
     "connection": {
-      "args": "啟動參數",
-      "command": "啟動命令",
       "title": "連接信息",
       "type": "連接類型",
       "url": "服務地址"
     },
     "edit": "編輯",
-    "envConfigDescription": "這些配置將作為環境變數在 MCP 伺服器啟動時傳遞給進程",
     "httpTypeNotice": "HTTP 類型的 MCP 插件暫無需要配置的環境變數",
     "indexUrl": {
       "title": "市場索引",
@@ -426,14 +295,10 @@
     },
     "messages": {
       "connectionUpdateFailed": "連接信息更新失敗",
-      "connectionUpdateSuccess": "連接信息更新成功",
-      "envUpdateFailed": "環境變數保存失敗",
-      "envUpdateSuccess": "環境變數保存成功"
+      "connectionUpdateSuccess": "連接信息更新成功"
     },
     "modalDesc": "配置插件市場的地址後，可以使用自定義的插件市場",
     "rules": {
-      "argsRequired": "請輸入啟動參數",
-      "commandRequired": "請輸入啟動命令",
       "urlRequired": "請輸入服務地址"
     },
     "saveSettings": "保存設置",

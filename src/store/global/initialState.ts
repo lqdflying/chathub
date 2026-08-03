@@ -1,7 +1,6 @@
 import type { ThemeMode } from 'antd-style';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 
-import { DatabaseLoadingState, MigrationSQL, MigrationTableItem } from '@/types/clientDB';
 import { LocaleMode } from '@/types/locale';
 import { SessionDefaultGroup } from '@/types/session';
 import { AsyncLocalStorage } from '@/utils/localStorage';
@@ -38,10 +37,8 @@ export enum SettingsTabs {
   ChatInstruction = 'chat-instruction',
   Common = 'common',
   Hotkey = 'hotkey',
-  LLM = 'llm',
   Mcp = 'mcp',
   Provider = 'provider',
-  Proxy = 'proxy',
   Skills = 'skills',
   Storage = 'storage',
   SystemAgent = 'system-agent',
@@ -68,10 +65,6 @@ export interface SystemStatus {
   hideThreadLimitAlert?: boolean;
   imagePanelWidth: number;
   imageTopicPanelWidth?: number;
-  /**
-   * 应用初始化时不启用 PGLite，只有当用户手动开启时才启用
-   */
-  isEnablePglite?: boolean;
   isShowCredit?: boolean;
   language?: LocaleMode;
   /**
@@ -112,18 +105,6 @@ export interface SystemStatus {
 
 export interface GlobalState {
   hasNewVersion?: boolean;
-  initClientDBError?: Error;
-  initClientDBMigrations?: {
-    sqls: MigrationSQL[];
-    tableRecords: MigrationTableItem[];
-  };
-
-  initClientDBProcess?: { costTime?: number; phase: 'wasm' | 'dependencies'; progress: number };
-  /**
-   * 客户端数据库初始化状态
-   * 启动时为 Idle，完成为 Ready，报错为 Error
-   */
-  initClientDBStage: DatabaseLoadingState;
   isMobile?: boolean;
   isStatusInit?: boolean;
   latestVersion?: string;
@@ -161,7 +142,6 @@ export const INITIAL_STATUS = {
 } satisfies SystemStatus;
 
 export const initialState: GlobalState = {
-  initClientDBStage: DatabaseLoadingState.Idle,
   isMobile: false,
   isStatusInit: false,
   sidebarKey: SidebarTabKey.Chat,

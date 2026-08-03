@@ -7,12 +7,12 @@ ChatHub treats tools as a first-class product area. It supports built-in tools, 
 `src/services/mcp.ts` is the main app-facing service. It handles:
 
 - invoking MCP tool calls
-- resolving streamable MCP manifests
-- resolving stdio MCP manifests for desktop mode
-- checking whether an MCP server installation is valid
+- resolving Streamable HTTP MCP manifests
 - reporting tool-call metadata asynchronously after execution
 
-The service chooses between `desktopClient` and `toolsClient` depending on whether the app is in desktop mode and whether the target service is local/private.
+The browser service always calls the authenticated Tools tRPC client. MCP
+connections, OAuth tokens, protocol clients, and tool-result persistence are
+owned by the server.
 
 ## Product-level context
 
@@ -28,7 +28,7 @@ The README also calls out MCP OAuth auto-discovery and server-side token storage
 ## Discover catalog compatibility
 
 Discover is retained as a direct-route compatibility surface for existing MCP
-and plugin deep links, but it is not a primary product entry point. The desktop
+and plugin deep links, but it is not a primary product entry point. The main
 sidebar and MCP Settings page do not link to it, its routes are marked
 `noindex`, and Discover/plugin entries are omitted from generated sitemaps.
 Keep the shared discovery service, store, types, and `/discover` routes intact
@@ -122,14 +122,15 @@ Important invariants:
 
 MCP code is easy to break in ways that only show up in deployment-specific paths:
 
-- desktop vs. server transport selection
-- stdio vs. streamable transports
+- Streamable HTTP connection and authorization-header parsing
 - OAuth-backed streamable transports must validate JSON-like HTTP responses before parsing. Both `application/json` and structured `application/*+json` media types are JSON. HTML auth/proxy pages returned as `text/html` or mislabeled JSON should become sanitized MCP connection errors without raw body text, URL query secrets, tokens, or `Unexpected token '<'` parser text.
 - OAuth `401` recovery is bounded: the Streamable HTTP fetch may force one token refresh and retry the same request once. Concurrent `tools`, `resources`, and `prompts` calls share a single forced refresh; a failed refresh or second `401` is terminal.
 - Token endpoint handling remains separate from transport retry. Authorization-code exchange and refresh still preserve provider-specific Basic-to-`client_secret_post` fallback while using the same malformed-response validation.
 - MCP client cache keys are fingerprinted. OAuth connections use user + plugin identity and exclude rotating access tokens; simultaneous initialization is coalesced. Cache replacement, capability upgrades, eviction, and partial initialization failure disconnect the old/partial client best-effort.
-- local/private URL handling
+- server-side private URL and SSRF handling
 - manifest metadata and plugin installability
+- legacy stdio connection records are unsupported and may only be removed;
+  marketplace entries without an HTTP URL are hidden
 - custom plugin manifest proxying uses the authenticated `/webapi/proxy`
   boundary. `ToolService` creates one standard encrypted `X-lobe-chat-auth`
   header set and the manifest parser reuses it for both the manifest document
@@ -148,13 +149,30 @@ CHATHUB_TOOLS_DEBUG=verbose # safe metadata + structured payload fingerprints
 
 Records use prefixed JSON: `[chathub-tools-debug:<event>] {json}`. In Axiom this populates `debug_namespace=chathub-tools-debug` and the event suffix as `debug_event`. Safe records contain structured technical metadata such as correlation IDs, sanitized labels and endpoints, counts, runtime/transport kind, terminal outcome, timing, result shape, and bounded fingerprints. Verbose payload views additionally bound arrays, object width, and depth; property names and every non-secret string become length + SHA-256 fingerprint metadata, while secret-key values are omitted.
 
-Safe mode now follows an MCP request end to end with an opaque `diagnosticId`: browser RPC, tRPC route, client cache/initialization, OAuth lookup and refresh, HTTP or stdio transport, MCP protocol operation, result normalization, serialization, and the outgoing tRPC response. Events include a versioned envelope, a `spanId` plus per-span event sequence, connection hash, safe tool/procedure labels, duration, retry/timeout state, response status/media type/size, result shape, and bounded fingerprints. The browser failure report is a second span with the same `diagnosticId`, so its sequence restarts without becoming ambiguous. `mcp.callTool` is deliberately unbatched so one invalid gateway response cannot fail sibling tool calls; unrelated Tools procedures remain batchable.
+Safe mode follows an MCP request end to end with an opaque `diagnosticId`:
+browser RPC, tRPC route, client cache/initialization, OAuth lookup and refresh,
+HTTP transport, MCP protocol operation, result normalization, serialization,
+database persistence, and the outgoing tRPC response. Events include a
+versioned envelope, a `spanId` plus per-span event sequence, connection hash,
+safe tool/procedure labels, duration, retry/timeout state, response
+status/media type/size, result shape, and bounded fingerprints. The browser
+failure report is a second span with the same `diagnosticId`, so its sequence
+restarts without becoming ambiguous. `mcp.callTool` is deliberately unbatched
+so one invalid gateway response cannot fail sibling tool calls; unrelated Tools
+procedures remain batchable.
 
 When the browser cannot read or parse the Tools RPC response, it converts the raw exception into `client_rpc_response_failed`. The record reports a safe classification (`html`, `invalid_json`, `truncated_json`, `empty`, `unreadable`, or `network_error`), HTTP status, media type, byte count, HTML marker, structured network/error class, proxy hints, and a bounded response fingerprint when bytes were available. It never records the response body or messages such as `Unexpected token '<'`. The browser sends this strict metadata once to the authenticated `mcp.reportClientFailure` procedure so the failure also appears in container logs. Comparing the browser fingerprint with `tools_rpc_complete.response.responseFingerprint` identifies whether ChatHub produced the bad response or a downstream gateway replaced it.
 
-In server mode, `mcp.callTool` receives the destination tool-message ID and persists the normalized result directly through the user-scoped `MessageModel` before returning. Its response contains the serialized `content` plus a persistence status: `persisted`, `failed`, or `client_required`. The browser applies a `persisted` result to its optimistic store without reposting the raw payload through `message.update`. A server-side `failed` result also remains available for the immediate model continuation, but the UI warns that a reload may lose it; ChatHub deliberately does not send the same large result through a second proxy boundary.
+`mcp.callTool` receives the destination tool-message ID and persists the
+normalized result directly through the user-scoped `MessageModel` before
+returning. Its response contains the serialized `content` plus a persistence
+status of `persisted` or `failed`. The browser applies a persisted result to its
+optimistic store without reposting the raw payload through `message.update`. A
+failed database write remains available for the immediate model continuation,
+but the UI warns that a reload may lose it; ChatHub deliberately does not send
+the same large result through a second proxy boundary.
 
-Client-side tool-result persistence must retain the exact conversation identity
+Tool-result dispatch must retain the exact conversation identity
 from the assistant message. `messagesMap` keys are transient, versioned JSON
 tuples created and decoded only by `src/store/chat/utils/messageMapKey.ts`.
 Session and topic identifiers may contain underscores, so tool execution must
@@ -167,12 +185,10 @@ Every server-routed MCP invocation also carries a unique `invocationId`, includi
 
 Assistant tool calls are executed only after their final message write is confirmed. If both bounded finalization attempts receive an unusable gateway response, the UI keeps the streamed assistant state, reports the diagnostic failure, and stops before invoking external tools. This prevents side effects from running when the database may not contain the assistant's tool-call state; the user can retry the request explicitly.
 
-Desktop stdio calls return `client_required` because their MCP router has no server database. That compatibility path still saves through `message.update`, isolates the update from the normal Lambda batch, reuses the MCP `diagnosticId`, and retries one classified response failure. `tool_persistence_rpc_started|complete|failed` and `client_rpc_response_failed` therefore remain useful for desktop/client-required persistence, while `tool_result_persistence_started|complete|failed` describe direct server-database persistence.
-
 Parallel MCP calls use one abort controller per tool-message ID. Finishing one call removes only its own controller and loading ID; retry/rewind cancellation aborts the entire controller registry. This prevents one Tavily call completing from replacing or disabling cancellation for sibling `search`, `extract`, or `map` calls.
 
 The common lifecycle also covers application built-ins, default plugins,
-markdown plugins, standalone plugins, desktop MCP, and `AgentRuntime`
+markdown plugins, standalone plugins, HTTP MCP, and `AgentRuntime`
 server-side tool execution. `tool_batch_started` records the expected call set;
 `tool_completion_reported` records one terminal outcome per call; and
 `tool_batch_settled` records `resultCount` and `failureCount`. Supported terminal
@@ -200,7 +216,14 @@ Provider-native tools are not local completions. OpenAI web search, Moonshot
 This distinction prevents provider-side search from being counted as a
 successful local result.
 
-Useful phase events include `tools_rpc_started|complete|failed`, `tool_result_persistence_started|complete|failed`, `tool_persistence_rpc_started|complete|failed`, `client_cache_lookup`, `client_initialization_*`, `oauth_operation_*`, `transport_request_*`, `mcp_operation_*`, `call_tool_upstream_complete`, `call_tool_normalized`, `call_tool_complete`, and `client_rpc_response_failed`. `call_tool_upstream_complete` only means the MCP SDK returned; `call_tool_complete` is emitted after successful normalization, serialization, and the direct persistence attempt.
+Useful phase events include `tools_rpc_started|complete|failed`,
+`tool_result_persistence_started|complete|failed`, `client_cache_lookup`,
+`client_initialization_*`, `oauth_operation_*`, `transport_request_*`,
+`mcp_operation_*`, `call_tool_upstream_complete`, `call_tool_normalized`,
+`call_tool_complete`, and `client_rpc_response_failed`.
+`call_tool_upstream_complete` only means the MCP SDK returned;
+`call_tool_complete` is emitted after successful normalization, serialization,
+and the direct persistence attempt.
 
 ### Tool and cache correlation
 
@@ -258,9 +281,10 @@ The switch does not auto-enable existing `chathub-tools:*`, `lobe-mcp:*`, or `co
 
 When editing tools or MCP behavior, check all three layers:
 
-1. UI/settings surfaces under `src/app/[variants]/(main)/settings/provider/`
+1. UI/settings surfaces under `src/app/[variants]/(main)/settings/`
 2. service code in `src/services/mcp.ts`
-3. server/client transport implementations under `src/server/routers/` and `src/server/services/`
+3. the HTTP client and server transport under `src/libs/mcp/`,
+   `src/server/routers/`, and `src/server/services/`
 
 For built-in Tools Hub features, also check:
 

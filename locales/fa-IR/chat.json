@@ -169,6 +169,26 @@
     "setInitialMembers": "انتخاب اعضای تیم"
   },
   "members": "اعضا",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "ذکر اعضا"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "بارگذاری تصویر",
       "tooltip": "بارگذاری"
     },
-    "clientMode": {
-      "actionFiletip": "بارگذاری فایل",
-      "actionTooltip": "بارگذاری",
-      "disabled": "مدل فعلی از تشخیص بصری و تحلیل فایل پشتیبانی نمی‌کند، لطفاً مدل را تغییر دهید و دوباره امتحان کنید",
-      "fileNotSupported": "در حالت مرورگر، بارگذاری فایل پشتیبانی نمی‌شود و فقط تصاویر قابل بارگذاری هستند",
-      "visionNotSupported": "مدل فعلی از شناسایی بصری پشتیبانی نمی‌کند، لطفاً مدل را تغییر دهید و دوباره امتحان کنید"
-    },
     "preview": {
       "prepareTasks": "آماده‌سازی بخش‌ها...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "حجم فایل ویدئویی نباید از ۲۰ مگابایت بیشتر باشد، حجم فعلی فایل {{actualSize}} است"
-    }
+    },
+    "visionNotSupported": "مدل فعلی از شناسایی بصری پشتیبانی نمی‌کند، لطفاً مدل را تغییر دهید و دوباره امتحان کنید"
   },
   "you": "شما",
-  "zenMode": "حالت تمرکز",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "حالت تمرکز"
 }

@@ -7,9 +7,6 @@
  * @link https://trpc.io/docs/v11/router
  * @link https://trpc.io/docs/v11/procedures
  */
-import { DESKTOP_USER_ID } from '@/const/desktop';
-import { isDesktop } from '@/const/version';
-
 import { edgeTrpc } from './init';
 import { jwtPayloadChecker } from './middleware/jwtPayload';
 
@@ -25,7 +22,7 @@ export const router = edgeTrpc.router;
  **/
 export const publicProcedure = edgeTrpc.procedure.use(({ next, ctx }) => {
   return next({
-    ctx: { userId: isDesktop ? DESKTOP_USER_ID : ctx.userId },
+    ctx: { userId: ctx.userId },
   });
 });
 

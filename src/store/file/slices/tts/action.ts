@@ -79,7 +79,6 @@ export const createTTSFileSlice: StateCreator<
       const res = await get().uploadWithProgress({
         file,
         signal: accountInvalidationController.signal,
-        skipCheckFileType: true,
       });
       if (!isTTSMutationCurrent(get(), mutationSnapshot)) return;
 

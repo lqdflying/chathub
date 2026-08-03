@@ -1,6 +1,5 @@
 import type { NextAuthConfig } from 'next-auth';
 
-import { getServerDBConfig } from '@/config/db';
 import { getAuthConfig } from '@/envs/auth';
 
 import { parseAuthProviders } from './parseAuthProviders';
@@ -15,8 +14,6 @@ const {
   NEXT_AUTH_SSO_PROVIDERS,
   NEXT_PUBLIC_ENABLE_NEXT_AUTH,
 } = getAuthConfig();
-
-const { NEXT_PUBLIC_ENABLED_SERVER_SERVICE } = getServerDBConfig();
 
 export const initSSOProviders = () => {
   return NEXT_PUBLIC_ENABLE_NEXT_AUTH
@@ -36,7 +33,7 @@ const hasCredentialsProvider = () => {
 
 // Notice this is only an object, not a full Auth.js instance
 export default {
-  adapter: NEXT_PUBLIC_ENABLED_SERVER_SERVICE ? LobeNextAuthDbAdapter() : undefined,
+  adapter: LobeNextAuthDbAdapter(),
   callbacks: {
     // Note: Data processing order of callback: authorize --> jwt --> session
     async jwt({ token, user }) {
@@ -76,12 +73,8 @@ export default {
   secret: NEXT_AUTH_SECRET,
   session: {
     maxAge: AUTH_SESSION_MAX_AGE_DAYS * 24 * 60 * 60,
-    // Credentials provider only supports JWT strategy
-    // Also force JWT if server service is disabled
-    strategy:
-      hasCredentialsProvider() || !NEXT_PUBLIC_ENABLED_SERVER_SERVICE
-        ? 'jwt'
-        : NEXT_AUTH_SSO_SESSION_STRATEGY,
+    // Credentials provider only supports JWT strategy.
+    strategy: hasCredentialsProvider() ? 'jwt' : NEXT_AUTH_SSO_SESSION_STRATEGY,
   },
   trustHost: process.env?.AUTH_TRUST_HOST ? process.env.AUTH_TRUST_HOST === 'true' : true,
   // Do not add `events.signIn` that touches DB here: auth.config is bundled for Edge

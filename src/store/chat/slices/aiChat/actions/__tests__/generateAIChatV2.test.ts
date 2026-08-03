@@ -25,16 +25,6 @@ import { resetTestEnvironment, setupMockSelectors, spyOnMessageService } from '.
 // Keep zustand mock as it's needed globally
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
-// Mock server mode for V2 tests
-vi.mock('@/const/version', async (importOriginal) => {
-  const module = await importOriginal();
-  return {
-    ...(module as any),
-    isDesktop: false,
-    isServerMode: true,
-  };
-});
-
 // Mock aiChatService for V2 server flow
 vi.mock('@/services/aiChat', () => ({
   aiChatService: {

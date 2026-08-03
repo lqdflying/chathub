@@ -1,7 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { message } from '@/components/AntdStaticMethods';
 import { fileService } from '@/services/file';
 import { uploadService } from '@/services/upload';
 import { useUserStore } from '@/store/user';
@@ -10,13 +9,6 @@ import { getImageDimensions } from '@/utils/client/imageDimensions';
 import { useFileStore as useStore } from '../../store';
 
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
-
-// Mock necessary modules
-vi.mock('@/components/AntdStaticMethods', () => ({
-  message: {
-    info: vi.fn(),
-  },
-}));
 
 vi.mock('@/utils/client/imageDimensions', () => ({
   getImageDimensions: vi.fn(),
@@ -448,10 +440,8 @@ describe('FileUploadAction', () => {
           expect.any(AbortSignal),
         );
         expect(uploadService.uploadFileToS3).toHaveBeenCalledWith(mockFile, {
-          onNotSupported: expect.any(Function),
           onProgress: expect.any(Function),
           signal: expect.any(AbortSignal),
-          skipCheckFileType: undefined,
         });
         expect(fileService.createFile).toHaveBeenCalledWith(
           {
@@ -553,39 +543,6 @@ describe('FileUploadAction', () => {
         expect(createFileSpy).not.toHaveBeenCalled();
       });
 
-      it('should call onNotSupported when file type is not supported', async () => {
-        const { result } = renderHook(() => useStore());
-
-        const mockFile = new File(['test content'], 'unsupported.xyz', {
-          type: 'application/xyz',
-        });
-        const mockCheckResult = { isExist: false };
-        const onStatusUpdate = vi.fn();
-
-        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
-        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue(mockCheckResult);
-
-        // Mock uploadFileToS3 to call onNotSupported
-        vi.spyOn(uploadService, 'uploadFileToS3').mockImplementation(
-          async (file, { onNotSupported }) => {
-            onNotSupported?.();
-            return { data: {} as any, success: false };
-          },
-        );
-
-        await act(async () => {
-          await result.current.uploadWithProgress({
-            file: mockFile,
-            onStatusUpdate,
-          });
-        });
-
-        expect(onStatusUpdate).toHaveBeenCalledWith({
-          id: mockFile.name,
-          type: 'removeFile',
-        });
-        expect(message.info).toHaveBeenCalled();
-      });
     });
 
     describe('file type detection', () => {
@@ -735,44 +692,6 @@ describe('FileUploadAction', () => {
           }),
           knowledgeBaseId,
           expect.any(AbortSignal),
-        );
-      });
-    });
-
-    describe('skipCheckFileType option', () => {
-      it('should pass skipCheckFileType to uploadFileToS3', async () => {
-        const { result } = renderHook(() => useStore());
-
-        const mockFile = new File(['test content'], 'skip.bin', {
-          type: 'application/octet-stream',
-        });
-        const mockMetadata = {
-          date: '12345',
-          dirname: '/uploads',
-          filename: 'skip.bin',
-          path: '/uploads/skip.bin',
-        };
-        const mockCheckResult = { isExist: false };
-        const mockUploadResult = { data: mockMetadata, success: true };
-        const mockFileResponse = { id: 'file-id-skip', url: 'https://example.com/skip.bin' };
-
-        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
-        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue(mockCheckResult);
-        vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue(mockUploadResult);
-        vi.spyOn(fileService, 'createFile').mockResolvedValue(mockFileResponse);
-
-        await act(async () => {
-          await result.current.uploadWithProgress({
-            file: mockFile,
-            skipCheckFileType: true,
-          });
-        });
-
-        expect(uploadService.uploadFileToS3).toHaveBeenCalledWith(
-          mockFile,
-          expect.objectContaining({
-            skipCheckFileType: true,
-          }),
         );
       });
     });

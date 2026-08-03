@@ -13,7 +13,6 @@ import { chatSelectors } from '@/store/chat/selectors';
 import { pluginHelpers, useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 import { shinyTextStylish } from '@/styles/loading';
-import { LocalSystemManifest } from '@/tools/local-system';
 import { MemoryManifest } from '@/tools/memory';
 import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
@@ -58,12 +57,6 @@ const ToolTitle = memo<ToolTitleProps>(({ identifier, messageId, index, apiName,
         // icon: <Icon icon={Globe} size={13} />,
         id: WebBrowsingManifest.identifier,
         title: t('search.title'),
-      },
-      {
-        apiName: t(`localSystem.apiName.${apiName}`, apiName),
-        // icon: <Icon icon={Laptop} size={13} />,
-        id: LocalSystemManifest.identifier,
-        title: t('localSystem.title'),
       },
       {
         apiName: t(`memory.apiName.${apiName}`, apiName),

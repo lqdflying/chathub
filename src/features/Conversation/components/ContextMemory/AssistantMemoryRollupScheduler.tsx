@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 
-import { isDeprecatedEdition } from '@/const/version';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { getAgentStoreState } from '@/store/agent/store';
 import { getChatStoreState } from '@/store/chat';
@@ -27,9 +26,6 @@ const todayLocal = () => {
 
 const AssistantMemoryRollupScheduler = () => {
   useEffect(() => {
-    // the legacy Dexie edition cannot list topics for the rollup
-    if (isDeprecatedEdition) return;
-
     // every guard reads live state inside the tick, so the interval never resets on
     // agent/config switches — users who switch chats often still get their daily rollup
     const timer = window.setInterval(async () => {

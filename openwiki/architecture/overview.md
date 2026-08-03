@@ -35,6 +35,20 @@ The root README frames ChatHub as a self-hosted alternative to upstream LobeChat
 
 These priorities explain why the codebase has both UI features and a substantial server/runtime surface.
 
+### Runtime and storage boundary
+
+ChatHub has one deployment architecture: a Next.js server backed by PostgreSQL.
+The browser, mobile web view, and installed PWA are clients of the same server
+APIs; none is a durable database host. The repository does not provide an
+Electron runtime, PGlite, IndexedDB/Dexie persistence, desktop IPC, or a
+browser-local service implementation.
+
+Small browser preferences may still use `localStorage`, and browser-side model
+provider requests remain available where explicitly supported. Those are not
+alternate database or deployment modes. Old JSON exports from the retired
+browser-local editions are accepted only at the import boundary described in
+[Data Backup and Restore Internals](../operations/data-backup-and-restore.md).
+
 ## Account-aware assistant navigation
 
 Assistant selection treats the URL as the navigation request and
@@ -66,7 +80,7 @@ hidden until account ownership is ready, while unrelated navigation remains
 available. An open group-creation wizard closes and clears its open state if
 readiness is lost. Every Inbox click advances a synchronous assistant-hydration
 cancellation generation before routing to `session=inbox` or starting the
-optional desktop new-topic action. `SessionHydration` binds a pending assistant
+optional wide-layout new-topic action. `SessionHydration` binds a pending assistant
 query to the generation at which it was observed and refuses to activate it
 after cancellation, even while the throttled URL update is still pending.
 

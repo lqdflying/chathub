@@ -37,16 +37,6 @@
     },
     "title": "Autorisierung fehlgeschlagen"
   },
-  "handoff": {
-    "desc": {
-      "processing": "Die Anwendung verarbeitet die Autorisierung und wird gleich zur nächsten Seite weitergeleitet...",
-      "success": "Es wurde versucht, die Desktop-Anwendung zu öffnen. Wenn die Anwendung nicht automatisch geöffnet wird, wechseln Sie bitte manuell. Sie können dieses Browserfenster später schließen."
-    },
-    "title": {
-      "processing": "Autorisation wird bearbeitet...",
-      "success": "Autorisation abgeschlossen"
-    }
-  },
   "login": {
     "button": "Login bestätigen",
     "description": "Die Anwendung {{clientName}} beantragt die Nutzung Ihres Kontos für den Login",

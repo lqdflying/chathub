@@ -9,7 +9,6 @@ import { KnowledgeItem, KnowledgeType, LobeAgentConfig, LobeAgentTTSConfig } fro
 import { VoiceList } from '@lobehub/tts';
 
 import { DEFAULT_OPENING_QUESTIONS } from '@/features/AgentSetting/store/selectors';
-import { filterToolIds } from '@/helpers/toolFilters';
 import { AgentStoreState } from '@/store/agent/initialState';
 import { merge } from '@/utils/merge';
 
@@ -68,14 +67,7 @@ const currentAgentPlugins = (s: AgentStoreState) => {
   return config?.plugins || [];
 };
 
-/**
- * Get displayable agent plugins by filtering out platform-specific tools
- * that shouldn't be shown in the current environment
- */
-const displayableAgentPlugins = (s: AgentStoreState) => {
-  const plugins = currentAgentPlugins(s);
-  return filterToolIds(plugins);
-};
+const displayableAgentPlugins = currentAgentPlugins;
 
 const currentAgentKnowledgeBases = (s: AgentStoreState) => {
   const config = currentAgentConfig(s);

@@ -1,6 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
-import { LOADING_FLAT, MESSAGE_CANCEL_FLAT, isDesktop, isServerMode } from '@lobechat/const';
+import { LOADING_FLAT, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { knowledgeBaseQAPrompts } from '@lobechat/prompts';
 import {
   ChatImageItem,
@@ -250,275 +250,21 @@ export const generateAIChat: StateCreator<
     onlyAddUserMessage,
     isWelcomeQuestion,
   }) => {
-    const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    const {
-      internal_coreProcessMessage,
-      activeTopicId,
-      activeId,
-      activeThreadId,
-      sendMessageInServer,
-    } = get();
-    if (!accountMutationSnapshot || !activeId) return;
-    let conversationContext: ConversationContext = {
-      generation: get().conversationClearGeneration,
-      sessionId: activeId,
-      topicId: activeTopicId,
-    };
-    const isCurrentConversation = () =>
-      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.generation &&
-      get().activeId === conversationContext.sessionId &&
-      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
-
-    const fileIdList = files?.map((f) => f.id);
-
-    const hasFile = !!fileIdList && fileIdList.length > 0;
-
-    // if message is empty or no files, then stop
-    if (!message && !hasFile) return;
+    const { activeId, sendMessageInServer } = get();
+    const hasFile = !!files?.length;
+    if (!activeId || (!message && !hasFile)) return;
 
     const expectedConversationVersion = await messageService.getConversationVersion();
-    if (!isCurrentConversation()) return;
 
-    // router to server mode send message
-    if (isServerMode)
-      return sendMessageInServer({
-        expectedConversationVersion,
-        files,
-        isWelcomeQuestion,
-        message,
-        activatedSkillIds,
-        metadata,
-        onlyAddUserMessage,
-      });
-
-    set({ isCreatingMessage: true }, false, n('creatingMessage/start'));
-
-    const messageMetadata =
-      metadata || activatedSkillIds?.length
-        ? {
-            ...metadata,
-            ...(activatedSkillIds?.length
-              ? { skills: { activated: [...new Set(activatedSkillIds)] } }
-              : {}),
-          }
-        : undefined;
-
-    const newMessage: CreateMessageParams = {
-      content: message,
-      // if message has attached with files, then add files to message and the agent
-      files: fileIdList,
-      role: 'user',
-      sessionId: activeId,
-      // if there is activeTopicId，then add topicId to message
-      topicId: activeTopicId,
-      threadId: activeThreadId,
-      ...(messageMetadata && { metadata: messageMetadata }),
-    };
-
-    const agentConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
-
-    let tempMessageId: string | undefined = undefined;
-    let newTopicId: string | undefined = undefined;
-
-    // it should be the default topic, then
-    // if autoCreateTopic is enabled, check to whether we need to create a topic
-    if (!onlyAddUserMessage && !activeTopicId && agentConfig.enableAutoCreateTopic) {
-      // check activeTopic and then auto create topic
-      const chats = chatSelectors.activeBaseChats(get());
-
-      // we will add two messages (user and assistant), so the finial length should +2
-      const featureLength = chats.length + 2;
-
-      // if there is no activeTopicId and the feature length is greater than the threshold
-      // then create a new topic and active it
-      if (!activeTopicId && featureLength >= agentConfig.autoCreateTopicThreshold) {
-        // we need to create a temp message for optimistic update
-        tempMessageId = get().internal_createTmpMessage(newMessage);
-        get().internal_toggleMessageLoading(true, tempMessageId);
-
-        const topicId = await get().createTopic(undefined, undefined, expectedConversationVersion);
-        const requestStillOwnsSourceConversation =
-          isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-          get().conversationClearGeneration === conversationContext.generation &&
-          get().activeId === activeId &&
-          (get().activeTopicId ?? null) === (activeTopicId ?? null);
-        if (!requestStillOwnsSourceConversation) return;
-
-        if (topicId) {
-          newTopicId = topicId;
-          newMessage.topicId = topicId;
-
-          // we need to copy the messages to the new topic or the message will disappear
-          const mapKey = chatSelectors.currentChatKey(get());
-          const newMaps = {
-            ...get().messagesMap,
-            [messageMapKey(activeId, topicId)]: get().messagesMap[mapKey],
-          };
-          set({ messagesMap: newMaps }, false, n('moveMessagesToNewTopic'));
-
-          // make the topic loading
-          get().internal_updateTopicLoading(topicId, true);
-        }
-      }
-    }
-    //  update assistant update to make it rerank
-    useSessionStore.getState().triggerSessionUpdate(get().activeId);
-
-    const messageConversationContext = newTopicId
-      ? { ...conversationContext, topicId: newTopicId }
-      : conversationContext;
-    const id = await get().internal_createMessage(newMessage, {
-      conversationContext: messageConversationContext,
+    return sendMessageInServer({
+      activatedSkillIds,
       expectedConversationVersion,
-      tempMessageId,
-      skipRefresh: !onlyAddUserMessage && newMessage.fileList?.length === 0,
+      files,
+      isWelcomeQuestion,
+      message,
+      metadata,
+      onlyAddUserMessage,
     });
-
-    if (!id) {
-      if (isCurrentConversation()) {
-        set({ isCreatingMessage: false }, false, n('creatingMessage/start'));
-        if (!!newTopicId) get().internal_updateTopicLoading(newTopicId, false);
-      }
-      return;
-    }
-
-    if (tempMessageId) get().internal_toggleMessageLoading(false, tempMessageId);
-
-    // switch to the new topic if create the new topic
-    if (!!newTopicId) {
-      conversationContext = messageConversationContext;
-      await get().switchTopic(newTopicId, true);
-      if (!isCurrentConversation()) return;
-      getSkillStoreState().moveSelectedSkills(
-        getSkillSelectionKey({
-          sessionId: activeId,
-          threadId: activeThreadId,
-          topicId: activeTopicId,
-        }),
-        getSkillSelectionKey({
-          sessionId: activeId,
-          threadId: activeThreadId,
-          topicId: newTopicId,
-        }),
-      );
-
-      // delete previous messages
-      // remove the temp message map
-      const newMaps = { ...get().messagesMap, [messageMapKey(activeId, null)]: [] };
-      set({ messagesMap: newMaps }, false, 'internal_copyMessages');
-    }
-    if (!isCurrentConversation()) return;
-
-    // if only add user message, then stop
-    if (onlyAddUserMessage) {
-      set({ isCreatingMessage: false }, false, 'creatingMessage/start');
-      return;
-    }
-
-    // Get the current messages to generate AI response
-    const messages = chatSelectors.getBaseChatsByKey(
-      messageMapKey(conversationContext.sessionId, conversationContext.topicId),
-    )(get());
-    const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
-    const contextExportCaptureId = !isWelcomeQuestion ? get().consumeContextExportArm() : undefined;
-
-    // pre-send compaction runs before internal_fetchAIChatMessage creates its own
-    // controller, so Stop needs a dedicated per-conversation handle to abort it
-    // (see stopGenerateMessage). Read the local controller after the await — a later
-    // overlapping send may have replaced the registered operation.
-    const compactionKey = messageMapKey(conversationContext.sessionId, conversationContext.topicId);
-    const compactionController = new AbortController();
-    const clearCompactionOperation = () => {
-      set(
-        (state) => {
-          if (
-            state.preSendCompactionOperations[compactionKey]?.abortController !==
-            compactionController
-          )
-            return state;
-
-          const preSendCompactionOperations = { ...state.preSendCompactionOperations };
-          delete preSendCompactionOperations[compactionKey];
-          return { preSendCompactionOperations };
-        },
-        false,
-        n('preSendCompaction/end'),
-      );
-    };
-
-    try {
-      set(
-        (state) => ({
-          preSendCompactionOperations: {
-            ...state.preSendCompactionOperations,
-            [compactionKey]: {
-              abortController: compactionController,
-              threadId: activeThreadId ?? null,
-            },
-          },
-        }),
-        false,
-        n('preSendCompaction/start'),
-      );
-      await get().triggerTokenThresholdMemoryCompaction(compactionController);
-      clearCompactionOperation();
-      if (compactionController.signal.aborted) {
-        if (isCurrentConversation()) {
-          set({ isCreatingMessage: false }, false, n('creatingMessage/stop'));
-        }
-        return;
-      }
-      if (!isCurrentConversation()) return;
-
-      await internal_coreProcessMessage(messages, id, {
-        activatedSkillIds,
-        conversationContext,
-        contextExportCaptureId,
-        expectedConversationVersion,
-        isWelcomeQuestion,
-        ragQuery: get().internal_shouldUseRAG() ? message : undefined,
-        threadId: activeThreadId,
-      });
-    } finally {
-      clearCompactionOperation();
-      if (contextExportCaptureId && isCurrentConversation()) {
-        get().completeContextExport(contextExportCaptureId);
-      }
-    }
-
-    if (!isCurrentConversation()) return;
-    set({ isCreatingMessage: false }, false, n('creatingMessage/stop'));
-
-    const summaryTitle = async () => {
-      // if autoCreateTopic is false, then stop
-      if (!agentConfig.enableAutoCreateTopic) return;
-
-      // check activeTopic and then auto update topic title
-      if (newTopicId) {
-        const chats = chatSelectors.getBaseChatsByKey(messageMapKey(activeId, newTopicId))(get());
-        await get().summaryTopicTitle(newTopicId, chats);
-        return;
-      }
-
-      if (!activeTopicId) return;
-      const topic = topicSelectors.getTopicById(activeTopicId)(get());
-
-      if (topic && !topic.title) {
-        const chats = chatSelectors.getBaseChatsByKey(messageMapKey(activeId, topic.id))(get());
-        await get().summaryTopicTitle(topic.id, chats);
-      }
-    };
-
-    // if there is relative files, then add files to agent
-    // only available in server mode
-    const addFilesToAgent = async () => {
-      if (userFiles.length === 0 || !isServerMode) return;
-
-      await useAgentStore.getState().addFilesToAgent(userFiles, false);
-    };
-
-    await Promise.all([summaryTitle(), addFilesToAgent()]);
   },
   stopGenerateMessage: (options) => {
     // abort only a pre-send compaction registered for the CURRENT conversation AND the same
@@ -780,23 +526,6 @@ export const generateAIChat: StateCreator<
         threadId: params?.threadId,
         inPortalThread: params?.inPortalThread,
       });
-    } else {
-      // 显示桌面通知（仅在桌面端且窗口隐藏时）
-      if (isDesktop) {
-        try {
-          // 动态导入桌面通知服务，避免在非桌面端环境中导入
-          const { desktopNotificationService } =
-            await import('@/services/electron/desktopNotification');
-
-          await desktopNotificationService.showNotification({
-            body: content,
-            title: t('notification.finishChatGeneration', { ns: 'electron' }),
-          });
-        } catch (error) {
-          // 静默处理错误，不影响正常流程
-          console.error('Desktop notification error:', error);
-        }
-      }
     }
 
     if (!params?.isToolContinuation && !params?.threadId && !params?.inPortalThread) {

@@ -1,118 +1,39 @@
-import { isDesktop, isServerMode } from '@lobechat/const';
 import { parseDataUri } from '@lobechat/model-runtime';
-import { uuid } from '@lobechat/utils';
 import dayjs from 'dayjs';
 import { sha256 } from 'js-sha256';
 
-import { fileEnv } from '@/envs/file';
 import { lambdaClient } from '@/libs/trpc/client';
 import { createHeaderWithAuth } from '@/services/_auth';
 import { API_ENDPOINTS } from '@/services/_url';
-import { clientS3Storage } from '@/services/file/ClientS3';
 import { FileMetadata, UploadBase64ToS3Result } from '@/types/files';
 import { FileUploadState, FileUploadStatus } from '@/types/files/upload';
 
 export const UPLOAD_NETWORK_ERROR = 'NetWorkError';
 
-/**
- * Generate file storage path metadata for S3-compatible storage
- * @param originalFilename - Original filename
- * @param options - Path generation options
- * @returns Path metadata including date, dirname, filename, and pathname
- */
-const generateFilePathMetadata = (
-  originalFilename: string,
-  options: { directory?: string; pathname?: string } = {},
-): {
-  date: string;
-  dirname: string;
-  filename: string;
-  pathname: string;
-} => {
-  // Generate unique filename with UUID prefix and original extension
-  const extension = originalFilename.split('.').at(-1);
-  const filename = `${uuid()}.${extension}`;
-
-  // Generate timestamp-based directory path
-  const date = (Date.now() / 1000 / 60 / 60).toFixed(0);
-  const dirname = `${options.directory || fileEnv.NEXT_PUBLIC_S3_FILE_PATH}/${date}`;
-  const pathname = options.pathname ?? `${dirname}/${filename}`;
-
-  return {
-    date,
-    dirname,
-    filename,
-    pathname,
-  };
-};
-
 interface UploadFileToS3Options {
   directory?: string;
   filename?: string;
-  onNotSupported?: () => void;
   onProgress?: (status: FileUploadStatus, state: FileUploadState) => void;
-  pathname?: string;
   signal?: AbortSignal;
-  skipCheckFileType?: boolean;
 }
 
 class UploadService {
-  /**
-   * uniform upload method for both server and client
-   */
   uploadFileToS3 = async (
     file: File,
     {
       onProgress,
       directory,
       signal,
-      skipCheckFileType,
-      onNotSupported,
-      pathname,
     }: UploadFileToS3Options,
   ): Promise<{ data: FileMetadata; success: boolean }> => {
     signal?.throwIfAborted();
 
-    const { getElectronStoreState } = await import('@/store/electron');
-    const { electronSyncSelectors } = await import('@/store/electron/selectors');
-    // only if not enable sync
-    const state = getElectronStoreState();
-    const isSyncActive = electronSyncSelectors.isSyncActive(state);
-
-    // 桌面端上传逻辑（并且没开启 sync 同步）
-    if (isDesktop && !isSyncActive) {
-      const data = await this.uploadToDesktopS3(file, { directory, pathname });
-      signal?.throwIfAborted();
-      return { data, success: true };
+    if (directory && directory !== 'ragEval') {
+      throw new Error('Unsupported server upload directory');
     }
 
-    // 服务端上传逻辑
-    if (isServerMode) {
-      // if is server mode, upload to server s3,
-      if (directory && directory !== 'ragEval') {
-        throw new Error('Unsupported server upload directory');
-      }
-
-      const data = await this.uploadToServerS3(file, { directory, onProgress, signal });
-      return { data, success: true };
-    }
-
-    // upload to client s3
-    // 客户端上传逻辑
-    if (!skipCheckFileType && !file.type.startsWith('image') && !file.type.startsWith('video')) {
-      onNotSupported?.();
-      return { data: undefined as unknown as FileMetadata, success: false };
-    }
-
-    const fileArrayBuffer = await file.arrayBuffer();
+    const data = await this.uploadToServerS3(file, { directory, onProgress, signal });
     signal?.throwIfAborted();
-
-    // 1. check file hash
-    const hash = sha256(fileArrayBuffer);
-    // Upload to the indexeddb in the browser
-    const data = await this.uploadToClientS3(hash, file);
-    signal?.throwIfAborted();
-
     return { data, success: true };
   };
 
@@ -247,32 +168,6 @@ class UploadService {
     });
 
     return metadata;
-  };
-
-  private uploadToDesktopS3 = async (
-    file: File,
-    options: { directory?: string; pathname?: string } = {},
-  ) => {
-    const fileArrayBuffer = await file.arrayBuffer();
-    const hash = sha256(fileArrayBuffer);
-
-    // 生成文件路径元数据
-    const { pathname } = generateFilePathMetadata(file.name, options);
-
-    const { desktopFileAPI } = await import('@/services/electron/file');
-    const { metadata } = await desktopFileAPI.uploadFile(file, hash, pathname);
-    return metadata;
-  };
-
-  private uploadToClientS3 = async (hash: string, file: File): Promise<FileMetadata> => {
-    await clientS3Storage.putObject(hash, file);
-
-    return {
-      date: (Date.now() / 1000 / 60 / 60).toFixed(0),
-      dirname: '',
-      filename: file.name,
-      path: `client-s3://${hash}`,
-    };
   };
 
   /**

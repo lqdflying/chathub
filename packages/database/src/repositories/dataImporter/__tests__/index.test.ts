@@ -11,23 +11,23 @@ import agentsToSessionsData from './fixtures/agentsToSessions.json';
 import topicsData from './fixtures/topic.json';
 import userSettingsData from './fixtures/userSettings.json';
 
-const clientDB = await getTestDB();
+const db = await getTestDB();
 
 const userId = 'test-user-id';
 let importer: DataImporterRepos;
 
 beforeEach(async () => {
-  await clientDB.delete(Schema.users);
+  await db.delete(Schema.users);
 
   // 创建测试数据
-  await clientDB.transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     await tx.insert(Schema.users).values({ id: userId });
   });
 
-  importer = new DataImporterRepos(clientDB, userId);
+  importer = new DataImporterRepos(db, userId);
 });
 afterEach(async () => {
-  await clientDB.delete(Schema.users);
+  await db.delete(Schema.users);
 });
 
 describe('DataImporter', () => {
@@ -39,7 +39,7 @@ describe('DataImporter', () => {
       expect(result.success).toBe(true);
       expect(result.results.userSettings).toMatchObject({ added: 1, errors: 0, skips: 0 });
 
-      const res = await clientDB.query.userSettings.findMany({
+      const res = await db.query.userSettings.findMany({
         where: eq(Schema.userSettings.id, userId),
       });
       expect(res).toHaveLength(1);
@@ -47,7 +47,7 @@ describe('DataImporter', () => {
     });
 
     it('should merge exist userSettings correctly', async () => {
-      await clientDB.transaction(async (tx) => {
+      await db.transaction(async (tx) => {
         await tx.insert(Schema.userSettings).values({ id: userId, general: { fontSize: 24 } });
         await tx
           .update(Schema.userSettings)
@@ -65,7 +65,7 @@ describe('DataImporter', () => {
         added: 0,
       });
 
-      const res = await clientDB.query.userSettings.findMany({
+      const res = await db.query.userSettings.findMany({
         where: eq(Schema.userSettings.id, userId),
       });
       expect(res).toHaveLength(1);
@@ -81,13 +81,13 @@ describe('DataImporter', () => {
       expect(result.success).toBe(true);
       expect(result.results.agents).toMatchObject({ added: 1, errors: 0, skips: 0 });
 
-      const agentRes = await clientDB.query.agents.findMany({
+      const agentRes = await db.query.agents.findMany({
         where: eq(Schema.agents.userId, userId),
       });
-      const sessionRes = await clientDB.query.sessions.findMany({
+      const sessionRes = await db.query.sessions.findMany({
         where: eq(Schema.sessions.userId, userId),
       });
-      const agentsToSessionRes = await clientDB.query.agentsToSessions.findMany({
+      const agentsToSessionRes = await db.query.agentsToSessions.findMany({
         where: eq(Schema.agentsToSessions.userId, userId),
       });
 
@@ -146,10 +146,10 @@ describe('DataImporter', () => {
       expect(result.success).toBe(true);
       expect(result.results.messages).toMatchObject({ added: 6, errors: 0, skips: 0 });
 
-      const messageRes = await clientDB.query.messages.findMany({
+      const messageRes = await db.query.messages.findMany({
         where: eq(Schema.agents.userId, userId),
       });
-      const topicRes = await clientDB.query.topics.findMany({
+      const topicRes = await db.query.topics.findMany({
         where: eq(Schema.sessions.userId, userId),
       });
 
@@ -191,7 +191,7 @@ describe('DataImporter', () => {
       expect(result.success).toBe(true);
       expect(result.results.messages).toMatchObject({ added: 2, errors: 0 });
 
-      const importedMessages = await clientDB.query.messages.findMany({
+      const importedMessages = await db.query.messages.findMany({
         orderBy: (table, { asc }) => asc(table.messageOrder),
         where: eq(Schema.messages.userId, userId),
       });

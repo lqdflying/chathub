@@ -9,10 +9,6 @@ import { ModelsService } from '../models';
 
 vi.stubGlobal('fetch', vi.fn());
 
-vi.mock('@/const/version', () => ({
-  isDeprecatedEdition: false,
-}));
-
 vi.mock('../_auth', () => ({
   createHeaderWithAuth: vi.fn(async () => ({})),
 }));

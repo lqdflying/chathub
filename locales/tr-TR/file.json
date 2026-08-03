@@ -39,24 +39,6 @@
     "title": "Bilgi Tabanı"
   },
   "networkError": "Bilgi bankası alınamadı, lütfen ağ bağlantınızı kontrol edip tekrar deneyin",
-  "notSupportGuide": {
-    "desc": "Mevcut dağıtım örneği istemci veritabanı modunda, dosya yönetim işlevini kullanamazsınız. Lütfen <1>sunucu veritabanı dağıtım moduna</1> geçin veya doğrudan <3>LobeChat Cloud</3> kullanın.",
-    "features": {
-      "allKind": {
-        "desc": "Word, PPT, Excel, PDF, TXT gibi yaygın belge formatları ve JS, Python gibi popüler kod dosyalarını destekler.",
-        "title": "Çeşitli Dosya Türleri Analizi"
-      },
-      "embeddings": {
-        "desc": "Yüksek performanslı vektör modelleri kullanarak, metin parçalarını vektörleştirir ve dosya içeriğinin anlamsal olarak aranmasını sağlar.",
-        "title": "Vektör Anlamlandırma"
-      },
-      "repos": {
-        "desc": "Bilgi tabanı oluşturmayı destekler ve farklı türde dosyalar eklemeye izin verir, kendi alan bilginizi oluşturun.",
-        "title": "Bilgi Tabanı"
-      }
-    },
-    "title": "Mevcut dağıtım modu dosya yönetimini desteklemiyor"
-  },
   "preview": {
     "downloadFile": "Dosyayı İndir",
     "unsupportedFileAndContact": "Bu dosya formatı çevrimiçi önizleme için desteklenmiyor. Önizleme talebiniz varsa, lütfen <1>bize geri bildirimde bulunun</1>."

@@ -8,7 +8,6 @@ import MCPInstallProgress from '@/features/MCP/MCPInstallProgress';
 import { useToolStore } from '@/store/tool';
 import { mcpStoreSelectors } from '@/store/tool/selectors';
 import { DiscoverMcpItem } from '@/types/discover';
-import { MCPInstallStep } from '@/types/plugins';
 import { LobeToolType } from '@/types/tool/tool';
 
 import Actions from './Action';
@@ -27,15 +26,13 @@ const Item = memo<PluginItemProps>(
     );
 
     const needsConfig = installProgress?.needsConfig;
-    const needsDependencies = installProgress?.step === MCPInstallStep.DEPENDENCIES_REQUIRED;
-
     const containerRef = useRef<HTMLButtonElement | null>(null);
 
     useEffect(() => {
-      if ((!needsConfig && !needsDependencies) || !containerRef.current) return;
+      if (!needsConfig || !containerRef.current) return;
 
       containerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, [needsConfig, needsDependencies]);
+    }, [needsConfig]);
 
     return (
       <Flexbox gap={0} ref={containerRef}>

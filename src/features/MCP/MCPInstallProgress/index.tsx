@@ -13,7 +13,6 @@ import { MCPInstallStep } from '@/types/plugins';
 
 import InstallError from './InstallError';
 import MCPConfigForm from './MCPConfigForm';
-import MCPDependenciesGuide from './MCPDependenciesGuide';
 
 const MCPInstallProgress = memo<{ identifier: string }>(({ identifier }) => {
   const { t } = useTranslation('plugin');
@@ -26,13 +25,12 @@ const MCPInstallProgress = memo<{ identifier: string }>(({ identifier }) => {
 
   const stepText = installProgress ? t(`mcpInstall.${installProgress.step}` as any) : undefined;
   const needsConfig = installProgress?.needsConfig;
-  const needsDependencies = installProgress?.step === MCPInstallStep.DEPENDENCIES_REQUIRED;
   const hasError = installProgress?.step === MCPInstallStep.ERROR;
   const errorInfo = installProgress?.errorInfo;
 
   return (
     <>
-      {installProgress && !hasError && !needsDependencies && (
+      {installProgress && !hasError && (
         <motion.div
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
@@ -73,26 +71,6 @@ const MCPInstallProgress = memo<{ identifier: string }>(({ identifier }) => {
         >
           <Flexbox paddingBlock={8}>
             <InstallError errorInfo={errorInfo} identifier={identifier} />
-          </Flexbox>
-        </motion.div>
-      )}
-
-      {needsDependencies && installProgress?.systemDependencies && (
-        <motion.div
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          initial={{ height: 0, opacity: 0 }}
-          transition={{
-            duration: 0.3,
-            ease: [0.4, 0, 0.2, 1],
-            height: { duration: 0.2 },
-          }}
-        >
-          <Flexbox paddingInline={12}>
-            <MCPDependenciesGuide
-              identifier={identifier}
-              systemDependencies={installProgress.systemDependencies}
-            />
           </Flexbox>
         </motion.div>
       )}

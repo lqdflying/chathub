@@ -45,7 +45,7 @@ const ConfigMigrations = [
   MigrationV2ToV3,
   /**
    * 2023.11.27
-   * 从单 key 数据库转换为基于 dexie 的关系型结构
+   * Normalize the oldest import format into its relational config shape.
    */
   MigrationV1ToV2,
   /**

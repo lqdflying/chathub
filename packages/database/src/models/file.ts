@@ -87,7 +87,6 @@ export class FileModel {
 
   delete = async (id: string, removeGlobalFile: boolean = true, trx?: Transaction) => {
     const executeInTransaction = async (tx: Transaction) => {
-      // pglite 环境下不能再 transaction 中使用非事务操作，会阻塞住
       const file = await this.findById(id, tx);
       if (!file) return;
 

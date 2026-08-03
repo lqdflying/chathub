@@ -6,20 +6,25 @@
 
 ChatHub diverged from LobeChat at v3.0.0 and is maintained independently as ChatHub. It ships as a single Docker image targeting PostgreSQL deployments, adds built-in authentication that requires no external OAuth service, ships a broader model bank, and includes utility tools not present upstream.
 
+ChatHub does not ship an Electron/desktop runtime or a browser-local database
+edition. Browsers and installed PWAs use the server APIs, while durable account
+data is stored in PostgreSQL. Legacy ChatHub/LobeChat JSON exports remain
+importable through **Settings -> Storage**.
+
 ---
 
 ## What's Different from Upstream LobeChat
 
-| Area | Upstream LobeChat | ChatHub |
-| ---- | ----------------- | ------- |
-| Deployment target | Vercel / Docker / Desktop | Docker + PostgreSQL only |
-| Versioning | v1.x | v1.x (ChatHub) |
-| Browser login (no OAuth) | Not supported | Username/password or token login page built-in |
-| Model bank | Upstream releases | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x/K3, MiniMax, DeepSeek |
-| Tools Hub | Not present | Built-in (Picbed, API Tester + extensible sidebar) |
-| Memory / context | Basic rolling summary | Assistance presets, token auto-compact, manual compact, daily opt-in, assistant-level memory with cross-session rollup |
-| MCP authentication | API keys only | OAuth 2.1 auto-discovery (RFC 9728 + RFC 8414) with server-side token storage |
-| Model gear (extendParams) | Single generic form | Per-provider panels (Moonshot, MiniMax, Anthropic, OpenAI, DeepSeek) |
+| Area                      | Upstream LobeChat         | ChatHub                                                                                                                |
+| ------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Deployment target         | Vercel / Docker / Desktop | Docker + PostgreSQL only                                                                                               |
+| Versioning                | v1.x                      | v1.x (ChatHub)                                                                                                         |
+| Browser login (no OAuth)  | Not supported             | Username/password or token login page built-in                                                                         |
+| Model bank                | Upstream releases         | Extended: Claude 4.x, GPT-5.x, Gemini 3.x, Kimi K2.x/K3, MiniMax, DeepSeek                                             |
+| Tools Hub                 | Not present               | Built-in (Picbed, API Tester + extensible sidebar)                                                                     |
+| Memory / context          | Basic rolling summary     | Assistance presets, token auto-compact, manual compact, daily opt-in, assistant-level memory with cross-session rollup |
+| MCP authentication        | API keys only             | OAuth 2.1 auto-discovery (RFC 9728 + RFC 8414) with server-side token storage                                          |
+| Model gear (extendParams) | Single generic form       | Per-provider panels (Moonshot, MiniMax, Anthropic, OpenAI, DeepSeek)                                                   |
 
 ---
 
@@ -98,17 +103,17 @@ Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [w
 
 ## LLM Provider Environment Variables
 
-| Provider | Env |
-|----------|-----|
-| OpenAI (GPT) | `OPENAI_API_KEY` |
-| Anthropic (Claude) | `ANTHROPIC_API_KEY` |
-| Google (Gemini) | `GOOGLE_API_KEY` |
-| Moonshot (Kimi) | `MOONSHOT_API_KEY` + optional `MOONSHOT_PROXY_URL` |
-| MiniMax | `MINIMAX_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| OpenAI-compatible | `OPENAICOMPATIBLE_API_KEY` + `OPENAICOMPATIBLE_PROXY_URL` |
+| Provider             | Env                                                                                                        |
+| -------------------- | ---------------------------------------------------------------------------------------------------------- |
+| OpenAI (GPT)         | `OPENAI_API_KEY`                                                                                           |
+| Anthropic (Claude)   | `ANTHROPIC_API_KEY`                                                                                        |
+| Google (Gemini)      | `GOOGLE_API_KEY`                                                                                           |
+| Moonshot (Kimi)      | `MOONSHOT_API_KEY` + optional `MOONSHOT_PROXY_URL`                                                         |
+| MiniMax              | `MINIMAX_API_KEY`                                                                                          |
+| DeepSeek             | `DEEPSEEK_API_KEY`                                                                                         |
+| OpenAI-compatible    | `OPENAICOMPATIBLE_API_KEY` + `OPENAICOMPATIBLE_PROXY_URL`                                                  |
 | Anthropic-compatible | `ANTHROPICCOMPATIBLE_API_KEY` + `ANTHROPICCOMPATIBLE_PROXY_URL` + optional `ANTHROPICCOMPATIBLE_AUTH_MODE` |
-| Ollama | auto-discovered (set `ENABLED_OLLAMA=0` to disable) |
+| Ollama               | auto-discovered (set `ENABLED_OLLAMA=0` to disable)                                                        |
 
 For the complete provider/env map (Azure, Bedrock, OpenRouter, and 40+ others), see [`src/envs/llm.ts`](src/envs/llm.ts).
 
@@ -135,12 +140,12 @@ ChatHub's built-in Moonshot route is `https://api.moonshot.cn/v1`. The global Ki
 
 ```bash
 pnpm install
-bun run dev          # Next.js dev server on :3010
-bun run type-check   # TypeScript checking
-bun run lint         # ESLint + Stylelint + circular deps
-bun run db:generate  # Generate Drizzle migrations
-bun run db:migrate   # Apply migrations locally (requires DATABASE_URL)
-bun run db:studio    # Open Drizzle Studio
+bun run dev         # Next.js dev server on :3010
+bun run type-check  # TypeScript checking
+bun run lint        # ESLint + Stylelint + circular deps
+bun run db:generate # Generate Drizzle migrations
+bun run db:migrate  # Apply migrations locally (requires DATABASE_URL)
+bun run db:studio   # Open Drizzle Studio
 ```
 
 Adding a new tool or feature? See the [Architecture Overview](https://github.com/lqdflying/chathub/wiki/Architecture-Overview) wiki for repo layout and contribution guides.

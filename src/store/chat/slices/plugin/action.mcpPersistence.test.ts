@@ -1,7 +1,6 @@
 import { ChatToolPayload, UIChatMessage, createToolResultDebugSummary } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { mcpService } from '@/services/mcp';
 import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
@@ -23,20 +22,6 @@ const createDeferred = <Result>() => {
 
   return { promise, resolve };
 };
-
-const createHTMLRPCError = () =>
-  new ToolsRPCResponseError({
-    bodyBytes: 615,
-    bodyKind: 'html',
-    diagnosticId: 'td_originaldiagnostic',
-    durationMs: 123,
-    failurePhase: 'response_parse',
-    htmlMarker: 'doctype',
-    httpStatus: 502,
-    mediaType: 'text/html',
-    reason: 'response_parse_failed',
-    responseFingerprint: 'abcdef0123456789',
-  });
 
 describe('MCP tool-result persistence recovery', () => {
   const payload = {
@@ -61,6 +46,7 @@ describe('MCP tool-result persistence recovery', () => {
       cacheContinuationEnabled: true,
       toolLifecycleEnabled: true,
     });
+    vi.spyOn(messageService, 'getConversationVersion').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -142,92 +128,8 @@ describe('MCP tool-result persistence recovery', () => {
     expect(updateMessage).not.toHaveBeenCalled();
   });
 
-  it('retries a classified persistence failure and returns the valid tool result', async () => {
-    const toolResult = '{"results":[{"title":"ok"}]}';
-    const updateMessageContent = vi
-      .fn()
-      .mockRejectedValueOnce(createHTMLRPCError())
-      .mockResolvedValueOnce(undefined);
-    const togglePluginCalling = vi.fn().mockReturnValue(new AbortController());
-    vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
-      content: toolResult,
-      persistence: 'client_required',
-    });
-    const reportFailure = vi
-      .spyOn(mcpService, 'reportClientRPCFailure')
-      .mockImplementation(() => undefined);
-
-    useChatStore.setState({
-      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
-      internal_togglePluginApiCalling: togglePluginCalling,
-      internal_updateMessageContent: updateMessageContent,
-    });
-
-    const response = await useChatStore.getState().invokeMCPTypePlugin('message-id', payload);
-
-    expect(response).toEqual({ data: toolResult, outcome: 'completed' });
-    expect(updateMessageContent).toHaveBeenCalledTimes(2);
-    expect(updateMessageContent).toHaveBeenLastCalledWith(
-      'message-id',
-      toolResult,
-      expect.objectContaining({
-        diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
-        diagnosticOperation: 'persist_tool_result',
-        showNotification: false,
-        skipRefresh: true,
-      }),
-    );
-    expect(reportFailure).toHaveBeenCalledWith(
-      expect.objectContaining({ bodyKind: 'html', responseFingerprint: 'abcdef0123456789' }),
-      expect.objectContaining({
-        attempt: 1,
-        diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
-        operation: 'persist_tool_result',
-        procedure: 'message.update',
-        rpcEndpoint: 'lambda',
-      }),
-    );
-    const { notification } = await import('@/components/AntdStaticMethods');
-    expect(notification.warning).not.toHaveBeenCalled();
-    expect(togglePluginCalling).toHaveBeenLastCalledWith(
-      false,
-      'message-id',
-      expect.any(String),
-      expect.any(AbortController),
-    );
-  });
-
-  it('continues in memory and warns once when both persistence attempts fail', async () => {
-    const toolResult = '{"results":[{"title":"ok"}]}';
-    const updateMessageContent = vi.fn().mockRejectedValue(createHTMLRPCError());
-    vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
-      content: toolResult,
-      persistence: 'client_required',
-    });
-    const reportFailure = vi
-      .spyOn(mcpService, 'reportClientRPCFailure')
-      .mockImplementation(() => undefined);
-
-    useChatStore.setState({
-      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
-      internal_togglePluginApiCalling: vi.fn().mockReturnValue(new AbortController()),
-      internal_updateMessageContent: updateMessageContent,
-    });
-
-    const response = await useChatStore.getState().invokeMCPTypePlugin('message-id', payload);
-
-    expect(response).toEqual({ data: toolResult, outcome: 'persistence_failed' });
-    expect(updateMessageContent).toHaveBeenCalledTimes(2);
-    expect(reportFailure).toHaveBeenCalledTimes(2);
-    expect(reportFailure).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.objectContaining({ attempt: 2, operation: 'persist_tool_result' }),
-    );
-    const { notification } = await import('@/components/AntdStaticMethods');
-    expect(notification.warning).toHaveBeenCalledTimes(1);
-  });
-
-  it('uses a server-persisted result without reposting it through the lambda route', async () => {
+  it('uses a server-persisted result and preserves the requested diagnostic ID', async () => {
+    const requestedDiagnosticId = 'td_requesteddiagnostic';
     const toolResult = '{"results":[{"title":"persisted"}]}';
     const dispatchMessage = vi.fn();
     const updateMessageContent = vi.fn();
@@ -243,41 +145,11 @@ describe('MCP tool-result persistence recovery', () => {
       internal_updateMessageContent: updateMessageContent,
     });
 
-    const response = await useChatStore.getState().invokeMCPTypePlugin('message-id', payload);
-
-    expect(response).toEqual({ data: toolResult });
-    expect(invokeTool).toHaveBeenCalledWith(
-      payload,
-      expect.objectContaining({ messageId: 'message-id', topicId: 'topic-id' }),
-    );
-    expect(dispatchMessage).toHaveBeenCalledWith({
-      id: 'message-id',
-      type: 'updateMessage',
-      value: { content: toolResult },
-    });
-    expect(updateMessageContent).not.toHaveBeenCalled();
-  });
-
-  it('preserves a requested diagnostic ID across MCP invocation and persistence', async () => {
-    const requestedDiagnosticId = 'td_requesteddiagnostic';
-    const toolResult = '{"results":[{"title":"correlated"}]}';
-    const updateMessageContent = vi.fn().mockResolvedValue(undefined);
-    const invokeTool = vi.spyOn(mcpService, 'invokeMcpToolCall').mockResolvedValue({
-      content: toolResult,
-      persistence: 'client_required',
-    });
-
-    useChatStore.setState({
-      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
-      internal_togglePluginApiCalling: vi.fn().mockReturnValue(new AbortController()),
-      internal_updateMessageContent: updateMessageContent,
-    });
-
     const response = await useChatStore
       .getState()
       .invokeMCPTypePlugin('message-id', payload, undefined, requestedDiagnosticId);
 
-    expect(response).toEqual({ data: toolResult, outcome: 'completed' });
+    expect(response).toEqual({ data: toolResult });
     expect(invokeTool).toHaveBeenCalledWith(
       payload,
       expect.objectContaining({
@@ -286,14 +158,12 @@ describe('MCP tool-result persistence recovery', () => {
         topicId: 'topic-id',
       }),
     );
-    expect(updateMessageContent).toHaveBeenCalledWith(
-      'message-id',
-      toolResult,
-      expect.objectContaining({
-        diagnosticId: requestedDiagnosticId,
-        diagnosticOperation: 'persist_tool_result',
-      }),
-    );
+    expect(dispatchMessage).toHaveBeenCalledWith({
+      id: 'message-id',
+      type: 'updateMessage',
+      value: { content: toolResult },
+    });
+    expect(updateMessageContent).not.toHaveBeenCalled();
   });
 
   it('continues optimistically without reposting when server persistence fails', async () => {
@@ -395,7 +265,6 @@ describe('MCP tool-result persistence recovery', () => {
     } as UIChatMessage;
     const createMessage = vi.fn().mockResolvedValue(toolMessageId);
 
-    vi.spyOn(messageService, 'getConversationVersion').mockResolvedValue(undefined);
     useChatStore.setState({
       activeId: sessionId,
       activeTopicId: topicId,

@@ -60,12 +60,6 @@
       "advanced": {
         "title": "Erweiterte Einstellungen"
       },
-      "args": {
-        "desc": "Parameterliste für den Ausführungsbefehl, normalerweise hier MCP-Servername oder Startskript eingeben",
-        "label": "Befehlsparameter",
-        "placeholder": "z.B.: mcp-hello-world",
-        "required": "Bitte Startparameter eingeben"
-      },
       "auth": {
         "bear": "API-Schlüssel",
         "desc": "Wählen Sie die Authentifizierungsmethode für den MCP-Server",
@@ -82,29 +76,10 @@
       "avatar": {
         "label": "Plugin-Symbol"
       },
-      "command": {
-        "desc": "Ausführbare Datei oder Skript zum Starten des MCP STDIO Servers",
-        "label": "Befehl",
-        "placeholder": "z.B.: npx / uv / docker usw.",
-        "required": "Bitte Startbefehl eingeben"
-      },
       "desc": {
         "desc": "Fügen Sie eine Beschreibung des Plugins hinzu",
         "label": "Plugin-Beschreibung",
         "placeholder": "Ergänzen Sie Informationen zur Nutzung und Anwendungsszenarien"
-      },
-      "endpoint": {
-        "desc": "Geben Sie die Adresse Ihres MCP Streamable HTTP Servers ein",
-        "label": "MCP Endpoint URL"
-      },
-      "env": {
-        "add": "Neue Zeile hinzufügen",
-        "desc": "Geben Sie die Umgebungsvariablen für Ihren MCP Server ein",
-        "duplicateKeyError": "Feldschlüssel muss eindeutig sein",
-        "formValidationFailed": "Formularvalidierung fehlgeschlagen, bitte überprüfen Sie das Parameterformat",
-        "keyRequired": "Feldschlüssel darf nicht leer sein",
-        "label": "MCP Server Umgebungsvariablen",
-        "stringifyError": "Parameter können nicht serialisiert werden, bitte überprüfen Sie das Format"
       },
       "headers": {
         "add": "Neue Zeile hinzufügen",
@@ -125,21 +100,8 @@
         "invalidJson": "Ungültiges JSON-Format",
         "invalidStructure": "Ungültige JSON-Struktur"
       },
-      "stdioNotSupported": "Die aktuelle Umgebung unterstützt keine stdio-Typ MCP-Plugins",
       "testConnection": "Verbindung testen",
       "testConnectionTip": "Nach erfolgreichem Verbindungstest kann das MCP-Plugin normal verwendet werden",
-      "type": {
-        "desc": "Wählen Sie die Kommunikationsart des MCP-Plugins, Webversion unterstützt nur Streamable HTTP",
-        "httpFeature1": "Kompatibel mit Web- und Desktop-Version",
-        "httpFeature2": "Verbindung zu entfernten MCP-Servern ohne zusätzliche Installation oder Konfiguration",
-        "httpShortDesc": "Kommunikationsprotokoll basierend auf Streaming HTTP",
-        "label": "MCP Plugin-Typ",
-        "stdioFeature1": "Geringere Latenz, geeignet für lokale Ausführung",
-        "stdioFeature2": "MCP-Server muss lokal installiert und ausgeführt werden",
-        "stdioNotAvailable": "STDIO-Modus nur in der Desktop-Version verfügbar",
-        "stdioShortDesc": "Kommunikationsprotokoll basierend auf Standard-Ein-/Ausgabe",
-        "title": "MCP Plugin-Typ"
-      },
       "url": {
         "desc": "Geben Sie die Streamable HTTP-Adresse Ihres MCP Servers ein, SSE-Modus wird nicht unterstützt",
         "invalid": "Bitte geben Sie eine gültige URL ein",
@@ -249,19 +211,7 @@
     "content": "Plugin wird aufgerufen...",
     "plugin": "Plugin läuft..."
   },
-  "localSystem": {
-    "apiName": {
-      "listLocalFiles": "Dateiliste anzeigen",
-      "moveLocalFiles": "Dateien verschieben",
-      "readLocalFile": "Dateiinhalt lesen",
-      "renameLocalFile": "Datei umbenennen",
-      "searchLocalFiles": "Dateien suchen",
-      "writeLocalFile": "Datei schreiben"
-    },
-    "title": "Lokale Dateien"
-  },
   "mcpInstall": {
-    "CHECKING_INSTALLATION": "Installationsumgebung wird geprüft...",
     "COMPLETED": "Installation abgeschlossen",
     "CONFIGURATION_REQUIRED": "Bitte konfigurieren Sie die erforderlichen Einstellungen, um fortzufahren",
     "ERROR": "Installationsfehler",
@@ -271,101 +221,23 @@
     "configurationDescription": "Dieses MCP-Plugin benötigt Konfigurationsparameter zur ordnungsgemäßen Nutzung. Bitte füllen Sie die erforderlichen Informationen aus.",
     "configurationRequired": "Plugin-Konfiguration erforderlich",
     "continueInstall": "Installation fortsetzen",
-    "dependenciesDescription": "Dieses Plugin benötigt folgende Systemabhängigkeiten. Bitte installieren Sie die fehlenden Abhängigkeiten gemäß Anleitung und klicken Sie auf 'Erneut prüfen', um fortzufahren.",
-    "dependenciesRequired": "Bitte installieren Sie die Systemabhängigkeiten des Plugins",
-    "dependencyStatus": {
-      "installed": "Installiert",
-      "notInstalled": "Nicht installiert",
-      "requiredVersion": "Benötigte Version: {{version}}"
-    },
     "errorDetails": {
-      "args": "Parameter",
-      "command": "Befehl",
       "connectionParams": "Verbindungsparameter",
-      "env": "Umgebungsvariablen",
-      "errorOutput": "Fehlerprotokoll",
-      "exitCode": "Exit-Code",
       "hideDetails": "Details ausblenden",
       "originalError": "Originalfehler",
-      "showDetails": "Details anzeigen"
+      "showDetails": "Details anzeigen",
+      "connectionType": "Verbindungsparameter"
     },
     "errorTypes": {
       "AUTHORIZATION_ERROR": "Autorisierungsfehler",
       "CONNECTION_FAILED": "Verbindung fehlgeschlagen",
       "INITIALIZATION_TIMEOUT": "Initialisierungstimeout",
-      "PROCESS_SPAWN_ERROR": "Prozessstart fehlgeschlagen",
       "UNKNOWN_ERROR": "Unbekannter Fehler",
       "VALIDATION_ERROR": "Parametervalidierung fehlgeschlagen"
     },
-    "installError": "MCP-Plugin-Installation fehlgeschlagen, Grund: {{detail}}",
-    "installMethods": {
-      "manual": "Manuelle Installation:",
-      "recommended": "Empfohlene Installationsmethode:"
-    },
-    "recheckDependencies": "Erneut prüfen",
-    "skipDependencies": "Prüfung überspringen"
+    "installError": "MCP-Plugin-Installation fehlgeschlagen, Grund: {{detail}}"
   },
   "pluginList": "Plugin-Liste",
-  "protocolInstall": {
-    "actions": {
-      "install": "Installieren",
-      "installAnyway": "Trotzdem installieren",
-      "installed": "Installiert"
-    },
-    "config": {
-      "args": "Parameter",
-      "command": "Befehl",
-      "env": "Umgebungsvariablen",
-      "headers": "Header",
-      "title": "Konfigurationsinformationen",
-      "type": {
-        "http": "Typ: HTTP",
-        "label": "Typ",
-        "stdio": "Typ: Stdio"
-      },
-      "url": "Serveradresse"
-    },
-    "custom": {
-      "badge": "Benutzerdefiniertes Plugin",
-      "security": {
-        "description": "Dieses Plugin wurde nicht offiziell verifiziert. Die Installation kann Sicherheitsrisiken bergen! Bitte stellen Sie sicher, dass Sie der Quelle vertrauen.",
-        "title": "⚠️ Sicherheitshinweis"
-      },
-      "title": "Benutzerdefiniertes Plugin installieren"
-    },
-    "marketplace": {
-      "title": "Drittanbieter-Plugins installieren",
-      "trustedBy": "Bereitgestellt von {{name}}",
-      "unverified": {
-        "title": "Unverifiziertes Drittanbieter-Plugin",
-        "warning": "Dieses Plugin stammt aus einem unverifizierten Drittanbieter-Markt. Bitte stellen Sie vor der Installation sicher, dass Sie der Quelle vertrauen."
-      },
-      "verified": "Verifiziert"
-    },
-    "messages": {
-      "connectionTestFailed": "Verbindungstest fehlgeschlagen",
-      "installError": "Plugin-Installation fehlgeschlagen, bitte erneut versuchen",
-      "installSuccess": "Plugin {{name}} erfolgreich installiert!",
-      "manifestError": "Plugin-Details konnten nicht abgerufen werden. Bitte überprüfen Sie Ihre Netzwerkverbindung und versuchen Sie es erneut.",
-      "manifestNotFound": "Plugin-Manifest konnte nicht gefunden werden"
-    },
-    "meta": {
-      "author": "Autor",
-      "homepage": "Homepage",
-      "identifier": "Bezeichner",
-      "source": "Quelle",
-      "version": "Version"
-    },
-    "official": {
-      "badge": "Offizielles LobeHub Plugin",
-      "description": "Dieses Plugin wird von LobeHub offiziell entwickelt und gepflegt, es wurde streng auf Sicherheit geprüft und kann bedenkenlos verwendet werden.",
-      "loadingMessage": "Plugin-Details werden geladen...",
-      "loadingTitle": "Lädt",
-      "title": "Offizielles Plugin installieren"
-    },
-    "title": "MCP Plugin installieren",
-    "warning": "⚠️ Bitte stellen Sie sicher, dass Sie der Quelle dieses Plugins vertrauen. Bösartige Plugins können die Systemsicherheit gefährden."
-  },
   "search": {
     "apiName": {
       "crawlMultiPages": "Mehrere Seiteninhalt lesen",
@@ -411,14 +283,11 @@
       "title": "Plugin-Konfiguration"
     },
     "connection": {
-      "args": "Startparameter",
-      "command": "Startbefehl",
       "title": "Verbindungsinformationen",
       "type": "Verbindungstyp",
       "url": "Serveradresse"
     },
     "edit": "Bearbeiten",
-    "envConfigDescription": "Diese Konfigurationen werden als Umgebungsvariablen beim Start des MCP-Servers an den Prozess übergeben",
     "httpTypeNotice": "HTTP-Typ MCP-Plugins benötigen derzeit keine Umgebungsvariablen-Konfiguration",
     "indexUrl": {
       "title": "Marktindex",
@@ -426,14 +295,10 @@
     },
     "messages": {
       "connectionUpdateFailed": "Verbindungsinformationen konnten nicht aktualisiert werden",
-      "connectionUpdateSuccess": "Verbindungsinformationen erfolgreich aktualisiert",
-      "envUpdateFailed": "Umgebungsvariablen konnten nicht gespeichert werden",
-      "envUpdateSuccess": "Umgebungsvariablen erfolgreich gespeichert"
+      "connectionUpdateSuccess": "Verbindungsinformationen erfolgreich aktualisiert"
     },
     "modalDesc": "Nach Konfiguration der Plugin-Marktplatz-Adresse können benutzerdefinierte Plugin-Marktplätze verwendet werden",
     "rules": {
-      "argsRequired": "Bitte Startparameter eingeben",
-      "commandRequired": "Bitte Startbefehl eingeben",
       "urlRequired": "Bitte Serveradresse eingeben"
     },
     "saveSettings": "Einstellungen speichern",

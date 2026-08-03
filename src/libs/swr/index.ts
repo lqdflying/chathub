@@ -1,6 +1,5 @@
 import useSWR, { Key, mutate, SWRConfiguration, SWRFetcher, SWRResponse } from 'swr';
 
-import { isDesktop } from '@/const/version';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 
@@ -16,13 +15,7 @@ const clientDataSWRConfig: SWRConfiguration = {
   // Cause issue like this: https://github.com/lobehub/lobe-chat/issues/532
   // we need to set it to 0.
   dedupingInterval: 0,
-  focusThrottleInterval:
-    // FIXME: desktop 云同步模式也是走 edge 请求，也应该增大延迟
-    // desktop 1.5s
-    isDesktop
-      ? 1500
-      : // web 300s
-        5 * 60 * 1000,
+  focusThrottleInterval: 5 * 60 * 1000,
   // Custom error retry logic: don't retry on 401 errors
   onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
     // Check if error is marked as non-retryable (e.g., 401 authentication errors)

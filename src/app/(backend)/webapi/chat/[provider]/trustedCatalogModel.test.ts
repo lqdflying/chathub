@@ -7,18 +7,6 @@ import { getServerGlobalConfig } from '@/server/globalConfig';
 
 import { resolveTrustedCatalogModel, validateAzureCatalogModel } from './trustedCatalogModel';
 
-let isDesktop = false;
-let isServerMode = true;
-
-vi.mock('@/const/version', () => ({
-  get isDesktop() {
-    return isDesktop;
-  },
-  get isServerMode() {
-    return isServerMode;
-  },
-}));
-
 vi.mock('@/database/server', () => ({
   getServerDB: vi.fn(),
 }));
@@ -89,8 +77,6 @@ describe('validateAzureCatalogModel', () => {
 describe('resolveTrustedCatalogModel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    isDesktop = false;
-    isServerMode = true;
     vi.mocked(getServerDB).mockResolvedValue({} as never);
     vi.mocked(getServerGlobalConfig).mockResolvedValue({
       aiProvider: {
@@ -128,22 +114,6 @@ describe('resolveTrustedCatalogModel', () => {
     ).resolves.toBe('gpt-5.6-sol');
 
     expect(AiModelModel).toHaveBeenCalledWith(expect.anything(), 'test-user');
-  });
-
-  it('skips user model reads in web client mode even when userId exists', async () => {
-    isServerMode = false;
-
-    await expect(
-      resolveTrustedCatalogModel({
-        catalogModel: 'gpt-5.6-sol',
-        deploymentName: 'server-production-gpt',
-        runtimeProvider: 'azure',
-        userId: 'test-user',
-      }),
-    ).resolves.toBe('gpt-5.6-sol');
-
-    expect(getServerDB).not.toHaveBeenCalled();
-    expect(AiModelModel).not.toHaveBeenCalled();
   });
 
   it('returns undefined when the user model database read fails', async () => {

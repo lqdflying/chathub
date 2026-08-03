@@ -1,4 +1,4 @@
-import { Highlighter, Icon } from '@lobehub/ui';
+import { Icon } from '@lobehub/ui';
 import { Button, Tag } from 'antd';
 import { useTheme } from 'antd-style';
 import { motion } from 'framer-motion';
@@ -59,36 +59,12 @@ const ErrorDetails = memo<{
                   </Tag>
                 </div>
                 <div style={{ marginTop: 4, wordBreak: 'break-all' }}>
-                  {errorInfo.params.command && (
+                  {errorInfo.params.type && (
                     <div>
-                      {t('mcpInstall.errorDetails.command')}: {errorInfo.params.command}
-                    </div>
-                  )}
-                  {errorInfo.params.args && (
-                    <div>
-                      {t('mcpInstall.errorDetails.args')}: {errorInfo.params.args.join(' ')}
+                      {t('mcpInstall.errorDetails.connectionType')}: {errorInfo.params.type}
                     </div>
                   )}
                 </div>
-              </Flexbox>
-            )}
-
-            {errorInfo.errorLog && (
-              <Flexbox gap={4}>
-                <div>
-                  <Tag bordered={false} color="red">
-                    {t('mcpInstall.errorDetails.errorOutput')}
-                  </Tag>
-                </div>
-                <Highlighter
-                  language={'log'}
-                  style={{
-                    maxHeight: 200,
-                    overflow: 'auto',
-                  }}
-                >
-                  {errorInfo.errorLog}
-                </Highlighter>
               </Flexbox>
             )}
 

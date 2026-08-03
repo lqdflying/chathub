@@ -1,6 +1,5 @@
 'use client';
 
-import { isDeprecatedEdition } from '@lobechat/const';
 import { App } from 'antd';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -20,28 +19,6 @@ const Category = memo(() => {
     }
   };
   const items: CellProps[] = [
-    ...(isDeprecatedEdition
-      ? [
-          {
-            key: 'allAgent',
-            label: t('exportType.allAgent'),
-            onClick: runExport(configService.exportAgents),
-          },
-          {
-            key: 'allAgentWithMessage',
-            label: t('exportType.allAgentWithMessage'),
-            onClick: runExport(configService.exportSessions),
-          },
-          {
-            key: 'globalSetting',
-            label: t('exportType.globalSetting'),
-            onClick: runExport(configService.exportSettings),
-          },
-          {
-            type: 'divider' as const,
-          },
-        ]
-      : []),
     {
       key: 'all',
       label: t('exportType.all'),

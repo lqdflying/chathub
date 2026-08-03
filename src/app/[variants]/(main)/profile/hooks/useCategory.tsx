@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 
 import type { MenuProps } from '@/components/Menu';
 import { enableAuth } from '@/const/auth';
-import { isDeprecatedEdition } from '@/const/version';
 import { ProfileTabs } from '@/store/global/initialState';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
@@ -36,7 +35,7 @@ export const useCategory = () => {
           </Link>
         ),
       },
-    !isDeprecatedEdition && {
+    {
       icon: <Icon icon={ChartColumnBigIcon} />,
       key: ProfileTabs.Stats,
       label: (

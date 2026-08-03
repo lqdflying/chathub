@@ -69,7 +69,6 @@ export const HotkeyEnum = {
   RegenerateMessage: 'regenerateMessage',
   SaveTopic: 'saveTopic',
   Search: 'search',
-  ShowApp: 'showApp',
   SwitchAgent: 'switchAgent',
   ToggleLeftPanel: 'toggleLeftPanel',
   ToggleRightPanel: 'toggleRightPanel',
@@ -105,25 +104,6 @@ export interface HotkeyItem {
   // 快捷键作用域
   scopes?: HotkeyScopeId[];
 }
-
-// ================== Desktop ================== //
-
-export const DesktopHotkeyEnum = {
-  OpenSettings: 'openSettings',
-  ShowApp: 'showApp',
-};
-
-export type DesktopHotkeyId = (typeof DesktopHotkeyEnum)[keyof typeof DesktopHotkeyEnum];
-
-export interface DesktopHotkeyItem {
-  id: DesktopHotkeyId;
-
-  keys: string;
-  // 是否为不可编辑的快捷键
-  nonEditable?: boolean;
-}
-
-export type DesktopHotkeyConfig = Record<DesktopHotkeyId, string>;
 
 export type HotkeyI18nTranslations = Record<
   HotkeyId,

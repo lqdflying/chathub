@@ -15,7 +15,6 @@ import {
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { isDeprecatedEdition } from '@/const/version';
 import { localeOptions } from '@/locales/resources';
 
 const translateStyle = css`
@@ -47,12 +46,9 @@ export const useChatListActionsBar = ({
   return useMemo(
     () => ({
       branching: {
-        disable: isDeprecatedEdition || undefined,
         icon: Split,
         key: 'branching',
-        label: !isDeprecatedEdition
-          ? t('branching', { defaultValue: 'Create Sub Topic' })
-          : t('branchingDisable'),
+        label: t('branching', { defaultValue: 'Create Sub Topic' }),
       },
       copy: {
         icon: Copy,

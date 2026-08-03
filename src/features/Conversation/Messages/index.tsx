@@ -5,7 +5,6 @@ import isEqual from 'fast-deep-equal';
 import { ReactNode, memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
-import { isDesktop } from '@/const/version';
 import {
   removeVirtuosoVisibleItem,
   upsertVirtuosoVisibleItem,
@@ -102,19 +101,6 @@ const Item = memo<ChatListItemProps>(
       };
     }, [index]);
 
-    const onContextMenu = useCallback(async () => {
-      if (isDesktop && item) {
-        const { electronSystemService } = await import('@/services/electron/system');
-
-        electronSystemService.showContextMenu('chat', {
-          content: item.content,
-          hasError: !!item.error,
-          messageId: id,
-          role: item.role,
-        });
-      }
-    }, [id, item]);
-
     const renderContent = useMemo(() => {
       switch (item?.role) {
         case 'user': {
@@ -148,7 +134,6 @@ const Item = memo<ChatListItemProps>(
         <Flexbox
           className={cx(styles.message, className, isMessageLoading && styles.loading)}
           data-index={index}
-          onContextMenu={onContextMenu}
           ref={containerRef}
         >
           {renderContent}

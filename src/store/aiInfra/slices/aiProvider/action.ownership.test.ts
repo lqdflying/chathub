@@ -32,13 +32,6 @@ const swrCalls = vi.hoisted(
 
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 
-vi.mock('@lobechat/const', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@lobechat/const')>()),
-  isDeprecatedEdition: false,
-  isDesktop: false,
-  isUsePgliteDB: false,
-}));
-
 vi.mock('@/const/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/const/auth')>()),
   enableAuth: true,

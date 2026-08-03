@@ -60,12 +60,6 @@
       "advanced": {
         "title": "Advanced Settings"
       },
-      "args": {
-        "desc": "List of parameters passed to the execution command, usually the MCP server name or startup script path",
-        "label": "Command Arguments",
-        "placeholder": "e.g., mcp-hello-world",
-        "required": "Please enter startup parameters"
-      },
       "auth": {
         "bear": "API Key",
         "desc": "Select the authentication method for the MCP server",
@@ -125,29 +119,10 @@
       "avatar": {
         "label": "Plugin Icon"
       },
-      "command": {
-        "desc": "Executable file or script used to start the MCP STDIO Server",
-        "label": "Command",
-        "placeholder": "e.g., npx / uv / docker etc.",
-        "required": "Please enter startup command"
-      },
       "desc": {
         "desc": "Add a description for the plugin",
         "label": "Plugin Description",
         "placeholder": "Supplement usage instructions and scenarios for this plugin"
-      },
-      "endpoint": {
-        "desc": "Enter the address of your MCP Streamable HTTP Server",
-        "label": "MCP Endpoint URL"
-      },
-      "env": {
-        "add": "Add a Row",
-        "desc": "Enter environment variables required by your MCP Server",
-        "duplicateKeyError": "Field keys must be unique",
-        "formValidationFailed": "Form validation failed, please check parameter format",
-        "keyRequired": "Field key cannot be empty",
-        "label": "MCP Server Environment Variables",
-        "stringifyError": "Unable to serialize parameters, please check parameter format"
       },
       "headers": {
         "add": "Add a Row",
@@ -168,21 +143,8 @@
         "invalidJson": "Invalid JSON format",
         "invalidStructure": "Invalid JSON structure"
       },
-      "stdioNotSupported": "Current environment does not support stdio type MCP plugins",
       "testConnection": "Test Connection",
       "testConnectionTip": "MCP plugin can only be used normally after successful connection test",
-      "type": {
-        "desc": "Select MCP plugin communication method, web version only supports Streamable HTTP",
-        "httpFeature1": "Compatible with web and desktop versions",
-        "httpFeature2": "Connect to remote MCP server without extra installation or configuration",
-        "httpShortDesc": "Streamable HTTP based communication protocol",
-        "label": "MCP Plugin Type",
-        "stdioFeature1": "Lower communication latency, suitable for local execution",
-        "stdioFeature2": "Requires local installation and running of MCP server",
-        "stdioNotAvailable": "STDIO mode is only available in desktop version",
-        "stdioShortDesc": "Communication protocol based on standard input/output",
-        "title": "MCP Plugin Type"
-      },
       "url": {
         "desc": "Enter your MCP Server Streamable HTTP address, SSE mode not supported",
         "invalid": "Please enter a valid URL",
@@ -292,19 +254,7 @@
     "content": "Calling plugin...",
     "plugin": "Plugin running..."
   },
-  "localSystem": {
-    "apiName": {
-      "listLocalFiles": "View File List",
-      "moveLocalFiles": "Move Files",
-      "readLocalFile": "Read File Content",
-      "renameLocalFile": "Rename",
-      "searchLocalFiles": "Search Files",
-      "writeLocalFile": "Write File"
-    },
-    "title": "Local Files"
-  },
   "mcpInstall": {
-    "CHECKING_INSTALLATION": "Checking installation environment...",
     "COMPLETED": "Installation completed",
     "CONFIGURATION_REQUIRED": "Please complete the relevant configuration before continuing installation",
     "ERROR": "Installation error",
@@ -314,39 +264,21 @@
     "configurationDescription": "This MCP plugin requires configuration parameters to function properly, please fill in the necessary information",
     "configurationRequired": "Configure Plugin Parameters",
     "continueInstall": "Continue Installation",
-    "dependenciesDescription": "This plugin requires the following system dependencies to work properly. Please install the missing dependencies as instructed, then click recheck to continue installation.",
-    "dependenciesRequired": "Please install the plugin's system dependencies",
-    "dependencyStatus": {
-      "installed": "Installed",
-      "notInstalled": "Not Installed",
-      "requiredVersion": "Required Version: {{version}}"
-    },
     "errorDetails": {
-      "args": "Arguments",
-      "command": "Command",
       "connectionParams": "Connection Parameters",
-      "env": "Environment Variables",
-      "errorOutput": "Error Log",
-      "exitCode": "Exit Code",
       "hideDetails": "Hide Details",
       "originalError": "Original Error",
-      "showDetails": "Show Details"
+      "showDetails": "Show Details",
+      "connectionType": "Connection Parameters"
     },
     "errorTypes": {
       "AUTHORIZATION_ERROR": "Authorization Error",
       "CONNECTION_FAILED": "Connection Failed",
       "INITIALIZATION_TIMEOUT": "Initialization Timeout",
-      "PROCESS_SPAWN_ERROR": "Process Spawn Failed",
       "UNKNOWN_ERROR": "Unknown Error",
       "VALIDATION_ERROR": "Parameter Validation Failed"
     },
-    "installError": "MCP plugin installation failed, reason: {{detail}}",
-    "installMethods": {
-      "manual": "Manual Installation:",
-      "recommended": "Recommended Installation Method:"
-    },
-    "recheckDependencies": "Recheck",
-    "skipDependencies": "Skip Check"
+    "installError": "MCP plugin installation failed, reason: {{detail}}"
   },
   "memory": {
     "apiName": {
@@ -357,66 +289,6 @@
     "title": "Memory"
   },
   "pluginList": "Plugin List",
-  "protocolInstall": {
-    "actions": {
-      "install": "Install",
-      "installAnyway": "Install Anyway",
-      "installed": "Installed"
-    },
-    "config": {
-      "args": "Arguments",
-      "command": "Command",
-      "env": "Environment Variables",
-      "headers": "Request Headers",
-      "title": "Configuration Information",
-      "type": {
-        "http": "Type: HTTP",
-        "label": "Type",
-        "stdio": "Type: Stdio"
-      },
-      "url": "Service Address"
-    },
-    "custom": {
-      "badge": "Custom Plugin",
-      "security": {
-        "description": "This plugin is not officially verified, installation may pose security risks! Please ensure you trust the plugin source.",
-        "title": "⚠️ Security Risk Warning"
-      },
-      "title": "Install Custom Plugin"
-    },
-    "marketplace": {
-      "title": "Install Third-Party Plugin",
-      "trustedBy": "Provided by {{name}}",
-      "unverified": {
-        "title": "Unverified Third-Party Plugin",
-        "warning": "This plugin comes from an unverified third-party marketplace. Please confirm you trust the source before installation."
-      },
-      "verified": "Verified"
-    },
-    "messages": {
-      "connectionTestFailed": "Connection test failed",
-      "installError": "Plugin installation failed, please try again",
-      "installSuccess": "Plugin {{name}} installed successfully!",
-      "manifestError": "Failed to get plugin details, please check network connection and try again",
-      "manifestNotFound": "Failed to retrieve plugin manifest"
-    },
-    "meta": {
-      "author": "Author",
-      "homepage": "Homepage",
-      "identifier": "Identifier",
-      "source": "Source",
-      "version": "Version"
-    },
-    "official": {
-      "badge": "ChatHub Official Plugin",
-      "description": "This plugin is developed and maintained by ChatHub official team, has undergone strict security review, safe to use.",
-      "loadingMessage": "Fetching plugin details...",
-      "loadingTitle": "Loading",
-      "title": "Install Official Plugin"
-    },
-    "title": "Install MCP Plugin",
-    "warning": "⚠️ Please confirm you trust the source of this plugin. Malicious plugins may harm your system security."
-  },
   "search": {
     "apiName": {
       "crawlMultiPages": "Read Multiple Pages Content",
@@ -462,14 +334,11 @@
       "title": "Plugin Configuration"
     },
     "connection": {
-      "args": "Startup Arguments",
-      "command": "Startup Command",
       "title": "Connection Information",
       "type": "Connection Type",
       "url": "Service Address"
     },
     "edit": "Edit",
-    "envConfigDescription": "These configurations will be passed as environment variables to the MCP server process at startup",
     "httpTypeNotice": "HTTP type MCP plugins currently have no environment variables to configure",
     "indexUrl": {
       "title": "Marketplace Index",
@@ -477,14 +346,10 @@
     },
     "messages": {
       "connectionUpdateFailed": "Failed to update connection information",
-      "connectionUpdateSuccess": "Connection information updated successfully",
-      "envUpdateFailed": "Failed to save environment variables",
-      "envUpdateSuccess": "Environment variables saved successfully"
+      "connectionUpdateSuccess": "Connection information updated successfully"
     },
     "modalDesc": "After configuring the plugin marketplace address, you can use a custom plugin marketplace",
     "rules": {
-      "argsRequired": "Please enter startup arguments",
-      "commandRequired": "Please enter startup command",
       "urlRequired": "Please enter service address"
     },
     "saveSettings": "Save Settings",

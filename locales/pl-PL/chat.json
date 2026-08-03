@@ -169,6 +169,26 @@
     "setInitialMembers": "Wybierz członków zespołu"
   },
   "members": "Członkowie",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "Wzmianka o członkach"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "Prześlij obraz",
       "tooltip": "Prześlij"
     },
-    "clientMode": {
-      "actionFiletip": "Prześlij plik",
-      "actionTooltip": "Prześlij",
-      "disabled": "Aktualny model nie obsługuje rozpoznawania wizualnego i analizy plików, przełącz się na inny model, aby użyć tej funkcji",
-      "fileNotSupported": "Tryb przeglądarki nie obsługuje przesyłania plików, obsługiwane są tylko obrazy",
-      "visionNotSupported": "Obecny model nie obsługuje rozpoznawania wizualnego, proszę przełączyć model i spróbować ponownie"
-    },
     "preview": {
       "prepareTasks": "Przygotowywanie fragmentów...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "Rozmiar pliku wideo nie może przekraczać 20MB, aktualny rozmiar pliku to {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "Obecny model nie obsługuje rozpoznawania wizualnego, proszę przełączyć model i spróbować ponownie"
   },
   "you": "ty",
-  "zenMode": "Tryb skupienia",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "Tryb skupienia"
 }

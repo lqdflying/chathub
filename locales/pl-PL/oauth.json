@@ -37,16 +37,6 @@
     },
     "title": "Autoryzacja nie powiodła się"
   },
-  "handoff": {
-    "desc": {
-      "processing": "Aplikacja przetwarza autoryzację, wkrótce przejdzie do następnej strony...",
-      "success": "Próbowano otworzyć aplikację desktopową. Jeśli aplikacja nie otworzyła się automatycznie, przełącz się ręcznie. Możesz zamknąć to okno przeglądarki później."
-    },
-    "title": {
-      "processing": "Przetwarzanie autoryzacji...",
-      "success": "Autoryzacja zakończona"
-    }
-  },
   "login": {
     "button": "Potwierdź logowanie",
     "description": "Aplikacja {{clientName}} prosi o użycie Twojego konta do logowania",

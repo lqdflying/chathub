@@ -38,12 +38,6 @@ vi.mock('@/const/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/const/auth')>()),
   enableAuth: true,
 }));
-// vitest runs without server/pglite env flags, which reads as the deprecated edition
-// and would short-circuit rollupAssistantMemory
-vi.mock('@/const/version', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/const/version')>()),
-  isDeprecatedEdition: false,
-}));
 vi.mock('@/services/chat', () => ({
   chatService: {
     fetchPresetTaskResult: vi.fn(),
@@ -56,18 +50,6 @@ vi.mock('@/services/topic', () => ({
 }));
 vi.mock('@/utils/tokenizer', () => ({
   encodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
-}));
-vi.mock('@/store/electron', () => ({
-  getElectronStoreState: () => ({}),
-  useElectronStore: Object.assign(vi.fn(), {
-    getState: vi.fn(() => ({})),
-    setState: vi.fn(),
-  }),
-}));
-vi.mock('@/store/electron/selectors', () => ({
-  electronSyncSelectors: {
-    isSyncActive: () => false,
-  },
 }));
 vi.mock('swr', async (importOriginal) => {
   const origin = await importOriginal();

@@ -60,12 +60,6 @@
       "advanced": {
         "title": "Ustawienia zaawansowane"
       },
-      "args": {
-        "desc": "Lista argumentów przekazywanych do polecenia wykonawczego, zwykle tutaj wpisz nazwę serwera MCP lub ścieżkę do skryptu startowego",
-        "label": "Argumenty polecenia",
-        "placeholder": "np.: mcp-hello-world",
-        "required": "Proszę wprowadzić argumenty startowe"
-      },
       "auth": {
         "bear": "Klucz API",
         "desc": "Wybierz sposób uwierzytelniania serwera MCP",
@@ -82,29 +76,10 @@
       "avatar": {
         "label": "Ikona wtyczki"
       },
-      "command": {
-        "desc": "Wykonywalny plik lub skrypt do uruchomienia MCP STDIO Server",
-        "label": "Polecenie",
-        "placeholder": "np.: npx / uv / docker itp.",
-        "required": "Proszę wprowadzić polecenie startowe"
-      },
       "desc": {
         "desc": "Dodaj opis wtyczki",
         "label": "Opis wtyczki",
         "placeholder": "Dodaj informacje o zastosowaniu i scenariuszach użycia"
-      },
-      "endpoint": {
-        "desc": "Wprowadź adres swojego MCP Streamable HTTP Server",
-        "label": "URL punktu końcowego MCP"
-      },
-      "env": {
-        "add": "Dodaj nowy wiersz",
-        "desc": "Wprowadź zmienne środowiskowe wymagane przez serwer MCP",
-        "duplicateKeyError": "Klucz pola musi być unikalny",
-        "formValidationFailed": "Weryfikacja formularza nie powiodła się, sprawdź format parametrów",
-        "keyRequired": "Klucz pola nie może być pusty",
-        "label": "Zmienne środowiskowe serwera MCP",
-        "stringifyError": "Nie można zserializować parametrów, sprawdź format"
       },
       "headers": {
         "add": "Dodaj nowy wiersz",
@@ -125,21 +100,8 @@
         "invalidJson": "Nieprawidłowy format JSON",
         "invalidStructure": "Nieprawidłowa struktura JSON"
       },
-      "stdioNotSupported": "Aktualne środowisko nie obsługuje wtyczek MCP typu stdio",
       "testConnection": "Testuj połączenie",
       "testConnectionTip": "Wtyczka MCP może być używana tylko po pomyślnym teście połączenia",
-      "type": {
-        "desc": "Wybierz sposób komunikacji wtyczki MCP, wersja webowa obsługuje tylko Streamable HTTP",
-        "httpFeature1": "Kompatybilne z wersją webową i desktopową",
-        "httpFeature2": "Łączy się zdalnie z serwerem MCP, bez potrzeby dodatkowej instalacji",
-        "httpShortDesc": "Protokół komunikacji oparty na strumieniowym HTTP",
-        "label": "Typ wtyczki MCP",
-        "stdioFeature1": "Niższe opóźnienia komunikacji, odpowiednie do lokalnego uruchomienia",
-        "stdioFeature2": "Wymaga lokalnej instalacji i uruchomienia serwera MCP",
-        "stdioNotAvailable": "Tryb STDIO dostępny tylko w wersji desktopowej",
-        "stdioShortDesc": "Protokół komunikacji oparty na standardowym wejściu i wyjściu",
-        "title": "Typ wtyczki MCP"
-      },
       "url": {
         "desc": "Wprowadź adres Streamable HTTP swojego serwera MCP, tryb SSE nie jest obsługiwany",
         "invalid": "Proszę wprowadzić poprawny adres URL",
@@ -249,19 +211,7 @@
     "content": "Wywoływanie wtyczki...",
     "plugin": "Wtyczka działa..."
   },
-  "localSystem": {
-    "apiName": {
-      "listLocalFiles": "Wyświetl listę plików",
-      "moveLocalFiles": "Przenieś pliki",
-      "readLocalFile": "Odczytaj zawartość pliku",
-      "renameLocalFile": "Zmień nazwę",
-      "searchLocalFiles": "Wyszukaj pliki",
-      "writeLocalFile": "Zapisz do pliku"
-    },
-    "title": "Pliki lokalne"
-  },
   "mcpInstall": {
-    "CHECKING_INSTALLATION": "Sprawdzanie środowiska instalacji...",
     "COMPLETED": "Instalacja zakończona",
     "CONFIGURATION_REQUIRED": "Proszę ukończyć konfigurację, aby kontynuować instalację",
     "ERROR": "Błąd instalacji",
@@ -271,101 +221,23 @@
     "configurationDescription": "Ta wtyczka MCP wymaga konfiguracji parametrów, aby działać poprawnie. Proszę wypełnić wymagane informacje konfiguracyjne",
     "configurationRequired": "Konfiguracja parametrów wtyczki",
     "continueInstall": "Kontynuuj instalację",
-    "dependenciesDescription": "Ta wtyczka wymaga instalacji następujących zależności systemowych, aby działać poprawnie. Proszę zainstalować brakujące zależności zgodnie z instrukcjami, a następnie kliknąć, aby ponownie sprawdzić i kontynuować instalację.",
-    "dependenciesRequired": "Proszę zainstalować zależności systemowe wtyczki",
-    "dependencyStatus": {
-      "installed": "Zainstalowano",
-      "notInstalled": "Nie zainstalowano",
-      "requiredVersion": "Wymagana wersja: {{version}}"
-    },
     "errorDetails": {
-      "args": "Argumenty",
-      "command": "Polecenie",
       "connectionParams": "Parametry połączenia",
-      "env": "Zmienne środowiskowe",
-      "errorOutput": "Log błędów",
-      "exitCode": "Kod wyjścia",
       "hideDetails": "Ukryj szczegóły",
       "originalError": "Oryginalny błąd",
-      "showDetails": "Pokaż szczegóły"
+      "showDetails": "Pokaż szczegóły",
+      "connectionType": "Parametry połączenia"
     },
     "errorTypes": {
       "AUTHORIZATION_ERROR": "Błąd autoryzacji",
       "CONNECTION_FAILED": "Nieudane połączenie",
       "INITIALIZATION_TIMEOUT": "Przekroczono czas inicjalizacji",
-      "PROCESS_SPAWN_ERROR": "Błąd uruchomienia procesu",
       "UNKNOWN_ERROR": "Nieznany błąd",
       "VALIDATION_ERROR": "Błąd walidacji parametrów"
     },
-    "installError": "Instalacja wtyczki MCP nie powiodła się, powód: {{detail}}",
-    "installMethods": {
-      "manual": "Instalacja ręczna:",
-      "recommended": "Zalecany sposób instalacji:"
-    },
-    "recheckDependencies": "Sprawdź ponownie",
-    "skipDependencies": "Pomiń sprawdzanie"
+    "installError": "Instalacja wtyczki MCP nie powiodła się, powód: {{detail}}"
   },
   "pluginList": "Lista wtyczek",
-  "protocolInstall": {
-    "actions": {
-      "install": "Zainstaluj",
-      "installAnyway": "Zainstaluj mimo to",
-      "installed": "Zainstalowano"
-    },
-    "config": {
-      "args": "Argumenty",
-      "command": "Polecenie",
-      "env": "Zmienne środowiskowe",
-      "headers": "Nagłówki",
-      "title": "Informacje konfiguracyjne",
-      "type": {
-        "http": "Typ: HTTP",
-        "label": "Typ",
-        "stdio": "Typ: Stdio"
-      },
-      "url": "Adres usługi"
-    },
-    "custom": {
-      "badge": "Wtyczka niestandardowa",
-      "security": {
-        "description": "Ta wtyczka nie została oficjalnie zweryfikowana, instalacja może wiązać się z ryzykiem bezpieczeństwa! Upewnij się, że ufasz źródłu wtyczki.",
-        "title": "⚠️ Ostrzeżenie o ryzyku bezpieczeństwa"
-      },
-      "title": "Zainstaluj wtyczkę niestandardową"
-    },
-    "marketplace": {
-      "title": "Zainstaluj wtyczki zewnętrzne",
-      "trustedBy": "Dostarczone przez {{name}}",
-      "unverified": {
-        "title": "Nieweryfikowane wtyczki zewnętrzne",
-        "warning": "Ta wtyczka pochodzi z nieweryfikowanego rynku zewnętrznego, przed instalacją upewnij się, że ufasz temu źródłu."
-      },
-      "verified": "Zweryfikowane"
-    },
-    "messages": {
-      "connectionTestFailed": "Test połączenia nie powiódł się",
-      "installError": "Instalacja wtyczki nie powiodła się, spróbuj ponownie",
-      "installSuccess": "Wtyczka {{name}} została pomyślnie zainstalowana!",
-      "manifestError": "Nie udało się pobrać szczegółów wtyczki, sprawdź połączenie sieciowe i spróbuj ponownie",
-      "manifestNotFound": "Nie udało się pobrać pliku manifestu wtyczki"
-    },
-    "meta": {
-      "author": "Autor",
-      "homepage": "Strona główna",
-      "identifier": "Identyfikator",
-      "source": "Źródło",
-      "version": "Wersja"
-    },
-    "official": {
-      "badge": "Oficjalna wtyczka LobeHub",
-      "description": "Ta wtyczka jest rozwijana i utrzymywana przez LobeHub, przeszła rygorystyczne kontrole bezpieczeństwa i jest bezpieczna w użyciu.",
-      "loadingMessage": "Pobieranie szczegółów wtyczki...",
-      "loadingTitle": "Ładowanie",
-      "title": "Zainstaluj oficjalną wtyczkę"
-    },
-    "title": "Instaluj wtyczkę MCP",
-    "warning": "⚠️ Upewnij się, że ufasz źródłu tej wtyczki, złośliwe wtyczki mogą zagrozić bezpieczeństwu Twojego systemu."
-  },
   "search": {
     "apiName": {
       "crawlMultiPages": "Odczytaj zawartość wielu stron",
@@ -411,14 +283,11 @@
       "title": "Konfiguracja wtyczki"
     },
     "connection": {
-      "args": "Argumenty startowe",
-      "command": "Polecenie startowe",
       "title": "Informacje o połączeniu",
       "type": "Typ połączenia",
       "url": "Adres usługi"
     },
     "edit": "Edytuj",
-    "envConfigDescription": "Te ustawienia zostaną przekazane jako zmienne środowiskowe podczas uruchamiania serwera MCP",
     "httpTypeNotice": "Wtyczki MCP typu HTTP nie wymagają konfiguracji zmiennych środowiskowych",
     "indexUrl": {
       "title": "Indeks rynku",
@@ -426,14 +295,10 @@
     },
     "messages": {
       "connectionUpdateFailed": "Aktualizacja informacji o połączeniu nie powiodła się",
-      "connectionUpdateSuccess": "Informacje o połączeniu zostały zaktualizowane",
-      "envUpdateFailed": "Zapis zmiennych środowiskowych nie powiódł się",
-      "envUpdateSuccess": "Zmienna środowiskowa została zapisana pomyślnie"
+      "connectionUpdateSuccess": "Informacje o połączeniu zostały zaktualizowane"
     },
     "modalDesc": "Po skonfigurowaniu adresu rynku wtyczek możesz korzystać z niestandardowego rynku wtyczek",
     "rules": {
-      "argsRequired": "Proszę wprowadzić argumenty startowe",
-      "commandRequired": "Proszę wprowadzić polecenie startowe",
       "urlRequired": "Proszę wprowadzić adres usługi"
     },
     "saveSettings": "Zapisz ustawienia",

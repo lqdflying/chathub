@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   inferContentTypeFromImageUrl,
   inferFileExtensionFromImageUrl,
-  isDesktopLocalStaticServerUrl,
   isLocalOrPrivateUrl,
   pathString,
 } from './url';
@@ -401,39 +400,6 @@ describe('inferFileExtensionFromImageUrl', () => {
   it('should handle relative paths with hash fragments', () => {
     const result = inferFileExtensionFromImageUrl('assets/images/banner.gif#preview');
     expect(result).toBe('gif');
-  });
-});
-
-describe('isDesktopLocalStaticServerUrl', () => {
-  it('should return true for 127.0.0.1', () => {
-    expect(isDesktopLocalStaticServerUrl('http://127.0.0.1')).toBe(true);
-    expect(isDesktopLocalStaticServerUrl('https://127.0.0.1')).toBe(true);
-    expect(isDesktopLocalStaticServerUrl('http://127.0.0.1:8080')).toBe(true);
-    expect(isDesktopLocalStaticServerUrl('http://127.0.0.1/path/to/resource')).toBe(true);
-    expect(isDesktopLocalStaticServerUrl('https://127.0.0.1/path?query=1#hash')).toBe(true);
-  });
-
-  it('should return false for other 127.x.x.x addresses', () => {
-    expect(isDesktopLocalStaticServerUrl('http://127.0.0.2')).toBe(false);
-    expect(isDesktopLocalStaticServerUrl('http://127.1.1.1')).toBe(false);
-    expect(isDesktopLocalStaticServerUrl('http://127.255.255.255')).toBe(false);
-  });
-
-  it('should return false for localhost', () => {
-    expect(isDesktopLocalStaticServerUrl('http://localhost')).toBe(false);
-    expect(isDesktopLocalStaticServerUrl('http://localhost:3000')).toBe(false);
-    expect(isDesktopLocalStaticServerUrl('https://localhost/api')).toBe(false);
-  });
-
-  it('should return false for domain names', () => {
-    expect(isDesktopLocalStaticServerUrl('https://example.com')).toBe(false);
-    expect(isDesktopLocalStaticServerUrl('http://www.google.com')).toBe(false);
-  });
-
-  it('should return false for malformed URLs', () => {
-    expect(isDesktopLocalStaticServerUrl('invalid-url')).toBe(false);
-    expect(isDesktopLocalStaticServerUrl('http://')).toBe(false);
-    expect(isDesktopLocalStaticServerUrl('')).toBe(false);
   });
 });
 

@@ -62,23 +62,13 @@ export interface AuthConfig {
   type: 'none' | 'bearer' | 'oauth2'; // accessToken 的过期时间戳
 }
 
-interface HttpMCPClientParams {
+export interface MCPClientParams {
   auth?: AuthConfig;
   headers?: Record<string, string>;
   name: string;
   type: 'http';
   url: string;
 }
-
-export interface StdioMCPParams {
-  args: string[];
-  command: string;
-  env?: Record<string, string>;
-  name: string;
-  type: 'stdio';
-}
-
-export type MCPClientParams = HttpMCPClientParams | StdioMCPParams;
 
 export interface MCPTokenGetterOptions {
   forceRefresh?: boolean;
@@ -90,7 +80,6 @@ export type MCPTokenGetter = (
 
 export type MCPErrorType =
   | 'CONNECTION_FAILED'
-  | 'PROCESS_SPAWN_ERROR'
   | 'INITIALIZATION_TIMEOUT'
   | 'VALIDATION_ERROR'
   | 'UNKNOWN_ERROR'
@@ -101,8 +90,6 @@ export interface MCPErrorData {
    * 结构化的错误元数据
    */
   metadata?: {
-    errorLog?: string;
-
     /**
      * 原始错误信息
      */
@@ -110,19 +97,7 @@ export interface MCPErrorData {
     /**
      * MCP 连接参数
      */
-    params?: {
-      args?: string[];
-      command?: string;
-      type?: string;
-    };
-
-    /**
-     * 进程相关信息
-     */
-    process?: {
-      exitCode?: number;
-      signal?: string;
-    };
+    params?: { type?: string };
 
     /**
      * 错误发生的步骤
@@ -177,14 +152,14 @@ export function createMCPError(
  */
 export interface OAuthServerMetadata {
   authorization_endpoint: string;
-  token_endpoint: string;
-  registration_endpoint?: string;
-  issuer?: string;
-  scopes_supported?: string[];
-  response_types_supported?: string[];
-  grant_types_supported?: string[];
-  token_endpoint_auth_methods_supported?: string[];
   code_challenge_methods_supported?: string[];
+  grant_types_supported?: string[];
+  issuer?: string;
+  registration_endpoint?: string;
+  response_types_supported?: string[];
+  scopes_supported?: string[];
+  token_endpoint: string;
+  token_endpoint_auth_methods_supported?: string[];
 }
 
 /**

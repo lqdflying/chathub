@@ -169,6 +169,26 @@
     "setInitialMembers": "Selecionar membros do time"
   },
   "members": "Membros",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "Mencionar membros"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "Enviar imagem",
       "tooltip": "Enviar"
     },
-    "clientMode": {
-      "actionFiletip": "Enviar arquivo",
-      "actionTooltip": "Enviar",
-      "disabled": "O modelo atual não suporta reconhecimento visual e análise de arquivos, por favor, mude de modelo antes de usar",
-      "fileNotSupported": "O modo navegador não suporta upload de arquivos, apenas imagens são permitidas",
-      "visionNotSupported": "O modelo atual não suporta reconhecimento visual, por favor, altere o modelo para usar esta função"
-    },
     "preview": {
       "prepareTasks": "Preparando partes...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "O tamanho do arquivo de vídeo não pode exceder 20MB, o tamanho atual do arquivo é {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "O modelo atual não suporta reconhecimento visual, por favor, altere o modelo para usar esta função"
   },
   "you": "você",
-  "zenMode": "Modo de Foco",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "Modo de Foco"
 }

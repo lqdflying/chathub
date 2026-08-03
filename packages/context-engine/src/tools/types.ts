@@ -36,8 +36,6 @@ export interface ToolsGenerationContext {
   [key: string]: any;
   /** Whether image generation is allowed */
   allowImageGeneration?: boolean;
-  /** Environment information */
-  environment?: 'desktop' | 'web';
   /** Whether search is enabled */
   isSearchEnabled?: boolean;
   /** Model name for context-aware plugin filtering */

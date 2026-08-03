@@ -6,7 +6,6 @@ import urlJoin from 'url-join';
 import { serverDBEnv } from '@/config/db';
 import { LOBE_CHAT_AUTH_HEADER } from '@/const/auth';
 import { CHATHUB_IMAGE_DIAGNOSTIC_HEADER } from '@/const/tools';
-import { isDesktop } from '@/const/version';
 import { appEnv } from '@/envs/app';
 import {
   fingerprintImageDebugValue,
@@ -14,7 +13,6 @@ import {
   logImageDebugSafe,
 } from '@/libs/logger/imageDebug';
 import { createAsyncCallerFactory } from '@/libs/trpc/async';
-import { createAsyncContextInner } from '@/libs/trpc/async/context';
 import { createImageDiagnosticFetch } from '@/libs/trpc/async/imageDiagnosticFetch';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
@@ -90,33 +88,15 @@ interface CreateCallerOptions {
 }
 
 /**
- * 创建 caller 的工厂方法，兼容 desktop server 和 remote server 环境
- * 使用方式统一成 caller.a.b() 的调用方式
+ * Create an HTTP-backed caller with the same call shape as a server-side caller.
  */
 export const createAsyncCaller = async (
   options: CreateCallerOptions,
 ): Promise<UnifiedAsyncCaller> => {
   const { userId, jwtPayload } = options;
 
-  if (isDesktop) {
-    // Desktop 环境：使用 caller 直接同线程调用方法
-    const asyncContext = await createAsyncContextInner({
-      jwtPayload,
-      // 参考 src/libs/trpc/async/asyncAuth.ts
-      secret: serverDBEnv.KEY_VAULTS_SECRET,
-      userId,
-    });
-
-    const createCaller = createAsyncCallerFactory(asyncRouter);
-    const caller = createCaller(asyncContext);
-
-    return caller;
-  }
-  // 非 Desktop 环境：使用 HTTP Client
-  // http client 调用方式是 client.a.b.mutate(), 我希望统一成 caller.a.b() 的调用方式
-  else {
-    const httpClient = await createAsyncServerClient(userId, jwtPayload);
-    const createRecursiveProxy = (client: any, path: string[]): any => {
+  const httpClient = await createAsyncServerClient(userId, jwtPayload);
+  const createRecursiveProxy = (client: any, path: string[]): any => {
       // The target is a dummy function, so that 'apply' can be triggered.
       return new Proxy(() => {}, {
         apply: (target, thisArg, args) => {
@@ -144,6 +124,5 @@ export const createAsyncCaller = async (
       });
     };
 
-    return createRecursiveProxy(httpClient, []);
-  }
+  return createRecursiveProxy(httpClient, []);
 };

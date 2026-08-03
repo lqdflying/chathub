@@ -1,4 +1,4 @@
-import { INBOX_GUIDE_SYSTEMROLE, INBOX_SESSION_ID, isDesktop, isServerMode } from '@lobechat/const';
+import { INBOX_GUIDE_SYSTEMROLE, INBOX_SESSION_ID } from '@lobechat/const';
 import {
   AgentMemoryProvider,
   ContextEngine,
@@ -167,7 +167,7 @@ export const contextEngineering = async ({
 
       // 8. Message content processing
       new MessageContentProcessor({
-        fileContext: { enabled: isServerMode, includeFileUrl: !isDesktop },
+        fileContext: { enabled: true, includeFileUrl: true },
         isCanUseVideo,
         isCanUseVision,
         model,

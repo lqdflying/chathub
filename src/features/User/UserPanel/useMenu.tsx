@@ -1,4 +1,4 @@
-import { Hotkey, Icon } from '@lobehub/ui';
+import { Icon } from '@lobehub/ui';
 import { Badge } from 'antd';
 import { ItemType } from 'antd/es/menu/interface';
 import {
@@ -17,9 +17,7 @@ import { Flexbox } from 'react-layout-kit';
 import type { MenuProps } from '@/components/Menu';
 import { enableAuth } from '@/const/auth';
 import { LOBE_CHAT_CLOUD } from '@/const/branding';
-import { DEFAULT_DESKTOP_HOTKEY_CONFIG } from '@/const/desktop';
 import { OFFICIAL_URL, UTM_SOURCE } from '@/const/url';
-import { isDesktop } from '@/const/version';
 import DataImporter from '@/features/DataImporter';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
@@ -70,11 +68,6 @@ export const useMenu = () => {
 
   const settings: MenuProps['items'] = [
     {
-      extra: isDesktop ? (
-        <div>
-          <Hotkey keys={DEFAULT_DESKTOP_HOTKEY_CONFIG.openSettings} />
-        </div>
-      ) : undefined,
       icon: <Icon icon={Settings2} />,
       key: 'setting',
       label: (

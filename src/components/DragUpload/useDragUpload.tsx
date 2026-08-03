@@ -128,7 +128,7 @@ export const useDragUpload = (onUploadFiles: (files: File[]) => Promise<void>) =
     // 检查是否有图片文件且模型不支持视觉功能
     const hasImageFiles = files.some((file) => file.type.startsWith('image/'));
     if (hasImageFiles && !supportVision) {
-      message.warning(t('upload.clientMode.visionNotSupported'));
+      message.warning(t('upload.visionNotSupported'));
       return;
     }
 
@@ -147,7 +147,7 @@ export const useDragUpload = (onUploadFiles: (files: File[]) => Promise<void>) =
     // 检查是否有图片文件且模型不支持视觉功能
     const hasImageFiles = files.some((file) => file.type.startsWith('image/'));
     if (hasImageFiles && !supportVision) {
-      message.warning(t('upload.clientMode.visionNotSupported'));
+      message.warning(t('upload.visionNotSupported'));
       return;
     }
 

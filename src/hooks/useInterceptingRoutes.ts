@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 
 import { INBOX_SESSION_ID } from '@/const/session';
-import { isDeprecatedEdition } from '@/const/version';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useQueryRoute } from '@/hooks/useQueryRoute';
 import { useAgentStore } from '@/store/agent';
@@ -15,10 +14,6 @@ export const useOpenChatSettings = (tab: ChatSettingsTabs = ChatSettingsTabs.Met
   const router = useQueryRoute();
 
   return useMemo(() => {
-    if (isDeprecatedEdition && activeId === INBOX_SESSION_ID) {
-      return () => router.push(`/settings?active=${SettingsTabs.Agent}`);
-    }
-
     if (isMobile) return () => router.push('/chat/settings', { query: { session: activeId } });
 
     return () => {

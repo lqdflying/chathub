@@ -1,5 +1,4 @@
 import MobileContentLayout from '@/components/server/MobileNavLayout';
-import InitClientDB from '@/features/InitClientDB';
 import Footer from '@/features/Setting/Footer';
 
 import { LayoutProps } from '../type';
@@ -13,7 +12,6 @@ const Layout = ({ children }: LayoutProps) => {
         <div style={{ flex: 1 }} />
         <Footer />
       </MobileContentLayout>
-      <InitClientDB />
     </>
   );
 };

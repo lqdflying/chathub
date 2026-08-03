@@ -31,53 +31,15 @@ vi.mock('@lobechat/fetch-sse', async (importOriginal) => {
   return { ...(module as any), getMessageError: vi.fn() };
 });
 
-// Mock image processing utilities
-vi.mock('@/utils/url', () => ({
-  isDesktopLocalStaticServerUrl: vi.fn(),
-}));
-
-vi.mock('@/utils/imageToBase64', () => ({
-  imageUrlToBase64: vi.fn(),
-}));
-
-vi.mock('@lobechat/model-runtime', async (importOriginal) => {
-  const actual = await importOriginal();
-
-  return {
-    ...(actual as any),
-    parseDataUri: vi.fn(),
-  };
-});
-
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-beforeEach(async () => {
+beforeEach(() => {
   // 清除所有模块的缓存
   vi.resetModules();
 
-  // 默认设置 isServerMode 为 false
-  vi.mock('@/const/version', () => ({
-    isServerMode: false,
-    isDeprecatedEdition: true,
-    isDesktop: false,
-  }));
-
-  // Reset all mocks
   vi.clearAllMocks();
-
-  // Set default mock return values for image processing utilities
-  const { isDesktopLocalStaticServerUrl } = await import('@/utils/url');
-  const { imageUrlToBase64 } = await import('@/utils/imageToBase64');
-  const { parseDataUri } = await import('@lobechat/model-runtime');
-
-  vi.mocked(parseDataUri).mockReturnValue({ type: 'url', base64: null, mimeType: null });
-  vi.mocked(isDesktopLocalStaticServerUrl).mockReturnValue(false);
-  vi.mocked(imageUrlToBase64).mockResolvedValue({
-    base64: 'mock-base64',
-    mimeType: 'image/jpeg',
-  });
 });
 
 describe('ModelRuntimeOnClient', () => {

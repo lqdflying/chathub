@@ -8,8 +8,6 @@ import { Flexbox } from 'react-layout-kit';
 
 import BrandWatermark from '@/components/BrandWatermark';
 import PanelTitle from '@/components/PanelTitle';
-import { isDesktop } from '@/const/version';
-import { TITLE_BAR_HEIGHT } from '@/features/ElectronTitlebar';
 import {
   AgentTeamSettings,
   GroupCategory,
@@ -48,7 +46,7 @@ const AgentTeamSettingsWrapper = memo(() => {
     >
       <Drawer
         containerMaxWidth={1280}
-        height={isDesktop ? `calc(100vh - ${TITLE_BAR_HEIGHT}px)` : '100vh'}
+        height={'100vh'}
         noHeader
         onClose={() => useChatGroupStore.setState({ showGroupSetting: false })}
         open={showGroupSetting}
@@ -72,7 +70,7 @@ const AgentTeamSettingsWrapper = memo(() => {
           sidebarContent: {
             gap: 48,
             justifyContent: 'space-between',
-            minHeight: isDesktop ? `calc(100% - ${TITLE_BAR_HEIGHT}px)` : '100%',
+            minHeight: '100%',
             paddingBlock: 24,
             paddingInline: 48,
           },

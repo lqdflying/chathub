@@ -37,16 +37,6 @@
     },
     "title": "Échec de l'autorisation"
   },
-  "handoff": {
-    "desc": {
-      "processing": "L'application est en train de traiter l'autorisation, vous serez redirigé vers la prochaine page...",
-      "success": "Une tentative d'ouverture de l'application de bureau a été effectuée. Si l'application ne s'ouvre pas automatiquement, veuillez changer manuellement. Vous pouvez fermer cette fenêtre de navigateur plus tard."
-    },
-    "title": {
-      "processing": "Traitement de l'autorisation...",
-      "success": "Autorisation terminée"
-    }
-  },
   "login": {
     "button": "Confirmer la connexion",
     "description": "L'application {{clientName}} demande à utiliser votre compte pour se connecter",

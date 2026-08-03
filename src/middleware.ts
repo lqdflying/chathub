@@ -188,7 +188,6 @@ const isPublicRoute = createRouteMatcher([
   // oauth
   // Make only the consent view public (GET page), not other oauth paths
   '/oauth/consent/(.*)',
-  '/oidc/handoff',
   '/oidc/token',
 ]);
 

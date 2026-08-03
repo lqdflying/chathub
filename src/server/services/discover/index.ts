@@ -1,7 +1,6 @@
 import {
   CURRENT_VERSION,
   DEFAULT_DISCOVER_PLUGIN_ITEM,
-  isDesktop,
 } from '@lobechat/const';
 import {
   CacheRevalidate,
@@ -46,27 +45,16 @@ export class DiscoverService {
         return process.env.VERCEL_PROJECT_ID;
       }
 
-      // 2. 桌面端使用 machine-id
-      if (isDesktop) {
-        try {
-          // 动态导入
-          const { machineId } = await import('node-machine-id');
-          return await machineId();
-        } catch (error) {
-          console.error('Failed to get machine-id:', error);
-        }
-      }
-
       return 'unknown-device';
     };
 
     const deviceId = await getDeviceId();
 
     const { client_id, client_secret } = await this.market.registerClient({
-      clientName: `ChatHub ${isDesktop ? 'Desktop' : 'Web'}`,
-      clientType: isDesktop ? 'desktop' : 'web',
+      clientName: 'ChatHub Web',
+      clientType: 'web',
       deviceId,
-      platform: isDesktop ? process.platform : userAgent,
+      platform: userAgent,
       version: CURRENT_VERSION,
     });
 

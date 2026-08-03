@@ -14,7 +14,6 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { MESSAGE_CANCEL_FLAT } from '@/const/message';
 import { INBOX_SESSION_ID } from '@/const/session';
-import { isDeprecatedEdition } from '@/const/version';
 import type { TopicMemoryRollupRow } from '@/database/models/topic';
 import {
   capAssistantMemoryByTokensAsync,
@@ -306,8 +305,6 @@ export const createChatSlice: StateCreator<
       return isMutationContextCurrent(mutationContext);
     },
     rollupAssistantMemory: async (options) => {
-      // the legacy Dexie topic service cannot list rollup rows (it throws)
-      if (isDeprecatedEdition) return { reason: 'unsupported_mode', status: 'skipped' };
       if (!agentChatConfigSelectors.enableAssistantMemory(get())) {
         return { reason: 'disabled', status: 'skipped' };
       }

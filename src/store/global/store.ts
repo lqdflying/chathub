@@ -4,7 +4,6 @@ import { createWithEqualityFn } from 'zustand/traditional';
 import { StateCreator } from 'zustand/vanilla';
 
 import { createDevtools } from '../middleware/createDevtools';
-import { type GlobalClientDBAction, clientDBSlice } from './actions/clientDb';
 import { type GlobalGeneralAction, generalActionSlice } from './actions/general';
 import { type GlobalWorkspacePaneAction, globalWorkspaceSlice } from './actions/workspacePane';
 import { type GlobalState, initialState } from './initialState';
@@ -14,7 +13,6 @@ import { type GlobalState, initialState } from './initialState';
 export interface GlobalStore
   extends GlobalState,
     GlobalWorkspacePaneAction,
-    GlobalClientDBAction,
     GlobalGeneralAction {
   /* empty */
 }
@@ -22,7 +20,6 @@ export interface GlobalStore
 const createStore: StateCreator<GlobalStore, [['zustand/devtools', never]]> = (...parameters) => ({
   ...initialState,
   ...globalWorkspaceSlice(...parameters),
-  ...clientDBSlice(...parameters),
   ...generalActionSlice(...parameters),
 });
 

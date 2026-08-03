@@ -17,11 +17,6 @@
     "goToChat": "채팅 페이지 로딩 중...",
     "initAuth": "인증 서비스 초기화 중...",
     "initUser": "사용자 상태 초기화 중...",
-    "initializing": "PGlite 데이터베이스 초기화 중...",
-    "loadingDependencies": "의존성 초기화 중...",
-    "loadingWasm": "WASM 모듈 로딩 중...",
-    "migrating": "데이터 테이블 마이그레이션 실행 중...",
-    "ready": "데이터베이스 준비 완료",
     "showDetail": "자세히 보기"
   },
   "autoGenerate": "자동 완성",
@@ -31,109 +26,9 @@
   "batchDelete": "일괄 삭제",
   "blog": "제품 블로그",
   "branching": "하위 주제 생성",
-  "branchingDisable": "현재 모드에서는 '하위 주제' 기능을 사용할 수 없습니다. 이 기능을 사용하려면 Postgres/Pglite DB 모드로 전환하거나 LobeHub Cloud를 이용해 주세요.",
   "branchingRequiresSavedTopic": "현재 주제가 저장되지 않았습니다. 저장 후 하위 주제 기능을 사용할 수 있습니다.",
   "cancel": "취소",
   "changelog": "업데이트 로그",
-  "clientDB": {
-    "autoInit": {
-      "title": "PGlite 데이터베이스 초기화"
-    },
-    "error": {
-      "desc": "죄송합니다. PGlite 데이터베이스 초기화 중 오류가 발생했습니다. 오른쪽 버튼을 클릭하여 다시 시도하세요. SQL 운영 경험이 있다면 아래의 자가 해결 버튼을 클릭하여 직접 해결할 수 있습니다. 여러 번 시도해도 문제가 반복되면 왼쪽 하단의 문제 피드백을 통해 알려주세요. 신속히 도와드리겠습니다.",
-      "detail": "오류 원인: [{{type}}] {{message}}, 상세 내용은 다음과 같습니다:",
-      "detailTitle": "오류 원인",
-      "report": "문제 피드백",
-      "retry": "다시 시도",
-      "selfSolve": "자가 해결",
-      "title": "데이터베이스 초기화 실패"
-    },
-    "initing": {
-      "error": "데이터베이스 초기화 오류, 자세히 보기 클릭",
-      "idle": "초기화 대기 중...",
-      "initializing": "초기화 중...",
-      "loadingDependencies": "의존성 로딩 중...",
-      "loadingWasmModule": "WASM 모듈 로딩 중...",
-      "migrating": "데이터 테이블 마이그레이션 중...",
-      "ready": "데이터베이스 준비 완료"
-    },
-    "modal": {
-      "desc": "차세대 클라이언트 데이터베이스를 지금 활성화하세요. 브라우저에 채팅 데이터를 영구 저장하고 지식베이스 등 고급 기능을 사용할 수 있습니다.",
-      "enable": "지금 활성화",
-      "features": {
-        "knowledgeBase": {
-          "desc": "개인 지식베이스를 구축하고 도우미와 쉽게 지식 기반 대화를 시작하세요 (곧 출시 예정)",
-          "title": "지식 기반 대화 지원, 제2의 두뇌 시작"
-        },
-        "localFirst": {
-          "desc": "채팅 데이터는 브라우저에만 저장되며, 데이터는 항상 당신의 통제 하에 있습니다.",
-          "title": "로컬 우선, 프라이버시 최우선"
-        },
-        "pglite": {
-          "desc": "PGlite 기반으로 구축되어 AI Native 고급 기능(벡터 검색)을 기본 지원합니다.",
-          "title": "차세대 클라이언트 저장소 아키텍처"
-        }
-      },
-      "init": {
-        "desc": "데이터베이스 초기화 중입니다. 네트워크 상태에 따라 5~30초 정도 소요될 수 있습니다.",
-        "title": "PGlite 데이터베이스 초기화 중"
-      },
-      "title": "클라이언트 데이터베이스 활성화"
-    },
-    "ready": {
-      "button": "지금 사용하기",
-      "desc": "지금 사용해보세요",
-      "title": "PGlite 데이터베이스 준비 완료"
-    },
-    "solve": {
-      "backup": {
-        "backup": "백업",
-        "backupSuccess": "백업 성공",
-        "desc": "현재 데이터베이스의 핵심 데이터를 내보냅니다",
-        "export": "전체 데이터 내보내기",
-        "exportDesc": "내보낸 데이터는 JSON 형식으로 저장되며, 이후 복원 또는 분석에 사용할 수 있습니다.",
-        "reset": {
-          "alert": "경고",
-          "alertDesc": "다음 작업은 데이터 손실을 초래할 수 있습니다. 중요한 데이터를 백업한 후 진행하세요.",
-          "button": "데이터베이스 완전 초기화 (모든 데이터 삭제)",
-          "confirm": {
-            "desc": "이 작업은 모든 데이터를 삭제하며 되돌릴 수 없습니다. 계속하시겠습니까?",
-            "title": "데이터베이스 초기화 확인"
-          },
-          "desc": "복구할 수 없는 경우 데이터베이스를 초기화합니다",
-          "title": "데이터베이스 초기화"
-        },
-        "restore": "복원",
-        "restoreSuccess": "복원 성공",
-        "title": "데이터 백업"
-      },
-      "diagnosis": {
-        "createdAt": "생성 시간",
-        "migratedAt": "마이그레이션 완료 시간",
-        "sql": "마이그레이션 SQL",
-        "title": "마이그레이션 상태"
-      },
-      "repair": {
-        "desc": "마이그레이션 상태 수동 관리",
-        "runSQL": "사용자 정의 실행",
-        "sql": {
-          "clear": "지우기",
-          "desc": "사용자 정의 SQL 문을 실행하여 데이터베이스 문제를 해결합니다",
-          "markFinished": "완료로 표시",
-          "placeholder": "SQL 문 입력...",
-          "result": "실행 결과",
-          "run": "실행",
-          "title": "SQL 실행기"
-        },
-        "title": "마이그레이션 제어"
-      },
-      "tabs": {
-        "backup": "백업 및 복원",
-        "diagnosis": "진단",
-        "repair": "수리"
-      }
-    }
-  },
   "close": "닫기",
   "contact": "문의하기",
   "copy": "복사",

@@ -393,12 +393,6 @@ describe('OIDC Provider - Market Client Integration', () => {
   });
 
   describe('Non-Market Client Logic (Default Path)', () => {
-    it('should use UserModel for non-market clients (desktop client)', () => {
-      // Desktop client should use the default user database lookup
-      const desktopClientId = 'lobehub-desktop';
-      expect(desktopClientId).not.toBe(MARKET_CLIENT_ID);
-    });
-
     it('should use UserModel for non-market clients (mobile client)', () => {
       // Mobile client should use the default user database lookup
       const mobileClientId = 'lobehub-mobile';
@@ -406,7 +400,7 @@ describe('OIDC Provider - Market Client Integration', () => {
     });
 
     it('should validate non-market client IDs are different from market client', () => {
-      const nonMarketClients = ['lobehub-desktop', 'lobehub-mobile'];
+      const nonMarketClients = ['lobehub-mobile'];
 
       nonMarketClients.forEach((clientId) => {
         expect(clientId).not.toBe(MARKET_CLIENT_ID);
@@ -468,31 +462,17 @@ describe('OIDC Provider - Market Client Integration', () => {
       });
     });
 
-    describe('Scenario 2: Desktop Client + Local Database', () => {
-      it('should use local UserModel for desktop client', () => {
-        // Business: Desktop app uses local database for user management
-        const scenario = {
-          client: 'lobehub-desktop',
-          authProvider: 'UserModel (Local Database)',
-          useCase: 'Desktop app with local/self-hosted user database',
-        };
-
-        expect(scenario.client).toBe('lobehub-desktop');
-        expect(scenario.authProvider).toBe('UserModel (Local Database)');
-      });
-    });
-
-    describe('Scenario 3: Mobile Client + Local Database', () => {
+    describe('Scenario 2: Mobile Client + Server Database', () => {
       it('should use local UserModel for mobile client', () => {
-        // Business: Mobile app uses local database for user management
+        // Business: Mobile clients use the application server for user management
         const scenario = {
           client: 'lobehub-mobile',
-          authProvider: 'UserModel (Local Database)',
-          useCase: 'Mobile app with local/self-hosted user database',
+          authProvider: 'UserModel (Server Database)',
+          useCase: 'Mobile app with the configured server database',
         };
 
         expect(scenario.client).toBe('lobehub-mobile');
-        expect(scenario.authProvider).toBe('UserModel (Local Database)');
+        expect(scenario.authProvider).toBe('UserModel (Server Database)');
       });
     });
 
@@ -513,12 +493,12 @@ describe('OIDC Provider - Market Client Integration', () => {
       it('should generate database-based claims for non-market clients', () => {
         // Business: Desktop/Mobile users get profile/email from local DB
         const localClaims = {
-          source: 'UserModel (PostgreSQL/PGLite)',
+          source: 'UserModel (PostgreSQL)',
           fields: ['sub', 'name', 'picture', 'email', 'email_verified'],
           nameResolution: 'fullName || username || firstName+lastName',
         };
 
-        expect(localClaims.source).toBe('UserModel (PostgreSQL/PGLite)');
+        expect(localClaims.source).toBe('UserModel (PostgreSQL)');
         expect(localClaims.fields).toContain('name');
         expect(localClaims.fields).toContain('email');
       });

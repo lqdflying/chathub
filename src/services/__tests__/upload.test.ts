@@ -3,22 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { lambdaClient } from '@/libs/trpc/client';
 import { createHeaderWithAuth } from '@/services/_auth';
 import { API_ENDPOINTS } from '@/services/_url';
-import { clientS3Storage } from '@/services/file/ClientS3';
 
 import { UPLOAD_NETWORK_ERROR, uploadService } from '../upload';
 
-// Mock dependencies
-vi.mock('@lobechat/const', () => ({
-  isDesktop: false,
-  isServerMode: false,
-}));
-
 vi.mock('@lobechat/model-runtime', () => ({
   parseDataUri: vi.fn(),
-}));
-
-vi.mock('@lobechat/utils', () => ({
-  uuid: () => 'mock-uuid',
 }));
 
 vi.mock('@/services/_auth', () => ({
@@ -37,28 +26,6 @@ vi.mock('@/libs/trpc/client', () => ({
   },
 }));
 
-vi.mock('@/services/file/ClientS3', () => ({
-  clientS3Storage: {
-    putObject: vi.fn(),
-  },
-}));
-
-vi.mock('@/store/electron', () => ({
-  getElectronStoreState: vi.fn(() => ({})),
-}));
-
-vi.mock('@/store/electron/selectors', () => ({
-  electronSyncSelectors: {
-    isSyncActive: vi.fn(() => false),
-  },
-}));
-
-vi.mock('@/services/electron/file', () => ({
-  desktopFileAPI: {
-    uploadFile: vi.fn(),
-  },
-}));
-
 vi.mock('js-sha256', () => ({
   sha256: vi.fn((data) => 'mock-hash-' + data.byteLength),
 }));
@@ -74,65 +41,31 @@ describe('UploadService', () => {
   };
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     // Mock Date.now
     vi.spyOn(Date, 'now').mockImplementation(() => 3_600_000); // 1 hour in milliseconds
   });
 
   describe('uploadFileToS3', () => {
-    it('should upload to client S3 for non-server mode with image file', async () => {
-      const { sha256 } = await import('js-sha256');
-      vi.mocked(sha256).mockReturnValue('test-hash');
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
+    it('should upload through the server object store', async () => {
+      vi.spyOn(uploadService, 'uploadToServerS3').mockResolvedValue(mockServerMetadata);
 
       const result = await uploadService.uploadFileToS3(mockFile, {});
 
       expect(result.success).toBe(true);
-      expect(result.data).toEqual({
-        date: '1',
-        dirname: '',
-        filename: mockFile.name,
-        path: 'client-s3://test-hash',
+      expect(result.data).toEqual(mockServerMetadata);
+      expect(uploadService.uploadToServerS3).toHaveBeenCalledWith(mockFile, {
+        directory: undefined,
+        onProgress: undefined,
+        signal: undefined,
       });
-      expect(clientS3Storage.putObject).toHaveBeenCalledWith('test-hash', mockFile);
     });
 
-    it('should call onNotSupported for non-image/video files', async () => {
-      const nonImageFile = new File(['test'], 'test.txt', { type: 'text/plain' });
-      const onNotSupported = vi.fn();
-
-      const result = await uploadService.uploadFileToS3(nonImageFile, {
-        onNotSupported,
-      });
-
-      expect(result.success).toBe(false);
-      expect(onNotSupported).toHaveBeenCalled();
-    });
-
-    it('should skip file type check when skipCheckFileType is true', async () => {
-      const nonImageFile = new File(['test'], 'test.txt', { type: 'text/plain' });
-      const { sha256 } = await import('js-sha256');
-      vi.mocked(sha256).mockReturnValue('test-hash');
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
-
-      const result = await uploadService.uploadFileToS3(nonImageFile, {
-        skipCheckFileType: true,
-      });
-
-      expect(result.success).toBe(true);
-      expect(clientS3Storage.putObject).toHaveBeenCalled();
-    });
-
-    it('should upload video files', async () => {
-      const videoFile = new File(['test'], 'test.mp4', { type: 'video/mp4' });
-      const { sha256 } = await import('js-sha256');
-      vi.mocked(sha256).mockReturnValue('video-hash');
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
-
-      const result = await uploadService.uploadFileToS3(videoFile, {});
-
-      expect(result.success).toBe(true);
-      expect(clientS3Storage.putObject).toHaveBeenCalledWith('video-hash', videoFile);
+    it('should reject obsolete client upload directories', async () => {
+      await expect(
+        uploadService.uploadFileToS3(mockFile, { directory: 'legacy-local' }),
+      ).rejects.toThrow('Unsupported server upload directory');
     });
   });
 
@@ -147,7 +80,7 @@ describe('UploadService', () => {
 
       const { sha256 } = await import('js-sha256');
       vi.mocked(sha256).mockReturnValue('base64-hash');
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
+      vi.spyOn(uploadService, 'uploadToServerS3').mockResolvedValue(mockServerMetadata);
 
       const base64Data = 'data:image/png;base64,dGVzdA==';
       const result = await uploadService.uploadBase64ToS3(base64Data);
@@ -155,9 +88,7 @@ describe('UploadService', () => {
       expect(result).toMatchObject({
         fileType: 'image/png',
         hash: expect.any(String),
-        metadata: expect.objectContaining({
-          path: expect.stringContaining('client-s3://'),
-        }),
+        metadata: mockServerMetadata,
         size: expect.any(Number),
       });
     });
@@ -187,14 +118,16 @@ describe('UploadService', () => {
 
       const { sha256 } = await import('js-sha256');
       vi.mocked(sha256).mockReturnValue('custom-hash');
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
+      const upload = vi
+        .spyOn(uploadService, 'uploadToServerS3')
+        .mockResolvedValue(mockServerMetadata);
 
       const base64Data = 'data:image/png;base64,dGVzdA==';
-      const result = await uploadService.uploadBase64ToS3(base64Data, {
+      await uploadService.uploadBase64ToS3(base64Data, {
         filename: 'custom-image',
       });
 
-      expect(result.metadata.filename).toContain('custom-image');
+      expect(upload.mock.calls[0][0].name).toBe('custom-image.png');
     });
   });
 
@@ -202,27 +135,26 @@ describe('UploadService', () => {
     it('should upload JSON data successfully', async () => {
       const { sha256 } = await import('js-sha256');
       vi.mocked(sha256).mockReturnValue('json-hash');
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
+      vi.spyOn(uploadService, 'uploadToServerS3').mockResolvedValue(mockServerMetadata);
 
       const data = { key: 'value', number: 123 };
-      // uploadDataToS3 internally calls uploadFileToS3, which needs skipCheckFileType for JSON
-      const result = await uploadService.uploadDataToS3(data, {
-        skipCheckFileType: true,
-      });
+      const result = await uploadService.uploadDataToS3(data);
 
       expect(result.success).toBe(true);
-      expect(clientS3Storage.putObject).toHaveBeenCalled();
+      expect(uploadService.uploadToServerS3).toHaveBeenCalled();
     });
 
     it('should use custom filename when provided', async () => {
       const { sha256 } = await import('js-sha256');
       vi.mocked(sha256).mockReturnValue('custom-json-hash');
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
+      vi.spyOn(uploadService, 'uploadToServerS3').mockResolvedValue({
+        ...mockServerMetadata,
+        filename: 'custom.json',
+      });
 
       const data = { test: true };
       const result = await uploadService.uploadDataToS3(data, {
         filename: 'custom.json',
-        skipCheckFileType: true,
       });
 
       expect(result.success).toBe(true);
@@ -368,25 +300,6 @@ describe('UploadService', () => {
         { filename: 'test.png', purpose: 'ragEval' },
         { signal: undefined },
       );
-    });
-  });
-
-  describe('uploadToClientS3', () => {
-    it('should upload file to client S3 successfully', async () => {
-      const hash = 'test-hash';
-      const expectedResult = {
-        date: '1',
-        dirname: '',
-        filename: mockFile.name,
-        path: `client-s3://${hash}`,
-      };
-
-      vi.mocked(clientS3Storage.putObject).mockResolvedValue(undefined);
-
-      const result = await uploadService['uploadToClientS3'](hash, mockFile);
-
-      expect(clientS3Storage.putObject).toHaveBeenCalledWith(hash, mockFile);
-      expect(result).toEqual(expectedResult);
     });
   });
 

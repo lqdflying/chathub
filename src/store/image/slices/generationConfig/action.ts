@@ -166,7 +166,7 @@ function saveImagePreferences(
   const validImageNum = isValidImageCount(imageNum) ? imageNum : undefined;
 
   if (!isLogin) {
-    // Guests keep browser-local persistence.
+    // Guests retain their UI preference in status storage.
     useGlobalStore.getState().updateSystemStatus({
       lastSelectedImageModel: model,
       lastSelectedImageProvider: provider,

@@ -1,6 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
-import { LOADING_FLAT, THREAD_DRAFT_ID, isDeprecatedEdition } from '@lobechat/const';
+import { LOADING_FLAT, THREAD_DRAFT_ID } from '@lobechat/const';
 import { chainSummaryTitle } from '@lobechat/prompts';
 import {
   CreateMessageParams,
@@ -426,7 +426,7 @@ export const chatThreadMessage: StateCreator<
     const requestedScope = useUserStore(authSelectors.currentUserScope);
 
     return useClientDataSWR<ThreadItem[]>(
-      enable && !!topicId && !isDeprecatedEdition && requestedScope
+      enable && !!topicId && requestedScope
         ? [SWR_USE_FETCH_THREADS, requestedScope, topicId]
         : null,
       async (cacheKey: [string, string, string]) => threadService.getThreads(cacheKey[2]),

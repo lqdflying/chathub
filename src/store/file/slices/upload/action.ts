@@ -1,9 +1,6 @@
-import { t } from 'i18next';
 import { sha256 } from 'js-sha256';
 import { StateCreator } from 'zustand/vanilla';
 
-import { message } from '@/components/AntdStaticMethods';
-import { LOBE_CHAT_CLOUD } from '@/const/branding';
 import { fileService } from '@/services/file';
 import { uploadService } from '@/services/upload';
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
@@ -41,12 +38,6 @@ interface UploadWithProgressParams {
   mutationCheckpoint?: FileMutationCheckpoint;
   onStatusUpdate?: OnStatusUpdate;
   signal?: AbortSignal;
-  /**
-   * Optional flag to indicate whether to skip the file type check.
-   * When set to `true`, any file type checks will be bypassed.
-   * Default is `false`, which means file type checks will be performed.
-   */
-  skipCheckFileType?: boolean;
 }
 
 interface UploadWithProgressResult {
@@ -169,7 +160,6 @@ export const createFileUploadSlice: StateCreator<
     knowledgeBaseId,
     mutationCheckpoint: requestedMutationCheckpoint,
     signal,
-    skipCheckFileType,
   }) => {
     const mutationCheckpoint =
       requestedMutationCheckpoint ?? captureFileMutationCheckpoint(get().scopeGeneration);
@@ -225,21 +215,6 @@ export const createFileUploadSlice: StateCreator<
       // 3. if file don't exist, need upload files
       else {
         const { data, success } = await uploadService.uploadFileToS3(file, {
-          onNotSupported: () => {
-            if (!isOperationCurrent()) return;
-
-            onStatusUpdate?.({ id: file.name, type: 'removeFile' });
-            if (!isOperationCurrent()) return;
-
-            message.info({
-              content: t('upload.fileOnlySupportInServerMode', {
-                cloud: LOBE_CHAT_CLOUD,
-                ext: file.name.split('.').pop(),
-                ns: 'error',
-              }),
-              duration: 5,
-            });
-          },
           onProgress: (status, upload) => {
             if (uploadSignal?.aborted) return;
             if (!isOperationCurrent()) return;
@@ -254,7 +229,6 @@ export const createFileUploadSlice: StateCreator<
             });
           },
           signal: uploadSignal,
-          skipCheckFileType,
         });
         uploadSignal?.throwIfAborted();
         if (!isOperationCurrent()) return;

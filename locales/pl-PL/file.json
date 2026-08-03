@@ -39,24 +39,6 @@
     "title": "Baza wiedzy"
   },
   "networkError": "Nie udało się uzyskać dostępu do bazy wiedzy, proszę sprawdzić połączenie sieciowe i spróbować ponownie",
-  "notSupportGuide": {
-    "desc": "Obecna instancja wdrożeniowa jest w trybie bazy danych klienta, co uniemożliwia korzystanie z funkcji zarządzania plikami. Proszę przełączyć się na <1>tryb wdrożenia bazy danych serwera</1> lub bezpośrednio korzystać z <3>LobeChat Cloud</3>",
-    "features": {
-      "allKind": {
-        "desc": "Obsługuje popularne typy plików, w tym formaty dokumentów takie jak Word, PPT, Excel, PDF, TXT oraz popularne pliki kodu, takie jak JS, Python",
-        "title": "Analiza różnych typów plików"
-      },
-      "embeddings": {
-        "desc": "Wykorzystuje wysokowydajne modele wektorowe do indeksowania fragmentów tekstu, umożliwiając semantyczne przeszukiwanie treści plików",
-        "title": "Semantyzacja wektorów"
-      },
-      "repos": {
-        "desc": "Obsługuje tworzenie bazy wiedzy i pozwala na dodawanie różnych typów plików, budując swoją własną wiedzę w danej dziedzinie",
-        "title": "Baza wiedzy"
-      }
-    },
-    "title": "Obecny tryb wdrożenia nie obsługuje zarządzania plikami"
-  },
   "preview": {
     "downloadFile": "Pobierz plik",
     "unsupportedFileAndContact": "Ten format pliku nie jest obecnie obsługiwany w podglądzie online. Jeśli chcesz uzyskać podgląd, zachęcamy do <1>skontaktowania się z nami</1>."

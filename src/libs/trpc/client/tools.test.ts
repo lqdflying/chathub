@@ -20,7 +20,6 @@ describe('tools tRPC client links', () => {
       });
     }) as typeof fetch;
     const client = createToolsClient({
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -63,7 +62,6 @@ describe('tools tRPC client links', () => {
       });
     }) as typeof fetch;
     const client = createToolsClient({
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -106,7 +104,6 @@ describe('tools tRPC client links', () => {
       );
     }) as typeof fetch;
     const client = createToolsClient({
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -138,7 +135,6 @@ describe('tools tRPC client links', () => {
       });
     }) as typeof fetch;
     const client = createToolsClient({
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -188,7 +184,6 @@ describe('tools tRPC client links', () => {
       });
     }) as typeof fetch;
     const client = createToolsClient({
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -217,7 +212,6 @@ describe('tools tRPC client links', () => {
 
   it('preserves classified HTML response details through the tRPC client error', async () => {
     const client = createToolsClient({
-      desktop: false,
       fetch: vi.fn(
         async () =>
           new Response('<!DOCTYPE html><html><body>private gateway page</body></html>', {

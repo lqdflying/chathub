@@ -60,12 +60,6 @@
       "advanced": {
         "title": "고급 설정"
       },
-      "args": {
-        "desc": "명령 실행 시 전달할 인자 목록. 일반적으로 MCP 서버 이름 또는 시작 스크립트 경로를 입력합니다",
-        "label": "명령 인자",
-        "placeholder": "예: mcp-hello-world",
-        "required": "시작 인자를 입력하세요"
-      },
       "auth": {
         "bear": "API Key",
         "desc": "MCP 서버의 인증 방식을 선택하세요",
@@ -82,29 +76,10 @@
       "avatar": {
         "label": "플러그인 아이콘"
       },
-      "command": {
-        "desc": "MCP STDIO 서버를 시작할 실행 파일 또는 스크립트",
-        "label": "명령어",
-        "placeholder": "예: npx / uv / docker 등",
-        "required": "시작 명령어를 입력하세요"
-      },
       "desc": {
         "desc": "플러그인 설명 추가",
         "label": "플러그인 설명",
         "placeholder": "플러그인 사용법 및 사용 시나리오 등"
-      },
-      "endpoint": {
-        "desc": "MCP Streamable HTTP 서버 주소를 입력하세요",
-        "label": "MCP 엔드포인트 URL"
-      },
-      "env": {
-        "add": "행 추가",
-        "desc": "MCP 서버에 필요한 환경 변수를 입력하세요",
-        "duplicateKeyError": "키는 고유해야 합니다",
-        "formValidationFailed": "폼 유효성 검사 실패. 인자 형식을 확인하세요",
-        "keyRequired": "키는 비워둘 수 없습니다",
-        "label": "MCP 서버 환경 변수",
-        "stringifyError": "인자를 직렬화할 수 없습니다. 형식을 확인하세요"
       },
       "headers": {
         "add": "행 추가",
@@ -125,21 +100,8 @@
         "invalidJson": "유효하지 않은 JSON 형식",
         "invalidStructure": "JSON 구조가 유효하지 않습니다"
       },
-      "stdioNotSupported": "현재 환경에서는 stdio 유형의 MCP 플러그인을 지원하지 않습니다",
       "testConnection": "연결 테스트",
       "testConnectionTip": "연결 테스트에 성공해야 MCP 플러그인을 정상적으로 사용할 수 있습니다",
-      "type": {
-        "desc": "MCP 플러그인의 통신 방식을 선택하세요. 웹 버전은 Streamable HTTP만 지원합니다",
-        "httpFeature1": "웹 및 데스크탑 모두 지원",
-        "httpFeature2": "원격 MCP 서버 연결, 별도 설치 불필요",
-        "httpShortDesc": "스트리밍 HTTP 기반 통신 프로토콜",
-        "label": "MCP 플러그인 유형",
-        "stdioFeature1": "낮은 지연 시간, 로컬 실행에 적합",
-        "stdioFeature2": "로컬에 MCP 서버 설치 필요",
-        "stdioNotAvailable": "STDIO 모드는 데스크탑 버전에서만 사용 가능합니다",
-        "stdioShortDesc": "표준 입출력 기반 통신 프로토콜",
-        "title": "MCP 플러그인 유형"
-      },
       "url": {
         "desc": "MCP 서버의 Streamable HTTP 주소를 입력하세요. SSE 모드는 지원하지 않습니다",
         "invalid": "유효한 URL을 입력하세요",
@@ -249,19 +211,7 @@
     "content": "플러그인 호출 중...",
     "plugin": "플러그인 실행 중..."
   },
-  "localSystem": {
-    "apiName": {
-      "listLocalFiles": "파일 목록 보기",
-      "moveLocalFiles": "파일 이동",
-      "readLocalFile": "파일 내용 읽기",
-      "renameLocalFile": "파일 이름 변경",
-      "searchLocalFiles": "파일 검색",
-      "writeLocalFile": "파일 쓰기"
-    },
-    "title": "로컬 파일"
-  },
   "mcpInstall": {
-    "CHECKING_INSTALLATION": "설치 환경 확인 중...",
     "COMPLETED": "설치 완료",
     "CONFIGURATION_REQUIRED": "설정을 완료한 후 설치를 계속 진행해 주세요",
     "ERROR": "설치 오류",
@@ -271,101 +221,23 @@
     "configurationDescription": "이 MCP 플러그인은 정상적으로 사용하기 위해 설정이 필요합니다. 필수 설정 정보를 입력해 주세요.",
     "configurationRequired": "플러그인 설정",
     "continueInstall": "설치 계속",
-    "dependenciesDescription": "이 플러그인을 정상적으로 사용하려면 다음 시스템 종속 항목이 필요합니다. 안내에 따라 누락된 종속 항목을 설치한 후, 다시 확인을 클릭하여 설치를 계속하세요.",
-    "dependenciesRequired": "플러그인의 시스템 종속 항목을 설치해 주세요",
-    "dependencyStatus": {
-      "installed": "설치됨",
-      "notInstalled": "설치되지 않음",
-      "requiredVersion": "필요 버전: {{version}}"
-    },
     "errorDetails": {
-      "args": "매개변수",
-      "command": "명령어",
       "connectionParams": "연결 매개변수",
-      "env": "환경 변수",
-      "errorOutput": "오류 로그",
-      "exitCode": "종료 코드",
       "hideDetails": "세부 정보 숨기기",
       "originalError": "원본 오류",
-      "showDetails": "세부 정보 보기"
+      "showDetails": "세부 정보 보기",
+      "connectionType": "연결 매개변수"
     },
     "errorTypes": {
       "AUTHORIZATION_ERROR": "인증 오류",
       "CONNECTION_FAILED": "연결 실패",
       "INITIALIZATION_TIMEOUT": "초기화 시간 초과",
-      "PROCESS_SPAWN_ERROR": "프로세스 시작 실패",
       "UNKNOWN_ERROR": "알 수 없는 오류",
       "VALIDATION_ERROR": "매개변수 검증 실패"
     },
-    "installError": "MCP 플러그인 설치 실패, 실패 원인: {{detail}}",
-    "installMethods": {
-      "manual": "수동 설치:",
-      "recommended": "권장 설치 방법:"
-    },
-    "recheckDependencies": "다시 확인",
-    "skipDependencies": "확인 건너뛰기"
+    "installError": "MCP 플러그인 설치 실패, 실패 원인: {{detail}}"
   },
   "pluginList": "플러그인 목록",
-  "protocolInstall": {
-    "actions": {
-      "install": "설치",
-      "installAnyway": "강제 설치",
-      "installed": "설치됨"
-    },
-    "config": {
-      "args": "매개변수",
-      "command": "명령어",
-      "env": "환경 변수",
-      "headers": "요청 헤더",
-      "title": "설정 정보",
-      "type": {
-        "http": "유형: HTTP",
-        "label": "유형",
-        "stdio": "유형: Stdio"
-      },
-      "url": "서비스 주소"
-    },
-    "custom": {
-      "badge": "사용자 정의 플러그인",
-      "security": {
-        "description": "이 플러그인은 공식 인증을 받지 않았으며, 설치 시 보안 위험이 있을 수 있습니다. 플러그인 출처를 신뢰할 수 있는지 확인해 주세요.",
-        "title": "⚠️ 보안 위험 경고"
-      },
-      "title": "사용자 정의 플러그인 설치"
-    },
-    "marketplace": {
-      "title": "서드파티 플러그인 설치",
-      "trustedBy": "{{name}} 제공",
-      "unverified": {
-        "title": "검증되지 않은 서드파티 플러그인",
-        "warning": "이 플러그인은 검증되지 않은 서드파티 마켓에서 제공됩니다. 설치 전에 출처를 신뢰할 수 있는지 확인해 주세요."
-      },
-      "verified": "검증됨"
-    },
-    "messages": {
-      "connectionTestFailed": "연결 테스트 실패",
-      "installError": "플러그인 설치 실패, 다시 시도해 주세요",
-      "installSuccess": "플러그인 {{name}} 설치 성공!",
-      "manifestError": "플러그인 세부 정보 가져오기 실패, 네트워크 연결을 확인한 후 다시 시도해 주세요",
-      "manifestNotFound": "플러그인 설명 파일을 가져올 수 없습니다"
-    },
-    "meta": {
-      "author": "작성자",
-      "homepage": "홈페이지",
-      "identifier": "식별자",
-      "source": "출처",
-      "version": "버전"
-    },
-    "official": {
-      "badge": "LobeHub 공식 플러그인",
-      "description": "이 플러그인은 LobeHub에서 공식적으로 개발 및 유지 관리하며, 엄격한 보안 검토를 거쳐 안심하고 사용할 수 있습니다.",
-      "loadingMessage": "플러그인 세부 정보 가져오는 중...",
-      "loadingTitle": "로딩 중",
-      "title": "공식 플러그인 설치"
-    },
-    "title": "MCP 플러그인 설치",
-    "warning": "⚠️ 이 플러그인의 출처를 신뢰할 수 있는지 확인해 주세요. 악성 플러그인은 시스템 보안에 위협이 될 수 있습니다."
-  },
   "search": {
     "apiName": {
       "crawlMultiPages": "여러 페이지 내용 읽기",
@@ -411,14 +283,11 @@
       "title": "플러그인 설정"
     },
     "connection": {
-      "args": "시작 매개변수",
-      "command": "시작 명령어",
       "title": "연결 정보",
       "type": "연결 유형",
       "url": "서비스 주소"
     },
     "edit": "편집",
-    "envConfigDescription": "이 설정은 MCP 서버 시작 시 환경 변수로 프로세스에 전달됩니다",
     "httpTypeNotice": "HTTP 유형의 MCP 플러그인은 별도의 환경 변수 설정이 필요하지 않습니다",
     "indexUrl": {
       "title": "마켓 인덱스",
@@ -426,14 +295,10 @@
     },
     "messages": {
       "connectionUpdateFailed": "연결 정보 업데이트 실패",
-      "connectionUpdateSuccess": "연결 정보 업데이트 성공",
-      "envUpdateFailed": "환경 변수 저장 실패",
-      "envUpdateSuccess": "환경 변수 저장 성공"
+      "connectionUpdateSuccess": "연결 정보 업데이트 성공"
     },
     "modalDesc": "플러그인 마켓 주소를 설정하면 사용자 정의 마켓을 사용할 수 있습니다",
     "rules": {
-      "argsRequired": "시작 매개변수를 입력해 주세요",
-      "commandRequired": "시작 명령어를 입력해 주세요",
       "urlRequired": "서비스 주소를 입력해 주세요"
     },
     "saveSettings": "설정 저장",

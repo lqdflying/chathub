@@ -109,10 +109,6 @@ vi.mock('@/components/ModelSelect', () => ({
   ProviderItemRender: () => <span>provider</span>,
 }));
 
-vi.mock('@/const/version', () => ({
-  isDeprecatedEdition: false,
-}));
-
 vi.mock('@/store/aiInfra', () => ({
   aiProviderSelectors: {
     enabledImageModelList: (state: typeof aiInfraState) => state.enabledImageModelList,

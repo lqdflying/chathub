@@ -13,7 +13,6 @@ import {
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
   type ChatHubRPCDiagnosticOperation,
 } from '@/const/tools';
-import { isDesktop } from '@/const/version';
 import type { LambdaRouter } from '@/server/routers/lambda';
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
 
@@ -22,14 +21,12 @@ import { createGuardedRPCFetch, findRPCResponseError } from './toolsResponse';
 
 const log = debug('lobe-image:lambda-client');
 
-type FetchInit = Parameters<typeof fetch>[1];
 type HeadersInput = ConstructorParameters<typeof Headers>[0];
 
 type LambdaClientOptions = {
   assertAccountOwnership?: () =>
     | AccountMutationSnapshot
     | Promise<AccountMutationSnapshot>;
-  desktop?: boolean;
   fetch?: typeof fetch;
   getAuthHeaders?: () => Promise<HeadersInput>;
 };
@@ -163,21 +160,10 @@ const requiresVerifiedAccountOwnership = (path: string): boolean =>
 
 const createLambdaLinks = ({
   assertAccountOwnership = defaultAssertAccountOwnership,
-  desktop = isDesktop,
   fetch: customFetch,
   getAuthHeaders = defaultGetAuthHeaders,
 }: LambdaClientOptions = {}) => {
-  const fetchImpl: typeof fetch = customFetch
-    ? customFetch
-    : async (input, init) => {
-        if (desktop) {
-          const { desktopRemoteRPCFetch } = await import('@/utils/electron/desktopRemoteRPCFetch');
-          const response = await desktopRemoteRPCFetch(input as string, init as FetchInit);
-          if (response) return response;
-        }
-
-        return globalThis.fetch(input, init);
-      };
+  const fetchImpl = customFetch || globalThis.fetch.bind(globalThis);
   const guardedFetch = createGuardedRPCFetch(fetchImpl);
 
   const headersForDiagnostics = async (

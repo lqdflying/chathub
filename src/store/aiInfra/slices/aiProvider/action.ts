@@ -1,4 +1,3 @@
-import { isDeprecatedEdition, isDesktop, isUsePgliteDB } from '@lobechat/const';
 import { getModelPropertyWithFallback } from '@lobechat/model-runtime';
 import { uniqBy } from 'lodash-es';
 import {
@@ -531,7 +530,6 @@ export const createAiProviderSlice: StateCreator<
     // Prevents unnecessary requests when login state is null/undefined
     const shouldFetch =
       isAuthLoaded &&
-      !isDeprecatedEdition &&
       isLogin !== null &&
       isLogin !== undefined &&
       !hasOwnerMismatch &&
@@ -596,7 +594,6 @@ export const createAiProviderSlice: StateCreator<
         };
       },
       {
-        focusThrottleInterval: isDesktop || isUsePgliteDB ? 100 : undefined,
         onError: () => {
           if (get().runtimeStateRequestScope !== requestedScope) return;
           if (!isRequestedScopeCurrent(requestedScope)) return;

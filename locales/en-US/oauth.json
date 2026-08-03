@@ -37,16 +37,6 @@
     },
     "title": "Authorization Failed"
   },
-  "handoff": {
-    "desc": {
-      "processing": "The application is processing the authorization and will redirect to the next page soon...",
-      "success": "An attempt has been made to open the desktop application. If it does not open automatically, please switch manually. You can close this browser window later."
-    },
-    "title": {
-      "processing": "Authorization in progress...",
-      "success": "Authorization completed"
-    }
-  },
   "login": {
     "button": "Confirm Login",
     "description": "The application {{clientName}} is requesting to use your account for login",

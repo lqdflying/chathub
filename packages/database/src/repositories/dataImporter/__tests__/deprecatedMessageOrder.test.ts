@@ -7,21 +7,21 @@ import { getTestDB } from '../../../models/__tests__/_util';
 import { messages, users } from '../../../schemas';
 import { DeprecatedDataImporterRepos } from '../deprecated';
 
-const clientDB = await getTestDB();
+const db = await getTestDB();
 const userId = 'deprecated-import-message-order-user';
 
 beforeEach(async () => {
-  await clientDB.delete(users);
-  await clientDB.insert(users).values({ id: userId });
+  await db.delete(users);
+  await db.insert(users).values({ id: userId });
 });
 
 afterEach(async () => {
-  await clientDB.delete(users);
+  await db.delete(users);
 });
 
 describe('DeprecatedDataImporterRepos message order', () => {
   it('allocates fresh sequence values instead of importing messageOrder', async () => {
-    const importer = new DeprecatedDataImporterRepos(clientDB, userId);
+    const importer = new DeprecatedDataImporterRepos(db, userId);
     const data: ImporterEntryData = {
       version: 7,
       messages: [
@@ -49,7 +49,7 @@ describe('DeprecatedDataImporterRepos message order', () => {
 
     expect(result.messages).toEqual({ added: 2, errors: 0, skips: 0 });
 
-    const importedMessages = await clientDB.query.messages.findMany({
+    const importedMessages = await db.query.messages.findMany({
       orderBy: (table, { asc }) => asc(table.messageOrder),
       where: eq(messages.userId, userId),
     });

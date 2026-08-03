@@ -37,7 +37,7 @@ const INLINE_MEDIA_CONTAINER_KEYS = new Set([
 
 const sanitizeString = (value: string): string => {
   if (/^data:/i.test(value)) {
-    const mediaType = value.match(/^data:([^;,]*)(?:;[^,]*)?,/i)?.[1];
+    const mediaType = value.match(/^data:([^,;]*)(?:;[^,]*)?,/i)?.[1];
     return `[redacted data URL${mediaType ? `: ${mediaType}` : ''}]`;
   }
 

@@ -60,12 +60,6 @@
       "advanced": {
         "title": "Gelişmiş Ayarlar"
       },
-      "args": {
-        "desc": "Çalıştırma komutuna iletilen parametre listesi, genellikle MCP sunucu adı veya başlatma betiği yolu buraya girilir",
-        "label": "Komut Parametreleri",
-        "placeholder": "Örneğin: mcp-hello-world",
-        "required": "Lütfen başlatma parametresi girin"
-      },
       "auth": {
         "bear": "API Anahtarı",
         "desc": "MCP sunucusunun kimlik doğrulama yöntemini seçin",
@@ -82,29 +76,10 @@
       "avatar": {
         "label": "Eklenti Simgesi"
       },
-      "command": {
-        "desc": "MCP STDIO Sunucusunu başlatmak için yürütülebilir dosya veya betik",
-        "label": "Komut",
-        "placeholder": "Örneğin: npx / uv / docker vb.",
-        "required": "Lütfen başlatma komutunu girin"
-      },
       "desc": {
         "desc": "Eklenti açıklaması ekleyin",
         "label": "Eklenti Açıklaması",
         "placeholder": "Eklentinin kullanım talimatları ve senaryoları gibi bilgileri ekleyin"
-      },
-      "endpoint": {
-        "desc": "MCP Streamable HTTP Sunucunuzun adresini girin",
-        "label": "MCP Endpoint URL"
-      },
-      "env": {
-        "add": "Yeni satır ekle",
-        "desc": "MCP Sunucunuzun ihtiyaç duyduğu ortam değişkenlerini girin",
-        "duplicateKeyError": "Alan anahtarı benzersiz olmalıdır",
-        "formValidationFailed": "Form doğrulaması başarısız, lütfen parametre formatını kontrol edin",
-        "keyRequired": "Alan anahtarı boş olamaz",
-        "label": "MCP Sunucu Ortam Değişkenleri",
-        "stringifyError": "Parametreler serileştirilemiyor, lütfen formatı kontrol edin"
       },
       "headers": {
         "add": "Yeni satır ekle",
@@ -125,21 +100,8 @@
         "invalidJson": "Geçersiz JSON formatı",
         "invalidStructure": "JSON formatı geçersiz"
       },
-      "stdioNotSupported": "Mevcut ortam stdio türündeki MCP eklentilerini desteklemiyor",
       "testConnection": "Bağlantıyı test et",
       "testConnectionTip": "Bağlantı testi başarılı olursa MCP eklentisi düzgün çalışabilir",
-      "type": {
-        "desc": "MCP eklentisinin iletişim türünü seçin, web sürümü sadece Streamable HTTP destekler",
-        "httpFeature1": "Web ve masaüstü sürümleriyle uyumlu",
-        "httpFeature2": "Uzak MCP sunucusuna bağlanır, ek kurulum gerekmez",
-        "httpShortDesc": "Akış tabanlı HTTP iletişim protokolü",
-        "label": "MCP Eklenti Türü",
-        "stdioFeature1": "Daha düşük iletişim gecikmesi, yerel çalıştırma için uygun",
-        "stdioFeature2": "Yerel MCP sunucusunun kurulması ve çalıştırılması gerekir",
-        "stdioNotAvailable": "STDIO modu sadece masaüstü sürümde kullanılabilir",
-        "stdioShortDesc": "Standart giriş çıkış tabanlı iletişim protokolü",
-        "title": "MCP Eklenti Türü"
-      },
       "url": {
         "desc": "MCP Sunucunuzun Streamable HTTP adresini girin, SSE modu desteklenmez",
         "invalid": "Geçerli bir URL adresi girin",
@@ -249,19 +211,7 @@
     "content": "Eklenti çağrılıyor...",
     "plugin": "Eklenti çalışıyor..."
   },
-  "localSystem": {
-    "apiName": {
-      "listLocalFiles": "Dosya listesini görüntüle",
-      "moveLocalFiles": "Dosya taşı",
-      "readLocalFile": "Dosya içeriğini oku",
-      "renameLocalFile": "Dosya adını değiştir",
-      "searchLocalFiles": "Dosya ara",
-      "writeLocalFile": "Dosyaya yaz"
-    },
-    "title": "Yerel Dosyalar"
-  },
   "mcpInstall": {
-    "CHECKING_INSTALLATION": "Kurulum ortamı kontrol ediliyor...",
     "COMPLETED": "Kurulum tamamlandı",
     "CONFIGURATION_REQUIRED": "Devam etmek için gerekli yapılandırmayı tamamlayın",
     "ERROR": "Kurulum hatası",
@@ -271,101 +221,23 @@
     "configurationDescription": "Bu MCP eklentisi düzgün çalışması için yapılandırma parametreleri gerektirir, lütfen gerekli bilgileri doldurun",
     "configurationRequired": "Eklenti parametrelerini yapılandır",
     "continueInstall": "Kuruluma devam et",
-    "dependenciesDescription": "Bu eklentinin düzgün çalışması için aşağıdaki sistem bağımlılıkları gereklidir, lütfen eksik bağımlılıkları kurduktan sonra tekrar kontrol edip kuruluma devam edin.",
-    "dependenciesRequired": "Eklentinin sistem bağımlılıklarını yükleyin",
-    "dependencyStatus": {
-      "installed": "Yüklendi",
-      "notInstalled": "Yüklenmedi",
-      "requiredVersion": "Gerekli sürüm: {{version}}"
-    },
     "errorDetails": {
-      "args": "Parametreler",
-      "command": "Komut",
       "connectionParams": "Bağlantı parametreleri",
-      "env": "Ortam değişkenleri",
-      "errorOutput": "Hata günlükleri",
-      "exitCode": "Çıkış kodu",
       "hideDetails": "Detayları gizle",
       "originalError": "Orijinal hata",
-      "showDetails": "Detayları göster"
+      "showDetails": "Detayları göster",
+      "connectionType": "Bağlantı parametreleri"
     },
     "errorTypes": {
       "AUTHORIZATION_ERROR": "Yetkilendirme hatası",
       "CONNECTION_FAILED": "Bağlantı başarısız",
       "INITIALIZATION_TIMEOUT": "Başlatma zaman aşımı",
-      "PROCESS_SPAWN_ERROR": "İşlem başlatılamadı",
       "UNKNOWN_ERROR": "Bilinmeyen hata",
       "VALIDATION_ERROR": "Parametre doğrulama hatası"
     },
-    "installError": "MCP eklentisi yüklenemedi, hata nedeni: {{detail}}",
-    "installMethods": {
-      "manual": "Manuel kurulum:",
-      "recommended": "Önerilen kurulum yöntemi:"
-    },
-    "recheckDependencies": "Bağımlılıkları tekrar kontrol et",
-    "skipDependencies": "Kontrolü atla"
+    "installError": "MCP eklentisi yüklenemedi, hata nedeni: {{detail}}"
   },
   "pluginList": "Eklenti Listesi",
-  "protocolInstall": {
-    "actions": {
-      "install": "Yükle",
-      "installAnyway": "Yine de yükle",
-      "installed": "Yüklendi"
-    },
-    "config": {
-      "args": "Parametreler",
-      "command": "Komut",
-      "env": "Ortam değişkenleri",
-      "headers": "İstek başlıkları",
-      "title": "Yapılandırma Bilgileri",
-      "type": {
-        "http": "Tür: HTTP",
-        "label": "Tür",
-        "stdio": "Tür: Stdio"
-      },
-      "url": "Sunucu Adresi"
-    },
-    "custom": {
-      "badge": "Özel Eklenti",
-      "security": {
-        "description": "Bu eklenti resmi olarak doğrulanmamıştır, yükleme güvenlik riski taşıyabilir! Lütfen eklenti kaynağına güvendiğinizden emin olun.",
-        "title": "⚠️ Güvenlik Uyarısı"
-      },
-      "title": "Özel Eklenti Yükle"
-    },
-    "marketplace": {
-      "title": "Üçüncü Taraf Eklenti Yükle",
-      "trustedBy": "{{name}} tarafından sağlanmaktadır",
-      "unverified": {
-        "title": "Doğrulanmamış Üçüncü Taraf Eklenti",
-        "warning": "Bu eklenti doğrulanmamış üçüncü taraf pazarından gelmektedir, yüklemeden önce kaynağa güvendiğinizden emin olun."
-      },
-      "verified": "Doğrulanmış"
-    },
-    "messages": {
-      "connectionTestFailed": "Bağlantı testi başarısız",
-      "installError": "Eklenti yüklenemedi, lütfen tekrar deneyin",
-      "installSuccess": "{{name}} eklentisi başarıyla yüklendi!",
-      "manifestError": "Eklenti detayları alınamadı, lütfen ağ bağlantınızı kontrol edip tekrar deneyin",
-      "manifestNotFound": "Eklenti tanımlama dosyası alınamadı"
-    },
-    "meta": {
-      "author": "Yazar",
-      "homepage": "Ana Sayfa",
-      "identifier": "Tanımlayıcı",
-      "source": "Kaynak",
-      "version": "Sürüm"
-    },
-    "official": {
-      "badge": "LobeHub Resmi Eklentisi",
-      "description": "Bu eklenti LobeHub tarafından resmi olarak geliştirilmiş ve bakımı yapılmaktadır, sıkı güvenlik denetiminden geçmiştir, güvenle kullanabilirsiniz.",
-      "loadingMessage": "Eklenti detayları alınıyor...",
-      "loadingTitle": "Yükleniyor",
-      "title": "Resmi Eklenti Yükle"
-    },
-    "title": "MCP Eklentisi Yükle",
-    "warning": "⚠️ Lütfen bu eklentinin kaynağına güvendiğinizden emin olun, kötü amaçlı eklentiler sistem güvenliğinizi tehlikeye atabilir."
-  },
   "search": {
     "apiName": {
       "crawlMultiPages": "Birden fazla sayfa içeriği oku",
@@ -411,14 +283,11 @@
       "title": "Eklenti Yapılandırması"
     },
     "connection": {
-      "args": "Başlatma Parametreleri",
-      "command": "Başlatma Komutu",
       "title": "Bağlantı Bilgileri",
       "type": "Bağlantı Türü",
       "url": "Sunucu Adresi"
     },
     "edit": "Düzenle",
-    "envConfigDescription": "Bu yapılandırmalar MCP sunucusu başlatılırken ortam değişkenleri olarak sürece iletilecektir",
     "httpTypeNotice": "HTTP türündeki MCP eklentileri için yapılandırılacak ortam değişkeni yoktur",
     "indexUrl": {
       "title": "Pazar Endeksi",
@@ -426,14 +295,10 @@
     },
     "messages": {
       "connectionUpdateFailed": "Bağlantı bilgisi güncellemesi başarısız",
-      "connectionUpdateSuccess": "Bağlantı bilgisi başarıyla güncellendi",
-      "envUpdateFailed": "Ortam değişkeni kaydedilemedi",
-      "envUpdateSuccess": "Ortam değişkeni başarıyla kaydedildi"
+      "connectionUpdateSuccess": "Bağlantı bilgisi başarıyla güncellendi"
     },
     "modalDesc": "Eklenti pazar adresini yapılandırdıktan sonra, özel eklenti pazarını kullanabilirsiniz",
     "rules": {
-      "argsRequired": "Lütfen başlatma parametrelerini girin",
-      "commandRequired": "Lütfen başlatma komutunu girin",
       "urlRequired": "Lütfen sunucu adresini girin"
     },
     "saveSettings": "Ayarları Kaydet",

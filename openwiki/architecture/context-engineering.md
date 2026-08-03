@@ -234,9 +234,8 @@ scope reset aborts. In-flight agent ids are exposed in store state
 The rollup day-marker is account-scoped
 (`lobe_assistant_memory_rollup_<scope>_<agentId>`) on the local calendar day, written on success
 and on genuine no-op skips but not on failures or backoff skips, and the scheduler interval reads
-all state inside its tick so switching agents never resets it. The legacy Dexie edition cannot
-list topics for the rollup, so scheduler, action, and UI buttons are gated off there while fixed
-memory continues to work. After a successful write, every agent-config SWR key in the account
+all state inside its tick so switching agents never resets it. Topic listing and rollup persistence
+always use the server database. After a successful write, every agent-config SWR key in the account
 scope is revalidated so sibling sessions bound to the same agent drop their stale copy.
 
 Assistant-wide memory rollup is an agent-store action, while `ChatService` reads the agent store when

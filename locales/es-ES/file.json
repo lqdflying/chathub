@@ -39,24 +39,6 @@
     "title": "Base de conocimientos"
   },
   "networkError": "Error al obtener la base de conocimientos, por favor verifica la conexión a internet y vuelve a intentarlo",
-  "notSupportGuide": {
-    "desc": "La instancia de despliegue actual está en modo de base de datos cliente, no se puede utilizar la función de gestión de archivos. Por favor, cambia a <1>modo de despliegue de base de datos en servidor</1>, o utiliza directamente <3>LobeChat Cloud</3>",
-    "features": {
-      "allKind": {
-        "desc": "Soporta los tipos de archivos más comunes, incluyendo formatos de documentos como Word, PPT, Excel, PDF, TXT, así como archivos de código como JS, Python, etc.",
-        "title": "Análisis de múltiples tipos de archivos"
-      },
-      "embeddings": {
-        "desc": "Utiliza modelos de vectores de alto rendimiento para vectorizar fragmentos de texto, permitiendo la búsqueda semántica del contenido del archivo",
-        "title": "Semantización de vectores"
-      },
-      "repos": {
-        "desc": "Soporta la creación de bases de conocimientos y permite añadir diferentes tipos de archivos, construyendo tu propio conocimiento en el área",
-        "title": "Base de conocimientos"
-      }
-    },
-    "title": "El modo de despliegue actual no soporta la gestión de archivos"
-  },
   "preview": {
     "downloadFile": "Descargar archivo",
     "unsupportedFileAndContact": "Este formato de archivo no es compatible con la vista previa en línea. Si desea solicitar una vista previa, no dude en <1>contactarnos</1>."

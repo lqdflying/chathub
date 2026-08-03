@@ -39,24 +39,6 @@
     "title": "Kennisbank"
   },
   "networkError": "Kon de kennisbank niet ophalen, controleer uw netwerkverbinding en probeer het opnieuw",
-  "notSupportGuide": {
-    "desc": "De huidige implementatie is in client-database modus, waardoor de bestandsbeheerfunctie niet beschikbaar is. Schakel over naar <1>server-database implementatiemodus</1>, of gebruik direct <3>LobeChat Cloud</3>",
-    "features": {
-      "allKind": {
-        "desc": "Ondersteunt gangbare bestandstypen, waaronder Word, PPT, Excel, PDF, TXT en andere veelvoorkomende documentformaten, evenals JS, Python en andere gangbare codebestanden",
-        "title": "Meerdere bestandstype-analyse"
-      },
-      "embeddings": {
-        "desc": "Gebruik hoogwaardige vectormodellen om tekstdelen te vectoriseren, waardoor semantische zoekopdrachten in de inhoud van bestanden mogelijk zijn",
-        "title": "Vector-semantisering"
-      },
-      "repos": {
-        "desc": "Ondersteunt het maken van kennisbanken en staat het toevoegen van verschillende bestandstypen toe, zodat je jouw eigen domeinkennis kunt opbouwen",
-        "title": "Kennisbank"
-      }
-    },
-    "title": "De huidige implementatiemodus ondersteunt geen bestandsbeheer"
-  },
   "preview": {
     "downloadFile": "Bestand downloaden",
     "unsupportedFileAndContact": "Dit bestandsformaat wordt momenteel niet ondersteund voor online preview. Als u een preview wilt, neem dan gerust <1>contact met ons op</1>."

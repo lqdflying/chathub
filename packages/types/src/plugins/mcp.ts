@@ -1,4 +1,4 @@
-import { PluginQueryParams, SystemDependency } from '@lobehub/market-sdk';
+import { PluginQueryParams } from '@lobehub/market-sdk';
 import { z } from 'zod';
 
 import { MCPErrorType } from '@/libs/mcp';
@@ -8,8 +8,6 @@ import { CustomPluginMetadata } from '../tool/plugin';
 /* eslint-disable typescript-sort-keys/string-enum */
 export enum MCPInstallStep {
   FETCHING_MANIFEST = 'FETCHING_MANIFEST',
-  CHECKING_INSTALLATION = 'CHECKING_INSTALLATION',
-  DEPENDENCIES_REQUIRED = 'DEPENDENCIES_REQUIRED',
   GETTING_SERVER_MANIFEST = 'GETTING_SERVER_MANIFEST',
   CONFIGURATION_REQUIRED = 'CONFIGURATION_REQUIRED',
   INSTALLING_PLUGIN = 'INSTALLING_PLUGIN',
@@ -18,103 +16,9 @@ export enum MCPInstallStep {
 }
 
 /* eslint-enable */
-export interface CheckMcpInstallParams {
-  /**
-   * 安装详情
-   */
-  installationDetails: {
-    packageName?: string;
-    repositoryUrlToClone?: string;
-    setupSteps?: string[];
-  };
-  /**
-   * 安装方法
-   */
-  installationMethod: string;
-  /**
-   * 系统依赖项
-   */
-  systemDependencies?: SystemDependency[];
-}
-
-export interface CheckMcpInstallResult {
-  allDependenciesMet?: boolean;
-  /**
-   * 所有部署选项的检查结果
-   */
-  allOptions?: Array<{
-    allDependenciesMet?: boolean;
-    /**
-     * 连接信息，用于后续连接使用
-     */
-    connection?: {
-      args?: string[];
-      command?: string;
-      installationMethod: string;
-      packageName?: string;
-      repositoryUrl?: string;
-    };
-    isRecommended?: boolean;
-    packageInstalled?: boolean;
-    systemDependencies?: Array<{
-      error?: string;
-      installed: boolean;
-      meetRequirement: boolean;
-      name: string;
-      version?: string;
-    }>;
-  }>;
-  /**
-   * 配置模式，提到顶层方便访问
-   */
-  configSchema?: any;
-  /**
-   * 连接信息，用于后续连接使用
-   */
-  connection?: {
-    args?: string[];
-    command?: string;
-    type: 'stdio' | 'http';
-    url?: string;
-  };
-  /**
-   * 如果检测失败，提供错误信息
-   */
-  error?: string;
-  /**
-   * 是否为推荐选项
-   */
-  isRecommended?: boolean;
-  /**
-   * 是否需要配置（如 API key 等）
-   */
-  needsConfig?: boolean;
-  /**
-   * 插件安装检测结果
-   */
-  packageInstalled?: boolean;
-  platform: string;
-  /**
-   * 检测结果是否成功
-   */
-  success: boolean;
-  /**
-   * 系统依赖检测结果
-   */
-  systemDependencies?: Array<{
-    error?: string;
-    installed: boolean;
-    meetRequirement: boolean;
-    name: string;
-    version?: string;
-  }>;
-}
-
 export type MCPPluginListParams = Pick<PluginQueryParams, 'locale' | 'pageSize' | 'page' | 'q'>;
 
 export interface MCPErrorInfoMetadata {
-  errorLog?: string;
-
   /**
    * 原始错误信息
    */
@@ -124,18 +28,8 @@ export interface MCPErrorInfoMetadata {
    * MCP 连接参数
    */
   params?: {
-    args?: string[];
-    command?: string;
     type?: string;
   };
-  /**
-   * 进程相关信息
-   */
-  process?: {
-    exitCode?: number;
-    signal?: string;
-  };
-
   /**
    * 错误发生的步骤
    */
@@ -167,10 +61,8 @@ export interface MCPErrorInfo {
 }
 
 export interface MCPInstallProgress {
-  checkResult?: CheckMcpInstallResult;
   configSchema?: any;
-  // connection info from checkInstallation
-  connection?: any;
+  connection?: McpConnection;
   // 结构化的错误信息，当安装失败时显示
   errorInfo?: MCPErrorInfo;
   manifest?: any;
@@ -179,25 +71,9 @@ export interface MCPInstallProgress {
   // 0-100
   progress: number;
   step: MCPInstallStep;
-  // 系统依赖检测结果，当需要安装依赖时显示
-  systemDependencies?: Array<{
-    error?: string;
-    installInstructions?: {
-      current?: string; // 当前系统的安装指令
-      manual?: string; // 手动安装指令
-    };
-    installed: boolean;
-    meetRequirement: boolean;
-    name: string;
-    requiredVersion?: string;
-    type?: string;
-    version?: string;
-    versionParsingRequired?: boolean;
-  }>;
 }
 
 export interface McpConnection {
-  args?: string[];
   auth?: {
     accessToken?: string;
     // OAuth 2.1 fields
@@ -210,13 +86,9 @@ export interface McpConnection {
     tokenEndpoint?: string;
     type: 'none' | 'bearer' | 'oauth2';
   };
-  // STDIO 连接参数
-  command?: string;
-  env?: Record<string, string>;
   headers?: Record<string, string>;
-  type: 'http' | 'stdio';
-  // HTTP 连接参数
-  url?: string;
+  type: 'http';
+  url: string;
 }
 
 // 测试连接参数类型

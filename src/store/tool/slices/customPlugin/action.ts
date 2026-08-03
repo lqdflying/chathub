@@ -97,40 +97,28 @@ export const createCustomPluginSlice: StateCreator<
       // mean this is a mcp plugin
       if (!!plugin.customParams?.mcp) {
         const mcp = plugin.customParams.mcp;
-        if (mcp.type === 'stdio') {
-          if (!mcp.command) return;
-
-          if (!isOperationCurrent()) return;
-          manifest = await mcpService.getStdioMcpServerManifest(
-            {
-              args: mcp.args,
-              command: mcp.command,
-              env: mcp.env,
-              name: pluginId,
-            },
-            {
-              avatar: plugin.customParams.avatar,
-              description: plugin.customParams.description,
-            },
-          );
-          if (!isOperationCurrent()) return;
-        } else {
-          const url = mcp.url;
-          if (!url) return;
-
-          if (!isOperationCurrent()) return;
-          manifest = await mcpService.getStreamableMcpServerManifest({
-            auth: mcp.auth,
-            headers: mcp.headers,
-            identifier: pluginId,
-            metadata: {
-              avatar: plugin.customParams.avatar,
-              description: plugin.customParams.description,
-            },
-            url,
+        if ((mcp as { type?: string }).type !== 'http') {
+          notification.error({
+            description: 'Replace this plugin with an HTTP MCP endpoint or remove it.',
+            message: 'Unsupported MCP transport',
           });
-          if (!isOperationCurrent()) return;
+          return;
         }
+        const url = mcp.url;
+        if (!url) return;
+
+        if (!isOperationCurrent()) return;
+        manifest = await mcpService.getStreamableMcpServerManifest({
+          auth: mcp.auth,
+          headers: mcp.headers,
+          identifier: pluginId,
+          metadata: {
+            avatar: plugin.customParams.avatar,
+            description: plugin.customParams.description,
+          },
+          url,
+        });
+        if (!isOperationCurrent()) return;
       } else {
         if (!isOperationCurrent()) return;
         manifest = await toolService.getToolManifest(

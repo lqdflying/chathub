@@ -51,8 +51,8 @@ export interface UIChatMessage {
 
   fileList?: ChatFileItem[];
   /**
-   * this is a deprecated field, only use in client db
-   * and should be remove after migrate to pglite
+   * Deprecated import-only identifier from older local backups.
+   * and should be removed after all imported legacy messages have been normalized
    * this field is replaced by fileList and imageList
    * @deprecated
    */

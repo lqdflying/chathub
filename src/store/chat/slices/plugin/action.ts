@@ -1174,15 +1174,7 @@ export const chatPlugin: StateCreator<
     }
 
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
-    const {
-      internal_updateMessageContent,
-      internal_togglePluginApiCalling,
-      internal_constructToolsCallingContext,
-    } = get();
+    const { internal_togglePluginApiCalling, internal_constructToolsCallingContext } = get();
     let data: string = '';
     const diagnosticId = requestedDiagnosticId || `td_${nanoid(20)}`;
     const abortController = internal_togglePluginApiCalling(
@@ -1194,12 +1186,12 @@ export const chatPlugin: StateCreator<
       isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource) &&
       !abortController?.signal.aborted;
 
-    const reportPersistenceFailure = (error: unknown, attempt: number) => {
+    const reportMessagePersistenceFailure = (error: unknown) => {
       const responseError = findRPCResponseError(error);
       if (!responseError) return false;
 
       mcpService.reportClientRPCFailure(responseError.details, {
-        attempt,
+        attempt: 1,
         diagnosticId,
         operation: 'persist_tool_result',
         procedure: 'message.update',
@@ -1222,78 +1214,46 @@ export const chatPlugin: StateCreator<
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
-      if (!!result) data = result.content;
+      if (!result) return { data: undefined, outcome: 'skipped' };
+
+      data = result.content;
 
       if (!data) return { data: undefined, outcome: 'skipped' };
 
-      if (result?.persistence === 'persisted') {
-        if (!invocationIsCurrent()) {
-          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-        }
-        dispatchPluginMessage(get(), messageResource, {
-          id,
-          type: 'updateMessage',
-          value: { content: data },
-        });
-        return { data };
-      }
-
-      if (result?.persistence === 'superseded') {
-        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-      }
-
-      if (result?.persistence === 'failed') {
-        if (!invocationIsCurrent()) {
-          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-        }
-        dispatchPluginMessage(get(), messageResource, {
-          id,
-          type: 'updateMessage',
-          value: { content: data },
-        });
-        const { notification } = await import('@/components/AntdStaticMethods');
-        notification.warning({
-          description: t('mcpResultPersistence.description', { ns: 'error' }),
-          message: t('mcpResultPersistence.title', { ns: 'error' }),
-        });
-        return { data, outcome: 'persistence_failed' };
-      }
-
-      let persisted = false;
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
-        if (!invocationIsCurrent()) {
-          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-        }
-        try {
-          await internal_updateMessageContent(id, data, {
-            diagnosticId,
-            diagnosticOperation: 'persist_tool_result',
-            showNotification: false,
-            skipRefresh: true,
-            conversationContext,
-          });
+      switch (result.persistence) {
+        case 'persisted': {
           if (!invocationIsCurrent()) {
             return { data: undefined, outcome: 'cancelled', shouldContinue: false };
           }
-          persisted = true;
-          break;
-        } catch (error) {
-          const classified = reportPersistenceFailure(error, attempt);
-          if (!classified || attempt === 2) break;
+          dispatchPluginMessage(get(), messageResource, {
+            id,
+            type: 'updateMessage',
+            value: { content: data },
+          });
+          return { data };
+        }
+
+        case 'superseded': {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
+
+        case 'failed': {
+          if (!invocationIsCurrent()) {
+            return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+          }
+          dispatchPluginMessage(get(), messageResource, {
+            id,
+            type: 'updateMessage',
+            value: { content: data },
+          });
+          const { notification } = await import('@/components/AntdStaticMethods');
+          notification.warning({
+            description: t('mcpResultPersistence.description', { ns: 'error' }),
+            message: t('mcpResultPersistence.title', { ns: 'error' }),
+          });
+          return { data, outcome: 'persistence_failed' };
         }
       }
-
-      if (!persisted) {
-        const { notification } = await import('@/components/AntdStaticMethods');
-        notification.warning({
-          description: t('mcpResultPersistence.description', { ns: 'error' }),
-          message: t('mcpResultPersistence.title', { ns: 'error' }),
-        });
-      }
-
-      // The valid result remains in the optimistic store even if the proxy prevented
-      // ChatHub from confirming persistence. Continue the model turn in that case.
-      return { data, outcome: persisted ? 'completed' : 'persistence_failed' };
     } catch (error) {
       const wasCancelled = !invocationIsCurrent() || isAbortError(error);
       if (!wasCancelled) {
@@ -1317,7 +1277,7 @@ export const chatPlugin: StateCreator<
             },
           );
         } catch (persistenceError) {
-          reportPersistenceFailure(persistenceError, 1);
+          reportMessagePersistenceFailure(persistenceError);
         }
       }
       return {

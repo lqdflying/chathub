@@ -4,7 +4,6 @@ import {
   Bot,
   Brain,
   Database,
-  EthernetPort,
   Info,
   KeyboardIcon,
   MessageSquareText,
@@ -16,7 +15,6 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { MenuProps } from '@/components/Menu';
-import { isDeprecatedEdition, isDesktop } from '@/const/version';
 import { SettingsTabs } from '@/store/global/initialState';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
@@ -53,19 +51,11 @@ export const useCategory = () => {
         {
           type: 'divider',
         },
-        showLLM &&
-          // TODO: Remove /llm when v2.0
-          (isDeprecatedEdition
-            ? {
-                icon: <Icon icon={Brain} />,
-                key: SettingsTabs.LLM,
-                label: t('tab.llm'),
-              }
-            : {
-                icon: <Icon icon={Brain} />,
-                key: SettingsTabs.Provider,
-                label: t('tab.provider'),
-              }),
+        showLLM && {
+          icon: <Icon icon={Brain} />,
+          key: SettingsTabs.Provider,
+          label: t('tab.provider'),
+        },
         enableSTT && {
           icon: <Icon icon={Mic2} />,
           key: SettingsTabs.TTS,
@@ -78,11 +68,6 @@ export const useCategory = () => {
         },
         {
           type: 'divider',
-        },
-        isDesktop && {
-          icon: <Icon icon={EthernetPort} />,
-          key: SettingsTabs.Proxy,
-          label: t('tab.proxy'),
         },
         {
           icon: <Icon icon={Blocks} />,

@@ -10,7 +10,6 @@ import {
   CodeIcon,
   DownloadIcon,
   MinusIcon,
-  TerminalIcon,
 } from 'lucide-react';
 import { markdownToTxt } from 'markdown-to-txt';
 import { memo, useState } from 'react';
@@ -41,7 +40,11 @@ const Deployment = memo<{ mobile?: boolean }>(({ mobile }) => {
   const { deploymentOptions = [], identifier } = useDetailContext();
   const [activeKey, setActiveKey] = useState<string[]>(['0']);
 
-  if (!deploymentOptions)
+  const httpDeploymentOptions = deploymentOptions.filter(
+    (item) => item.connection.type === 'http',
+  );
+
+  if (httpDeploymentOptions.length === 0)
     return (
       <Block variant="outlined">
         <Empty
@@ -51,16 +54,7 @@ const Deployment = memo<{ mobile?: boolean }>(({ mobile }) => {
       </Block>
     );
 
-  const getConnectionTypeIcon = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'stdio': {
-        return <Icon icon={TerminalIcon} />;
-      }
-      default: {
-        return <Icon icon={CloudIcon} />;
-      }
-    }
-  };
+  const getConnectionTypeIcon = () => <Icon icon={CloudIcon} />;
 
   const getPlatformIcon = (type: string) => {
     switch (type.toLowerCase()) {
@@ -87,7 +81,7 @@ const Deployment = memo<{ mobile?: boolean }>(({ mobile }) => {
       activeKey={activeKey}
       expandIconPosition={'end'}
       gap={24}
-      items={deploymentOptions.map((item, index) => {
+      items={httpDeploymentOptions.map((item, index) => {
         let properties: {
           description?: string;
           name: string;

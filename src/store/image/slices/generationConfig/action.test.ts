@@ -131,7 +131,7 @@ beforeEach(() => {
     isStatusInit: true,
     status: { ...INITIAL_STATUS },
   });
-  // Default to the guest (signed-out) browser-local write path; individual
+  // Default to the signed-out preference path; individual
   // tests opt into the signed-in DB path by stubbing isLogin to true.
   vi.spyOn(authSelectors, 'isLogin').mockReturnValue(false);
   useUserStore.setState({
@@ -238,7 +238,7 @@ describe('GenerationConfigAction', () => {
           expect.any(AbortSignal),
         );
       });
-      // Signed-in writes must not touch the browser-local legacy keys.
+      // Signed-in writes must not touch guest preference keys.
       expect(useGlobalStore.getState().status.lastSelectedImageNum).toBeUndefined();
     });
 

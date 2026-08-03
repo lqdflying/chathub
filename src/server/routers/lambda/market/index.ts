@@ -3,7 +3,6 @@ import { serialize } from 'cookie';
 import debug from 'debug';
 import { z } from 'zod';
 
-import { isDesktop } from '@/const/version';
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { DiscoverService } from '@/server/services/discover';
 import { McpSorts, PluginSorts } from '@/types/discover';
@@ -314,7 +313,7 @@ export const marketRouter = router({
       try {
         await ctx.discoverService.reportCall({
           ...input,
-          platform: isDesktop ? process.platform : 'web',
+          platform: 'web',
           userAgent: ctx.userAgent,
         });
         return { success: true };

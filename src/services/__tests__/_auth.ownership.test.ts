@@ -11,11 +11,6 @@ vi.mock('@/const/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/const/auth')>()),
   enableAuth: true,
 }));
-vi.mock('@lobechat/const', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@lobechat/const')>()),
-  isDeprecatedEdition: false,
-}));
-
 describe('account ownership validation', () => {
   beforeEach(() => {
     useUserStore.setState({

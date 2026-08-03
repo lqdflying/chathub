@@ -12,17 +12,16 @@ import { MCPErrorData } from '@/libs/mcp/types';
 import { discoverService } from '@/services/discover';
 import { mcpService } from '@/services/mcp';
 import { pluginService } from '@/services/plugin';
+import { globalHelpers } from '@/store/global/helpers';
 import {
+  PluginInstallLoadingOperation,
   acquirePluginInstallLoading,
   captureToolMutationCheckpoint,
   isToolMutationCurrent,
-  PluginInstallLoadingOperation,
   releasePluginInstallLoading,
 } from '@/store/tool/mutation';
-import { globalHelpers } from '@/store/global/helpers';
 import { mcpStoreSelectors } from '@/store/tool/selectors';
 import {
-  CheckMcpInstallResult,
   MCPErrorInfo,
   MCPInstallProgress,
   MCPInstallStep,
@@ -49,7 +48,7 @@ export interface PluginMCPStoreAction {
   cancelMcpConnectionTest: (identifier: string) => void;
   installMCPPlugin: (
     identifier: string,
-    options?: { config?: Record<string, any>; resume?: boolean; skipDepsCheck?: boolean },
+    options?: { config?: Record<string, any>; resume?: boolean },
   ) => Promise<boolean | undefined>;
   loadMoreMCPPlugins: () => void;
   resetMCPPluginList: (keywords?: string) => void;
@@ -112,7 +111,7 @@ export const createMCPPluginStoreSlice: StateCreator<
   },
 
   installMCPPlugin: async (identifier, options = {}) => {
-    const { resume = false, config, skipDepsCheck } = options;
+    const { resume = false, config } = options;
     const checkpoint = captureToolMutationCheckpoint(get().scopeGeneration);
     if (!checkpoint || !isToolMutationCurrent(checkpoint, get().scopeGeneration)) return;
 
@@ -198,9 +197,8 @@ export const createMCPPluginStoreSlice: StateCreator<
     const installStartTime = Date.now();
 
     let data: any;
-    let result: CheckMcpInstallResult | undefined;
     let connection: any;
-    const userAgent = `ChatHub Desktop/${CURRENT_VERSION}`;
+    const userAgent = `ChatHub/${CURRENT_VERSION}`;
 
     try {
       // 检查是否已被取消
@@ -221,8 +219,6 @@ export const createMCPPluginStoreSlice: StateCreator<
           ...configInfo.connection,
           config, // 合并用户提供的配置
         };
-        result = configInfo.checkResult;
-        connection = configInfo.connection;
       } else {
         // 正常模式：从头开始安装
 
@@ -241,60 +237,31 @@ export const createMCPPluginStoreSlice: StateCreator<
         });
         if (!isOperationCurrent()) return;
 
-        // 步骤 2: 检查安装环境
-        if (!isOperationCurrent()) return;
-        updateMCPInstallProgress(identifier, {
-          progress: 30,
-          step: MCPInstallStep.CHECKING_INSTALLATION,
-        });
-
-        if (!isOperationCurrent()) return;
-        result = await mcpService.checkInstallation(data, abortController.signal);
-        if (!isOperationCurrent()) return;
-
-        if (!result.success) {
-          if (!isOperationCurrent()) return;
-          updateMCPInstallProgress(identifier, undefined);
-          return;
+        const httpDeployments = (data.deploymentOptions || []).filter(
+          (option: any) => option.connection?.type === 'http' && option.connection.url,
+        );
+        const deployment =
+          httpDeployments.find((option: any) => option.isRecommended) || httpDeployments[0];
+        if (!deployment) {
+          throw new Error('This marketplace entry does not provide an HTTP MCP endpoint.');
         }
 
-        // 步骤 3: 检查系统依赖是否满足
-        if (!skipDepsCheck && !result.allDependenciesMet) {
-          // 依赖不满足，暂停安装流程并显示依赖安装引导
+        connection = { ...deployment.connection, type: 'http' };
+
+        if (connection.configSchema) {
           if (!isOperationCurrent()) return;
           updateMCPInstallProgress(identifier, {
-            connection: result.connection,
-            manifest: data,
-            progress: 40,
-            step: MCPInstallStep.DEPENDENCIES_REQUIRED,
-            systemDependencies: result.systemDependencies,
-          });
-
-          // 暂停安装流程，等待用户安装依赖
-          if (!isOperationCurrent()) return;
-          return false; // 返回 false 表示需要安装依赖
-        }
-
-        // 步骤 4: 检查是否需要配置
-        if (result.needsConfig) {
-          // 需要配置，暂停安装流程
-          if (!isOperationCurrent()) return;
-          updateMCPInstallProgress(identifier, {
-            checkResult: result,
-            configSchema: result.configSchema,
-            connection: result.connection,
+            configSchema: connection.configSchema,
+            connection,
             manifest: data,
             needsConfig: true,
             progress: 50,
             step: MCPInstallStep.CONFIGURATION_REQUIRED,
           });
 
-          // 暂停安装流程，等待用户配置
           if (!isOperationCurrent()) return;
-          return false; // 返回 false 表示需要配置
+          return false;
         }
-
-        connection = result.connection;
       }
 
       // 获取服务器清单逻辑
@@ -310,35 +277,20 @@ export const createMCPPluginStoreSlice: StateCreator<
 
       let manifest: LobeChatPluginManifest | undefined;
 
-      if (connection?.type === 'stdio') {
-        if (!isOperationCurrent()) return;
-        manifest = await mcpService.getStdioMcpServerManifest(
-          {
-            args: connection.args,
-            command: connection.command!,
-            env: config,
-            name: identifier, // 将配置作为环境变量传递（resume 模式下）
+      if (!connection?.url) throw new Error('The HTTP MCP endpoint is missing a URL.');
+      if (!isOperationCurrent()) return;
+      manifest = await mcpService.getStreamableMcpServerManifest(
+        {
+          identifier,
+          metadata: {
+            avatar: plugin.icon,
+            description: plugin.description,
           },
-          { avatar: plugin.icon, description: plugin.description, name: data.name },
-          abortController.signal,
-        );
-        if (!isOperationCurrent()) return;
-      }
-      if (connection?.type === 'http') {
-        if (!isOperationCurrent()) return;
-        manifest = await mcpService.getStreamableMcpServerManifest(
-          {
-            identifier,
-            metadata: {
-              avatar: plugin.icon,
-              description: plugin.description,
-            },
-            url: connection.url!,
-          },
-          abortController.signal,
-        );
-        if (!isOperationCurrent()) return;
-      }
+          url: connection.url,
+        },
+        abortController.signal,
+      );
+      if (!isOperationCurrent()) return;
 
       // set version
       if (manifest) {
@@ -415,7 +367,7 @@ export const createMCPPluginStoreSlice: StateCreator<
               resources: (manifest as any).resources,
               tools: (manifest as any).tools,
             },
-            platform: result?.platform ?? 'unknown',
+            platform: 'web',
             success: true,
             userAgent,
             version: manifest.version || data.version,
@@ -492,7 +444,7 @@ export const createMCPPluginStoreSlice: StateCreator<
             installDurationMs,
             installParams: connection,
             metadata: errorInfo.metadata,
-            platform: result?.platform ?? 'unknown',
+            platform: 'web',
             success: false,
             userAgent,
             version: data?.version,
@@ -513,10 +465,11 @@ export const createMCPPluginStoreSlice: StateCreator<
   },
 
   loadMoreMCPPlugins: () => {
-    const { mcpPluginItems, totalCount, currentPage } = get();
+    const { currentPage, totalPages } = get();
 
-    // 检查是否还有更多数据可以加载
-    if (mcpPluginItems.length < (totalCount || 0)) {
+    // Filtering local-only entries changes the visible item count, so page
+    // availability must follow the marketplace page boundary.
+    if (currentPage < (totalPages || 0)) {
       set(
         produce((draft: MCPStoreState) => {
           draft.currentPage = currentPage + 1;
@@ -571,41 +524,21 @@ export const createMCPPluginStoreSlice: StateCreator<
     try {
       let manifest: LobeChatPluginManifest;
 
-      if (connection.type === 'http') {
-        if (!connection.url) {
-          throw new Error('URL is required for HTTP connection');
-        }
-
-        if (!isOperationCurrent()) return { error: 'Test cancelled', success: false };
-        manifest = await mcpService.getStreamableMcpServerManifest(
-          {
-            auth: connection.auth,
-            headers: connection.headers,
-            identifier,
-            metadata,
-            url: connection.url,
-          },
-          abortController.signal,
-        );
-      } else if (connection.type === 'stdio') {
-        if (!connection.command) {
-          throw new Error('Command is required for STDIO connection');
-        }
-
-        if (!isOperationCurrent()) return { error: 'Test cancelled', success: false };
-        manifest = await mcpService.getStdioMcpServerManifest(
-          {
-            args: connection.args,
-            command: connection.command,
-            env: connection.env,
-            name: identifier,
-          },
-          metadata,
-          abortController.signal,
-        );
-      } else {
-        throw new Error('Invalid MCP connection type');
+      if (!connection.url) {
+        throw new Error('URL is required for HTTP connection');
       }
+
+      if (!isOperationCurrent()) return { error: 'Test cancelled', success: false };
+      manifest = await mcpService.getStreamableMcpServerManifest(
+        {
+          auth: connection.auth,
+          headers: connection.headers,
+          identifier,
+          metadata,
+          url: connection.url,
+        },
+        abortController.signal,
+      );
 
       // 检查是否已被取消
       if (!isOperationCurrent()) {
@@ -675,28 +608,33 @@ export const createMCPPluginStoreSlice: StateCreator<
       () => discoverService.getMCPPluginList(params),
       {
         onSuccess(data) {
+          const httpItems = data.items.filter((item) => item.connectionType !== 'local');
+
           set(
             produce((draft: MCPStoreState) => {
               draft.searchLoading = false;
 
               // 设置基础信息
               if (!draft.isMcpListInit) {
-                draft.activeMCPIdentifier = data.items?.[0]?.identifier;
+                draft.activeMCPIdentifier = httpItems[0]?.identifier;
 
                 draft.isMcpListInit = true;
                 draft.categories = data.categories;
-                draft.totalCount = data.totalCount;
+                draft.totalCount = Math.max(
+                  0,
+                  data.totalCount - (data.items.length - httpItems.length),
+                );
                 draft.totalPages = data.totalPages;
               }
 
               // 累积数据逻辑
               if (params.page === 1) {
                 // 第一页，直接设置
-                draft.mcpPluginItems = uniqBy(data.items, 'identifier');
+                draft.mcpPluginItems = uniqBy(httpItems, 'identifier');
               } else {
                 // 后续页面，累积数据
                 draft.mcpPluginItems = uniqBy(
-                  [...draft.mcpPluginItems, ...data.items],
+                  [...draft.mcpPluginItems, ...httpItems],
                   'identifier',
                 );
               }

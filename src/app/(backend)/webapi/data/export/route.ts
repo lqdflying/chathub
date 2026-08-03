@@ -1,4 +1,4 @@
-import { BRANDING_NAME, CURRENT_VERSION, isDesktop } from '@lobechat/const';
+import { BRANDING_NAME, CURRENT_VERSION } from '@lobechat/const';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getServerDB } from '@/database/server';
@@ -31,7 +31,7 @@ export const GET = async (request: NextRequest) => {
       data,
       exportedAt,
       formatVersion: CURRENT_DATA_BACKUP_FORMAT_VERSION,
-      mode: isDesktop ? 'pglite' : 'postgres',
+      mode: 'postgres',
       schemaHash,
       secretStrategy: 'deployment-keyed',
     });

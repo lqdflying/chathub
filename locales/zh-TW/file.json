@@ -39,24 +39,6 @@
     "title": "知識庫"
   },
   "networkError": "獲取知識庫失敗，請檢查網路連接後重試",
-  "notSupportGuide": {
-    "desc": "當前部署實例為客戶端資料庫模式，無法使用檔案管理功能。請切換到<1>伺服器端資料庫部署模式</1>，或直接使用 <3>LobeChat Cloud</3>",
-    "features": {
-      "allKind": {
-        "desc": "支持主流檔案類型，包括 Word、PPT、Excel、PDF、TXT 等常見文檔格式，以及JS、Python 等主流程式碼檔案",
-        "title": "多種檔案類型解析"
-      },
-      "embeddings": {
-        "desc": "使用高性能向量模型，對文本分塊進行向量化，實現檔案內容的語義化檢索",
-        "title": "向量語義化"
-      },
-      "repos": {
-        "desc": "支持創建知識庫，並允許添加不同類型的檔案，構建屬於你的領域知識",
-        "title": "知識庫"
-      }
-    },
-    "title": "當前部署模式不支持檔案管理"
-  },
   "preview": {
     "downloadFile": "下載檔案",
     "unsupportedFileAndContact": "此檔案格式暫不支援線上預覽，如有預覽需求，歡迎<1>反饋給我們</1>"

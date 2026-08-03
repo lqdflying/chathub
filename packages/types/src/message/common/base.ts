@@ -23,16 +23,16 @@ export interface ModelReasoning {
   content?: string;
   duration?: number;
   /**
+   * Encrypted data for `redacted_thinking` content blocks (Anthropic).
+   * Each entry is a standalone opaque block with no text content; it must
+   * be passed back unchanged for multi-turn continuity.
+   */
+  redactedSignatures?: string[];
+  /**
    * Signature for the primary signed thinking block.
    * Required by Anthropic for multi-turn/tool-use thinking continuity.
    * With `display: "omitted"`, `content` is empty but `signature` carries
    * the encrypted thinking for replay.
    */
   signature?: string;
-  /**
-   * Encrypted data for `redacted_thinking` content blocks (Anthropic).
-   * Each entry is a standalone opaque block with no text content; it must
-   * be passed back unchanged for multi-turn continuity.
-   */
-  redactedSignatures?: string[];
 }

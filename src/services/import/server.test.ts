@@ -114,9 +114,7 @@ describe('server data import transport', () => {
 
     const request = MockXMLHttpRequest.instances[0];
     expect(request.method).toBe('POST');
-    expect(request.url).toBe(
-      '/webapi/data/import?expectedConversationVersion=7&strategy=merge',
-    );
+    expect(request.url).toBe('/webapi/data/import?expectedConversationVersion=7&strategy=merge');
     expect(
       Object.entries(request.headers).find(([key]) => key.toLowerCase() === 'content-type')?.[1],
     ).toBe('application/json');
@@ -175,10 +173,7 @@ describe('server data import transport', () => {
       new Error('Version lookup failed'),
     );
 
-    await new ServerService().importData(
-      { messages: [], version: 1 },
-      { onError, onStageChange },
-    );
+    await new ServerService().importData({ messages: [], version: 1 }, { onError, onStageChange });
 
     expect(MockXMLHttpRequest.instances).toHaveLength(0);
     expect(onStageChange).toHaveBeenCalledWith(ImportStage.Error);

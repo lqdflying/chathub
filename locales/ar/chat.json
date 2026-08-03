@@ -169,6 +169,26 @@
     "setInitialMembers": "اختيار أعضاء الفريق"
   },
   "members": "الأعضاء",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "الإشارة إلى الأعضاء"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "رفع صورة",
       "tooltip": "رفع"
     },
-    "clientMode": {
-      "actionFiletip": "رفع ملف",
-      "actionTooltip": "رفع",
-      "disabled": "النموذج الحالي لا يدعم التعرف على الصور وتحليل الملفات، يرجى تغيير النموذج لاستخدامه",
-      "fileNotSupported": "وضع المتصفح لا يدعم تحميل الملفات حاليًا، يدعم الصور فقط",
-      "visionNotSupported": "النموذج الحالي لا يدعم التعرف البصري، يرجى تبديل النموذج لاستخدام هذه الميزة"
-    },
     "preview": {
       "prepareTasks": "تحضير الأجزاء...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "لا يمكن أن يتجاوز حجم ملف الفيديو 20 ميغابايت، حجم الملف الحالي هو {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "النموذج الحالي لا يدعم التعرف البصري، يرجى تبديل النموذج لاستخدام هذه الميزة"
   },
   "you": "أنت",
-  "zenMode": "وضع التركيز",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "وضع التركيز"
 }

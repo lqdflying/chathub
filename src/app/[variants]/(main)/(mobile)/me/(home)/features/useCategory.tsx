@@ -12,7 +12,6 @@ import { CellProps } from '@/components/Cell';
 import { enableAuth } from '@/const/auth';
 import { LOBE_CHAT_CLOUD } from '@/const/branding';
 import { OFFICIAL_URL, UTM_SOURCE } from '@/const/url';
-import { isServerMode } from '@/const/version';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
@@ -105,7 +104,7 @@ export const useCategory = () => {
 
     /* ↑ cloud slot ↑ */
     ...(canInstall ? pwa : []),
-    ...(isLogin && !isServerMode ? data : []),
+    ...(isLogin ? data : []),
     ...(!hideDocs ? helps : []),
   ].filter(Boolean) as CellProps[];
 

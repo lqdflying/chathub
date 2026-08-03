@@ -169,6 +169,26 @@
     "setInitialMembers": "選擇團隊成員"
   },
   "members": "成員",
+  "memoryCompaction": {
+    "compactNow": "立即壓縮上下文",
+    "debug": {
+      "approxTokensAfter": "估算 Token（壓縮後）",
+      "approxTokensBefore": "估算 Token（壓縮前）",
+      "messageCount": "參與總結的訊息條數",
+      "model": "模型",
+      "off": "隱藏除錯",
+      "on": "顯示除錯",
+      "rawResponse": "壓縮結果文字",
+      "title": "上下文壓縮除錯",
+      "trigger": "觸發方式"
+    },
+    "trigger": {
+      "manual": "手動",
+      "message_count": "訊息條數閾值",
+      "scheduled": "定時",
+      "token_threshold": "預估上下文佔用"
+    }
+  },
   "mention": {
     "title": "提及成員"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "上傳圖片",
       "tooltip": "上傳"
     },
-    "clientMode": {
-      "actionFiletip": "上傳檔案",
-      "actionTooltip": "上傳",
-      "disabled": "當前模型不支援視覺識別和檔案分析，請切換模型後使用",
-      "fileNotSupported": "瀏覽器模式下暫不支援上傳檔案，僅支援圖片",
-      "visionNotSupported": "當前模型不支援視覺識別，請切換模型後使用"
-    },
     "preview": {
       "prepareTasks": "準備分塊...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "影片檔案大小不能超過 20MB，當前檔案大小為 {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "當前模型不支援視覺識別，請切換模型後使用"
   },
   "you": "你",
-  "zenMode": "專注模式",
-  "memoryCompaction": {
-    "compactNow": "立即壓縮上下文",
-    "debug": {
-      "approxTokensAfter": "估算 Token（壓縮後）",
-      "approxTokensBefore": "估算 Token（壓縮前）",
-      "messageCount": "參與總結的訊息條數",
-      "model": "模型",
-      "off": "隱藏除錯",
-      "on": "顯示除錯",
-      "rawResponse": "壓縮結果文字",
-      "title": "上下文壓縮除錯",
-      "trigger": "觸發方式"
-    },
-    "trigger": {
-      "manual": "手動",
-      "message_count": "訊息條數閾值",
-      "scheduled": "定時",
-      "token_threshold": "預估上下文佔用"
-    }
-  }
+  "zenMode": "專注模式"
 }

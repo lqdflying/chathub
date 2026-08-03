@@ -344,7 +344,7 @@ describe('Message Router Integration Tests', () => {
       const result = await caller.batchCreateMessages(messagesToCreate);
 
       expect(result.success).toBe(true);
-      // Note: rowCount might be undefined in PGlite, so we skip this check
+      // Some test drivers omit rowCount, so this assertion remains driver-neutral.
       // expect(result.added).toBe(3);
 
       // 验证数据库中的消息

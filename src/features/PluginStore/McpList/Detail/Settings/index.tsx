@@ -1,14 +1,11 @@
 import { Icon, Input, Text } from '@lobehub/ui';
-import { Form as AForm, App, Button, Space, Typography } from 'antd';
+import { Form as AForm, Alert, App, Button, Space, Typography } from 'antd';
 import { createStyles } from 'antd-style';
 import { EditIcon, LinkIcon, SaveIcon, Settings2Icon, TerminalIcon } from 'lucide-react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import KeyValueEditor from '@/components/KeyValueEditor';
-import MCPStdioCommandInput from '@/components/MCPStdioCommandInput';
-import ArgsInput from '@/features/PluginDevModal/MCPManifestForm/ArgsInput';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
 
@@ -153,27 +150,20 @@ const Settings = memo<{ identifier: string }>(({ identifier }) => {
   const { styles } = useStyles();
   const { t } = useTranslation(['plugin', 'common']);
   const [connectionForm] = AForm.useForm();
-  const [envForm] = AForm.useForm();
-  const [loading, setLoading] = useState(false);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [isEditingConnection, setIsEditingConnection] = useState(false);
 
-  const [updatePluginSettings, updateInstallPlugin] = useToolStore((s) => [
-    s.updatePluginSettings,
-    s.updateInstallMcpPlugin,
-  ]);
+  const updateInstallPlugin = useToolStore((s) => s.updateInstallMcpPlugin);
   const { message } = App.useApp();
 
   // 获取已安装插件信息
   const installedPlugin = useToolStore(pluginSelectors.getInstalledPluginById(identifier));
-  const pluginSettings = useToolStore(pluginSelectors.getPluginSettingsById(identifier));
-
   if (!installedPlugin) {
     return null;
   }
 
   const customParams = installedPlugin.customParams?.mcp;
-  const isStdioType = customParams?.type === 'stdio';
+  const isUnsupportedTransport = (customParams as { type?: string } | undefined)?.type !== 'http';
 
   const handleConnectionSubmit = async (values: any) => {
     setConnectionLoading(true);
@@ -195,19 +185,6 @@ const Settings = memo<{ identifier: string }>(({ identifier }) => {
     setIsEditingConnection(false);
   };
 
-  const handleEnvSubmit = async (values: { env?: Record<string, string> }) => {
-    setLoading(true);
-    try {
-      await updatePluginSettings(identifier!, values.env || {}, { override: true });
-      message.success(t('settings.messages.envUpdateSuccess'));
-    } catch (error) {
-      console.error('Settings update failed:', error);
-      message.error(t('settings.messages.envUpdateFailed'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <Flexbox paddingBlock={8} paddingInline={12}>
       <Flexbox gap={24}>
@@ -215,7 +192,7 @@ const Settings = memo<{ identifier: string }>(({ identifier }) => {
           <div className={styles.sectionTitle}>
             <LinkIcon size={16} />
             {t('settings.connection.title')}
-            {!isEditingConnection && (
+            {!isEditingConnection && !isUnsupportedTransport && (
               <Button
                 className={styles.editButton}
                 icon={<EditIcon size={12} />}
@@ -248,24 +225,13 @@ const Settings = memo<{ identifier: string }>(({ identifier }) => {
                 </div>
               )}
 
-              {customParams?.type === 'stdio' && (
-                <>
-                  {customParams?.command && (
-                    <div className={styles.previewItem}>
-                      <span className={styles.previewLabel}>
-                        {t('settings.connection.command')}
-                      </span>
-                      <span className={styles.previewValue}>{customParams.command}</span>
-                    </div>
-                  )}
-
-                  {customParams?.args && customParams.args.length > 0 && (
-                    <div className={styles.previewItem}>
-                      <span className={styles.previewLabel}>{t('settings.connection.args')}</span>
-                      <span className={styles.previewValue}>{customParams.args.join(' ')}</span>
-                    </div>
-                  )}
-                </>
+              {isUnsupportedTransport && (
+                <Alert
+                  description="Replace this plugin with an HTTP MCP endpoint or uninstall it."
+                  message="Unsupported local MCP transport"
+                  showIcon
+                  type="warning"
+                />
               )}
             </Flexbox>
           ) : (
@@ -278,35 +244,13 @@ const Settings = memo<{ identifier: string }>(({ identifier }) => {
                 layout="vertical"
                 onFinish={handleConnectionSubmit}
               >
-                {customParams?.type === 'http' && (
-                  <AForm.Item
-                    label={t('settings.connection.url')}
-                    name={'url'}
-                    rules={[{ message: t('settings.rules.urlRequired'), required: true }]}
-                  >
-                    <Input placeholder="https://mcp.example.com/server" size="small" />
-                  </AForm.Item>
-                )}
-
-                {customParams?.type === 'stdio' && (
-                  <>
-                    <AForm.Item
-                      label={t('settings.connection.command')}
-                      name={'command'}
-                      rules={[{ message: t('settings.rules.commandRequired'), required: true }]}
-                    >
-                      <MCPStdioCommandInput placeholder="npx, uv, python..." />
-                    </AForm.Item>
-
-                    <AForm.Item
-                      label={t('settings.connection.args')}
-                      name={'args'}
-                      rules={[{ message: t('settings.rules.argsRequired'), required: true }]}
-                    >
-                      <ArgsInput placeholder="e.g: mcp-hello-world" />
-                    </AForm.Item>
-                  </>
-                )}
+                <AForm.Item
+                  label={t('settings.connection.url')}
+                  name={'url'}
+                  rules={[{ message: t('settings.rules.urlRequired'), required: true }]}
+                >
+                  <Input placeholder="https://mcp.example.com/server" size="small" />
+                </AForm.Item>
                 <div className={styles.footer}>
                   <Space>
                     <Button
@@ -325,47 +269,7 @@ const Settings = memo<{ identifier: string }>(({ identifier }) => {
           )}
         </Flexbox>
 
-        {/* 环境变量配置（仅 stdio 类型） */}
-        {isStdioType && (
-          <Flexbox gap={12}>
-            <div className={styles.sectionTitle}>
-              <Settings2Icon size={16} />
-              {t('settings.configuration.title')}
-            </div>
-            <Text style={{ fontSize: 12 }} type="secondary">
-              {t('settings.envConfigDescription')}
-            </Text>
-            <AForm
-              form={envForm}
-              initialValues={{ env: pluginSettings }}
-              layout="vertical"
-              onFinish={handleEnvSubmit}
-            >
-              <AForm.Item name="env" style={{ marginBottom: 0 }}>
-                <KeyValueEditor
-                  addButtonText={t('dev.mcp.env.add')}
-                  keyPlaceholder="VARIABLE_NAME"
-                />
-              </AForm.Item>
-              <div className={styles.footer}>
-                <Space>
-                  <Button
-                    htmlType="submit"
-                    icon={<SaveIcon size={14} />}
-                    loading={loading}
-                    type="primary"
-                  >
-                    {t('common:save')}
-                  </Button>
-                  <Button onClick={() => envForm.resetFields()}>{t('common:reset')}</Button>
-                </Space>
-              </div>
-            </AForm>
-          </Flexbox>
-        )}
-
-        {/* HTTP 类型提示 */}
-        {!isStdioType && (
+        {!isUnsupportedTransport && (
           <div>
             <div className={styles.sectionTitle}>
               <Settings2Icon size={16} />

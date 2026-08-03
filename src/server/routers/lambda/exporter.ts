@@ -1,4 +1,4 @@
-import { CURRENT_VERSION, isDesktop } from '@lobechat/const';
+import { CURRENT_VERSION } from '@lobechat/const';
 import { marked } from 'marked';
 import PDFDocument from 'pdfkit';
 import { z } from 'zod';
@@ -182,7 +182,7 @@ export const exporterRouter = router({
       data,
       exportedAt: new Date().toISOString(),
       formatVersion: CURRENT_DATA_BACKUP_FORMAT_VERSION,
-      mode: isDesktop ? 'pglite' : 'postgres',
+      mode: 'postgres',
       schemaHash,
       secretStrategy: 'deployment-keyed',
     });

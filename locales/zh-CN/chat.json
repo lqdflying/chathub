@@ -26,6 +26,41 @@
   "confirmRemoveGroupSuccess": "Agent 团队删除成功",
   "confirmRemoveSessionItemAlert": "即将删除该助手，删除后该将无法找回，请确认你的操作",
   "confirmRemoveSessionSuccess": "助手删除成功",
+  "contextExport": {
+    "allocation": "预估上下文分配",
+    "cancelCapture": "取消捕获",
+    "captureNext": "捕获下一次请求",
+    "capturing": "正在捕获",
+    "continuation": {
+      "initial": "初始",
+      "tool": "工具续接"
+    },
+    "copyLayer": "复制当前层",
+    "copySuccess": "已复制当前上下文层",
+    "downloadBatch": "下载完整 JSON",
+    "engineeredContext": "工程化上下文",
+    "exportNext": "导出下一次请求",
+    "noRequests": "本次捕获没有记录到模型请求",
+    "partialWarning": "部分请求未到达提供商调度边界，导出内容可能不完整。",
+    "providerBoundary": "此处展示发送给 SDK 的语义请求对象；认证与 SDK 序列化在此之后进行。",
+    "providerRequest": "提供商请求",
+    "purpose": {
+      "assistant": "助手",
+      "member": "群组成员",
+      "supervisor": "群组主持"
+    },
+    "request": "模型请求",
+    "requestOption": "#{{index}} · {{purpose}} · {{continuation}} · {{model}}",
+    "status": {
+      "capturing": "捕获中",
+      "complete": "完整",
+      "error": "错误",
+      "partial": "部分"
+    },
+    "title": "上下文导出",
+    "unknownModel": "未知模型",
+    "viewCaptured": "查看已捕获上下文"
+  },
   "defaultAgent": "自定义助手",
   "defaultGroupChat": "Agent 团队",
   "defaultList": "默认列表",
@@ -194,6 +229,34 @@
     "setInitialMembers": "选择团队成员"
   },
   "members": "Members",
+  "memoryCompaction": {
+    "compactNow": "立即压缩上下文",
+    "debug": {
+      "approxTokensAfter": "估算 Token（压缩后）",
+      "approxTokensBefore": "估算 Token（压缩前）",
+      "messageCount": "参与总结的消息条数",
+      "model": "模型",
+      "off": "隐藏调试",
+      "on": "显示调试",
+      "rawResponse": "压缩结果文本",
+      "title": "上下文压缩调试",
+      "trigger": "触发方式"
+    },
+    "trigger": {
+      "manual": "手动",
+      "message_count": "消息条数阈值",
+      "scheduled": "定时",
+      "token_threshold": "预估上下文占用"
+    },
+    "viewer": {
+      "copy": "复制",
+      "copySuccess": "已复制",
+      "empty": "该话题暂无压缩摘要",
+      "export": "导出 Markdown",
+      "open": "查看话题摘要",
+      "title": "话题压缩摘要"
+    }
+  },
   "mention": {
     "title": "提及成员"
   },
@@ -384,69 +447,6 @@
     "off": "关闭宽屏模式",
     "on": "开启宽屏模式"
   },
-  "memoryCompaction": {
-    "compactNow": "立即压缩上下文",
-    "debug": {
-      "approxTokensAfter": "估算 Token（压缩后）",
-      "approxTokensBefore": "估算 Token（压缩前）",
-      "messageCount": "参与总结的消息条数",
-      "model": "模型",
-      "off": "隐藏调试",
-      "on": "显示调试",
-      "rawResponse": "压缩结果文本",
-      "title": "上下文压缩调试",
-      "trigger": "触发方式"
-    },
-    "trigger": {
-      "manual": "手动",
-      "message_count": "消息条数阈值",
-      "scheduled": "定时",
-      "token_threshold": "预估上下文占用"
-    },
-    "viewer": {
-      "copy": "复制",
-      "copySuccess": "已复制",
-      "empty": "该话题暂无压缩摘要",
-      "export": "导出 Markdown",
-      "open": "查看话题摘要",
-      "title": "话题压缩摘要"
-    }
-  },
-  "contextExport": {
-    "allocation": "预估上下文分配",
-    "cancelCapture": "取消捕获",
-    "captureNext": "捕获下一次请求",
-    "capturing": "正在捕获",
-    "continuation": {
-      "initial": "初始",
-      "tool": "工具续接"
-    },
-    "copyLayer": "复制当前层",
-    "copySuccess": "已复制当前上下文层",
-    "downloadBatch": "下载完整 JSON",
-    "engineeredContext": "工程化上下文",
-    "exportNext": "导出下一次请求",
-    "noRequests": "本次捕获没有记录到模型请求",
-    "partialWarning": "部分请求未到达提供商调度边界，导出内容可能不完整。",
-    "providerBoundary": "此处展示发送给 SDK 的语义请求对象；认证与 SDK 序列化在此之后进行。",
-    "providerRequest": "提供商请求",
-    "purpose": {
-      "assistant": "助手",
-      "member": "群组成员",
-      "supervisor": "群组主持"
-    },
-    "request": "模型请求",
-    "requestOption": "#{{index}} · {{purpose}} · {{continuation}} · {{model}}",
-    "status": {
-      "capturing": "捕获中",
-      "complete": "完整",
-      "error": "错误",
-      "partial": "部分"
-    },
-    "title": "上下文导出",
-    "unknownModel": "未知模型",
-    "viewCaptured": "查看已捕获上下文"
-  },
   "tokenDetails": {
     "assistantMemory": "助手记忆",
     "chatInstruction": "聊天指令",
@@ -491,13 +491,6 @@
       "imageUpload": "上传图片",
       "tooltip": "上传"
     },
-    "clientMode": {
-      "actionFiletip": "上传文件",
-      "actionTooltip": "上传",
-      "disabled": "当前模型不支持视觉识别和文件分析，请切换模型后使用",
-      "fileNotSupported": "浏览器模式下暂不支持上传文件，仅支持图片",
-      "visionNotSupported": "当前模型不支持视觉识别，请切换模型后使用"
-    },
     "preview": {
       "prepareTasks": "准备分块...",
       "status": {
@@ -507,7 +500,8 @@
     },
     "validation": {
       "videoSizeExceeded": "视频文件大小不能超过 20MB，当前文件大小为 {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "当前模型不支持视觉识别，请切换模型后使用"
   },
   "you": "你",
   "zenMode": "专注模式"

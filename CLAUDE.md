@@ -92,10 +92,8 @@ developing while the user applies it.
   **local-only** override `"pnpm": { "overrides": { "xlsx": "npm:xlsx@0.18.5" } }` to
   `package.json`, install, then **revert `package.json` before committing** — never commit
   the override.
-- **Tests**: run targeted suites with `npx vitest run <paths>`. PGlite-backed database
-  model tests (`packages/database/src/models/__tests__`) cannot run in the sandbox (the
-  WASM fetch is proxied and corrupted) — they fail identically on a clean checkout; do not
-  chase them.
+- **Tests**: run targeted suites with `npx vitest run <paths>`. Database model and
+  repository tests use the PostgreSQL test configuration and require `DATABASE_TEST_URL`.
 - **Type-check**: `npm run type-check` currently reports a large number of **pre-existing**
   errors on `main` (~248 in the cloud sandbox). The acceptance bar is **no new errors**:
   capture a baseline (stash → run → restore) and diff by file+error-code; note that

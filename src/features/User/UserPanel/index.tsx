@@ -4,8 +4,6 @@ import { Popover } from 'antd';
 import { createStyles } from 'antd-style';
 import { PropsWithChildren, memo, useState } from 'react';
 
-import { isDesktop } from '@/const/version';
-
 import PanelContent from './PanelContent';
 import UpgradeBadge from './UpgradeBadge';
 import { useNewVersion } from './useNewVersion';
@@ -13,7 +11,7 @@ import { useNewVersion } from './useNewVersion';
 const useStyles = createStyles(({ css }) => {
   return {
     popover: css`
-      inset-block-start: ${isDesktop ? 32 : 8}px !important;
+      inset-block-start: 8px !important;
       inset-inline-start: 8px !important;
     `,
   };

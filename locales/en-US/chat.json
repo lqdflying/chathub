@@ -26,6 +26,41 @@
   "confirmRemoveGroupSuccess": "Agent team deleted successfully",
   "confirmRemoveSessionItemAlert": "You are about to delete this assistant. Once deleted, it cannot be retrieved. Please confirm your action.",
   "confirmRemoveSessionSuccess": "Assistant removed successfully",
+  "contextExport": {
+    "allocation": "Estimated context allocation",
+    "cancelCapture": "Cancel capture",
+    "captureNext": "Capture next request",
+    "capturing": "Capturing",
+    "continuation": {
+      "initial": "Initial",
+      "tool": "Tool continuation"
+    },
+    "copyLayer": "Copy selected layer",
+    "copySuccess": "Selected context layer copied",
+    "downloadBatch": "Download complete JSON",
+    "engineeredContext": "Engineered Context",
+    "exportNext": "Export next request",
+    "noRequests": "No model requests were recorded for this capture",
+    "partialWarning": "Some requests did not reach the provider dispatch boundary, so this export may be incomplete.",
+    "providerBoundary": "This is the semantic request object passed to the SDK. Authentication and SDK serialization happen afterward.",
+    "providerRequest": "Provider Request",
+    "purpose": {
+      "assistant": "Assistant",
+      "member": "Group member",
+      "supervisor": "Group host"
+    },
+    "request": "Model request",
+    "requestOption": "#{{index}} · {{purpose}} · {{continuation}} · {{model}}",
+    "status": {
+      "capturing": "Capturing",
+      "complete": "Complete",
+      "error": "Error",
+      "partial": "Partial"
+    },
+    "title": "Context Export",
+    "unknownModel": "Unknown model",
+    "viewCaptured": "View captured context"
+  },
   "defaultAgent": "Default Assistant",
   "defaultGroupChat": "Agent Team",
   "defaultList": "Default List",
@@ -194,6 +229,34 @@
     "setInitialMembers": "Select Team Members"
   },
   "members": "Members",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    },
+    "viewer": {
+      "copy": "Copy",
+      "copySuccess": "Copied",
+      "empty": "This topic has no compaction summary yet.",
+      "export": "Export Markdown",
+      "open": "View topic summary",
+      "title": "Topic compaction summary"
+    }
+  },
   "mention": {
     "title": "Mention Members"
   },
@@ -384,69 +447,6 @@
     "off": "Turn off widescreen mode",
     "on": "Turn on widescreen mode"
   },
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    },
-    "viewer": {
-      "copy": "Copy",
-      "copySuccess": "Copied",
-      "empty": "This topic has no compaction summary yet.",
-      "export": "Export Markdown",
-      "open": "View topic summary",
-      "title": "Topic compaction summary"
-    }
-  },
-  "contextExport": {
-    "allocation": "Estimated context allocation",
-    "cancelCapture": "Cancel capture",
-    "captureNext": "Capture next request",
-    "capturing": "Capturing",
-    "continuation": {
-      "initial": "Initial",
-      "tool": "Tool continuation"
-    },
-    "copyLayer": "Copy selected layer",
-    "copySuccess": "Selected context layer copied",
-    "downloadBatch": "Download complete JSON",
-    "engineeredContext": "Engineered Context",
-    "exportNext": "Export next request",
-    "noRequests": "No model requests were recorded for this capture",
-    "partialWarning": "Some requests did not reach the provider dispatch boundary, so this export may be incomplete.",
-    "providerBoundary": "This is the semantic request object passed to the SDK. Authentication and SDK serialization happen afterward.",
-    "providerRequest": "Provider Request",
-    "purpose": {
-      "assistant": "Assistant",
-      "member": "Group member",
-      "supervisor": "Group host"
-    },
-    "request": "Model request",
-    "requestOption": "#{{index}} · {{purpose}} · {{continuation}} · {{model}}",
-    "status": {
-      "capturing": "Capturing",
-      "complete": "Complete",
-      "error": "Error",
-      "partial": "Partial"
-    },
-    "title": "Context Export",
-    "unknownModel": "Unknown model",
-    "viewCaptured": "View captured context"
-  },
   "tokenDetails": {
     "assistantMemory": "Assistant Memory",
     "chatInstruction": "Chat Instruction",
@@ -491,13 +491,6 @@
       "imageUpload": "Upload Image",
       "tooltip": "Upload"
     },
-    "clientMode": {
-      "actionFiletip": "Upload File",
-      "actionTooltip": "Upload",
-      "disabled": "The current model does not support visual recognition and file analysis. Please switch models to use this feature.",
-      "fileNotSupported": "File uploads are not supported in browser mode; only images are allowed.",
-      "visionNotSupported": "The current model does not support visual recognition. Please switch to a different model to use this feature."
-    },
     "preview": {
       "prepareTasks": "Preparing chunks...",
       "status": {
@@ -507,7 +500,8 @@
     },
     "validation": {
       "videoSizeExceeded": "Video file size must not exceed 20MB. Current file size is {{actualSize}}."
-    }
+    },
+    "visionNotSupported": "The current model does not support visual recognition. Please switch to a different model to use this feature."
   },
   "you": "you",
   "zenMode": "Zen Mode"

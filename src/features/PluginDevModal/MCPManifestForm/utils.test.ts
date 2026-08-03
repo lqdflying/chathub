@@ -5,7 +5,7 @@ import { McpParseErrorCode, parseMcpInput } from './utils';
 describe('parseMcpInput', () => {
   // Test Suite 1: Valid Nested mcpServers Structure
   describe('Nested mcpServers Structure', () => {
-    it('should correctly parse valid stdio config', () => {
+    it('should reject a nested config without an HTTP URL', () => {
       const input = JSON.stringify({
         mcpServers: {
           'sequential-thinking': {
@@ -15,13 +15,9 @@ describe('parseMcpInput', () => {
         },
       });
       const expected = {
-        status: 'success',
+        errorCode: McpParseErrorCode.InvalidMcpStructure,
         identifier: 'sequential-thinking',
-        mcpConfig: {
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
-          type: 'stdio',
-        },
+        status: 'error',
       };
       expect(parseMcpInput(input)).toEqual(expected);
     });
@@ -118,7 +114,7 @@ describe('parseMcpInput', () => {
 
   // Test Suite 2: Valid Flat Structure (Top-level Identifier)
   describe('Flat Structure (Top-level Identifier)', () => {
-    it('should correctly parse valid stdio config', () => {
+    it('should reject a flat config without an HTTP URL', () => {
       const input = JSON.stringify({
         'flat-stdio-service': {
           command: 'go',
@@ -126,13 +122,9 @@ describe('parseMcpInput', () => {
         },
       });
       const expected = {
-        status: 'success',
+        errorCode: McpParseErrorCode.InvalidMcpStructure,
         identifier: 'flat-stdio-service',
-        mcpConfig: {
-          command: 'go',
-          args: ['run', 'main.go'],
-          type: 'stdio',
-        },
+        status: 'error',
       };
       expect(parseMcpInput(input)).toEqual(expected);
     });
@@ -197,7 +189,7 @@ describe('parseMcpInput', () => {
       });
       const expected = {
         status: 'error',
-        errorCode: McpParseErrorCode.InvalidJsonStructure, // Because it's not a single-key flat structure nor mcpServers/manifest
+        errorCode: McpParseErrorCode.InvalidJsonStructure,
       };
       expect(parseMcpInput(input)).toEqual(expected);
     });

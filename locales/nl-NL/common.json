@@ -17,11 +17,6 @@
     "goToChat": "De chatpagina wordt geladen...",
     "initAuth": "Authenticatiedienst wordt geïnitialiseerd...",
     "initUser": "Gebruikersstatus wordt geïnitialiseerd...",
-    "initializing": "PGlite-database wordt geïnitialiseerd...",
-    "loadingDependencies": "Afhankelijkheden worden geïnitialiseerd...",
-    "loadingWasm": "WASM-modules worden geladen...",
-    "migrating": "Gegevens migreren...",
-    "ready": "Database is gereed",
     "showDetail": "Bekijk details"
   },
   "autoGenerate": "Automatisch genereren",
@@ -31,109 +26,9 @@
   "batchDelete": "Batch verwijderen",
   "blog": "Product Blog",
   "branching": "Subonderwerp aanmaken",
-  "branchingDisable": "De functie 'Subonderwerpen' is niet beschikbaar in de huidige modus. Schakel over naar de Postgres/Pglite DB-modus of gebruik LobeHub Cloud om deze functie te gebruiken.",
   "branchingRequiresSavedTopic": "Het huidige onderwerp is niet opgeslagen. Sla het op om de subonderwerpfunctie te kunnen gebruiken.",
   "cancel": "Annuleren",
   "changelog": "Wijzigingslogboek",
-  "clientDB": {
-    "autoInit": {
-      "title": "Initialiseer de PGlite-database"
-    },
-    "error": {
-      "desc": "Onze excuses, er is een fout opgetreden tijdens het initialisatieproces van de Pglite-database. Klik op de knop om het opnieuw te proberen. Als het probleem zich blijft voordoen na meerdere pogingen, gelieve <1>een probleem te melden</1> en we zullen u zo snel mogelijk helpen.",
-      "detail": "Fout reden: [[{{type}}] {{message}}. Details zijn als volgt:",
-      "detailTitle": "Foutreden",
-      "report": "Probleem rapporteren",
-      "retry": "Opnieuw proberen",
-      "selfSolve": "Zelf oplossen",
-      "title": "Fout bij database-initialisatie"
-    },
-    "initing": {
-      "error": "Er is een fout opgetreden, probeer het opnieuw",
-      "idle": "Wachten op initialisatie...",
-      "initializing": "Bezig met initialiseren...",
-      "loadingDependencies": "Afhankelijkheden laden...",
-      "loadingWasmModule": "WASM-module laden...",
-      "migrating": "Gegevens migreren...",
-      "ready": "Database is gereed"
-    },
-    "modal": {
-      "desc": "Schakel de PGlite-clientdatabase in om chatgegevens permanent op te slaan in je browser en gebruik geavanceerde functies zoals de kennisbank.",
-      "enable": "Nu inschakelen",
-      "features": {
-        "knowledgeBase": {
-          "desc": "Bouw je persoonlijke kennisbasis op en start eenvoudig een gesprek met je assistent (binnenkort beschikbaar)",
-          "title": "Ondersteuning voor kennisbasisgesprekken, activeer je tweede brein"
-        },
-        "localFirst": {
-          "desc": "Chatgegevens worden volledig in de browser opgeslagen, jouw gegevens zijn altijd in jouw beheer.",
-          "title": "Lokaal eerst, privacy voorop"
-        },
-        "pglite": {
-          "desc": "Gebaseerd op PGlite, native ondersteuning voor AI Native geavanceerde functies (vectorzoekopdrachten)",
-          "title": "Nieuwe generatie clientopslagarchitectuur"
-        }
-      },
-      "init": {
-        "desc": "Bezig met het initialiseren van de database, afhankelijk van de netwerksnelheid kan dit 5 tot 30 seconden duren.",
-        "title": "Bezig met het initialiseren van de PGlite-database"
-      },
-      "title": "Schakel de clientdatabase in"
-    },
-    "ready": {
-      "button": "Nu gebruiken",
-      "desc": "Direct gebruiken",
-      "title": "PGlite-database is gereed"
-    },
-    "solve": {
-      "backup": {
-        "backup": "Back-up",
-        "backupSuccess": "Back-up succesvol",
-        "desc": "Exporteer belangrijke gegevens uit de huidige database",
-        "export": "Exporteer alle gegevens",
-        "exportDesc": "De geëxporteerde gegevens worden opgeslagen in JSON-formaat en kunnen worden gebruikt voor toekomstige herstel of analyse.",
-        "reset": {
-          "alert": "Waarschuwing",
-          "alertDesc": "De volgende acties kunnen leiden tot gegevensverlies. Zorg ervoor dat u belangrijke gegevens hebt geback-upt voordat u verdergaat.",
-          "button": "Database volledig resetten (alle gegevens verwijderen)",
-          "confirm": {
-            "desc": "Deze actie zal alle gegevens verwijderen en is onomkeerbaar. Bevestig dat u wilt doorgaan?",
-            "title": "Bevestig database reset"
-          },
-          "desc": "Reset de database in het geval van onherstelbare migratie",
-          "title": "Database reset"
-        },
-        "restore": "Herstellen",
-        "restoreSuccess": "Herstel succesvol",
-        "title": "Gegevensback-up"
-      },
-      "diagnosis": {
-        "createdAt": "Aanmaakdatum",
-        "migratedAt": "Migratie voltooid op",
-        "sql": "Migratie SQL",
-        "title": "Migratiestatus"
-      },
-      "repair": {
-        "desc": "Handmatig migratiestatus beheren",
-        "runSQL": "Aangepast uitvoeren",
-        "sql": {
-          "clear": "Leegmaken",
-          "desc": "Voer aangepaste SQL-opdrachten uit om databaseproblemen te verhelpen",
-          "markFinished": "Markeer als voltooid",
-          "placeholder": "Voer SQL-opdracht in...",
-          "result": "Uitvoeringsresultaat",
-          "run": "Uitvoeren",
-          "title": "SQL-uitvoerder"
-        },
-        "title": "Migratiecontrole"
-      },
-      "tabs": {
-        "backup": "Back-up en herstel",
-        "diagnosis": "Diagnose",
-        "repair": "Herstel"
-      }
-    }
-  },
   "close": "Sluiten",
   "contact": "Contacteer ons",
   "copy": "Kopiëren",

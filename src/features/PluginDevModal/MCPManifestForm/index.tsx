@@ -6,13 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import KeyValueEditor from '@/components/KeyValueEditor';
-import MCPStdioCommandInput from '@/components/MCPStdioCommandInput';
 import { useToolStore } from '@/store/tool';
 import { mcpStoreSelectors, pluginSelectors } from '@/store/tool/selectors';
 
-import ArgsInput from './ArgsInput';
 import CollapsibleSection from './CollapsibleSection';
-import MCPTypeSelect from './MCPTypeSelect';
 import OAuthConfig from './OAuthConfig';
 import QuickImportSection from './QuickImportSection';
 
@@ -22,9 +19,6 @@ interface MCPManifestFormProps {
 }
 
 const HTTP_URL_KEY = ['customParams', 'mcp', 'url'];
-const STDIO_COMMAND = ['customParams', 'mcp', 'command'];
-const STDIO_ARGS = ['customParams', 'mcp', 'args'];
-const STDIO_ENV = ['customParams', 'mcp', 'env'];
 const MCP_TYPE = ['customParams', 'mcp', 'type'];
 const DESC_TYPE = ['customParams', 'description'];
 // 新增认证相关常量
@@ -35,7 +29,6 @@ const HEADERS = ['customParams', 'mcp', 'headers'];
 
 const MCPManifestForm = ({ form, isEditMode }: MCPManifestFormProps) => {
   const { t } = useTranslation('plugin');
-  const mcpType = Form.useWatch(MCP_TYPE, form);
   const authType = Form.useWatch(AUTH_TYPE, form);
 
   const pluginIds = useToolStore(pluginSelectors.storeAndInstallPluginsIdList);
@@ -56,17 +49,11 @@ const MCPManifestForm = ({ form, isEditMode }: MCPManifestFormProps) => {
     // Manually trigger validation for fields needed for the test
     let isValid = false;
     try {
-      const fieldsToValidate = [
-        ...(mcpType === 'http' ? [HTTP_URL_KEY] : [STDIO_COMMAND, STDIO_ARGS]),
-      ];
+      const fieldsToValidate = [HTTP_URL_KEY, AUTH_TYPE];
 
-      // 如果是 HTTP 类型，还需要验证认证字段
-      if (mcpType === 'http') {
-        fieldsToValidate.push(AUTH_TYPE);
-        const currentAuthType = form.getFieldValue(AUTH_TYPE);
-        if (currentAuthType === 'bearer') {
-          fieldsToValidate.push(AUTH_TOKEN);
-        }
+      const currentAuthType = form.getFieldValue(AUTH_TYPE);
+      if (currentAuthType === 'bearer') {
+        fieldsToValidate.push(AUTH_TOKEN);
       }
 
       await form.validateFields(fieldsToValidate);
@@ -127,14 +114,7 @@ const MCPManifestForm = ({ form, isEditMode }: MCPManifestFormProps) => {
       />
       <Form form={form} layout={'vertical'}>
         <Flexbox>
-          <Form.Item
-            initialValue={'http'}
-            label={t('dev.mcp.type.title')}
-            name={['customParams', 'mcp', 'type']}
-            rules={[{ required: true }]}
-          >
-            <MCPTypeSelect />
-          </Form.Item>
+          <Form.Item hidden initialValue={'http'} name={MCP_TYPE} />
           <FormItem
             desc={t('dev.mcp.identifier.desc')}
             label={t('dev.mcp.identifier.label')}
@@ -162,116 +142,73 @@ const MCPManifestForm = ({ form, isEditMode }: MCPManifestFormProps) => {
           >
             <Input placeholder={t('dev.mcp.identifier.placeholder')} />
           </FormItem>
-          {mcpType === 'http' && (
-            <>
-              <FormItem
-                desc={t('dev.mcp.url.desc')}
-                label={t('dev.mcp.url.label')}
-                name={HTTP_URL_KEY}
-                rules={[
-                  { message: t('dev.mcp.url.required'), required: true },
-                  {
-                    message: t('dev.mcp.url.invalid'),
-                    validator: async (_, value) => {
-                      if (!value) return true;
+          <FormItem
+            desc={t('dev.mcp.url.desc')}
+            label={t('dev.mcp.url.label')}
+            name={HTTP_URL_KEY}
+            rules={[
+              { message: t('dev.mcp.url.required'), required: true },
+              {
+                message: t('dev.mcp.url.invalid'),
+                validator: async (_, value) => {
+                  if (!value) return true;
 
-                      // 如果不是 URL 就会自动抛出错误
-                      new URL(value);
-                    },
-                  },
-                ]}
-                tag={'url'}
-              >
-                <Input placeholder="https://mcp.higress.ai/mcp-github/xxxxx" />
-              </FormItem>
-              <FormItem
-                desc={t('dev.mcp.auth.desc')}
-                initialValue={'none'}
-                label={t('dev.mcp.auth.label')}
-                name={AUTH_TYPE}
-              >
-                <Radio.Group
-                  options={[
-                    {
-                      label: t('dev.mcp.auth.none'),
-                      value: 'none',
-                    },
-                    {
-                      label: t('dev.mcp.auth.bear'),
-                      value: 'bearer',
-                    },
-                    {
-                      label: t('dev.mcp.auth.oauth'),
-                      value: 'oauth2',
-                    },
-                  ]}
-                  style={{ width: '100%' }}
-                />
-              </FormItem>
-              {authType === 'bearer' && (
-                <FormItem
-                  desc={t('dev.mcp.auth.token.desc')}
-                  label={t('dev.mcp.auth.token.label')}
-                  name={AUTH_TOKEN}
-                  rules={[{ message: t('dev.mcp.auth.token.required'), required: true }]}
-                >
-                  <InputPassword placeholder={t('dev.mcp.auth.token.placeholder')} />
-                </FormItem>
-              )}
-              {authType === 'oauth2' && (
-                <OAuthConfig form={form} identifier={formValues?.identifier} />
-              )}
-              <CollapsibleSection title={t('dev.mcp.advanced.title')}>
-                <FormItem
-                  desc={t('dev.mcp.headers.desc')}
-                  label={t('dev.mcp.headers.label')}
-                  name={HEADERS}
-                >
-                  <KeyValueEditor addButtonText={t('dev.mcp.headers.add')} />
-                </FormItem>
-              </CollapsibleSection>
-            </>
+                  // 如果不是 URL 就会自动抛出错误
+                  new URL(value);
+                },
+              },
+            ]}
+            tag={'url'}
+          >
+            <Input placeholder="https://mcp.higress.ai/mcp-github/xxxxx" />
+          </FormItem>
+          <FormItem
+            desc={t('dev.mcp.auth.desc')}
+            initialValue={'none'}
+            label={t('dev.mcp.auth.label')}
+            name={AUTH_TYPE}
+          >
+            <Radio.Group
+              options={[
+                {
+                  label: t('dev.mcp.auth.none'),
+                  value: 'none',
+                },
+                {
+                  label: t('dev.mcp.auth.bear'),
+                  value: 'bearer',
+                },
+                {
+                  label: t('dev.mcp.auth.oauth'),
+                  value: 'oauth2',
+                },
+              ]}
+              style={{ width: '100%' }}
+            />
+          </FormItem>
+          {authType === 'bearer' && (
+            <FormItem
+              desc={t('dev.mcp.auth.token.desc')}
+              label={t('dev.mcp.auth.token.label')}
+              name={AUTH_TOKEN}
+              rules={[{ message: t('dev.mcp.auth.token.required'), required: true }]}
+            >
+              <InputPassword placeholder={t('dev.mcp.auth.token.placeholder')} />
+            </FormItem>
           )}
-          {mcpType === 'stdio' && (
-            <>
-              <FormItem
-                desc={t('dev.mcp.command.desc')}
-                label={t('dev.mcp.command.label')}
-                name={STDIO_COMMAND}
-                rules={[{ message: t('dev.mcp.command.required'), required: true }]}
-                tag={'command'}
-              >
-                <MCPStdioCommandInput placeholder={t('dev.mcp.command.placeholder')} />
-              </FormItem>
-              <FormItem
-                desc={t('dev.mcp.args.desc')}
-                label={t('dev.mcp.args.label')}
-                name={STDIO_ARGS}
-                rules={[{ message: t('dev.mcp.args.required'), required: true }]}
-                tag={'args'}
-              >
-                <ArgsInput placeholder={t('dev.mcp.args.placeholder')} />
-              </FormItem>
-              <FormItem
-                extra={t('dev.mcp.env.desc')}
-                label={t('dev.mcp.env.label')}
-                name={STDIO_ENV}
-                tag={'env'}
-              >
-                <KeyValueEditor
-                  addButtonText={t('dev.mcp.env.add')}
-                  keyPlaceholder="VARIABLE_NAME"
-                />
-              </FormItem>
-            </>
-          )}
+          {authType === 'oauth2' && <OAuthConfig form={form} identifier={formValues?.identifier} />}
+          <CollapsibleSection title={t('dev.mcp.advanced.title')}>
+            <FormItem
+              desc={t('dev.mcp.headers.desc')}
+              label={t('dev.mcp.headers.label')}
+              name={HEADERS}
+            >
+              <KeyValueEditor addButtonText={t('dev.mcp.headers.add')} />
+            </FormItem>
+          </CollapsibleSection>
           <FormItem colon={false} label={t('dev.mcp.testConnectionTip')} layout={'horizontal'}>
             <Flexbox align={'center'} gap={8} horizontal justify={'flex-end'}>
-              <Button
-                loading={isTesting}
-                onClick={handleTestConnection}
-                type={!!mcpType ? 'primary' : undefined}
-              >
+              <Button loading={isTesting} onClick={handleTestConnection} type={'primary'}>
                 {t('dev.mcp.testConnection')}
               </Button>
             </Flexbox>

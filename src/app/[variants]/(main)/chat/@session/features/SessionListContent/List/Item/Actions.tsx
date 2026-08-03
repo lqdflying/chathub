@@ -5,8 +5,6 @@ import { ItemType } from 'antd/es/menu/interface';
 import isEqual from 'fast-deep-equal';
 import {
   Check,
-  ExternalLink,
-  HardDriveDownload,
   ListTree,
   LucideCopy,
   LucidePlus,
@@ -18,9 +16,6 @@ import {
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { isDesktop, isServerMode } from '@/const/version';
-import { configService } from '@/services/config';
-import { useGlobalStore } from '@/store/global';
 import { useChatGroupStore } from '@/store/chatGroup';
 import { useSessionStore } from '@/store/session';
 import { sessionHelpers } from '@/store/session/helpers';
@@ -44,8 +39,6 @@ interface ActionProps {
 const Actions = memo<ActionProps>(({ group, id, openCreateGroupModal, parentType, setOpen }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('chat');
-
-  const openSessionInNewWindow = useGlobalStore((s) => s.openSessionInNewWindow);
 
   const sessionCustomGroups = useSessionStore(sessionGroupSelectors.sessionGroupItems, isEqual);
   const [pin, removeSession, pinSession, sessionType, duplicateSession, updateSessionGroup] =
@@ -94,19 +87,6 @@ const Actions = memo<ActionProps>(({ group, id, openCreateGroupModal, parentType
               duplicateSession(id);
             },
           },
-          ...(isDesktop
-            ? [
-                {
-                  icon: <Icon icon={ExternalLink} />,
-                  key: 'openInNewWindow',
-                  label: '单独打开页面',
-                  onClick: ({ domEvent }: { domEvent: Event }) => {
-                    domEvent.stopPropagation();
-                    openSessionInNewWindow(id);
-                  },
-                },
-              ]
-            : []),
           {
             type: 'divider',
           },
@@ -148,29 +128,6 @@ const Actions = memo<ActionProps>(({ group, id, openCreateGroupModal, parentType
           {
             type: 'divider',
           },
-          isServerMode
-            ? undefined
-            : {
-                children: [
-                  {
-                    key: 'agent',
-                    label: t('exportType.agent', { ns: 'common' }),
-                    onClick: () => {
-                      configService.exportSingleAgent(id);
-                    },
-                  },
-                  {
-                    key: 'agentWithMessage',
-                    label: t('exportType.agentWithMessage', { ns: 'common' }),
-                    onClick: () => {
-                      configService.exportSingleSession(id);
-                    },
-                  },
-                ],
-                icon: <Icon icon={HardDriveDownload} />,
-                key: 'export',
-                label: t('export', { ns: 'common' }),
-              },
           {
             danger: true,
             icon: <Icon icon={Trash} />,
@@ -200,7 +157,7 @@ const Actions = memo<ActionProps>(({ group, id, openCreateGroupModal, parentType
           },
         ] as ItemType[]
       ).filter(Boolean),
-    [id, pin, openSessionInNewWindow],
+    [id, pin],
   );
 
   return (

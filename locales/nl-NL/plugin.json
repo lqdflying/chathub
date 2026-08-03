@@ -60,12 +60,6 @@
       "advanced": {
         "title": "Geavanceerde instellingen"
       },
-      "args": {
-        "desc": "Parameters doorgeven aan het uitvoeringscommando, meestal hier de MCP-servernaam of het pad naar het opstartscript invoeren",
-        "label": "Commando-argumenten",
-        "placeholder": "Bijv.: mcp-hello-world",
-        "required": "Voer opstartparameters in"
-      },
       "auth": {
         "bear": "API-sleutel",
         "desc": "Kies de authenticatiemethode voor de MCP-server",
@@ -82,29 +76,10 @@
       "avatar": {
         "label": "Plugin-icoon"
       },
-      "command": {
-        "desc": "Uitvoerbaar bestand of script om MCP STDIO-server te starten",
-        "label": "Commando",
-        "placeholder": "Bijv.: npx / uv / docker enz.",
-        "required": "Voer opstartcommando in"
-      },
       "desc": {
         "desc": "Voeg een beschrijving toe voor de plugin",
         "label": "Pluginbeschrijving",
         "placeholder": "Voeg gebruiks- en scenario-informatie toe"
-      },
-      "endpoint": {
-        "desc": "Voer het adres van je MCP Streamable HTTP-server in",
-        "label": "MCP Endpoint URL"
-      },
-      "env": {
-        "add": "Voeg een regel toe",
-        "desc": "Voer de omgevingsvariabelen in die de MCP-server nodig heeft",
-        "duplicateKeyError": "Sleutel moet uniek zijn",
-        "formValidationFailed": "Formuliervalidatie mislukt, controleer parameterindeling",
-        "keyRequired": "Sleutel mag niet leeg zijn",
-        "label": "MCP Server omgevingsvariabelen",
-        "stringifyError": "Kan parameters niet serialiseren, controleer parameterindeling"
       },
       "headers": {
         "add": "Voeg een regel toe",
@@ -125,21 +100,8 @@
         "invalidJson": "Ongeldige JSON-indeling",
         "invalidStructure": "Ongeldige JSON-structuur"
       },
-      "stdioNotSupported": "Huidige omgeving ondersteunt geen stdio-type MCP-plugins",
       "testConnection": "Verbinding testen",
       "testConnectionTip": "MCP-plugin kan pas normaal worden gebruikt na succesvolle verbindingstest",
-      "type": {
-        "desc": "Kies het communicatieprotocol van de MCP-plugin, webversie ondersteunt alleen Streamable HTTP",
-        "httpFeature1": "Compatibel met web- en desktopversies",
-        "httpFeature2": "Verbind met externe MCP-server zonder extra installatie",
-        "httpShortDesc": "Communicatieprotocol gebaseerd op gestreamde HTTP",
-        "label": "MCP-plugin type",
-        "stdioFeature1": "Lagere communicatielatentie, geschikt voor lokaal gebruik",
-        "stdioFeature2": "MCP-server moet lokaal geïnstalleerd en uitgevoerd worden",
-        "stdioNotAvailable": "STDIO-modus alleen beschikbaar in desktopversie",
-        "stdioShortDesc": "Communicatieprotocol gebaseerd op standaardinvoer/-uitvoer",
-        "title": "MCP-plugin type"
-      },
       "url": {
         "desc": "Voer het Streamable HTTP-adres van je MCP-server in, SSE-modus wordt niet ondersteund",
         "invalid": "Voer een geldige URL in",
@@ -249,19 +211,7 @@
     "content": "Plugin aan het aanroepen...",
     "plugin": "Plugin wordt uitgevoerd..."
   },
-  "localSystem": {
-    "apiName": {
-      "listLocalFiles": "Bestandslijst bekijken",
-      "moveLocalFiles": "Bestanden verplaatsen",
-      "readLocalFile": "Bestandsinhoud lezen",
-      "renameLocalFile": "Naam wijzigen",
-      "searchLocalFiles": "Bestanden zoeken",
-      "writeLocalFile": "Bestand schrijven"
-    },
-    "title": "Lokale bestanden"
-  },
   "mcpInstall": {
-    "CHECKING_INSTALLATION": "Installatieomgeving controleren...",
     "COMPLETED": "Installatie voltooid",
     "CONFIGURATION_REQUIRED": "Voltooi de configuratie om door te gaan met installatie",
     "ERROR": "Installatiefout",
@@ -271,101 +221,23 @@
     "configurationDescription": "Deze MCP-plugin vereist configuratieparameters om correct te functioneren, vul de benodigde informatie in",
     "configurationRequired": "Pluginparameters configureren",
     "continueInstall": "Installatie voortzetten",
-    "dependenciesDescription": "Deze plugin vereist de installatie van de volgende systeemafhankelijkheden. Installeer de ontbrekende afhankelijkheden volgens de instructies en klik op 'Opnieuw controleren' om door te gaan.",
-    "dependenciesRequired": "Installeer de systeemafhankelijkheden van de plugin",
-    "dependencyStatus": {
-      "installed": "Geïnstalleerd",
-      "notInstalled": "Niet geïnstalleerd",
-      "requiredVersion": "Vereiste versie: {{version}}"
-    },
     "errorDetails": {
-      "args": "Parameters",
-      "command": "Commando",
       "connectionParams": "Verbindingsparameters",
-      "env": "Omgevingsvariabelen",
-      "errorOutput": "Foutlog",
-      "exitCode": "Exitcode",
       "hideDetails": "Details verbergen",
       "originalError": "Oorspronkelijke fout",
-      "showDetails": "Details bekijken"
+      "showDetails": "Details bekijken",
+      "connectionType": "Verbindingsparameters"
     },
     "errorTypes": {
       "AUTHORIZATION_ERROR": "Autorisatiefout",
       "CONNECTION_FAILED": "Verbinding mislukt",
       "INITIALIZATION_TIMEOUT": "Initialisatie time-out",
-      "PROCESS_SPAWN_ERROR": "Proces starten mislukt",
       "UNKNOWN_ERROR": "Onbekende fout",
       "VALIDATION_ERROR": "Parametervalidatie mislukt"
     },
-    "installError": "MCP-plugin installatie mislukt, reden: {{detail}}",
-    "installMethods": {
-      "manual": "Handmatige installatie:",
-      "recommended": "Aanbevolen installatie:"
-    },
-    "recheckDependencies": "Opnieuw controleren",
-    "skipDependencies": "Controle overslaan"
+    "installError": "MCP-plugin installatie mislukt, reden: {{detail}}"
   },
   "pluginList": "Pluginlijst",
-  "protocolInstall": {
-    "actions": {
-      "install": "Installeren",
-      "installAnyway": "Toch installeren",
-      "installed": "Geïnstalleerd"
-    },
-    "config": {
-      "args": "Parameters",
-      "command": "Commando",
-      "env": "Omgevingsvariabelen",
-      "headers": "Headers",
-      "title": "Configuratie-informatie",
-      "type": {
-        "http": "Type: HTTP",
-        "label": "Type",
-        "stdio": "Type: Stdio"
-      },
-      "url": "Serviceadres"
-    },
-    "custom": {
-      "badge": "Aangepaste plugin",
-      "security": {
-        "description": "Deze plugin is niet officieel geverifieerd, installatie kan veiligheidsrisico's met zich meebrengen! Zorg dat u de bron vertrouwt.",
-        "title": "⚠️ Veiligheidswaarschuwing"
-      },
-      "title": "Aangepaste plugin installeren"
-    },
-    "marketplace": {
-      "title": "Derde partij plugins installeren",
-      "trustedBy": "Aangeboden door {{name}}",
-      "unverified": {
-        "title": "Ongeverifieerde derde partij plugin",
-        "warning": "Deze plugin komt uit een niet-geverifieerde derde partij markt, bevestig dat u de bron vertrouwt voor installatie."
-      },
-      "verified": "Geverifieerd"
-    },
-    "messages": {
-      "connectionTestFailed": "Verbindingstest mislukt",
-      "installError": "Plugin-installatie mislukt, probeer opnieuw",
-      "installSuccess": "Plugin {{name}} succesvol geïnstalleerd!",
-      "manifestError": "Plugin details ophalen mislukt, controleer netwerkverbinding en probeer opnieuw",
-      "manifestNotFound": "Plugin manifest niet gevonden"
-    },
-    "meta": {
-      "author": "Auteur",
-      "homepage": "Startpagina",
-      "identifier": "Identificator",
-      "source": "Bron",
-      "version": "Versie"
-    },
-    "official": {
-      "badge": "LobeHub officiële plugin",
-      "description": "Deze plugin is ontwikkeld en onderhouden door LobeHub, grondig beveiligd en veilig in gebruik.",
-      "loadingMessage": "Plugin details ophalen...",
-      "loadingTitle": "Bezig met laden",
-      "title": "Officiële plugin installeren"
-    },
-    "title": "MCP-plugin installeren",
-    "warning": "⚠️ Bevestig dat u deze pluginbron vertrouwt, kwaadaardige plugins kunnen uw systeem in gevaar brengen."
-  },
   "search": {
     "apiName": {
       "crawlMultiPages": "Meerdere pagina's lezen",
@@ -411,14 +283,11 @@
       "title": "Pluginconfiguratie"
     },
     "connection": {
-      "args": "Opstartparameters",
-      "command": "Opstartcommando",
       "title": "Verbindingsinformatie",
       "type": "Verbindingstype",
       "url": "Serviceadres"
     },
     "edit": "Bewerken",
-    "envConfigDescription": "Deze configuraties worden als omgevingsvariabelen doorgegeven bij het starten van de MCP-server",
     "httpTypeNotice": "HTTP-type MCP-plugins hebben momenteel geen omgevingsvariabelen nodig",
     "indexUrl": {
       "title": "Marktindex",
@@ -426,14 +295,10 @@
     },
     "messages": {
       "connectionUpdateFailed": "Verbindingsinformatie bijwerken mislukt",
-      "connectionUpdateSuccess": "Verbindingsinformatie succesvol bijgewerkt",
-      "envUpdateFailed": "Opslaan van omgevingsvariabelen mislukt",
-      "envUpdateSuccess": "Omgevingsvariabelen succesvol opgeslagen"
+      "connectionUpdateSuccess": "Verbindingsinformatie succesvol bijgewerkt"
     },
     "modalDesc": "Na configuratie van de pluginmarkt kunt u aangepaste pluginmarkten gebruiken",
     "rules": {
-      "argsRequired": "Voer opstartparameters in",
-      "commandRequired": "Voer opstartcommando in",
       "urlRequired": "Voer serviceadres in"
     },
     "saveSettings": "Instellingen opslaan",

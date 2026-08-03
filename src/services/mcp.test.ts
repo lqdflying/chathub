@@ -17,11 +17,6 @@ vi.mock('nanoid', () => ({
 }));
 
 vi.mock('@/libs/trpc/client', () => ({
-  desktopClient: {
-    mcp: {
-      callTool: { mutate: vi.fn() },
-    },
-  },
   toolsClient: {
     mcp: {
       callTool: { mutate: mocks.callTool },

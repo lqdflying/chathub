@@ -7,19 +7,15 @@ import {
   CHATHUB_TOOLS_DIAGNOSTIC_ID_PATTERN,
   TOOLS_DIAGNOSTIC_CONTEXT_KEY,
 } from '@/const/tools';
-import { isDesktop } from '@/const/version';
 import type { ToolsRouter } from '@/server/routers/tools';
-import { fetchWithDesktopRemoteRPC } from '@/utils/electron/desktopRemoteRPCFetch';
 
 import { createGuardedToolsFetch } from './toolsResponse';
 
 export { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from '@/const/tools';
 
-type FetchInit = Parameters<typeof fetch>[1];
 type HeadersInput = ConstructorParameters<typeof Headers>[0];
 
 type ToolsClientOptions = {
-  desktop?: boolean;
   fetch?: typeof fetch;
   getAuthHeaders?: () => Promise<HeadersInput>;
 };
@@ -40,16 +36,10 @@ const diagnosticIdFromContext = (context: Record<string, unknown> | undefined) =
 };
 
 export const createToolsClient = ({
-  desktop = isDesktop,
   fetch: customFetch,
   getAuthHeaders = defaultGetAuthHeaders,
 }: ToolsClientOptions = {}) => {
-  const fetchImpl: typeof fetch = customFetch
-    ? customFetch
-    : desktop
-      ? (((input, init) =>
-          fetchWithDesktopRemoteRPC(input as string, init as FetchInit)) as typeof fetch)
-      : globalThis.fetch.bind(globalThis);
+  const fetchImpl = customFetch || globalThis.fetch.bind(globalThis);
   const guardedFetch = createGuardedToolsFetch(fetchImpl);
 
   const headersWithDiagnosticId = async (diagnosticId: string) => {

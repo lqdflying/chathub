@@ -14,7 +14,6 @@ import { WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { getSearchConfig } from '../getSearchConfig';
 import { isCanUseFC } from '../isCanUseFC';
-import { shouldEnableTool } from '../toolFilters';
 
 /**
  * Tools engine configuration options
@@ -77,11 +76,6 @@ export const createChatToolsEngine = (
     ],
     // Create search-aware enableChecker for this request
     enableChecker: ({ pluginId }) => {
-      // Check platform-specific constraints (e.g., LocalSystem desktop-only)
-      if (!shouldEnableTool(pluginId)) {
-        return false;
-      }
-
       // Skills are activated exclusively through the composer control. Keep the
       // loader manifest registered so historical tool calls can still render.
       if (pluginId === SkillLoaderManifest.identifier) {

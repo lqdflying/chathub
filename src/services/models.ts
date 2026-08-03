@@ -1,10 +1,7 @@
 import { getMessageError } from '@lobechat/fetch-sse';
 
-import { isDeprecatedEdition } from '@/const/version';
 import { createHeaderWithAuth } from '@/services/_auth';
 import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
-import { useUserStore } from '@/store/user';
-import { modelConfigSelectors } from '@/store/user/selectors';
 import { ChatModelCard } from '@/types/llm';
 
 import { API_ENDPOINTS } from './_url';
@@ -12,12 +9,7 @@ import { initializeWithClientStore } from './chat/clientModelRuntime';
 import { resolveRuntimeProvider } from './chat/helper';
 
 const isEnableFetchOnClient = (provider: string) => {
-  // TODO: remove this condition in V2.0
-  if (isDeprecatedEdition) {
-    return modelConfigSelectors.isProviderFetchOnClient(provider)(useUserStore.getState());
-  } else {
-    return aiProviderSelectors.isProviderFetchOnClient(provider)(getAiInfraStoreState());
-  }
+  return aiProviderSelectors.isProviderFetchOnClient(provider)(getAiInfraStoreState());
 };
 
 // 进度信息接口

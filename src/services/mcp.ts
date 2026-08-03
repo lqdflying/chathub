@@ -1,16 +1,10 @@
-import { CURRENT_VERSION, isDesktop } from '@lobechat/const';
-import {
-  ChatToolPayload,
-  CheckMcpInstallResult,
-  CustomPluginMetadata,
-  ToolCacheDebugMetadata,
-} from '@lobechat/types';
-import { isLocalOrPrivateUrl, safeParseJSON } from '@lobechat/utils';
-import { PluginManifest } from '@lobehub/market-sdk';
+import { CURRENT_VERSION } from '@lobechat/const';
+import { ChatToolPayload, CustomPluginMetadata, ToolCacheDebugMetadata } from '@lobechat/types';
+import { safeParseJSON } from '@lobechat/utils';
 import { CallReportRequest } from '@lobehub/market-types';
 import { nanoid } from 'nanoid';
 
-import { desktopClient, toolsClient } from '@/libs/trpc/client';
+import { toolsClient } from '@/libs/trpc/client';
 import { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from '@/libs/trpc/client/tools';
 import {
   type ToolsRPCResponseErrorDetails,
@@ -23,7 +17,7 @@ import { rpcDiagnosticsService } from './rpcDiagnostics';
 
 export interface MCPToolCallResult {
   content: string;
-  persistence: 'client_required' | 'failed' | 'persisted' | 'superseded';
+  persistence: 'failed' | 'persisted' | 'superseded';
 }
 
 /**
@@ -149,7 +143,6 @@ class MCPService {
     const invocationId = `mi_${nanoid(20)}`;
     const data = {
       args,
-      env: plugin.settings || plugin.customParams?.mcp?.env,
       invocationId,
       messageId,
       params: { ...plugin.customParams?.mcp, name: identifier } as any,
@@ -157,7 +150,9 @@ class MCPService {
       toolName: apiName,
     };
 
-    const isStdio = plugin?.customParams?.mcp?.type === 'stdio';
+    if (plugin.customParams?.mcp?.type !== 'http') {
+      throw new Error('This MCP plugin uses an unsupported local transport. Remove or replace it.');
+    }
 
     // 记录调用开始时间
     const callStartTime = Date.now();
@@ -167,18 +162,10 @@ class MCPService {
     let result: any;
 
     try {
-      // For desktop and stdio, use the desktopClient
-      if (isDesktop && isStdio) {
-        result = await desktopClient.mcp.callTool.mutate(data, {
-          context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
-          signal,
-        });
-      } else {
-        result = await toolsClient.mcp.callTool.mutate(data, {
-          context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
-          signal,
-        });
-      }
+      result = await toolsClient.mcp.callTool.mutate(data, {
+        context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
+        signal,
+      });
 
       success = true;
       return result;
@@ -200,31 +187,29 @@ class MCPService {
           rpcEndpoint: 'tools',
         });
 
-        if (!(isDesktop && isStdio)) {
-          for (let recoveryAttempt = 1; recoveryAttempt <= 2; recoveryAttempt += 1) {
-            if (signal?.aborted) throw signal.reason ?? error;
+        for (let recoveryAttempt = 1; recoveryAttempt <= 2; recoveryAttempt += 1) {
+          if (signal?.aborted) throw signal.reason ?? error;
 
-            try {
-              const recoveredResult = await toolsClient.mcp.recoverToolResult.mutate(
-                { invocationId, messageId },
-                {
-                  context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
-                  signal,
-                },
-              );
-              if (recoveredResult) {
-                result = recoveredResult;
-                success = true;
-                return recoveredResult;
-              }
-            } catch (recoveryError) {
-              if (signal?.aborted || isAbortError(recoveryError)) throw recoveryError;
+          try {
+            const recoveredResult = await toolsClient.mcp.recoverToolResult.mutate(
+              { invocationId, messageId },
+              {
+                context: { [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: diagnosticId },
+                signal,
+              },
+            );
+            if (recoveredResult) {
+              result = recoveredResult;
+              success = true;
+              return recoveredResult;
             }
+          } catch (recoveryError) {
+            if (signal?.aborted || isAbortError(recoveryError)) throw recoveryError;
+          }
 
-            if (recoveryAttempt === 1) {
-              const retryAllowed = await waitForMCPResultRecoveryRetry(signal);
-              if (!retryAllowed) throw signal?.reason ?? error;
-            }
+          if (recoveryAttempt === 1) {
+            const retryAllowed = await waitForMCPResultRecoveryRetry(signal);
+            if (!retryAllowed) throw signal?.reason ?? error;
           }
         }
 
@@ -277,7 +262,6 @@ class MCPService {
         isCustomPlugin,
         metadata: {
           appVersion: CURRENT_VERSION,
-          command: plugin.customParams?.mcp?.command,
           mcpType: plugin.customParams?.mcp?.type,
         },
         methodName: apiName,
@@ -310,47 +294,7 @@ class MCPService {
     },
     signal?: AbortSignal,
   ) {
-    // 如果是 Desktop 模式且 URL 是本地地址，使用 desktopClient
-    // 这样可以避免在生产环境中通过远程服务器访问用户本地服务
-    if (isDesktop && isLocalOrPrivateUrl(params.url)) {
-      return desktopClient.mcp.getStreamableMcpServerManifest.query(params, { signal });
-    }
-
-    // 否则使用 toolsClient（通过服务器中转）
     return toolsClient.mcp.getStreamableMcpServerManifest.query(params, { signal });
-  }
-
-  async getStdioMcpServerManifest(
-    stdioParams: {
-      args?: string[];
-      command: string;
-      env?: Record<string, string>;
-      name: string;
-    },
-    metadata?: CustomPluginMetadata,
-    signal?: AbortSignal,
-  ) {
-    return desktopClient.mcp.getStdioMcpServerManifest.query(
-      { ...stdioParams, metadata },
-      { signal },
-    );
-  }
-
-  /**
-   * 检查 MCP 插件安装状态
-   * @param manifest MCP 插件清单
-   * @param signal AbortSignal 用于取消请求
-   * @returns 安装检测结果
-   */
-  async checkInstallation(
-    manifest: PluginManifest,
-    signal?: AbortSignal,
-  ): Promise<CheckMcpInstallResult> {
-    // 将所有部署选项传递给主进程进行检查
-    return desktopClient.mcp.validMcpServerInstallable.mutate(
-      { deploymentOptions: manifest.deploymentOptions as any },
-      { signal },
-    );
   }
 }
 

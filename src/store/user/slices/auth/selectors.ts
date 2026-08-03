@@ -1,4 +1,4 @@
-import { BRANDING_NAME, isDesktop } from '@lobechat/const';
+import { BRANDING_NAME } from '@lobechat/const';
 import { LobeUser } from '@lobechat/types';
 import { t } from 'i18next';
 
@@ -10,9 +10,6 @@ const DEFAULT_USERNAME = BRANDING_NAME;
 const nickName = (s: UserStore) => {
   const defaultNickName = s.user?.fullName || s.user?.username;
   if (!enableAuth) {
-    if (isDesktop) {
-      return defaultNickName;
-    }
     return t('userPanel.defaultNickname', { ns: 'common' });
   }
 
@@ -23,9 +20,6 @@ const nickName = (s: UserStore) => {
 
 const username = (s: UserStore) => {
   if (!enableAuth) {
-    if (isDesktop) {
-      return s.user?.username;
-    }
     return DEFAULT_USERNAME;
   }
 

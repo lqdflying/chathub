@@ -43,7 +43,6 @@ FROM base AS builder
 
 ARG USE_CN_MIRROR
 ARG NEXT_PUBLIC_BASE_PATH
-ARG NEXT_PUBLIC_SERVICE_MODE
 ARG NEXT_PUBLIC_ENABLE_NEXT_AUTH
 ARG NEXT_PUBLIC_ENABLE_CLERK_AUTH
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
@@ -62,7 +61,6 @@ ENV NEXT_PUBLIC_BASE_PATH="${NEXT_PUBLIC_BASE_PATH}" \
     FEATURE_FLAGS="${FEATURE_FLAGS}"
 
 ENV NEXT_PUBLIC_APP_TAG="${NEXT_PUBLIC_APP_TAG}" \
-    NEXT_PUBLIC_SERVICE_MODE="${NEXT_PUBLIC_SERVICE_MODE:-server}" \
     NEXT_PUBLIC_ENABLE_NEXT_AUTH="${NEXT_PUBLIC_ENABLE_NEXT_AUTH:-1}" \
     NEXT_PUBLIC_ENABLE_CLERK_AUTH="${NEXT_PUBLIC_ENABLE_CLERK_AUTH:-0}" \
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}" \
@@ -117,8 +115,6 @@ COPY packages/agent-runtime/package.json      packages/agent-runtime/
 COPY packages/const/package.json              packages/const/
 COPY packages/context-engine/package.json     packages/context-engine/
 COPY packages/database/package.json           packages/database/
-COPY packages/electron-client-ipc/package.json  packages/electron-client-ipc/
-COPY packages/electron-server-ipc/package.json  packages/electron-server-ipc/
 COPY packages/fetch-sse/package.json          packages/fetch-sse/
 COPY packages/file-loaders/package.json       packages/file-loaders/
 COPY packages/memory-extract/package.json     packages/memory-extract/
@@ -166,7 +162,6 @@ RUN --mount=type=bind,from=nextjs_cache,target=/tmp/nextjs-restore \
         cp -r /tmp/nextjs-local-cache/. .next/cache/ 2>/dev/null || \
         true) \
     && export PATH="$PATH:/app/node_modules/.bin" \
-    && tsx scripts/prebuild.mts \
     && NODE_OPTIONS=--max-old-space-size=6144 DOCKER=true next build \
     && (cp -r .next/cache/. /tmp/nextjs-local-cache/ 2>/dev/null || true)
 

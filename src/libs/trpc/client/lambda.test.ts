@@ -23,7 +23,6 @@ describe('lambda tRPC client links', () => {
       assertAccountOwnership: () => {
         throw ownershipError;
       },
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -52,7 +51,6 @@ describe('lambda tRPC client links', () => {
         ownershipInvalidationGeneration: 7,
         scope: 'user:account-a',
       }),
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -76,7 +74,6 @@ describe('lambda tRPC client links', () => {
     }) as typeof fetch;
     const client = createLambdaClient({
       assertAccountOwnership,
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -103,7 +100,6 @@ describe('lambda tRPC client links', () => {
       });
     }) as typeof fetch;
     const client = createLambdaClient({
-      desktop: false,
       fetch: fetchMock,
       getAuthHeaders: async () => ({}),
     });
@@ -128,7 +124,6 @@ describe('lambda tRPC client links', () => {
 
   it('classifies an HTML Lambda response without exposing its parser text or body', async () => {
     const client = createLambdaClient({
-      desktop: false,
       fetch: vi.fn(
         async () =>
           new Response('<!DOCTYPE html><html><body>private proxy page</body></html>', {

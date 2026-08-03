@@ -5,7 +5,6 @@ import { parseAsStringEnum, useQueryState } from 'nuqs';
 import { memo, useRef } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
-import InitClientDB from '@/features/InitClientDB';
 import SettingContainer from '@/features/Setting/SettingContainer';
 import { SettingsTabs } from '@/store/global/initialState';
 
@@ -45,7 +44,6 @@ const Layout = memo<LayoutProps>((props) => {
       <SettingContainer maxWidth={'none'}>
         <SettingsContent activeTab={activeTab} mobile={false} showLLM={showLLM} />
       </SettingContainer>
-      <InitClientDB />
     </Flexbox>
   );
 });

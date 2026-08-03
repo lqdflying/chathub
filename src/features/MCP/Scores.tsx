@@ -116,7 +116,7 @@ const Scores = memo<ScoresProps>(
       // 只传递兼容的属性，或者进行类型转换
       deploymentOptions: deploymentOptions?.map((item) => ({
         // 确保不为 undefined
-        connection: { type: 'stdio' as const },
+        connection: { type: 'http' as const },
         installationMethod: item.installationMethod || 'manual', // 提供默认的 connection
       })),
       github: github?.license

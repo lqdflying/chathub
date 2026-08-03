@@ -22,30 +22,14 @@ vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: { file: { resolvePublicUrl: { query: resolvePublicUrlQuery } } },
 }));
 
-// 默认设置 isServerMode 为 false
-let isServerMode = false;
-
-vi.mock('@lobechat/const', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...(actual as any),
-    get isServerMode() {
-      return isServerMode;
-    },
-    isDeprecatedEdition: false,
-    isDesktop: false,
-  };
-});
-
 afterEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
 });
 
 describe('contextEngineering', () => {
-  describe('handle with files content in server mode', () => {
+  describe('file content handling', () => {
     it('should includes files', async () => {
-      isServerMode = true;
       // Mock isCanUseVision to return true for vision models
       vi.spyOn(helpers, 'isCanUseVision').mockReturnValue(true);
 
@@ -125,11 +109,9 @@ describe('contextEngineering', () => {
         },
       ]);
 
-      isServerMode = false;
     });
 
-    it('should include image files in server mode', async () => {
-      isServerMode = true;
+    it('should include image files', async () => {
 
       vi.spyOn(helpers, 'isCanUseVision').mockReturnValue(false);
 
@@ -183,11 +165,9 @@ describe('contextEngineering', () => {
         },
       ]);
 
-      isServerMode = false;
     });
 
     it('resolves proxy image urls per image and keeps the send alive when one fails', async () => {
-      isServerMode = true;
       vi.spyOn(helpers, 'isCanUseVision').mockReturnValue(true);
       resolvePublicUrlQuery.mockImplementation(async ({ url }: { url: string }) => {
         if (url.includes('good')) return 'https://s3.example.com/good.png';
@@ -226,7 +206,6 @@ describe('contextEngineering', () => {
         'https://chat.example.com/webapi/files/files/1/stale.png',
       ]);
 
-      isServerMode = false;
     });
   });
 
@@ -644,7 +623,6 @@ describe('contextEngineering', () => {
     });
 
     it('should process placeholder variables combined with other processors', async () => {
-      isServerMode = true;
       vi.spyOn(helpers, 'isCanUseVision').mockReturnValue(true);
 
       const messages: UIChatMessage[] = [
@@ -684,7 +662,6 @@ describe('contextEngineering', () => {
       expect(content[1].type).toBe('image_url');
       expect(content[1].image_url.url).toBe('http://example.com/test.jpg');
 
-      isServerMode = false;
     });
   });
 

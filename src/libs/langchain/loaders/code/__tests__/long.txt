@@ -8,7 +8,7 @@ import { StateCreator } from 'zustand/vanilla';
 import { chainAnswerWithContext } from '@/chains/answerWithContext';
 import { LOADING_FLAT } from '@/const/message';
 import { TraceEventType, TraceNameMap } from '@/const/trace';
-import { isServerMode } from '@/const/version';
+import { BRANDING_NAME } from '@/const/branding';
 import { useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
@@ -392,9 +392,9 @@ export const chatMessage: StateCreator<
     };
 
     // if there is relative files, then add files to agent
-    // only available in server mode
+    // persist uploaded files on the agent
     const addFilesToAgent = async () => {
-      if (userFiles.length === 0 || !isServerMode) return;
+      if (userFiles.length === 0) return;
 
       await useAgentStore.getState().addFilesToAgent(userFiles, false);
     };

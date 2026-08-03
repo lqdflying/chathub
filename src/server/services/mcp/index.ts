@@ -1,21 +1,10 @@
-import { CheckMcpInstallResult, CustomPluginMetadata } from '@lobechat/types';
+import { CustomPluginMetadata } from '@lobechat/types';
 import { safeParseJSON } from '@lobechat/utils';
 import { LobeChatPluginApi, LobeChatPluginManifest, PluginSchema } from '@lobehub/chat-plugin-sdk';
-import { DeploymentOption } from '@lobehub/market-sdk';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 import { TRPCError } from '@trpc/server';
 import { createHash } from 'node:crypto';
 
-import {
-  MCPClient,
-  MCPClientParams,
-  MCPTokenGetter,
-  McpPrompt,
-  McpResource,
-  McpTool,
-  StdioMCPParams,
-} from '@/libs/mcp';
-import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
 import {
   describeToolsDebugError,
   fingerprintToolsDebugValue,
@@ -24,8 +13,16 @@ import {
   runWithToolsDebugContext,
   summarizeToolsDebugValue,
 } from '@/libs/logger/toolsDebug';
+import {
+  MCPClient,
+  MCPClientParams,
+  MCPTokenGetter,
+  McpPrompt,
+  McpResource,
+  McpTool,
+} from '@/libs/mcp';
+import { sanitizeMCPURLForLogging } from '@/libs/mcp/http';
 
-import { mcpSystemDepsCheckService } from './deps';
 import { McpOAuthService } from './oauth';
 
 export interface MCPOAuthContext {
@@ -33,8 +30,6 @@ export interface MCPOAuthContext {
   pluginIdentifier: string;
   userId: string;
 }
-
-// Removed MCPConnection interface as it's no longer needed
 
 export class MCPService {
   // Store instances of the custom MCPClient, keyed by serialized MCPClientParams
@@ -157,7 +152,10 @@ export class MCPService {
   }
 
   // listResources now accepts MCPClientParams
-  async listResources(params: MCPClientParams, oauthContext?: MCPOAuthContext): Promise<McpResource[]> {
+  async listResources(
+    params: MCPClientParams,
+    oauthContext?: MCPOAuthContext,
+  ): Promise<McpResource[]> {
     return runWithToolsDebugContext(this.getDebugContext(params, 'list_resources'), async () => {
       const start = Date.now();
       logToolsDebugSafe('mcp_operation_started', { operation: 'list_resources' });
@@ -221,84 +219,87 @@ export class MCPService {
     argsStr: any,
     oauthContext?: MCPOAuthContext,
   ): Promise<any> {
-    return runWithToolsDebugContext(this.getDebugContext(params, 'call_tool', toolName), async () => {
-      const start = Date.now();
-      let failurePhase = 'client_lookup';
-      logToolsDebugSafe('call_tool_started', {
-        arguments: summarizeToolsDebugValue(argsStr),
-        authType: params.type === 'http' ? params.auth?.type || 'none' : 'none',
-        timeoutMs: Number(process.env.MCP_TOOL_TIMEOUT) || 60_000,
-        toolName,
-      });
-
-      try {
-        const client = await this.getClient(params, false, oauthContext);
-        failurePhase = 'argument_parse';
-        const args = safeParseJSON(argsStr);
-
-        failurePhase = 'upstream_call';
-        const result = await client.callTool(toolName, args);
-        logToolsDebugSafe('call_tool_upstream_complete', {
-          contentCount: Array.isArray(result.content) ? result.content.length : 0,
-          durationMs: Date.now() - start,
-          hasStructuredContent: 'structuredContent' in result && !!result.structuredContent,
-          isError: !!result.isError,
-          result: summarizeToolsDebugValue(result),
+    return runWithToolsDebugContext(
+      this.getDebugContext(params, 'call_tool', toolName),
+      async () => {
+        const start = Date.now();
+        let failurePhase = 'client_lookup';
+        logToolsDebugSafe('call_tool_started', {
+          arguments: summarizeToolsDebugValue(argsStr),
+          authType: params.auth?.type || 'none',
+          timeoutMs: Number(process.env.MCP_TOOL_TIMEOUT) || 60_000,
           toolName,
         });
 
-        failurePhase = 'normalization';
-        const { content, isError } = result;
-        let normalized: unknown;
-        let resultKind = 'mcp_result';
+        try {
+          const client = await this.getClient(params, false, oauthContext);
+          failurePhase = 'argument_parse';
+          const args = safeParseJSON(argsStr);
 
-        if (isError) {
-          normalized = result;
-          resultKind = 'mcp_error';
-        } else {
-          const data = content as { text: string; type: 'text' }[];
-          if (!data || data.length === 0) {
-            normalized = data;
-            resultKind = 'empty';
-          } else if (data.length > 1) {
-            normalized = data;
-            resultKind = 'content_array';
+          failurePhase = 'upstream_call';
+          const result = await client.callTool(toolName, args);
+          logToolsDebugSafe('call_tool_upstream_complete', {
+            contentCount: Array.isArray(result.content) ? result.content.length : 0,
+            durationMs: Date.now() - start,
+            hasStructuredContent: 'structuredContent' in result && !!result.structuredContent,
+            isError: !!result.isError,
+            result: summarizeToolsDebugValue(result),
+            toolName,
+          });
+
+          failurePhase = 'normalization';
+          const { content, isError } = result;
+          let normalized: unknown;
+          let resultKind = 'mcp_result';
+
+          if (isError) {
+            normalized = result;
+            resultKind = 'mcp_error';
           } else {
-            const text = data[0]?.text;
-            if (!text) {
+            const data = content as { text: string; type: 'text' }[];
+            if (!data || data.length === 0) {
+              normalized = data;
+              resultKind = 'empty';
+            } else if (data.length > 1) {
               normalized = data;
               resultKind = 'content_array';
             } else {
-              const json = safeParseJSON(text);
-              normalized = json || text;
-              resultKind = json ? 'json' : 'text';
+              const text = data[0]?.text;
+              if (!text) {
+                normalized = data;
+                resultKind = 'content_array';
+              } else {
+                const json = safeParseJSON(text);
+                normalized = json || text;
+                resultKind = json ? 'json' : 'text';
+              }
             }
           }
+
+          logToolsDebugSafe('call_tool_normalized', {
+            durationMs: Date.now() - start,
+            result: summarizeToolsDebugValue(normalized),
+            resultKind,
+            toolName,
+          });
+          return normalized;
+        } catch (error) {
+          logToolsDebugSafe('call_tool_failed', {
+            ...describeToolsDebugError(error),
+            durationMs: Date.now() - start,
+            failurePhase,
+            toolName,
+          });
+          if (error instanceof McpError) return error.message;
+
+          throw new TRPCError({
+            cause: error,
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'The MCP tool call failed.',
+          });
         }
-
-        logToolsDebugSafe('call_tool_normalized', {
-          durationMs: Date.now() - start,
-          result: summarizeToolsDebugValue(normalized),
-          resultKind,
-          toolName,
-        });
-        return normalized;
-      } catch (error) {
-        logToolsDebugSafe('call_tool_failed', {
-          ...describeToolsDebugError(error),
-          durationMs: Date.now() - start,
-          failurePhase,
-          toolName,
-        });
-        if (error instanceof McpError) return error.message;
-
-        throw new TRPCError({
-          cause: error,
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'The MCP tool call failed.',
-        });
-      }
-    });
+      },
+    );
   }
 
   // Private method to get or initialize a client based on parameters
@@ -545,10 +546,7 @@ export class MCPService {
       });
       this.clients.set(key, client);
       if (params.type === 'http' && params.auth?.type === 'oauth2' && !oauthContext) {
-        this.oauthCredentialFingerprints.set(
-          key,
-          this.fingerprint(params.auth.accessToken || ''),
-        );
+        this.oauthCredentialFingerprints.set(key, this.fingerprint(params.auth.accessToken || ''));
       }
       return client;
     } catch (error) {
@@ -588,7 +586,10 @@ export class MCPService {
     if (client) await this.disconnectClient(client);
   }
 
-  private async evictUnscopedOAuthClient(params: MCPClientParams, scopedKey: string): Promise<void> {
+  private async evictUnscopedOAuthClient(
+    params: MCPClientParams,
+    scopedKey: string,
+  ): Promise<void> {
     const unscopedKey = this.serializeParams(params);
     if (unscopedKey === scopedKey) return;
 
@@ -677,112 +678,6 @@ export class MCPService {
       // TODO: temporary
       type: 'mcp' as any,
     };
-  }
-
-  async getStdioMcpServerManifest(
-    params: Omit<StdioMCPParams, 'type'>,
-    metadata?: CustomPluginMetadata,
-  ): Promise<LobeChatPluginManifest> {
-    const client = await this.getClient({
-      args: params.args,
-      command: params.command,
-      env: params.env,
-      name: params.name,
-      type: 'stdio',
-    }); // Get client using params
-
-    const manifest = await client.listManifests();
-
-    const identifier = params.name;
-
-    return {
-      api: manifest.tools ? this.transformMCPToolToLobeAPI(manifest.tools) : [],
-      identifier,
-      meta: {
-        avatar: metadata?.avatar || 'MCP_AVATAR',
-        description:
-          metadata?.description ||
-          `${identifier} MCP server has ` +
-            Object.entries(manifest)
-              .filter(([key]) => ['tools', 'prompts', 'resources'].includes(key))
-              .map(([key, item]) => `${(item as Array<any>)?.length} ${key}`)
-              .join(','),
-        title: metadata?.name || identifier,
-      },
-      ...manifest,
-      // TODO: temporary
-      type: 'mcp' as any,
-    } as LobeChatPluginManifest;
-  }
-
-  /**
-   * Check MCP plugin installation status
-   */
-  async checkMcpInstall(input: {
-    deploymentOptions: DeploymentOption[];
-  }): Promise<CheckMcpInstallResult> {
-    const start = Date.now();
-    logToolsDebugSafe('mcp_operation_started', {
-      deploymentOptionCount: input.deploymentOptions.length,
-      operation: 'dependency_check',
-      platform: process.platform,
-    });
-    try {
-      const results = [];
-
-      // 检查每个部署选项
-      for (const option of input.deploymentOptions) {
-        // 使用系统依赖检查服务检查部署选项
-        const result = await mcpSystemDepsCheckService.checkDeployOption(option);
-        results.push(result);
-      }
-
-      // 找出推荐的或第一个可安装的选项
-      const recommendedResult = results.find((r) => r.isRecommended && r.allDependenciesMet);
-      const firstInstallableResult = results.find((r) => r.allDependenciesMet);
-
-      // 返回推荐的结果，或第一个可安装的结果，或第一个结果
-      const bestResult = recommendedResult || firstInstallableResult || results[0];
-
-      // 构造返回结果，确保包含配置检查信息
-      const checkResult: CheckMcpInstallResult = {
-        ...bestResult,
-        allOptions: results,
-        platform: process.platform,
-        success: true,
-      };
-
-      // 如果最佳结果需要配置，确保在顶层设置相关字段
-      if (bestResult?.needsConfig) {
-        checkResult.needsConfig = true;
-        checkResult.configSchema = bestResult.configSchema;
-      }
-
-      logToolsDebugSafe('mcp_operation_complete', {
-        allDependenciesMet: !!bestResult?.allDependenciesMet,
-        durationMs: Date.now() - start,
-        needsConfig: !!bestResult?.needsConfig,
-        operation: 'dependency_check',
-        resultCount: results.length,
-      });
-
-      return checkResult;
-    } catch (error) {
-      logToolsDebugSafe('mcp_operation_failed', {
-        ...describeToolsDebugError(error),
-        durationMs: Date.now() - start,
-        failurePhase: 'dependency_check',
-        operation: 'dependency_check',
-      });
-      return {
-        error:
-          error instanceof Error
-            ? error.message
-            : 'Unknown error when checking MCP plugin installation status',
-        platform: process.platform,
-        success: false,
-      };
-    }
   }
 
   private transformMCPToolToLobeAPI = (data: McpTool[]) => {

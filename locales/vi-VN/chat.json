@@ -169,6 +169,26 @@
     "setInitialMembers": "Chọn thành viên nhóm"
   },
   "members": "Thành viên",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "Nhắc đến thành viên"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "Tải lên hình ảnh",
       "tooltip": "Tải lên"
     },
-    "clientMode": {
-      "actionFiletip": "Tải lên tệp",
-      "actionTooltip": "Tải lên",
-      "disabled": "Mô hình hiện tại không hỗ trợ nhận diện hình ảnh và phân tích tệp, vui lòng chuyển đổi mô hình để sử dụng",
-      "fileNotSupported": "Chế độ trình duyệt hiện không hỗ trợ tải lên tệp, chỉ hỗ trợ hình ảnh",
-      "visionNotSupported": "Mô hình hiện tại không hỗ trợ nhận dạng hình ảnh, vui lòng chuyển sang mô hình khác để sử dụng"
-    },
     "preview": {
       "prepareTasks": "Chuẩn bị phân đoạn...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "Kích thước tệp video không được vượt quá 20MB, kích thước tệp hiện tại là {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "Mô hình hiện tại không hỗ trợ nhận dạng hình ảnh, vui lòng chuyển sang mô hình khác để sử dụng"
   },
   "you": "bạn",
-  "zenMode": "Chế độ tập trung",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "Chế độ tập trung"
 }

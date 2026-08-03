@@ -4,7 +4,6 @@ import { Globe } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { isDeprecatedEdition } from '@/const/version';
 import { useAgentEnableSearch } from '@/hooks/useAgentEnableSearch';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useAgentStore } from '@/store/agent';
@@ -25,7 +24,6 @@ const Search = memo(() => {
   const theme = useTheme();
   const isMobile = useIsMobile();
 
-  if (isDeprecatedEdition) return null;
   if (isLoading) return <Action disabled icon={GlobeOffIcon} />;
 
   return (

@@ -125,30 +125,6 @@ export function inferContentTypeFromImageUrl(url: string) {
 }
 
 /**
- *
- * Check if a URL points to desktop local static server
- *
- * @example
- * ```typescript
- * isDesktopLocalStaticServerUrl('http://127.0.0.1:8080/path') // true
- * isDesktopLocalStaticServerUrl('http://localhost:8080/path') // false
- * isDesktopLocalStaticServerUrl('https://example.com') // false
- * isDesktopLocalStaticServerUrl('invalid-url') // false (instead of throwing)
- * isDesktopLocalStaticServerUrl('') // false (instead of throwing)
- * ```
- *
- * check: apps/desktop/src/main/core/StaticFileServerManager.ts
- */
-export function isDesktopLocalStaticServerUrl(url: string) {
-  try {
-    return new URL(url).hostname === '127.0.0.1';
-  } catch {
-    // Return false for malformed URLs instead of throwing
-    return false;
-  }
-}
-
-/**
  * Check if a URL points to localhost or private network address
  *
  * This function determines if the provided URL's hostname is a local or private network address.

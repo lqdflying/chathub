@@ -515,7 +515,6 @@ const ImageUpload: FC<ImageUploadProps> = memo(
               setUploadState(null);
             }
           },
-          skipCheckFileType: true,
         });
 
         if (result?.url) {
@@ -598,7 +597,6 @@ const ImageUpload: FC<ImageUploadProps> = memo(
               setUploadState(null);
             }
           },
-          skipCheckFileType: true,
         });
 
         if (result?.url) {

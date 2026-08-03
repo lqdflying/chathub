@@ -2,7 +2,6 @@ import { ScrollShadow } from '@lobehub/ui';
 import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
-import { isDesktop } from '@/const/version';
 import { useQuery } from '@/hooks/useQuery';
 import { McpNavKey } from '@/types/discover';
 
@@ -39,13 +38,10 @@ const Sidebar = memo<{ mobile?: boolean }>(({ mobile }) => {
       }}
       width={360}
     >
-      {isDesktop ? (
-        <Flexbox>
-          <ActionButton />
-        </Flexbox>
-      ) : (
-        <ConnectionTypeAlert />
-      )}
+      <Flexbox>
+        <ActionButton />
+      </Flexbox>
+      <ConnectionTypeAlert />
       {activeTab !== McpNavKey.Deployment && <ServerConfig />}
       <TocList />
       {![McpNavKey.Overview, McpNavKey.Schema, McpNavKey.Related].includes(activeTab) && (

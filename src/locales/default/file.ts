@@ -40,24 +40,6 @@ export default {
     title: '知识库',
   },
   networkError: '获取知识库失败，请检测网络连接后重试',
-  notSupportGuide: {
-    desc: '当前部署实例为客户端数据库模式，无法使用文件管理功能。请切换到<1>服务端数据库部署模式</1>，或直接使用 <3>LobeChat Cloud</3>',
-    features: {
-      allKind: {
-        desc: '支持主流文件类型，包括 Word、PPT、Excel、PDF、TXT 等常见文档格式，以及JS、Python 等主流代码文件',
-        title: '多种文件类型解析',
-      },
-      embeddings: {
-        desc: '使用高性能向量模型，对文本分块进行向量化，实现文件内容的语义化检索',
-        title: '向量语义化',
-      },
-      repos: {
-        desc: '支持创建知识库，并允许添加不同类型的文件，构建属于你的领域知识',
-        title: '知识库',
-      },
-    },
-    title: '当前部署模式不支持文件管理',
-  },
   preview: {
     downloadFile: '下载文件',
     unsupportedFileAndContact: '此文件格式暂不支持在线预览，如有预览诉求，欢迎<1>反馈给我们</1>',

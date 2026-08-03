@@ -23,7 +23,6 @@ renovate.json
 netlify.toml
 vercel.json
 vitest.config.mts
-apps/desktop
 docs
 changelog
 tests
@@ -34,9 +33,7 @@ scripts/docsWorkflow
 scripts/i18nWorkflow
 scripts/dbmlWorkflow
 scripts/cdnWorkflow
-scripts/electronWorkflow
 scripts/buildSitemapIndex
 scripts/countEnWord.ts
 scripts/generate-oidc-jwk.mjs
 scripts/setup-test-postgres-db.sh
-

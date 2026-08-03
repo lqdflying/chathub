@@ -29,7 +29,7 @@ export const DATA_BACKUP_TABLES = [
 ] as const;
 
 export type DataBackupTable = (typeof DATA_BACKUP_TABLES)[number];
-export type DataBackupMode = 'pglite' | 'postgres';
+export type DataBackupMode = 'postgres';
 export type DataImportStrategy = 'merge' | 'replace';
 
 export type DataBackupRecords = Partial<Record<DataBackupTable, Record<string, unknown>[]>>;
@@ -91,7 +91,7 @@ export const dataBackupV2Schema = z
     data: supportedBackupDataSchema,
     exportedAt: z.string().datetime(),
     formatVersion: z.literal(CURRENT_DATA_BACKUP_FORMAT_VERSION),
-    mode: z.enum(['pglite', 'postgres']),
+    mode: z.literal('postgres'),
     schemaHash: z.string().min(1),
     secretStrategy: z.literal('deployment-keyed'),
   })
@@ -99,15 +99,18 @@ export const dataBackupV2Schema = z
 
 export type LegacyDatabaseBackup = z.infer<typeof legacyDatabaseBackupSchema>;
 export type DataBackupV2 = z.infer<typeof dataBackupV2Schema>;
-export type ImportPgDataStructure = LegacyDatabaseBackup | DataBackupV2;
+const importDataBackupV2Schema = dataBackupV2Schema.extend({
+  mode: z.enum(['pglite', 'postgres']),
+});
+export type ImportDataBackupV2 = z.infer<typeof importDataBackupV2Schema>;
+export type ImportPgDataStructure = LegacyDatabaseBackup | ImportDataBackupV2;
 export type ExportDatabaseData = DataBackupV2;
 
 export type ParsedDatabaseBackup =
-  | { backup: DataBackupV2; format: 'v2' }
-  | { backup: LegacyDatabaseBackup; format: 'v1' };
+  { backup: ImportDataBackupV2; format: 'v2' } | { backup: LegacyDatabaseBackup; format: 'v1' };
 
 export const parseDatabaseBackup = (input: unknown): ParsedDatabaseBackup => {
-  const v2Result = dataBackupV2Schema.safeParse(input);
+  const v2Result = importDataBackupV2Schema.safeParse(input);
   if (v2Result.success) return { backup: v2Result.data, format: 'v2' };
 
   const formatVersion =

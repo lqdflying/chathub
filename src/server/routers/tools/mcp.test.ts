@@ -1,11 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/const/version', () => ({
-  isDesktop: false,
-  isServerMode: true,
-}));
-
 vi.mock('@/libs/trpc/lambda/middleware/serverDatabase', () => ({
   serverDatabase: vi.fn(async ({ ctx, next }) => next({ ctx })),
 }));

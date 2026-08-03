@@ -1,7 +1,6 @@
 import { supportsTrustedPromptCacheKey } from '@lobechat/model-runtime';
 import { ModelProvider, azure as azureModels } from 'model-bank';
 
-import { isDesktop, isServerMode } from '@/const/version';
 import { AiModelModel } from '@/database/models/aiModel';
 import { getServerDB } from '@/database/server';
 import { getServerGlobalConfig } from '@/server/globalConfig';
@@ -60,7 +59,7 @@ export const resolveTrustedCatalogModel = async ({
   }
 
   try {
-    const canReadUserModels = !!userId && (isServerMode || isDesktop);
+    const canReadUserModels = !!userId;
     const userModelsPromise = canReadUserModels
       ? getServerDB().then((database) =>
           new AiModelModel(database, userId).getModelListByProviderId(ModelProvider.Azure),

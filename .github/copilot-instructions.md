@@ -18,7 +18,6 @@ Reason from raw requirements and root causes, not from convention or templates.
 ```bash
 # Dev server
 bun run dev                   # :3010
-bun run dev:desktop           # Electron renderer :3015
 
 # Build
 bun run build                 # Production

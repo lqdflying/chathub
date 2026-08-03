@@ -9,7 +9,6 @@ import { AnalyticsProvider } from '@lobehub/analytics/react';
 import { ReactNode, memo, useMemo } from 'react';
 
 import { BUSINESS_LINE } from '@/const/analytics';
-import { isDesktop } from '@/const/version';
 import { isDev } from '@/utils/env';
 
 type Props = {
@@ -46,14 +45,14 @@ export const LobeAnalyticsProvider = memo(
         client={analytics}
         onInitializeSuccess={() => {
           analyticsInstance?.setGlobalContext({
-            platform: isDesktop ? 'desktop' : 'web',
+            platform: 'web',
           });
 
           analyticsInstance
             ?.getProvider('posthog')
             ?.getNativeInstance()
             ?.register({
-              platform: isDesktop ? 'desktop' : 'web',
+              platform: 'web',
             });
         }}
       >

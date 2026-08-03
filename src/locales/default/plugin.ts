@@ -60,12 +60,6 @@ export default {
       advanced: {
         title: '高级设置',
       },
-      args: {
-        desc: '传递给执行命令的参数列表，一般在这里输入 MCP 服务器名称，或启动脚本路径',
-        label: '命令参数',
-        placeholder: '例如：mcp-hello-world',
-        required: '请输入启动参数',
-      },
       auth: {
         bear: 'API Key',
         desc: '选择 MCP 服务器的认证方式',
@@ -77,8 +71,10 @@ export default {
             desc: 'OAuth 授权服务器的 Authorization Endpoint URL',
             label: 'Authorization Endpoint',
           },
-          autoDiscoveryDesc: 'OAuth 元数据将通过 MCP 服务器的 RFC 9728/RFC 8414 known endpoints 自动发现。只需点击下方按钮。',
-          autoDiscoveryNoClientId: '此服务器不支持动态客户端注册。请联系服务器管理员或手动设置 OAuth 凭证。',
+          autoDiscoveryDesc:
+            'OAuth 元数据将通过 MCP 服务器的 RFC 9728/RFC 8414 known endpoints 自动发现。只需点击下方按钮。',
+          autoDiscoveryNoClientId:
+            '此服务器不支持动态客户端注册。请联系服务器管理员或手动设置 OAuth 凭证。',
           checkStatus: '检查状态',
           clientId: {
             desc: 'OAuth 应用的 Client ID',
@@ -125,29 +121,10 @@ export default {
       avatar: {
         label: '插件图标',
       },
-      command: {
-        desc: '用于启动 MCP STDIO Server 的可执行文件或脚本',
-        label: '命令',
-        placeholder: '例如：npx / uv / docker 等',
-        required: '请输入启动命令',
-      },
       desc: {
         desc: '添加插件的描述说明',
         label: '插件描述',
         placeholder: '补充该插件的使用说明和场景等信息',
-      },
-      endpoint: {
-        desc: '输入你的 MCP Streamable HTTP Server 的地址',
-        label: 'MCP Endpoint URL',
-      },
-      env: {
-        add: '新增一行',
-        desc: '输入你的 MCP Server 所需要的环境变量',
-        duplicateKeyError: '字段键必须唯一',
-        formValidationFailed: '表单验证失败，请检查参数格式',
-        keyRequired: '字段键不能为空',
-        label: 'MCP Server 环境变量',
-        stringifyError: '无法序列化参数，请检查参数格式',
       },
       headers: {
         add: '新增一行',
@@ -168,21 +145,8 @@ export default {
         invalidJson: '无效的 JSON 格式',
         invalidStructure: 'JSON 格式无效',
       },
-      stdioNotSupported: '当前环境不支持 stdio 类型的 MCP 插件',
       testConnection: '测试连接',
       testConnectionTip: '测试连接成功后 MCP 插件才可以被正常使用',
-      type: {
-        desc: '选择 MCP 插件的通信方式，网页版只支持 Streamable HTTP',
-        httpFeature1: '兼容网页版与桌面端',
-        httpFeature2: '连接远程 MCP 服务器, 无需额外安装配置',
-        httpShortDesc: '基于流式 HTTP 的通信协议',
-        label: 'MCP 插件类型',
-        stdioFeature1: '更低的通信延迟, 适合本地执行',
-        stdioFeature2: '需在本地安装运行 MCP 服务器',
-        stdioNotAvailable: 'STDIO 模式仅在桌面版可用',
-        stdioShortDesc: '基于标准输入输出的通信协议',
-        title: 'MCP 插件类型',
-      },
       url: {
         desc: '输入你的 MCP Server Streamable HTTP 地址，不支持 SSE 模式',
         invalid: '请输入有效的 URL 地址',
@@ -293,19 +257,7 @@ export default {
     content: '调用插件中...',
     plugin: '插件运行中...',
   },
-  localSystem: {
-    apiName: {
-      listLocalFiles: '查看文件列表',
-      moveLocalFiles: '移动文件',
-      readLocalFile: '读取文件内容',
-      renameLocalFile: '重命名',
-      searchLocalFiles: '搜索文件',
-      writeLocalFile: '写入文件',
-    },
-    title: '本地文件',
-  },
   mcpInstall: {
-    CHECKING_INSTALLATION: '检查安装环境...',
     COMPLETED: '安装完成',
     CONFIGURATION_REQUIRED: '请完成相关配置后继续安装',
     ERROR: '安装错误',
@@ -315,21 +267,9 @@ export default {
     configurationDescription: '该 MCP 插件需要配置参数才能正常使用，请填写必要的配置信息',
     configurationRequired: '配置插件参数',
     continueInstall: '继续安装',
-    dependenciesDescription:
-      '此插件需要安装以下系统依赖才能正常工作，请按照指引安装缺失的依赖项，然后点击重新检查继续安装。',
-    dependenciesRequired: '请安装插件的系统依赖',
-    dependencyStatus: {
-      installed: '已安装',
-      notInstalled: '未安装',
-      requiredVersion: '需要版本: {{version}}',
-    },
     errorDetails: {
-      args: '参数',
-      command: '命令',
       connectionParams: '连接参数',
-      env: '环境变量',
-      errorOutput: '错误日志',
-      exitCode: '退出码',
+      connectionType: '连接类型',
       hideDetails: '收起详情',
       originalError: '原始错误',
       showDetails: '查看详情',
@@ -338,17 +278,10 @@ export default {
       AUTHORIZATION_ERROR: '授权验证错误',
       CONNECTION_FAILED: '连接失败',
       INITIALIZATION_TIMEOUT: '初始化超时',
-      PROCESS_SPAWN_ERROR: '进程启动失败',
       UNKNOWN_ERROR: '未知错误',
       VALIDATION_ERROR: '参数验证失败',
     },
     installError: 'MCP 插件安装失败，失败原因： {{detail}}',
-    installMethods: {
-      manual: '手动安装:',
-      recommended: '推荐安装方式:',
-    },
-    recheckDependencies: '重新检查',
-    skipDependencies: '跳过检查',
   },
   memory: {
     apiName: {
@@ -359,74 +292,13 @@ export default {
     title: '记忆',
   },
   /** Moonshot Kimi built-in `$web_search` (provider-native tool, not a Lobe plugin) */
-moonshotBuiltinWebSearch: {
+  moonshotBuiltinWebSearch: {
     title: 'Kimi 联网搜索',
   },
-  
-pluginList: '插件列表',
-  
-protocolInstall: {
-    actions: {
-      install: '安装',
-      installAnyway: '仍要安装',
-      installed: '已安装',
-    },
-    config: {
-      args: '参数',
-      command: '命令',
-      env: '环境变量',
-      headers: '请求头',
-      title: '配置信息',
-      type: {
-        http: '类型: HTTP',
-        label: '类型',
-        stdio: '类型: Stdio',
-      },
-      url: '服务地址',
-    },
-    custom: {
-      badge: '自定义插件',
-      security: {
-        description: '此插件未经过官方验证，安装可能存在安全风险！请确保您信任插件来源。',
-        title: '⚠️ 安全风险提示',
-      },
-      title: '安装自定义插件',
-    },
-    marketplace: {
-      title: '安装第三方插件',
-      trustedBy: '由 {{name}} 提供',
-      unverified: {
-        title: '未经验证的第三方插件',
-        warning: '此插件来自未验证的第三方市场，安装前请确认您信任该来源。',
-      },
-      verified: '已验证',
-    },
-    messages: {
-      connectionTestFailed: '连接测试失败',
-      installError: '插件安装失败，请重试',
-      installSuccess: '插件 {{name}} 安装成功！',
-      manifestError: '获取插件详情失败，请检查网络连接后重试',
-      manifestNotFound: '未能获取插件描述文件',
-    },
-    meta: {
-      author: '作者',
-      homepage: '主页',
-      identifier: '标识符',
-      source: '来源',
-      version: '版本',
-    },
-    official: {
-      badge: 'ChatHub 官方插件',
-      description: '此插件由 ChatHub 官方开发和维护，经过严格的安全审核，可放心使用。',
-      loadingMessage: '正在获取插件详情...',
-      loadingTitle: '加载中',
-      title: '安装官方插件',
-    },
-    title: '安装 MCP 插件',
-    warning: '⚠️ 请确认您信任此插件的来源，恶意插件可能会危害您的系统安全。',
-  },
-  
-search: {
+
+  pluginList: '插件列表',
+
+  search: {
     apiName: {
       crawlMultiPages: '读取多个页面内容',
       crawlSinglePage: '读取页面内容',
@@ -459,10 +331,10 @@ search: {
     },
     title: '联网搜索',
   },
-  
-setting: '插件设置',
-  
-settings: {
+
+  setting: '插件设置',
+
+  settings: {
     capabilities: {
       prompts: '提示词',
       resources: '资源',
@@ -473,14 +345,11 @@ settings: {
       title: '插件配置',
     },
     connection: {
-      args: '启动参数',
-      command: '启动命令',
       title: '连接信息',
       type: '连接类型',
       url: '服务地址',
     },
     edit: '编辑',
-    envConfigDescription: '这些配置将作为环境变量在 MCP 服务器启动时传递给进程',
     httpTypeNotice: 'HTTP 类型的 MCP 插件暂无需要配置的环境变量',
     indexUrl: {
       title: '市场索引',
@@ -489,29 +358,25 @@ settings: {
     messages: {
       connectionUpdateFailed: '连接信息更新失败',
       connectionUpdateSuccess: '连接信息更新成功',
-      envUpdateFailed: '环境变量保存失败',
-      envUpdateSuccess: '环境变量保存成功',
     },
     modalDesc: '配置插件市场的地址后，可以使用自定义的插件市场',
     rules: {
-      argsRequired: '请输入启动参数',
-      commandRequired: '请输入启动命令',
       urlRequired: '请输入服务地址',
     },
     saveSettings: '保存设置',
     title: '设置插件市场',
   },
-  
-showInPortal: '请在工作区中查看详情',
 
-skillLoader: {
+  showInPortal: '请在工作区中查看详情',
+
+  skillLoader: {
     apiName: {
       load_skill: '加载技能',
     },
     title: '技能加载器',
   },
 
-store: {
+  store: {
     actions: {
       cancel: '取消安装',
       confirmUninstall: '即将卸载该插件，卸载后将清除该插件配置，请确认你的操作',
@@ -536,8 +401,8 @@ store: {
     },
     title: '插件商店',
   },
-  
-unknownError: '未知错误',
-  
+
+  unknownError: '未知错误',
+
   unknownPlugin: '未知插件',
 };

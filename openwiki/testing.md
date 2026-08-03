@@ -41,7 +41,13 @@ Run the context-engine tests and the chat context engineering test. Pipeline ord
 
 ### MCP/tool changes
 
-Check service tests and any UI tests around provider/tool configuration. The `src/services/mcp.ts` path can also affect desktop behavior.
+Check service tests and any UI tests around provider/tool configuration.
+
+MCP runtime coverage is HTTP-only. Verify URL/auth parsing, the server MCP
+client and router, OAuth refresh, tool-result persistence, and rejection of
+legacy stdio connection records. Do not add desktop IPC, subprocess, or local
+MCP transport fixtures except when asserting that an old record is rejected or
+can be removed.
 
 For concurrent MCP result handling, cover the Tools tRPC client, server router persistence, optimistic chat-store behavior, and per-message abort controllers. A high-signal regression uses concurrent Tavily-shaped `search`, `extract`, and `map` calls and asserts that each serialized result is written to its matching tool-message ID without a second browser `message.update` in server mode.
 

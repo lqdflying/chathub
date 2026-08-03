@@ -5,8 +5,7 @@ export const genServerConfig = (identifier?: string, connection?: ConnectionConf
     {
       mcpServers: {
         [String(identifier)]: {
-          args: connection?.args || [],
-          command: connection?.command || {},
+          url: connection?.url,
         },
       },
     },
@@ -15,7 +14,9 @@ export const genServerConfig = (identifier?: string, connection?: ConnectionConf
   );
 
 export const getRecommendedDeployment = (deploymentOptions: DeploymentOption[]) =>
-  deploymentOptions?.find((item) => item.isRecommended) || deploymentOptions?.[0];
+  deploymentOptions?.find(
+    (item) => item.connection.type === 'http' && item.isRecommended,
+  ) || deploymentOptions?.find((item) => item.connection.type === 'http');
 
 const languageColors: Record<string, string> = {
   'abap': '#e8274b',

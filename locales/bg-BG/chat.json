@@ -169,6 +169,26 @@
     "setInitialMembers": "Избор на членове на екипа"
   },
   "members": "Членове",
+  "memoryCompaction": {
+    "compactNow": "Compact context now",
+    "debug": {
+      "approxTokensAfter": "Est. tokens (after)",
+      "approxTokensBefore": "Est. tokens (before)",
+      "messageCount": "Messages summarized",
+      "model": "Model",
+      "off": "Hide debug",
+      "on": "Show debug",
+      "rawResponse": "Compaction output",
+      "title": "Compaction debug",
+      "trigger": "Trigger"
+    },
+    "trigger": {
+      "manual": "Manual",
+      "message_count": "Message count",
+      "scheduled": "Scheduled",
+      "token_threshold": "Context usage"
+    }
+  },
   "mention": {
     "title": "Споменаване на членове"
   },
@@ -392,13 +412,6 @@
       "imageUpload": "Качване на изображение",
       "tooltip": "Качване"
     },
-    "clientMode": {
-      "actionFiletip": "Качване на файл",
-      "actionTooltip": "Качване",
-      "disabled": "Текущият модел не поддържа визуално разпознаване и анализ на файлове, моля, превключете модела и опитайте отново",
-      "fileNotSupported": "Режимът на браузъра не поддържа качване на файлове, поддържат се само изображения",
-      "visionNotSupported": "Текущият модел не поддържа визуално разпознаване, моля, превключете на друг модел, за да използвате тази функция"
-    },
     "preview": {
       "prepareTasks": "Подготовка на парчета...",
       "status": {
@@ -408,28 +421,9 @@
     },
     "validation": {
       "videoSizeExceeded": "Размерът на видео файла не може да надвишава 20MB, текущият размер е {{actualSize}}"
-    }
+    },
+    "visionNotSupported": "Текущият модел не поддържа визуално разпознаване, моля, превключете на друг модел, за да използвате тази функция"
   },
   "you": "ти",
-  "zenMode": "Режим на фокус",
-  "memoryCompaction": {
-    "compactNow": "Compact context now",
-    "debug": {
-      "approxTokensAfter": "Est. tokens (after)",
-      "approxTokensBefore": "Est. tokens (before)",
-      "messageCount": "Messages summarized",
-      "model": "Model",
-      "off": "Hide debug",
-      "on": "Show debug",
-      "rawResponse": "Compaction output",
-      "title": "Compaction debug",
-      "trigger": "Trigger"
-    },
-    "trigger": {
-      "manual": "Manual",
-      "message_count": "Message count",
-      "scheduled": "Scheduled",
-      "token_threshold": "Context usage"
-    }
-  }
+  "zenMode": "Режим на фокус"
 }

@@ -1,4 +1,3 @@
-import { isServerMode } from '@lobechat/const';
 import { z } from 'zod';
 
 import {
@@ -8,10 +7,9 @@ import {
   protectExternalToolsDiagnosticId,
 } from '@/libs/logger/modelCacheDebug';
 import { isToolsDebugEnabled, logToolsDebugSafe } from '@/libs/logger/toolsDebug';
-import { passwordProcedure } from '@/libs/trpc/edge';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 
-const telemetryProcedure = isServerMode ? authedProcedure : passwordProcedure;
+const telemetryProcedure = authedProcedure;
 const hashSchema = z.string().regex(/^[\da-f]{16}$/);
 const batchIdSchema = z.string().regex(/^tb_[\w-]{12,80}$/);
 const continuationIdSchema = z.string().regex(/^tc_[\w-]{12,80}$/);

@@ -9,19 +9,25 @@ import { Center } from 'react-layout-kit';
 
 import DataStyleModal from '@/components/DataStyleModal';
 import { importService } from '@/services/import';
-import { ImportResult, ImportResults } from '@/services/import/_deprecated';
 import { useChatStore } from '@/store/chat';
 import { useSessionStore } from '@/store/session';
 import { ImportPgDataStructure } from '@/types/export';
 import { ConfigFile } from '@/types/exportConfig';
-import { ErrorShape, FileUploadState, ImportStage, OnImportCallbacks } from '@/types/importer';
+import {
+  ErrorShape,
+  FileUploadState,
+  ImportResult,
+  ImportResults,
+  ImportStage,
+  OnImportCallbacks,
+} from '@/types/importer';
 
 import ImportError from './Error';
 import { FileUploading } from './FileUploading';
 import ImportPreviewModal from './ImportDetail';
 import DataLoading from './Loading';
 import SuccessResult from './SuccessResult';
-import { importConfigFile } from './_deprecated';
+import { importLegacyConfigFile } from './legacyConfig';
 import { parseConfigFile } from './config';
 
 const useStyles = createStyles(({ css }) => ({
@@ -170,7 +176,7 @@ const DataImporter = memo<DataImporterProps>(({ children, onFinishImport }) => {
 
           if (!('schemaHash' in config)) {
             // TODO: remove in V2
-            await importConfigFile(file, async (config) => {
+            await importLegacyConfigFile(file, async (config) => {
               setImportState(ImportStage.Preparing);
 
               const importConfigState = async (
