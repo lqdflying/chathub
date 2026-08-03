@@ -32,6 +32,12 @@ vi.mock('@/services/chat', () => ({
   },
 }));
 
+vi.mock('@/services/message', () => ({
+  messageService: {
+    getConversationVersion: vi.fn().mockResolvedValue(1),
+  },
+}));
+
 // Mock mutate from SWR
 vi.mock('swr', async () => {
   const actual = await vi.importActual('swr');

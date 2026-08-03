@@ -215,10 +215,7 @@ export const createMCPPluginStoreSlice: StateCreator<
         }
 
         data = configInfo.manifest;
-        connection = {
-          ...configInfo.connection,
-          config, // 合并用户提供的配置
-        };
+        connection = configInfo.connection;
       } else {
         // 正常模式：从头开始安装
 

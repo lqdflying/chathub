@@ -96,6 +96,7 @@ export interface ImportResult {
   added: number;
   errors: number;
   skips: number;
+  updated?: number;
 }
 
 export interface ImportResults {

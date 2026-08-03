@@ -18,7 +18,11 @@ export class ServerService implements IExportService {
 
     const parsed = parseDatabaseBackup(await response.json());
     if (parsed.format !== 'v2') throw new Error('Server returned an outdated backup format');
+    const mode = parsed.backup.mode;
+    if (mode !== 'postgres') {
+      throw new Error('Server returned a non-postgres backup');
+    }
 
-    return parsed.backup;
+    return { ...parsed.backup, mode };
   };
 }

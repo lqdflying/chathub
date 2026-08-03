@@ -23,9 +23,6 @@ const componentMap = {
   [SettingsTabs.Agent]: dynamic(() => import('../agent'), {
     loading: () => <Loading />,
   }),
-  [SettingsTabs.LLM]: dynamic(() => import('../llm'), {
-    loading: () => <Loading />,
-  }),
   [SettingsTabs.Provider]: dynamic(() => import('../provider'), {
     loading: () => <Loading />,
   }),
@@ -36,9 +33,6 @@ const componentMap = {
     loading: () => <Loading />,
   }),
   [SettingsTabs.Hotkey]: dynamic(() => import('../hotkey'), {
-    loading: () => <Loading />,
-  }),
-  [SettingsTabs.Proxy]: dynamic(() => import('../proxy'), {
     loading: () => <Loading />,
   }),
   [SettingsTabs.Storage]: dynamic(() => import('../storage'), {
@@ -60,7 +54,6 @@ const userStateDependentTabs = new Set<string>([
   SettingsTabs.ChatInstruction,
   SettingsTabs.Common,
   SettingsTabs.Hotkey,
-  SettingsTabs.LLM,
   SettingsTabs.Mcp,
   SettingsTabs.Skills,
   SettingsTabs.Provider,
@@ -169,8 +162,7 @@ interface SettingsContentProps {
 
 const SettingsContent = ({ mobile, activeTab, showLLM = true }: SettingsContentProps) => {
   const shouldRenderLLMTabs = (tab: string) => {
-    const isLLMTab =
-      tab === SettingsTabs.LLM || tab === SettingsTabs.Provider || tab === SettingsTabs.Agent;
+    const isLLMTab = tab === SettingsTabs.Provider || tab === SettingsTabs.Agent;
     return showLLM || !isLLMTab;
   };
   if (activeTab && !shouldRenderLLMTabs(activeTab)) {

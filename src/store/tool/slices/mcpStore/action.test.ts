@@ -226,6 +226,46 @@ describe('mcpStore actions', () => {
     );
   });
 
+  it('keeps resumed configuration out of connection metadata and telemetry', async () => {
+    const connection = { type: 'http' as const, url: 'https://example.com/mcp' };
+    const config = { apiKey: 'user-secret' };
+    const manifest = {
+      deploymentOptions: [{ connection, isRecommended: true }],
+      name: 'Test Plugin',
+      version: '1.0.0',
+    };
+    useToolStore.setState({
+      mcpInstallProgress: {
+        'test-plugin': {
+          connection,
+          manifest,
+          progress: 50,
+          step: MCPInstallStep.CONFIGURATION_REQUIRED,
+        },
+      },
+      mcpPluginItems: [marketplacePlugin],
+    });
+    vi.spyOn(mcpService, 'getStreamableMcpServerManifest').mockResolvedValue(serverManifest);
+    vi.spyOn(pluginService, 'installPlugin').mockResolvedValue(undefined);
+    vi.spyOn(discoverService, 'reportMcpInstallResult').mockResolvedValue(undefined as any);
+
+    const installed = await useToolStore
+      .getState()
+      .installMCPPlugin('test-plugin', { config, resume: true });
+
+    expect(installed).toBe(true);
+    expect(pluginService.installPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customParams: { mcp: connection },
+        settings: config,
+      }),
+    );
+    expect(discoverService.reportMcpInstallResult).toHaveBeenCalledWith(
+      expect.objectContaining({ installParams: connection }),
+      expect.any(Object),
+    );
+  });
+
   it('rejects marketplace entries without an HTTP deployment', async () => {
     useToolStore.setState({ mcpPluginItems: [marketplacePlugin] });
     vi.spyOn(discoverService, 'getMCPPluginManifest').mockResolvedValue({
