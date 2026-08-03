@@ -617,10 +617,6 @@ export const createMCPPluginStoreSlice: StateCreator<
 
                 draft.isMcpListInit = true;
                 draft.categories = data.categories;
-                draft.totalCount = Math.max(
-                  0,
-                  data.totalCount - (data.items.length - httpItems.length),
-                );
                 draft.totalPages = data.totalPages;
               }
 

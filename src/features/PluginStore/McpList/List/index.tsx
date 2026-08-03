@@ -23,7 +23,6 @@ export const List = memo<ListProps>(({ setIdentifier }) => {
     isMcpListInit,
     identifier,
     allItems,
-    totalCount,
     currentPage,
     keywords,
     searchLoading,
@@ -34,7 +33,6 @@ export const List = memo<ListProps>(({ setIdentifier }) => {
     s.isMcpListInit,
     s.activeMCPIdentifier,
     s.mcpPluginItems,
-    s.totalCount,
     s.currentPage,
     s.mcpSearchKeywords,
     s.searchLoading,
@@ -89,7 +87,6 @@ export const List = memo<ListProps>(({ setIdentifier }) => {
       }}
       overscan={400}
       style={{ height: '100%', width: '100%' }}
-      totalCount={totalCount || 0}
     />
   );
 });

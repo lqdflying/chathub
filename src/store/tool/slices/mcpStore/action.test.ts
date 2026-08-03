@@ -68,7 +68,6 @@ beforeEach(() => {
         pluginInstallLoading: {},
         refreshPlugins: vi.fn(),
         scopeGeneration: 0,
-        totalCount: 0,
         updateInstallLoadingState: vi.fn(),
       },
       false,
@@ -194,7 +193,48 @@ describe('mcpStore actions', () => {
 
     expect(useToolStore.getState().mcpPluginItems).toEqual([marketplacePlugin]);
     expect(useToolStore.getState().activeMCPIdentifier).toBe('test-plugin');
-    expect(useToolStore.getState().totalCount).toBe(1);
+  });
+
+  it('filters local entries while accumulating multiple marketplace pages', async () => {
+    const firstRemote = { ...marketplacePlugin, identifier: 'remote-page-1' } as PluginItem;
+    const secondRemote = { ...marketplacePlugin, identifier: 'remote-page-2' } as PluginItem;
+    const firstLocal = {
+      ...marketplacePlugin,
+      connectionType: 'local',
+      identifier: 'local-page-1',
+    } as PluginItem;
+    const secondLocal = {
+      ...marketplacePlugin,
+      connectionType: 'local',
+      identifier: 'local-page-2',
+    } as PluginItem;
+    vi.spyOn(discoverService, 'getMCPPluginList').mockImplementation(async ({ page }) => ({
+      categories: ['utility'],
+      currentPage: page || 1,
+      items: page === 2 ? [secondLocal, secondRemote] : [firstLocal, firstRemote],
+      pageSize: 2,
+      totalCount: 4,
+      totalPages: 2,
+    }));
+    vi.spyOn(globalHelpers, 'getCurrentLanguage').mockReturnValue('en-US');
+
+    renderHook(() =>
+      useToolStore
+        .getState()
+        .useFetchMCPPluginList({ page: 1, pageSize: 2, q: 'multi-page-filter' }),
+    );
+    await waitFor(() => expect(useToolStore.getState().mcpPluginItems).toEqual([firstRemote]));
+
+    renderHook(() =>
+      useToolStore
+        .getState()
+        .useFetchMCPPluginList({ page: 2, pageSize: 2, q: 'multi-page-filter' }),
+    );
+    await waitFor(() =>
+      expect(useToolStore.getState().mcpPluginItems).toEqual([firstRemote, secondRemote]),
+    );
+
+    expect(useToolStore.getState().totalPages).toBe(2);
   });
 
   it('installs a marketplace plugin through its recommended HTTP endpoint', async () => {

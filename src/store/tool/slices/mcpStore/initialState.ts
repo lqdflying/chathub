@@ -18,7 +18,6 @@ export interface MCPStoreState {
   mcpTestLoading: Record<string, boolean>;
   searchLoading?: boolean;
   tags?: string[];
-  totalCount?: number;
   totalPages?: number;
 }
 
@@ -38,6 +37,5 @@ export const initialMCPStoreState: MCPStoreState = {
   mcpTestLoading: {},
   searchLoading: false,
   tags: [],
-  totalCount: 0,
   totalPages: 0,
 };

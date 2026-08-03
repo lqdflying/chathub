@@ -7,12 +7,11 @@ import { createStoreUpdater } from 'zustand-utils';
 
 import { enableNextAuth } from '@/const/auth';
 import { useIsMobile } from '@/hooks/useIsMobile';
-import { useAgentStore } from '@/store/agent';
 import { subscribeAccountScopeInvalidation } from '@/store/accountScopeInvalidation';
 import { resetAccountScopedStores } from '@/store/accountScopeReset';
+import { useAgentStore } from '@/store/agent';
 import { useAiInfraStore } from '@/store/aiInfra';
 import { useGlobalStore } from '@/store/global';
-import { systemStatusSelectors } from '@/store/global/selectors';
 import { useServerConfigStore } from '@/store/serverConfig';
 import { serverConfigSelectors } from '@/store/serverConfig/selectors';
 import { useUserStore } from '@/store/user';
@@ -23,19 +22,14 @@ const StoreInitialization = memo(() => {
   useTranslation('error');
 
   const router = useRouter();
-  const [
-    currentUserScope,
-    isLogin,
-    isSignedIn,
-    ownershipInvalidationGeneration,
-    useInitUserState,
-  ] = useUserStore((s) => [
-    authSelectors.currentUserScope(s),
-    authSelectors.isLogin(s),
-    s.isSignedIn,
-    s.ownershipInvalidationGeneration,
-    s.useInitUserState,
-  ]);
+  const [currentUserScope, isLogin, isSignedIn, ownershipInvalidationGeneration, useInitUserState] =
+    useUserStore((s) => [
+      authSelectors.currentUserScope(s),
+      authSelectors.isLogin(s),
+      s.isSignedIn,
+      s.ownershipInvalidationGeneration,
+      s.useInitUserState,
+    ]);
   const previousAccountBoundaryRef = useRef({
     ownershipInvalidationGeneration,
     scope: currentUserScope,
@@ -68,8 +62,7 @@ const StoreInitialization = memo(() => {
    * IMPORTANT: Explicitly convert to boolean to avoid passing null/undefined downstream,
    * which would cause unnecessary API requests with invalid login state.
    */
-  const isDBInited = useGlobalStore(systemStatusSelectors.isDBInited);
-  const isLoginOnInit = isDBInited ? Boolean(enableNextAuth ? isSignedIn : isLogin) : false;
+  const isLoginOnInit = Boolean(enableNextAuth ? isSignedIn : isLogin);
   const userStateScope = isLoginOnInit ? currentUserScope : undefined;
 
   useLayoutEffect(() => {
@@ -86,8 +79,7 @@ const StoreInitialization = memo(() => {
     const previousAccountBoundary = previousAccountBoundaryRef.current;
     const didAccountBoundaryChange =
       previousAccountBoundary.scope !== currentUserScope ||
-      previousAccountBoundary.ownershipInvalidationGeneration !==
-        ownershipInvalidationGeneration;
+      previousAccountBoundary.ownershipInvalidationGeneration !== ownershipInvalidationGeneration;
     if (!didAccountBoundaryChange) return;
 
     previousAccountBoundaryRef.current = {

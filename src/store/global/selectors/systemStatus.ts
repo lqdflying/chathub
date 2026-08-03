@@ -28,7 +28,6 @@ const wideScreen = (s: GlobalState) => !s.status.noWideScreen;
 const chatInputHeight = (s: GlobalState) => s.status.chatInputHeight || 64;
 const expandInputActionbar = (s: GlobalState) => s.status.expandInputActionbar;
 const isStatusInit = (s: GlobalState) => !!s.isStatusInit;
-const isDBInited = (): boolean => true;
 
 const getAgentSystemRoleExpanded =
   (agentId: string) =>
@@ -46,7 +45,6 @@ export const systemStatusSelectors = {
   imagePanelWidth,
   imageTopicPanelWidth,
   inZenMode,
-  isDBInited,
   isShowCredit,
   isStatusInit,
   language,
