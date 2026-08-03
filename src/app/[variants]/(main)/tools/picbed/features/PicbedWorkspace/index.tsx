@@ -1,13 +1,14 @@
 'use client';
 
-import { Icon } from '@lobehub/ui';
+import { ActionIcon, Icon } from '@lobehub/ui';
 import { App, Empty, Image, Pagination, Spin, Typography, Upload, type UploadProps } from 'antd';
 import { createStyles } from 'antd-style';
-import { CloudUpload } from 'lucide-react';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { ChevronsLeft, ChevronsRight, CloudUpload } from 'lucide-react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { picbedService } from '@/services/picbed';
 import { sensitiveAccountScope } from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
@@ -67,6 +68,43 @@ const useStyles = createStyles(({ css, token }) => ({
       display: inline;
     }
   `,
+  pagination: css`
+    min-width: 0;
+
+    :global(.ant-pagination-prev),
+    :global(.ant-pagination-next) {
+      min-width: 44px;
+      height: 44px;
+    }
+
+    :global(.ant-pagination-item-link) {
+      display: grid;
+      place-items: center;
+      height: 44px;
+    }
+
+    @media (max-width: 600px) {
+      :global(.ant-pagination-simple-pager) {
+        height: 44px;
+        margin-inline: 4px;
+        line-height: 44px;
+        white-space: nowrap;
+      }
+
+      :global(.ant-pagination-simple-pager input) {
+        width: 44px;
+        height: 44px;
+      }
+    }
+  `,
+  paginationBar: css`
+    width: 100%;
+    min-width: 0;
+
+    @media (max-width: 600px) {
+      gap: 4px;
+    }
+  `,
   title: css`
     margin-block-end: 0 !important;
   `,
@@ -85,14 +123,17 @@ interface PicbedWorkspaceContentProps {
   requestedScope: string | undefined;
 }
 
+const PAGE_SIZE = 20;
+
 const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedScope }) => {
   const { styles, cx } = useStyles();
   const { t } = useTranslation('tools');
   const { message } = App.useApp();
+  const isMobile = useIsMobile();
+  const galleryRef = useRef<HTMLDivElement>(null);
   const [media, setMedia] = useState<PicbedMediaRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
 
   const loadMedia = useCallback(async () => {
     const scopeAtRequestStart = requestedScope;
@@ -133,7 +174,29 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
     void uploadFiles(files);
   };
 
-  const pagedMedia = media.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(media.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pagedMedia = media.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  useEffect(() => {
+    if (page !== currentPage) setPage(currentPage);
+  }, [currentPage, page]);
+
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      const clampedPage = Math.min(Math.max(nextPage, 1), totalPages);
+      if (clampedPage === currentPage) return;
+
+      setPage(clampedPage);
+      galleryRef.current?.scrollIntoView?.({
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
+        block: 'start',
+      });
+    },
+    [currentPage, totalPages],
+  );
 
   const handleDelete = async (id: string) => {
     const scopeAtRequestStart = requestedScope;
@@ -202,7 +265,7 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
       ) : (
         <>
           <Image.PreviewGroup>
-            <div className={styles.grid}>
+            <div className={styles.grid} ref={galleryRef}>
               {pagedMedia.map((item) => (
                 <MediaCard
                   createdAt={item.createdAt}
@@ -217,14 +280,40 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
             </div>
           </Image.PreviewGroup>
           {media.length > PAGE_SIZE && (
-            <Flexbox align={'center'}>
+            <Flexbox
+              align={'center'}
+              className={styles.paginationBar}
+              gap={8}
+              horizontal
+              justify={'center'}
+              wrap={isMobile ? 'nowrap' : 'wrap'}
+            >
+              <ActionIcon
+                aria-label={t('picbed.firstPage')}
+                disabled={currentPage === 1}
+                icon={ChevronsLeft}
+                onClick={() => handlePageChange(1)}
+                size={{ blockSize: 44, size: 18 }}
+                title={t('picbed.firstPage')}
+              />
               <Pagination
-                current={page}
-                onChange={setPage}
+                className={styles.pagination}
+                current={currentPage}
+                onChange={handlePageChange}
                 pageSize={PAGE_SIZE}
+                showQuickJumper={!isMobile}
                 showSizeChanger={false}
-                showTotal={(total) => t('picbed.total', { count: total })}
+                showTotal={isMobile ? undefined : (total) => t('picbed.total', { count: total })}
+                simple={isMobile}
                 total={media.length}
+              />
+              <ActionIcon
+                aria-label={t('picbed.lastPage')}
+                disabled={currentPage === totalPages}
+                icon={ChevronsRight}
+                onClick={() => handlePageChange(totalPages)}
+                size={{ blockSize: 44, size: 18 }}
+                title={t('picbed.lastPage')}
               />
             </Flexbox>
           )}

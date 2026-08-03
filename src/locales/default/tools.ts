@@ -97,6 +97,8 @@ export default {
     deleted: 'Deleted',
     dragTip: 'Drag, drop, or paste images and videos here',
     empty: 'No media uploaded yet',
+    firstPage: 'First page',
+    lastPage: 'Last page',
     mediaUrl: 'Media URL',
     title: 'Picbed',
     total: '{{count}} items',

@@ -12,8 +12,21 @@ const { messageError, messageSuccess } = vi.hoisted(() => ({
   messageError: vi.fn(),
   messageSuccess: vi.fn(),
 }));
+const responsiveState = vi.hoisted(() => ({ isMobile: false, prefersReducedMotion: false }));
+const scrollIntoView = vi.hoisted(() => vi.fn());
 
 vi.stubGlobal('React', React);
+vi.stubGlobal(
+  'matchMedia',
+  vi.fn((query: string) => ({
+    matches: responsiveState.prefersReducedMotion && query.includes('prefers-reduced-motion'),
+  })),
+);
+
+Object.defineProperty(Element.prototype, 'scrollIntoView', {
+  configurable: true,
+  value: scrollIntoView,
+});
 
 vi.mock('@/const/auth', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/const/auth')>()),
@@ -28,6 +41,17 @@ vi.mock('@/services/picbed', () => ({
 }));
 
 vi.mock('@lobehub/ui', () => ({
+  ActionIcon: ({
+    'aria-label': ariaLabel,
+    disabled,
+    onClick,
+    title,
+  }: {
+    'aria-label': string;
+    'disabled'?: boolean;
+    'onClick': () => void;
+    'title': string;
+  }) => <button aria-label={ariaLabel} disabled={disabled} onClick={onClick} title={title} />,
   Icon: () => null,
 }));
 
@@ -39,7 +63,40 @@ vi.mock('antd', () => ({
   Image: Object.assign(() => null, {
     PreviewGroup: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   }),
-  Pagination: () => null,
+  Pagination: ({
+    current,
+    onChange,
+    pageSize,
+    showQuickJumper,
+    simple,
+    total,
+  }: {
+    current: number;
+    onChange: (page: number) => void;
+    pageSize: number;
+    showQuickJumper?: boolean;
+    simple?: boolean;
+    total: number;
+  }) => (
+    <div
+      data-current={String(current)}
+      data-quick-jumper={String(Boolean(showQuickJumper))}
+      data-simple={String(Boolean(simple))}
+      data-testid={'pagination'}
+    >
+      {Array.from({ length: Math.ceil(total / pageSize) }, (_, index) => {
+        const targetPage = index + 1;
+
+        return (
+          <button
+            aria-label={`pagination-page-${targetPage}`}
+            key={targetPage}
+            onClick={() => onChange(targetPage)}
+          />
+        );
+      })}
+    </div>
+  ),
   Spin: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Typography: {
     Text: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
@@ -68,9 +125,15 @@ vi.mock('antd-style', () => ({
     styles: {
       dropZone: 'drop-zone',
       grid: 'grid',
+      pagination: 'pagination',
+      paginationBar: 'pagination-bar',
       title: 'title',
     },
   }),
+}));
+
+vi.mock('@/hooks/useIsMobile', () => ({
+  useIsMobile: () => responsiveState.isMobile,
 }));
 
 vi.mock('react-i18next', () => ({
@@ -103,10 +166,33 @@ vi.mock('./MediaCard', () => ({
 vi.mock('./usePicbedUpload', () => ({
   usePicbedUpload: () => ({
     isDragging: false,
+    stopDragging: vi.fn(),
     uploadFiles: vi.fn(),
     uploading: false,
   }),
 }));
+
+const createMedia = (count: number) =>
+  Array.from({ length: count }, (_, index) => {
+    const itemNumber = index + 1;
+
+    return {
+      createdAt: new Date(),
+      fileType: 'image/png',
+      id: `media-${itemNumber}`,
+      name: `media-${itemNumber}.png`,
+      size: 10,
+      url: `https://example.com/media-${itemNumber}.png`,
+    };
+  });
+
+const verifyAccountOwnership = () => {
+  useUserStore.setState({
+    isUserStateInit: true,
+    userStateOwnerId: 'account-a',
+    userStateScope: 'user:account-a',
+  });
+};
 
 describe('Picbed ownership bootstrap', () => {
   beforeEach(() => {
@@ -115,6 +201,9 @@ describe('Picbed ownership bootstrap', () => {
     vi.mocked(picbedService.list).mockReset();
     messageError.mockReset();
     messageSuccess.mockReset();
+    responsiveState.isMobile = false;
+    responsiveState.prefersReducedMotion = false;
+    scrollIntoView.mockReset();
     useUserStore.setState({
       ...initialState,
       authUserId: 'account-a',
@@ -221,5 +310,73 @@ describe('Picbed ownership bootstrap', () => {
     await waitFor(() => expect(messageError).toHaveBeenCalledWith('picbed.deleteFailed'));
     expect(screen.getByText('retained-image.png')).not.toBeNull();
     expect(messageSuccess).not.toHaveBeenCalled();
+  });
+
+  it('supports numbered, direct, first, and last page navigation on desktop', async () => {
+    vi.mocked(picbedService.list).mockResolvedValue(createMedia(45));
+    verifyAccountOwnership();
+
+    render(<PicbedWorkspace />);
+    await screen.findByText('media-1.png');
+
+    const pagination = screen.getByTestId('pagination');
+    expect(pagination.getAttribute('data-current')).toBe('1');
+    expect(pagination.getAttribute('data-quick-jumper')).toBe('true');
+    expect(pagination.getAttribute('data-simple')).toBe('false');
+    expect((screen.getByLabelText('picbed.firstPage') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText('picbed.lastPage') as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByLabelText('pagination-page-2'));
+
+    expect(await screen.findByText('media-21.png')).toBeTruthy();
+    expect(screen.queryByText('media-1.png')).toBeNull();
+    expect(screen.getByTestId('pagination').getAttribute('data-current')).toBe('2');
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'start' });
+
+    fireEvent.click(screen.getByLabelText('picbed.lastPage'));
+
+    expect(await screen.findByText('media-41.png')).toBeTruthy();
+    expect((screen.getByLabelText('picbed.lastPage') as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByLabelText('picbed.firstPage'));
+
+    expect(await screen.findByText('media-1.png')).toBeTruthy();
+    expect((screen.getByLabelText('picbed.firstPage') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('uses compact direct-page navigation and reduced motion on mobile', async () => {
+    responsiveState.isMobile = true;
+    responsiveState.prefersReducedMotion = true;
+    vi.mocked(picbedService.list).mockResolvedValue(createMedia(45));
+    verifyAccountOwnership();
+
+    render(<PicbedWorkspace />);
+    await screen.findByText('media-1.png');
+
+    const pagination = screen.getByTestId('pagination');
+    expect(pagination.getAttribute('data-quick-jumper')).toBe('false');
+    expect(pagination.getAttribute('data-simple')).toBe('true');
+
+    fireEvent.click(screen.getByLabelText('pagination-page-3'));
+
+    expect(await screen.findByText('media-41.png')).toBeTruthy();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'start' });
+  });
+
+  it('clamps to the preceding page when deletion removes the last page', async () => {
+    vi.mocked(picbedService.list).mockResolvedValue(createMedia(21));
+    vi.mocked(picbedService.delete).mockResolvedValue({} as never);
+    verifyAccountOwnership();
+
+    render(<PicbedWorkspace />);
+    await screen.findByText('media-1.png');
+
+    fireEvent.click(screen.getByLabelText('picbed.lastPage'));
+    await screen.findByText('media-21.png');
+    fireEvent.click(screen.getByLabelText('delete-media-21'));
+
+    await waitFor(() => expect(screen.queryByText('media-21.png')).toBeNull());
+    expect(await screen.findByText('media-1.png')).toBeTruthy();
+    expect(screen.queryByTestId('pagination')).toBeNull();
   });
 });
