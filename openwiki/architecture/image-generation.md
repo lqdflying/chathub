@@ -36,6 +36,11 @@ wait for hydrated global status plus user settings and provider runtime state
 owned by the active account before generation is available. This avoids mobile
 submitting the store's initial hardcoded values while Image Settings remains in
 its closed drawer.
+`ImageWorkspace` also mounts `TopicUrlSync` independently of the Image Topics
+navigation slot and uses the store's `activeGenerationTopicId` as the canonical
+render state. The URL remains the deep-link and browser-navigation adapter, but
+closing or never opening the mobile Topics drawer cannot suspend topic
+synchronization, batch loading, or generation-status polling.
 `isInit` records that hydration has settled, while `isImageModelAvailable`
 records whether the current configuration can generate. If no usable image
 model is enabled, initialization settles with `isInit: true` and
@@ -493,6 +498,12 @@ topic and service failure paths reset both `isCreating` and
 the registered request controller; the UI reports submission failure with a
 localized message.
 
+Each pending `GenerationItem` polls its asynchronous task while the topic is
+active. A successful poll replaces the pending row, refreshes the batch, and
+sets the topic's first available thumbnail as its cover. Because the workspace,
+not the desktop panel or mobile drawer, owns topic activation, this polling and
+cover update continue when mobile Image Topics has never been opened.
+
 The generation feed scrolls only when its end is below the visible boundary
 above the sticky prompt. It records an appended batch before task polling can
 rerender the feed, so status updates do not repeatedly force the viewport to
@@ -701,10 +712,12 @@ the whole-batch replacement behavior.
 
 ## Verification
 
-High-signal coverage includes mobile navigation/drawers, prompt and busy-state
-failure paths, replacement-first retry ordering, request-schema boundaries, and
-the image generation configuration slices. Legacy ComfyUI transformer tests use
-test-local model schemas so removed provider exports are not restored.
+High-signal coverage includes mobile navigation/drawers, always-mounted topic
+synchronization, store-driven workspace transitions, pending generation polling,
+prompt and busy-state failure paths, replacement-first retry ordering,
+request-schema boundaries, and the image generation configuration slices.
+Legacy ComfyUI transformer tests use test-local model schemas so removed
+provider exports are not restored.
 
 Run the targeted image Vitest suites, the ComfyUI service tests when transformer
 fixtures change, and `bun run type-check`. Follow the repository constraints in

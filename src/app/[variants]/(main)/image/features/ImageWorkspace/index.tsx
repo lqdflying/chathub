@@ -1,22 +1,25 @@
 'use client';
 
-import { useQueryState } from 'nuqs';
 import React from 'react';
 
 import { useFetchAiImageConfig } from '@/hooks/useFetchAiImageConfig';
+import { useImageStore } from '@/store/image';
+import { generationTopicSelectors } from '@/store/image/selectors';
 
 import Content from './Content';
 import EmptyState from './EmptyState';
+import TopicUrlSync from './TopicUrlSync';
 
 const ImageWorkspace = () => {
-  const [topic] = useQueryState('topic');
   useFetchAiImageConfig();
+  const activeTopicId = useImageStore(generationTopicSelectors.activeGenerationTopicId);
 
-  if (!topic) {
-    return <EmptyState />;
-  }
-
-  return <Content />;
+  return (
+    <>
+      <TopicUrlSync />
+      {activeTopicId ? <Content /> : <EmptyState />}
+    </>
+  );
 };
 
 export default ImageWorkspace;

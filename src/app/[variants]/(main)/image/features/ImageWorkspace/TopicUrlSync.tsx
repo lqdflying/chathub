@@ -6,9 +6,6 @@ import { createStoreUpdater } from 'zustand-utils';
 
 import { useImageStore } from '@/store/image';
 
-/**
- * 双向绑定 url 的 topic 参数到 image store 的 activeGenerationTopicId
- */
 const TopicUrlSync = () => {
   const useStoreUpdater = createStoreUpdater(useImageStore);
 
@@ -17,9 +14,9 @@ const TopicUrlSync = () => {
 
   useLayoutEffect(() => {
     const unsubscribeTopic = useImageStore.subscribe(
-      (s) => s.activeGenerationTopicId,
-      (state) => {
-        setTopic(state || null);
+      (state) => state.activeGenerationTopicId,
+      (activeTopicId) => {
+        setTopic(activeTopicId || null);
       },
     );
 
@@ -28,7 +25,6 @@ const TopicUrlSync = () => {
     };
   }, [setTopic]);
 
-  // 这个组件不渲染任何UI，仅用于同步状态
   return null;
 };
 
