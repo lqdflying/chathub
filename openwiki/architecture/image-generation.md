@@ -483,10 +483,21 @@ The prompt input rejects empty and whitespace-only values and blocks submission
 until configuration initialization has completed and a usable model is
 available. Submission trims the prompt,
 creates a topic when needed, sends the request through `imageService`, refreshes
-an existing topic, and clears only the prompt that was actually submitted. All
+the captured topic after every accepted request, and clears only the prompt that was actually
+submitted. A newly created topic mounts its batch subscription as soon as the
+topic URL is available. If that subscription reads the topic before batch
+persistence finishes, the post-acceptance refresh replaces the empty result
+with the pending generation rows, so mobile renders queued tiles instead of an
+apparently blank workspace while the asynchronous tasks continue. All
 topic and service failure paths reset both `isCreating` and
-`isCreatingWithNewTopic`; the UI reports submission failure with a localized
-message.
+the registered request controller; the UI reports submission failure with a
+localized message.
+
+The generation feed scrolls only when its end is below the visible boundary
+above the sticky prompt. It records an appended batch before task polling can
+rerender the feed, so status updates do not repeatedly force the viewport to
+the bottom. Smooth scrolling is disabled when the browser requests reduced
+motion.
 
 ## Server request and task flow
 

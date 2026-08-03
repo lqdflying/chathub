@@ -2,13 +2,29 @@
 
 import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { Divider } from 'antd';
-import { Fragment, memo, useEffect, useRef } from 'react';
+import React, { Fragment, memo, useCallback, useEffect, useRef } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import { useImageStore } from '@/store/image';
 import { generationBatchSelectors } from '@/store/image/selectors';
 
 import { GenerationBatchItem } from './BatchItem';
+
+const getScrollParent = (element: HTMLElement): HTMLElement => {
+  let parent = element.parentElement;
+
+  while (parent) {
+    const overflowY = window.getComputedStyle(parent).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') return parent;
+
+    parent = parent.parentElement;
+  }
+
+  return (document.scrollingElement as HTMLElement | null) || document.documentElement;
+};
+
+const getAccessibleScrollBehavior = (behavior: ScrollBehavior): ScrollBehavior =>
+  window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : behavior;
 
 const GenerationFeed = memo(() => {
   const [parent, enableAnimations] = useAutoAnimate();
@@ -18,27 +34,29 @@ const GenerationFeed = memo(() => {
 
   const currentGenerationBatches = useImageStore(generationBatchSelectors.currentGenerationBatches);
 
-  // Smart scroll function that accounts for sticky elements
-  const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     if (!containerRef.current) return;
 
-    // Find the main scrollable container (usually the parent of the sticky element)
-    const scrollableParent =
-      containerRef.current.closest('[style*="overflow"]') || document.documentElement;
-
-    // Get the position of our target element
+    const scrollableParent = getScrollParent(containerRef.current);
     const targetRect = containerRef.current.getBoundingClientRect();
     const scrollableRect = scrollableParent.getBoundingClientRect();
+    const promptContainer = scrollableParent.querySelector<HTMLElement>(
+      '[data-image-prompt-container]',
+    );
+    const promptTop = promptContainer?.getBoundingClientRect().top;
+    const visibleBottom =
+      promptTop !== undefined && promptTop > scrollableRect.top
+        ? Math.min(scrollableRect.bottom, promptTop)
+        : scrollableRect.bottom;
+    const hiddenDistance = targetRect.bottom - visibleBottom;
 
-    // Calculate the scroll position, adding extra offset for sticky elements
-    // The 120px accounts for typical sticky input height + some padding
-    const scrollTop = scrollableParent.scrollTop + targetRect.bottom - scrollableRect.bottom + 999;
+    if (hiddenDistance <= 0) return;
 
     scrollableParent.scrollTo({
-      behavior: behavior,
-      top: scrollTop,
+      behavior: getAccessibleScrollBehavior(behavior),
+      top: Math.max(0, scrollableParent.scrollTop + hiddenDistance),
     });
-  };
+  }, []);
 
   // Auto-scroll to bottom, with different behavior for initial load vs. updates
   useEffect(() => {
@@ -50,6 +68,8 @@ const GenerationFeed = memo(() => {
       prevBatchesCountRef.current = 0;
       return;
     }
+
+    prevBatchesCountRef.current = currentBatchesCount;
 
     if (isInitialLoadRef.current) {
       // On initial load, scroll instantly to the end.
@@ -67,10 +87,7 @@ const GenerationFeed = memo(() => {
 
       return () => clearTimeout(timer);
     }
-
-    // Always update the ref with the latest count for the next render.
-    prevBatchesCountRef.current = currentBatchesCount;
-  }, [currentGenerationBatches, enableAnimations]);
+  }, [currentGenerationBatches, enableAnimations, scrollToBottom]);
 
   if (!currentGenerationBatches || currentGenerationBatches.length === 0) {
     return null;
@@ -87,7 +104,7 @@ const GenerationFeed = memo(() => {
         ))}
       </Flexbox>
       {/* Invisible element for scroll target */}
-      <div ref={containerRef} style={{ height: 1 }} />
+      <div data-generation-feed-end ref={containerRef} style={{ height: 1 }} />
     </>
   );
 });

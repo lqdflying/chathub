@@ -33,6 +33,7 @@ const ImageWorkspaceContent = () => {
 
       {/* 底部输入框 */}
       <Center
+        data-image-prompt-container
         style={{
           bottom: 24,
           position: 'sticky',

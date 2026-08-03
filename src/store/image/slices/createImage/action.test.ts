@@ -55,7 +55,6 @@ describe('CreateImageAction', () => {
     useImageStore.setState({
       ...initialState,
       isCreating: false,
-      isCreatingWithNewTopic: false,
       imageGenerationAbortControllers: [],
       regeneratingBatchIds: [],
       isImageModelAvailable: true,
@@ -167,7 +166,6 @@ describe('CreateImageAction', () => {
 
       // Verify state changes
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
 
       // Verify service calls
       expect(mockImageService.createImage).toHaveBeenCalledWith(
@@ -182,7 +180,7 @@ describe('CreateImageAction', () => {
       );
 
       // Verify refresh was called
-      expect(mockRefreshGenerationBatches).toHaveBeenCalled();
+      expect(mockRefreshGenerationBatches).toHaveBeenCalledWith('active-topic-id');
 
       // Verify prompt is cleared after successful image creation
       expect(result.current.parameters?.prompt).toBe('');
@@ -190,6 +188,7 @@ describe('CreateImageAction', () => {
 
     it('should create new topic when no active topic exists', async () => {
       const mockCreateGenerationTopic = vi.fn().mockResolvedValue('new-topic-id');
+      const mockRefreshGenerationBatches = vi.fn().mockResolvedValue(undefined);
       const mockSwitchGenerationTopic = vi.fn();
       const mockSetTopicBatchLoaded = vi.fn();
 
@@ -199,6 +198,7 @@ describe('CreateImageAction', () => {
         useImageStore.setState({
           activeGenerationTopicId: '', // No active topic
           createGenerationTopic: mockCreateGenerationTopic,
+          refreshGenerationBatches: mockRefreshGenerationBatches,
           switchGenerationTopic: mockSwitchGenerationTopic,
           setTopicBatchLoaded: mockSetTopicBatchLoaded,
         });
@@ -210,7 +210,6 @@ describe('CreateImageAction', () => {
 
       // Verify state changes
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
 
       // Verify topic creation
       expect(mockCreateGenerationTopic).toHaveBeenCalledWith(['test prompt']);
@@ -228,6 +227,7 @@ describe('CreateImageAction', () => {
         },
         expect.any(AbortSignal),
       );
+      expect(mockRefreshGenerationBatches).toHaveBeenCalledWith('new-topic-id');
 
       // Verify prompt is cleared after successful image creation
       expect(result.current.parameters?.prompt).toBe('');
@@ -249,7 +249,6 @@ describe('CreateImageAction', () => {
       ).rejects.toThrow('parameters is not initialized');
 
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
     });
 
     it('should throw error when prompt is empty', async () => {
@@ -272,7 +271,6 @@ describe('CreateImageAction', () => {
       ).rejects.toThrow('prompt is empty');
 
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
       expect(mockImageService.createImage).not.toHaveBeenCalled();
     });
 
@@ -361,7 +359,6 @@ describe('CreateImageAction', () => {
       ).rejects.toThrow('prompt is empty');
 
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
       expect(mockImageService.createImage).not.toHaveBeenCalled();
     });
 
@@ -383,7 +380,6 @@ describe('CreateImageAction', () => {
       ).rejects.toThrow('Topic error');
 
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
       expect(mockImageService.createImage).not.toHaveBeenCalled();
     });
 
@@ -412,7 +408,6 @@ describe('CreateImageAction', () => {
       // Verify prompt is NOT cleared when error occurs
       expect(result.current.parameters?.prompt).toBe('test prompt');
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
     });
 
     it('should handle service error with new topic', async () => {
@@ -451,7 +446,6 @@ describe('CreateImageAction', () => {
       // Verify prompt is NOT cleared when error occurs
       expect(result.current.parameters?.prompt).toBe('test prompt');
       expect(useImageStore.getState().isCreating).toBe(false);
-      expect(useImageStore.getState().isCreatingWithNewTopic).toBe(false);
     });
 
     it('should clear prompt input after successful image creation', async () => {

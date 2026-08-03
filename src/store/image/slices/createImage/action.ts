@@ -85,7 +85,6 @@ export const createCreateImageSlice: StateCreator<
       throw new TypeError('prompt is empty');
     }
 
-    const isNewTopic = !activeGenerationTopicId;
     const abortController = new AbortController();
     set(
       (state) => ({
@@ -94,7 +93,6 @@ export const createCreateImageSlice: StateCreator<
           abortController,
         ],
         isCreating: true,
-        isCreatingWithNewTopic: isNewTopic,
       }),
       false,
       'createImage/startCreateImage',
@@ -126,10 +124,8 @@ export const createCreateImageSlice: StateCreator<
 
       if (!isOperationCurrent()) return;
 
-      if (!isNewTopic) {
-        await get().refreshGenerationBatches();
-        if (!isOperationCurrent()) return;
-      }
+      await get().refreshGenerationBatches(generationTopicId);
+      if (!isOperationCurrent()) return;
 
       if (!isOperationCurrent()) return;
 
@@ -156,8 +152,6 @@ export const createCreateImageSlice: StateCreator<
             return {
               imageGenerationAbortControllers: remainingAbortControllers,
               isCreating: remainingAbortControllers.length > 0,
-              isCreatingWithNewTopic:
-                remainingAbortControllers.length > 0 && state.isCreatingWithNewTopic,
             };
           },
           false,

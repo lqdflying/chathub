@@ -98,7 +98,7 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
     <Flexbox
       gap={32}
       style={{
-        marginTop: 48,
+        marginTop: showTitle ? 48 : 0,
       }}
       width={'100%'}
     >
