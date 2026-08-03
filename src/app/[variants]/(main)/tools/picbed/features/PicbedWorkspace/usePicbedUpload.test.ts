@@ -81,6 +81,20 @@ describe('usePicbedUpload', () => {
     expect(result.current.uploading).toBe(false);
   });
 
+  it('resets the global drag state when the Dragger consumes a drop', () => {
+    const { result } = renderHook(() => usePicbedUpload('user:account-a'));
+
+    act(() => {
+      window.dispatchEvent(new Event('dragenter'));
+    });
+    expect(result.current.isDragging).toBe(true);
+
+    act(() => {
+      result.current.stopDragging();
+    });
+    expect(result.current.isDragging).toBe(false);
+  });
+
   it('aborts an active upload when the scope remounts', async () => {
     const file = new File(['image'], 'image.png', { type: 'image/png' });
     let observedSignal: AbortSignal | undefined;

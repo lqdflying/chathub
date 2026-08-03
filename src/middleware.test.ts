@@ -1,6 +1,6 @@
 // @vitest-environment node
-import type { NextFetchEvent } from 'next/server';
-import { NextRequest } from 'next/server';
+import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server';
+import { type NextFetchEvent, NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -86,6 +86,19 @@ const getCookieNames = (response: Response) =>
   response.headers
     .getSetCookie()
     .map((setCookieHeader) => setCookieHeader.slice(0, setCookieHeader.indexOf('=')));
+
+describe('Middleware route matching', () => {
+  it('matches the legacy Labs route so its redirect page is reachable', async () => {
+    const { config } = await import('./middleware');
+
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        url: 'https://chathub.example/labs',
+      }),
+    ).toBe(true);
+  });
+});
 
 describe('NextAuth middleware cookie boundary', () => {
   beforeEach(() => {

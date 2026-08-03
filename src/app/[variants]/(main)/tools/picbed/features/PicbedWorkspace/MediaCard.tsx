@@ -1,11 +1,11 @@
 'use client';
 
 import { ActionIcon } from '@lobehub/ui';
-import { App, Image, Input, Tooltip, Typography } from 'antd';
+import { App, Image, Input, Popconfirm, Tooltip, Typography } from 'antd';
 import { createStyles } from 'antd-style';
 import dayjs from 'dayjs';
 import { Check, Copy, Trash2 } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -50,7 +50,7 @@ interface MediaCardProps {
   fileType: string;
   id: string;
   name: string;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => Promise<void> | void;
   url: string;
 }
 
@@ -59,13 +59,26 @@ const MediaCard = memo<MediaCardProps>(({ id, name, url, fileType, createdAt, on
   const { t } = useTranslation('tools');
   const { message } = App.useApp();
   const [copied, setCopied] = useState(false);
+  const copyResetTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const isVideo = fileType.startsWith('video/');
 
+  useEffect(
+    () => () => {
+      if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+    },
+    [],
+  );
+
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    message.success(t('picbed.copied'));
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      message.success(t('picbed.copied'));
+      if (copyResetTimerRef.current) clearTimeout(copyResetTimerRef.current);
+      copyResetTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch {
+      message.error(t('picbed.copyFailed'));
+    }
   };
 
   return (
@@ -104,14 +117,15 @@ const MediaCard = memo<MediaCardProps>(({ id, name, url, fileType, createdAt, on
             size={{ blockSize: 26, size: 13 }}
           />
         </Tooltip>
-        <Tooltip title={t('picbed.delete')}>
-          <ActionIcon
-            aria-label={t('picbed.delete')}
-            icon={Trash2}
-            onClick={() => onDelete(id)}
-            size={{ blockSize: 26, size: 13 }}
-          />
-        </Tooltip>
+        <Popconfirm onConfirm={() => onDelete(id)} title={t('picbed.deleteConfirm')}>
+          <Tooltip title={t('picbed.delete')}>
+            <ActionIcon
+              aria-label={t('picbed.delete')}
+              icon={Trash2}
+              size={{ blockSize: 26, size: 13 }}
+            />
+          </Tooltip>
+        </Popconfirm>
       </Flexbox>
       <Typography.Text className={styles.timestamp}>
         {dayjs(createdAt).format('MMM DD YYYY HH:mm')}

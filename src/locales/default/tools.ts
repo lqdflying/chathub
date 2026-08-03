@@ -90,6 +90,7 @@ export default {
   picbed: {
     copied: 'Copied!',
     copy: 'Copy URL',
+    copyFailed: 'Could not copy the URL',
     delete: 'Delete',
     deleteConfirm: 'Delete this media item?',
     dragTip: 'Drag, drop, or paste images and videos here',
@@ -101,7 +102,6 @@ export default {
     upload: 'Click or paste to upload images or videos',
     uploadFailed: 'Upload failed',
     uploadShort: 'Upload media',
-    uploadSuccess: 'Upload successful',
     uploadSuccessCopied: 'Uploaded! URL copied to clipboard',
     videoSizeExceeded: 'Video files must not exceed 20 MiB. Current size: {{actualSize}}.',
   },

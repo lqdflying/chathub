@@ -355,12 +355,14 @@ identity key, aborts active uploads when that scope unmounts, and checks scope
 before every file, after object storage upload, and before record creation. The
 scope and `AbortSignal` continue through pre-signing and the tRPC mutation.
 Shared media validation accepts only `image/*` and `video/*`; videos are capped
-at 20 MiB inclusive before S3 upload and again when the Lambda create input is
-parsed. Shared transport middleware compares the asserted scope with the raw
-authenticated identity before every Picbed list, delete, or create procedure,
-and record creation retains its input-level scope check as defense in depth. An
-object uploaded for account A therefore cannot be registered to account B after
-an in-place account switch.
+at 20 MiB inclusive in the client before S3 upload, and the Lambda create input
+repeats that check against client-reported metadata. The Lambda procedure does
+not inspect S3 object metadata. Shared transport middleware compares the
+asserted scope with the raw authenticated identity before every Picbed list,
+delete, or create procedure, while record creation requires a storage key from
+the authenticated database owner's generated upload prefix. Existing legacy
+records remain readable. An object uploaded for account A therefore cannot be
+newly registered to account B after an in-place account switch.
 
 Telemetry-consent SWR entries use `['checkTrace', currentUserScope]`; no entry is
 read while authentication scope is unresolved. This prevents one account's

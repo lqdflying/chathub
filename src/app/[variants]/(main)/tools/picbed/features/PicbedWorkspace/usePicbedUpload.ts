@@ -117,16 +117,18 @@ export const usePicbedUpload = (requestedScope: string | undefined, onSuccess?: 
     [uploadFiles],
   );
 
+  const stopDragging = useCallback(() => setIsDragging(false), []);
+
   const handleDrop = useCallback(
     (e: DragEvent) => {
       e.preventDefault();
-      setIsDragging(false);
+      stopDragging();
       if (!e.dataTransfer?.items) return;
       const items = Array.from(e.dataTransfer.items);
       const files = getFilesFromDataTransferItems(items);
       void uploadFiles(files);
     },
-    [uploadFiles],
+    [stopDragging, uploadFiles],
   );
 
   useEffect(() => {
@@ -151,5 +153,5 @@ export const usePicbedUpload = (requestedScope: string | undefined, onSuccess?: 
     };
   }, [handlePaste, handleDrop]);
 
-  return { isDragging, uploadFiles, uploading };
+  return { isDragging, stopDragging, uploadFiles, uploading };
 };

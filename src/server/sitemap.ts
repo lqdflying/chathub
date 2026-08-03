@@ -27,15 +27,6 @@ export const LAST_MODIFIED = new Date().toISOString();
 export class Sitemap {
   sitemapIndexs = [{ id: SitemapType.Pages }];
 
-  private _generateSitemapLink(url: string) {
-    return [
-      '<sitemap>',
-      `<loc>${url}</loc>`,
-      `<lastmod>${LAST_MODIFIED}</lastmod>`,
-      '</sitemap>',
-    ].join('\n');
-  }
-
   private _formatTime(time?: string) {
     try {
       if (!time) return LAST_MODIFIED;
@@ -124,21 +115,6 @@ export class Sitemap {
         priority,
       }),
     );
-  }
-
-  getIndex(): string {
-    const staticSitemaps = this.sitemapIndexs.map((item) =>
-      this._generateSitemapLink(
-        getCanonicalUrl(SITEMAP_BASE_URL, isDev ? item.id : `${item.id}.xml`),
-      ),
-    );
-
-    return [
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-      ...staticSitemaps,
-      '</sitemapindex>',
-    ].join('\n');
   }
 
   async getPage(): Promise<MetadataRoute.Sitemap> {

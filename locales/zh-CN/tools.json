@@ -88,6 +88,7 @@
   "picbed": {
     "copied": "已复制！",
     "copy": "复制链接",
+    "copyFailed": "无法复制链接",
     "delete": "删除",
     "deleteConfirm": "确认删除此媒体文件？",
     "dragTip": "拖放或粘贴图片和视频到此处",
@@ -99,7 +100,6 @@
     "upload": "点击或粘贴以上传图片或视频",
     "uploadFailed": "上传失败",
     "uploadShort": "上传媒体",
-    "uploadSuccess": "上传成功",
     "uploadSuccessCopied": "上传成功！链接已复制到剪贴板",
     "videoSizeExceeded": "视频文件不能超过 20 MiB。当前大小：{{actualSize}}。"
   },

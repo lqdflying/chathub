@@ -33,7 +33,6 @@ export const FeatureFlagsSchema = z.object({
 
   clerk_sign_up: FeatureFlagValue.optional(),
 
-  market: FeatureFlagValue.optional(),
   knowledge_base: FeatureFlagValue.optional(),
 
   rag_eval: FeatureFlagValue.optional(),
@@ -99,7 +98,6 @@ export const DEFAULT_FEATURE_FLAGS: IFeatureFlags = {
 
   cloud_promotion: false,
 
-  market: true,
   speech_to_text: true,
   changelog: true,
 
@@ -143,7 +141,6 @@ export const mapFeatureFlagsEnvToState = (config: IFeatureFlags, userId?: string
 
     showCloudPromotion: evaluateFeatureFlag(config.cloud_promotion, userId),
 
-    showMarket: evaluateFeatureFlag(config.market, userId),
     enableSTT: evaluateFeatureFlag(config.speech_to_text, userId),
 
     hideGitHub: evaluateFeatureFlag(config.commercial_hide_github, userId),

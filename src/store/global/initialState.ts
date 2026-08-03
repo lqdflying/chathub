@@ -8,7 +8,6 @@ import { AsyncLocalStorage } from '@/utils/localStorage';
 
 export enum SidebarTabKey {
   Chat = 'chat',
-  Discover = 'discover',
   Files = 'files',
   Image = 'image',
   Me = 'me',

@@ -8,15 +8,6 @@ import { Sitemap, SitemapType } from './sitemap';
 describe('Sitemap', () => {
   const sitemap = new Sitemap();
 
-  it('advertises only the static page sitemap', () => {
-    const index = sitemap.getIndex();
-
-    expect(index).toContain('<?xml version="1.0" encoding="UTF-8"?>');
-    expect(index).toContain(getCanonicalUrl(`/sitemap/${SitemapType.Pages}.xml`));
-    expect(index).not.toContain('plugins-');
-    expect(index).not.toContain('/discover');
-  });
-
   it('omits Discover from the page sitemap', async () => {
     const pageSitemap = await sitemap.getPage();
 

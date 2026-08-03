@@ -15,6 +15,10 @@ describe('parseFeatureFlag', () => {
     expect(parseFeatureFlag('-openai_api_key')).toEqual({ openai_api_key: false });
   });
 
+  it('ignores the retired market flag', () => {
+    expect(parseFeatureFlag('-market')).toEqual({});
+  });
+
   it('should handle multiple flags separated by commas', () => {
     const input = '+api_key_manage,-openai_api_key,+another_feature';
 

@@ -7,6 +7,7 @@ import { PICBED_VIDEO_SIZE_LIMIT, isPicbedMediaType } from '@/helpers/picbedMedi
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase, verifiedAccountScope } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
+import { isUserUploadKey } from '@/server/services/file/uploadTarget';
 
 const picbedCreateInput = z
   .object({
@@ -51,6 +52,13 @@ export const picbedRouter = router({
       throw new TRPCError({
         code: 'FORBIDDEN',
         message: 'Picbed upload account changed',
+      });
+    }
+
+    if (!isUserUploadKey(input.url, ctx.userId, 'file')) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Picbed upload key does not belong to the authenticated user',
       });
     }
 

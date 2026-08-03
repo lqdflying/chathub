@@ -120,7 +120,7 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
     void loadMedia();
   }, [loadMedia]);
 
-  const { isDragging, uploadFiles, uploading } = usePicbedUpload(
+  const { isDragging, stopDragging, uploadFiles, uploading } = usePicbedUpload(
     requestedScope,
     handleUploadSuccess,
   );
@@ -161,7 +161,10 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
         beforeUpload={handleFileSelect}
         className={cx(styles.dropZone, isDragging && 'dragging')}
         multiple
-        onDrop={(event) => event.stopPropagation()}
+        onDrop={(event) => {
+          event.stopPropagation();
+          stopDragging();
+        }}
         showUploadList={false}
       >
         <Spin spinning={uploading}>

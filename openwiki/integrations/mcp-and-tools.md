@@ -58,7 +58,12 @@ The workspace keeps image records in the Ant Design preview group and renders
 videos with native controls, inline playback, metadata preload, and no autoplay.
 Both use the same fixed-height media viewport and the existing 20-item
 pagination. `src/services/picbed.ts` validates before S3 upload, and the Lambda
-create schema repeats MIME and video-size validation before persistence.
+create schema repeats MIME and video-size validation against client-reported
+metadata before persistence. The create procedure also rejects storage keys
+outside the authenticated database owner's generated upload prefix before it
+persists the record or creates a preview URL. Existing legacy records remain
+readable. The Lambda procedure does not inspect S3 object metadata, so the
+20 MiB check is not storage-level enforcement against a crafted client.
 
 ### API Tester
 

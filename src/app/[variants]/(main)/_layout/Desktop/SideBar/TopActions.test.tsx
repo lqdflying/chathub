@@ -18,7 +18,6 @@ beforeAll(() => {
   initServerConfigStore({
     featureFlags: {
       ...mapFeatureFlagsEnvToState(DEFAULT_FEATURE_FLAGS),
-      showMarket: true,
       showAiImage: true,
     },
   });
@@ -33,7 +32,6 @@ afterEach(() => {
     createServerConfigStore().setState({
       featureFlags: {
         ...createServerConfigStore().getState().featureFlags,
-        showMarket: true,
         showAiImage: true,
       },
     });
