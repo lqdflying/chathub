@@ -91,6 +91,8 @@
     "copyFailed": "无法复制链接",
     "delete": "删除",
     "deleteConfirm": "确认删除此媒体文件？",
+    "deleteFailed": "无法删除此媒体文件",
+    "deleted": "已删除",
     "dragTip": "拖放或粘贴图片和视频到此处",
     "empty": "还没有上传任何媒体文件",
     "mediaUrl": "媒体链接",

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,6 +7,11 @@ import { useUserStore } from '@/store/user';
 import { initialState } from '@/store/user/initialState';
 
 import PicbedWorkspace from './index';
+
+const { messageError, messageSuccess } = vi.hoisted(() => ({
+  messageError: vi.fn(),
+  messageSuccess: vi.fn(),
+}));
 
 vi.stubGlobal('React', React);
 
@@ -28,7 +33,7 @@ vi.mock('@lobehub/ui', () => ({
 
 vi.mock('antd', () => ({
   App: {
-    useApp: () => ({ message: { success: vi.fn() } }),
+    useApp: () => ({ message: { error: messageError, success: messageSuccess } }),
   },
   Empty: ({ description }: { description: React.ReactNode }) => <div>{description}</div>,
   Image: Object.assign(() => null, {
@@ -77,8 +82,21 @@ vi.mock('react-layout-kit', () => ({
 }));
 
 vi.mock('./MediaCard', () => ({
-  default: ({ fileType, name }: { fileType: string; name: string }) => (
-    <div data-file-type={fileType}>{name}</div>
+  default: ({
+    fileType,
+    id,
+    name,
+    onDelete,
+  }: {
+    fileType: string;
+    id: string;
+    name: string;
+    onDelete: (id: string) => Promise<void>;
+  }) => (
+    <div data-file-type={fileType}>
+      {name}
+      <button aria-label={`delete-${id}`} onClick={() => void onDelete(id)} />
+    </div>
   ),
 }));
 
@@ -93,6 +111,10 @@ vi.mock('./usePicbedUpload', () => ({
 describe('Picbed ownership bootstrap', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(picbedService.delete).mockReset();
+    vi.mocked(picbedService.list).mockReset();
+    messageError.mockReset();
+    messageSuccess.mockReset();
     useUserStore.setState({
       ...initialState,
       authUserId: 'account-a',
@@ -142,5 +164,62 @@ describe('Picbed ownership bootstrap', () => {
     expect(screen.getByText('verified-account-image.png').getAttribute('data-file-type')).toBe(
       'image/png',
     );
+  });
+
+  it('removes deleted media and reports completion', async () => {
+    vi.mocked(picbedService.list).mockResolvedValue([
+      {
+        createdAt: new Date(),
+        fileType: 'image/png',
+        id: 'image-id',
+        name: 'deletable-image.png',
+        size: 10,
+        url: 'https://example.com/deletable-image.png',
+      },
+    ]);
+    vi.mocked(picbedService.delete).mockResolvedValue({} as never);
+    useUserStore.setState({
+      isUserStateInit: true,
+      userStateOwnerId: 'account-a',
+      userStateScope: 'user:account-a',
+    });
+
+    render(<PicbedWorkspace />);
+    await screen.findByText('deletable-image.png');
+
+    fireEvent.click(screen.getByLabelText('delete-image-id'));
+
+    await waitFor(() => expect(picbedService.delete).toHaveBeenCalledWith('image-id'));
+    await waitFor(() => expect(screen.queryByText('deletable-image.png')).toBeNull());
+    expect(messageSuccess).toHaveBeenCalledWith('picbed.deleted');
+    expect(messageError).not.toHaveBeenCalled();
+  });
+
+  it('keeps media and reports a deletion failure', async () => {
+    vi.mocked(picbedService.list).mockResolvedValue([
+      {
+        createdAt: new Date(),
+        fileType: 'image/png',
+        id: 'image-id',
+        name: 'retained-image.png',
+        size: 10,
+        url: 'https://example.com/retained-image.png',
+      },
+    ]);
+    vi.mocked(picbedService.delete).mockRejectedValue(new Error('Delete failed'));
+    useUserStore.setState({
+      isUserStateInit: true,
+      userStateOwnerId: 'account-a',
+      userStateScope: 'user:account-a',
+    });
+
+    render(<PicbedWorkspace />);
+    await screen.findByText('retained-image.png');
+
+    fireEvent.click(screen.getByLabelText('delete-image-id'));
+
+    await waitFor(() => expect(messageError).toHaveBeenCalledWith('picbed.deleteFailed'));
+    expect(screen.getByText('retained-image.png')).not.toBeNull();
+    expect(messageSuccess).not.toHaveBeenCalled();
   });
 });

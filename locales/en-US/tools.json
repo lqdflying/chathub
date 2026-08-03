@@ -91,6 +91,8 @@
     "copyFailed": "Could not copy the URL",
     "delete": "Delete",
     "deleteConfirm": "Delete this media item?",
+    "deleteFailed": "Could not delete this media item",
+    "deleted": "Deleted",
     "dragTip": "Drag, drop, or paste images and videos here",
     "empty": "No media uploaded yet",
     "mediaUrl": "Media URL",

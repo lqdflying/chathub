@@ -137,11 +137,17 @@ const PicbedWorkspaceContent = memo<PicbedWorkspaceContentProps>(({ requestedSco
 
   const handleDelete = async (id: string) => {
     const scopeAtRequestStart = requestedScope;
-    await picbedService.delete(id);
-    if (authSelectors.currentUserScope(useUserStore.getState()) !== scopeAtRequestStart) return;
+    try {
+      await picbedService.delete(id);
+      if (authSelectors.currentUserScope(useUserStore.getState()) !== scopeAtRequestStart) return;
 
-    setMedia((prev) => prev.filter((item) => item.id !== id));
-    message.success(t('picbed.delete'));
+      setMedia((prev) => prev.filter((item) => item.id !== id));
+      message.success(t('picbed.deleted'));
+    } catch {
+      if (authSelectors.currentUserScope(useUserStore.getState()) === scopeAtRequestStart) {
+        message.error(t('picbed.deleteFailed'));
+      }
+    }
   };
 
   const handleFileSelect: UploadProps['beforeUpload'] = (file, fileList) => {
