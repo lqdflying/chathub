@@ -41,6 +41,12 @@ navigation slot and uses the store's `activeGenerationTopicId` as the canonical
 render state. The URL remains the deep-link and browser-navigation adapter, but
 closing or never opening the mobile Topics drawer cannot suspend topic
 synchronization, batch loading, or generation-status polling.
+Topic creation likewise does not depend on the drawer-owned topic-list SWR
+consumer. As soon as the server returns the permanent topic ID, the generation
+topic slice atomically promotes the optimistic temporary row to that ID before
+requesting revalidation. The title summarizer and `switchGenerationTopic` can
+therefore resolve the permanent topic even when SWR revalidation has no mounted
+consumer.
 `isInit` records that hydration has settled, while `isImageModelAvailable`
 records whether the current configuration can generate. If no usable image
 model is enabled, initialization settles with `isInit: true` and
@@ -486,17 +492,18 @@ prompt.
 
 The prompt input rejects empty and whitespace-only values and blocks submission
 until configuration initialization has completed and a usable model is
-available. Submission trims the prompt,
-creates a topic when needed, sends the request through `imageService`, refreshes
-the captured topic after every accepted request, and clears only the prompt that was actually
-submitted. A newly created topic mounts its batch subscription as soon as the
-topic URL is available. If that subscription reads the topic before batch
-persistence finishes, the post-acceptance refresh replaces the empty result
-with the pending generation rows, so mobile renders queued tiles instead of an
-apparently blank workspace while the asynchronous tasks continue. All
-topic and service failure paths reset both `isCreating` and
-the registered request controller; the UI reports submission failure with a
-localized message.
+available. Submission trims the prompt, creates a topic when needed, promotes
+its optimistic row to the permanent server ID, starts title generation, sends
+the request through `imageService`, refreshes the captured topic after every
+accepted request, and clears only the prompt that was actually submitted. The
+permanent topic becomes active before the service request, so its batch
+subscription mounts even when the mobile topic list has never mounted. If that
+subscription reads the topic before batch persistence finishes, the
+post-acceptance refresh replaces the empty result with the pending generation
+rows, so mobile renders queued tiles instead of an apparently blank workspace
+while the asynchronous tasks continue. All topic and service failure paths
+reset both `isCreating` and the registered request controller; the UI reports
+submission failure with a localized message.
 
 Each pending `GenerationItem` polls its asynchronous task while the topic is
 active. A successful poll replaces the pending row, refreshes the batch, and
@@ -713,9 +720,10 @@ the whole-batch replacement behavior.
 ## Verification
 
 High-signal coverage includes mobile navigation/drawers, always-mounted topic
-synchronization, store-driven workspace transitions, pending generation polling,
-prompt and busy-state failure paths, replacement-first retry ordering,
-request-schema boundaries, and the image generation configuration slices.
+synchronization, optimistic-to-server topic promotion without a mounted topic
+list, store-driven workspace transitions, pending generation polling, prompt
+and busy-state failure paths, replacement-first retry ordering, request-schema
+boundaries, and the image generation configuration slices.
 Legacy ComfyUI transformer tests use test-local model schemas so removed
 provider exports are not restored.
 

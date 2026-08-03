@@ -9,10 +9,7 @@ import { UpdateTopicValue } from '@/server/routers/lambda/generationTopic';
 import { chatService } from '@/services/chat';
 import { generationTopicService } from '@/services/generationTopic';
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
@@ -126,10 +123,7 @@ const finishTopicOperation = (
   if (operationBucket.operationIds.size > 0) return;
   activeTopicOperations.delete(operation.loadingKey);
 
-  if (
-    operationBucket.ownsLoadingMarker &&
-    isGenerationTopicMutationCurrent(get(), context)
-  ) {
+  if (operationBucket.ownsLoadingMarker && isGenerationTopicMutationCurrent(get(), context)) {
     get().internal_updateGenerationTopicLoading(topicId, false);
   }
 };
@@ -143,9 +137,7 @@ export interface GenerationTopicAction {
     prompts: string[],
     mutationContext?: GenerationTopicMutationContext,
   ) => Promise<string>;
-  refreshGenerationTopics: (
-    mutationContext?: GenerationTopicMutationContext,
-  ) => Promise<void>;
+  refreshGenerationTopics: (mutationContext?: GenerationTopicMutationContext) => Promise<void>;
   switchGenerationTopic: (topicId: string) => void;
   openNewGenerationTopic: () => void;
   updateGenerationTopicCover: (topicId: string, imageUrl: string) => Promise<void>;
@@ -221,8 +213,7 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   summaryGenerationTopicTitle: async (topicId, prompts, originatingContext) => {
-    const mutationContext =
-      originatingContext ?? captureGenerationTopicMutationContext(get());
+    const mutationContext = originatingContext ?? captureGenerationTopicMutationContext(get());
     if (!mutationContext || !isGenerationTopicMutationCurrent(get(), mutationContext)) return '';
 
     const topic = generationTopicSelectors.getGenerationTopicById(topicId)(get());
@@ -299,8 +290,7 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   internal_createGenerationTopic: async (originatingContext) => {
-    const mutationContext =
-      originatingContext ?? captureGenerationTopicMutationContext(get());
+    const mutationContext = originatingContext ?? captureGenerationTopicMutationContext(get());
     if (!mutationContext || !isGenerationTopicMutationCurrent(get(), mutationContext)) return '';
 
     const tmpId = Date.now().toString();
@@ -317,6 +307,14 @@ export const createGenerationTopicSlice: StateCreator<
 
       // 2. Call backend service
       const topicId = await generationTopicService.createTopic();
+      if (!isCurrentRequest()) return '';
+
+      // Topic-list SWR is not mounted until the mobile drawer opens. Promote the
+      // optimistic row locally so activation and title generation do not depend on it.
+      get().internal_dispatchGenerationTopic(
+        { type: 'replaceTopic', id: tmpId, value: { id: topicId } },
+        'internal_createGenerationTopic/promote',
+      );
       if (!isCurrentRequest()) return '';
 
       finishTopicOperation(get, mutationContext, tmpId, operation);
@@ -337,8 +335,7 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   internal_updateGenerationTopic: async (id, data, originatingContext) => {
-    const mutationContext =
-      originatingContext ?? captureGenerationTopicMutationContext(get());
+    const mutationContext = originatingContext ?? captureGenerationTopicMutationContext(get());
     if (!mutationContext || !isGenerationTopicMutationCurrent(get(), mutationContext)) return;
     const operation = beginTopicOperation(get, mutationContext, id, 'update');
     const isCurrentRequest = () => isTopicOperationCurrent(get, mutationContext, operation);
@@ -414,8 +411,7 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   refreshGenerationTopics: async (originatingContext) => {
-    const mutationContext =
-      originatingContext ?? captureGenerationTopicMutationContext(get());
+    const mutationContext = originatingContext ?? captureGenerationTopicMutationContext(get());
     if (!mutationContext || !isGenerationTopicMutationCurrent(get(), mutationContext)) return;
 
     await mutateAccountSWR([FETCH_GENERATION_TOPICS_KEY, mutationContext.account.scope]);
@@ -470,8 +466,7 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   internal_removeGenerationTopic: async (id, originatingContext) => {
-    const mutationContext =
-      originatingContext ?? captureGenerationTopicMutationContext(get());
+    const mutationContext = originatingContext ?? captureGenerationTopicMutationContext(get());
     if (!mutationContext || !isGenerationTopicMutationCurrent(get(), mutationContext)) return false;
     const operation = beginTopicOperation(get, mutationContext, id, 'delete');
     const isCurrentRequest = () => isTopicOperationCurrent(get, mutationContext, operation);
@@ -497,14 +492,10 @@ export const createGenerationTopicSlice: StateCreator<
   },
 
   internal_updateGenerationTopicCover: async (topicId, coverUrl, originatingContext) => {
-    const mutationContext =
-      originatingContext ?? captureGenerationTopicMutationContext(get());
+    const mutationContext = originatingContext ?? captureGenerationTopicMutationContext(get());
     if (!mutationContext || !isGenerationTopicMutationCurrent(get(), mutationContext)) return;
 
-    const {
-      internal_dispatchGenerationTopic,
-      refreshGenerationTopics,
-    } = get();
+    const { internal_dispatchGenerationTopic, refreshGenerationTopics } = get();
     const operation = beginTopicOperation(get, mutationContext, topicId, 'cover');
     const isCurrentRequest = () => isTopicOperationCurrent(get, mutationContext, operation);
 

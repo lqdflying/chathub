@@ -141,6 +141,61 @@ describe('generationTopicReducer', () => {
     });
   });
 
+  describe('replaceTopic', () => {
+    it('promotes an optimistic topic to its server id without changing its position', () => {
+      const createdAt = new Date('2026-08-04T00:00:00Z');
+      state = [
+        {
+          id: 'temporary-topic',
+          title: '',
+          createdAt,
+          updatedAt: createdAt,
+        },
+        {
+          id: 'older-topic',
+          title: 'Older topic',
+          createdAt: new Date('2026-08-03T00:00:00Z'),
+          updatedAt: new Date('2026-08-03T00:00:00Z'),
+        },
+      ];
+
+      const newState = generationTopicReducer(state, {
+        type: 'replaceTopic',
+        id: 'temporary-topic',
+        value: { id: 'server-topic' },
+      });
+
+      expect(newState.map((topic) => topic.id)).toEqual(['server-topic', 'older-topic']);
+      expect(newState[0]).toMatchObject({ createdAt, title: '', updatedAt: createdAt });
+    });
+
+    it('removes the optimistic duplicate when the server topic was already fetched', () => {
+      const serverTopic = {
+        id: 'server-topic',
+        title: 'Server title',
+        createdAt: new Date('2026-08-04T00:00:00Z'),
+        updatedAt: new Date('2026-08-04T00:00:00Z'),
+      };
+      state = [
+        {
+          id: 'temporary-topic',
+          title: '',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        serverTopic,
+      ];
+
+      const newState = generationTopicReducer(state, {
+        type: 'replaceTopic',
+        id: 'temporary-topic',
+        value: { id: 'server-topic' },
+      });
+
+      expect(newState).toEqual([serverTopic]);
+    });
+  });
+
   describe('default case', () => {
     it('should return the original state for an unknown action type', () => {
       const payload = { type: 'unknown' } as any;

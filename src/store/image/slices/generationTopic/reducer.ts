@@ -19,10 +19,17 @@ interface DeleteGenerationTopicAction {
   type: 'deleteTopic';
 }
 
+interface ReplaceGenerationTopicAction {
+  id: string;
+  type: 'replaceTopic';
+  value: Partial<ImageGenerationTopic> & { id: string };
+}
+
 export type GenerationTopicDispatch =
   | AddGenerationTopicAction
   | UpdateGenerationTopicAction
-  | DeleteGenerationTopicAction;
+  | DeleteGenerationTopicAction
+  | ReplaceGenerationTopicAction;
 
 export const generationTopicReducer = (
   state: ImageGenerationTopic[] = [],
@@ -57,6 +64,37 @@ export const generationTopicReducer = (
 
     case 'deleteTopic': {
       return state.filter((topic) => topic.id !== payload.id);
+    }
+
+    case 'replaceTopic': {
+      return produce(state, (draftState) => {
+        const currentIndex = draftState.findIndex((topic) => topic.id === payload.id);
+        const replacementIndex = draftState.findIndex((topic) => topic.id === payload.value.id);
+
+        if (replacementIndex !== -1) {
+          if (currentIndex !== -1 && currentIndex !== replacementIndex) {
+            draftState.splice(currentIndex, 1);
+          }
+          return;
+        }
+
+        if (currentIndex !== -1) {
+          draftState[currentIndex] = {
+            ...draftState[currentIndex],
+            ...payload.value,
+          };
+          return;
+        }
+
+        const now = new Date();
+        draftState.unshift({
+          title: payload.value.title || null,
+          coverUrl: payload.value.coverUrl || null,
+          createdAt: payload.value.createdAt || now,
+          updatedAt: payload.value.updatedAt || now,
+          ...payload.value,
+        });
+      });
     }
 
     default: {

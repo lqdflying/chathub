@@ -14,10 +14,12 @@ const mockedUserState = vi.hoisted(() => ({
   authUserId: 'test-user',
   isLoaded: true,
   isSignedIn: true,
+  isUserStateInit: true,
   ownerMismatch: false,
   ownershipInvalidationGeneration: 0,
   scope: 'user:test-user',
   user: { id: 'test-user' },
+  userStateScope: 'user:test-user',
 }));
 
 // Mock services and dependencies
@@ -75,6 +77,7 @@ beforeEach(() => {
   mockedUserState.ownerMismatch = false;
   mockedUserState.ownershipInvalidationGeneration = 0;
   mockedUserState.scope = 'user:test-user';
+  mockedUserState.userStateScope = 'user:test-user';
   useImageStore.setState({
     generationTopics: [],
     activeGenerationTopicId: null,
@@ -128,6 +131,39 @@ describe('GenerationTopicAction', () => {
           scopeGeneration: 0,
         }),
       );
+    });
+
+    it('keeps the server topic available for title generation and activation without a mounted topic list', async () => {
+      const { result } = renderHook(() => useImageStore());
+      const newTopicId = 'gt_mobile_topic';
+      const refreshSpy = vi
+        .spyOn(result.current, 'refreshGenerationTopics')
+        .mockResolvedValue(undefined);
+      const summarySpy = vi
+        .spyOn(result.current, 'summaryGenerationTopicTitle')
+        .mockImplementation(async (topicId) => {
+          expect(useImageStore.getState().generationTopics.some(({ id }) => id === topicId)).toBe(
+            true,
+          );
+          return 'Mobile topic';
+        });
+      vi.mocked(generationTopicService.createTopic).mockResolvedValue(newTopicId);
+
+      let createdTopicId!: string;
+      await act(async () => {
+        createdTopicId = await result.current.createGenerationTopic(['Mobile prompt']);
+      });
+
+      expect(refreshSpy).toHaveBeenCalled();
+      expect(createdTopicId).toBe(newTopicId);
+      expect(summarySpy).toHaveBeenCalledWith(newTopicId, ['Mobile prompt'], expect.any(Object));
+      expect(useImageStore.getState().generationTopics.map(({ id }) => id)).toEqual([newTopicId]);
+
+      act(() => {
+        result.current.switchGenerationTopic(newTopicId);
+      });
+
+      expect(useImageStore.getState().activeGenerationTopicId).toBe(newTopicId);
     });
 
     it('returns no topic id after an A-to-B-to-A reset during creation', async () => {
@@ -608,7 +644,9 @@ describe('GenerationTopicAction', () => {
       act(() => {
         useImageStore.setState({
           activeGenerationTopicId: 'shared-topic',
-          generationTopics: [{ id: 'shared-topic', title: 'Current topic' }] as ImageGenerationTopic[],
+          generationTopics: [
+            { id: 'shared-topic', title: 'Current topic' },
+          ] as ImageGenerationTopic[],
         });
       });
       mockedUserState.ownerMismatch = true;
@@ -917,7 +955,7 @@ describe('GenerationTopicAction', () => {
   });
 
   describe('internal_createGenerationTopic', () => {
-    it('should create topic with optimistic update pattern', async () => {
+    it('should promote the optimistic topic to the server id before refreshing', async () => {
       const { result } = renderHook(() => useImageStore());
       const newTopicId = 'gt_new_topic';
 
@@ -943,6 +981,11 @@ describe('GenerationTopicAction', () => {
       expect(loadingSpy).toHaveBeenCalledWith(expect.any(String), true);
       expect(loadingSpy).toHaveBeenCalledWith(newTopicId, false);
       expect(generationTopicService.createTopic).toHaveBeenCalled();
+      expect(useImageStore.getState().generationTopics.map(({ id }) => id)).toEqual([newTopicId]);
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        { type: 'replaceTopic', id: expect.any(String), value: { id: newTopicId } },
+        'internal_createGenerationTopic/promote',
+      );
     });
   });
 
