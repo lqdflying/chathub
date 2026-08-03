@@ -127,8 +127,6 @@ export const createCreateImageSlice: StateCreator<
       await get().refreshGenerationBatches(generationTopicId);
       if (!isOperationCurrent()) return;
 
-      if (!isOperationCurrent()) return;
-
       set(
         (state) =>
           state.parameters?.prompt === parameters.prompt

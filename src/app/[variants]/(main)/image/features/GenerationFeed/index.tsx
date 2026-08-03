@@ -10,6 +10,8 @@ import { generationBatchSelectors } from '@/store/image/selectors';
 
 import { GenerationBatchItem } from './BatchItem';
 
+type FeedScrollBehavior = 'auto' | 'smooth';
+
 const getScrollParent = (element: HTMLElement): HTMLElement => {
   let parent = element.parentElement;
 
@@ -23,7 +25,7 @@ const getScrollParent = (element: HTMLElement): HTMLElement => {
   return (document.scrollingElement as HTMLElement | null) || document.documentElement;
 };
 
-const getAccessibleScrollBehavior = (behavior: ScrollBehavior): ScrollBehavior =>
+const getAccessibleScrollBehavior = (behavior: FeedScrollBehavior): FeedScrollBehavior =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : behavior;
 
 const GenerationFeed = memo(() => {
@@ -34,7 +36,7 @@ const GenerationFeed = memo(() => {
 
   const currentGenerationBatches = useImageStore(generationBatchSelectors.currentGenerationBatches);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+  const scrollToBottom = useCallback((behavior: FeedScrollBehavior = 'smooth') => {
     if (!containerRef.current) return;
 
     const scrollableParent = getScrollParent(containerRef.current);
