@@ -131,7 +131,7 @@ export class FileModel {
       const file = await this.findById(id, tx);
       if (!file) return;
 
-      const fileHash = file.fileHash!;
+      const { fileHash } = file;
 
       // 2. Delete related chunks
       await this.deleteFileChunks(tx as any, [id]);
@@ -140,7 +140,7 @@ export class FileModel {
       await tx.delete(files).where(and(eq(files.id, id), eq(files.userId, this.userId)));
 
       // Files without a global hash own their storage object directly.
-      if (!file.fileHash) return file;
+      if (!fileHash) return file;
 
       const result = await tx
         .select({ count: count() })
