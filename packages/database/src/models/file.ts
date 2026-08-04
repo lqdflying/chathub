@@ -276,11 +276,12 @@ export class FileModel {
     const normalizedPage = Math.max(1, Math.floor(page));
     const normalizedPageSize = Math.min(60, Math.max(1, Math.floor(pageSize)));
     const normalizedQuery = q?.trim();
+    const escapedQuery = normalizedQuery?.replaceAll(/([%\\_])/g, String.raw`\$1`);
     const whereClause = and(
       eq(files.userId, this.userId),
       eq(files.source, FileSource.ImageGeneration),
       ilike(files.fileType, 'image/%'),
-      normalizedQuery ? ilike(files.name, `%${normalizedQuery}%`) : undefined,
+      escapedQuery ? ilike(files.name, `%${escapedQuery}%`) : undefined,
     );
     const orderByClause = sort === 'oldest' ? asc(files.createdAt) : desc(files.createdAt);
     const offset = (normalizedPage - 1) * normalizedPageSize;

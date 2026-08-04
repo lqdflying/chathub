@@ -106,9 +106,25 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
   const [error, setError] = useState(false);
   const debouncedQuery = useDebounce(query, { wait: 300 });
   const galleryRef = useRef<HTMLDivElement>(null);
+  const filterKey = JSON.stringify([debouncedQuery, sort]);
+  const appliedFilterKeyRef = useRef(filterKey);
+  const requestIdRef = useRef(0);
+  const effectivePage = appliedFilterKeyRef.current === filterKey ? page : 1;
+
+  useEffect(() => {
+    if (appliedFilterKeyRef.current === filterKey) return;
+
+    appliedFilterKeyRef.current = filterKey;
+    setPage(1);
+  }, [filterKey]);
 
   const loadArtifacts = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     const scopeAtRequestStart = requestedScope;
+    const isCurrentRequest = () =>
+      requestIdRef.current === requestId &&
+      sensitiveAccountScope(useUserStore.getState()) === scopeAtRequestStart;
+
     if (!scopeAtRequestStart) {
       setItems([]);
       setTotal(0);
@@ -120,36 +136,28 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
     setError(false);
     try {
       const result = await artifactService.list({
-        page,
+        page: effectivePage,
         pageSize: PAGE_SIZE,
         q: debouncedQuery || undefined,
         sort,
       });
 
-      if (sensitiveAccountScope(useUserStore.getState()) !== scopeAtRequestStart) return;
+      if (!isCurrentRequest()) return;
       setItems(result.items);
       setTotal(result.total);
     } catch {
-      if (sensitiveAccountScope(useUserStore.getState()) === scopeAtRequestStart) {
-        setError(true);
-      }
+      if (isCurrentRequest()) setError(true);
     } finally {
-      if (sensitiveAccountScope(useUserStore.getState()) === scopeAtRequestStart) {
-        setLoading(false);
-      }
+      if (isCurrentRequest()) setLoading(false);
     }
-  }, [debouncedQuery, page, requestedScope, sort]);
+  }, [debouncedQuery, effectivePage, requestedScope, sort]);
 
   useEffect(() => {
     void loadArtifacts();
   }, [loadArtifacts]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedQuery, sort]);
-
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
+  const currentPage = Math.min(effectivePage, totalPages);
   const handlePageChange = useCallback(
     (nextPage: number) => {
       const clampedPage = Math.min(Math.max(nextPage, 1), totalPages);
@@ -218,7 +226,7 @@ const ArtifactsWorkspaceContent = memo<ArtifactsWorkspaceContentProps>(({ reques
           subTitle={t('loadFailed')}
         />
       ) : loading ? (
-        <div className={styles.grid} ref={galleryRef}>
+        <div className={styles.grid}>
           {Array.from({ length: 8 }, (_, index) => (
             <ArtifactSkeleton key={index} />
           ))}

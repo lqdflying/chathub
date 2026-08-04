@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GenerationTopicModel } from '@/database/models/generationTopic';
 import { GenerationTopicItem } from '@/database/schemas/generation';

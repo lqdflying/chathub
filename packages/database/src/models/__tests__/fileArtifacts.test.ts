@@ -80,4 +80,45 @@ describe('FileModel.queryImageArtifacts', () => {
     expect(pagedResult).toMatchObject({ page: 2, pageSize: 1, total: 2 });
     expect(pagedResult.items.map(({ id }) => id)).toEqual(['artifact-new']);
   });
+
+  it('treats LIKE metacharacters in artifact search as literals', async () => {
+    await serverDB.insert(files).values([
+      {
+        createdAt: new Date('2026-07-03T00:00:00Z'),
+        fileType: 'image/png',
+        id: 'artifact-literal-pattern',
+        name: '50%_off.png',
+        size: 100,
+        source: FileSource.ImageGeneration,
+        url: 'generations/images/literal-pattern.png',
+        userId,
+      },
+      {
+        createdAt: new Date('2026-07-04T00:00:00Z'),
+        fileType: 'image/png',
+        id: 'artifact-percent-wildcard',
+        name: '500off.png',
+        size: 100,
+        source: FileSource.ImageGeneration,
+        url: 'generations/images/percent-wildcard.png',
+        userId,
+      },
+      {
+        createdAt: new Date('2026-07-05T00:00:00Z'),
+        fileType: 'image/png',
+        id: 'artifact-underscore-wildcard',
+        name: '50Xoff.png',
+        size: 100,
+        source: FileSource.ImageGeneration,
+        url: 'generations/images/underscore-wildcard.png',
+        userId,
+      },
+    ]);
+
+    const percentResult = await fileModel.queryImageArtifacts({ q: '50%' });
+    expect(percentResult.items.map(({ id }) => id)).toEqual(['artifact-literal-pattern']);
+
+    const underscoreResult = await fileModel.queryImageArtifacts({ q: '_off' });
+    expect(underscoreResult.items.map(({ id }) => id)).toEqual(['artifact-literal-pattern']);
+  });
 });

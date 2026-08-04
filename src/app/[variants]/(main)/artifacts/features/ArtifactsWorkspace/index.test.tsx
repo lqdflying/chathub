@@ -1,3 +1,4 @@
+import type { ImageArtifactListResult } from '@lobechat/types';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -223,5 +224,63 @@ describe('ArtifactsWorkspace', () => {
     );
     expect(await screen.findByText('page-2.png')).toBeTruthy();
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' });
+  });
+
+  it('ignores a stale page response after a filter resets pagination', async () => {
+    verifyAccountOwnership();
+
+    let resolvePageTwo: ((result: ImageArtifactListResult) => void) | undefined;
+    const pageTwoResponse = new Promise<ImageArtifactListResult>((resolve) => {
+      resolvePageTwo = resolve;
+    });
+
+    vi.mocked(artifactService.list).mockImplementation(async ({ page = 1, q }) => {
+      if (page === 2) return pageTwoResponse;
+
+      const name = q ? `${q}-page-${page}.png` : `page-${page}.png`;
+      return {
+        items: [artifact(`image-${name}`, name)],
+        page,
+        pageSize: 40,
+        total: 41,
+      } as ImageArtifactListResult;
+    });
+
+    render(<ArtifactsWorkspace />);
+    await screen.findByText('page-1.png');
+
+    fireEvent.click(screen.getByLabelText('page-2'));
+    await waitFor(() =>
+      expect(artifactService.list).toHaveBeenLastCalledWith({
+        page: 2,
+        pageSize: 40,
+        q: undefined,
+        sort: 'newest',
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText('search.label'), {
+      target: { value: 'city' },
+    });
+
+    await screen.findByText('city-page-1.png');
+    expect(
+      vi
+        .mocked(artifactService.list)
+        .mock.calls.filter(([input]) => input.q === 'city')
+        .every(([input]) => input.page === 1),
+    ).toBe(true);
+
+    await act(async () => {
+      resolvePageTwo?.({
+        items: [artifact('stale-page-two', 'stale-page-2.png')],
+        page: 2,
+        pageSize: 40,
+        total: 41,
+      });
+    });
+
+    expect(screen.getByText('city-page-1.png')).toBeTruthy();
+    expect(screen.queryByText('stale-page-2.png')).toBeNull();
   });
 });
