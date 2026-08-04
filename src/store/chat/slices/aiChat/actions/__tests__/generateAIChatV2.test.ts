@@ -934,6 +934,81 @@ describe('generateAIChatV2 actions', () => {
       expect(streamSpy).toHaveBeenCalled();
       expect(result.current.refreshMessages).toHaveBeenCalled();
     });
+
+    it('keeps Knowledge Base tokens active only for the initial provider request', async () => {
+      act(() => {
+        useChatStore.setState({
+          internal_execAgentRuntime: realExecAgentRuntime,
+          internal_updateMessageRAG: vi.fn(async () => undefined),
+        });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      const userMessage = {
+        content: TEST_CONTENT.RAG_QUERY,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      } as UIChatMessage;
+      vi.spyOn(result.current, 'internal_retrieveChunks').mockResolvedValue({
+        chunks: [{ id: 'chunk-1', similarity: 0.88, text: 'retrieved context' }] as any,
+        diagnosticId: undefined,
+        queryId: 'query-1',
+        retrieval: {
+          candidateCount: 5,
+          candidateLimit: 24,
+          eligibleCount: 2,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 1,
+          selectedScores: [0.88],
+          strategy: 'cosine',
+        },
+        rewriteQuery: 'rewritten question',
+        scope: { directFileCount: 1, expandedFileCount: 2, knowledgeBaseCount: 1 },
+      });
+
+      let capturedRequest: any;
+      vi.spyOn(result.current, 'internal_fetchAIChatMessage').mockImplementation(
+        async ({ params }) => {
+          capturedRequest = params?.contextExportRequest;
+          expect(
+            useChatStore.getState().knowledgeBaseContextTokens[
+              messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+            ],
+          ).toBeGreaterThan(0);
+          return { content: 'answer', isFunctionCall: false };
+        },
+      );
+
+      let captureId: string | undefined;
+      act(() => {
+        result.current.armContextExport({ chatMessages: 50, total: 50 });
+        captureId = result.current.consumeContextExportArm();
+      });
+
+      await act(async () => {
+        await result.current.internal_execAgentRuntime({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          contextExportCaptureId: captureId,
+          messages: [userMessage],
+          ragQuery: TEST_CONTENT.RAG_QUERY,
+          threadId: 'thread-test',
+          userMessageId: userMessage.id,
+        });
+      });
+
+      expect(capturedRequest).toMatchObject({
+        allocation: { chatMessages: 50, knowledgeBase: expect.any(Number) },
+        knowledgeBase: {
+          promptTokens: expect.any(Number),
+          retrieval: { selectedCount: 1 },
+        },
+      });
+      expect(capturedRequest.knowledgeBase.promptTokens).toBeGreaterThan(0);
+      expect(useChatStore.getState().knowledgeBaseContextTokens).toEqual({});
+    });
   });
 
   describe('error handling', () => {

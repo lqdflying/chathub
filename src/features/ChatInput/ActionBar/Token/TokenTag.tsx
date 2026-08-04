@@ -52,6 +52,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
     chatInstructionToken,
     chatsToken,
     historySummaryToken,
+    knowledgeBaseToken,
     maxTokens,
     memoryToken,
     roleSettingsToken,
@@ -64,6 +65,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
       chatInstruction: chatInstructionToken,
       chatMessages: chatsToken,
       historySummary: historySummaryToken,
+      knowledgeBase: knowledgeBaseToken,
       pluginSettings: toolsToken,
       roleSettings: roleSettingsToken,
       total: totalToken,
@@ -72,6 +74,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
       chatInstructionToken,
       chatsToken,
       historySummaryToken,
+      knowledgeBaseToken,
       memoryToken,
       roleSettingsToken,
       toolsToken,
@@ -136,6 +139,12 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
             id: 'historySummary',
             title: t('tokenDetails.historySummary'),
             value: historySummaryToken,
+          },
+          {
+            color: theme.volcano,
+            id: 'knowledgeBase',
+            title: t('tokenDetails.knowledgeBase'),
+            value: knowledgeBaseToken,
           },
           {
             color: theme.gold,
@@ -236,11 +245,7 @@ const Token = memo<TokenTagProps>(({ conversationSource }) => {
         value={totalToken}
       />
       {summaryOpen && activeTopicId && (
-        <TopicSummaryViewer
-          onClose={() => setSummaryOpen(false)}
-          open
-          topicId={activeTopicId}
-        />
+        <TopicSummaryViewer onClose={() => setSummaryOpen(false)} open topicId={activeTopicId} />
       )}
     </ActionPopover>
   );

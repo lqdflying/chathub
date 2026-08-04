@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { ChunkModel } from '@/database/models/chunk';
 import { EmbeddingModel } from '@/database/models/embedding';
 import { FileModel } from '@/database/models/file';
 import { UserModel } from '@/database/models/user';
+import { runWithKnowledgeDebugContext } from '@/libs/logger/knowledgeDebug';
 import { ChunkService } from '@/server/services/chunk';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskErrorType, AsyncTaskStatus } from '@/types/asyncTask';
@@ -76,6 +77,10 @@ describe('async fileRouter', () => {
     mocks.asyncTaskModel.findById.mockResolvedValue({ id: 'task-1' });
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('records a recoverable task error without deleting the file row when storage is missing', async () => {
     mocks.fileService.getFileByteArray.mockRejectedValue(
       Object.assign(new Error('The specified key does not exist.'), {
@@ -97,6 +102,38 @@ describe('async fileRouter', () => {
       error: {
         body: {
           detail: expect.stringContaining('Re-upload it to restore this document'),
+        },
+        name: AsyncTaskErrorType.ServerError,
+      },
+      status: AsyncTaskStatus.Error,
+    });
+  });
+
+  it('persists the trusted diagnostic id with a chunking failure', async () => {
+    vi.stubEnv('CHATHUB_KNOWLEDGE_DEBUG', '1');
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const diagnosticId = 'kb_1234567890abcdef';
+    mocks.fileService.getFileByteArray.mockRejectedValue(
+      Object.assign(new Error('The specified key does not exist.'), {
+        Code: 'NoSuchKey',
+        name: 'NoSuchKey',
+      }),
+    );
+    const caller = fileRouter.createCaller({
+      jwtPayload: {},
+      secret: 'test-internal-secret',
+      userId: 'test-user',
+    });
+
+    await runWithKnowledgeDebugContext({ diagnosticId }, () =>
+      caller.parseFileToChunks({ fileId: 'file-1', taskId: 'task-1' }),
+    );
+
+    expect(mocks.asyncTaskModel.update).toHaveBeenCalledWith('task-1', {
+      error: {
+        body: {
+          detail: expect.stringContaining('Re-upload it to restore this document'),
+          diagnosticId,
         },
         name: AsyncTaskErrorType.ServerError,
       },

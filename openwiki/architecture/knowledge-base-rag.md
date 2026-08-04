@@ -96,6 +96,27 @@ or above 0.2, and returns at most 8 chunks. The HNSW predicate requires a
 non-null `chunk_id`, so cached message/evaluation query vectors do not consume
 document nearest-neighbor candidates.
 
+## Chat retrieval and transient context
+
+When enabled Knowledge is attached to an assistant, chat RAG remains automatic.
+If the current message has history and no cached RAG query, the internal query
+rewrite model first produces the semantic-search query. There is no user-facing
+per-document embedding switch or per-message retrieval tool: parsing starts
+embedding by default, `CHUNKS_AUTO_EMBEDDING=0` disables that automatic handoff
+deployment-wide, and explicit reindex controls remain available. Provider
+readiness still governs whether usable vectors exist.
+
+The retrieval result is rendered into the full
+`<knowledge_base_qa_info>` prompt block and appended to a cloned latest-user
+message for the initial provider request. This block is not persisted in chat
+history and is cleared before tool continuations, but it consumes context tokens
+while that request is active. The regular context popover exposes those exact
+tokens in a `Knowledge Base` bucket. It never performs speculative retrieval to
+estimate them. `Context Export Next Request` adds the bucket and a bounded
+summary containing rewrite state, scope counts, candidate/threshold/result
+counts, selected cosine scores, and the diagnostic ID when available; the
+sanitized Engineered Context already carries the actual injected prompt.
+
 ## Indexing lifecycle
 
 File parsing and embedding are separate async tasks. Embedding runs in batches
@@ -145,12 +166,40 @@ Knowledge Base associations. A missing object during parsing is recorded as a
 readable async-task error; it never implicitly deletes the file row or its
 Knowledge Base junction.
 
+PDF parsing can also return no chunks when the document is image-only and has no
+OCR text layer, encrypted or password-protected, malformed/truncated, empty, or
+encoded with structures the current loader cannot extract. These are distinct
+from an object-storage `NoSuchKey` failure, which means the stored source object
+cannot be read. Re-uploading repairs a missing object reference; image-only PDFs
+need OCR before upload, while protected or malformed PDFs must be decrypted or
+re-exported.
+
 Explicit deletion removes an object from storage only after the final file row
 for its hash is gone and global-file removal is enabled. Bulk deletion returns
 one cleanup candidate per newly unreferenced hash, so removing one of several
 deduplicated rows cannot delete storage still used by another account or
 Knowledge Base. A file without a deduplication hash owns its storage object
 directly, so deleting that row still schedules its object for cleanup.
+
+## Structured Knowledge diagnostics
+
+`CHATHUB_KNOWLEDGE_DEBUG=1` enables standalone, versioned JSON lifecycle records
+prefixed with `[chathub-knowledge-debug:<event>]`. Correlation covers document
+registration/repair, Knowledge Base association, task dispatch, object reads,
+chunking, embedding batches/provider calls, reindexing, query embedding, scope
+expansion, vector search, retrieval, and client prompt injection. Async dispatch
+propagates `x-chathub-knowledge-diagnostic-id` only on requests authenticated
+with the internal bearer secret. Relevant chunking, embedding, and retrieval
+errors surface the same opaque `kb_...` diagnostic ID in task/UI errors.
+
+Safe records contain enumerated outcomes, counts, timings, dimensions, and
+bounded similarity data. `verbose` adds shapes and HMAC fingerprints keyed by
+`KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET`; without a fingerprint key those
+verbose additions fail closed with a configuration warning. Neither level logs
+raw filenames, document/chunk/query/prompt text, arbitrary error messages, URLs,
+credentials, private database identifiers, request/response bodies, or stacks.
+Each record is capped at 16 KiB. Diagnostics do not change retrieval, chunking,
+embedding, or reranking behavior.
 
 ## Source map
 
@@ -161,6 +210,7 @@ directly, so deleting that row still schedules its object for cleanup.
 - `src/server/services/chunk/index.ts`
 - `src/server/services/file/index.ts`
 - `src/server/services/rag/embedding.ts`
+- `src/libs/logger/knowledgeDebug.ts`
 - `src/server/routers/async/file.ts`
 - `src/server/routers/lambda/chunk.ts`
 - `src/server/routers/lambda/file.ts`

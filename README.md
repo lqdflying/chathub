@@ -61,6 +61,8 @@ services:
       # RAG_EMBEDDING_PROVIDER=openai
       # RAG_EMBEDDING_MODEL=text-embedding-3-small
       # RAG_EMBEDDING_API_KEY=...
+      # Privacy-safe Knowledge Base lifecycle diagnostics:
+      # CHATHUB_KNOWLEDGE_DEBUG=1 # or verbose
     ports:
       - '3210:3210'
 
@@ -129,7 +131,13 @@ Configure OpenAI, Cohere, or Voyage with `RAG_EMBEDDING_PROVIDER`,
 `RAG_EMBEDDING_MODEL`, and `RAG_EMBEDDING_API_KEY`, or save an encrypted
 per-account override under **Settings -> RAG Provider**. PostgreSQL must include
 the `pgvector` extension; the Compose example uses the pgvector image for this
-reason. See [Knowledge Base and RAG](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG).
+reason. Retrieved context is injected only into the active initial model request:
+the regular token popover reports it as **Knowledge Base**, and **Context Export
+Next Request** records its token allocation plus bounded retrieval statistics.
+It is not consolidated into saved chat history or carried into tool
+continuations. For privacy-safe JSON lifecycle logs, set
+`CHATHUB_KNOWLEDGE_DEBUG=1` (or temporarily `verbose`). See
+[Knowledge Base and RAG](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG).
 
 ### Moonshot Kimi K3
 

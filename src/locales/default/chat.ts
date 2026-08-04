@@ -41,6 +41,7 @@ export default {
     downloadBatch: '下载完整 JSON',
     engineeredContext: '工程化上下文',
     exportNext: '导出下一次请求',
+    knowledgeBaseSummary: '知识库检索摘要',
     noRequests: '本次捕获没有记录到模型请求',
     partialWarning: '部分请求未到达提供商调度边界，导出内容可能不完整。',
     providerBoundary: '此处展示发送给 SDK 的语义请求对象；认证与 SDK 序列化在此之后进行。',
@@ -497,6 +498,7 @@ export default {
     chats: '会话消息',
     groupOrchestration: '群组编排',
     historySummary: '历史总结',
+    knowledgeBase: '知识库',
     rest: '剩余可用',
     roleSettings: '角色设定',
     supervisor: '群组主持',
@@ -535,7 +537,6 @@ export default {
       imageUpload: '上传图片',
       tooltip: '上传',
     },
-    visionNotSupported: '当前模型不支持视觉识别，请切换模型后使用',
     preview: {
       prepareTasks: '准备分块...',
       status: {
@@ -546,6 +547,7 @@ export default {
     validation: {
       videoSizeExceeded: '视频文件大小不能超过 20MB，当前文件大小为 {{actualSize}}',
     },
+    visionNotSupported: '当前模型不支持视觉识别，请切换模型后使用',
   },
   you: '你',
   zenMode: '专注模式',

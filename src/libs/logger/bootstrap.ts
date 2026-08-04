@@ -24,6 +24,7 @@ import debug from 'debug';
 export type StructuredDebugLevel = 'off' | 'safe' | 'verbose';
 export type ToolsDebugLevel = StructuredDebugLevel;
 export type ImageDebugLevel = StructuredDebugLevel;
+export type KnowledgeDebugLevel = StructuredDebugLevel;
 
 /**
  * Legacy safe namespace, retained as an explicit DEBUG fallback when the
@@ -38,6 +39,7 @@ const OFF_VALUES = new Set(['', '0', 'false', 'off']);
 const SAFE_VALUES = new Set(['1', 'true', 'on', 'safe']);
 const VERBOSE_VALUES = new Set(['2', 'verbose']);
 let imageDebugConfigWarningLogged = false;
+let knowledgeDebugConfigWarningLogged = false;
 
 const parseStructuredDebugLevel = (raw: string | undefined): StructuredDebugLevel => {
   const v = (raw ?? '').trim().toLowerCase();
@@ -67,8 +69,13 @@ export const parseToolsDebugLevel = (raw: string | undefined): ToolsDebugLevel =
 export const parseImageDebugLevel = (raw: string | undefined): ImageDebugLevel =>
   parseStructuredDebugLevel(raw);
 
+/** Parse the server-only Knowledge Base lifecycle diagnostics switch. */
+export const parseKnowledgeDebugLevel = (raw: string | undefined): KnowledgeDebugLevel =>
+  parseStructuredDebugLevel(raw);
+
 const isRecognizedToolsDebugValue = isRecognizedStructuredDebugValue;
 const isRecognizedImageDebugValue = isRecognizedStructuredDebugValue;
+const isRecognizedKnowledgeDebugValue = isRecognizedStructuredDebugValue;
 
 const writeImageDebugConfigWarning = () => {
   if (imageDebugConfigWarningLogged) return;
@@ -86,6 +93,29 @@ const writeImageDebugConfigWarning = () => {
         schemaVersion: 1,
         timestamp: new Date().toISOString(),
         valueLength: process.env.CHATHUB_IMAGE_DEBUG?.length ?? 0,
+      }),
+    );
+  } catch {
+    // Diagnostics must never interrupt app startup.
+  }
+};
+
+const writeKnowledgeDebugConfigWarning = () => {
+  if (knowledgeDebugConfigWarningLogged) return;
+  knowledgeDebugConfigWarningLogged = true;
+
+  try {
+    // eslint-disable-next-line no-console
+    console.log(
+      '[chathub-knowledge-debug:config_warning]',
+      JSON.stringify({
+        debugLevel: 'safe',
+        outcome: 'warning',
+        phase: 'configuration',
+        reason: 'unrecognized_debug_value',
+        schemaVersion: 1,
+        timestamp: new Date().toISOString(),
+        valueLength: process.env.CHATHUB_KNOWLEDGE_DEBUG?.length ?? 0,
       }),
     );
   } catch {
@@ -119,6 +149,10 @@ export function bootstrapDebug() {
   // raw value. Image diagnostics are structured-only and remain off for typos.
   if (!isRecognizedImageDebugValue(process.env.CHATHUB_IMAGE_DEBUG)) {
     writeImageDebugConfigWarning();
+  }
+
+  if (!isRecognizedKnowledgeDebugValue(process.env.CHATHUB_KNOWLEDGE_DEBUG)) {
+    writeKnowledgeDebugConfigWarning();
   }
 
   const namespaces = buildNamespaceList();

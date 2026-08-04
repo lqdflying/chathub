@@ -26,6 +26,14 @@ class RAGService {
     return lambdaClient.chunk.semanticSearchForChat.mutate(params);
   };
 
+  reportKnowledgeClientEvent = async (params: {
+    chunkCount?: number;
+    diagnosticId?: string;
+    event: 'client_preparation_failed' | 'prompt_injection_reported';
+    promptTokens?: number;
+    queryRewritten?: boolean;
+  }) => lambdaClient.chunk.reportKnowledgeClientEvent.mutate(params);
+
   deleteMessageRagQuery = async (id: string) => {
     return lambdaClient.message.removeMessageQuery.mutate({ id });
   };

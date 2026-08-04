@@ -20,6 +20,8 @@ export interface ChatAIChatState {
   chatLoadingIdsAbortController?: AbortController;
   inputFiles: File[];
   inputMessage: string;
+  /** RAG prompt tokens currently carried by an in-flight provider request. */
+  knowledgeBaseContextTokens: Record<string, number>;
   mainInputEditor: ChatInputEditor | null;
   /**
    * sendMessageInServer operations map, keyed by sessionId|topicId
@@ -60,6 +62,7 @@ export const initialAiChatState: ChatAIChatState = {
   chatLoadingIds: [],
   inputFiles: [],
   inputMessage: '',
+  knowledgeBaseContextTokens: {},
   mainInputEditor: null,
   mainSendMessageOperations: {},
   messageInToolsCallingIds: [],

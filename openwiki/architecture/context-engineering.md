@@ -79,6 +79,16 @@ use their own raw conversation source with the current history-count settings,
 so their allocation does not reuse the main-chat message history or become
 stale when the history limit changes.
 
+When chat RAG actually retrieves Knowledge Base chunks, the regular popover adds
+an active-only `Knowledge Base` bucket. It counts the complete generated
+`<knowledge_base_qa_info>` block, including its instructions, metadata, tags,
+and selected chunks. No retrieval runs merely to estimate this value. The
+bucket is present while the initial provider request carries the block, then is
+cleared before any tool continuation. The injected block is built on a cloned
+message list and is not consolidated into stored chat history, although it does
+consume the provider context window for that request. Group estimates remain
+unchanged because the group orchestration path does not inject chat RAG.
+
 `Context Export` is a transient, one-shot diagnostic. The user arms it from the
 regular or group token popover, and the arm is consumed only by the next accepted
 user send. Empty-input attempts, persistence-only sends, retries, welcome
@@ -98,6 +108,16 @@ Each captured request has two layers:
    `input`/`instructions`, Anthropic `system`/`messages`, and Gemini
    `systemInstruction`/`contents`. It is not byte-exact HTTP: SDK serialization,
    authentication, headers, and transport metadata occur afterward.
+
+For a captured RAG request, the allocation includes the active Knowledge Base
+tokens and the request has a bounded structured summary: whether the query was
+rewritten, direct/expanded scope counts, cosine candidate/threshold/result
+counts, selected scores, and an optional diagnostic ID. The raw injected block
+already appears in the sanitized Engineered Context, so the summary does not
+duplicate chunk text or private database identifiers. A RAG preparation error
+creates a viewable partial capture with the diagnostic ID when diagnostics are
+enabled. Tool continuations use the original allocation and do not retain the
+Knowledge Base bucket.
 
 Chat requests deliver provider snapshots through the dedicated
 `context_snapshot` SSE event. Supervisor structured-output requests use the

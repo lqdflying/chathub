@@ -17,6 +17,11 @@ import { createHash } from 'node:crypto';
 
 import { UserModel, UserNotFoundError } from '@/database/models/user';
 import { knowledgeEnv } from '@/envs/knowledge';
+import {
+  describeKnowledgeDebugError,
+  logKnowledgeDebugSafe,
+  logKnowledgeDebugVerbose,
+} from '@/libs/logger/knowledgeDebug';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 
 export const RAG_PROVIDER_ENV_KEYS = [
@@ -293,88 +298,124 @@ export class RagEmbeddingService {
     const values = Array.isArray(input) ? input : [input];
     if (values.length === 0) return [];
 
-    const commonHeaders = {
-      'Authorization': `Bearer ${this.config.apiKey}`,
-      'Content-Type': 'application/json',
-    };
-    let body: Record<string, unknown>;
-    switch (this.config.provider) {
-      case 'cohere': {
-        body = {
-          embedding_types: ['float'],
-          input_type: inputType === 'query' ? 'search_query' : 'search_document',
-          model: this.config.model,
-          texts: values,
-        };
-        break;
-      }
-      case 'voyage': {
-        body = {
-          input: values,
-          input_type: inputType,
-          model: this.config.model,
-          output_dimension: RAG_EMBEDDING_DIMENSIONS,
-        };
-        break;
-      }
-      default: {
-        body = {
-          dimensions: RAG_EMBEDDING_DIMENSIONS,
-          input: values,
-          model: this.config.model,
-        };
-      }
-    }
+    const startedAt = Date.now();
+    logKnowledgeDebugSafe('embedding_provider_started', {
+      inputCount: values.length,
+      inputType,
+      phase: 'embedding_provider',
+      totalCharacters: values.reduce((total, value) => total + value.length, 0),
+    });
+    logKnowledgeDebugVerbose('embedding_provider_started', {
+      inputLengths: values.map((value) => value.length),
+      inputType,
+      model: this.config.model,
+      provider: this.config.provider,
+      values,
+    });
 
-    let response: Response;
     try {
-      response = await fetch(endpointFor(this.config), {
-        body: JSON.stringify(body),
-        headers: commonHeaders,
-        method: 'POST',
-        signal: AbortSignal.timeout(RAG_PROVIDER_TIMEOUT_MS),
+      const commonHeaders = {
+        'Authorization': `Bearer ${this.config.apiKey}`,
+        'Content-Type': 'application/json',
+      };
+      let body: Record<string, unknown>;
+      switch (this.config.provider) {
+        case 'cohere': {
+          body = {
+            embedding_types: ['float'],
+            input_type: inputType === 'query' ? 'search_query' : 'search_document',
+            model: this.config.model,
+            texts: values,
+          };
+          break;
+        }
+        case 'voyage': {
+          body = {
+            input: values,
+            input_type: inputType,
+            model: this.config.model,
+            output_dimension: RAG_EMBEDDING_DIMENSIONS,
+          };
+          break;
+        }
+        default: {
+          body = {
+            dimensions: RAG_EMBEDDING_DIMENSIONS,
+            input: values,
+            model: this.config.model,
+          };
+        }
+      }
+
+      let response: Response;
+      try {
+        response = await fetch(endpointFor(this.config), {
+          body: JSON.stringify(body),
+          headers: commonHeaders,
+          method: 'POST',
+          signal: AbortSignal.timeout(RAG_PROVIDER_TIMEOUT_MS),
+        });
+      } catch (error) {
+        throw new RagEmbeddingProviderError(
+          `Embedding provider request failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (!response.ok) throw new RagEmbeddingProviderError(await parseProviderError(response));
+
+      let payload: any;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new RagEmbeddingProviderError('The embedding provider returned invalid JSON.');
+      }
+      const data = Array.isArray(payload?.data) ? payload.data : undefined;
+      const vectors =
+        this.config.provider === 'cohere'
+          ? payload?.embeddings?.float
+          : this.config.provider === 'voyage'
+            ? data?.map((item: any) => item.embedding)
+            : data
+                ?.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+                .map((item: any) => item.embedding);
+
+      if (!Array.isArray(vectors) || vectors.length !== values.length) {
+        throw new RagEmbeddingProviderError(
+          'The embedding provider returned an invalid vector count.',
+        );
+      }
+      if (
+        vectors.some(
+          (vector: unknown) =>
+            !Array.isArray(vector) ||
+            vector.length !== RAG_EMBEDDING_DIMENSIONS ||
+            vector.some((value) => typeof value !== 'number' || !Number.isFinite(value)),
+        )
+      ) {
+        throw new RagEmbeddingProviderError(
+          `The embedding provider must return ${RAG_EMBEDDING_DIMENSIONS}-dimensional vectors.`,
+        );
+      }
+      logKnowledgeDebugSafe('embedding_provider_settled', {
+        dimensions: vectors[0]?.length ?? 0,
+        durationMs: Date.now() - startedAt,
+        inputCount: values.length,
+        inputType,
+        outcome: 'completed',
+        phase: 'embedding_provider',
+        vectorCount: vectors.length,
       });
+      return vectors as number[][];
     } catch (error) {
-      throw new RagEmbeddingProviderError(
-        `Embedding provider request failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      logKnowledgeDebugSafe('embedding_provider_settled', {
+        ...describeKnowledgeDebugError(error),
+        durationMs: Date.now() - startedAt,
+        inputCount: values.length,
+        inputType,
+        outcome: 'failed',
+        phase: 'embedding_provider',
+      });
+      throw error;
     }
-    if (!response.ok) throw new RagEmbeddingProviderError(await parseProviderError(response));
-
-    let payload: any;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new RagEmbeddingProviderError('The embedding provider returned invalid JSON.');
-    }
-    const data = Array.isArray(payload?.data) ? payload.data : undefined;
-    const vectors =
-      this.config.provider === 'cohere'
-        ? payload?.embeddings?.float
-        : this.config.provider === 'voyage'
-          ? data?.map((item: any) => item.embedding)
-          : data
-              ?.sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
-              .map((item: any) => item.embedding);
-
-    if (!Array.isArray(vectors) || vectors.length !== values.length) {
-      throw new RagEmbeddingProviderError(
-        'The embedding provider returned an invalid vector count.',
-      );
-    }
-    if (
-      vectors.some(
-        (vector: unknown) =>
-          !Array.isArray(vector) ||
-          vector.length !== RAG_EMBEDDING_DIMENSIONS ||
-          vector.some((value) => typeof value !== 'number' || !Number.isFinite(value)),
-      )
-    ) {
-      throw new RagEmbeddingProviderError(
-        `The embedding provider must return ${RAG_EMBEDDING_DIMENSIONS}-dimensional vectors.`,
-      );
-    }
-    return vectors as number[][];
   };
 
   testConnection = async () => {

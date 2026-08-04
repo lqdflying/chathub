@@ -20,10 +20,32 @@ export interface ContextExportAllocation {
   chatMessages?: number;
   groupOrchestration?: number;
   historySummary?: number;
+  knowledgeBase?: number;
   pluginSettings?: number;
   roleSettings?: number;
   supervisor?: number;
   total: number;
+}
+
+export interface ContextExportKnowledgeBaseSummary {
+  diagnosticId?: string;
+  promptTokens: number;
+  queryRewritten: boolean;
+  retrieval: {
+    candidateCount: number;
+    candidateLimit: number;
+    eligibleCount: number;
+    minimumSimilarity: number;
+    resultLimit: number;
+    selectedCount: number;
+    selectedScores: number[];
+    strategy: 'cosine';
+  };
+  scope: {
+    directFileCount: number;
+    expandedFileCount: number;
+    knowledgeBaseCount: number;
+  };
 }
 
 export interface ContextExportRequestMetadata {
@@ -39,6 +61,7 @@ export interface ContextExportRequestSnapshot {
   continuationReason: ContextExportContinuationReason;
   engineeredInput?: ContextExportJsonValue;
   error?: string;
+  knowledgeBase?: ContextExportKnowledgeBaseSummary;
   metadata?: ContextExportRequestMetadata;
   providerRequest?: ContextExportJsonValue;
   purpose: ContextExportPurpose;
@@ -60,6 +83,7 @@ export interface ContextExportRequestContext {
   allocation?: ContextExportAllocation;
   captureId: string;
   continuationReason: ContextExportContinuationReason;
+  knowledgeBase?: ContextExportKnowledgeBaseSummary;
   purpose: ContextExportPurpose;
   requestId: string;
   sequence: number;
@@ -73,6 +97,7 @@ export const ContextExportRequestContextSchema = z.object({
       chatMessages: z.number().nonnegative().optional(),
       groupOrchestration: z.number().nonnegative().optional(),
       historySummary: z.number().nonnegative().optional(),
+      knowledgeBase: z.number().nonnegative().optional(),
       pluginSettings: z.number().nonnegative().optional(),
       roleSettings: z.number().nonnegative().optional(),
       supervisor: z.number().nonnegative().optional(),
@@ -81,8 +106,29 @@ export const ContextExportRequestContextSchema = z.object({
     .optional(),
   captureId: z.string().min(1).max(128),
   continuationReason: z.enum(['initial', 'tool']),
+  knowledgeBase: z
+    .object({
+      diagnosticId: z.string().min(1).max(64).optional(),
+      promptTokens: z.number().int().nonnegative(),
+      queryRewritten: z.boolean(),
+      retrieval: z.object({
+        candidateCount: z.number().int().nonnegative(),
+        candidateLimit: z.number().int().nonnegative(),
+        eligibleCount: z.number().int().nonnegative(),
+        minimumSimilarity: z.number().min(-1).max(1),
+        resultLimit: z.number().int().nonnegative(),
+        selectedCount: z.number().int().nonnegative(),
+        selectedScores: z.array(z.number().min(-1).max(1)).max(8),
+        strategy: z.literal('cosine'),
+      }),
+      scope: z.object({
+        directFileCount: z.number().int().nonnegative(),
+        expandedFileCount: z.number().int().nonnegative(),
+        knowledgeBaseCount: z.number().int().nonnegative(),
+      }),
+    })
+    .optional(),
   purpose: z.enum(['assistant', 'member', 'supervisor']),
   requestId: z.string().min(1).max(128),
   sequence: z.number().int().nonnegative(),
 });
-

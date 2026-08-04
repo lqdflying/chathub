@@ -13,6 +13,7 @@ import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors, threadSelectors, topicSelectors } from '@/store/chat/selectors';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
 import { toolSelectors } from '@/store/tool/selectors';
 import { useUserStore } from '@/store/user';
@@ -23,6 +24,7 @@ export interface EstimatedContextUsage {
   chatsToken: number;
   historySummaryToken: number;
   inputTokenCount: number;
+  knowledgeBaseToken: number;
   maxTokens: number;
   memoryToken: number;
   ratio: number;
@@ -66,6 +68,11 @@ export const useEstimatedContextUsage = (
     ]);
 
   const maxTokens = useModelContextWindowTokens(model, provider);
+  const knowledgeBaseToken = useChatStore((state) =>
+    state.activeId
+      ? (state.knowledgeBaseContextTokens[messageMapKey(state.activeId, state.activeTopicId)] ?? 0)
+      : 0,
+  );
   const canUseTool = useModelSupportToolUse(model, provider);
   const pluginIds = useAgentStore(agentSelectors.currentAgentPlugins);
   const generalInstruction = useUserStore(userGeneralSettingsSelectors.generalInstruction);
@@ -168,7 +175,13 @@ export const useEstimatedContextUsage = (
   );
   const memoryToken = useTokenCount(agentMemoryBlock);
   const historySummaryToken = useTokenCount(memorySummary);
-  const totalToken = systemRoleToken + memoryToken + historySummaryToken + toolsToken + chatsToken;
+  const totalToken =
+    systemRoleToken +
+    memoryToken +
+    historySummaryToken +
+    toolsToken +
+    chatsToken +
+    knowledgeBaseToken;
   const ratio = maxTokens > 0 ? totalToken / maxTokens : 0;
 
   return {
@@ -176,6 +189,7 @@ export const useEstimatedContextUsage = (
     chatsToken,
     historySummaryToken,
     inputTokenCount,
+    knowledgeBaseToken,
     maxTokens,
     memoryToken,
     ratio,

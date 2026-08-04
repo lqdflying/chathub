@@ -11,7 +11,12 @@ const mocks = vi.hoisted(() => {
     { content: 'latest-portal-context', id: 'portal-message-3' },
   ];
   const chatState = {
+    activeId: 'session-1',
+    activeTopicId: 'topic-1',
     inputMessage: '',
+    knowledgeBaseContextTokens: {
+      '[1,"session-1","topic-1"]': 37,
+    },
   };
   let agentState = {
     enableHistoryCount: true,
@@ -138,6 +143,20 @@ vi.mock('@/services/chat/composeSystemRole', () => ({
 }));
 
 describe('useEstimatedContextUsage', () => {
+  it('includes the active Knowledge Base request bucket in total usage', () => {
+    const { result } = renderHook(() => useEstimatedContextUsage('main'));
+
+    expect(result.current.knowledgeBaseToken).toBe(37);
+    expect(result.current.totalToken).toBe(
+      result.current.systemRoleToken +
+        result.current.memoryToken +
+        result.current.historySummaryToken +
+        result.current.toolsToken +
+        result.current.chatsToken +
+        37,
+    );
+  });
+
   it('uses portal conversation content instead of main-chat content', () => {
     const { result } = renderHook(() => useEstimatedContextUsage('portal'));
 

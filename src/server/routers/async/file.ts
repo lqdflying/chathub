@@ -10,6 +10,12 @@ import { EmbeddingModel } from '@/database/models/embedding';
 import { FileModel } from '@/database/models/file';
 import { NewChunkItem, NewEmbeddingsItem, NewUnstructuredChunkItem } from '@/database/schemas';
 import { fileEnv } from '@/envs/file';
+import {
+  describeKnowledgeDebugError,
+  getKnowledgeDebugContext,
+  logKnowledgeDebugSafe,
+  logKnowledgeDebugVerbose,
+} from '@/libs/logger/knowledgeDebug';
 import { asyncAuthedProcedure, asyncRouter as router } from '@/libs/trpc/async';
 import { isStorageObjectMissingError } from '@/server/modules/S3/error';
 import { ChunkService } from '@/server/services/chunk';
@@ -19,12 +25,7 @@ import {
   RagProviderNotConfiguredError,
   resolveRagEmbeddingConfig,
 } from '@/server/services/rag';
-import {
-  AsyncTaskError,
-  AsyncTaskErrorType,
-  AsyncTaskStatus,
-  IAsyncTaskError,
-} from '@/types/asyncTask';
+import { AsyncTaskError, AsyncTaskErrorType, AsyncTaskStatus } from '@/types/asyncTask';
 import { safeParseJSON } from '@/utils/safeParseJSON';
 import { sanitizeUTF8 } from '@/utils/sanitizeUTF8';
 
@@ -43,8 +44,22 @@ const fileProcedure = asyncAuthedProcedure.use(async (opts) => {
   });
 });
 
-const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const candidate = error as { body?: unknown; message?: unknown };
+    if (typeof candidate.message === 'string') return candidate.message;
+    if (
+      candidate.body &&
+      typeof candidate.body === 'object' &&
+      typeof (candidate.body as { detail?: unknown }).detail === 'string'
+    ) {
+      return (candidate.body as { detail: string }).detail;
+    }
+    if (typeof candidate.body === 'string') return candidate.body;
+  }
+  return String(error);
+};
 
 export const fileRouter = router({
   embeddingChunks: fileProcedure
@@ -72,6 +87,18 @@ export const fileRouter = router({
       if (!asyncTask) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Async Task not found' });
 
       try {
+        const taskStartedAt = Date.now();
+        logKnowledgeDebugSafe('reindex_started', {
+          phase: 'embedding_task',
+          taskId: input.taskId,
+        });
+        logKnowledgeDebugVerbose('reindex_started', {
+          fileId: input.fileId,
+          fileName: file.name,
+          fileType: file.fileType,
+          storageUrl: file.url,
+          taskId: input.taskId,
+        });
         const resolved = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
         if (!resolved.config || !resolved.fingerprint) {
           throw new RagProviderNotConfiguredError();
@@ -106,7 +133,7 @@ export const fileRouter = router({
             await pMap(
               requestArray,
               async (chunks, index) => {
-                console.log(`run embedding task ${index + 1}`);
+                const batchStartedAt = Date.now();
 
                 const vectors = await embeddingService.embed(
                   chunks.map((c) => c.text),
@@ -122,6 +149,15 @@ export const fileRouter = router({
                 await ctx.embeddingModel.bulkCreate(items, {
                   fileId: input.fileId,
                   taskId: input.taskId,
+                });
+
+                logKnowledgeDebugSafe('embedding_batch_settled', {
+                  batchIndex: index,
+                  chunkCount: chunks.length,
+                  durationMs: Date.now() - batchStartedAt,
+                  outcome: 'completed',
+                  phase: 'embedding_batch',
+                  vectorCount: vectors.length,
                 });
               },
               { concurrency: CONCURRENCY },
@@ -147,6 +183,19 @@ export const fileRouter = router({
             status: AsyncTaskStatus.Success,
           });
 
+          logKnowledgeDebugSafe('embedding_task_settled', {
+            batchCount: requestArray.length,
+            chunkCount: chunks.length,
+            durationMs: Date.now() - taskStartedAt,
+            outcome: 'completed',
+            phase: 'embedding_task',
+          });
+          logKnowledgeDebugSafe('reindex_settled', {
+            durationMs: Date.now() - taskStartedAt,
+            outcome: 'completed',
+            phase: 'embedding_task',
+          });
+
           return { success: true };
         };
 
@@ -155,13 +204,28 @@ export const fileRouter = router({
       } catch (e) {
         console.error('embeddingChunks error', e);
 
+        logKnowledgeDebugSafe('embedding_task_settled', {
+          ...describeKnowledgeDebugError(e),
+          outcome: 'failed',
+          phase: 'embedding_task',
+        });
+        logKnowledgeDebugSafe('reindex_settled', {
+          ...describeKnowledgeDebugError(e),
+          outcome: 'failed',
+          phase: 'embedding_task',
+        });
+
         await ctx.asyncTaskModel.update(input.taskId, {
-          error: new AsyncTaskError((e as Error).name, (e as Error).message),
+          error: new AsyncTaskError(
+            (e as Error).name,
+            getErrorMessage(e),
+            getKnowledgeDebugContext()?.diagnosticId,
+          ),
           status: AsyncTaskStatus.Error,
         });
 
         return {
-          message: `File ${file.name}(${input.taskId}) failed to embedding: ${(e as Error).message}`,
+          message: `File ${file.name}(${input.taskId}) failed to embedding: ${getErrorMessage(e)}`,
           success: false,
         };
       }
@@ -192,6 +256,17 @@ export const fileRouter = router({
 
       try {
         const startAt = Date.now();
+        logKnowledgeDebugSafe('chunking_started', {
+          phase: 'chunking',
+          taskId: input.taskId,
+        });
+        logKnowledgeDebugVerbose('chunking_started', {
+          fileId: input.fileId,
+          fileName: file.name,
+          fileType: file.fileType,
+          storageUrl: file.url,
+          taskId: input.taskId,
+        });
 
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => {
@@ -209,7 +284,25 @@ export const fileRouter = router({
           // update the task status to processing
           await ctx.asyncTaskModel.update(input.taskId, { status: AsyncTaskStatus.Processing });
 
-          const content = await ctx.fileService.getFileByteArray(file.url);
+          const storageStartedAt = Date.now();
+          let content: Uint8Array;
+          try {
+            content = await ctx.fileService.getFileByteArray(file.url);
+            logKnowledgeDebugSafe('storage_read_settled', {
+              byteCount: content.byteLength,
+              durationMs: Date.now() - storageStartedAt,
+              outcome: 'completed',
+              phase: 'storage_read',
+            });
+          } catch (error) {
+            logKnowledgeDebugSafe('storage_read_settled', {
+              ...describeKnowledgeDebugError(error),
+              durationMs: Date.now() - storageStartedAt,
+              outcome: 'failed',
+              phase: 'storage_read',
+            });
+            throw error;
+          }
           if (!content) {
             throw new AsyncTaskError(
               AsyncTaskErrorType.ServerError,
@@ -261,6 +354,14 @@ export const fileRouter = router({
             status: AsyncTaskStatus.Success,
           });
 
+          logKnowledgeDebugSafe('chunking_settled', {
+            chunkCount: chunks.length,
+            durationMs: duration,
+            outcome: 'completed',
+            phase: 'chunking',
+            unstructuredChunkCount: unstructuredChunks.length,
+          });
+
           // if enable auto embedding, trigger the embedding task
           const resolved = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
           if (fileEnv.CHUNKS_AUTO_EMBEDDING && resolved.config) {
@@ -274,14 +375,37 @@ export const fileRouter = router({
       } catch (e) {
         const error = e as any;
 
+        const parsedErrorBody =
+          typeof error.body === 'string' ? (safeParseJSON(error.body) ?? error.body) : error.body;
         const asyncTaskError = isStorageObjectMissingError(error)
           ? new AsyncTaskError(
               AsyncTaskErrorType.ServerError,
               'The source file is missing from object storage. Re-upload it to restore this document.',
+              getKnowledgeDebugContext()?.diagnosticId,
             )
           : error.body
-            ? ({ body: safeParseJSON(error.body) ?? error.body, name: error.name } as IAsyncTaskError)
-            : new AsyncTaskError((error as Error).name, getErrorMessage(error));
+            ? new AsyncTaskError(
+                error.name,
+                parsedErrorBody &&
+                  typeof parsedErrorBody === 'object' &&
+                  typeof parsedErrorBody.detail === 'string'
+                  ? parsedErrorBody.detail
+                  : typeof parsedErrorBody === 'string'
+                    ? parsedErrorBody
+                    : getErrorMessage(error),
+                getKnowledgeDebugContext()?.diagnosticId,
+              )
+            : new AsyncTaskError(
+                (error as Error).name,
+                getErrorMessage(error),
+                getKnowledgeDebugContext()?.diagnosticId,
+              );
+
+        logKnowledgeDebugSafe('chunking_settled', {
+          ...describeKnowledgeDebugError(error),
+          outcome: 'failed',
+          phase: 'chunking',
+        });
 
         console.error('[Chunking Error]', asyncTaskError);
         await ctx.asyncTaskModel.update(input.taskId, {

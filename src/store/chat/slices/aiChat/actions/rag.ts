@@ -1,4 +1,11 @@
 import { chainRewriteQuery } from '@lobechat/prompts';
+import {
+  RAG_CHAT_CANDIDATE_LIMIT,
+  RAG_CHAT_MINIMUM_SIMILARITY,
+  RAG_CHAT_RESULT_LIMIT,
+  RagChatRetrievalStats,
+  RagChatScopeStats,
+} from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
 import { chatService } from '@/services/chat';
@@ -9,10 +16,38 @@ import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { ChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
+import type { ConversationContext } from '@/store/chat/types';
 import { toggleBooleanList } from '@/store/chat/utils';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
 import { ChatSemanticSearchChunk } from '@/types/chunk';
+
+export interface ChatRagRetrievalResult {
+  chunks: ChatSemanticSearchChunk[];
+  diagnosticId?: string;
+  queryId?: string;
+  retrieval: RagChatRetrievalStats;
+  rewriteQuery?: string;
+  scope: RagChatScopeStats;
+}
+
+const emptyRetrievalStats = (): RagChatRetrievalStats => ({
+  candidateCount: 0,
+  candidateLimit: RAG_CHAT_CANDIDATE_LIMIT,
+  eligibleCount: 0,
+  minimumSimilarity: RAG_CHAT_MINIMUM_SIMILARITY,
+  resultLimit: RAG_CHAT_RESULT_LIMIT,
+  selectedCount: 0,
+  selectedScores: [],
+  strategy: 'cosine',
+});
+
+const emptyScopeStats = (): RagChatScopeStats => ({
+  directFileCount: 0,
+  expandedFileCount: 0,
+  knowledgeBaseCount: 0,
+});
 
 export interface ChatRAGAction {
   deleteUserMessageRagQuery: (id: string) => Promise<void>;
@@ -23,11 +58,15 @@ export interface ChatRAGAction {
     id: string,
     userQuery: string,
     messages: string[],
-  ) => Promise<{ chunks: ChatSemanticSearchChunk[]; queryId?: string; rewriteQuery?: string }>;
+  ) => Promise<ChatRagRetrievalResult>;
   /**
    * Rewrite user content to better RAG query
    */
   internal_rewriteQuery: (id: string, content: string, messages: string[]) => Promise<string>;
+  internal_setKnowledgeBaseContextTokens: (
+    conversationContext: Pick<ConversationContext, 'sessionId' | 'topicId'>,
+    tokens: number,
+  ) => void;
 
   /**
    * Check if we should use RAG
@@ -74,7 +113,9 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
 
   internal_retrieveChunks: async (id, userQuery, messages) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    if (!accountMutationSnapshot) return { chunks: [] };
+    if (!accountMutationSnapshot) {
+      return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
+    }
 
     const requestedGeneration = get().conversationClearGeneration;
     const requestedSessionId = get().activeId;
@@ -85,7 +126,9 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
       get().activeId === requestedSessionId &&
       get().activeTopicId === requestedTopicId &&
       !!chatSelectors.getMessageById(id)(get());
-    if (!isCurrentRequest()) return { chunks: [] };
+    if (!isCurrentRequest()) {
+      return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
+    }
 
     get().internal_toggleMessageRAGLoading(true, id);
 
@@ -104,12 +147,14 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
       // we need to rewrite the user message to get better results
       if (!message?.ragQuery && messages.length > 0) {
         rewriteQuery = await get().internal_rewriteQuery(id, userQuery, messages);
-        if (!isCurrentRequest()) return { chunks: [] };
+        if (!isCurrentRequest()) {
+          return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
+        }
       }
 
       // 2. retrieve chunks from semantic search
       const files = chatSelectors.currentUserFiles(get()).map((f) => f.id);
-      const { chunks, queryId } = await ragService.semanticSearchForChat({
+      const result = await ragService.semanticSearchForChat({
         fileIds: knowledgeIds().fileIds.concat(files),
         knowledgeIds: knowledgeIds().knowledgeBaseIds,
         messageId: id,
@@ -117,9 +162,18 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
         userQuery,
       });
 
-      if (!isCurrentRequest()) return { chunks: [] };
+      if (!isCurrentRequest()) {
+        return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
+      }
 
-      return { chunks, queryId, rewriteQuery };
+      return {
+        chunks: result.chunks,
+        diagnosticId: result.diagnosticId,
+        queryId: result.queryId,
+        retrieval: result.retrieval ?? emptyRetrievalStats(),
+        rewriteQuery,
+        scope: result.scope ?? emptyScopeStats(),
+      };
     } finally {
       if (isCurrentRequest()) get().internal_toggleMessageRAGLoading(false, id);
     }
@@ -177,6 +231,23 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
 
     return isCurrentRequest() ? rewriteQuery : content;
   },
+  internal_setKnowledgeBaseContextTokens: (conversationContext, tokens) => {
+    const key = messageMapKey(conversationContext.sessionId, conversationContext.topicId);
+    const current = get().knowledgeBaseContextTokens;
+    if (tokens > 0) {
+      set(
+        { knowledgeBaseContextTokens: { ...current, [key]: tokens } },
+        false,
+        'internal_setKnowledgeBaseContextTokens',
+      );
+      return;
+    }
+
+    const rest = { ...current };
+    Reflect.deleteProperty(rest, key);
+    set({ knowledgeBaseContextTokens: rest }, false, 'internal_setKnowledgeBaseContextTokens');
+  },
+
   internal_shouldUseRAG: () => {
     //  if there is enabled knowledge, try with ragQuery
     return hasEnabledKnowledge();

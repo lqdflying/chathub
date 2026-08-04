@@ -31,19 +31,19 @@ export enum AsyncTaskErrorType {
 }
 
 export interface IAsyncTaskError {
-  body: string | { detail: string };
+  body: string | { detail: string; diagnosticId?: string };
   name: string;
 }
 
 export class AsyncTaskError implements IAsyncTaskError {
-  constructor(name: string, message: string) {
+  constructor(name: string, message: string, diagnosticId?: string) {
     this.name = name;
-    this.body = { detail: message };
+    this.body = { detail: message, diagnosticId };
   }
 
   name: string;
 
-  body: { detail: string };
+  body: { detail: string; diagnosticId?: string };
 }
 
 export interface FileParsingTask {

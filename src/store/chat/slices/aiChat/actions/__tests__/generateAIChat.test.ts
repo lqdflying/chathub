@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOADING_FLAT } from '@/const/message';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import { ragService } from '@/services/rag';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -1041,7 +1042,7 @@ describe('chatMessage actions', () => {
       expect(result.current.refreshMessages).toHaveBeenCalled();
     });
 
-    it('should handle RAG flow when ragQuery is provided', async () => {
+    it('accounts for the active RAG prompt and includes its summary in context export', async () => {
       act(() => {
         useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
       });
@@ -1057,15 +1058,47 @@ describe('chatMessage actions', () => {
         .spyOn(result.current, 'internal_retrieveChunks')
         .mockResolvedValue({
           chunks: [{ id: 'chunk-1', similarity: 0.9, text: 'chunk text' }] as any,
+          diagnosticId: undefined,
           queryId: 'query-1',
+          retrieval: {
+            candidateCount: 4,
+            candidateLimit: 24,
+            eligibleCount: 2,
+            minimumSimilarity: 0.2,
+            resultLimit: 8,
+            selectedCount: 1,
+            selectedScores: [0.9],
+            strategy: 'cosine',
+          },
           rewriteQuery: 'rewritten query',
+          scope: { directFileCount: 1, expandedFileCount: 3, knowledgeBaseCount: 1 },
         });
 
       vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      let capturedRequest: any;
+      vi.spyOn(result.current, 'internal_fetchAIChatMessage').mockImplementation(
+        async ({ params }) => {
+          capturedRequest = params?.contextExportRequest;
+          expect(
+            useChatStore.getState().knowledgeBaseContextTokens[
+              messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+            ],
+          ).toBeGreaterThan(0);
+          return { content: 'answer', isFunctionCall: false };
+        },
+      );
+
+      let captureId: string | undefined;
+      act(() => {
+        result.current.armContextExport({ chatMessages: 75, total: 75 });
+        captureId = result.current.consumeContextExportArm();
+      });
 
       await act(async () => {
         await result.current.internal_coreProcessMessage([userMessage], userMessage.id, {
+          contextExportCaptureId: captureId,
           ragQuery: TEST_CONTENT.RAG_QUERY,
+          threadId: 'thread-test',
         });
       });
 
@@ -1073,6 +1106,75 @@ describe('chatMessage actions', () => {
         TEST_IDS.USER_MESSAGE_ID,
         TEST_CONTENT.RAG_QUERY,
         [],
+      );
+      expect(capturedRequest).toMatchObject({
+        allocation: {
+          chatMessages: 75,
+          knowledgeBase: expect.any(Number),
+          total: expect.any(Number),
+        },
+        continuationReason: 'initial',
+        knowledgeBase: {
+          promptTokens: expect.any(Number),
+          queryRewritten: true,
+          retrieval: { candidateCount: 4, selectedCount: 1 },
+          scope: { directFileCount: 1, expandedFileCount: 3, knowledgeBaseCount: 1 },
+        },
+      });
+      expect(capturedRequest.knowledgeBase.promptTokens).toBeGreaterThan(0);
+      expect(capturedRequest.allocation.total).toBe(
+        75 + capturedRequest.knowledgeBase.promptTokens,
+      );
+      expect(useChatStore.getState().knowledgeBaseContextTokens).toEqual({});
+      const continuation = result.current.createContextExportRequest(
+        captureId!,
+        'assistant',
+        'tool',
+      );
+      expect(continuation).toMatchObject({
+        allocation: { chatMessages: 75, total: 75 },
+        continuationReason: 'tool',
+      });
+      expect(continuation).not.toHaveProperty('knowledgeBase');
+    });
+
+    it('captures a diagnostic partial export when RAG preparation fails before dispatch', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+      const { result } = renderHook(() => useChatStore());
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.RAG_QUERY,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+      vi.spyOn(result.current, 'internal_retrieveChunks').mockRejectedValue(
+        new Error('rewrite failed'),
+      );
+      vi.spyOn(ragService, 'reportKnowledgeClientEvent').mockResolvedValue({
+        diagnosticId: 'kb_1234567890abcdef',
+      });
+
+      let captureId: string | undefined;
+      act(() => {
+        result.current.armContextExport({ chatMessages: 20, total: 20 });
+        captureId = result.current.consumeContextExportArm();
+      });
+
+      await expect(
+        result.current.internal_coreProcessMessage([userMessage], userMessage.id, {
+          contextExportCaptureId: captureId,
+          ragQuery: TEST_CONTENT.RAG_QUERY,
+        }),
+      ).rejects.toThrow('kb_1234567890abcdef');
+
+      expect(result.current.contextExportBatch?.requests[0]).toMatchObject({
+        error: 'Knowledge Base preparation failed (Diagnostic ID: kb_1234567890abcdef)',
+        status: 'error',
+      });
+      expect(messageService.createMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'assistant' }),
+        expect.anything(),
       );
     });
 

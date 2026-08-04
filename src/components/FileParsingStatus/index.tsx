@@ -77,6 +77,11 @@ const FileParsingStatus = memo<FileParsingStatusProps>(
                     {chunkingError.body && typeof chunkingError.body !== 'string'
                       ? chunkingError.body.detail
                       : chunkingError.body}
+                    {chunkingError.body &&
+                      typeof chunkingError.body !== 'string' &&
+                      chunkingError.body.diagnosticId && (
+                        <div>Diagnostic ID: {chunkingError.body.diagnosticId}</div>
+                      )}
                   </Flexbox>
                 )}
               </Flexbox>

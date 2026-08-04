@@ -250,6 +250,8 @@ Knowledge Base RAG has a separate provider contract in `src/envs/knowledge.ts`:
 - `RAG_EMBEDDING_MODEL`: the embedding model identifier
 - `RAG_EMBEDDING_API_KEY`: the provider credential
 - `RAG_EMBEDDING_BASE_URL`: optional secret-free HTTP(S) provider or proxy API root
+- `CHUNKS_AUTO_EMBEDDING`: defaults on; set `0` to stop successful parsing from
+  automatically starting embedding and use explicit reindexing instead
 
 The first three values form one required unit. A partial or invalid unit is
 reported as unavailable by the RAG provider status endpoint instead of falling
@@ -342,6 +344,35 @@ credentials, headers, cookies, environment values, arbitrary provider labels,
 arbitrary error messages, and stacks. Provider values are represented by keyed
 hash and length metadata. Unknown values are treated as off and emit a
 structured `config_warning` without echoing the invalid value.
+
+## Knowledge Base debug environment variable
+
+`CHATHUB_KNOWLEDGE_DEBUG` is a server-only, standalone switch for PII-safe
+Knowledge Base and RAG lifecycle diagnostics. It does not lower the global Pino
+level or enable raw `DEBUG=...` namespaces.
+
+| Value               | Effect                                                                          |
+| ------------------- | ------------------------------------------------------------------------------- |
+| unset / `0` / `off` | Structured Knowledge diagnostics off (default)                                  |
+| `1` / `safe`        | Registration, association, chunk/embed, reindex, retrieval, and prompt metadata |
+| `verbose` / `2`     | Safe records plus bounded deployment-keyed fingerprints and payload shapes      |
+
+Output uses `[chathub-knowledge-debug:<event>]` followed by one JSON object with
+`schemaVersion: 1`. Opaque `diagnosticId`, `spanId`, and event sequence values
+join Lambda work to authenticated async file processing and client prompt
+preparation. The `x-chathub-knowledge-diagnostic-id` dispatch header is accepted
+only when its request bearer matches `KEY_VAULTS_SECRET`. Async-task and chat
+errors expose the same `kb_...` ID for log lookup.
+
+Safe records include only bounded counts, durations, status/outcome labels,
+dimensions, and retrieval scores. Raw file names, database identifiers,
+document/chunk/query/prompt text, URLs, arbitrary error messages, bodies,
+headers, credentials, and stacks are omitted or represented only by shape.
+Verbose fingerprints require `KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET`; without
+one, they are skipped and one structured warning is emitted. Records are capped
+at 16 KiB. Unknown switch values are treated as off with a warning that does not
+echo the value. Recreate the container after changing this variable, then find a
+workflow by its UI error ID with `grep 'kb_<id>'` in the application logs.
 
 ## Change guidance
 

@@ -70,6 +70,11 @@ const EmbeddingStatus = memo<EmbeddingStatusProps>(
                     {embeddingError.body && typeof embeddingError.body !== 'string'
                       ? embeddingError.body.detail
                       : embeddingError.body}
+                    {embeddingError.body &&
+                      typeof embeddingError.body !== 'string' &&
+                      embeddingError.body.diagnosticId && (
+                        <div>Diagnostic ID: {embeddingError.body.diagnosticId}</div>
+                      )}
                   </Flexbox>
                 )}
               </Flexbox>

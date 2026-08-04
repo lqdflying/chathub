@@ -450,6 +450,7 @@ export const chatMessage: StateCreator<
         messagesInit: false,
         messagesMap: {},
         mainSendMessageOperations: {},
+        knowledgeBaseContextTokens: {},
         localFileLoading: {},
         pluginApiAbortControllers: {},
         pluginApiLoadingIds: [],

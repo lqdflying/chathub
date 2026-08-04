@@ -1,11 +1,11 @@
 'use client';
 
-import { exportFile } from '@lobechat/utils/client';
 import type {
   ContextExportAllocation,
   ContextExportJsonValue,
   ContextExportRequestSnapshot,
 } from '@lobechat/types';
+import { exportFile } from '@lobechat/utils/client';
 import { Highlighter, copyToClipboard } from '@lobehub/ui';
 import { Alert, App, Button, Drawer, Empty, Segmented, Select, Tag } from 'antd';
 import { createStyles } from 'antd-style';
@@ -57,6 +57,13 @@ const useStyles = createStyles(({ css, token }) => ({
     font-size: 13px;
     font-weight: 600;
     color: ${token.colorText};
+  `,
+  summary: css`
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid ${token.colorBorderSecondary};
+    border-radius: ${token.borderRadius}px;
+    background: ${token.colorFillQuaternary};
   `,
   value: css`
     font-family: ${token.fontFamilyCode};
@@ -152,6 +159,10 @@ const ContextExportControl = memo<ContextExportControlProps>(({ allocation }) =>
               label: t('tokenDetails.historySummary'),
               value: selectedAllocation.historySummary,
             },
+            {
+              label: t('tokenDetails.knowledgeBase'),
+              value: selectedAllocation.knowledgeBase,
+            },
             { label: t('tokenDetails.supervisor'), value: selectedAllocation.supervisor },
             { label: t('tokenDetails.chats'), value: selectedAllocation.chatMessages },
             { label: t('tokenDetails.used'), value: selectedAllocation.total },
@@ -171,10 +182,7 @@ const ContextExportControl = memo<ContextExportControlProps>(({ allocation }) =>
 
   const handleDownload = () => {
     if (!batch) return;
-    exportFile(
-      JSON.stringify(batch, null, 2),
-      `chathub-context-${batch.captureId.slice(-8)}.json`,
-    );
+    exportFile(JSON.stringify(batch, null, 2), `chathub-context-${batch.captureId.slice(-8)}.json`);
   };
 
   const renderControl = () => {
@@ -306,6 +314,21 @@ const ContextExportControl = memo<ContextExportControlProps>(({ allocation }) =>
                         <span className={styles.value}>{numeral(item.value).format('0,0')}</span>
                       </Flexbox>
                     ))}
+                  </div>
+                </Flexbox>
+              )}
+
+              {selectedRequest?.knowledgeBase && (
+                <Flexbox gap={8}>
+                  <div className={styles.sectionTitle}>
+                    {t('contextExport.knowledgeBaseSummary')}
+                  </div>
+                  <div className={styles.summary}>
+                    <Highlighter language={'json'} variant={'borderless'} wrap>
+                      {stringifyJson(
+                        selectedRequest.knowledgeBase as unknown as ContextExportJsonValue,
+                      )}
+                    </Highlighter>
                   </div>
                 </Flexbox>
               )}

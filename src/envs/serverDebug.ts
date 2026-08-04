@@ -1,4 +1,8 @@
-import { parseImageDebugLevel, parseToolsDebugLevel } from '@/libs/logger/bootstrap';
+import {
+  parseImageDebugLevel,
+  parseKnowledgeDebugLevel,
+  parseToolsDebugLevel,
+} from '@/libs/logger/bootstrap';
 
 /**
  * Server-side debug configuration.
@@ -8,6 +12,8 @@ export const getServerDebugConfig = () => ({
   CHATHUB_DEBUG: process.env.CHATHUB_DEBUG === '1',
   CHATHUB_IMAGE_DEBUG: process.env.CHATHUB_IMAGE_DEBUG || '',
   CHATHUB_IMAGE_DEBUG_LEVEL: parseImageDebugLevel(process.env.CHATHUB_IMAGE_DEBUG),
+  CHATHUB_KNOWLEDGE_DEBUG: process.env.CHATHUB_KNOWLEDGE_DEBUG || '',
+  CHATHUB_KNOWLEDGE_DEBUG_LEVEL: parseKnowledgeDebugLevel(process.env.CHATHUB_KNOWLEDGE_DEBUG),
   CHATHUB_TOOLS_DEBUG: process.env.CHATHUB_TOOLS_DEBUG || '',
   CHATHUB_TOOLS_DEBUG_LEVEL: parseToolsDebugLevel(process.env.CHATHUB_TOOLS_DEBUG),
   DEBUG: process.env.DEBUG || '',

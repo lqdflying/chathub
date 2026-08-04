@@ -4,6 +4,12 @@ import { isChunkableFile } from '@lobechat/utils';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
+import {
+  describeKnowledgeDebugError,
+  getKnowledgeDebugContext,
+  logKnowledgeDebugSafe,
+  runWithKnowledgeDebugOperation,
+} from '@/libs/logger/knowledgeDebug';
 import { ChunkContentParams, ContentChunk } from '@/server/modules/ContentChunk';
 import { createAsyncCaller } from '@/server/routers/async';
 import { RagProviderNotConfiguredError, resolveRagEmbeddingConfig } from '@/server/services/rag';
@@ -36,82 +42,141 @@ export class ChunkService {
   }
 
   async asyncEmbeddingFileChunks(fileId: string, payload: ClientSecretPayload) {
-    const result = await this.fileModel.findById(fileId);
+    return runWithKnowledgeDebugOperation(
+      { operation: 'embedding_task', runtime: 'lambda', transport: 'internal_http' },
+      async () => {
+        const startedAt = Date.now();
+        const result = await this.fileModel.findById(fileId);
 
-    if (!result) return;
-    if (!isChunkableFile(result.name, result.fileType)) {
-      throw new Error('This file format is not supported by the Knowledge Base chunkers.');
-    }
+        if (!result) return;
+        if (!isChunkableFile(result.name, result.fileType)) {
+          throw new Error('This file format is not supported by the Knowledge Base chunkers.');
+        }
 
-    const resolved = await resolveRagEmbeddingConfig(this.db, this.userId);
-    if (!resolved.config) throw new RagProviderNotConfiguredError();
+        const resolved = await resolveRagEmbeddingConfig(this.db, this.userId);
+        if (!resolved.config) throw new RagProviderNotConfiguredError();
 
-    // 1. create a asyncTaskId
-    const asyncTaskId = await this.asyncTaskModel.create({
-      status: AsyncTaskStatus.Pending,
-      type: AsyncTaskType.Embedding,
-    });
+        // 1. create a asyncTaskId
+        const asyncTaskId = await this.asyncTaskModel.create({
+          status: AsyncTaskStatus.Pending,
+          type: AsyncTaskType.Embedding,
+        });
 
-    await this.fileModel.update(fileId, { embeddingTaskId: asyncTaskId });
+        await this.fileModel.update(fileId, { embeddingTaskId: asyncTaskId });
 
-    const asyncCaller = await createAsyncCaller({ jwtPayload: payload, userId: this.userId });
+        logKnowledgeDebugSafe('reindex_started', {
+          phase: 'embedding_task',
+          taskId: asyncTaskId,
+        });
 
-    // trigger embedding task asynchronously
-    try {
-      await asyncCaller.file.embeddingChunks({ fileId, taskId: asyncTaskId });
-    } catch (e) {
-      console.error('[embeddingFileChunks] error:', e);
+        const asyncCaller = await createAsyncCaller({ jwtPayload: payload, userId: this.userId });
 
-      await this.asyncTaskModel.update(asyncTaskId, {
-        error: new AsyncTaskError(
-          AsyncTaskErrorType.TaskTriggerError,
-          'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
-        ),
-        status: AsyncTaskStatus.Error,
-      });
-    }
+        // trigger embedding task asynchronously
+        try {
+          logKnowledgeDebugSafe('task_dispatch_started', {
+            phase: 'embedding_dispatch',
+            taskId: asyncTaskId,
+          });
+          await asyncCaller.file.embeddingChunks({ fileId, taskId: asyncTaskId });
+          logKnowledgeDebugSafe('task_dispatch_settled', {
+            durationMs: Date.now() - startedAt,
+            outcome: 'completed',
+            phase: 'embedding_dispatch',
+            taskId: asyncTaskId,
+          });
+        } catch (e) {
+          console.error('[embeddingFileChunks] error:', e);
 
-    return asyncTaskId;
+          logKnowledgeDebugSafe('task_dispatch_settled', {
+            ...describeKnowledgeDebugError(e),
+            durationMs: Date.now() - startedAt,
+            outcome: 'failed',
+            phase: 'embedding_dispatch',
+            taskId: asyncTaskId,
+          });
+
+          await this.asyncTaskModel.update(asyncTaskId, {
+            error: new AsyncTaskError(
+              AsyncTaskErrorType.TaskTriggerError,
+              'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
+              getKnowledgeDebugContext()?.diagnosticId,
+            ),
+            status: AsyncTaskStatus.Error,
+          });
+        }
+
+        return asyncTaskId;
+      },
+    );
   }
 
   /**
    * parse file to chunks with async task
    */
   async asyncParseFileToChunks(fileId: string, payload: ClientSecretPayload, skipExist?: boolean) {
-    const result = await this.fileModel.findById(fileId);
+    return runWithKnowledgeDebugOperation(
+      { operation: 'chunking_task', runtime: 'lambda', transport: 'internal_http' },
+      async () => {
+        const startedAt = Date.now();
+        const result = await this.fileModel.findById(fileId);
 
-    if (!result) return;
-    if (!isChunkableFile(result.name, result.fileType)) {
-      throw new Error('This file format is not supported by the Knowledge Base chunkers.');
-    }
+        if (!result) return;
+        if (!isChunkableFile(result.name, result.fileType)) {
+          throw new Error('This file format is not supported by the Knowledge Base chunkers.');
+        }
 
-    // skip if already exist chunk tasks
-    if (skipExist && result.chunkTaskId) return;
+        // skip if already exist chunk tasks
+        if (skipExist && result.chunkTaskId) return;
 
-    // 1. create a asyncTaskId
-    await this.fileModel.update(fileId, { embeddingTaskId: null });
-    const asyncTaskId = await this.asyncTaskModel.create({
-      status: AsyncTaskStatus.Processing,
-      type: AsyncTaskType.Chunking,
-    });
+        // 1. create a asyncTaskId
+        await this.fileModel.update(fileId, { embeddingTaskId: null });
+        const asyncTaskId = await this.asyncTaskModel.create({
+          status: AsyncTaskStatus.Processing,
+          type: AsyncTaskType.Chunking,
+        });
 
-    await this.fileModel.update(fileId, { chunkTaskId: asyncTaskId });
+        await this.fileModel.update(fileId, { chunkTaskId: asyncTaskId });
 
-    const asyncCaller = await createAsyncCaller({ jwtPayload: payload, userId: this.userId });
+        const asyncCaller = await createAsyncCaller({ jwtPayload: payload, userId: this.userId });
 
-    // trigger parse file task asynchronously
-    asyncCaller.file.parseFileToChunks({ fileId: fileId, taskId: asyncTaskId }).catch(async (e) => {
-      console.error('[ParseFileToChunks] error:', e);
+        // trigger parse file task asynchronously
+        logKnowledgeDebugSafe('task_dispatch_started', {
+          phase: 'chunking_dispatch',
+          taskId: asyncTaskId,
+        });
+        asyncCaller.file
+          .parseFileToChunks({ fileId: fileId, taskId: asyncTaskId })
+          .then(() => {
+            logKnowledgeDebugSafe('task_dispatch_settled', {
+              durationMs: Date.now() - startedAt,
+              outcome: 'completed',
+              phase: 'chunking_dispatch',
+              taskId: asyncTaskId,
+            });
+          })
+          .catch(async (e) => {
+            console.error('[ParseFileToChunks] error:', e);
 
-      await this.asyncTaskModel.update(asyncTaskId, {
-        error: new AsyncTaskError(
-          AsyncTaskErrorType.TaskTriggerError,
-          'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
-        ),
-        status: AsyncTaskStatus.Error,
-      });
-    });
+            logKnowledgeDebugSafe('task_dispatch_settled', {
+              ...describeKnowledgeDebugError(e),
+              durationMs: Date.now() - startedAt,
+              outcome: 'failed',
+              phase: 'chunking_dispatch',
+              taskId: asyncTaskId,
+            });
 
-    return asyncTaskId;
+            await this.asyncTaskModel.update(asyncTaskId, {
+              error: new AsyncTaskError(
+                AsyncTaskErrorType.TaskTriggerError,
+                'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
+                getKnowledgeDebugContext()?.diagnosticId,
+              ),
+              status: AsyncTaskStatus.Error,
+            });
+          });
+
+        return asyncTaskId;
+      },
+    );
   }
 }

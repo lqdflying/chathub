@@ -4,6 +4,28 @@ import { ChatSemanticSearchChunk } from './chunk';
 
 export const RAG_EMBEDDING_DIMENSIONS = 1024;
 
+/** Keep these values aligned with the existing pgvector retrieval behavior. */
+export const RAG_CHAT_CANDIDATE_LIMIT = 24;
+export const RAG_CHAT_MINIMUM_SIMILARITY = 0.2;
+export const RAG_CHAT_RESULT_LIMIT = 8;
+
+export interface RagChatRetrievalStats {
+  candidateCount: number;
+  candidateLimit: number;
+  eligibleCount: number;
+  minimumSimilarity: number;
+  resultLimit: number;
+  selectedCount: number;
+  selectedScores: number[];
+  strategy: 'cosine';
+}
+
+export interface RagChatScopeStats {
+  directFileCount: number;
+  expandedFileCount: number;
+  knowledgeBaseCount: number;
+}
+
 export const RagEmbeddingProviderSchema = z.enum(['openai', 'cohere', 'voyage']);
 
 export type RagEmbeddingProvider = z.infer<typeof RagEmbeddingProviderSchema>;

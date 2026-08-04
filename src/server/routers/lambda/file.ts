@@ -9,6 +9,12 @@ import { ChunkModel } from '@/database/models/chunk';
 import { EmbeddingModel } from '@/database/models/embedding';
 import { FileModel } from '@/database/models/file';
 import { appEnv } from '@/envs/app';
+import {
+  describeKnowledgeDebugError,
+  logKnowledgeDebugSafe,
+  logKnowledgeDebugVerbose,
+  runWithKnowledgeDebugOperation,
+} from '@/libs/logger/knowledgeDebug';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
@@ -91,64 +97,107 @@ export const fileRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      if (input.knowledgeBaseId && !isChunkableFile(input.name, input.fileType)) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message:
-            'Only documents supported by the chunking loaders can be added to a Knowledge Base.',
-        });
-      }
+      return runWithKnowledgeDebugOperation(
+        { operation: 'document_registration', runtime: 'lambda', transport: 'trpc' },
+        async () => {
+          const startedAt = Date.now();
+          try {
+            if (input.knowledgeBaseId && !isChunkableFile(input.name, input.fileType)) {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message:
+                  'Only documents supported by the chunking loaders can be added to a Knowledge Base.',
+              });
+            }
 
-      const globalFile = await ctx.fileModel.checkHash(input.hash);
-      if (!globalFile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file hash' });
+            const globalFile = await ctx.fileModel.checkHash(input.hash);
+            if (!globalFile)
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file hash' });
 
-      const reuseGlobalFile =
-        globalFile.isExist &&
-        (await isReusableStoredFile(ctx.fileService, globalFile.url));
+            const reuseGlobalFile =
+              globalFile.isExist && (await isReusableStoredFile(ctx.fileService, globalFile.url));
 
-      if (
-        !reuseGlobalFile &&
-        !isUserUploadKey(input.url, ctx.userId, 'file') &&
-        !isDesktopFileUrl(input.url)
-      ) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
-      }
+            if (
+              !reuseGlobalFile &&
+              !isUserUploadKey(input.url, ctx.userId, 'file') &&
+              !isDesktopFileUrl(input.url)
+            ) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
+            }
 
-      if (globalFile.isExist && !reuseGlobalFile) {
-        // Repairing a global hash updates every deduplicated file row. Require a server-readable,
-        // user-scoped object and verify its bytes before changing those shared references.
-        if (!isUserUploadKey(input.url, ctx.userId, 'file')) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
-        }
-        await verifyUploadedFileHash(ctx.fileService, input.url, input.hash);
-        await ctx.fileModel.repairGlobalFile(input.hash, {
-          fileType: input.fileType,
-          metadata: input.metadata,
-          size: input.size,
-          url: input.url,
-        });
-      }
+            if (globalFile.isExist && !reuseGlobalFile) {
+              // Repairing a global hash updates every deduplicated file row. Require a server-readable,
+              // user-scoped object and verify its bytes before changing those shared references.
+              if (!isUserUploadKey(input.url, ctx.userId, 'file')) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
+              }
+              await verifyUploadedFileHash(ctx.fileService, input.url, input.hash);
+              await ctx.fileModel.repairGlobalFile(input.hash, {
+                fileType: input.fileType,
+                metadata: input.metadata,
+                size: input.size,
+                url: input.url,
+              });
+            }
 
-      const canonicalUrl = reuseGlobalFile ? globalFile.url : input.url;
-      if (!canonicalUrl) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
-      }
+            const canonicalUrl = reuseGlobalFile ? globalFile.url : input.url;
+            if (!canonicalUrl) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
+            }
 
-      const { id } = await ctx.fileModel.create(
-        {
-          fileHash: input.hash,
-          fileType: reuseGlobalFile ? (globalFile.fileType ?? input.fileType) : input.fileType,
-          knowledgeBaseId: input.knowledgeBaseId,
-          metadata: reuseGlobalFile ? (globalFile.metadata ?? input.metadata) : input.metadata,
-          name: input.name,
-          size: reuseGlobalFile ? (globalFile.size ?? input.size) : input.size,
-          url: canonicalUrl,
+            const { id } = await ctx.fileModel.create(
+              {
+                fileHash: input.hash,
+                fileType: reuseGlobalFile
+                  ? (globalFile.fileType ?? input.fileType)
+                  : input.fileType,
+                knowledgeBaseId: input.knowledgeBaseId,
+                metadata: reuseGlobalFile
+                  ? (globalFile.metadata ?? input.metadata)
+                  : input.metadata,
+                name: input.name,
+                size: reuseGlobalFile ? (globalFile.size ?? input.size) : input.size,
+                url: canonicalUrl,
+              },
+              // if the file is not exist in global file, create a new one
+              !globalFile.isExist,
+            );
+
+            const result = { id, url: await ctx.fileService.getUIFileUrl(canonicalUrl) };
+            logKnowledgeDebugSafe('document_registration_settled', {
+              attachedToKnowledgeBase: !!input.knowledgeBaseId,
+              durationMs: Date.now() - startedAt,
+              fileBytes: input.size,
+              outcome: 'completed',
+              phase: 'document_registration',
+              repairedStoredObject: globalFile.isExist && !reuseGlobalFile,
+              reusedStoredObject: reuseGlobalFile,
+            });
+            logKnowledgeDebugVerbose('document_registration_settled', {
+              fileHash: input.hash,
+              fileId: id,
+              fileName: input.name,
+              knowledgeBaseId: input.knowledgeBaseId,
+              storageUrl: canonicalUrl,
+            });
+            return result;
+          } catch (error) {
+            logKnowledgeDebugSafe('document_registration_settled', {
+              ...describeKnowledgeDebugError(error),
+              durationMs: Date.now() - startedAt,
+              outcome: 'failed',
+              phase: 'document_registration',
+            });
+            logKnowledgeDebugVerbose('document_registration_settled', {
+              fileHash: input.hash,
+              fileName: input.name,
+              knowledgeBaseId: input.knowledgeBaseId,
+              storageUrl: input.url,
+            });
+            throw error;
+          }
         },
-        // if the file is not exist in global file, create a new one
-        !globalFile.isExist,
       );
-
-      return { id, url: await ctx.fileService.getUIFileUrl(canonicalUrl) };
     }),
   findById: fileProcedure
     .input(

@@ -2,11 +2,15 @@
 import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CHATHUB_IMAGE_DIAGNOSTIC_HEADER } from '@/const/tools';
+import {
+  CHATHUB_IMAGE_DIAGNOSTIC_HEADER,
+  CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER,
+} from '@/const/tools';
 
-import { getTrustedImageDiagnosticId } from './context';
+import { getTrustedImageDiagnosticId, getTrustedKnowledgeDiagnosticId } from './context';
 
 const diagnosticId = 'ig_1234567890abcdef';
+const knowledgeDiagnosticId = 'kb_1234567890abcdef';
 const internalSecret = 'test-internal-secret';
 
 vi.mock('@/config/db', () => ({
@@ -50,5 +54,24 @@ describe('getTrustedImageDiagnosticId', () => {
     });
 
     expect(getTrustedImageDiagnosticId(request)).toBe(diagnosticId);
+  });
+});
+
+describe('getTrustedKnowledgeDiagnosticId', () => {
+  it('rejects an untrusted diagnostic header', () => {
+    const request = createRequest({
+      [CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER]: knowledgeDiagnosticId,
+    });
+
+    expect(getTrustedKnowledgeDiagnosticId(request)).toBeUndefined();
+  });
+
+  it('accepts a normalized diagnostic id only from an authenticated internal request', () => {
+    const request = createRequest({
+      Authorization: `Bearer ${internalSecret}`,
+      [CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER]: knowledgeDiagnosticId,
+    });
+
+    expect(getTrustedKnowledgeDiagnosticId(request)).toBe(knowledgeDiagnosticId);
   });
 });

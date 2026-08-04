@@ -4,6 +4,7 @@ import { LOADING_FLAT, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { knowledgeBaseQAPrompts } from '@lobechat/prompts';
 import {
   ChatImageItem,
+  ContextExportRequestContext,
   CreateMessageParams,
   MessageSemanticSearchChunk,
   SendMessageParams,
@@ -22,18 +23,24 @@ import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import { ragService } from '@/services/rag';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
-import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { getAgentStoreState } from '@/store/agent/store';
 import { aiModelSelectors, aiProviderSelectors } from '@/store/aiInfra';
 import { getAiInfraStoreState } from '@/store/aiInfra/store';
+import {
+  CONTEXT_EXPORT_REDACTIONS,
+  addKnowledgeDiagnosticIdToError,
+  attachKnowledgeBaseExportSummary,
+  countKnowledgeBasePromptTokens,
+  createKnowledgeBaseSummary,
+  getKnowledgeDiagnosticIdFromError,
+} from '@/store/chat/helpers/knowledgeBaseContext';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
-import { useSessionStore } from '@/store/session';
-import { getSkillSelectionKey, getSkillStoreState } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { Action, setNamespace } from '@/utils/storeDebug';
@@ -110,6 +117,7 @@ interface ProcessMessageParams {
   activatedSkillIds?: string[];
   conversationContext?: ConversationContext;
   contextExportCaptureId?: string;
+  contextExportRequest?: ContextExportRequestContext;
   expectedConversationVersion?: number;
   traceId?: string;
   isWelcomeQuestion?: boolean;
@@ -319,37 +327,114 @@ export const generateAIChat: StateCreator<
 
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;
+    let knowledgeBasePromptTokens = 0;
+    let contextExportRequest =
+      params?.contextExportCaptureId && params.ragQuery
+        ? get().createContextExportRequest(
+            params.contextExportCaptureId,
+            params.agentId ? 'member' : 'assistant',
+            params.isToolContinuation ? 'tool' : 'initial',
+          )
+        : params?.contextExportRequest;
+    let runtimeParams = contextExportRequest ? { ...params, contextExportRequest } : params;
 
     // go into RAG flow if there is ragQuery flag
     if (params?.ragQuery) {
-      // 1. get the relative chunks from semantic search
-      const { chunks, queryId, rewriteQuery } = await get().internal_retrieveChunks(
-        userMessageId,
-        params?.ragQuery,
-        // should skip the last content
-        messages.map((m) => m.content).slice(0, messages.length - 1),
-      );
-      if (!isCurrentConversation()) return;
+      let diagnosticId: string | undefined;
+      try {
+        // 1. get the relative chunks from semantic search
+        const {
+          chunks,
+          diagnosticId: retrievalDiagnosticId,
+          queryId,
+          retrieval,
+          rewriteQuery,
+          scope,
+        } = await get().internal_retrieveChunks(
+          userMessageId,
+          params?.ragQuery,
+          // should skip the last content
+          messages.map((m) => m.content).slice(0, messages.length - 1),
+        );
+        if (!isCurrentConversation()) return;
 
-      ragQueryId = queryId;
+        diagnosticId = retrievalDiagnosticId;
 
-      const lastMsg = messages.pop() as UIChatMessage;
+        ragQueryId = queryId;
 
-      // 2. build the retrieve context messages
-      const knowledgeBaseQAContext = knowledgeBaseQAPrompts({
-        chunks,
-        userQuery: lastMsg.content,
-        rewriteQuery,
-        knowledge: agentSelectors.currentEnabledKnowledge(agentStoreState),
-      });
+        const lastMsg = messages.pop() as UIChatMessage;
 
-      // 3. add the retrieve context messages to the messages history
-      messages.push({
-        ...lastMsg,
-        content: (lastMsg.content + '\n\n' + knowledgeBaseQAContext).trim(),
-      });
+        // 2. build the retrieve context messages
+        const knowledgeBaseQAContext = knowledgeBaseQAPrompts({
+          chunks,
+          userQuery: lastMsg.content,
+          rewriteQuery,
+          knowledge: agentSelectors.currentEnabledKnowledge(agentStoreState),
+        });
 
-      fileChunks = chunks.map((c) => ({ id: c.id, similarity: c.similarity }));
+        // 3. add the retrieve context messages to the messages history
+        messages.push({
+          ...lastMsg,
+          content: (lastMsg.content + '\n\n' + knowledgeBaseQAContext).trim(),
+        });
+
+        knowledgeBasePromptTokens = await countKnowledgeBasePromptTokens(knowledgeBaseQAContext);
+        if (!isCurrentConversation()) return;
+        const summary = createKnowledgeBaseSummary({
+          diagnosticId,
+          promptTokens: knowledgeBasePromptTokens,
+          queryRewritten: !!rewriteQuery && rewriteQuery !== params.ragQuery,
+          retrieval,
+          scope,
+        });
+        contextExportRequest = attachKnowledgeBaseExportSummary(contextExportRequest, summary);
+        runtimeParams = contextExportRequest ? { ...params, contextExportRequest } : params;
+
+        if (diagnosticId) {
+          void ragService
+            .reportKnowledgeClientEvent({
+              chunkCount: chunks.length,
+              diagnosticId,
+              event: 'prompt_injection_reported',
+              promptTokens: knowledgeBasePromptTokens,
+              queryRewritten: summary.queryRewritten,
+            })
+            .catch(() => {});
+        }
+
+        fileChunks = chunks.map((c) => ({ id: c.id, similarity: c.similarity }));
+      } catch (error) {
+        diagnosticId = diagnosticId || getKnowledgeDiagnosticIdFromError(error);
+        if (!diagnosticId) {
+          try {
+            const report = await ragService.reportKnowledgeClientEvent({
+              event: 'client_preparation_failed',
+            });
+            diagnosticId = report.diagnosticId;
+          } catch {
+            // Diagnostics are best effort and must not mask the RAG failure.
+          }
+        } else {
+          void ragService
+            .reportKnowledgeClientEvent({
+              diagnosticId,
+              event: 'client_preparation_failed',
+            })
+            .catch(() => {});
+        }
+
+        if (contextExportRequest) {
+          get().appendContextExportSnapshot({
+            ...contextExportRequest,
+            error: diagnosticId
+              ? `Knowledge Base preparation failed (Diagnostic ID: ${diagnosticId})`
+              : 'Knowledge Base preparation failed',
+            redactions: CONTEXT_EXPORT_REDACTIONS,
+            status: 'error',
+          });
+        }
+        throw addKnowledgeDiagnosticIdToError(error, diagnosticId);
+      }
     }
 
     // 2. Add an empty message to place the AI response
@@ -412,56 +497,68 @@ export const generateAIChat: StateCreator<
       );
 
       get().internal_toggleSearchWorkflow(true, assistantId);
-      await chatService.fetchPresetTaskResult({
-        params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
-        onFinish: async (_, { toolCalls, usage }) => {
-          if (!isCurrentConversation()) return;
-          if (toolCalls && toolCalls.length > 0) {
-            get().internal_toggleToolCallingStreaming(assistantId, undefined);
-            // update tools calling
-            await get().internal_updateMessageContent(assistantId, '', {
-              toolCalls,
-              metadata: usage,
-              model,
-              provider,
-              conversationContext,
-            });
-          }
-        },
-        trace: {
-          traceId: params?.traceId,
-          sessionId: conversationContext.sessionId,
-          topicId: conversationContext.topicId,
-          traceName: TraceNameMap.SearchIntentRecognition,
-        },
-        abortController,
-        onMessageHandle: async (chunk) => {
-          if (!isCurrentConversation()) return;
-          if (chunk.type === 'tool_calls') {
-            get().internal_toggleSearchWorkflow(false, assistantId);
-            get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
-            get().internal_dispatchMessage(
-              {
-                id: assistantId,
-                type: 'updateMessage',
-                value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
-              },
-              dispatchContext,
-            );
-            isToolsCalling = true;
-          }
+      if (knowledgeBasePromptTokens > 0) {
+        get().internal_setKnowledgeBaseContextTokens(
+          conversationContext,
+          knowledgeBasePromptTokens,
+        );
+      }
+      try {
+        await chatService.fetchPresetTaskResult({
+          params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
+          onFinish: async (_, { toolCalls, usage }) => {
+            if (!isCurrentConversation()) return;
+            if (toolCalls && toolCalls.length > 0) {
+              get().internal_toggleToolCallingStreaming(assistantId, undefined);
+              // update tools calling
+              await get().internal_updateMessageContent(assistantId, '', {
+                toolCalls,
+                metadata: usage,
+                model,
+                provider,
+                conversationContext,
+              });
+            }
+          },
+          trace: {
+            traceId: params?.traceId,
+            sessionId: conversationContext.sessionId,
+            topicId: conversationContext.topicId,
+            traceName: TraceNameMap.SearchIntentRecognition,
+          },
+          abortController,
+          onMessageHandle: async (chunk) => {
+            if (!isCurrentConversation()) return;
+            if (chunk.type === 'tool_calls') {
+              get().internal_toggleSearchWorkflow(false, assistantId);
+              get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
+              get().internal_dispatchMessage(
+                {
+                  id: assistantId,
+                  type: 'updateMessage',
+                  value: { tools: get().internal_transformToolCalls(chunk.tool_calls) },
+                },
+                dispatchContext,
+              );
+              isToolsCalling = true;
+            }
 
-          if (chunk.type === 'text') {
-            abortController!.abort('not fc');
-          }
-        },
-        onErrorHandle: async (error) => {
-          if (!isCurrentConversation()) return;
-          isError = true;
-          await messageService.updateMessageError(assistantId, error);
-          if (isCurrentConversation()) await refreshMessages(conversationContext);
-        },
-      });
+            if (chunk.type === 'text') {
+              abortController!.abort('not fc');
+            }
+          },
+          onErrorHandle: async (error) => {
+            if (!isCurrentConversation()) return;
+            isError = true;
+            await messageService.updateMessageError(assistantId, error);
+            if (isCurrentConversation()) await refreshMessages(conversationContext);
+          },
+        });
+      } finally {
+        if (knowledgeBasePromptTokens > 0) {
+          get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
+        }
+      }
 
       if (!isCurrentConversation()) return;
       get().internal_toggleChatLoading(
@@ -492,14 +589,25 @@ export const generateAIChat: StateCreator<
     }
 
     // 4. fetch the AI response
-    const { isFunctionCall, content, persistenceAmbiguous } = await internal_fetchAIChatMessage({
-      conversationContext,
-      messages,
-      messageId: assistantId,
-      params,
-      model,
-      provider: provider!,
-    });
+    if (knowledgeBasePromptTokens > 0) {
+      get().internal_setKnowledgeBaseContextTokens(conversationContext, knowledgeBasePromptTokens);
+    }
+    let fetchResult: Awaited<ReturnType<typeof internal_fetchAIChatMessage>>;
+    try {
+      fetchResult = await internal_fetchAIChatMessage({
+        conversationContext,
+        messages,
+        messageId: assistantId,
+        params: runtimeParams,
+        model,
+        provider: provider!,
+      });
+    } finally {
+      if (knowledgeBasePromptTokens > 0) {
+        get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
+      }
+    }
+    const { isFunctionCall, persistenceAmbiguous } = fetchResult;
     if (!isCurrentConversation()) return;
 
     // 5. if it's the function call message, trigger the function method
@@ -652,13 +760,15 @@ export const generateAIChat: StateCreator<
       !params?.groupId &&
       !params?.agentId &&
       !messages.some(({ groupId }) => !!groupId);
-    const contextExportRequest = params?.contextExportCaptureId
-      ? get().createContextExportRequest(
-          params.contextExportCaptureId,
-          params.agentId ? 'member' : 'assistant',
-          params.isToolContinuation ? 'tool' : 'initial',
-        )
-      : undefined;
+    const contextExportRequest =
+      params?.contextExportRequest ??
+      (params?.contextExportCaptureId
+        ? get().createContextExportRequest(
+            params.contextExportCaptureId,
+            params.agentId ? 'member' : 'assistant',
+            params.isToolContinuation ? 'tool' : 'initial',
+          )
+        : undefined);
     try {
       await chatService.createAssistantMessageStream({
         abortController,

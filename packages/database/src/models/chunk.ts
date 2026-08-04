@@ -1,4 +1,12 @@
-import { AsyncTaskStatus, ChunkMetadata, FileChunk } from '@lobechat/types';
+import {
+  AsyncTaskStatus,
+  ChunkMetadata,
+  FileChunk,
+  RAG_CHAT_CANDIDATE_LIMIT,
+  RAG_CHAT_MINIMUM_SIMILARITY,
+  RAG_CHAT_RESULT_LIMIT,
+  RagChatRetrievalStats,
+} from '@lobechat/types';
 import { and, asc, cosineDistance, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { chunk } from 'lodash-es';
 
@@ -257,11 +265,11 @@ export class ChunkModel {
       // pgvector requires the raw distance operator in ascending order for
       // the HNSW index to participate in nearest-neighbor retrieval.
       .orderBy(distance)
-      .limit(24);
+      .limit(RAG_CHAT_CANDIDATE_LIMIT);
 
     return data
-      .filter(({ similarity }) => similarity >= 0.2)
-      .slice(0, 8)
+      .filter(({ similarity }) => similarity >= RAG_CHAT_MINIMUM_SIMILARITY)
+      .slice(0, RAG_CHAT_RESULT_LIMIT)
       .map((item) => ({
         ...item,
         metadata: item.metadata as ChunkMetadata,
@@ -278,12 +286,46 @@ export class ChunkModel {
     fingerprint?: string;
     query: string;
   }) => {
+    const { chunks } = await this.semanticSearchForChatWithStats({
+      embedding,
+      fileIds,
+      fingerprint,
+      query: '',
+    });
+
+    return chunks;
+  };
+
+  semanticSearchForChatWithStats = async ({
+    embedding,
+    fileIds,
+    fingerprint,
+  }: {
+    embedding: number[];
+    fileIds: string[] | undefined;
+    fingerprint?: string;
+    query: string;
+  }) => {
     const distance = cosineDistance(embeddings.embeddings, embedding);
     const similarity = sql<number>`1 - (${distance})`;
 
     const hasFiles = fileIds && fileIds.length > 0;
 
-    if (!hasFiles) return [];
+    if (!hasFiles) {
+      return {
+        chunks: [],
+        stats: {
+          candidateCount: 0,
+          candidateLimit: RAG_CHAT_CANDIDATE_LIMIT,
+          eligibleCount: 0,
+          minimumSimilarity: RAG_CHAT_MINIMUM_SIMILARITY,
+          resultLimit: RAG_CHAT_RESULT_LIMIT,
+          selectedCount: 0,
+          selectedScores: [],
+          strategy: 'cosine',
+        } satisfies RagChatRetrievalStats,
+      };
+    }
 
     const result = await this.db
       .select({
@@ -323,21 +365,34 @@ export class ChunkModel {
         ),
       )
       .orderBy(distance)
-      .limit(24);
+      .limit(RAG_CHAT_CANDIDATE_LIMIT);
 
-    return result
-      .filter(({ similarity }) => similarity >= 0.2)
-      .slice(0, 8)
-      .map((item) => {
-        return {
-          fileId: item.fileId,
-          fileName: item.fileName,
-          id: item.id,
-          index: item.index,
-          similarity: item.similarity,
-          text: this.mapChunkText(item),
-        };
-      });
+    const eligible = result.filter(({ similarity }) => similarity >= RAG_CHAT_MINIMUM_SIMILARITY);
+    const selected = eligible.slice(0, RAG_CHAT_RESULT_LIMIT);
+    const mappedChunks = selected.map((item) => {
+      return {
+        fileId: item.fileId,
+        fileName: item.fileName,
+        id: item.id,
+        index: item.index,
+        similarity: item.similarity,
+        text: this.mapChunkText(item),
+      };
+    });
+
+    return {
+      chunks: mappedChunks,
+      stats: {
+        candidateCount: result.length,
+        candidateLimit: RAG_CHAT_CANDIDATE_LIMIT,
+        eligibleCount: eligible.length,
+        minimumSimilarity: RAG_CHAT_MINIMUM_SIMILARITY,
+        resultLimit: RAG_CHAT_RESULT_LIMIT,
+        selectedCount: mappedChunks.length,
+        selectedScores: selected.map(({ similarity }) => similarity),
+        strategy: 'cosine',
+      } satisfies RagChatRetrievalStats,
+    };
   };
 
   private mapChunkText = (chunk: { metadata: any; text: string | null; type: string | null }) => {

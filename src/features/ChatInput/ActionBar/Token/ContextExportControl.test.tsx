@@ -1,5 +1,5 @@
-import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useChatStore } from '@/store/chat';
@@ -44,6 +44,7 @@ vi.mock('antd-style', () => ({
       label: 'label',
       metadata: 'metadata',
       sectionTitle: 'sectionTitle',
+      summary: 'summary',
       value: 'value',
     },
   }),
@@ -165,12 +166,27 @@ describe('ContextExportControl', () => {
         total: 45,
       });
       const captureId = store.consumeContextExportArm()!;
-      const request = useChatStore
-        .getState()
-        .createContextExportRequest(captureId, 'assistant')!;
+      const request = useChatStore.getState().createContextExportRequest(captureId, 'assistant')!;
       useChatStore.getState().appendContextExportSnapshot({
         ...request,
+        allocation: { ...request.allocation!, knowledgeBase: 12, total: 57 },
         engineeredInput: { messages: ['engineered'] },
+        knowledgeBase: {
+          diagnosticId: 'kb_1234567890abcdef',
+          promptTokens: 12,
+          queryRewritten: true,
+          retrieval: {
+            candidateCount: 2,
+            candidateLimit: 24,
+            eligibleCount: 1,
+            minimumSimilarity: 0.2,
+            resultLimit: 8,
+            selectedCount: 1,
+            selectedScores: [0.9],
+            strategy: 'cosine',
+          },
+          scope: { directFileCount: 1, expandedFileCount: 2, knowledgeBaseCount: 1 },
+        },
         metadata: { model: 'test-model', provider: 'test-provider' },
         providerRequest: { input: ['provider-ready'] },
         redactions: ['transportOptions'],
@@ -184,6 +200,8 @@ describe('ContextExportControl', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'contextExport.engineeredContext' })).toBeTruthy();
       expect(screen.getByText(/"engineered"/)).toBeTruthy();
+      expect(screen.getByText('contextExport.knowledgeBaseSummary')).toBeTruthy();
+      expect(screen.getByText(/kb_1234567890abcdef/)).toBeTruthy();
     });
 
     fireEvent.click(screen.getByText('contextExport.providerRequest'));

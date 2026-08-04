@@ -2,7 +2,10 @@
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CHATHUB_IMAGE_DIAGNOSTIC_HEADER } from '@/const/tools';
+import {
+  CHATHUB_IMAGE_DIAGNOSTIC_HEADER,
+  CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER,
+} from '@/const/tools';
 
 import { POST } from './route';
 
@@ -22,12 +25,14 @@ vi.mock('@/config/db', () => ({
 }));
 
 const diagnosticId = 'ig_1234567890abcdef';
+const knowledgeDiagnosticId = 'kb_1234567890abcdef';
 const internalSecret = 'test-internal-secret';
 
-const createRequest = (authorization?: string) => {
+const createRequest = (authorization?: string, additionalHeaders?: Record<string, string>) => {
   const headers: Record<string, string> = {
     [CHATHUB_IMAGE_DIAGNOSTIC_HEADER]: diagnosticId,
     'content-type': 'application/json',
+    ...additionalHeaders,
   };
   if (authorization) headers.Authorization = authorization;
 
@@ -82,6 +87,56 @@ describe('Async tRPC image diagnostics ingress', () => {
     expect(JSON.parse(consoleSpy.mock.calls[1][1])).toMatchObject({
       outcome: 'completed',
       response: { httpStatus: 200 },
+    });
+  });
+
+  it('reflects and logs a trusted Knowledge Base diagnostic independently', async () => {
+    vi.stubEnv('CHATHUB_IMAGE_DEBUG', '0');
+    vi.stubEnv('CHATHUB_KNOWLEDGE_DEBUG', '1');
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const response = await POST(
+      createRequest(`Bearer ${internalSecret}`, {
+        [CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER]: knowledgeDiagnosticId,
+      }),
+    );
+
+    expect(response.headers.get(CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER)).toBe(knowledgeDiagnosticId);
+    expect(consoleSpy.mock.calls.map(([prefix]) => prefix)).toEqual([
+      '[chathub-knowledge-debug:async_route_started]',
+      '[chathub-knowledge-debug:async_route_settled]',
+    ]);
+  });
+
+  it('marks a Knowledge Base route failed when tRPC reports an error in an HTTP 200 response', async () => {
+    vi.stubEnv('CHATHUB_IMAGE_DEBUG', '0');
+    vi.stubEnv('CHATHUB_KNOWLEDGE_DEBUG', '1');
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    fetchRequestHandlerMock.mockImplementationOnce(async ({ onError }) => {
+      onError({
+        error: new Error('handler failed'),
+        path: 'file.parseFileToChunks',
+        type: 'mutation',
+      });
+      return new Response('{\"error\":{}}', {
+        headers: { 'content-type': 'application/json' },
+        status: 200,
+      });
+    });
+
+    await POST(
+      createRequest(`Bearer ${internalSecret}`, {
+        [CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER]: knowledgeDiagnosticId,
+      }),
+    );
+
+    const settled = consoleSpy.mock.calls.find(
+      ([prefix]) => prefix === '[chathub-knowledge-debug:async_route_settled]',
+    );
+    expect(JSON.parse(settled?.[1] as string)).toMatchObject({
+      failurePhase: 'trpc_handler',
+      outcome: 'failed',
+      statusCode: 200,
     });
   });
 

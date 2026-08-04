@@ -5,13 +5,17 @@ import urlJoin from 'url-join';
 
 import { serverDBEnv } from '@/config/db';
 import { LOBE_CHAT_AUTH_HEADER } from '@/const/auth';
-import { CHATHUB_IMAGE_DIAGNOSTIC_HEADER } from '@/const/tools';
+import {
+  CHATHUB_IMAGE_DIAGNOSTIC_HEADER,
+  CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER,
+} from '@/const/tools';
 import { appEnv } from '@/envs/app';
 import {
   fingerprintImageDebugValue,
   getImageDebugContext,
   logImageDebugSafe,
 } from '@/libs/logger/imageDebug';
+import { getKnowledgeDebugContext } from '@/libs/logger/knowledgeDebug';
 import { createAsyncCallerFactory } from '@/libs/trpc/async';
 import { createImageDiagnosticFetch } from '@/libs/trpc/async/imageDiagnosticFetch';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
@@ -43,6 +47,7 @@ export const getAsyncServerBaseUrl = () => {
 };
 
 export const createAsyncServerClient = async (userId: string, payload: ClientSecretPayload) => {
+  const knowledgeDiagnosticId = getKnowledgeDebugContext()?.diagnosticId;
   const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
   const baseHeaders: Record<string, string> = {
     Authorization: `Bearer ${serverDBEnv.KEY_VAULTS_SECRET}`,
@@ -61,6 +66,9 @@ export const createAsyncServerClient = async (userId: string, payload: ClientSec
           const headers = { ...baseHeaders };
           const diagnosticId = getImageDebugContext()?.diagnosticId;
           if (diagnosticId) headers[CHATHUB_IMAGE_DIAGNOSTIC_HEADER] = diagnosticId;
+          if (knowledgeDiagnosticId) {
+            headers[CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER] = knowledgeDiagnosticId;
+          }
           return headers;
         },
         transformer: superjson,
@@ -97,32 +105,32 @@ export const createAsyncCaller = async (
 
   const httpClient = await createAsyncServerClient(userId, jwtPayload);
   const createRecursiveProxy = (client: any, path: string[]): any => {
-      // The target is a dummy function, so that 'apply' can be triggered.
-      return new Proxy(() => {}, {
-        apply: (target, thisArg, args) => {
-          // 'apply' is triggered by the function call `(...)`.
-          // The `path` at this point is the full path to the procedure.
+    // The target is a dummy function, so that 'apply' can be triggered.
+    return new Proxy(() => {}, {
+      apply: (target, thisArg, args) => {
+        // 'apply' is triggered by the function call `(...)`.
+        // The `path` at this point is the full path to the procedure.
 
-          // Traverse the original httpClient to get the actual procedure object.
-          const procedure = path.reduce((obj, key) => (obj ? obj[key] : undefined), client);
+        // Traverse the original httpClient to get the actual procedure object.
+        const procedure = path.reduce((obj, key) => (obj ? obj[key] : undefined), client);
 
-          if (procedure && typeof procedure.mutate === 'function') {
-            // If we found a valid procedure, call its mutate method.
-            return procedure.mutate(...args);
-          } else {
-            // This should not happen if the call path is correct.
-            const message = `Procedure not found or not valid at path: ${path.join('.')}`;
-            throw new Error(message);
-          }
-        },
-        get: (_, property: string) => {
-          // When a property is accessed, we just extend the path and return a new proxy.
-          // This handles `caller.file.parseFileToChunks`
-          if (property === 'then') return undefined; // Prevent async/await issues
-          return createRecursiveProxy(client, [...path, property as string]);
-        },
-      });
-    };
+        if (procedure && typeof procedure.mutate === 'function') {
+          // If we found a valid procedure, call its mutate method.
+          return procedure.mutate(...args);
+        } else {
+          // This should not happen if the call path is correct.
+          const message = `Procedure not found or not valid at path: ${path.join('.')}`;
+          throw new Error(message);
+        }
+      },
+      get: (_, property: string) => {
+        // When a property is accessed, we just extend the path and return a new proxy.
+        // This handles `caller.file.parseFileToChunks`
+        if (property === 'then') return undefined; // Prevent async/await issues
+        return createRecursiveProxy(client, [...path, property as string]);
+      },
+    });
+  };
 
   return createRecursiveProxy(httpClient, []);
 };

@@ -1,7 +1,10 @@
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import type { NextRequest } from 'next/server';
 
-import { CHATHUB_IMAGE_DIAGNOSTIC_HEADER } from '@/const/tools';
+import {
+  CHATHUB_IMAGE_DIAGNOSTIC_HEADER,
+  CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER,
+} from '@/const/tools';
 import { pino } from '@/libs/logger';
 import {
   describeImageDebugError,
@@ -13,8 +16,14 @@ import {
   summarizeImageDebugResponse,
 } from '@/libs/logger/imageResponseDebug';
 import {
+  describeKnowledgeDebugError,
+  logKnowledgeDebugSafe,
+  runWithKnowledgeDebugContext,
+} from '@/libs/logger/knowledgeDebug';
+import {
   createAsyncRouteContext,
   getTrustedImageDiagnosticId,
+  getTrustedKnowledgeDiagnosticId,
 } from '@/libs/trpc/async/context';
 import { asyncRouter } from '@/server/routers/async';
 
@@ -52,67 +61,115 @@ const handler = async (req: NextRequest) => {
   pino.debug(`tRPC async request: ${req.method} ${req.nextUrl.pathname}`);
   const procedure = getProcedure(req);
   const diagnosticId = getTrustedImageDiagnosticId(req);
+  const knowledgeDiagnosticId = getTrustedKnowledgeDiagnosticId(req);
+  let handlerFailed = false;
 
-  if (!diagnosticId) {
-    return handleRPCRequest(req).finally(() => {
-      pino.debug(`tRPC async response in ${Date.now() - start}ms`);
-    });
-  }
+  const markHandlerFailed = () => {
+    handlerFailed = true;
+  };
 
-  return runWithImageDebugContext(
+  const execute = async () => {
+    if (!diagnosticId) {
+      return handleRPCRequest(req, markHandlerFailed).finally(() => {
+        pino.debug(`tRPC async response in ${Date.now() - start}ms`);
+      });
+    }
+
+    return runWithImageDebugContext(
+      {
+        diagnosticId,
+        operation: procedure,
+        runtime: 'async',
+        transport: 'http',
+      },
+      async () => {
+        logImageDebugSafe('async_route_started', {
+          endpoint: '/trpc/async',
+          method: req.method,
+          phase: 'async_route',
+          procedure,
+          requestBytes: parseImageDebugContentLength(req.headers.get('content-length')),
+        });
+
+        try {
+          const response = await handleRPCRequest(req, markHandlerFailed);
+
+          try {
+            response.headers.set(CHATHUB_IMAGE_DIAGNOSTIC_HEADER, diagnosticId);
+          } catch {
+            // A missing response header must never affect the RPC response.
+          }
+
+          const requestFailed = handlerFailed || !response.ok;
+          logImageDebugSafe('async_route_settled', {
+            durationMs: Date.now() - start,
+            failurePhase: handlerFailed
+              ? 'trpc_handler'
+              : response.ok
+                ? undefined
+                : 'http_response',
+            outcome: requestFailed ? 'failed' : 'completed',
+            phase: 'async_route',
+            procedure,
+            response: summarizeImageDebugResponse(response),
+          });
+          return response;
+        } catch (error) {
+          logImageDebugSafe('async_route_settled', {
+            ...describeImageDebugError(error),
+            durationMs: Date.now() - start,
+            failurePhase: 'route_handler',
+            outcome: 'failed',
+            phase: 'async_route',
+            procedure,
+          });
+          throw error;
+        } finally {
+          pino.debug(`tRPC async response in ${Date.now() - start}ms`);
+        }
+      },
+    );
+  };
+
+  if (!knowledgeDiagnosticId) return execute();
+
+  return runWithKnowledgeDebugContext(
     {
-      diagnosticId,
+      diagnosticId: knowledgeDiagnosticId,
       operation: procedure,
       runtime: 'async',
       transport: 'http',
     },
     async () => {
-      logImageDebugSafe('async_route_started', {
-        endpoint: '/trpc/async',
+      logKnowledgeDebugSafe('async_route_started', {
         method: req.method,
         phase: 'async_route',
-        procedure,
-        requestBytes: parseImageDebugContentLength(req.headers.get('content-length')),
       });
 
       try {
-        let handlerFailed = false;
-        const response = await handleRPCRequest(req, () => {
-          handlerFailed = true;
-        });
-
+        const response = await execute();
         try {
-          response.headers.set(CHATHUB_IMAGE_DIAGNOSTIC_HEADER, diagnosticId);
+          response.headers.set(CHATHUB_KNOWLEDGE_DIAGNOSTIC_HEADER, knowledgeDiagnosticId);
         } catch {
-          // A missing response header must never affect the RPC response.
+          // Diagnostic response headers are best effort.
         }
-
-        const requestFailed = handlerFailed || !response.ok;
-        logImageDebugSafe('async_route_settled', {
+        logKnowledgeDebugSafe('async_route_settled', {
           durationMs: Date.now() - start,
-          failurePhase: handlerFailed
-            ? 'trpc_handler'
-            : response.ok
-              ? undefined
-              : 'http_response',
-          outcome: requestFailed ? 'failed' : 'completed',
+          failurePhase: handlerFailed ? 'trpc_handler' : response.ok ? undefined : 'http_response',
+          outcome: handlerFailed || !response.ok ? 'failed' : 'completed',
           phase: 'async_route',
-          procedure,
-          response: summarizeImageDebugResponse(response),
+          statusCode: response.status,
         });
         return response;
       } catch (error) {
-        logImageDebugSafe('async_route_settled', {
-          ...describeImageDebugError(error),
+        logKnowledgeDebugSafe('async_route_settled', {
+          ...describeKnowledgeDebugError(error),
           durationMs: Date.now() - start,
           failurePhase: 'route_handler',
           outcome: 'failed',
           phase: 'async_route',
-          procedure,
         });
         throw error;
-      } finally {
-        pino.debug(`tRPC async response in ${Date.now() - start}ms`);
       }
     },
   );

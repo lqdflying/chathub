@@ -89,7 +89,19 @@ describe('chatRAG actions', () => {
       // Mock the semantic search response
       (ragService.semanticSearchForChat as Mock).mockResolvedValue({
         chunks: [{ id: 'chunk-1' }],
+        diagnosticId: 'kb_1234567890abcdef',
         queryId: 'query-id',
+        retrieval: {
+          candidateCount: 3,
+          candidateLimit: 24,
+          eligibleCount: 2,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 1,
+          selectedScores: [0.91],
+          strategy: 'cosine',
+        },
+        scope: { directFileCount: 0, expandedFileCount: 2, knowledgeBaseCount: 1 },
       });
 
       vi.spyOn(agentSelectors, 'currentKnowledgeIds').mockReturnValue({
@@ -103,8 +115,20 @@ describe('chatRAG actions', () => {
 
       expect(result1).toEqual({
         chunks: [{ id: 'chunk-1' }],
+        diagnosticId: 'kb_1234567890abcdef',
         queryId: 'query-id',
+        retrieval: {
+          candidateCount: 3,
+          candidateLimit: 24,
+          eligibleCount: 2,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 1,
+          selectedScores: [0.91],
+          strategy: 'cosine',
+        },
         rewriteQuery: existingRagQuery,
+        scope: { directFileCount: 0, expandedFileCount: 2, knowledgeBaseCount: 1 },
       });
       expect(ragService.semanticSearchForChat).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -135,6 +159,17 @@ describe('chatRAG actions', () => {
       (ragService.semanticSearchForChat as Mock).mockResolvedValue({
         chunks: [{ id: 'chunk-1' }],
         queryId: 'query-id',
+        retrieval: {
+          candidateCount: 1,
+          candidateLimit: 24,
+          eligibleCount: 1,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 1,
+          selectedScores: [0.8],
+          strategy: 'cosine',
+        },
+        scope: { directFileCount: 0, expandedFileCount: 1, knowledgeBaseCount: 1 },
       });
 
       vi.spyOn(agentSelectors, 'currentKnowledgeIds').mockReturnValue({
@@ -148,8 +183,20 @@ describe('chatRAG actions', () => {
 
       expect(result2).toEqual({
         chunks: [{ id: 'chunk-1' }],
+        diagnosticId: undefined,
         queryId: 'query-id',
+        retrieval: {
+          candidateCount: 1,
+          candidateLimit: 24,
+          eligibleCount: 1,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 1,
+          selectedScores: [0.8],
+          strategy: 'cosine',
+        },
         rewriteQuery: rewrittenQuery,
+        scope: { directFileCount: 0, expandedFileCount: 1, knowledgeBaseCount: 1 },
       });
       expect(result.current.internal_rewriteQuery).toHaveBeenCalledWith(messageId, userQuery, [
         'message',

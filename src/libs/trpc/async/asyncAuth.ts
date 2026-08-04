@@ -37,6 +37,7 @@ export const asyncAuth = asyncTrpc.middleware(async (opts) => {
       ctx: {
         imageDiagnosticId: ctx.imageDiagnosticId,
         jwtPayload: ctx.jwtPayload,
+        knowledgeDiagnosticId: ctx.knowledgeDiagnosticId,
         userId: ctx.userId,
       },
     });
