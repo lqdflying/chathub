@@ -12,6 +12,8 @@ The `src/` tree contains the user-facing app, server modules, services, stores, 
 - `src/services/chat/contextEngineering.ts` — builds the final message list that gets sent to the provider
 - `src/services/mcp.ts` — discovers and invokes MCP tools
 - `src/envs/llm.ts` — provider environment configuration schema
+- `src/server/services/rag` — dedicated embedding-provider resolution and adapters
+- `packages/database/src/models/chunk.ts` — account-scoped pgvector retrieval
 
 ### Shared packages (`packages/`)
 
@@ -164,6 +166,10 @@ When making architectural changes, check whether they need to flow through all o
 3. provider adapter changes in `packages/model-runtime`
 4. context shaping changes in `src/services/chat/contextEngineering.ts` and `packages/context-engine`
 5. UI or settings surface changes in `src/app/[variants]/(main)/settings/provider/`
+
+Knowledge Base embedding providers are intentionally outside the model-runtime
+provider fallback chain. See [Knowledge Base and Vector RAG](knowledge-base-rag.md)
+before changing file ingestion, vector storage, or semantic retrieval.
 
 ## Key source references
 

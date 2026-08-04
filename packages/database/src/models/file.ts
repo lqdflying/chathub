@@ -6,6 +6,7 @@ import {
   QueryFileListParams,
   SortType,
 } from '@lobechat/types';
+import { isChunkableFile } from '@lobechat/utils';
 import { and, asc, count, desc, eq, ilike, inArray, like, notExists, or, sum } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 
@@ -20,6 +21,7 @@ import {
   files,
   globalFiles,
   knowledgeBaseFiles,
+  knowledgeBases,
 } from '../schemas';
 import { LobeChatDatabase, Transaction } from '../type';
 
@@ -38,6 +40,19 @@ export class FileModel {
     trx?: Transaction,
   ) => {
     const executeInTransaction = async (tx: Transaction) => {
+      if (params.knowledgeBaseId) {
+        if (!isChunkableFile(params.name, params.fileType)) {
+          throw new Error('Only documents supported by the chunking loaders can be added');
+        }
+        const knowledgeBase = await tx.query.knowledgeBases.findFirst({
+          where: and(
+            eq(knowledgeBases.id, params.knowledgeBaseId),
+            eq(knowledgeBases.userId, this.userId),
+          ),
+        });
+        if (!knowledgeBase) throw new Error('Knowledge base not found');
+      }
+
       if (insertToGlobalFiles) {
         await tx.insert(globalFiles).values({
           creator: this.userId,
@@ -196,6 +211,7 @@ export class FileModel {
     sortType,
     sorter,
     knowledgeBaseId,
+    chunkableOnly,
     showFilesInKnowledgeBase,
   }: QueryFileListParams = {}) => {
     // 1. query where
@@ -250,6 +266,7 @@ export class FileModel {
         and(
           eq(files.id, knowledgeBaseFiles.fileId),
           eq(knowledgeBaseFiles.knowledgeBaseId, knowledgeBaseId),
+          eq(knowledgeBaseFiles.userId, this.userId),
         ),
       );
     }
@@ -264,7 +281,10 @@ export class FileModel {
     }
 
     // or we are just filter in the global files
-    return query.where(whereClause).orderBy(orderByClause);
+    const rows = await query.where(whereClause).orderBy(orderByClause);
+    return chunkableOnly || knowledgeBaseId
+      ? rows.filter((row) => isChunkableFile(row.name, row.fileType))
+      : rows;
   };
 
   queryImageArtifacts = async ({

@@ -4,6 +4,7 @@ import { App } from 'antd';
 import { memo, useEffect } from 'react';
 import { MemoryRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
+import RagProviderBanner from './components/RagProviderBanner';
 import KnowledgeBaseDetailPage from './routes/KnowledgeBaseDetail';
 import KnowledgeBasesListPage from './routes/KnowledgeBasesList';
 import KnowledgeHomePage from './routes/KnowledgeHome';
@@ -49,7 +50,8 @@ const UrlSynchronizer = () => {
  */
 const KnowledgeRouter = memo(() => {
   return (
-    <App style={{ display: 'flex', flex: 1, height: '100%' }}>
+    <App style={{ display: 'flex', flex: 1, flexDirection: 'column', height: '100%' }}>
+      <RagProviderBanner />
       <MemoryRouter initialEntries={[getInitialPath()]} initialIndex={0}>
         <UrlSynchronizer />
         <Routes>

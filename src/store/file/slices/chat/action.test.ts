@@ -45,8 +45,10 @@ beforeEach(() => {
     authUserId: 'account-a',
     isLoaded: true,
     isSignedIn: true,
+    isUserStateInit: true,
     ownershipInvalidationGeneration: 0,
     user: { id: 'account-a' },
+    userStateScope: 'user:account-a',
     userStateInitializationFailure: undefined,
   });
   useStore.setState({
@@ -181,6 +183,37 @@ describe('useFileStore:chat', () => {
       });
 
       expect(useStore.getState().chatUploadFileList).toBe(currentAccountFiles);
+    });
+  });
+
+  describe('topic attachment chunking', () => {
+    it('keeps screenshots and unsupported documents without sending them to chunking', async () => {
+      const screenshot = new File(['image'], 'screenshot.png', { type: 'image/png' });
+      const spreadsheet = new File(['sheet'], 'report.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      vi.spyOn(useStore.getState(), 'uploadWithProgress')
+        .mockResolvedValueOnce({ id: 'image-file', url: 'https://example.com/image' })
+        .mockResolvedValueOnce({ id: 'sheet-file', url: 'https://example.com/sheet' });
+      const parseFileContent = vi.spyOn(ragService, 'parseFileContent');
+
+      await useStore.getState().uploadChatFiles([screenshot, spreadsheet]);
+
+      expect(useStore.getState().uploadWithProgress).toHaveBeenCalledTimes(2);
+      expect(parseFileContent).not.toHaveBeenCalled();
+    });
+
+    it('still chunks a loader-supported topic document', async () => {
+      const document = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+      vi.spyOn(useStore.getState(), 'uploadWithProgress').mockResolvedValue({
+        id: 'document-file',
+        url: 'https://example.com/document',
+      });
+      const parseFileContent = vi.spyOn(ragService, 'parseFileContent').mockResolvedValue();
+
+      await useStore.getState().uploadChatFiles([document]);
+
+      expect(parseFileContent).toHaveBeenCalledWith('document-file');
     });
   });
 

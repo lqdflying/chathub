@@ -1,3 +1,4 @@
+import { isChunkableFile } from '@lobechat/utils';
 import pMap from 'p-map';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
@@ -7,10 +8,7 @@ import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { fileService } from '@/services/file';
 import { ServerService } from '@/services/file/server';
 import { ragService } from '@/services/rag';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import {
   UploadFileListDispatch,
   uploadFileListReducer,
@@ -18,7 +16,6 @@ import {
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { FileListItem, QueryFileListParams } from '@/types/files';
-import { isChunkingUnsupported } from '@/utils/isChunkingUnsupported';
 import { unzipFile } from '@/utils/unzipFile';
 
 import { FileStore } from '../../store';
@@ -300,7 +297,11 @@ export const createFileManageSlice: StateCreator<
 
     // 1. skip file in blacklist
     if (!isOperationCurrent()) return;
-    const files = filesToUpload.filter((file) => !FILE_UPLOAD_BLACKLIST.includes(file.name));
+    const files = filesToUpload.filter(
+      (file) =>
+        !FILE_UPLOAD_BLACKLIST.includes(file.name) &&
+        (!knowledgeBaseId || isChunkableFile(file.name, file.type)),
+    );
     if (!isOperationCurrent()) return;
 
     const uploadOperations = files.map((file) => {
@@ -324,8 +325,7 @@ export const createFileManageSlice: StateCreator<
       uploadOperations,
       async ({ file, id, token }) => {
         const isUploadEntryCurrent = () =>
-          isOperationCurrent() &&
-          activeDockUploadOperations.get(id) === token;
+          isOperationCurrent() && activeDockUploadOperations.get(id) === token;
         const dispatchUploadStatus: typeof dispatchDockFileList = (payload) => {
           if (!isUploadEntryCurrent()) return;
 
@@ -375,7 +375,7 @@ export const createFileManageSlice: StateCreator<
 
     // 4. auto-embed files that support chunking
     const fileIdsToEmbed = uploadResults
-      .filter(({ fileType, fileId }) => fileId && !isChunkingUnsupported(fileType))
+      .filter(({ file, fileId }) => fileId && isChunkableFile(file.name, file.type))
       .map(({ fileId }) => fileId!);
 
     if (fileIdsToEmbed.length > 0) {
@@ -562,9 +562,7 @@ export const createFileManageSlice: StateCreator<
       get().scopeGeneration === requestedGeneration;
 
     return useClientDataSWR<FileListItem[]>(
-      accountMutationSnapshot
-        ? [FETCH_FILE_LIST_KEY, accountMutationSnapshot.scope, params]
-        : null,
+      accountMutationSnapshot ? [FETCH_FILE_LIST_KEY, accountMutationSnapshot.scope, params] : null,
       () => serverFileService.getFiles(params),
       {
         onSuccess: (data) => {

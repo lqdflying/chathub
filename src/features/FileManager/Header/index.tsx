@@ -7,7 +7,8 @@ import FilesSearchBar from './FilesSearchBar';
 import TogglePanelButton from './TogglePanelButton';
 import UploadFileButton from './UploadFileButton';
 
-const Header = memo<{ knowledgeBaseId?: string }>(({ knowledgeBaseId }) => {
+const Header = memo<{ knowledgeBaseId?: string; knowledgeMode?: boolean }>(
+  ({ knowledgeBaseId, knowledgeMode }) => {
   return (
     <ChatHeader
       left={
@@ -16,12 +17,13 @@ const Header = memo<{ knowledgeBaseId?: string }>(({ knowledgeBaseId }) => {
           <FilesSearchBar />
         </>
       }
-      right={<UploadFileButton knowledgeBaseId={knowledgeBaseId} />}
+      right={<UploadFileButton knowledgeBaseId={knowledgeBaseId} knowledgeMode={knowledgeMode} />}
       styles={{
         left: { padding: 0 },
       }}
     />
   );
-});
+  },
+);
 
 export default Header;

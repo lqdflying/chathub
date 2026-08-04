@@ -22,6 +22,11 @@
     },
     "title": "新建知识库"
   },
+  "ragProvider": {
+    "configure": "配置 RAG 服务商",
+    "description": "文档仍可上传和分块，但在配置外部嵌入服务商之前无法建立索引或进行检索。",
+    "title": "RAG 检索当前不可用"
+  },
   "tab": {
     "evals": "评测",
     "files": "文档",

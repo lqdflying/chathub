@@ -5,7 +5,7 @@ import { ModelProvider } from 'model-bank';
 import OpenAI from 'openai';
 import { z } from 'zod';
 
-import { DEFAULT_EMBEDDING_MODEL, DEFAULT_MODEL } from '@/const/settings';
+import { DEFAULT_MODEL } from '@/const/settings';
 import { ChunkModel } from '@/database/models/chunk';
 import { EmbeddingModel } from '@/database/models/embedding';
 import { FileModel } from '@/database/models/file';
@@ -17,6 +17,11 @@ import {
 import { asyncAuthedProcedure, asyncRouter as router } from '@/libs/trpc/async';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { ChunkService } from '@/server/services/chunk';
+import {
+  RagEmbeddingService,
+  RagProviderNotConfiguredError,
+  resolveRagEmbeddingConfig,
+} from '@/server/services/rag';
 import { AsyncTaskError } from '@/types/asyncTask';
 
 const ragEvalProcedure = asyncAuthedProcedure.use(async (opts) => {
@@ -51,27 +56,31 @@ export const ragEvalRouter = router({
 
       const now = Date.now();
       try {
+        const resolved = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
+        if (!resolved.config || !resolved.fingerprint) {
+          throw new RagProviderNotConfiguredError();
+        }
         const agentRuntime = await initModelRuntimeWithUserPayload(
           ModelProvider.OpenAI,
           ctx.jwtPayload,
         );
 
         const { question, languageModel, embeddingModel } = evalRecord;
+        if (embeddingModel && embeddingModel !== resolved.fingerprint) {
+          throw new Error('The RAG provider changed after this evaluation was created.');
+        }
+        const embeddingService = new RagEmbeddingService(resolved.config);
 
         let questionEmbeddingId = evalRecord.questionEmbeddingId;
         let context = evalRecord.context;
 
         // 如果不存在 questionEmbeddingId，那么就需要做一次 embedding
         if (!questionEmbeddingId) {
-          const embeddings = await agentRuntime.embeddings({
-            dimensions: 1024,
-            input: question,
-            model: !!embeddingModel ? embeddingModel : DEFAULT_EMBEDDING_MODEL,
-          });
+          const embeddings = await embeddingService.embed(question, 'query');
 
           const embeddingId = await ctx.embeddingModel.create({
-            embeddings: embeddings?.[0],
-            model: embeddingModel,
+            embeddings: embeddings[0],
+            model: resolved.fingerprint,
           });
 
           await ctx.evalRecordModel.update(evalRecord.id, {
@@ -90,6 +99,7 @@ export const ragEvalRouter = router({
           const chunks = await ctx.chunkModel.semanticSearchForChat({
             embedding: embeddingItem!.embeddings!,
             fileIds: datasetRecord!.referenceFiles!,
+            fingerprint: resolved.fingerprint,
             query: evalRecord.question,
           });
 

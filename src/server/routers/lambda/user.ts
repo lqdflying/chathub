@@ -14,6 +14,7 @@ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { S3 } from '@/server/modules/S3';
 import { FileService } from '@/server/services/file';
 import { NextAuthUserService } from '@/server/services/nextAuthUser';
+import { getRagUserKeyVaults, mergeBrowserKeyVaultsPreservingRag } from '@/server/services/rag';
 import { UserService } from '@/server/services/user';
 import {
   NextAuthAccountSchame,
@@ -21,7 +22,7 @@ import {
   UserInitializationState,
   UserPreference,
 } from '@/types/user';
-import { UserSettings } from '@/types/user/settings';
+import { UserKeyVaults, UserSettings } from '@/types/user/settings';
 
 const userProcedure = authedProcedure.use(serverDatabase).use(async ({ ctx, next }) => {
   return next({
@@ -236,26 +237,37 @@ export const userRouter = router({
   updateSettings: userProcedure
     .input(z.object({}).passthrough())
     .mutation(async ({ ctx, input }) => {
-      const {
-        image: _image,
-        keyVaults,
-        ...res
-      } = input as Partial<UserSettings> & {
+      const settingsInput = { ...input } as Partial<UserSettings> & {
         image?: unknown;
       };
+      delete settingsInput.image;
+      const { keyVaults, ...res } = settingsInput;
 
       // Encrypt keyVaults
-      let encryptedKeyVaults: string | null = null;
+      let encryptedKeyVaults: string | undefined;
 
       if (keyVaults) {
-        // TODO: better to add a validation
-        const data = JSON.stringify(keyVaults);
+        let currentKeyVaults: UserKeyVaults = {};
+        try {
+          currentKeyVaults = await getRagUserKeyVaults(ctx.serverDB, ctx.userId);
+        } catch (error) {
+          if (!(error instanceof UserNotFoundError)) throw error;
+        }
+
+        // The browser never owns the server-only RAG entry. Preserve an
+        // existing value and discard any client-supplied replacement.
+        const data = JSON.stringify(
+          mergeBrowserKeyVaultsPreservingRag(currentKeyVaults, keyVaults as UserKeyVaults),
+        );
         const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
 
         encryptedKeyVaults = await gateKeeper.encrypt(data);
       }
 
-      const nextValue = { ...res, keyVaults: encryptedKeyVaults };
+      const nextValue = {
+        ...res,
+        ...(encryptedKeyVaults === undefined ? {} : { keyVaults: encryptedKeyVaults }),
+      };
 
       return ctx.userModel.updateSetting(nextValue);
     }),

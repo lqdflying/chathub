@@ -26,6 +26,9 @@ const componentMap = {
   [SettingsTabs.Provider]: dynamic(() => import('../provider'), {
     loading: () => <Loading />,
   }),
+  [SettingsTabs.RagProvider]: dynamic(() => import('../rag-provider'), {
+    loading: () => <Loading />,
+  }),
   [SettingsTabs.TTS]: dynamic(() => import('../tts'), {
     loading: () => <Loading />,
   }),
@@ -57,6 +60,7 @@ const userStateDependentTabs = new Set<string>([
   SettingsTabs.Mcp,
   SettingsTabs.Skills,
   SettingsTabs.Provider,
+  SettingsTabs.RagProvider,
   SettingsTabs.Storage,
   SettingsTabs.SystemAgent,
   SettingsTabs.TTS,

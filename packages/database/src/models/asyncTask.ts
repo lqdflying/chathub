@@ -37,14 +37,16 @@ export class AsyncTaskModel {
   };
 
   findById = async (id: string) => {
-    return this.db.query.asyncTasks.findFirst({ where: and(eq(asyncTasks.id, id)) });
+    return this.db.query.asyncTasks.findFirst({
+      where: and(eq(asyncTasks.id, id), eq(asyncTasks.userId, this.userId)),
+    });
   };
 
   update(taskId: string, value: Partial<AsyncTaskSelectItem>) {
     return this.db
       .update(asyncTasks)
       .set({ ...value, updatedAt: new Date() })
-      .where(and(eq(asyncTasks.id, taskId)));
+      .where(and(eq(asyncTasks.id, taskId), eq(asyncTasks.userId, this.userId)));
   }
 
   claimPendingTask = async (taskId: string): Promise<boolean> => {
@@ -88,7 +90,11 @@ export class AsyncTaskModel {
     if (taskIds.length > 0) {
       await this.checkTimeoutTasks(taskIds);
       chunkTasks = await this.db.query.asyncTasks.findMany({
-        where: and(inArray(asyncTasks.id, taskIds), eq(asyncTasks.type, type)),
+        where: and(
+          inArray(asyncTasks.id, taskIds),
+          eq(asyncTasks.type, type),
+          eq(asyncTasks.userId, this.userId),
+        ),
       });
     }
 
@@ -105,6 +111,7 @@ export class AsyncTaskModel {
       .where(
         and(
           inArray(asyncTasks.id, ids),
+          eq(asyncTasks.userId, this.userId),
           eq(asyncTasks.status, AsyncTaskStatus.Processing),
           lt(asyncTasks.createdAt, new Date(Date.now() - ASYNC_TASK_TIMEOUT)),
         ),
@@ -121,9 +128,12 @@ export class AsyncTaskModel {
           status: AsyncTaskStatus.Error,
         })
         .where(
-          inArray(
-            asyncTasks.id,
-            tasks.map((item) => item.id),
+          and(
+            inArray(
+              asyncTasks.id,
+              tasks.map((item) => item.id),
+            ),
+            eq(asyncTasks.userId, this.userId),
           ),
         );
     }

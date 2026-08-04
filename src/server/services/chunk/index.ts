@@ -1,10 +1,12 @@
 import { LobeChatDatabase } from '@lobechat/database';
 import { ClientSecretPayload } from '@lobechat/types';
+import { isChunkableFile } from '@lobechat/utils';
 
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
 import { ChunkContentParams, ContentChunk } from '@/server/modules/ContentChunk';
 import { createAsyncCaller } from '@/server/routers/async';
+import { RagProviderNotConfiguredError, resolveRagEmbeddingConfig } from '@/server/services/rag';
 import {
   AsyncTaskError,
   AsyncTaskErrorType,
@@ -13,12 +15,14 @@ import {
 } from '@/types/asyncTask';
 
 export class ChunkService {
+  private db: LobeChatDatabase;
   private userId: string;
   private chunkClient: ContentChunk;
   private fileModel: FileModel;
   private asyncTaskModel: AsyncTaskModel;
 
   constructor(serverDB: LobeChatDatabase, userId: string) {
+    this.db = serverDB;
     this.userId = userId;
 
     this.chunkClient = new ContentChunk();
@@ -35,6 +39,12 @@ export class ChunkService {
     const result = await this.fileModel.findById(fileId);
 
     if (!result) return;
+    if (!isChunkableFile(result.name, result.fileType)) {
+      throw new Error('This file format is not supported by the Knowledge Base chunkers.');
+    }
+
+    const resolved = await resolveRagEmbeddingConfig(this.db, this.userId);
+    if (!resolved.config) throw new RagProviderNotConfiguredError();
 
     // 1. create a asyncTaskId
     const asyncTaskId = await this.asyncTaskModel.create({
@@ -71,11 +81,15 @@ export class ChunkService {
     const result = await this.fileModel.findById(fileId);
 
     if (!result) return;
+    if (!isChunkableFile(result.name, result.fileType)) {
+      throw new Error('This file format is not supported by the Knowledge Base chunkers.');
+    }
 
     // skip if already exist chunk tasks
     if (skipExist && result.chunkTaskId) return;
 
     // 1. create a asyncTaskId
+    await this.fileModel.update(fileId, { embeddingTaskId: null });
     const asyncTaskId = await this.asyncTaskModel.create({
       status: AsyncTaskStatus.Processing,
       type: AsyncTaskType.Chunking,

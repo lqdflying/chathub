@@ -54,6 +54,7 @@ const FilesListPage = memo(() => {
   return (
     <FileManager
       category={category}
+      knowledgeMode
       onOpenFile={setFileModalId}
       title={`${category as FilesTabs}`}
     />

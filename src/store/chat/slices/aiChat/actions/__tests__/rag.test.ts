@@ -4,6 +4,7 @@ import { Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { chatService } from '@/services/chat';
 import { ragService } from '@/services/rag';
+import { ragProviderService } from '@/services/ragProvider';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { chatSelectors } from '@/store/chat/selectors';
@@ -26,8 +27,15 @@ vi.mock('@/services/rag', () => ({
   },
 }));
 
+vi.mock('@/services/ragProvider', () => ({
+  ragProviderService: {
+    getStatus: vi.fn(),
+  },
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(ragProviderService.getStatus).mockResolvedValue({ configured: true } as any);
 });
 
 describe('chatRAG actions', () => {
@@ -146,6 +154,22 @@ describe('chatRAG actions', () => {
       expect(result.current.internal_rewriteQuery).toHaveBeenCalledWith(messageId, userQuery, [
         'message',
       ]);
+    });
+
+    it('stops before query rewriting when the RAG provider is unavailable', async () => {
+      const { result } = renderHook(() => useChatStore());
+      vi.spyOn(chatSelectors, 'getMessageById').mockReturnValue(
+        () => ({ id: 'message-id' }) as UIChatMessage,
+      );
+      const rewrite = vi.spyOn(result.current, 'internal_rewriteQuery');
+      vi.mocked(ragProviderService.getStatus).mockResolvedValue({ configured: false } as any);
+
+      await expect(
+        result.current.internal_retrieveChunks('message-id', 'question', ['history']),
+      ).rejects.toThrow('Configure a RAG Provider');
+
+      expect(rewrite).not.toHaveBeenCalled();
+      expect(ragService.semanticSearchForChat).not.toHaveBeenCalled();
     });
   });
 

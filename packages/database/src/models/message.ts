@@ -292,15 +292,22 @@ export class MessageModel {
   findMessageQueriesById = async (messageId: string) => {
     const result = await this.db
       .select({
+        embeddingModel: embeddings.model,
         embeddings: embeddings.embeddings,
+        embeddingsId: messageQueries.embeddingsId,
         id: messageQueries.id,
         query: messageQueries.rewriteQuery,
         rewriteQuery: messageQueries.rewriteQuery,
         userQuery: messageQueries.userQuery,
       })
       .from(messageQueries)
-      .where(and(eq(messageQueries.messageId, messageId)))
-      .leftJoin(embeddings, eq(embeddings.id, messageQueries.embeddingsId));
+      .where(
+        and(eq(messageQueries.messageId, messageId), eq(messageQueries.userId, this.userId)),
+      )
+      .leftJoin(
+        embeddings,
+        and(eq(embeddings.id, messageQueries.embeddingsId), eq(embeddings.userId, this.userId)),
+      );
 
     if (result.length === 0) return undefined;
 
@@ -618,6 +625,45 @@ export class MessageModel {
       .returning();
 
     return result[0];
+  };
+
+  replaceMessageQuery = async (params: NewMessageQueryParams) => {
+    return this.db.transaction(async (trx) => {
+      const current = await trx.query.messageQueries.findFirst({
+        where: and(
+          eq(messageQueries.messageId, params.messageId),
+          eq(messageQueries.userId, this.userId),
+        ),
+      });
+
+      if (!current) {
+        const [created] = await trx
+          .insert(messageQueries)
+          .values({ ...params, userId: this.userId })
+          .returning();
+        return created;
+      }
+
+      const [updated] = await trx
+        .update(messageQueries)
+        .set({
+          embeddingsId: params.embeddingsId,
+          rewriteQuery: params.rewriteQuery,
+          userQuery: params.userQuery,
+        })
+        .where(and(eq(messageQueries.id, current.id), eq(messageQueries.userId, this.userId)))
+        .returning();
+
+      if (current.embeddingsId && current.embeddingsId !== params.embeddingsId) {
+        await trx
+          .delete(embeddings)
+          .where(
+            and(eq(embeddings.id, current.embeddingsId), eq(embeddings.userId, this.userId)),
+          );
+      }
+
+      return updated;
+    });
   };
   // **************** Update *************** //
 

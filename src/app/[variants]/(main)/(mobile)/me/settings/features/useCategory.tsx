@@ -1,4 +1,13 @@
-import { Bot, Brain, Info, MessageSquareText, Mic2, Settings2, Sparkles } from 'lucide-react';
+import {
+  Bot,
+  Brain,
+  DatabaseZap,
+  Info,
+  MessageSquareText,
+  Mic2,
+  Settings2,
+  Sparkles,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
 
@@ -31,6 +40,11 @@ export const useCategory = () => {
       icon: Brain,
       key: SettingsTabs.Provider,
       label: t('tab.provider'),
+    },
+    {
+      icon: DatabaseZap,
+      key: SettingsTabs.RagProvider,
+      label: t('tab.rag-provider'),
     },
     { icon: Mic2, key: SettingsTabs.TTS, label: t('tab.tts') },
     {

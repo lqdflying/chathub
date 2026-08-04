@@ -97,7 +97,7 @@ export class UserModel {
     const state = result[0];
 
     // Decrypt keyVaults
-    let decryptKeyVaults = {};
+    let decryptKeyVaults: UserKeyVaults = {};
 
     try {
       decryptKeyVaults = await decryptor(state.settingsKeyVaults, this.userId);
@@ -105,11 +105,17 @@ export class UserModel {
       /* empty */
     }
 
+    // RAG embeddings are server-side only. Other provider credentials still
+    // follow the existing browser-runtime contract, but the dedicated RAG key
+    // is available only through the redacted RAG provider endpoints.
+    const browserKeyVaults = { ...decryptKeyVaults };
+    delete browserKeyVaults.rag;
+
     const settings: PartialDeep<UserSettings> = {
       defaultAgent: state.settingsDefaultAgent || {},
       general: state.settingsGeneral || {},
       hotkey: state.settingsHotkey || {},
-      keyVaults: decryptKeyVaults,
+      keyVaults: browserKeyVaults,
       languageModel: state.settingsLanguageModel || {},
       systemAgent: state.settingsSystemAgent || {},
       tool: state.settingsTool || {},

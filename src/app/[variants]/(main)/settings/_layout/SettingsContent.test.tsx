@@ -135,7 +135,7 @@ describe('SettingsContent', () => {
   it('renders the Skills page with its mobile layout', () => {
     render(<SettingsContent activeTab={SettingsTabs.Skills} mobile />);
 
-    expect(screen.getByTestId('settings-component-10').dataset.mobile).toBe('true');
+    expect(screen.getByTestId('settings-component-11').dataset.mobile).toBe('true');
   });
 
   it('retries a current-scope request failure and restores the tab loading UI', async () => {
@@ -157,20 +157,20 @@ describe('SettingsContent', () => {
     render(<SettingsContent activeTab={SettingsTabs.SystemAgent} mobile />);
 
     expect(screen.getByRole('alert').textContent).toContain('bootstrapFailure.description');
-    expect(screen.queryByTestId('settings-component-8')).toBeNull();
+    expect(screen.queryByTestId('settings-component-9')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'bootstrapFailure.retry' }));
 
     expect(userStoreState.refreshUserState).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('alert')).toBeNull();
-    expect(screen.queryByTestId('settings-component-8')).toBeNull();
+    expect(screen.queryByTestId('settings-component-9')).toBeNull();
 
     await act(async () => {
       finishRetry();
       await retryRequest;
     });
 
-    expect(screen.getByTestId('settings-component-8')).not.toBeNull();
+    expect(screen.getByTestId('settings-component-9')).not.toBeNull();
   });
 
   it('restores failure guidance when the retry request rejects', async () => {
@@ -242,8 +242,9 @@ describe('SettingsContent', () => {
 
   it.each([
     [SettingsTabs.Provider, 'settings-component-3'],
-    [SettingsTabs.Storage, 'settings-component-7'],
-    [SettingsTabs.Mcp, 'settings-component-9'],
+    [SettingsTabs.RagProvider, 'settings-component-4'],
+    [SettingsTabs.Storage, 'settings-component-8'],
+    [SettingsTabs.Mcp, 'settings-component-10'],
   ])('guards the %s tab during a user-state failure', (tab, componentTestId) => {
     updateUserStore({
       userStateInitializationFailure: {
@@ -268,7 +269,7 @@ describe('SettingsContent', () => {
 
     render(<SettingsContent activeTab={SettingsTabs.About} mobile />);
 
-    expect(screen.getByTestId('settings-component-5')).not.toBeNull();
+    expect(screen.getByTestId('settings-component-6')).not.toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -287,7 +288,7 @@ describe('SettingsContent', () => {
 
   it.each([
     [SettingsTabs.Provider, 'settings-component-3'],
-    [SettingsTabs.Storage, 'settings-component-7'],
+    [SettingsTabs.Storage, 'settings-component-8'],
   ])('keeps the %s tab hidden until authentication loading resolves', (tab, componentTestId) => {
     updateUserStore({
       authUserId: undefined,
@@ -316,6 +317,6 @@ describe('SettingsContent', () => {
 
     render(<SettingsContent activeTab={SettingsTabs.About} mobile />);
 
-    expect(screen.getByTestId('settings-component-5')).not.toBeNull();
+    expect(screen.getByTestId('settings-component-6')).not.toBeNull();
   });
 });

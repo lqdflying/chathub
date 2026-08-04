@@ -3,6 +3,7 @@ export * from './client/cookie';
 export * from './detectChinese';
 export * from './format';
 export * from './imageToBase64';
+export * from './isChunkableFile';
 export * from './keyboard';
 export * from './merge';
 export * from './number';

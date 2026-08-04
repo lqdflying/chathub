@@ -1,3 +1,4 @@
+import { isChunkableFile } from '@lobechat/utils';
 import { createStyles } from 'antd-style';
 import { rgba } from 'polished';
 import { memo } from 'react';
@@ -6,7 +7,6 @@ import { Flexbox } from 'react-layout-kit';
 import { useAddFilesToKnowledgeBaseModal } from '@/features/KnowledgeBaseModal';
 import { useFileStore } from '@/store/file';
 import { useKnowledgeBaseStore } from '@/store/knowledgeBase';
-import { isChunkingUnsupported } from '@/utils/isChunkingUnsupported';
 
 import Config from './Config';
 import MultiSelectActions, { MultiSelectActionType } from './MultiSelectActions';
@@ -60,6 +60,10 @@ const ToolBar = memo<MultiSelectActionsProps>(
     ]);
 
     const { open } = useAddFilesToKnowledgeBaseModal();
+    const chunkableFileIds = selectFileIds.filter((id) => {
+      const file = fileList.find((item) => item.id === id);
+      return file && isChunkableFile(file.name, file.fileType);
+    });
 
     const onActionClick = async (type: MultiSelectActionType) => {
       switch (type) {
@@ -77,15 +81,17 @@ const ToolBar = memo<MultiSelectActionsProps>(
           return;
         }
         case 'addToKnowledgeBase': {
+          if (chunkableFileIds.length === 0) return;
           open({
-            fileIds: selectFileIds,
+            fileIds: chunkableFileIds,
             onClose: () => setSelectedFileIds([]),
           });
           return;
         }
         case 'addToOtherKnowledgeBase': {
+          if (chunkableFileIds.length === 0) return;
           open({
-            fileIds: selectFileIds,
+            fileIds: chunkableFileIds,
             knowledgeBaseId,
             onClose: () => setSelectedFileIds([]),
           });
@@ -93,10 +99,6 @@ const ToolBar = memo<MultiSelectActionsProps>(
         }
 
         case 'batchChunking': {
-          const chunkableFileIds = selectFileIds.filter((id) => {
-            const file = fileList.find((f) => f.id === id);
-            return file && !isChunkingUnsupported(file.fileType);
-          });
           await parseFilesToChunks(chunkableFileIds, { skipExist: true });
           setSelectedFileIds([]);
           return;
@@ -108,6 +110,7 @@ const ToolBar = memo<MultiSelectActionsProps>(
     return (
       <Flexbox align={'center'} className={styles.container} horizontal justify={'space-between'}>
         <MultiSelectActions
+          chunkableSelectCount={chunkableFileIds.length}
           isInKnowledgeBase={isInKnowledgeBase}
           onActionClick={onActionClick}
           onClickCheckbox={() => {

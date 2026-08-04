@@ -25,6 +25,7 @@ export enum SortType {
 
 export const QueryFileListSchema = z.object({
   category: z.string().optional(),
+  chunkableOnly: z.boolean().default(false),
   knowledgeBaseId: z.string().optional(),
   q: z.string().nullable().optional(),
   showFilesInKnowledgeBase: z.boolean().default(false),
@@ -36,6 +37,7 @@ export type QueryFileListSchemaType = z.infer<typeof QueryFileListSchema>;
 
 export interface QueryFileListParams {
   category?: string;
+  chunkableOnly?: boolean;
   knowledgeBaseId?: string;
   q?: string | null;
   showFilesInKnowledgeBase?: boolean;

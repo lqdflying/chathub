@@ -111,6 +111,22 @@ describe('UserModel', () => {
       expect(state.settings.keyVaults).toEqual(keyVaults);
     });
 
+    it('omits the server-only RAG credential from user bootstrap state', async () => {
+      await serverDB.insert(users).values({ id: userId });
+      const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+      const encryptedKeyVaults = await gateKeeper.encrypt(
+        JSON.stringify({
+          openai: { apiKey: 'browser-key' },
+          rag: { apiKey: 'rag-key', model: 'text-embedding-3-small', provider: 'openai' },
+        }),
+      );
+      await serverDB.insert(userSettings).values({ id: userId, keyVaults: encryptedKeyVaults });
+
+      const state = await userModel.getUserState(KeyVaultsGateKeeper.getUserKeyVaults);
+
+      expect(state.settings.keyVaults).toEqual({ openai: { apiKey: 'browser-key' } });
+    });
+
     it('should throw an error if user not found', async () => {
       const userModel = new UserModel(serverDB, 'invalid-user-id');
 

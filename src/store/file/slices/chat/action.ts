@@ -1,3 +1,4 @@
+import { isChunkableFile } from '@lobechat/utils';
 import { t } from 'i18next';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -7,18 +8,14 @@ import { fileService } from '@/services/file';
 import { ServerService } from '@/services/file/server';
 import { ragService } from '@/services/rag';
 import { UPLOAD_NETWORK_ERROR } from '@/services/upload';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import {
   UploadFileListDispatch,
   uploadFileListReducer,
 } from '@/store/file/reducers/uploadFileList';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
 import { FileListItem } from '@/types/files';
 import { UploadFileItem } from '@/types/files/upload';
-import { isChunkingUnsupported } from '@/utils/isChunkingUnsupported';
 import { sleep } from '@/utils/sleep';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -164,7 +161,13 @@ export const createFileSlice: StateCreator<
             base64Url = `data:${file.type};base64,${base64}`;
           }
 
-          return { base64Url, file, id: file.name, previewUrl, status: 'pending' } as UploadFileItem;
+          return {
+            base64Url,
+            file,
+            id: file.name,
+            previewUrl,
+            status: 'pending',
+          } as UploadFileItem;
         }),
       );
 
@@ -219,8 +222,9 @@ export const createFileSlice: StateCreator<
         if (!isFileOperationCurrent()) return;
         if (!fileResult) return;
 
-        // image don't need to be chunked and embedding
-        if (isChunkingUnsupported(file.type)) return;
+        // Screenshots and other non-document attachments remain in the topic,
+        // but only loader-supported documents enter the chunking pipeline.
+        if (!isChunkableFile(file.name, file.type)) return;
 
         if (!isFileOperationCurrent()) return;
         await ragService.parseFileContent(fileResult.id);

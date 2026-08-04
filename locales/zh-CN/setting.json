@@ -198,6 +198,35 @@
     },
     "store": "插件商店"
   },
+  "ragProvider": {
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "输入嵌入服务 API Key",
+    "apiKeySaved": "已安全保存；留空可继续使用",
+    "baseURL": "API 地址",
+    "baseURLPlaceholder": "使用服务商默认地址",
+    "configured": "已配置",
+    "model": "嵌入模型",
+    "notConfigured": "未配置",
+    "overrideCleared": "已恢复环境变量配置",
+    "provider": "服务商",
+    "reindex": "重新索引全部文档",
+    "reindexDescription": "现有向量与当前嵌入配置不匹配。是否立即重新索引全部文档？",
+    "reindexStarted": "已为 {{count}} 个文档启动重新索引",
+    "reindexTitle": "重新索引知识库",
+    "retry": "重试",
+    "save": "保存",
+    "saved": "RAG 服务商配置已保存",
+    "status": {
+      "environment": "正在使用服务器环境变量中的 RAG 配置。保存后将改用当前账户配置。",
+      "invalid": "RAG 配置不完整。请修复服务器环境变量，或为当前账户保存完整配置。",
+      "none": "RAG 检索不可用。请配置外部嵌入服务商。",
+      "user": "正在使用当前账户的加密 RAG 配置。"
+    },
+    "test": "测试连接",
+    "testSuccess": "嵌入服务连接成功",
+    "title": "RAG 服务商",
+    "useEnvironment": "使用环境配置"
+  },
   "settingAgent": {
     "avatar": {
       "title": "助手头像"
@@ -806,6 +835,7 @@
     "llm": "语言模型",
     "mcp-management": "MCP 管理",
     "provider": "AI 服务商",
+    "rag-provider": "RAG 服务商",
     "proxy": "网络代理",
     "skills": "技能管理",
     "storage": "数据存储",

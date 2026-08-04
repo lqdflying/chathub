@@ -35,7 +35,7 @@ const KnowledgeBaseDetailPage = memo(() => {
         <Menu id={id} />
       </FilePanel>
       <Flexbox flex={1} style={{ overflow: 'hidden', position: 'relative' }}>
-        <FileManager knowledgeBaseId={id} onOpenFile={setFileModalId} title={name} />
+        <FileManager knowledgeBaseId={id} knowledgeMode onOpenFile={setFileModalId} title={name} />
       </Flexbox>
       <FileModalQueryRoute />
     </>

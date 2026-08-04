@@ -198,6 +198,35 @@
     },
     "store": "Plugin Store"
   },
+  "ragProvider": {
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Enter the embedding provider API key",
+    "apiKeySaved": "Saved securely; leave blank to keep it",
+    "baseURL": "API endpoint",
+    "baseURLPlaceholder": "Use the provider default",
+    "configured": "Configured",
+    "model": "Embedding model",
+    "notConfigured": "Not configured",
+    "overrideCleared": "Environment configuration restored",
+    "provider": "Provider",
+    "reindex": "Reindex all documents",
+    "reindexDescription": "Existing vectors do not match the current embedding configuration. Reindex all documents now?",
+    "reindexStarted": "Reindexing started for {{count}} documents",
+    "reindexTitle": "Reindex Knowledge Base",
+    "retry": "Retry",
+    "save": "Save",
+    "saved": "RAG Provider configuration saved",
+    "status": {
+      "environment": "Using the server environment RAG configuration. Saving creates an override for this account.",
+      "invalid": "The RAG configuration is incomplete. Fix the server environment or save a complete configuration for this account.",
+      "none": "RAG retrieval is unavailable. Configure an external embedding provider.",
+      "user": "Using the encrypted RAG configuration for this account."
+    },
+    "test": "Test connection",
+    "testSuccess": "Embedding provider connection succeeded",
+    "title": "RAG Provider",
+    "useEnvironment": "Use environment configuration"
+  },
   "settingAgent": {
     "avatar": {
       "title": "Avatar"
@@ -806,6 +835,7 @@
     "llm": "Language Model",
     "mcp-management": "MCP Management",
     "provider": "AI Service Provider",
+    "rag-provider": "RAG Provider",
     "proxy": "Network Proxy",
     "skills": "Skills",
     "storage": "Data Storage",

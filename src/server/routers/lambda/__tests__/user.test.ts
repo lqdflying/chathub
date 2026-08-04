@@ -8,6 +8,7 @@ import { UserModel, UserNotFoundError } from '@/database/models/user';
 import { serverDB } from '@/database/server';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { NextAuthUserService } from '@/server/services/nextAuthUser';
+import { getRagUserKeyVaults } from '@/server/services/rag';
 import { UserService } from '@/server/services/user';
 
 import { userRouter } from '../user';
@@ -28,6 +29,18 @@ vi.mock('@/server/modules/KeyVaultsEncrypt');
 vi.mock('@/server/modules/S3');
 vi.mock('@/server/services/user');
 vi.mock('@/server/services/nextAuthUser');
+vi.mock('@/server/services/rag', () => ({
+  getRagUserKeyVaults: vi.fn(),
+  mergeBrowserKeyVaultsPreservingRag: (
+    current: Record<string, unknown>,
+    browserValue: Record<string, unknown>,
+  ) => {
+    const next = { ...browserValue };
+    delete next.rag;
+    if (current.rag) next.rag = current.rag;
+    return next;
+  },
+}));
 vi.mock('@/const/auth', () => ({
   enableClerk: true,
 }));
@@ -317,6 +330,9 @@ describe('userRouter', () => {
       };
 
       vi.mocked(KeyVaultsGateKeeper.initWithEnvKey).mockResolvedValue(mockGateKeeper as any);
+      vi.mocked(getRagUserKeyVaults).mockResolvedValue({
+        rag: { apiKey: 'rag-key', model: 'text-embedding-3-small', provider: 'openai' },
+      });
       vi.mocked(UserModel).mockImplementation(
         () =>
           ({
@@ -326,7 +342,12 @@ describe('userRouter', () => {
 
       await userRouter.createCaller({ ...mockCtx }).updateSettings(mockSettings);
 
-      expect(mockGateKeeper.encrypt).toHaveBeenCalledWith(JSON.stringify(mockSettings.keyVaults));
+      expect(mockGateKeeper.encrypt).toHaveBeenCalledWith(
+        JSON.stringify({
+          ...mockSettings.keyVaults,
+          rag: { apiKey: 'rag-key', model: 'text-embedding-3-small', provider: 'openai' },
+        }),
+      );
     });
 
     it('should update settings without key vaults and ignore legacy image defaults', async () => {
@@ -348,7 +369,6 @@ describe('userRouter', () => {
       expect(UserModel).toHaveBeenCalledWith(serverDB, mockUserId);
       expect(updateSetting).toHaveBeenCalledWith({
         general: mockSettings.general,
-        keyVaults: null,
       });
     });
   });

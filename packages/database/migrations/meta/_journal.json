@@ -371,6 +371,13 @@
       "when": 1785808885706,
       "tag": "0052_add_image_artifact_index",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1785830400000,
+      "tag": "0053_add_rag_embedding_indexes",
+      "breakpoints": true
     }
   ],
   "version": "6"

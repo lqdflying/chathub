@@ -25,6 +25,7 @@ import { messageRouter } from './message';
 import { picbedRouter } from './picbed';
 import { pluginRouter } from './plugin';
 import { ragEvalRouter } from './ragEval';
+import { ragProviderRouter } from './ragProvider';
 import { sessionRouter } from './session';
 import { sessionGroupRouter } from './sessionGroup';
 import { skillRouter } from './skill';
@@ -57,6 +58,7 @@ export const lambdaRouter = router({
   picbed: picbedRouter,
   plugin: pluginRouter,
   ragEval: ragEvalRouter,
+  ragProvider: ragProviderRouter,
   session: sessionRouter,
   sessionGroup: sessionGroupRouter,
   skill: skillRouter,

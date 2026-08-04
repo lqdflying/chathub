@@ -1,9 +1,11 @@
+import { isChunkableFile } from '@lobechat/utils';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { serverDBEnv } from '@/config/db';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { ChunkModel } from '@/database/models/chunk';
+import { EmbeddingModel } from '@/database/models/embedding';
 import { FileModel } from '@/database/models/file';
 import { appEnv } from '@/envs/app';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
@@ -11,6 +13,7 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { FileService } from '@/server/services/file';
 import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileReference';
 import { isUserUploadKey } from '@/server/services/file/uploadTarget';
+import { resolveRagEmbeddingConfig } from '@/server/services/rag';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { FileListItem, QueryFileListSchema, UploadFileSchema } from '@/types/files';
 
@@ -21,6 +24,7 @@ const fileProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
     ctx: {
       asyncTaskModel: new AsyncTaskModel(ctx.serverDB, ctx.userId),
       chunkModel: new ChunkModel(ctx.serverDB, ctx.userId),
+      embeddingModel: new EmbeddingModel(ctx.serverDB, ctx.userId),
       fileModel: new FileModel(ctx.serverDB, ctx.userId),
       fileService: new FileService(ctx.serverDB, ctx.userId),
     },
@@ -67,6 +71,14 @@ export const fileRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.knowledgeBaseId && !isChunkableFile(input.name, input.fileType)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message:
+            'Only documents supported by the chunking loaders can be added to a Knowledge Base.',
+        });
+      }
+
       const globalFile = await ctx.fileModel.checkHash(input.hash);
       if (!globalFile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file hash' });
 
@@ -133,6 +145,10 @@ export const fileRouter = router({
       }
 
       const chunkCount = await ctx.chunkModel.countByFileId(input.id);
+      const ragConfig = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
+      const embeddedCount = ragConfig.fingerprint
+        ? await ctx.embeddingModel.countByFileId(input.id, ragConfig.fingerprint)
+        : 0;
 
       return {
         ...item,
@@ -141,7 +157,10 @@ export const fileRouter = router({
         chunkingStatus: chunkingTask?.status as AsyncTaskStatus,
         embeddingError: embeddingTask?.error,
         embeddingStatus: embeddingTask?.status as AsyncTaskStatus,
-        finishEmbedding: embeddingTask?.status === AsyncTaskStatus.Success,
+        finishEmbedding:
+          chunkCount > 0 &&
+          embeddingTask?.status === AsyncTaskStatus.Success &&
+          embeddedCount === chunkCount,
         url: await ctx.fileService.getUIFileUrl(item.url!),
       };
     }),
@@ -151,6 +170,10 @@ export const fileRouter = router({
 
     const fileIds = fileList.map((item) => item.id);
     const chunks = await ctx.chunkModel.countByFileIds(fileIds);
+    const ragConfig = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
+    const embeddedCounts = ragConfig.fingerprint
+      ? await ctx.embeddingModel.countByFileIds(fileIds, ragConfig.fingerprint)
+      : [];
 
     const chunkTaskIds = fileList.map((result) => result.chunkTaskId).filter(Boolean) as string[];
 
@@ -170,15 +193,20 @@ export const fileRouter = router({
       const embeddingTask = embeddingTaskId
         ? embeddingTasks.find((task) => task.id === embeddingTaskId)
         : null;
+      const chunkCount = chunks.find((chunk) => chunk.id === item.id)?.count ?? 0;
+      const embeddedCount = embeddedCounts.find((count) => count.id === item.id)?.count ?? 0;
 
       const fileItem = {
         ...item,
-        chunkCount: chunks.find((chunk) => chunk.id === item.id)?.count ?? null,
+        chunkCount: chunkCount || null,
         chunkingError: chunkTask?.error ?? null,
         chunkingStatus: chunkTask?.status as AsyncTaskStatus,
         embeddingError: embeddingTask?.error ?? null,
         embeddingStatus: embeddingTask?.status as AsyncTaskStatus,
-        finishEmbedding: embeddingTask?.status === AsyncTaskStatus.Success,
+        finishEmbedding:
+          chunkCount > 0 &&
+          embeddingTask?.status === AsyncTaskStatus.Success &&
+          embeddedCount === chunkCount,
         url: await ctx.fileService.getUIFileUrl(item.url!),
       } as FileListItem;
       resultFiles.push(fileItem);

@@ -1,4 +1,5 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix  */
+import { sql } from 'drizzle-orm';
 import {
   index,
   integer,
@@ -81,6 +82,10 @@ export const embeddings = pgTable(
     uniqueIndex('embeddings_client_id_user_id_unique').on(t.clientId, t.userId),
     // improve delete embeddings query
     index('embeddings_chunk_id_idx').on(t.chunkId),
+    index('embeddings_user_id_model_idx').on(t.userId, t.model),
+    index('embeddings_vector_hnsw_idx')
+      .using('hnsw', t.embeddings.op('vector_cosine_ops'))
+      .where(sql`${t.chunkId} IS NOT NULL`),
   ],
 );
 

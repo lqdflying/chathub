@@ -1,0 +1,133 @@
+# Knowledge Base and Vector RAG
+
+ChatHub Knowledge uses a dedicated external embedding provider and PostgreSQL
+pgvector. It does not infer an embedding model from the selected chat model,
+chat-provider credentials, or `DEFAULT_FILES_CONFIG`. Without a complete RAG
+provider configuration, document parsing can still run, but vector indexing,
+semantic search, chat retrieval, and RAG evaluations are unavailable.
+
+## Content boundary
+
+Knowledge is document-only. `isChunkableFile` is the shared positive capability
+check used by upload, file queries, Knowledge Base association, parse actions,
+and reindexing. Supported inputs are PDF, DOCX, PPTX, EPUB, CSV, Markdown,
+LaTeX, plain text, and the text/source extensions routed by the LangChain
+loaders. Legacy DOC, spreadsheets, images, audio, video, archives, and unknown
+binary formats are rejected or hidden. ZIP is accepted only as an upload
+transport; extracted entries are filtered before any file row is created.
+
+This boundary does not delete or relocate other media:
+
+- screenshots and media attached during a topic remain topic files and skip chunking
+- generated images remain available through the Image workflow and Artifacts
+- an old unsupported file relation is hidden from Knowledge but the underlying file remains owned by the account
+
+The loader uses 1,000-character chunks with 200-character overlap. Parsed text
+is UTF-8 sanitized, trimmed, and stripped of blank chunks. Re-parsing replaces
+old chunks, unstructured elements, relations, and cascading embeddings in one
+transaction so a file cannot expose a mixed old/new index.
+
+## Provider resolution
+
+`src/server/services/rag/embedding.ts` owns provider resolution and HTTP
+adapters. Resolution order is:
+
+1. a complete encrypted `keyVaults.rag` override for the current account
+2. a complete deployment environment configuration
+3. unavailable
+
+An invalid account override is authoritative and blocks environment fallback
+until the user corrects it or selects **Use environment configuration**. A
+partial environment configuration is also reported as invalid. Provider status
+returns only readiness, source, provider, model, dimensions, a credential-free
+identity fingerprint, and whether a saved key exists. It never returns an API
+key.
+
+RAG settings mutations use an authenticated key-vault read. If existing
+ciphertext cannot be decrypted, save and clear operations fail before writing;
+they never replace the rest of the vault with an empty object. This usually
+indicates a changed `KEY_VAULTS_SECRET`. Normal user bootstrap omits the
+server-only `keyVaults.rag` entry, and generic settings writes preserve it, so
+the RAG API key is managed only by the dedicated provider endpoints.
+
+Supported adapters are:
+
+| Provider | Default model             | Request contract                                     |
+| -------- | ------------------------- | ---------------------------------------------------- |
+| OpenAI   | `text-embedding-3-small`  | `/embeddings`, `dimensions: 1024`                    |
+| Cohere   | `embed-multilingual-v3.0` | `/v2/embed`, float output, query/document input type |
+| Voyage   | `voyage-3.5`              | `/embeddings`, `output_dimension: 1024`              |
+
+Custom HTTP(S) base URLs and model IDs are allowed, but every response must
+contain exactly one finite 1,024-dimensional vector per input. Any other shape
+fails the task and cannot become searchable.
+
+## Vector identity and storage
+
+The provider, normalized credential-free endpoint, model, and fixed dimension
+are hashed into an opaque RAG fingerprint. API-key rotation preserves the
+fingerprint; changing provider, endpoint, model, or dimensions changes it.
+Every document and cached query embedding stores that fingerprint in
+`embeddings.model`.
+
+PostgreSQL owns durable vectors. Migration `0005_pgvector.sql` enables the
+vector extension, the `embeddings.embeddings` column is `vector(1024)`, and
+`0053_add_rag_embedding_indexes.sql` adds:
+
+- a B-tree index on `(user_id, model)` for current-fingerprint filtering
+- a partial HNSW index using `vector_cosine_ops` for document-chunk nearest-neighbor search
+
+Semantic queries order by the raw cosine-distance operator ascending so
+pgvector can use HNSW, while selecting `1 - distance` as the returned
+similarity. Retrieval reads at most 24 nearest candidates, keeps similarity at
+or above 0.2, and returns at most 8 chunks. The HNSW predicate requires a
+non-null `chunk_id`, so cached message/evaluation query vectors do not consume
+document nearest-neighbor candidates.
+
+## Indexing lifecycle
+
+File parsing and embedding are separate async tasks. Embedding runs in batches
+of 50 with concurrency 3 and replaces any vector for the same chunk. A task is
+successful only when every current file chunk has an embedding with the active
+fingerprint. File readiness also requires the current embedding task to be
+successful; stale vectors from a previous provider are never reported as ready
+or included in production retrieval. Each batch locks the file row and verifies
+that its task is still current, so a superseded retry cannot overwrite vectors
+written by a newer task.
+
+Saving a provider identity change reports whether existing chunk embeddings
+need reindexing. The settings UI then offers an explicit bulk reindex of all
+owned, parsed, chunkable documents. Removing an account override can require
+the same reindex when the environment identity differs.
+
+Query embeddings cached on message RAG records are reused only when both the
+rewrite query and active fingerprint match. Otherwise the old cached vector is
+replaced. RAG evaluation records use the same provider and reject continuation
+after the provider identity changes.
+
+## Ownership and failure behavior
+
+Files, Knowledge Bases, junction rows, chunks, embeddings, async tasks, and
+message-query vectors are scoped to the authenticated user in both reads and
+writes. Adding existing files validates ownership and chunkability atomically.
+Knowledge expansion joins through an owned Knowledge Base and owned files.
+
+Provider absence is explicit: Knowledge renders a warning banner linking to
+**Settings -> RAG Provider**, direct indexing/search calls fail a precondition,
+and chat retrieval surfaces the failure rather than silently returning an empty
+result. Provider HTTP errors and invalid vector shapes are recorded on the
+embedding task with readable messages.
+
+## Source map
+
+- `packages/types/src/rag.ts`
+- `packages/utils/src/isChunkableFile.ts`
+- `src/envs/knowledge.ts`
+- `src/server/services/rag/embedding.ts`
+- `src/server/services/chunk/index.ts`
+- `src/server/routers/async/file.ts`
+- `src/server/routers/lambda/chunk.ts`
+- `src/server/routers/lambda/ragProvider.ts`
+- `packages/database/src/models/chunk.ts`
+- `packages/database/src/models/embedding.ts`
+- `packages/database/src/schemas/rag.ts`

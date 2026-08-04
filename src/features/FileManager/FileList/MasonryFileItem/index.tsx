@@ -1,3 +1,4 @@
+import { isChunkableFile } from '@lobechat/utils';
 import { Button, Tooltip } from '@lobehub/ui';
 import { Checkbox, Image } from 'antd';
 import { createStyles } from 'antd-style';
@@ -11,7 +12,6 @@ import FileIcon from '@/components/FileIcon';
 import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { FileListItem } from '@/types/files';
 import { formatSize } from '@/utils/format';
-import { isChunkingUnsupported } from '@/utils/isChunkingUnsupported';
 
 import ChunksBadge from '../FileListItem/ChunkTag';
 import DropdownMenu from '../FileListItem/DropdownMenu';
@@ -298,7 +298,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
       s.parseFilesToChunks,
     ]);
 
-    const isSupportedForChunking = !isChunkingUnsupported(fileType);
+    const isSupportedForChunking = isChunkableFile(name, fileType);
     const isImage = fileType && IMAGE_TYPES.has(fileType);
     const isMarkdown = isMarkdownFile(name, fileType);
 

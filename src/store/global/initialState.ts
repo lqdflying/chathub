@@ -40,6 +40,7 @@ export enum SettingsTabs {
   Hotkey = 'hotkey',
   Mcp = 'mcp',
   Provider = 'provider',
+  RagProvider = 'rag-provider',
   Skills = 'skills',
   Storage = 'storage',
   SystemAgent = 'system-agent',

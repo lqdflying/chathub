@@ -27,6 +27,7 @@ export type MultiSelectActionType =
   | 'addToOtherKnowledgeBase';
 
 interface MultiSelectActionsProps {
+  chunkableSelectCount: number;
   isInKnowledgeBase?: boolean;
   onActionClick: (type: MultiSelectActionType) => Promise<void>;
   onClickCheckbox: () => void;
@@ -35,7 +36,14 @@ interface MultiSelectActionsProps {
 }
 
 const MultiSelectActions = memo<MultiSelectActionsProps>(
-  ({ selectCount, isInKnowledgeBase, total, onActionClick, onClickCheckbox }) => {
+  ({
+    chunkableSelectCount,
+    selectCount,
+    isInKnowledgeBase,
+    total,
+    onActionClick,
+    onClickCheckbox,
+  }) => {
     const { t } = useTranslation(['components', 'common']);
     const { styles } = useStyles();
 
@@ -95,6 +103,7 @@ const MultiSelectActions = memo<MultiSelectActionsProps>(
                 </Button>
                 <Button
                   color={'default'}
+                  disabled={chunkableSelectCount === 0}
                   icon={<Icon icon={BookPlusIcon} />}
                   onClick={() => {
                     onActionClick('addToOtherKnowledgeBase');
@@ -108,6 +117,7 @@ const MultiSelectActions = memo<MultiSelectActionsProps>(
             ) : (
               <Button
                 color={'default'}
+                disabled={chunkableSelectCount === 0}
                 icon={<Icon icon={BookPlusIcon} />}
                 onClick={() => {
                   onActionClick('addToKnowledgeBase');
@@ -120,6 +130,7 @@ const MultiSelectActions = memo<MultiSelectActionsProps>(
             )}
             <Button
               color={'default'}
+              disabled={chunkableSelectCount === 0}
               icon={<Icon icon={FileBoxIcon} />}
               onClick={async () => {
                 await onActionClick('batchChunking');

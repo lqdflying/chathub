@@ -1,10 +1,11 @@
-import { ChunkMetadata, FileChunk } from '@lobechat/types';
-import { and, asc, cosineDistance, count, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { AsyncTaskStatus, ChunkMetadata, FileChunk } from '@lobechat/types';
+import { and, asc, cosineDistance, count, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { chunk } from 'lodash-es';
 
 import {
   NewChunkItem,
   NewUnstructuredChunkItem,
+  asyncTasks,
   chunks,
   embeddings,
   fileChunks,
@@ -43,6 +44,60 @@ export class ChunkModel {
     });
   };
 
+  replaceFileChunks = async (
+    params: NewChunkItem[],
+    fileId: string,
+    unstructuredParams: NewUnstructuredChunkItem[] = [],
+  ) => {
+    return this.db.transaction(async (trx) => {
+      const ownedFile = await trx.query.files.findFirst({
+        where: and(eq(files.id, fileId), eq(files.userId, this.userId)),
+      });
+      if (!ownedFile) throw new Error('File not found');
+
+      const previous = await trx
+        .select({ id: chunks.id })
+        .from(chunks)
+        .innerJoin(
+          fileChunks,
+          and(eq(fileChunks.chunkId, chunks.id), eq(fileChunks.userId, this.userId)),
+        )
+        .where(and(eq(fileChunks.fileId, fileId), eq(chunks.userId, this.userId)));
+
+      await trx
+        .delete(unstructuredChunks)
+        .where(
+          and(eq(unstructuredChunks.fileId, fileId), eq(unstructuredChunks.userId, this.userId)),
+        );
+
+      const previousIds = previous.map(({ id }) => id);
+      if (previousIds.length > 0) {
+        await trx
+          .delete(chunks)
+          .where(and(inArray(chunks.id, previousIds), eq(chunks.userId, this.userId)));
+      }
+
+      const cleanChunks = params
+        .filter(({ text }) => !!text?.trim())
+        .map((item) => ({ ...item, text: item.text!.trim(), userId: this.userId }));
+      if (cleanChunks.length === 0) return [];
+
+      const result = await trx.insert(chunks).values(cleanChunks).returning();
+      await trx
+        .insert(fileChunks)
+        .values(result.map(({ id }) => ({ chunkId: id, fileId, userId: this.userId })));
+
+      const cleanUnstructured = unstructuredParams
+        .filter(({ text }) => !!text?.trim())
+        .map((item) => ({ ...item, fileId, text: item.text!.trim(), userId: this.userId }));
+      if (cleanUnstructured.length > 0) {
+        await trx.insert(unstructuredChunks).values(cleanUnstructured);
+      }
+
+      return result;
+    });
+  };
+
   bulkCreateUnstructuredChunks = async (params: NewUnstructuredChunkItem[]) => {
     return this.db.insert(unstructuredChunks).values(params);
   };
@@ -74,7 +129,7 @@ export class ChunkModel {
 
   findById = async (id: string) => {
     return this.db.query.chunks.findFirst({
-      where: and(eq(chunks.id, id)),
+      where: and(eq(chunks.id, id), eq(chunks.userId, this.userId)),
     });
   };
 
@@ -109,7 +164,13 @@ export class ChunkModel {
       .select()
       .from(chunks)
       .innerJoin(fileChunks, eq(chunks.id, fileChunks.chunkId))
-      .where(eq(fileChunks.fileId, id));
+      .where(
+        and(
+          eq(fileChunks.fileId, id),
+          eq(fileChunks.userId, this.userId),
+          eq(chunks.userId, this.userId),
+        ),
+      );
 
     return data
       .map((item) => item.chunks)
@@ -126,7 +187,7 @@ export class ChunkModel {
         id: fileChunks.fileId,
       })
       .from(fileChunks)
-      .where(inArray(fileChunks.fileId, ids))
+      .where(and(inArray(fileChunks.fileId, ids), eq(fileChunks.userId, this.userId)))
       .groupBy(fileChunks.fileId);
   };
 
@@ -137,7 +198,7 @@ export class ChunkModel {
         id: fileChunks.fileId,
       })
       .from(fileChunks)
-      .where(eq(fileChunks.fileId, ids))
+      .where(and(eq(fileChunks.fileId, ids), eq(fileChunks.userId, this.userId)))
       .groupBy(fileChunks.fileId);
 
     return data[0]?.count ?? 0;
@@ -146,12 +207,15 @@ export class ChunkModel {
   semanticSearch = async ({
     embedding,
     fileIds,
+    fingerprint,
   }: {
     embedding: number[];
     fileIds: string[] | undefined;
+    fingerprint?: string;
     query: string;
   }) => {
-    const similarity = sql<number>`1 - (${cosineDistance(embeddings.embeddings, embedding)})`;
+    const distance = cosineDistance(embeddings.embeddings, embedding);
+    const similarity = sql<number>`1 - (${distance})`;
 
     const data = await this.db
       .select({
@@ -165,42 +229,57 @@ export class ChunkModel {
         type: chunks.type,
       })
       .from(chunks)
-      .leftJoin(
+      .innerJoin(
         embeddings,
-        and(eq(chunks.id, embeddings.chunkId), eq(embeddings.userId, this.userId)),
+        and(
+          eq(chunks.id, embeddings.chunkId),
+          eq(embeddings.userId, this.userId),
+          fingerprint ? eq(embeddings.model, fingerprint) : undefined,
+        ),
       )
-      .leftJoin(
+      .innerJoin(
         fileChunks,
         and(eq(chunks.id, fileChunks.chunkId), eq(fileChunks.userId, this.userId)),
       )
+      .innerJoin(files, and(eq(fileChunks.fileId, files.id), eq(files.userId, this.userId)))
       .leftJoin(
-        files,
-        and(eq(fileChunks.fileId, files.id), eq(files.userId, this.userId)),
+        asyncTasks,
+        and(eq(files.embeddingTaskId, asyncTasks.id), eq(asyncTasks.userId, this.userId)),
       )
       .where(
         and(
           eq(chunks.userId, this.userId),
+          isNotNull(embeddings.chunkId),
           fileIds ? inArray(files.id, fileIds) : undefined,
+          fingerprint ? eq(asyncTasks.status, AsyncTaskStatus.Success) : undefined,
         ),
       )
-      .orderBy((t) => desc(t.similarity))
-      .limit(30);
+      // pgvector requires the raw distance operator in ascending order for
+      // the HNSW index to participate in nearest-neighbor retrieval.
+      .orderBy(distance)
+      .limit(24);
 
-    return data.map((item) => ({
-      ...item,
-      metadata: item.metadata as ChunkMetadata,
-    }));
+    return data
+      .filter(({ similarity }) => similarity >= 0.2)
+      .slice(0, 8)
+      .map((item) => ({
+        ...item,
+        metadata: item.metadata as ChunkMetadata,
+      }));
   };
 
   semanticSearchForChat = async ({
     embedding,
     fileIds,
+    fingerprint,
   }: {
     embedding: number[];
     fileIds: string[] | undefined;
+    fingerprint?: string;
     query: string;
   }) => {
-    const similarity = sql<number>`1 - (${cosineDistance(embeddings.embeddings, embedding)})`;
+    const distance = cosineDistance(embeddings.embeddings, embedding);
+    const similarity = sql<number>`1 - (${distance})`;
 
     const hasFiles = fileIds && fileIds.length > 0;
 
@@ -218,33 +297,47 @@ export class ChunkModel {
         type: chunks.type,
       })
       .from(chunks)
-      .leftJoin(
+      .innerJoin(
         embeddings,
-        and(eq(chunks.id, embeddings.chunkId), eq(embeddings.userId, this.userId)),
+        and(
+          eq(chunks.id, embeddings.chunkId),
+          eq(embeddings.userId, this.userId),
+          fingerprint ? eq(embeddings.model, fingerprint) : undefined,
+        ),
       )
-      .leftJoin(
+      .innerJoin(
         fileChunks,
         and(eq(chunks.id, fileChunks.chunkId), eq(fileChunks.userId, this.userId)),
       )
+      .innerJoin(files, and(eq(files.id, fileChunks.fileId), eq(files.userId, this.userId)))
       .leftJoin(
-        files,
-        and(eq(files.id, fileChunks.fileId), eq(files.userId, this.userId)),
+        asyncTasks,
+        and(eq(files.embeddingTaskId, asyncTasks.id), eq(asyncTasks.userId, this.userId)),
       )
-      .where(and(eq(chunks.userId, this.userId), inArray(files.id, fileIds)))
-      .orderBy((t) => desc(t.similarity))
-      // 先放宽到 15
-      .limit(15);
+      .where(
+        and(
+          eq(chunks.userId, this.userId),
+          isNotNull(embeddings.chunkId),
+          inArray(files.id, fileIds),
+          fingerprint ? eq(asyncTasks.status, AsyncTaskStatus.Success) : undefined,
+        ),
+      )
+      .orderBy(distance)
+      .limit(24);
 
-    return result.map((item) => {
-      return {
-        fileId: item.fileId,
-        fileName: item.fileName,
-        id: item.id,
-        index: item.index,
-        similarity: item.similarity,
-        text: this.mapChunkText(item),
-      };
-    });
+    return result
+      .filter(({ similarity }) => similarity >= 0.2)
+      .slice(0, 8)
+      .map((item) => {
+        return {
+          fileId: item.fileId,
+          fileName: item.fileName,
+          id: item.id,
+          index: item.index,
+          similarity: item.similarity,
+          text: this.mapChunkText(item),
+        };
+      });
   };
 
   private mapChunkText = (chunk: { metadata: any; text: string | null; type: string | null }) => {

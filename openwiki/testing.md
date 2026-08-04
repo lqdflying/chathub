@@ -55,6 +55,24 @@ For concurrent MCP result handling, cover the Tools tRPC client, server router p
 
 Validate the README, `doc/credentials-login-flow.md`, and any env-schema changes together. Configuration drift is common in this area.
 
+### Knowledge Base and RAG changes
+
+Cover the positive chunkability boundary, loader MIME/extension routing, the
+provider adapter request and vector-shape contract, file upload filtering, and
+chat retrieval behavior. High-signal suites include:
+
+- `packages/utils/src/isChunkableFile.test.ts`
+- `src/libs/langchain/loaders/index.test.ts`
+- `src/server/services/rag/embedding.test.ts`
+- `src/store/file/slices/fileManager/action.test.ts`
+- `src/store/file/slices/chat/action.test.ts`
+- `src/store/chat/slices/aiChat/actions/__tests__/rag.test.ts`
+
+Database-model semantic-search tests require `DATABASE_TEST_URL` and a
+PostgreSQL instance with pgvector. Verify that nearest-neighbor SQL orders by
+the raw cosine-distance operator in ascending order; wrapping that expression
+in a derived similarity sort can prevent HNSW index use.
+
 ## Change checklist for future agents
 
 Before finishing a change, verify:

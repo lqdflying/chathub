@@ -14,7 +14,7 @@ import JSONL from 'jsonl-parse-stringify';
 import pMap from 'p-map';
 import { z } from 'zod';
 
-import { DEFAULT_EMBEDDING_MODEL, DEFAULT_MODEL } from '@/const/settings';
+import { DEFAULT_MODEL } from '@/const/settings';
 import { FileModel } from '@/database/models/file';
 import {
   EvalDatasetModel,
@@ -27,6 +27,7 @@ import { keyVaults, serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { createAsyncCaller } from '@/server/routers/async';
 import { FileService } from '@/server/services/file';
 import { isUserUploadKey } from '@/server/services/file/uploadTarget';
+import { resolveRagEmbeddingConfig } from '@/server/services/rag';
 
 const ragEvalProcedure = authedProcedure
   .use(serverDatabase)
@@ -187,6 +188,14 @@ export const ragEvalRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Evaluation not found' });
       }
 
+      const resolved = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
+      if (!resolved.config || !resolved.fingerprint) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Configure a RAG embedding provider before starting an evaluation.',
+        });
+      }
+
       // create evaluation records by dataset records
       const datasetRecords = await ctx.datasetRecordModel.findByDatasetId(evaluation.datasetId);
 
@@ -201,7 +210,7 @@ export const ragEvalRouter = router({
           question: record.question!,
           ideal: record.ideal,
           status: EvalEvaluationStatus.Pending,
-          embeddingModel: DEFAULT_EMBEDDING_MODEL,
+          embeddingModel: resolved.fingerprint,
           languageModel: DEFAULT_MODEL,
         })),
       );

@@ -67,7 +67,7 @@ vi.mock('@/libs/trpc/client', () => ({
   },
 }));
 
-const createDeferred = <Value,>() => {
+const createDeferred = <Value>() => {
   let resolve!: (value: Value | PromiseLike<Value>) => void;
   const promise = new Promise<Value>((resolvePromise) => {
     resolve = resolvePromise;
@@ -528,6 +528,30 @@ describe('FileManagerActions', () => {
       });
     });
 
+    it('keeps unsupported files out of Knowledge Base uploads', async () => {
+      const { result } = renderHook(() => useStore());
+      const document = new File(['content'], 'notes.txt', { type: 'text/plain' });
+      const screenshot = new File(['image'], 'screenshot.png', { type: 'image/png' });
+      const spreadsheet = new File(['sheet'], 'report.xlsx', {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      const uploadSpy = vi
+        .spyOn(result.current, 'uploadWithProgress')
+        .mockResolvedValue({ id: 'file-1', url: 'http://example.com/file-1' });
+      vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+      vi.spyOn(result.current, 'parseFilesToChunks').mockResolvedValue();
+
+      await act(async () => {
+        await result.current.pushDockFileList([document, screenshot, spreadsheet], 'kb-123');
+      });
+
+      expect(uploadSpy).toHaveBeenCalledTimes(1);
+      expect(uploadSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ file: document, knowledgeBaseId: 'kb-123' }),
+      );
+    });
+
     it('should call onStatusUpdate during upload', async () => {
       const { result } = renderHook(() => useStore());
 
@@ -734,6 +758,30 @@ describe('FileManagerActions', () => {
       });
     });
 
+    it('filters unsupported ZIP contents when uploading to a Knowledge Base', async () => {
+      const { result } = renderHook(() => useStore());
+      const zipFile = new File(['zip content'], 'archive.zip', { type: 'application/zip' });
+      const document = new File(['file1'], 'file1.txt', { type: 'text/plain' });
+      const screenshot = new File(['file2'], 'screenshot.png', { type: 'image/png' });
+
+      vi.mocked(unzipFile).mockResolvedValue([document, screenshot]);
+      const uploadSpy = vi
+        .spyOn(result.current, 'uploadWithProgress')
+        .mockResolvedValue({ id: 'file-1', url: 'http://example.com/file-1' });
+      vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+      vi.spyOn(result.current, 'parseFilesToChunks').mockResolvedValue();
+
+      await act(async () => {
+        await result.current.pushDockFileList([zipFile], 'kb-123');
+      });
+
+      expect(unzipFile).toHaveBeenCalledWith(zipFile);
+      expect(uploadSpy).toHaveBeenCalledTimes(1);
+      expect(uploadSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ file: document, knowledgeBaseId: 'kb-123' }),
+      );
+    });
+
     it('uploads ZIP-extracted same-name files and updates their own optimistic rows', async () => {
       const { result } = renderHook(() => useStore());
       const zipFile = new File(['zip content'], 'archive.zip', { type: 'application/zip' });
@@ -897,11 +945,7 @@ describe('FileManagerActions', () => {
       const newerFile = new File(['newer'], 'same-name.txt', { type: 'text/plain' });
       const uploadFinished = createDeferred<{ id: string; url: string } | undefined>();
       let olderStatusUpdate:
-        | ((payload: {
-            id: string;
-            type: 'updateFile';
-            value: Partial<UploadFileItem>;
-          }) => void)
+        | ((payload: { id: string; type: 'updateFile'; value: Partial<UploadFileItem> }) => void)
         | undefined;
       vi.spyOn(result.current, 'uploadWithProgress')
         .mockImplementationOnce(({ onStatusUpdate }) => {

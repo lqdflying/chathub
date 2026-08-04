@@ -1,3 +1,5 @@
+import type { RagProviderConfig } from '../../rag';
+
 export interface OpenAICompatibleKeyVault {
   apiKey?: string;
   baseURL?: string;
@@ -45,4 +47,5 @@ export interface UserKeyVaults extends SearchEngineKeyVaults {
   openai?: OpenAICompatibleKeyVault;
   openaicompatible?: OpenAICompatibleKeyVault;
   password?: string;
+  rag?: RagProviderConfig;
 }

@@ -4,6 +4,7 @@ import {
   Bot,
   Brain,
   Database,
+  DatabaseZap,
   Info,
   KeyboardIcon,
   MessageSquareText,
@@ -21,9 +22,8 @@ import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfi
 export const useCategory = () => {
   const { t } = useTranslation('setting');
   const mobile = useServerConfigStore((s) => s.isMobile);
-  const { showLLM, enableSkills, enableSTT, hideDocs } = useServerConfigStore(
-    featureFlagsSelectors,
-  );
+  const { showLLM, enableSkills, enableSTT, hideDocs } =
+    useServerConfigStore(featureFlagsSelectors);
 
   const cateItems: MenuProps['items'] = useMemo(
     () =>
@@ -55,6 +55,11 @@ export const useCategory = () => {
           icon: <Icon icon={Brain} />,
           key: SettingsTabs.Provider,
           label: t('tab.provider'),
+        },
+        {
+          icon: <Icon icon={DatabaseZap} />,
+          key: SettingsTabs.RagProvider,
+          label: t('tab.rag-provider'),
         },
         enableSTT && {
           icon: <Icon icon={Mic2} />,

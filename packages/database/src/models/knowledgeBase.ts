@@ -1,7 +1,8 @@
 import { KnowledgeBaseItem } from '@lobechat/types';
+import { isChunkableFile } from '@lobechat/utils';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 
-import { NewKnowledgeBase, knowledgeBaseFiles, knowledgeBases } from '../schemas';
+import { NewKnowledgeBase, files, knowledgeBaseFiles, knowledgeBases } from '../schemas';
 import { LobeChatDatabase } from '../type';
 
 export class KnowledgeBaseModel {
@@ -25,10 +26,37 @@ export class KnowledgeBaseModel {
   };
 
   addFilesToKnowledgeBase = async (id: string, fileIds: string[]) => {
-    return this.db
-      .insert(knowledgeBaseFiles)
-      .values(fileIds.map((fileId) => ({ fileId, knowledgeBaseId: id, userId: this.userId })))
-      .returning();
+    if (fileIds.length === 0) return [];
+
+    return this.db.transaction(async (trx) => {
+      const [knowledgeBase, ownedFiles] = await Promise.all([
+        trx.query.knowledgeBases.findFirst({
+          where: and(eq(knowledgeBases.id, id), eq(knowledgeBases.userId, this.userId)),
+        }),
+        trx
+          .select({ fileType: files.fileType, id: files.id, name: files.name })
+          .from(files)
+          .where(and(inArray(files.id, fileIds), eq(files.userId, this.userId))),
+      ]);
+      if (!knowledgeBase || ownedFiles.length !== new Set(fileIds).size) {
+        throw new Error('Knowledge base or file not found');
+      }
+      if (ownedFiles.some((file) => !isChunkableFile(file.name, file.fileType))) {
+        throw new Error('Only documents supported by the chunking loaders can be added');
+      }
+
+      return trx
+        .insert(knowledgeBaseFiles)
+        .values(
+          Array.from(new Set(fileIds)).map((fileId) => ({
+            fileId,
+            knowledgeBaseId: id,
+            userId: this.userId,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning();
+    });
   };
 
   // delete
@@ -43,13 +71,15 @@ export class KnowledgeBaseModel {
   };
 
   removeFilesFromKnowledgeBase = async (knowledgeBaseId: string, ids: string[]) => {
-    return this.db.delete(knowledgeBaseFiles).where(
-      and(
-        eq(knowledgeBaseFiles.knowledgeBaseId, knowledgeBaseId),
-        inArray(knowledgeBaseFiles.fileId, ids),
-        // eq(knowledgeBaseFiles.userId, this.userId),
-      ),
-    );
+    return this.db
+      .delete(knowledgeBaseFiles)
+      .where(
+        and(
+          eq(knowledgeBaseFiles.knowledgeBaseId, knowledgeBaseId),
+          inArray(knowledgeBaseFiles.fileId, ids),
+          eq(knowledgeBaseFiles.userId, this.userId),
+        ),
+      );
   };
   // query
   query = async () => {

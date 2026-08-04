@@ -3,12 +3,10 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { chatService } from '@/services/chat';
 import { ragService } from '@/services/rag';
+import { ragProviderService } from '@/services/ragProvider';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 import { toggleBooleanList } from '@/store/chat/utils';
@@ -91,21 +89,26 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
 
     get().internal_toggleMessageRAGLoading(true, id);
 
-    const message = chatSelectors.getMessageById(id)(get());
-
-    // 1. get the rewrite query
-    let rewriteQuery = message?.ragQuery as string | undefined;
-
-    // if there is no ragQuery and there is a chat history
-    // we need to rewrite the user message to get better results
-    if (!message?.ragQuery && messages.length > 0) {
-      rewriteQuery = await get().internal_rewriteQuery(id, userQuery, messages);
-      if (!isCurrentRequest()) return { chunks: [] };
-    }
-
-    // 2. retrieve chunks from semantic search
-    const files = chatSelectors.currentUserFiles(get()).map((f) => f.id);
     try {
+      const status = await ragProviderService.getStatus();
+      if (!status.configured) {
+        throw new Error('RAG retrieval is unavailable. Configure a RAG Provider in Settings.');
+      }
+
+      const message = chatSelectors.getMessageById(id)(get());
+
+      // 1. get the rewrite query
+      let rewriteQuery = message?.ragQuery as string | undefined;
+
+      // if there is no ragQuery and there is a chat history
+      // we need to rewrite the user message to get better results
+      if (!message?.ragQuery && messages.length > 0) {
+        rewriteQuery = await get().internal_rewriteQuery(id, userQuery, messages);
+        if (!isCurrentRequest()) return { chunks: [] };
+      }
+
+      // 2. retrieve chunks from semantic search
+      const files = chatSelectors.currentUserFiles(get()).map((f) => f.id);
       const { chunks, queryId } = await ragService.semanticSearchForChat({
         fileIds: knowledgeIds().fileIds.concat(files),
         knowledgeIds: knowledgeIds().knowledgeBaseIds,
@@ -116,12 +119,9 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
 
       if (!isCurrentRequest()) return { chunks: [] };
 
-      get().internal_toggleMessageRAGLoading(false, id);
       return { chunks, queryId, rewriteQuery };
-    } catch {
+    } finally {
       if (isCurrentRequest()) get().internal_toggleMessageRAGLoading(false, id);
-
-      return { chunks: [] };
     }
   },
   internal_rewriteQuery: async (id, content, messages) => {

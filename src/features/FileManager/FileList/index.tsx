@@ -43,10 +43,11 @@ const useStyles = createStyles(({ css, token, isDarkMode }) => ({
 interface FileListProps {
   category?: string;
   knowledgeBaseId?: string;
+  knowledgeMode?: boolean;
   onOpenFile: (id: string) => void;
 }
 
-const FileList = memo<FileListProps>(({ knowledgeBaseId, category, onOpenFile }) => {
+const FileList = memo<FileListProps>(({ knowledgeBaseId, knowledgeMode = false, category, onOpenFile }) => {
   const { t } = useTranslation('components');
   const { styles } = useStyles();
 
@@ -104,6 +105,7 @@ const FileList = memo<FileListProps>(({ knowledgeBaseId, category, onOpenFile })
 
   const { data, isLoading } = useFetchFileManage({
     category,
+    chunkableOnly: knowledgeMode || !!knowledgeBaseId,
     knowledgeBaseId,
     q: query,
     sortType,

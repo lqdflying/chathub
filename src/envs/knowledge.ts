@@ -5,12 +5,22 @@ export const knowledgeEnv = createEnv({
   runtimeEnv: {
     DEFAULT_FILES_CONFIG: process.env.DEFAULT_FILES_CONFIG,
     FILE_TYPE_CHUNKING_RULES: process.env.FILE_TYPE_CHUNKING_RULES,
+    RAG_EMBEDDING_API_KEY: process.env.RAG_EMBEDDING_API_KEY,
+    RAG_EMBEDDING_BASE_URL: process.env.RAG_EMBEDDING_BASE_URL,
+    RAG_EMBEDDING_MODEL: process.env.RAG_EMBEDDING_MODEL,
+    RAG_EMBEDDING_PROVIDER: process.env.RAG_EMBEDDING_PROVIDER,
     UNSTRUCTURED_API_KEY: process.env.UNSTRUCTURED_API_KEY,
     UNSTRUCTURED_SERVER_URL: process.env.UNSTRUCTURED_SERVER_URL,
   },
   server: {
     DEFAULT_FILES_CONFIG: z.string().optional(),
     FILE_TYPE_CHUNKING_RULES: z.string().optional(),
+    RAG_EMBEDDING_API_KEY: z.string().optional(),
+    // Validate the RAG provider as a complete unit in the provider resolver so
+    // an incomplete deployment configuration can be reported in the UI.
+    RAG_EMBEDDING_BASE_URL: z.string().optional(),
+    RAG_EMBEDDING_MODEL: z.string().optional(),
+    RAG_EMBEDDING_PROVIDER: z.string().optional(),
     UNSTRUCTURED_API_KEY: z.string().optional(),
     UNSTRUCTURED_SERVER_URL: z.string().optional(),
   },

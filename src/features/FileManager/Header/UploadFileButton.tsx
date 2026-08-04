@@ -1,5 +1,6 @@
 'use client';
 
+import { chunkableFileExtensions, isChunkableFile } from '@lobechat/utils';
 import { Button, Dropdown, Icon, MenuProps } from '@lobehub/ui';
 import { Upload } from 'antd';
 import { css, cx } from 'antd-style';
@@ -19,10 +20,24 @@ const hotArea = css`
   }
 `;
 
-const UploadFileButton = ({ knowledgeBaseId }: { knowledgeBaseId?: string }) => {
+const isZipFile = (file: File) =>
+  file.type === 'application/zip' || file.name.toLowerCase().endsWith('.zip');
+
+const filterKnowledgeUploads = (files: File[]) =>
+  files.filter((file) => isZipFile(file) || isChunkableFile(file.name, file.type));
+
+const UploadFileButton = ({
+  knowledgeBaseId,
+  knowledgeMode = false,
+}: {
+  knowledgeBaseId?: string;
+  knowledgeMode?: boolean;
+}) => {
   const { t } = useTranslation('file');
 
   const pushDockFileList = useFileStore((s) => s.pushDockFileList);
+  const accept = knowledgeMode ? [...chunkableFileExtensions, '.zip'].join(',') : undefined;
+  const filterFiles = (files: File[]) => (knowledgeMode ? filterKnowledgeUploads(files) : files);
   const items = useMemo<MenuProps['items']>(
     () => [
       {
@@ -30,8 +45,9 @@ const UploadFileButton = ({ knowledgeBaseId }: { knowledgeBaseId?: string }) => 
         key: 'upload-file',
         label: (
           <Upload
+            accept={accept}
             beforeUpload={async (file) => {
-              await pushDockFileList([file], knowledgeBaseId);
+              await pushDockFileList(filterFiles([file]), knowledgeBaseId);
 
               return false;
             }}
@@ -47,8 +63,9 @@ const UploadFileButton = ({ knowledgeBaseId }: { knowledgeBaseId?: string }) => 
         key: 'upload-folder',
         label: (
           <Upload
+            accept={accept}
             beforeUpload={async (file) => {
-              await pushDockFileList([file], knowledgeBaseId);
+              await pushDockFileList(filterFiles([file]), knowledgeBaseId);
 
               return false;
             }}
@@ -61,7 +78,7 @@ const UploadFileButton = ({ knowledgeBaseId }: { knowledgeBaseId?: string }) => 
         ),
       },
     ],
-    [],
+    [accept, knowledgeBaseId, knowledgeMode, pushDockFileList, t],
   );
   return (
     <>
@@ -70,7 +87,7 @@ const UploadFileButton = ({ knowledgeBaseId }: { knowledgeBaseId?: string }) => 
       </Dropdown>
       <DragUpload
         enabledFiles
-        onUploadFiles={(files) => pushDockFileList(files, knowledgeBaseId)}
+        onUploadFiles={(files) => pushDockFileList(filterFiles(files), knowledgeBaseId)}
       />
     </>
   );

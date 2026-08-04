@@ -55,7 +55,7 @@ export class ContentChunk {
           }
 
           default: {
-            return await this.chunkByLangChain(params.filename, params.content);
+            return await this.chunkByLangChain(params.filename, params.content, params.fileType);
           }
         }
       } catch (error) {
@@ -67,7 +67,7 @@ export class ContentChunk {
     }
 
     // Fallback to langchain if no service succeeded
-    return await this.chunkByLangChain(params.filename, params.content);
+    return await this.chunkByLangChain(params.filename, params.content, params.fileType);
   }
 
   private canUseUnstructured(): boolean {
@@ -157,8 +157,9 @@ export class ContentChunk {
   private chunkByLangChain = async (
     filename: string,
     content: Uint8Array,
+    fileType: string,
   ): Promise<ChunkResult> => {
-    const res = await this.langchainClient.partitionContent(filename, content);
+    const res = await this.langchainClient.partitionContent(filename, content, fileType);
 
     const documents = res.map((item, index) => ({
       id: item.id,

@@ -22,6 +22,11 @@
     },
     "title": "Create Knowledge Base"
   },
+  "ragProvider": {
+    "configure": "Configure RAG Provider",
+    "description": "Documents can still be uploaded and chunked, but indexing and retrieval require an external embedding provider.",
+    "title": "RAG retrieval is unavailable"
+  },
   "tab": {
     "evals": "Evaluations",
     "files": "Documents",

@@ -38,7 +38,7 @@ services:
       chathub-db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgres://user:password@lobe-db:5432/postgres
+      - DATABASE_URL=postgres://user:password@chathub-db:5432/postgres
       - DATABASE_DRIVER=node
       - KEY_VAULTS_SECRET=<your-secret>
       - NEXTAUTH_SECRET=<your-secret>
@@ -57,11 +57,15 @@ services:
       # ANTHROPICCOMPATIBLE_API_KEY=...
       # ANTHROPICCOMPATIBLE_PROXY_URL=https://your-host/ai
       # ANTHROPICCOMPATIBLE_AUTH_MODE=bearer  # or 'api-key' (default)
+      # Dedicated Knowledge Base embedding provider (all three are required):
+      # RAG_EMBEDDING_PROVIDER=openai
+      # RAG_EMBEDDING_MODEL=text-embedding-3-small
+      # RAG_EMBEDDING_API_KEY=...
     ports:
       - '3210:3210'
 
   chathub-db:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -117,6 +121,16 @@ Full details (NextAuth, OIDC, Clerk, session config, credentials login flow): [w
 
 For the complete provider/env map (Azure, Bedrock, OpenRouter, and 40+ others), see [`src/envs/llm.ts`](src/envs/llm.ts).
 
+## Knowledge Base RAG Provider
+
+Knowledge Base indexing and retrieval require a dedicated external embedding
+provider. Chat/LLM provider credentials are never used as an implicit fallback.
+Configure OpenAI, Cohere, or Voyage with `RAG_EMBEDDING_PROVIDER`,
+`RAG_EMBEDDING_MODEL`, and `RAG_EMBEDDING_API_KEY`, or save an encrypted
+per-account override under **Settings -> RAG Provider**. PostgreSQL must include
+the `pgvector` extension; the Compose example uses the pgvector image for this
+reason. See [Knowledge Base and RAG](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG).
+
 ### Moonshot Kimi K3
 
 `kimi-k3` is enabled in ChatHub's Moonshot model catalogue; it does not replace the global initial model, which remains `gpt-5-mini` from OpenAI. K3 provides a 1M-token context window, native vision and video input, function calling, structured output, and forced reasoning.
@@ -132,6 +146,7 @@ ChatHub's built-in Moonshot route is `https://api.moonshot.cn/v1`. The global Ki
 - **Tools Hub** — Picbed (S3-backed image and video hosting), API Tester (browser-based REST client), Password Generator, extensible sidebar
 - **Model extension options (gear menu)** — Per-provider compact popovers wired from the model bank; MiniMax context trimming before API calls to avoid overflow errors. [Details →](https://github.com/lqdflying/chathub/wiki/Model-Extension-Options)
 - **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction)
+- **Knowledge Base vector RAG** — Dedicated external embeddings, pgvector HNSW search, document-only ingestion, and explicit provider readiness. [Details →](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG)
 - **MCP OAuth** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side. [Details →](https://github.com/lqdflying/chathub/wiki/MCP-OAuth)
 
 ---

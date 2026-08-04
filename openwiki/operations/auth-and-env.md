@@ -242,6 +242,27 @@ Moonshot supports `MOONSHOT_PROXY_URL` for a custom OpenAI-compatible base URL. 
 
 A notable recent change in `src/server/modules/ModelRuntime/index.ts` is special handling for Anthropic-compatible auth mode and proxy URL resolution. This makes provider configuration a live compatibility surface rather than a static list of keys.
 
+## Knowledge Base embedding configuration
+
+Knowledge Base RAG has a separate provider contract in `src/envs/knowledge.ts`:
+
+- `RAG_EMBEDDING_PROVIDER`: `openai`, `cohere`, or `voyage`
+- `RAG_EMBEDDING_MODEL`: the embedding model identifier
+- `RAG_EMBEDDING_API_KEY`: the provider credential
+- `RAG_EMBEDDING_BASE_URL`: optional HTTP(S) provider or proxy base URL
+
+The first three values form one required unit. A partial or invalid unit is
+reported as unavailable by the RAG provider status endpoint instead of falling
+back to a chat provider. A complete encrypted account override stored under
+`keyVaults.rag` takes precedence over the environment. The API key is never
+returned by the status endpoint. `KEY_VAULTS_SECRET` must remain stable so saved
+account overrides can be decrypted after an upgrade or restore.
+
+`DEFAULT_FILES_CONFIG`, chat-provider API keys, and model-runtime defaults do
+not select Knowledge Base embeddings. See
+[Knowledge Base and Vector RAG](../architecture/knowledge-base-rag.md) for the
+indexing and fingerprint lifecycle.
+
 ## Deployment notes
 
 The README presents Docker + PostgreSQL as the primary deployment target. Migrations run automatically in the container startup flow, and the README points readers to the Docker deployment wiki for upgrade procedures and troubleshooting.

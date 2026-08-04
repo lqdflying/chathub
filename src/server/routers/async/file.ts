@@ -1,21 +1,24 @@
+import { isChunkableFile } from '@lobechat/utils';
 import { TRPCError } from '@trpc/server';
 import { chunk } from 'lodash-es';
 import pMap from 'p-map';
 import { z } from 'zod';
 
 import { serverDBEnv } from '@/config/db';
-import { DEFAULT_FILE_EMBEDDING_MODEL_ITEM } from '@/const/settings/knowledge';
 import { ASYNC_TASK_TIMEOUT, AsyncTaskModel } from '@/database/models/asyncTask';
 import { ChunkModel } from '@/database/models/chunk';
 import { EmbeddingModel } from '@/database/models/embedding';
 import { FileModel } from '@/database/models/file';
-import { NewChunkItem, NewEmbeddingsItem } from '@/database/schemas';
+import { NewChunkItem, NewEmbeddingsItem, NewUnstructuredChunkItem } from '@/database/schemas';
 import { fileEnv } from '@/envs/file';
 import { asyncAuthedProcedure, asyncRouter as router } from '@/libs/trpc/async';
-import { getServerDefaultFilesConfig } from '@/server/globalConfig';
-import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { ChunkService } from '@/server/services/chunk';
 import { FileService } from '@/server/services/file';
+import {
+  RagEmbeddingService,
+  RagProviderNotConfiguredError,
+  resolveRagEmbeddingConfig,
+} from '@/server/services/rag';
 import {
   AsyncTaskError,
   AsyncTaskErrorType,
@@ -40,6 +43,9 @@ const fileProcedure = asyncAuthedProcedure.use(async (opts) => {
   });
 });
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
 export const fileRouter = router({
   embeddingChunks: fileProcedure
     .input(
@@ -54,15 +60,24 @@ export const fileRouter = router({
       if (!file) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'File not found' });
       }
+      if (!isChunkableFile(file.name, file.fileType)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'This file format is not supported by the Knowledge Base chunkers.',
+        });
+      }
 
       const asyncTask = await ctx.asyncTaskModel.findById(input.taskId);
-
-      const { model, provider } =
-        getServerDefaultFilesConfig().embeddingModel || DEFAULT_FILE_EMBEDDING_MODEL_ITEM;
 
       if (!asyncTask) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Async Task not found' });
 
       try {
+        const resolved = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
+        if (!resolved.config || !resolved.fingerprint) {
+          throw new RagProviderNotConfiguredError();
+        }
+        const embeddingService = new RagEmbeddingService(resolved.config);
+
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => {
             reject(
@@ -83,7 +98,7 @@ export const fileRouter = router({
           const startAt = Date.now();
 
           const CHUNK_SIZE = 50;
-          const CONCURRENCY = 10;
+          const CONCURRENCY = 3;
 
           const chunks = await ctx.chunkModel.getChunksTextByFileId(input.fileId);
           const requestArray = chunk(chunks, CHUNK_SIZE);
@@ -91,36 +106,38 @@ export const fileRouter = router({
             await pMap(
               requestArray,
               async (chunks, index) => {
-                const agentRuntime = await initModelRuntimeWithUserPayload(
-                  provider,
-                  ctx.jwtPayload,
-                );
-
                 console.log(`run embedding task ${index + 1}`);
 
-                const embeddings = await agentRuntime.embeddings({
-                  dimensions: 1024,
-                  input: chunks.map((c) => c.text),
-                  model,
+                const vectors = await embeddingService.embed(
+                  chunks.map((c) => c.text),
+                  'document',
+                );
+
+                const items: NewEmbeddingsItem[] = vectors.map((e, idx) => ({
+                  chunkId: chunks[idx].id,
+                  embeddings: e,
+                  model: resolved.fingerprint!,
+                }));
+
+                await ctx.embeddingModel.bulkCreate(items, {
+                  fileId: input.fileId,
+                  taskId: input.taskId,
                 });
-
-                const items: NewEmbeddingsItem[] =
-                  embeddings?.map((e, idx) => ({
-                    chunkId: chunks[idx].id,
-                    embeddings: e,
-                    fileId: input.fileId,
-                    model,
-                  })) || [];
-
-                await ctx.embeddingModel.bulkCreate(items);
               },
               { concurrency: CONCURRENCY },
             );
           } catch (e) {
-            throw {
-              message: JSON.stringify(e),
-              name: AsyncTaskErrorType.EmbeddingError,
-            };
+            throw new AsyncTaskError(AsyncTaskErrorType.EmbeddingError, getErrorMessage(e));
+          }
+
+          const embeddedCount = await ctx.embeddingModel.countByFileId(
+            input.fileId,
+            resolved.fingerprint!,
+          );
+          if (embeddedCount !== chunks.length) {
+            throw new Error(
+              'Embedding coverage is incomplete; the file remains unavailable to RAG.',
+            );
           }
 
           const duration = Date.now() - startAt;
@@ -161,6 +178,12 @@ export const fileRouter = router({
       const file = await ctx.fileModel.findById(input.fileId);
       if (!file) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'File not found' });
+      }
+      if (!isChunkableFile(file.name, file.fileType)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'This file format is not supported by the Knowledge Base chunkers.',
+        });
       }
 
       let content: Uint8Array | undefined;
@@ -208,13 +231,13 @@ export const fileRouter = router({
           });
 
           // after finish partition, we need to filter out some elements
-          const chunks = chunkResult.chunks.map(
-            ({ text, ...item }): NewChunkItem => ({
+          const chunks = chunkResult.chunks
+            .map(({ text, ...item }): NewChunkItem => ({
               ...item,
-              text: text ? sanitizeUTF8(text) : '',
+              text: text ? sanitizeUTF8(text).trim() : '',
               userId: ctx.userId,
-            }),
-          );
+            }))
+            .filter(({ text }) => !!text);
 
           const duration = Date.now() - startAt;
 
@@ -227,14 +250,16 @@ export const fileRouter = router({
             };
           }
 
-          await ctx.chunkModel.bulkCreate(chunks, input.fileId);
+          const unstructuredChunks = (chunkResult.unstructuredChunks || [])
+            .map(({ text, ...item }): NewUnstructuredChunkItem => ({
+              ...item,
+              fileId: input.fileId,
+              text: text ? sanitizeUTF8(text).trim() : '',
+              userId: ctx.userId,
+            }))
+            .filter(({ text }) => !!text);
 
-          if (chunkResult.unstructuredChunks) {
-            const unstructuredChunks = chunkResult.unstructuredChunks.map(
-              (item): NewChunkItem => ({ ...item, fileId: input.fileId, userId: ctx.userId }),
-            );
-            await ctx.chunkModel.bulkCreateUnstructuredChunks(unstructuredChunks);
-          }
+          await ctx.chunkModel.replaceFileChunks(chunks, input.fileId, unstructuredChunks);
 
           // update the task status to success
           await ctx.asyncTaskModel.update(input.taskId, {
@@ -243,7 +268,8 @@ export const fileRouter = router({
           });
 
           // if enable auto embedding, trigger the embedding task
-          if (fileEnv.CHUNKS_AUTO_EMBEDDING) {
+          const resolved = await resolveRagEmbeddingConfig(ctx.serverDB, ctx.userId);
+          if (fileEnv.CHUNKS_AUTO_EMBEDDING && resolved.config) {
             await chunkService.asyncEmbeddingFileChunks(input.fileId, ctx.jwtPayload);
           }
 
