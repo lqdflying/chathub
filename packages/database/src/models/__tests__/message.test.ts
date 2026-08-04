@@ -2807,100 +2807,133 @@ describe('MessageModel', () => {
     });
   });
 
-  describe('createMessageQuery', () => {
-    it('should create a new message query', async () => {
-      // 创建测试数据
+  describe('replaceMessageQuery', () => {
+    it('should insert a message query when none exists', async () => {
       await serverDB.insert(messages).values({
-        id: 'msg1',
+        id: 'msg-query-insert',
         userId,
         role: 'user',
         content: 'test message',
       });
 
-      // 调用 createMessageQuery 方法
-      const result = await messageModel.createMessageQuery({
-        messageId: 'msg1',
+      const result = await messageModel.replaceMessageQuery({
+        messageId: 'msg-query-insert',
         userQuery: 'original query',
         rewriteQuery: 'rewritten query',
         embeddingsId,
       });
 
-      // 断言结果
-      expect(result).toBeDefined();
-      expect(result.id).toBeDefined();
-      expect(result.messageId).toBe('msg1');
-      expect(result.userQuery).toBe('original query');
-      expect(result.rewriteQuery).toBe('rewritten query');
+      expect(result).toMatchObject({
+        embeddingsId,
+        messageId: 'msg-query-insert',
+        rewriteQuery: 'rewritten query',
+        userId,
+        userQuery: 'original query',
+      });
+      expect(
+        await serverDB
+          .select()
+          .from(messageQueries)
+          .where(eq(messageQueries.messageId, 'msg-query-insert')),
+      ).toHaveLength(1);
+    });
+
+    it('should replace the existing query and delete its superseded embedding', async () => {
+      const oldEmbeddingsId = uuid();
+      await serverDB.transaction(async (trx) => {
+        await trx.insert(messages).values({
+          id: 'msg-query-replace',
+          userId,
+          role: 'user',
+          content: 'test message',
+        });
+        await trx.insert(embeddings).values({
+          id: oldEmbeddingsId,
+          embeddings: codeEmbedding,
+          userId,
+        });
+      });
+
+      const original = await messageModel.replaceMessageQuery({
+        messageId: 'msg-query-replace',
+        userQuery: 'original query',
+        rewriteQuery: 'original rewrite',
+        embeddingsId: oldEmbeddingsId,
+      });
+      const replacement = await messageModel.replaceMessageQuery({
+        messageId: 'msg-query-replace',
+        userQuery: 'replacement query',
+        rewriteQuery: 'replacement rewrite',
+        embeddingsId,
+      });
+
+      expect(replacement).toMatchObject({
+        embeddingsId,
+        id: original.id,
+        rewriteQuery: 'replacement rewrite',
+        userQuery: 'replacement query',
+      });
+      expect(
+        await serverDB
+          .select()
+          .from(messageQueries)
+          .where(eq(messageQueries.messageId, 'msg-query-replace')),
+      ).toHaveLength(1);
+      expect(
+        await serverDB.select().from(embeddings).where(eq(embeddings.id, oldEmbeddingsId)),
+      ).toHaveLength(0);
+      expect(
+        await serverDB.select().from(embeddings).where(eq(embeddings.id, embeddingsId)),
+      ).toHaveLength(1);
+    });
+
+    it('should not replace another user query or delete its embedding', async () => {
+      const otherEmbeddingsId = uuid();
+      const otherQueryId = uuid();
+      await serverDB.transaction(async (trx) => {
+        await trx.insert(messages).values({
+          id: 'msg-query-owned',
+          userId,
+          role: 'user',
+          content: 'test message',
+        });
+        await trx.insert(embeddings).values({
+          id: otherEmbeddingsId,
+          embeddings: codeEmbedding,
+          userId: '456',
+        });
+        await trx.insert(messageQueries).values({
+          embeddingsId: otherEmbeddingsId,
+          id: otherQueryId,
+          messageId: 'msg-query-owned',
+          rewriteQuery: 'other rewrite',
+          userId: '456',
+          userQuery: 'other query',
+        });
+      });
+
+      const result = await messageModel.replaceMessageQuery({
+        messageId: 'msg-query-owned',
+        userQuery: 'current query',
+        rewriteQuery: 'current rewrite',
+        embeddingsId,
+      });
+      const rows = await serverDB
+        .select()
+        .from(messageQueries)
+        .where(eq(messageQueries.messageId, 'msg-query-owned'));
+
       expect(result.userId).toBe(userId);
-
-      // 验证数据库中的记录
-      const dbResult = await serverDB
-        .select()
-        .from(messageQueries)
-        .where(eq(messageQueries.id, result.id));
-
-      expect(dbResult).toHaveLength(1);
-      expect(dbResult[0].messageId).toBe('msg1');
-      expect(dbResult[0].userQuery).toBe('original query');
-      expect(dbResult[0].rewriteQuery).toBe('rewritten query');
-    });
-
-    it('should create a message query with embeddings ID', async () => {
-      // 创建测试数据
-      await serverDB.insert(messages).values({
-        id: 'msg2',
-        userId,
-        role: 'user',
-        content: 'test message',
+      expect(rows).toHaveLength(2);
+      expect(rows.find(({ id }) => id === otherQueryId)).toMatchObject({
+        embeddingsId: otherEmbeddingsId,
+        rewriteQuery: 'other rewrite',
+        userId: '456',
+        userQuery: 'other query',
       });
-
-      // 调用 createMessageQuery 方法
-      const result = await messageModel.createMessageQuery({
-        messageId: 'msg2',
-        userQuery: 'test query',
-        rewriteQuery: 'test rewritten query',
-        embeddingsId,
-      });
-
-      // 断言结果
-      expect(result).toBeDefined();
-      expect(result.embeddingsId).toBe(embeddingsId);
-
-      // 验证数据库中的记录
-      const dbResult = await serverDB
-        .select()
-        .from(messageQueries)
-        .where(eq(messageQueries.id, result.id));
-
-      expect(dbResult[0].embeddingsId).toBe(embeddingsId);
-    });
-
-    it('should generate a unique ID for each message query', async () => {
-      // 创建测试数据
-      await serverDB.insert(messages).values({
-        id: 'msg3',
-        userId,
-        role: 'user',
-        content: 'test message',
-      });
-
-      // 连续创建两个消息查询
-      const result1 = await messageModel.createMessageQuery({
-        messageId: 'msg3',
-        userQuery: 'query 1',
-        rewriteQuery: 'rewritten query 1',
-        embeddingsId,
-      });
-
-      const result2 = await messageModel.createMessageQuery({
-        messageId: 'msg3',
-        userQuery: 'query 2',
-        rewriteQuery: 'rewritten query 2',
-        embeddingsId,
-      });
-
-      // 断言结果
-      expect(result1.id).not.toBe(result2.id);
+      expect(
+        await serverDB.select().from(embeddings).where(eq(embeddings.id, otherEmbeddingsId)),
+      ).toHaveLength(1);
     });
   });
 

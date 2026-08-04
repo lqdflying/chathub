@@ -249,7 +249,7 @@ Knowledge Base RAG has a separate provider contract in `src/envs/knowledge.ts`:
 - `RAG_EMBEDDING_PROVIDER`: `openai`, `cohere`, or `voyage`
 - `RAG_EMBEDDING_MODEL`: the embedding model identifier
 - `RAG_EMBEDDING_API_KEY`: the provider credential
-- `RAG_EMBEDDING_BASE_URL`: optional HTTP(S) provider or proxy base URL
+- `RAG_EMBEDDING_BASE_URL`: optional secret-free HTTP(S) provider or proxy API root
 
 The first three values form one required unit. A partial or invalid unit is
 reported as unavailable by the RAG provider status endpoint instead of falling
@@ -257,6 +257,11 @@ back to a chat provider. A complete encrypted account override stored under
 `keyVaults.rag` takes precedence over the environment. The API key is never
 returned by the status endpoint. `KEY_VAULTS_SECRET` must remain stable so saved
 account overrides can be decrypted after an upgrade or restore.
+
+The optional base URL must not contain URL credentials, query parameters, or a
+fragment. Store authentication only in `RAG_EMBEDDING_API_KEY` or the dedicated
+account API-key field. Invalid legacy URLs are treated as an invalid override
+and are not returned by the provider status endpoint.
 
 `DEFAULT_FILES_CONFIG`, chat-provider API keys, and model-runtime defaults do
 not select Knowledge Base embeddings. See

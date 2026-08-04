@@ -39,4 +39,10 @@ describe('ChunkingLoader type routing', () => {
 
     expect(LatexLoader).toHaveBeenCalledOnce();
   });
+
+  it('rejects database files even when they are labeled as plain text', async () => {
+    await expect(
+      new ChunkingLoader().partitionContent('knowledge.sqlite3', new Uint8Array(), 'text/plain'),
+    ).rejects.toThrow('Unsupported file type [text/plain]');
+  });
 });

@@ -8,12 +8,25 @@ export const RagEmbeddingProviderSchema = z.enum(['openai', 'cohere', 'voyage'])
 
 export type RagEmbeddingProvider = z.infer<typeof RagEmbeddingProviderSchema>;
 
-const RagProviderBaseURLSchema = z
+export const RagProviderBaseURLSchema = z
   .string()
   .trim()
   .url()
-  .refine((value) => ['http:', 'https:'].includes(new URL(value).protocol), {
-    message: 'The RAG provider URL must use HTTP or HTTPS.',
+  .superRefine((value, ctx) => {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'The RAG provider URL must use HTTP or HTTPS.',
+      });
+    }
+    if (url.username || url.password || url.search || url.hash) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'The RAG provider URL must not include credentials, query parameters, or fragments.',
+      });
+    }
   });
 
 /**

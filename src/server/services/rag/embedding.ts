@@ -10,6 +10,7 @@ import {
   RAG_EMBEDDING_DIMENSIONS,
   RAG_EMBEDDING_PRESETS,
   RagEmbeddingProviderSchema,
+  RagProviderBaseURLSchema,
   RagProviderConfigSchema,
 } from '@lobechat/types';
 import { createHash } from 'node:crypto';
@@ -194,9 +195,10 @@ const getUserOverrideSummary = async (db: LobeChatDatabase, userId: string) => {
     if (!rag || typeof rag !== 'object') {
       return { configured: false, exists: false, hasApiKey: false };
     }
+    const baseURL = RagProviderBaseURLSchema.safeParse(rag.baseURL);
     const provider = RagEmbeddingProviderSchema.safeParse(rag.provider);
     return {
-      baseURL: clean(rag.baseURL),
+      baseURL: baseURL.success ? baseURL.data : undefined,
       configured: isComplete(rag),
       exists: true,
       hasApiKey: !!clean(rag.apiKey),

@@ -618,15 +618,6 @@ export class MessageModel {
     return this.db.insert(messages).values(messagesToInsert);
   };
 
-  createMessageQuery = async (params: NewMessageQueryParams) => {
-    const result = await this.db
-      .insert(messageQueries)
-      .values({ ...params, userId: this.userId })
-      .returning();
-
-    return result[0];
-  };
-
   replaceMessageQuery = async (params: NewMessageQueryParams) => {
     return this.db.transaction(async (trx) => {
       const current = await trx.query.messageQueries.findFirst({

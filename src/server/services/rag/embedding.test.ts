@@ -1,3 +1,4 @@
+import { RagProviderBaseURLSchema } from '@lobechat/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { UserModel } from '@/database/models/user';
@@ -8,6 +9,7 @@ import {
   RagEmbeddingService,
   RagKeyVaultsUnreadableError,
   getRagFingerprint,
+  getRagProviderStatus,
   getRagUserKeyVaults,
   mergeBrowserKeyVaultsPreservingRag,
   mergeRagProviderUpdate,
@@ -50,6 +52,41 @@ describe('RAG key vault reads', () => {
         },
       ),
     ).toEqual({ openai: { apiKey: 'browser-key' }, rag: serverRag });
+  });
+
+  it('does not expose secrets from an invalid saved base URL in provider status', async () => {
+    vi.spyOn(KeyVaultsGateKeeper, 'initWithEnvKey').mockResolvedValue({
+      decrypt: vi.fn().mockResolvedValue({
+        plaintext: JSON.stringify({
+          rag: {
+            apiKey: 'saved-api-secret',
+            baseURL: 'https://url-user:url-secret@rag.example.test/v1?token=query-secret#hash',
+            model: 'text-embedding-3-small',
+            provider: 'openai',
+          },
+        }),
+        wasAuthentic: true,
+      }),
+    } as any);
+    vi.spyOn(UserModel, 'getUserApiKeys').mockImplementation(async (_db, _userId, decryptor) =>
+      decryptor('encrypted'),
+    );
+
+    const status = await getRagProviderStatus({} as any, 'user-1');
+
+    expect(status).toMatchObject({
+      configured: false,
+      source: 'invalid',
+      userOverride: {
+        configured: false,
+        exists: true,
+        hasApiKey: true,
+        model: 'text-embedding-3-small',
+        provider: 'openai',
+      },
+    });
+    expect(status.userOverride.baseURL).toBeUndefined();
+    expect(JSON.stringify(status)).not.toMatch(/saved-api-secret|url-secret|query-secret/);
   });
 });
 
@@ -188,6 +225,23 @@ describe('RagEmbeddingService', () => {
 });
 
 describe('RAG provider identity', () => {
+  it('accepts secret-free HTTP and HTTPS API roots', () => {
+    expect(RagProviderBaseURLSchema.parse(' https://rag.example.test/v1/ ')).toBe(
+      'https://rag.example.test/v1/',
+    );
+    expect(RagProviderBaseURLSchema.parse('http://localhost:8080/v1')).toBe(
+      'http://localhost:8080/v1',
+    );
+  });
+
+  it.each([
+    'https://user:password@rag.example.test/v1',
+    'https://rag.example.test/v1?token=secret',
+    'https://rag.example.test/v1#fragment',
+  ])('rejects a RAG base URL containing secrets or request state: %s', (baseURL) => {
+    expect(RagProviderBaseURLSchema.safeParse(baseURL).success).toBe(false);
+  });
+
   it('does not include credentials or URL secrets in the fingerprint', () => {
     const fingerprint = getRagFingerprint({
       apiKey: 'top-secret',

@@ -2,7 +2,6 @@ const CHUNKABLE_EXTENSIONS = new Set([
   'cpp',
   'csv',
   'css',
-  'db',
   'docx',
   'epub',
   'go',
@@ -60,7 +59,16 @@ const CHUNKABLE_MIME_TYPES = new Set([
   'text/xml',
 ]);
 
-const UNSUPPORTED_EXTENSIONS = new Set(['doc', 'docm', 'xls', 'xlsx', 'zip']);
+const UNSUPPORTED_EXTENSIONS = new Set([
+  'db',
+  'doc',
+  'docm',
+  'sqlite',
+  'sqlite3',
+  'xls',
+  'xlsx',
+  'zip',
+]);
 
 const extensionOf = (name: string) =>
   name

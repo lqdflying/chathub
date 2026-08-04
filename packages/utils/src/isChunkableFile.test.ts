@@ -22,4 +22,10 @@ describe('isChunkableFile', () => {
     expect(isChunkableFile('diagram.svg', 'image/svg+xml')).toBe(false);
     expect(isChunkableFile('unknown.bin', 'application/octet-stream')).toBe(false);
   });
+
+  it('rejects database files even when their MIME type is missing or misleading', () => {
+    expect(isChunkableFile('knowledge.db')).toBe(false);
+    expect(isChunkableFile('knowledge.sqlite', 'application/x-sqlite3')).toBe(false);
+    expect(isChunkableFile('knowledge.sqlite3', 'text/plain')).toBe(false);
+  });
 });

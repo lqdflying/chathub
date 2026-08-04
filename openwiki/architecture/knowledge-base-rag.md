@@ -12,9 +12,11 @@ Knowledge is document-only. `isChunkableFile` is the shared positive capability
 check used by upload, file queries, Knowledge Base association, parse actions,
 and reindexing. Supported inputs are PDF, DOCX, PPTX, EPUB, CSV, Markdown,
 LaTeX, plain text, and the text/source extensions routed by the LangChain
-loaders. Legacy DOC, spreadsheets, images, audio, video, archives, and unknown
-binary formats are rejected or hidden. ZIP is accepted only as an upload
-transport; extracted entries are filtered before any file row is created.
+loaders. Legacy DOC, spreadsheets, SQLite/database files, images, audio, video,
+archives, and unknown binary formats are rejected or hidden. The explicit
+database-extension rejection wins even when a file is mislabeled as plain
+text. ZIP is accepted only as an upload transport; extracted entries are
+filtered before any file row is created.
 
 This boundary does not delete or relocate other media:
 
@@ -58,9 +60,13 @@ Supported adapters are:
 | Cohere   | `embed-multilingual-v3.0` | `/v2/embed`, float output, query/document input type |
 | Voyage   | `voyage-3.5`              | `/embeddings`, `output_dimension: 1024`              |
 
-Custom HTTP(S) base URLs and model IDs are allowed, but every response must
-contain exactly one finite 1,024-dimensional vector per input. Any other shape
-fails the task and cannot become searchable.
+Custom HTTP(S) base URLs and model IDs are allowed. A base URL is an API root,
+not a credential carrier: URL user information, query parameters, and
+fragments are rejected, and authentication belongs only in the API-key field.
+Every response must contain exactly one finite 1,024-dimensional vector per
+input. Any other shape fails the task and cannot become searchable. Invalid
+legacy base URLs are omitted from provider status instead of being echoed to
+the browser.
 
 ## Vector identity and storage
 
@@ -76,6 +82,12 @@ vector extension, the `embeddings.embeddings` column is `vector(1024)`, and
 
 - a B-tree index on `(user_id, model)` for current-fingerprint filtering
 - a partial HNSW index using `vector_cosine_ops` for document-chunk nearest-neighbor search
+
+Drizzle applies migrations in a transaction, so the HNSW index is created with
+regular `CREATE INDEX`; PostgreSQL does not allow `CREATE INDEX CONCURRENTLY`
+inside that transaction. The regular build permits reads but blocks writes to
+`embeddings` until it finishes. Before upgrading an installation with a large
+embedding table, estimate the build time and schedule a maintenance window.
 
 Semantic queries order by the raw cosine-distance operator ascending so
 pgvector can use HNSW, while selecting `1 - distance` as the returned

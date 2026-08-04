@@ -26,5 +26,4 @@ export const LANGCHAIN_SUPPORT_TEXT_LIST = [
   'java',
   // database
   'sql',
-  'db',
 ];
