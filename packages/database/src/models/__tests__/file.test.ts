@@ -104,6 +104,73 @@ describe('FileModel', () => {
     });
   });
 
+  describe('repairGlobalFile', () => {
+    it('updates the canonical object and every file row sharing its hash', async () => {
+      const hashId = 'repair-hash';
+      await fileModel.createGlobalFile({
+        creator: userId,
+        fileType: 'text/plain',
+        hashId,
+        metadata: { stale: true },
+        size: 10,
+        url: 'files/stale.txt',
+      });
+      const firstFile = await fileModel.create({
+        fileHash: hashId,
+        fileType: 'text/plain',
+        name: 'first.txt',
+        size: 10,
+        url: 'files/stale.txt',
+      });
+      const secondFile = await new FileModel(serverDB, 'user2').create({
+        fileHash: hashId,
+        fileType: 'text/plain',
+        name: 'second.txt',
+        size: 10,
+        url: 'files/stale.txt',
+      });
+
+      await fileModel.repairGlobalFile(hashId, {
+        fileType: 'text/html',
+        metadata: { repaired: true },
+        size: 20,
+        url: 'files/repaired.html',
+      });
+
+      const globalFile = await serverDB.query.globalFiles.findFirst({
+        where: eq(globalFiles.hashId, hashId),
+      });
+      const repairedFiles = await serverDB.query.files.findMany({
+        where: inArray(files.id, [firstFile.id, secondFile.id]),
+      });
+
+      expect(globalFile).toMatchObject({
+        creator: userId,
+        fileType: 'text/html',
+        metadata: { repaired: true },
+        size: 20,
+        url: 'files/repaired.html',
+      });
+      expect(repairedFiles).toHaveLength(2);
+      expect(repairedFiles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fileType: 'text/html',
+            metadata: { repaired: true },
+            size: 20,
+            url: 'files/repaired.html',
+          }),
+          expect.objectContaining({
+            fileType: 'text/html',
+            metadata: { repaired: true },
+            size: 20,
+            url: 'files/repaired.html',
+          }),
+        ]),
+      );
+    });
+  });
+
   describe('checkHash', () => {
     it('should return isExist: false for non-existent hash', async () => {
       const result = await fileModel.checkHash('non-existent-hash');
@@ -134,6 +201,22 @@ describe('FileModel', () => {
   });
 
   describe('delete', () => {
+    it('returns an unhashed file so its directly owned storage object can be removed', async () => {
+      const { id } = await fileModel.create({
+        fileType: 'text/plain',
+        name: 'unhashed.txt',
+        size: 100,
+        url: 'files/unhashed.txt',
+      });
+
+      const cleanupFile = await fileModel.delete(id, false);
+
+      expect(cleanupFile).toMatchObject({ id, url: 'files/unhashed.txt' });
+      await expect(
+        serverDB.query.files.findFirst({ where: eq(files.id, id) }),
+      ).resolves.toBeUndefined();
+    });
+
     it('should delete a file by id', async () => {
       await fileModel.createGlobalFile({
         hashId: '1',
@@ -191,6 +274,30 @@ describe('FileModel', () => {
   });
 
   describe('deleteMany', () => {
+    it('returns unhashed files for direct storage cleanup even when global removal is disabled', async () => {
+      const firstFile = await fileModel.create({
+        fileType: 'text/plain',
+        name: 'first-unhashed.txt',
+        size: 100,
+        url: 'files/first-unhashed.txt',
+      });
+      const secondFile = await fileModel.create({
+        fileType: 'text/plain',
+        name: 'second-unhashed.txt',
+        size: 100,
+        url: 'files/second-unhashed.txt',
+      });
+
+      const cleanupFiles = await fileModel.deleteMany([firstFile.id, secondFile.id], false);
+
+      expect(cleanupFiles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: firstFile.id }),
+          expect.objectContaining({ id: secondFile.id }),
+        ]),
+      );
+    });
+
     it('should delete multiple files', async () => {
       await fileModel.createGlobalFile({
         hashId: '1',
@@ -226,7 +333,7 @@ describe('FileModel', () => {
       });
       expect(globalFilesResult).toHaveLength(2);
 
-      await fileModel.deleteMany([file1.id, file2.id]);
+      const cleanupFiles = await fileModel.deleteMany([file1.id, file2.id]);
 
       const remainingFiles = await serverDB.query.files.findMany({
         where: eq(files.userId, userId),
@@ -240,6 +347,12 @@ describe('FileModel', () => {
 
       expect(remainingFiles).toHaveLength(0);
       expect(globalFilesResult2).toHaveLength(0);
+      expect(cleanupFiles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: file1.id }),
+          expect.objectContaining({ id: file2.id }),
+        ]),
+      );
     });
     it('should delete multiple files but not remove global files if DISABLE_REMOVE_GLOBAL_FILE=true', async () => {
       await fileModel.createGlobalFile({
@@ -278,7 +391,7 @@ describe('FileModel', () => {
 
       expect(globalFilesResult).toHaveLength(2);
 
-      await fileModel.deleteMany([file1.id, file2.id], false);
+      const cleanupFiles = await fileModel.deleteMany([file1.id, file2.id], false);
 
       const remainingFiles = await serverDB.query.files.findMany({
         where: eq(files.userId, userId),
@@ -289,6 +402,42 @@ describe('FileModel', () => {
 
       expect(remainingFiles).toHaveLength(0);
       expect(globalFilesResult2).toHaveLength(2);
+      expect(cleanupFiles).toEqual([]);
+    });
+
+    it('does not return a shared object for deletion while another row references it', async () => {
+      const hashId = 'shared-hash';
+      await fileModel.createGlobalFile({
+        creator: userId,
+        fileType: 'text/plain',
+        hashId,
+        size: 100,
+        url: 'files/shared.txt',
+      });
+      const selectedFile = await fileModel.create({
+        fileHash: hashId,
+        fileType: 'text/plain',
+        name: 'selected.txt',
+        size: 100,
+        url: 'files/shared.txt',
+      });
+      const retainedFile = await new FileModel(serverDB, 'user2').create({
+        fileHash: hashId,
+        fileType: 'text/plain',
+        name: 'retained.txt',
+        size: 100,
+        url: 'files/shared.txt',
+      });
+
+      const cleanupFiles = await fileModel.deleteMany([selectedFile.id]);
+
+      expect(cleanupFiles).toEqual([]);
+      await expect(
+        serverDB.query.files.findFirst({ where: eq(files.id, retainedFile.id) }),
+      ).resolves.toBeDefined();
+      await expect(
+        serverDB.query.globalFiles.findFirst({ where: eq(globalFiles.hashId, hashId) }),
+      ).resolves.toBeDefined();
     });
   });
 

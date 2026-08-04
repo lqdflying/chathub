@@ -16,20 +16,28 @@ export class S3StaticFileImpl implements FileServiceImpl {
     this.s3 = new S3();
   }
 
+  private normalizeKey(key: string): string {
+    return extractKeyFromUrlOrReturnOriginal(key, this.getKeyFromFullUrl.bind(this));
+  }
+
   async deleteFile(key: string) {
-    return this.s3.deleteFile(key);
+    return this.s3.deleteFile(this.normalizeKey(key));
   }
 
   async deleteFiles(keys: string[]) {
-    return this.s3.deleteFiles(keys);
+    return this.s3.deleteFiles(keys.map((key) => this.normalizeKey(key)));
   }
 
   async getFileContent(key: string): Promise<string> {
-    return this.s3.getFileContent(key);
+    return this.s3.getFileContent(this.normalizeKey(key));
   }
 
   async getFileByteArray(key: string): Promise<Uint8Array> {
-    return this.s3.getFileByteArray(key);
+    return this.s3.getFileByteArray(this.normalizeKey(key));
+  }
+
+  async hasFile(key: string): Promise<boolean> {
+    return this.s3.hasFile(this.normalizeKey(key));
   }
 
   async createPreSignedUrl(key: string): Promise<string> {
@@ -48,7 +56,7 @@ export class S3StaticFileImpl implements FileServiceImpl {
     if (!url) return '';
 
     // Handle legacy data compatibility using shared utility
-    const key = extractKeyFromUrlOrReturnOriginal(url, this.getKeyFromFullUrl.bind(this));
+    const key = this.normalizeKey(url);
 
     // If S3_PUBLIC_DOMAIN is set, always use it to construct the URL.
     // This supports setups where the bucket is served via a custom domain

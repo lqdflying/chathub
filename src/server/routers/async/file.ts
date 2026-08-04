@@ -4,7 +4,6 @@ import { chunk } from 'lodash-es';
 import pMap from 'p-map';
 import { z } from 'zod';
 
-import { serverDBEnv } from '@/config/db';
 import { ASYNC_TASK_TIMEOUT, AsyncTaskModel } from '@/database/models/asyncTask';
 import { ChunkModel } from '@/database/models/chunk';
 import { EmbeddingModel } from '@/database/models/embedding';
@@ -12,6 +11,7 @@ import { FileModel } from '@/database/models/file';
 import { NewChunkItem, NewEmbeddingsItem, NewUnstructuredChunkItem } from '@/database/schemas';
 import { fileEnv } from '@/envs/file';
 import { asyncAuthedProcedure, asyncRouter as router } from '@/libs/trpc/async';
+import { isStorageObjectMissingError } from '@/server/modules/S3/error';
 import { ChunkService } from '@/server/services/chunk';
 import { FileService } from '@/server/services/file';
 import {
@@ -186,20 +186,6 @@ export const fileRouter = router({
         });
       }
 
-      let content: Uint8Array | undefined;
-      try {
-        content = await ctx.fileService.getFileByteArray(file.url);
-      } catch (e) {
-        console.error(e);
-        // if file not found, delete it from db
-        if ((e as any).Code === 'NoSuchKey') {
-          await ctx.fileModel.delete(input.fileId, serverDBEnv.REMOVE_GLOBAL_FILE);
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'File not found' });
-        }
-      }
-
-      if (!content) return;
-
       const asyncTask = await ctx.asyncTaskModel.findById(input.taskId);
 
       if (!asyncTask) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Async Task not found' });
@@ -222,6 +208,14 @@ export const fileRouter = router({
           const chunkService = ctx.chunkService;
           // update the task status to processing
           await ctx.asyncTaskModel.update(input.taskId, { status: AsyncTaskStatus.Processing });
+
+          const content = await ctx.fileService.getFileByteArray(file.url);
+          if (!content) {
+            throw new AsyncTaskError(
+              AsyncTaskErrorType.ServerError,
+              'The source file is empty in object storage. Re-upload it to restore this document.',
+            );
+          }
 
           // partition file to chunks
           const chunkResult = await chunkService.chunkContent({
@@ -280,9 +274,14 @@ export const fileRouter = router({
       } catch (e) {
         const error = e as any;
 
-        const asyncTaskError = error.body
-          ? ({ body: safeParseJSON(error.body) ?? error.body, name: error.name } as IAsyncTaskError)
-          : new AsyncTaskError((error as Error).name, error.message);
+        const asyncTaskError = isStorageObjectMissingError(error)
+          ? new AsyncTaskError(
+              AsyncTaskErrorType.ServerError,
+              'The source file is missing from object storage. Re-upload it to restore this document.',
+            )
+          : error.body
+            ? ({ body: safeParseJSON(error.body) ?? error.body, name: error.name } as IAsyncTaskError)
+            : new AsyncTaskError((error as Error).name, getErrorMessage(error));
 
         console.error('[Chunking Error]', asyncTaskError);
         await ctx.asyncTaskModel.update(input.taskId, {
@@ -291,7 +290,7 @@ export const fileRouter = router({
         });
 
         return {
-          message: `File ${file.name}(${input.taskId}) failed to chunking: ${(e as Error).message}`,
+          message: `File ${file.name}(${input.taskId}) failed to chunking: ${getErrorMessage(e)}`,
           success: false,
         };
       }

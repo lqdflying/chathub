@@ -8,7 +8,8 @@ import { fileRouter } from '@/server/routers/lambda/file';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
 
-const TEST_HASH = 'a'.repeat(64);
+const TEST_FILE_CONTENT = new Uint8Array([1, 2, 3]);
+const TEST_HASH = sha256(TEST_FILE_CONTENT);
 
 // Patch: Use actual router context middleware to inject the correct models/services
 function createCallerWithCtx(partialCtx: any = {}) {
@@ -22,6 +23,7 @@ function createCallerWithCtx(partialCtx: any = {}) {
       url: 'files/canonical/file.png',
     }),
     create: vi.fn().mockResolvedValue({ id: 'test-id' }),
+    repairGlobalFile: vi.fn().mockResolvedValue({}),
     findById: vi.fn().mockResolvedValue(undefined),
     query: vi.fn().mockResolvedValue([]),
     queryImageArtifacts: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 40, total: 0 }),
@@ -33,8 +35,10 @@ function createCallerWithCtx(partialCtx: any = {}) {
 
   const fileService = {
     getFullFileUrl: vi.fn().mockResolvedValue('full-url'),
+    getFileByteArray: vi.fn().mockResolvedValue(TEST_FILE_CONTENT),
     getKeyFromFullUrl: vi.fn(),
     getUIFileUrl: vi.fn().mockResolvedValue('ui-url'),
+    hasFile: vi.fn().mockResolvedValue(true),
     deleteFile: vi.fn().mockResolvedValue(undefined),
     deleteFiles: vi.fn().mockResolvedValue(undefined),
   };
@@ -99,6 +103,7 @@ vi.mock('@/database/models/file', () => ({
   FileModel: vi.fn(() => ({
     checkHash: vi.fn(),
     create: vi.fn(),
+    repairGlobalFile: vi.fn(),
     delete: vi.fn(),
     deleteMany: vi.fn(),
     findById: vi.fn(),
@@ -118,8 +123,10 @@ vi.mock('@/envs/app', () => ({
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn(() => ({
     getFullFileUrl: vi.fn(),
+    getFileByteArray: vi.fn(),
     getKeyFromFullUrl: vi.fn(),
     getUIFileUrl: vi.fn(),
+    hasFile: vi.fn(),
     deleteFile: vi.fn(),
     deleteFiles: vi.fn(),
   })),
@@ -158,6 +165,23 @@ describe('fileRouter', () => {
     it('should handle when fileModel.checkHash returns undefined', async () => {
       ctx.fileModel.checkHash.mockResolvedValue(undefined);
       await expect(caller.checkFileHash({ hash: 'test-hash' })).resolves.toBeUndefined();
+    });
+
+    it('returns the canonical record when its storage object exists', async () => {
+      await expect(caller.checkFileHash({ hash: TEST_HASH })).resolves.toMatchObject({
+        isExist: true,
+        url: 'files/canonical/file.png',
+      });
+
+      expect(ctx.fileService.hasFile).toHaveBeenCalledWith('files/canonical/file.png');
+    });
+
+    it('requests a fresh upload when the canonical storage object is missing', async () => {
+      ctx.fileService.hasFile.mockResolvedValue(false);
+
+      await expect(caller.checkFileHash({ hash: TEST_HASH })).resolves.toEqual({
+        isExist: false,
+      });
     });
   });
 
@@ -221,6 +245,58 @@ describe('fileRouter', () => {
         false,
       );
       expect(ctx.fileService.getUIFileUrl).toHaveBeenCalledWith('files/canonical/file.png');
+      expect(ctx.fileModel.repairGlobalFile).not.toHaveBeenCalled();
+    });
+
+    it('repairs a stale global-file record with the newly uploaded object', async () => {
+      const repairedUrl = `files/${sha256('test-user')}/466737/repaired.png`;
+      ctx.fileService.hasFile.mockResolvedValue(false);
+
+      await expect(createFileWithUrl(repairedUrl)).resolves.toEqual({
+        id: 'test-id',
+        url: 'ui-url',
+      });
+
+      expect(ctx.fileModel.repairGlobalFile).toHaveBeenCalledWith(TEST_HASH, {
+        fileType: 'image/png',
+        metadata: {},
+        size: 100,
+        url: repairedUrl,
+      });
+      expect(ctx.fileModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileHash: TEST_HASH,
+          metadata: {},
+          size: 100,
+          url: repairedUrl,
+        }),
+        false,
+      );
+      expect(ctx.fileService.getUIFileUrl).toHaveBeenCalledWith(repairedUrl);
+    });
+
+    it('rejects a foreign upload key when repairing a stale global-file record', async () => {
+      ctx.fileService.hasFile.mockResolvedValue(false);
+
+      await expect(createFileWithUrl('files/victim/repaired.png')).rejects.toThrow(
+        'invalid file url',
+      );
+
+      expect(ctx.fileModel.repairGlobalFile).not.toHaveBeenCalled();
+      expect(ctx.fileModel.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects stale-record repair when the uploaded bytes do not match the hash', async () => {
+      const repairedUrl = `files/${sha256('test-user')}/466737/repaired.png`;
+      ctx.fileService.hasFile.mockResolvedValue(false);
+      ctx.fileService.getFileByteArray.mockResolvedValue(new Uint8Array([9, 9, 9]));
+
+      await expect(createFileWithUrl(repairedUrl)).rejects.toThrow(
+        'uploaded file hash mismatch',
+      );
+
+      expect(ctx.fileModel.repairGlobalFile).not.toHaveBeenCalled();
+      expect(ctx.fileModel.create).not.toHaveBeenCalled();
     });
 
     it('rejects a foreign or legacy key for a new hash', async () => {

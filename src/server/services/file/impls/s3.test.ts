@@ -29,6 +29,7 @@ vi.mock('@/server/modules/S3', () => ({
       .mockResolvedValue('https://presigned.example.com/test.jpg'),
     getFileContent: vi.fn().mockResolvedValue('file content'),
     getFileByteArray: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+    hasFile: vi.fn().mockResolvedValue(true),
     deleteFile: vi.fn().mockResolvedValue({}),
     deleteFiles: vi.fn().mockResolvedValue({}),
     createPreSignedUrl: vi.fn().mockResolvedValue('https://upload.example.com/test.jpg'),
@@ -41,6 +42,7 @@ describe('S3StaticFileImpl', () => {
   let fileService: S3StaticFileImpl;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     config.S3_BUCKET = 'my-bucket';
     config.S3_ENABLE_PATH_STYLE = false;
     config.S3_PUBLIC_DOMAIN = 'https://example.com';
@@ -140,6 +142,16 @@ describe('S3StaticFileImpl', () => {
     });
   });
 
+  describe('hasFile', () => {
+    it('checks the normalized storage key', async () => {
+      await expect(
+        fileService.hasFile('https://example.com/path/to/test.jpg'),
+      ).resolves.toBe(true);
+
+      expect(fileService['s3'].hasFile).toHaveBeenCalledWith('path/to/test.jpg');
+    });
+  });
+
   describe('deleteFile', () => {
     it('应该调用S3的deleteFile方法', async () => {
       await fileService.deleteFile('test.jpg');
@@ -151,6 +163,18 @@ describe('S3StaticFileImpl', () => {
     it('应该调用S3的deleteFiles方法', async () => {
       await fileService.deleteFiles(['test1.jpg', 'test2.jpg']);
       expect(fileService['s3'].deleteFiles).toHaveBeenCalledWith(['test1.jpg', 'test2.jpg']);
+    });
+
+    it('normalizes legacy full URLs before deletion', async () => {
+      await fileService.deleteFiles([
+        'https://example.com/path/to/test1.jpg',
+        'path/to/test2.jpg',
+      ]);
+
+      expect(fileService['s3'].deleteFiles).toHaveBeenCalledWith([
+        'path/to/test1.jpg',
+        'path/to/test2.jpg',
+      ]);
     });
   });
 

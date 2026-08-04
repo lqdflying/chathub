@@ -52,7 +52,7 @@ const FileList = memo<FileListProps>(({ knowledgeBaseId, knowledgeMode = false, 
   const { styles } = useStyles();
 
   const [selectFileIds, setSelectedFileIds] = useState<string[]>([]);
-  const [viewConfig, setViewConfig] = useState({ showFilesInKnowledgeBase: false });
+  const [viewConfig, setViewConfig] = useState({ showFilesInKnowledgeBase: true });
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [isTransitioning, setIsTransitioning] = useState(false);
 

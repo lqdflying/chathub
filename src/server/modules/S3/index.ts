@@ -2,6 +2,7 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -11,6 +12,10 @@ import { z } from 'zod';
 import { fileEnv } from '@/envs/file';
 import { YEAR } from '@/utils/units';
 import { inferContentTypeFromImageUrl } from '@/utils/url';
+
+import { isStorageObjectMissingError } from './error';
+
+export { isStorageObjectMissingError } from './error';
 
 export const fileSchema = z.object({
   Key: z.string(),
@@ -98,6 +103,21 @@ export class S3 {
     }
 
     return response.Body.transformToByteArray();
+  }
+
+  public async hasFile(key: string): Promise<boolean> {
+    const command = new HeadObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+
+    try {
+      await this.client.send(command);
+      return true;
+    } catch (error) {
+      if (isStorageObjectMissingError(error)) return false;
+      throw error;
+    }
   }
 
   public async createPreSignedUrl(key: string): Promise<string> {

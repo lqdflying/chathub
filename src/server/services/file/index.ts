@@ -2,10 +2,10 @@ import { LobeChatDatabase } from '@lobechat/database';
 import { TRPCError } from '@trpc/server';
 import urlJoin from 'url-join';
 
-import { serverDBEnv } from '@/config/db';
 import { FileModel } from '@/database/models/file';
 import { FileItem } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
+import { isStorageObjectMissingError } from '@/server/modules/S3/error';
 import { TempFileManager } from '@/server/utils/tempFileManager';
 import { nanoid } from '@/utils/uuid';
 
@@ -52,6 +52,13 @@ export class FileService {
    */
   public async getFileByteArray(key: string): Promise<Uint8Array> {
     return this.impl.getFileByteArray(key);
+  }
+
+  /**
+   * Check whether a file exists in object storage
+   */
+  public async hasFile(key: string): Promise<boolean> {
+    return this.impl.hasFile(key);
   }
 
   /**
@@ -131,11 +138,11 @@ export class FileService {
       content = await this.getFileByteArray(file.url);
     } catch (e) {
       console.error(e);
-      // if file not found, delete it from db
-      if ((e as any).Code === 'NoSuchKey') {
-        await this.fileModel.delete(fileId, serverDBEnv.REMOVE_GLOBAL_FILE);
+      if (isStorageObjectMissingError(e)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'File not found' });
       }
+
+      throw e;
     }
 
     if (!content) throw new TRPCError({ code: 'BAD_REQUEST', message: 'File content is empty' });

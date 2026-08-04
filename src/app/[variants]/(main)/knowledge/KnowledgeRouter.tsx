@@ -1,7 +1,7 @@
 'use client';
 
 import { App } from 'antd';
-import { memo, useEffect } from 'react';
+import React, { memo, useEffect } from 'react';
 import { MemoryRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import RagProviderBanner from './components/RagProviderBanner';
@@ -50,22 +50,44 @@ const UrlSynchronizer = () => {
  */
 const KnowledgeRouter = memo(() => {
   return (
-    <App style={{ display: 'flex', flex: 1, flexDirection: 'column', height: '100%' }}>
+    <App
+      style={{
+        display: 'flex',
+        flex: 1,
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+        minWidth: 0,
+      }}
+    >
       <RagProviderBanner />
-      <MemoryRouter initialEntries={[getInitialPath()]} initialIndex={0}>
-        <UrlSynchronizer />
-        <Routes>
-          {/* Knowledge home - file list page */}
-          <Route element={<KnowledgeHomePage />} path="/" />
+      <div
+        data-testid="knowledge-route-viewport"
+        style={{
+          display: 'flex',
+          flex: 1,
+          flexDirection: 'row',
+          minHeight: 0,
+          minWidth: 0,
+          overflow: 'hidden',
+          width: '100%',
+        }}
+      >
+        <MemoryRouter initialEntries={[getInitialPath()]} initialIndex={0}>
+          <UrlSynchronizer />
+          <Routes>
+            {/* Knowledge home - file list page */}
+            <Route element={<KnowledgeHomePage />} path="/" />
 
-          {/* Knowledge bases routes */}
-          <Route element={<KnowledgeBasesListPage />} path="/bases" />
-          <Route element={<KnowledgeBaseDetailPage />} path="/bases/:id" />
+            {/* Knowledge bases routes */}
+            <Route element={<KnowledgeBasesListPage />} path="/bases" />
+            <Route element={<KnowledgeBaseDetailPage />} path="/bases/:id" />
 
-          {/* Fallback */}
-          <Route element={<Navigate replace to="/" />} path="*" />
-        </Routes>
-      </MemoryRouter>
+            {/* Fallback */}
+            <Route element={<Navigate replace to="/" />} path="*" />
+          </Routes>
+        </MemoryRouter>
+      </div>
     </App>
   );
 });

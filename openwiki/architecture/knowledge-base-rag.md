@@ -130,16 +130,42 @@ and chat retrieval surfaces the failure rather than silently returning an empty
 result. Provider HTTP errors and invalid vector shapes are recorded on the
 embedding task with readable messages.
 
+### File-object lifecycle and recovery
+
+`global_files` deduplicates uploaded content by SHA-256 hash, while one or more
+owned `files` rows and Knowledge Base junction rows can reference the canonical
+object. Hash checks therefore verify both the database record and the object
+storage key. Legacy rows that contain a full storage URL are normalized back to
+their object key before reads, existence checks, and deletion.
+
+If the canonical object is missing, the hash check requests a fresh upload
+instead of reusing the stale record. File creation then repairs the
+`global_files` entry and every `files` row with that hash, preserving existing
+Knowledge Base associations. A missing object during parsing is recorded as a
+readable async-task error; it never implicitly deletes the file row or its
+Knowledge Base junction.
+
+Explicit deletion removes an object from storage only after the final file row
+for its hash is gone and global-file removal is enabled. Bulk deletion returns
+one cleanup candidate per newly unreferenced hash, so removing one of several
+deduplicated rows cannot delete storage still used by another account or
+Knowledge Base. A file without a deduplication hash owns its storage object
+directly, so deleting that row still schedules its object for cleanup.
+
 ## Source map
 
 - `packages/types/src/rag.ts`
 - `packages/utils/src/isChunkableFile.ts`
 - `src/envs/knowledge.ts`
-- `src/server/services/rag/embedding.ts`
+- `src/server/modules/S3/index.ts`
 - `src/server/services/chunk/index.ts`
+- `src/server/services/file/index.ts`
+- `src/server/services/rag/embedding.ts`
 - `src/server/routers/async/file.ts`
 - `src/server/routers/lambda/chunk.ts`
+- `src/server/routers/lambda/file.ts`
 - `src/server/routers/lambda/ragProvider.ts`
 - `packages/database/src/models/chunk.ts`
 - `packages/database/src/models/embedding.ts`
+- `packages/database/src/models/file.ts`
 - `packages/database/src/schemas/rag.ts`

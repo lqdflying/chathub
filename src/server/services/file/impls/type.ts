@@ -43,6 +43,11 @@ export interface FileServiceImpl {
   getKeyFromFullUrl(url: string): string;
 
   /**
+   * Check whether a file exists in object storage
+   */
+  hasFile(key: string): Promise<boolean>;
+
+  /**
    * 上传内容
    */
   uploadContent(path: string, content: string): Promise<any>;

@@ -107,6 +107,25 @@ export class FileModel {
     };
   };
 
+  repairGlobalFile = async (
+    hashId: string,
+    params: Pick<NewGlobalFile, 'fileType' | 'metadata' | 'size' | 'url'>,
+  ) => {
+    return this.db.transaction(async (trx) => {
+      const [globalFile] = await trx
+        .update(globalFiles)
+        .set({ ...params, accessedAt: new Date() })
+        .where(eq(globalFiles.hashId, hashId))
+        .returning();
+
+      if (!globalFile) return;
+
+      await trx.update(files).set(params).where(eq(files.fileHash, hashId));
+
+      return globalFile;
+    });
+  };
+
   delete = async (id: string, removeGlobalFile: boolean = true, trx?: Transaction) => {
     const executeInTransaction = async (tx: Transaction) => {
       const file = await this.findById(id, tx);
@@ -119,6 +138,9 @@ export class FileModel {
 
       // 3. Delete file record
       await tx.delete(files).where(and(eq(files.id, id), eq(files.userId, this.userId)));
+
+      // Files without a global hash own their storage object directly.
+      if (!file.fileHash) return file;
 
       const result = await tx
         .select({ count: count() })
@@ -166,7 +188,16 @@ export class FileModel {
       if (fileList.length === 0) return [];
 
       // 提取需要检查的文件哈希值
-      const hashList = fileList.map((file) => file.fileHash!).filter(Boolean);
+      const cleanupCandidateByHash = new Map<string, FileItem>();
+      const unhashedFiles: FileItem[] = [];
+      for (const file of fileList) {
+        if (!file.fileHash) {
+          unhashedFiles.push(file);
+        } else if (!cleanupCandidateByHash.has(file.fileHash)) {
+          cleanupCandidateByHash.set(file.fileHash, file);
+        }
+      }
+      const hashList = [...cleanupCandidateByHash.keys()];
 
       // 2. 删除相关的 chunks
       await this.deleteFileChunks(trx as any, ids);
@@ -174,8 +205,8 @@ export class FileModel {
       // 3. 删除文件记录
       await trx.delete(files).where(and(inArray(files.id, ids), eq(files.userId, this.userId)));
 
-      // 如果不需要删除全局文件，直接返回
-      if (!removeGlobalFile || hashList.length === 0) return fileList;
+      // 如果不需要删除全局文件，则不应删除任何对象存储文件
+      if (!removeGlobalFile || hashList.length === 0) return unhashedFiles;
 
       // 4. 找出不再被引用的哈希值
       const remainingFiles = await trx
@@ -191,13 +222,16 @@ export class FileModel {
       // 找出需要删除的哈希值(不再被任何文件使用的)
       const hashesToDelete = hashList.filter((hash) => !usedHashes.has(hash));
 
-      if (hashesToDelete.length === 0) return fileList;
+      if (hashesToDelete.length === 0) return unhashedFiles;
 
       // 5. 删除不再被引用的全局文件
       await trx.delete(globalFiles).where(inArray(globalFiles.hashId, hashesToDelete));
 
-      // 返回删除的文件列表
-      return fileList;
+      // 仅返回真正失去最后引用的对象，每个哈希最多一个清理候选项
+      return [
+        ...unhashedFiles,
+        ...hashesToDelete.map((hash) => cleanupCandidateByHash.get(hash)!),
+      ];
     });
   };
 

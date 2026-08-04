@@ -1,5 +1,6 @@
 import { isChunkableFile } from '@lobechat/utils';
 import { TRPCError } from '@trpc/server';
+import { sha256 } from 'js-sha256';
 import { z } from 'zod';
 
 import { serverDBEnv } from '@/config/db';
@@ -42,11 +43,30 @@ const isDesktopFileUrl = (url: string) =>
   /^desktop:\/\/[\da-z][\w./-]*$/i.test(url) &&
   !url.split('/').some((segment) => segment === '..' || segment === '.');
 
+const isReusableStoredFile = async (fileService: FileService, url?: string) => {
+  if (!url) return false;
+  if (isDesktopFileUrl(url)) return true;
+
+  return fileService.hasFile(url);
+};
+
+const verifyUploadedFileHash = async (fileService: FileService, url: string, hash: string) => {
+  const content = await fileService.getFileByteArray(url);
+  if (sha256(content) !== hash.toLowerCase()) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'uploaded file hash mismatch' });
+  }
+};
+
 export const fileRouter = router({
   checkFileHash: fileProcedure
     .input(z.object({ hash: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.fileModel.checkHash(input.hash);
+      const globalFile = await ctx.fileModel.checkHash(input.hash);
+      if (!globalFile?.isExist) return globalFile;
+
+      return (await isReusableStoredFile(ctx.fileService, globalFile.url))
+        ? globalFile
+        : { isExist: false };
     }),
 
   createFile: fileProcedure
@@ -82,15 +102,34 @@ export const fileRouter = router({
       const globalFile = await ctx.fileModel.checkHash(input.hash);
       if (!globalFile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file hash' });
 
+      const reuseGlobalFile =
+        globalFile.isExist &&
+        (await isReusableStoredFile(ctx.fileService, globalFile.url));
+
       if (
-        !globalFile.isExist &&
+        !reuseGlobalFile &&
         !isUserUploadKey(input.url, ctx.userId, 'file') &&
         !isDesktopFileUrl(input.url)
       ) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
       }
 
-      const canonicalUrl = globalFile.isExist ? globalFile.url : input.url;
+      if (globalFile.isExist && !reuseGlobalFile) {
+        // Repairing a global hash updates every deduplicated file row. Require a server-readable,
+        // user-scoped object and verify its bytes before changing those shared references.
+        if (!isUserUploadKey(input.url, ctx.userId, 'file')) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
+        }
+        await verifyUploadedFileHash(ctx.fileService, input.url, input.hash);
+        await ctx.fileModel.repairGlobalFile(input.hash, {
+          fileType: input.fileType,
+          metadata: input.metadata,
+          size: input.size,
+          url: input.url,
+        });
+      }
+
+      const canonicalUrl = reuseGlobalFile ? globalFile.url : input.url;
       if (!canonicalUrl) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
       }
@@ -98,11 +137,11 @@ export const fileRouter = router({
       const { id } = await ctx.fileModel.create(
         {
           fileHash: input.hash,
-          fileType: globalFile.isExist ? (globalFile.fileType ?? input.fileType) : input.fileType,
+          fileType: reuseGlobalFile ? (globalFile.fileType ?? input.fileType) : input.fileType,
           knowledgeBaseId: input.knowledgeBaseId,
-          metadata: globalFile.isExist ? (globalFile.metadata ?? input.metadata) : input.metadata,
+          metadata: reuseGlobalFile ? (globalFile.metadata ?? input.metadata) : input.metadata,
           name: input.name,
-          size: globalFile.isExist ? (globalFile.size ?? input.size) : input.size,
+          size: reuseGlobalFile ? (globalFile.size ?? input.size) : input.size,
           url: canonicalUrl,
         },
         // if the file is not exist in global file, create a new one
