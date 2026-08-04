@@ -73,17 +73,20 @@ const renderNavBar = () =>
   );
 
 describe('mobile NavBar', () => {
-  it('renders Chat, Image, and Me in order and opens the Image route', () => {
+  it('renders Chat, Image, Artifacts, and Me in order and opens the top-level routes', () => {
     renderNavBar();
 
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       'tab.chat',
       'tab.aiImage',
+      'tab.artifacts',
       'tab.me',
     ]);
 
     fireEvent.click(screen.getByRole('button', { name: 'tab.aiImage' }));
     expect(pushMock).toHaveBeenCalledWith('/image');
+    fireEvent.click(screen.getByRole('button', { name: 'tab.artifacts' }));
+    expect(pushMock).toHaveBeenCalledWith('/artifacts');
   });
 
   it('hides Image when image generation is disabled', () => {
@@ -101,6 +104,7 @@ describe('mobile NavBar', () => {
     expect(screen.queryByRole('button', { name: 'tab.aiImage' })).toBeNull();
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       'tab.chat',
+      'tab.artifacts',
       'tab.me',
     ]);
   });

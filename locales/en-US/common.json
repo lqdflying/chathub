@@ -261,6 +261,7 @@
   },
   "tab": {
     "aiImage": "Image",
+    "artifacts": "Artifacts",
     "chat": "Chat",
     "discover": "Discover",
     "files": "Files",

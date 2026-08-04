@@ -1,4 +1,11 @@
-import { FilesTabs, QueryFileListParams, SortType } from '@lobechat/types';
+import {
+  FileSource,
+  FilesTabs,
+  ImageArtifactListInput,
+  ImageArtifactListResult,
+  QueryFileListParams,
+  SortType,
+} from '@lobechat/types';
 import { and, asc, count, desc, eq, ilike, inArray, like, notExists, or, sum } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 
@@ -260,6 +267,60 @@ export class FileModel {
     return query.where(whereClause).orderBy(orderByClause);
   };
 
+  queryImageArtifacts = async ({
+    page = 1,
+    pageSize = 40,
+    q,
+    sort = 'newest',
+  }: ImageArtifactListInput = {}): Promise<ImageArtifactListResult> => {
+    const normalizedPage = Math.max(1, Math.floor(page));
+    const normalizedPageSize = Math.min(60, Math.max(1, Math.floor(pageSize)));
+    const normalizedQuery = q?.trim();
+    const whereClause = and(
+      eq(files.userId, this.userId),
+      eq(files.source, FileSource.ImageGeneration),
+      ilike(files.fileType, 'image/%'),
+      normalizedQuery ? ilike(files.name, `%${normalizedQuery}%`) : undefined,
+    );
+    const orderByClause = sort === 'oldest' ? asc(files.createdAt) : desc(files.createdAt);
+    const offset = (normalizedPage - 1) * normalizedPageSize;
+
+    const [rows, totalResult] = await Promise.all([
+      this.db
+        .select({
+          createdAt: files.createdAt,
+          fileType: files.fileType,
+          id: files.id,
+          metadata: files.metadata,
+          name: files.name,
+          size: files.size,
+          url: files.url,
+        })
+        .from(files)
+        .where(whereClause)
+        .orderBy(orderByClause, asc(files.id))
+        .limit(normalizedPageSize)
+        .offset(offset),
+      this.db.select({ count: count() }).from(files).where(whereClause),
+    ]);
+
+    const items = rows.map(({ metadata, ...item }) => {
+      const dimensions =
+        metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>) : {};
+      const width = typeof dimensions.width === 'number' ? dimensions.width : null;
+      const height = typeof dimensions.height === 'number' ? dimensions.height : null;
+
+      return { ...item, height, width };
+    });
+
+    return {
+      items,
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      total: Number(totalResult[0]?.count ?? 0),
+    };
+  };
+
   findByIds = async (ids: string[]) => {
     return this.db.query.files.findMany({
       where: and(inArray(files.id, ids), eq(files.userId, this.userId)),
@@ -323,7 +384,7 @@ export class FileModel {
    * legacy candidates by extracting the key from the stored URL.
    */
   findUrlCandidatesByKey = async (key: string): Promise<string[]> => {
-    const escapedKey = key.replaceAll(/([%_\\])/g, String.raw`\$1`);
+    const escapedKey = key.replaceAll(/([%\\_])/g, String.raw`\$1`);
     const rows = await this.db
       .select({ url: files.url })
       .from(files)

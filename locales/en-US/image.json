@@ -144,7 +144,24 @@
     "createNew": "New Topic",
     "deleteConfirm": "Delete Generation Topic",
     "deleteConfirmDesc": "You are about to delete this generation topic. This action cannot be undone, please proceed with caution.",
+    "deleteFailed": "Could not delete the image topic. If it is still generating, try again later.",
     "empty": "No generation topics",
+    "housekeeping": {
+      "action": "Housekeep image history",
+      "all": "All history",
+      "allConfirm": "Delete all eligible image topic history",
+      "count": "{{count}} image topics will be deleted",
+      "days": "days",
+      "failed": "Image history housekeeping failed",
+      "noMatches": "No image topics match this selection",
+      "notice": "Only image topics, generation records, covers, and thumbnails are removed. Original generated images remain in Artifacts.",
+      "olderThan": "Older than",
+      "olderThanConfirm": "Delete image topic history older than the selected age",
+      "previewFailed": "The image history preview could not be loaded",
+      "skipped": "{{count}} topics that are still generating will be skipped",
+      "success": "Deleted {{count}} image topics",
+      "title": "Housekeep image history"
+    },
     "title": "Image Topics",
     "untitled": "Default Topic"
   }

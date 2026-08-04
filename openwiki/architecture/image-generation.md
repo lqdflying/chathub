@@ -11,7 +11,9 @@ The route is selected with `SidebarTabKey.Image` and is controlled by the
 
 - Desktop displays Image Settings on the left, the generation workspace in the
   center, and Image Topics on the right.
-- Mobile uses the bottom navigation order Chat, Image, Me. The workspace remains
+- Desktop places the durable **Artifacts** destination immediately below Tools
+  in the global navigation. Mobile uses the bottom navigation order Chat,
+  Image, Artifacts, Me. The workspace remains
   in the main viewport; header actions open Image Settings in an 88dvh bottom
   drawer and Image Topics in a full-height right drawer.
 - Discover remains available to existing direct links, but it is no longer a
@@ -21,6 +23,31 @@ The Ant Design drawers provide focus trapping, Escape handling, close controls,
 and focus return. Header actions expose `aria-controls` and `aria-expanded`.
 Generation, batch, upload, replace, and delete actions remain visible on coarse
 pointer devices instead of depending on hover.
+
+## Artifacts and history housekeeping
+
+`/artifacts` is a separate, account-scoped gallery backed by `files.source =
+image_generation`. `FileModel.queryImageArtifacts` filters by the authenticated
+user and image MIME type, applies bounded search/sort/pagination, and returns
+UI-resolved URLs plus optional dimensions from file metadata. The route is
+read-only: generated originals are created by the existing generation ingestion
+transaction and remain durable after topic history is cleaned.
+
+Image history housekeeping is deliberately owned by the Image Topics surface,
+not by Artifacts. `GenerationTopicModel.previewHousekeeping` reports eligible
+and active-topic counts for either `all` or an `olderThan` cutoff. The mutation
+starts a transaction, locks the candidate topic rows, reloads their latest
+topic/batch/generation/task activity, and only then deletes eligible topics.
+Pending and processing tasks are skipped. Image submission obtains a compatible
+share lock on the topic row, so a submission and cleanup cannot silently race.
+
+Topic deletion cascades the topic, batch, and generation records. The model
+returns only disposable topic covers and generation thumbnail keys for
+best-effort object-storage cleanup. It excludes every URL represented by the
+generation asset or its durable `files` row, preserving originals even when
+legacy metadata reuses a thumbnail or cover key. The router omits deletion keys
+from its public response and treats storage cleanup failure as non-fatal after
+the database transaction commits.
 
 ## Client state and submission flow
 
@@ -713,8 +740,14 @@ the whole-batch replacement behavior.
 - `src/app/[variants]/(main)/image/features` — prompt and generation workspace
 - `src/app/[variants]/(main)/image/@menu` — provider/model and parameter controls
 - `src/app/[variants]/(main)/image/@topic` — generation-topic navigation
+- `src/app/[variants]/(main)/artifacts` — durable generated-image gallery
 - `src/store/image` — image state and orchestration
+- `src/services/artifacts.ts` — artifact listing client
+- `packages/database/src/models/file.ts` — account-scoped artifact query
+- `packages/database/src/models/generationTopic.ts` — locked history preview/cleanup
 - `src/services/image.ts` — client tRPC service
+- `src/server/routers/lambda/file.ts` — artifact listing boundary
+- `src/server/routers/lambda/generationTopic.ts` — topic history housekeeping boundary
 - `src/server/routers/lambda/image.ts` — persistence and async task dispatch
 - `src/server/routers/async/caller.ts` — internal async origin and dispatch headers
 - `src/server/routers/lambda/image/schema.ts` — request validation and config guard
@@ -729,7 +762,11 @@ synchronization, optimistic-to-server topic promotion without a mounted topic
 list, plain-text title normalization, store-driven workspace transitions,
 pending generation polling, prompt and busy-state failure paths,
 replacement-first retry ordering, request-schema boundaries, and the image
-generation configuration slices.
+generation configuration slices. Artifact workspace tests cover account
+ownership bootstrap and server-side search/sort/pagination; router tests cover
+UI URL resolution and housekeeping responses. Database model tests require a
+configured `DATABASE_TEST_URL` and cover source/account filtering, age cutoffs,
+active-task skips, row-lock rechecks, and durable-original preservation.
 Legacy ComfyUI transformer tests use test-local model schemas so removed
 provider exports are not restored.
 

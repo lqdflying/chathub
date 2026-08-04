@@ -10,8 +10,8 @@ import { generationTopicSelectors } from '@/store/image/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/slices/auth/selectors';
 
-import NewTopicButton from './NewTopicButton';
 import TopicItem from './TopicItem';
+import TopicToolbar from './TopicToolbar';
 
 const TopicsList = memo(() => {
   const isLogin = useUserStore(authSelectors.isLogin);
@@ -24,11 +24,7 @@ const TopicsList = memo(() => {
   const openNewGenerationTopic = useImageStore((s) => s.openNewGenerationTopic);
 
   const showMoreInfo = Boolean(width > 120);
-
-  const isEmpty = !generationTopics || generationTopics.length === 0;
-  if (isEmpty) {
-    return null;
-  }
+  const showToolbarLabel = Boolean(width > 240);
 
   return (
     <Flexbox
@@ -36,17 +32,27 @@ const TopicsList = memo(() => {
       gap={12}
       ref={ref}
       style={{
+        height: '100%',
         maxHeight: '100%',
-        overflowY: 'auto',
+        overflow: 'hidden',
+        padding: showMoreInfo ? '8px 12px' : '8px 0',
       }}
       width={'100%'}
     >
-      <NewTopicButton
+      <TopicToolbar
         count={generationTopics?.length}
-        onClick={openNewGenerationTopic}
+        onCreate={openNewGenerationTopic}
         showMoreInfo={showMoreInfo}
+        showTitle={showToolbarLabel}
       />
-      <Flexbox align="center" gap={12} ref={parent} width={'100%'}>
+      <Flexbox
+        align="center"
+        flex={1}
+        gap={12}
+        ref={parent}
+        style={{ overflowY: 'auto' }}
+        width={'100%'}
+      >
         {generationTopics.map((topic, index) => (
           <TopicItem
             key={topic.id}

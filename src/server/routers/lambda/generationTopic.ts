@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { GenerationTopicModel } from '@/database/models/generationTopic';
@@ -33,6 +34,34 @@ const updateTopicCoverSchema = z.object({
   id: z.string(),
 });
 
+const housekeepingInputSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('all') }),
+  z.object({ days: z.number().int().min(1).max(3650), mode: z.literal('olderThan') }),
+]);
+
+const deleteTopicResult = async (
+  result: Awaited<ReturnType<GenerationTopicModel['delete']>>,
+  fileService: FileService,
+) => {
+  if (!result) return;
+  if (result.blockedByActiveTask) {
+    throw new TRPCError({
+      code: 'CONFLICT',
+      message: 'Image topic has an active generation task',
+    });
+  }
+
+  if (result.filesToDelete.length > 0) {
+    try {
+      await fileService.deleteFiles(result.filesToDelete);
+    } catch (error) {
+      console.error('Failed to delete files from S3:', error);
+    }
+  }
+
+  return result.deletedTopic;
+};
+
 export const generationTopicRouter = router({
   createTopic: generationTopicProcedure.input(z.void()).mutation(async ({ ctx }) => {
     const data = await ctx.generationTopicModel.create('');
@@ -41,34 +70,35 @@ export const generationTopicRouter = router({
   deleteTopic: generationTopicProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // 1. Delete database records and get file URLs to clean
       const result = await ctx.generationTopicModel.delete(input.id);
-
-      // If topic not found, throw an error instead of returning undefined
-      if (!result) {
-        return;
-      }
-
-      const { deletedTopic, filesToDelete } = result;
-
-      // 2. Clean up all files from S3 (cover image and thumbnails)
-      // Note: Even if file deletion fails, we consider the topic deletion successful
-      // since the database record has been removed and users won't see the topic anymore
-      if (filesToDelete.length > 0) {
-        try {
-          await ctx.fileService.deleteFiles(filesToDelete);
-        } catch (error) {
-          // Log the error but don't throw - file cleanup failure shouldn't affect
-          // the user experience since the database operation succeeded
-          console.error('Failed to delete files from S3:', error);
-        }
-      }
-
-      return deletedTopic;
+      return deleteTopicResult(result, ctx.fileService);
     }),
   getAllGenerationTopics: generationTopicProcedure.query(async ({ ctx }) => {
     return ctx.generationTopicModel.queryAll();
   }),
+  housekeep: generationTopicProcedure
+    .input(housekeepingInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const result = await ctx.generationTopicModel.housekeep(input);
+
+      if (result.filesToDelete.length > 0) {
+        try {
+          await ctx.fileService.deleteFiles(result.filesToDelete);
+        } catch (error) {
+          console.error('Failed to delete image history files from S3:', error);
+        }
+      }
+
+      return {
+        cutoffAt: result.cutoffAt,
+        deletableTopicCount: result.deletableTopicCount,
+        deletedTopicIds: result.deletedTopicIds,
+        skippedActiveTopicCount: result.skippedActiveTopicCount,
+      };
+    }),
+  previewHousekeeping: generationTopicProcedure
+    .input(housekeepingInputSchema)
+    .query(async ({ ctx, input }) => ctx.generationTopicModel.previewHousekeeping(input)),
   updateTopic: generationTopicProcedure
     .input(updateTopicSchema)
     .mutation(async ({ ctx, input }) => {

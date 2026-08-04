@@ -28,6 +28,8 @@ vi.mock('@/services/generationTopic', () => ({
     updateTopic: vi.fn(),
     deleteTopic: vi.fn(),
     getAllGenerationTopics: vi.fn(),
+    housekeep: vi.fn(),
+    previewHousekeeping: vi.fn(),
     updateTopicCover: vi.fn(),
   },
 }));
@@ -1100,6 +1102,54 @@ describe('GenerationTopicAction', () => {
 
       expect(loadingSpy).toHaveBeenCalledWith(topicId, true);
       expect(loadingSpy).toHaveBeenCalledWith(topicId, false);
+    });
+  });
+
+  describe('housekeepGenerationTopics', () => {
+    it('previews housekeeping for the current account scope', async () => {
+      vi.mocked(generationTopicService.previewHousekeeping).mockResolvedValue({
+        cutoffAt: new Date('2026-07-05T00:00:00Z'),
+        deletableTopicCount: 2,
+        skippedActiveTopicCount: 1,
+      });
+
+      const result = await useImageStore
+        .getState()
+        .previewGenerationTopicHousekeeping({ days: 30, mode: 'olderThan' });
+
+      expect(generationTopicService.previewHousekeeping).toHaveBeenCalledWith({
+        days: 30,
+        mode: 'olderThan',
+      });
+      expect(result.deletableTopicCount).toBe(2);
+    });
+
+    it('refreshes topics and leaves a deleted active topic', async () => {
+      useImageStore.setState({
+        activeGenerationTopicId: 'deleted-topic',
+        generationTopics: [
+          { id: 'deleted-topic', title: 'Deleted' },
+          { id: 'remaining-topic', title: 'Remaining' },
+        ] as ImageGenerationTopic[],
+      });
+      vi.mocked(generationTopicService.housekeep).mockResolvedValue({
+        cutoffAt: null,
+        deletedTopicIds: ['deleted-topic'],
+        deletableTopicCount: 1,
+        skippedActiveTopicCount: 0,
+      });
+      vi.spyOn(useImageStore.getState(), 'refreshGenerationTopics').mockImplementation(async () => {
+        useImageStore.setState({
+          generationTopics: [
+            { id: 'remaining-topic', title: 'Remaining' },
+          ] as ImageGenerationTopic[],
+        });
+      });
+
+      const result = await useImageStore.getState().housekeepGenerationTopics({ mode: 'all' });
+
+      expect(result.deletedTopicIds).toEqual(['deleted-topic']);
+      expect(useImageStore.getState().activeGenerationTopicId).toBe('remaining-topic');
     });
   });
 });

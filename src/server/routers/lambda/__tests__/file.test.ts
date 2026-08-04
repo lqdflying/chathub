@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { TRPCError } from '@trpc/server';
 import { sha256 } from 'js-sha256';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +24,7 @@ function createCallerWithCtx(partialCtx: any = {}) {
     create: vi.fn().mockResolvedValue({ id: 'test-id' }),
     findById: vi.fn().mockResolvedValue(undefined),
     query: vi.fn().mockResolvedValue([]),
+    queryImageArtifacts: vi.fn().mockResolvedValue({ items: [], page: 1, pageSize: 40, total: 0 }),
     delete: vi.fn().mockResolvedValue(undefined),
     deleteMany: vi.fn().mockResolvedValue([]),
     clear: vi.fn().mockResolvedValue({} as any),
@@ -71,6 +73,9 @@ function createCallerWithCtx(partialCtx: any = {}) {
 
 vi.mock('@/config/db', () => ({
   serverDBEnv: {
+    DATABASE_DRIVER: 'node',
+    DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+    KEY_VAULTS_SECRET: 'test-key-vault-secret',
     REMOVE_GLOBAL_FILE: false,
   },
 }));
@@ -98,6 +103,7 @@ vi.mock('@/database/models/file', () => ({
     deleteMany: vi.fn(),
     findById: vi.fn(),
     query: vi.fn(),
+    queryImageArtifacts: vi.fn(),
     clear: vi.fn(),
     findUrlCandidatesByKey: vi.fn(),
   })),
@@ -188,19 +194,13 @@ describe('fileRouter', () => {
       },
     );
 
-    it.each([
-      `files/${sha256('test-user')}/466737/uuid.png`,
-      'desktop://documents/x.png',
-    ])(
+    it.each([`files/${sha256('test-user')}/466737/uuid.png`, 'desktop://documents/x.png'])(
       'accepts a current-user scoped key or desktop url %j',
       async (url) => {
         ctx.fileModel.checkHash.mockResolvedValue({ isExist: false });
 
         await expect(createFileWithUrl(url)).resolves.toEqual({ id: 'test-id', url: 'ui-url' });
-        expect(ctx.fileModel.create).toHaveBeenCalledWith(
-          expect.objectContaining({ url }),
-          true,
-        );
+        expect(ctx.fileModel.create).toHaveBeenCalledWith(expect.objectContaining({ url }), true);
       },
     );
 
@@ -226,9 +226,7 @@ describe('fileRouter', () => {
     it('rejects a foreign or legacy key for a new hash', async () => {
       ctx.fileModel.checkHash.mockResolvedValue({ isExist: false });
 
-      await expect(createFileWithUrl('files/466737/uuid.png')).rejects.toThrow(
-        'invalid file url',
-      );
+      await expect(createFileWithUrl('files/466737/uuid.png')).rejects.toThrow('invalid file url');
       await expect(
         createFileWithUrl(`files/${sha256('other-user')}/466737/uuid.png`),
       ).rejects.toThrow('invalid file url');
@@ -310,6 +308,43 @@ describe('fileRouter', () => {
       await caller.removeFileAsyncTask({ id: 'test-id', type: 'chunk' });
 
       expect(ctx.asyncTaskModel.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getImageArtifacts', () => {
+    it('returns paginated artifacts with UI-safe URLs', async () => {
+      ctx.fileModel.queryImageArtifacts.mockResolvedValue({
+        items: [
+          {
+            createdAt: new Date('2026-08-01T00:00:00Z'),
+            fileType: 'image/png',
+            id: 'artifact-1',
+            name: 'Artifact.png',
+            size: 100,
+            url: 'generations/images/artifact.png',
+          },
+        ],
+        page: 1,
+        pageSize: 40,
+        total: 1,
+      });
+      ctx.fileService.getUIFileUrl.mockResolvedValue(
+        'https://chat.example.com/webapi/files/generations/images/artifact.png',
+      );
+
+      const result = await caller.getImageArtifacts({
+        page: 1,
+        pageSize: 40,
+        sort: 'newest',
+      });
+
+      expect(ctx.fileModel.queryImageArtifacts).toHaveBeenCalledWith({
+        page: 1,
+        pageSize: 40,
+        sort: 'newest',
+      });
+      expect(result.items[0].url).toContain('/webapi/files/');
+      expect(result.total).toBe(1);
     });
   });
 

@@ -1,5 +1,5 @@
 import { ActionIcon, ActionIconProps, Hotkey } from '@lobehub/ui';
-import { FolderClosed, Image as ImageIcon, MessageSquare, Wrench } from 'lucide-react';
+import { FolderClosed, Image as ImageIcon, Images, MessageSquare, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -38,6 +38,7 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
   const isFilesActive = tab === SidebarTabKey.Files;
   const isImageActive = tab === SidebarTabKey.Image;
   const isToolsActive = tab === SidebarTabKey.Tools;
+  const isArtifactsActive = tab === SidebarTabKey.Artifacts;
 
   return (
     <Flexbox gap={6}>
@@ -96,6 +97,15 @@ const TopActions = memo<TopActionProps>(({ tab, isPinned }) => {
           icon={Wrench}
           size={ICON_SIZE}
           title={t('tab.tools')}
+          tooltipProps={{ placement: 'right' }}
+        />
+      </Link>
+      <Link aria-label={t('tab.artifacts')} href={'/artifacts'}>
+        <ActionIcon
+          active={isArtifactsActive}
+          icon={Images}
+          size={ICON_SIZE}
+          title={t('tab.artifacts')}
           tooltipProps={{ placement: 'right' }}
         />
       </Link>

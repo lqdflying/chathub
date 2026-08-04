@@ -30,7 +30,7 @@ interface TopicItemProps {
 const TopicItem = memo<TopicItemProps>(({ topic, showMoreInfo, style }) => {
   const theme = useTheme();
   const { t } = useTranslation('image');
-  const { modal } = App.useApp();
+  const { message, modal } = App.useApp();
   const locale = useGlobalStore(globalGeneralSelectors.currentLanguage);
 
   // 检查当前 topic 是否在加载中
@@ -58,6 +58,7 @@ const TopicItem = memo<TopicItemProps>(({ topic, showMoreInfo, style }) => {
           await removeGenerationTopic(topic.id);
         } catch (error) {
           console.error('Delete topic failed:', error);
+          message.error(t('topic.deleteFailed'));
         }
       },
       title: t('topic.deleteConfirm'),

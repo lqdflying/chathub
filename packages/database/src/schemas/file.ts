@@ -73,6 +73,12 @@ export const files = pgTable(
   (table) => {
     return {
       fileHashIdx: index('file_hash_idx').on(table.fileHash),
+      imageGenerationArtifactIdx: index('files_user_source_created_at_id_idx').on(
+        table.userId,
+        table.source,
+        table.createdAt,
+        table.id,
+      ),
       clientIdUnique: uniqueIndex('files_client_id_user_id_unique').on(
         table.clientId,
         table.userId,

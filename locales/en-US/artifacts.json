@@ -1,0 +1,25 @@
+{
+  "card": {
+    "download": "Download image",
+    "downloadFailed": "Image download failed",
+    "preview": "Preview {{name}}"
+  },
+  "empty": "No artifacts yet",
+  "loadFailed": "Artifacts could not be loaded",
+  "pagination": {
+    "next": "Next page",
+    "previous": "Previous page",
+    "total": "{{count}} images"
+  },
+  "retry": "Reload",
+  "search": {
+    "label": "Search artifacts",
+    "placeholder": "Search artifacts"
+  },
+  "sort": {
+    "label": "Sort artifacts",
+    "newest": "Newest first",
+    "oldest": "Oldest first"
+  },
+  "title": "Artifacts"
+}

@@ -8,6 +8,18 @@ export interface ImageGenerationTopic {
   updatedAt: Date;
 }
 
+export type ImageHistoryHousekeepingInput = { mode: 'all' } | { days: number; mode: 'olderThan' };
+
+export interface ImageHistoryHousekeepingPreview {
+  cutoffAt: Date | null;
+  deletableTopicCount: number;
+  skippedActiveTopicCount: number;
+}
+
+export interface ImageHistoryHousekeepingResult extends ImageHistoryHousekeepingPreview {
+  deletedTopicIds: string[];
+}
+
 export interface BaseGenerationAsset {
   type: string;
 }

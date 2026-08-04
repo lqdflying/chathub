@@ -1,7 +1,12 @@
 import { GenerationTopicItem } from '@/database/schemas';
 import { lambdaClient } from '@/libs/trpc/client';
 import { UpdateTopicValue } from '@/server/routers/lambda/generationTopic';
-import { ImageGenerationTopic } from '@/types/generation';
+import {
+  ImageGenerationTopic,
+  ImageHistoryHousekeepingInput,
+  ImageHistoryHousekeepingPreview,
+  ImageHistoryHousekeepingResult,
+} from '@/types/generation';
 
 export class ServerService {
   async getAllGenerationTopics(): Promise<ImageGenerationTopic[]> {
@@ -22,6 +27,16 @@ export class ServerService {
 
   async deleteTopic(id: string): Promise<GenerationTopicItem | undefined> {
     return lambdaClient.generationTopic.deleteTopic.mutate({ id });
+  }
+
+  async previewHousekeeping(
+    input: ImageHistoryHousekeepingInput,
+  ): Promise<ImageHistoryHousekeepingPreview> {
+    return lambdaClient.generationTopic.previewHousekeeping.query(input);
+  }
+
+  async housekeep(input: ImageHistoryHousekeepingInput): Promise<ImageHistoryHousekeepingResult> {
+    return lambdaClient.generationTopic.housekeep.mutate(input);
   }
 }
 

@@ -13,7 +13,12 @@ import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/stor
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
-import { ImageGenerationTopic } from '@/types/generation';
+import {
+  ImageGenerationTopic,
+  ImageHistoryHousekeepingInput,
+  ImageHistoryHousekeepingPreview,
+  ImageHistoryHousekeepingResult,
+} from '@/types/generation';
 import { merge } from '@/utils/merge';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -131,6 +136,12 @@ const finishTopicOperation = (
 
 export interface GenerationTopicAction {
   createGenerationTopic: (prompts: string[]) => Promise<string>;
+  housekeepGenerationTopics: (
+    input: ImageHistoryHousekeepingInput,
+  ) => Promise<ImageHistoryHousekeepingResult>;
+  previewGenerationTopicHousekeeping: (
+    input: ImageHistoryHousekeepingInput,
+  ) => Promise<ImageHistoryHousekeepingPreview>;
   removeGenerationTopic: (id: string) => Promise<void>;
   useFetchGenerationTopics: (enabled: boolean) => SWRResponse<ImageGenerationTopic[]>;
   summaryGenerationTopicTitle: (
@@ -429,6 +440,38 @@ export const createGenerationTopicSlice: StateCreator<
 
     await mutateAccountSWR([FETCH_GENERATION_TOPICS_KEY, mutationContext.account.scope]);
     if (!isGenerationTopicMutationCurrent(get(), mutationContext)) return;
+  },
+
+  previewGenerationTopicHousekeeping: async (input) => {
+    const mutationContext = captureGenerationTopicMutationContext(get());
+    if (!mutationContext) throw new Error('Image history ownership is not initialized');
+
+    const result = await generationTopicService.previewHousekeeping(input);
+    if (!isGenerationTopicMutationCurrent(get(), mutationContext)) {
+      throw new DOMException('Image history account changed', 'AbortError');
+    }
+
+    return result;
+  },
+
+  housekeepGenerationTopics: async (input) => {
+    const mutationContext = captureGenerationTopicMutationContext(get());
+    if (!mutationContext) throw new Error('Image history ownership is not initialized');
+    const activeTopicId = get().activeGenerationTopicId;
+
+    const result = await generationTopicService.housekeep(input);
+    if (!isGenerationTopicMutationCurrent(get(), mutationContext)) return result;
+
+    await get().refreshGenerationTopics(mutationContext);
+    if (!isGenerationTopicMutationCurrent(get(), mutationContext)) return result;
+
+    if (activeTopicId && result.deletedTopicIds.includes(activeTopicId)) {
+      const nextTopic = get().generationTopics[0];
+      if (nextTopic) get().switchGenerationTopic(nextTopic.id);
+      else get().openNewGenerationTopic();
+    }
+
+    return result;
   },
 
   removeGenerationTopic: async (id: string) => {

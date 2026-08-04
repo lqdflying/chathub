@@ -1,3 +1,4 @@
+import artifacts from './artifacts';
 import auth from './auth';
 import changelog from './changelog';
 import chat from './chat';
@@ -30,6 +31,7 @@ import topic from './topic';
 import welcome from './welcome';
 
 const resources = {
+  artifacts,
   auth,
   changelog,
   chat,

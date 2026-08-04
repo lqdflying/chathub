@@ -410,7 +410,8 @@ export const imageRouter = router({
             .where(
               and(eq(generationTopics.id, generationTopicId), eq(generationTopics.userId, userId)),
             )
-            .limit(1);
+            .limit(1)
+            .for('share');
 
           if (!ownedTopic) {
             throw new TRPCError({

@@ -76,6 +76,7 @@ describe('TopActions', () => {
     expect(screen.getByText('tab.chat')).toBeTruthy();
     expect(screen.getByText('tab.aiImage')).toBeTruthy();
     expect(screen.getByText('tab.tools')).toBeTruthy();
+    expect(screen.getByText('tab.artifacts')).toBeTruthy();
     expect(screen.queryByText('tab.discover')).toBeNull();
   });
 
@@ -109,6 +110,7 @@ describe('TopActions', () => {
 
     expect(screen.getByText('tab.chat')).toBeTruthy();
     expect(screen.queryByText('tab.aiImage')).toBeNull();
+    expect(screen.getByText('tab.artifacts')).toBeTruthy();
   });
 
   it('should switch back to previous active session', () => {

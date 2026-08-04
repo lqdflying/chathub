@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
 import { GenerationTopicModel } from '@/database/models/generationTopic';
@@ -504,5 +505,58 @@ describe('generationTopicRouter', () => {
 
     expect(result).toBeUndefined();
     expect(mockUpdate).toHaveBeenCalledWith(mockTopicId, mockUpdateValue);
+  });
+
+  it('previews image history housekeeping with the validated cutoff input', async () => {
+    const previewHousekeeping = vi.fn().mockResolvedValue({
+      cutoffAt: new Date('2026-07-05T00:00:00Z'),
+      deletableTopicCount: 3,
+      skippedActiveTopicCount: 1,
+    });
+    vi.mocked(GenerationTopicModel).mockImplementation(() => ({ previewHousekeeping }) as any);
+
+    const caller = generationTopicRouter.createCaller(mockCtx);
+    const result = await caller.previewHousekeeping({ days: 30, mode: 'olderThan' });
+
+    expect(previewHousekeeping).toHaveBeenCalledWith({ days: 30, mode: 'olderThan' });
+    expect(result).toMatchObject({ deletableTopicCount: 3, skippedActiveTopicCount: 1 });
+  });
+
+  it('housekeeps history and only cleans returned cover and thumbnail keys', async () => {
+    const housekeep = vi.fn().mockResolvedValue({
+      cutoffAt: null,
+      deletedTopicIds: ['topic-1'],
+      deletableTopicCount: 1,
+      filesToDelete: ['covers/topic.webp', 'generations/thumbnails/image.webp'],
+      skippedActiveTopicCount: 0,
+    });
+    const deleteFiles = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(GenerationTopicModel).mockImplementation(() => ({ housekeep }) as any);
+    vi.mocked(FileService).mockImplementation(() => ({ deleteFiles }) as any);
+
+    const caller = generationTopicRouter.createCaller(mockCtx);
+    const result = await caller.housekeep({ mode: 'all' });
+
+    expect(deleteFiles).toHaveBeenCalledWith([
+      'covers/topic.webp',
+      'generations/thumbnails/image.webp',
+    ]);
+    expect(result).not.toHaveProperty('filesToDelete');
+    expect(result.deletedTopicIds).toEqual(['topic-1']);
+  });
+
+  it('rejects deleting a topic that still has active generation work', async () => {
+    const deleteTopic = vi.fn().mockResolvedValue({
+      blockedByActiveTask: true,
+      filesToDelete: [],
+    });
+    vi.mocked(GenerationTopicModel).mockImplementation(() => ({ delete: deleteTopic }) as any);
+    vi.mocked(FileService).mockImplementation(() => ({ deleteFiles: vi.fn() }) as any);
+
+    const caller = generationTopicRouter.createCaller(mockCtx);
+
+    await expect(caller.deleteTopic({ id: 'active-topic' })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
   });
 });

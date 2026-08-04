@@ -227,6 +227,7 @@ export default {
   },
   tab: {
     aiImage: '图像',
+    artifacts: '作品',
     chat: '会话',
     discover: '发现',
     files: '文件',

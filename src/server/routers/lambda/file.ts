@@ -27,6 +27,17 @@ const fileProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   });
 });
 
+const imageArtifactListInputSchema = z.object({
+  page: z.number().int().min(1).default(1),
+  pageSize: z.number().int().min(1).max(60).default(40),
+  q: z.string().trim().max(200).optional(),
+  sort: z.enum(['newest', 'oldest']).default('newest'),
+});
+
+const isDesktopFileUrl = (url: string) =>
+  /^desktop:\/\/[\da-z][\w./-]*$/i.test(url) &&
+  !url.split('/').some((segment) => segment === '..' || segment === '.');
+
 export const fileRouter = router({
   checkFileHash: fileProcedure
     .input(z.object({ hash: z.string() }))
@@ -59,7 +70,11 @@ export const fileRouter = router({
       const globalFile = await ctx.fileModel.checkHash(input.hash);
       if (!globalFile) throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file hash' });
 
-      if (!globalFile.isExist && !isUserUploadKey(input.url, ctx.userId, 'file')) {
+      if (
+        !globalFile.isExist &&
+        !isUserUploadKey(input.url, ctx.userId, 'file') &&
+        !isDesktopFileUrl(input.url)
+      ) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
       }
 
@@ -71,11 +86,11 @@ export const fileRouter = router({
       const { id } = await ctx.fileModel.create(
         {
           fileHash: input.hash,
-          fileType: globalFile.isExist ? globalFile.fileType ?? input.fileType : input.fileType,
+          fileType: globalFile.isExist ? (globalFile.fileType ?? input.fileType) : input.fileType,
           knowledgeBaseId: input.knowledgeBaseId,
-          metadata: globalFile.isExist ? globalFile.metadata ?? input.metadata : input.metadata,
+          metadata: globalFile.isExist ? (globalFile.metadata ?? input.metadata) : input.metadata,
           name: input.name,
-          size: globalFile.isExist ? globalFile.size ?? input.size : input.size,
+          size: globalFile.isExist ? (globalFile.size ?? input.size) : input.size,
           url: canonicalUrl,
         },
         // if the file is not exist in global file, create a new one
@@ -171,6 +186,20 @@ export const fileRouter = router({
 
     return resultFiles;
   }),
+
+  getImageArtifacts: fileProcedure
+    .input(imageArtifactListInputSchema)
+    .query(async ({ ctx, input }) => {
+      const result = await ctx.fileModel.queryImageArtifacts(input);
+      const items = await Promise.all(
+        result.items.map(async (item) => ({
+          ...item,
+          url: await ctx.fileService.getUIFileUrl(item.url),
+        })),
+      );
+
+      return { ...result, items };
+    }),
 
   removeAllFiles: fileProcedure.mutation(async ({ ctx }) => {
     return ctx.fileModel.clear();

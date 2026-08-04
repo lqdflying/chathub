@@ -3,7 +3,7 @@
 import { Icon } from '@lobehub/ui';
 import { TabBar, type TabBarProps } from '@lobehub/ui/mobile';
 import { createStyles } from 'antd-style';
-import { Image as ImageIcon, MessageSquare, User } from 'lucide-react';
+import { Image as ImageIcon, Images, MessageSquare, User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { rgba } from 'polished';
 import React, { memo, useMemo } from 'react';
@@ -68,6 +68,16 @@ const NavBar = memo(() => {
             router.push('/image');
           },
           title: t('tab.aiImage'),
+        },
+        {
+          icon: (active: boolean) => (
+            <Icon className={active ? styles.active : undefined} icon={Images} />
+          ),
+          key: SidebarTabKey.Artifacts,
+          onClick: () => {
+            router.push('/artifacts');
+          },
+          title: t('tab.artifacts'),
         },
         {
           icon: (active: boolean) => (

@@ -11,6 +11,31 @@ export enum FileSource {
   ImageGeneration = 'image_generation',
 }
 
+export interface ImageArtifactItem {
+  createdAt: Date;
+  fileType: string;
+  height?: number | null;
+  id: string;
+  name: string;
+  size: number;
+  url: string;
+  width?: number | null;
+}
+
+export interface ImageArtifactListInput {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  sort?: 'newest' | 'oldest';
+}
+
+export interface ImageArtifactListResult {
+  items: ImageArtifactItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
 export interface FileItem {
   createdAt: Date;
   enabled?: boolean;
