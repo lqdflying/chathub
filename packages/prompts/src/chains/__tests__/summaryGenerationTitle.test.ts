@@ -62,6 +62,8 @@ describe('chainSummaryGenerationTitle', () => {
     expect(systemMessage).toContain('资深的 AI 艺术创作者');
     expect(systemMessage).toContain('10个字以内');
     expect(systemMessage).toContain('不需要包含标点符号');
+    expect(systemMessage).toContain('不要使用 Markdown');
+    expect(systemMessage).toContain('不要添加星号');
   });
 
   it('should handle empty prompts array', () => {

@@ -1,5 +1,4 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import React from 'react';
 import { mutate } from 'swr';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -369,6 +368,34 @@ describe('GenerationTopicAction', () => {
       });
     });
 
+    it('removes surrounding Markdown emphasis before displaying and persisting a title', async () => {
+      const { result } = renderHook(() => useImageStore());
+      const topicId = 'gt_markdown_title';
+
+      act(() => {
+        useImageStore.setState({
+          generationTopics: [{ id: topicId, title: 'Original Title' }] as ImageGenerationTopic[],
+        });
+      });
+
+      vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async (params) => {
+        params.onMessageHandle?.({ text: '**Flying', type: 'text' });
+        params.onMessageHandle?.({ text: ' TV**', type: 'text' });
+        await params.onFinish?.('**Flying TV**', { type: 'done' });
+      });
+
+      let title = '';
+      await act(async () => {
+        title = await result.current.summaryGenerationTopicTitle(topicId, ['A flying television']);
+      });
+
+      expect(title).toBe('Flying TV');
+      expect(useImageStore.getState().generationTopics[0].title).toBe('Flying TV');
+      expect(generationTopicService.updateTopic).toHaveBeenCalledWith(topicId, {
+        title: 'Flying TV',
+      });
+    });
+
     it('should use fallback title when AI fails', async () => {
       const { result } = renderHook(() => useImageStore());
       const topicId = 'gt_topic_1';
@@ -663,37 +690,26 @@ describe('GenerationTopicAction', () => {
   });
 
   describe('useFetchGenerationTopics', () => {
-    it('should fetch generation topics when enabled', async () => {
+    it('should fetch generation topics and normalize legacy Markdown titles when enabled', async () => {
       const topics = [
-        { id: 'gt_topic_1', title: 'Topic 1', createdAt: new Date(), updatedAt: new Date() },
+        { id: 'gt_topic_1', title: '**Topic 1**', createdAt: new Date(), updatedAt: new Date() },
         { id: 'gt_topic_2', title: 'Topic 2', createdAt: new Date(), updatedAt: new Date() },
       ] as ImageGenerationTopic[];
+      const expectedTopics = [{ ...topics[0], title: 'Topic 1' }, topics[1]];
 
       vi.mocked(generationTopicService.getAllGenerationTopics).mockResolvedValue(topics);
 
-      let hookResult: any;
-
       await act(async () => {
-        const { result } = renderHook(() => {
+        renderHook(() => {
           const store = useImageStore();
-          // Actually call the SWR hook to trigger the service call
-          const swrResult = store.useFetchGenerationTopics(true);
-
-          // Simulate the SWR onSuccess callback behavior
-          React.useEffect(() => {
-            useImageStore.setState({ generationTopics: topics });
-          }, []);
-
-          return swrResult;
+          return store.useFetchGenerationTopics(true);
         });
-
-        hookResult = result;
       });
 
       // Wait for service to be called and state to be updated
       await waitFor(() => {
         expect(generationTopicService.getAllGenerationTopics).toHaveBeenCalled();
-        expect(useImageStore.getState().generationTopics).toEqual(topics);
+        expect(useImageStore.getState().generationTopics).toEqual(expectedTopics);
       });
     });
 

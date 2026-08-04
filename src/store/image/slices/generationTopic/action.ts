@@ -20,6 +20,7 @@ import { setNamespace } from '@/utils/storeDebug';
 import type { ImageStore } from '../../store';
 import { GenerationTopicDispatch, generationTopicReducer } from './reducer';
 import { generationTopicSelectors } from './selectors';
+import { normalizeGenerationTopicTitle } from './title';
 
 const FETCH_GENERATION_TOPICS_KEY = 'fetchGenerationTopics';
 
@@ -268,7 +269,9 @@ export const createGenerationTopicSlice: StateCreator<
         onFinish: async (text) => {
           if (!isCurrentRequest()) return;
 
-          await get().internal_updateGenerationTopic(topicId, { title: text }, mutationContext);
+          const title = normalizeGenerationTopicTitle(text) || generateFallbackTitle();
+          output = title;
+          await get().internal_updateGenerationTopic(topicId, { title }, mutationContext);
         },
         onLoadingChange: () => {},
         onMessageHandle: (chunk) => {
@@ -277,7 +280,10 @@ export const createGenerationTopicSlice: StateCreator<
           switch (chunk.type) {
             case 'text': {
               output += chunk.text;
-              internal_updateGenerationTopicTitleInSummary(topicId, output);
+              internal_updateGenerationTopicTitleInSummary(
+                topicId,
+                normalizeGenerationTopicTitle(output),
+              );
             }
           }
         },
@@ -402,9 +408,16 @@ export const createGenerationTopicSlice: StateCreator<
         onSuccess: (data) => {
           if (authSelectors.currentUserScope(useUserStore.getState()) !== requestedScope) return;
 
+          const normalizedData = data.map((topic) => {
+            if (!topic.title) return topic;
+
+            const title = normalizeGenerationTopicTitle(topic.title);
+            return title === topic.title ? topic : { ...topic, title };
+          });
+
           // No need to update if data is the same
-          if (isEqual(data, get().generationTopics)) return;
-          set({ generationTopics: data }, false, n('useFetchGenerationTopics'));
+          if (isEqual(normalizedData, get().generationTopics)) return;
+          set({ generationTopics: normalizedData }, false, n('useFetchGenerationTopics'));
         },
       },
     );

@@ -47,6 +47,11 @@ topic slice atomically promotes the optimistic temporary row to that ID before
 requesting revalidation. The title summarizer and `switchGenerationTopic` can
 therefore resolve the permanent topic even when SWR revalidation has no mounted
 consumer.
+Generated topic titles are a plain-text contract. The client removes surrounding
+Markdown emphasis before optimistic display and persistence, while topic-list
+hydration applies the same normalization to historical stored titles. The title
+prompt also explicitly forbids Markdown, but correctness does not depend on the
+model following that instruction.
 `isInit` records that hydration has settled, while `isImageModelAvailable`
 records whether the current configuration can generate. If no usable image
 model is enabled, initialization settles with `isInit: true` and
@@ -721,9 +726,10 @@ the whole-batch replacement behavior.
 
 High-signal coverage includes mobile navigation/drawers, always-mounted topic
 synchronization, optimistic-to-server topic promotion without a mounted topic
-list, store-driven workspace transitions, pending generation polling, prompt
-and busy-state failure paths, replacement-first retry ordering, request-schema
-boundaries, and the image generation configuration slices.
+list, plain-text title normalization, store-driven workspace transitions,
+pending generation polling, prompt and busy-state failure paths,
+replacement-first retry ordering, request-schema boundaries, and the image
+generation configuration slices.
 Legacy ComfyUI transformer tests use test-local model schemas so removed
 provider exports are not restored.
 
