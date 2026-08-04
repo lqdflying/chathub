@@ -88,6 +88,34 @@ const getCookieNames = (response: Response) =>
     .map((setCookieHeader) => setCookieHeader.slice(0, setCookieHeader.indexOf('=')));
 
 describe('Middleware route matching', () => {
+  it('matches Artifacts so its variant route is reachable', async () => {
+    const { config } = await import('./middleware');
+
+    expect(
+      unstable_doesMiddlewareMatch({
+        config,
+        url: 'https://chathub.example/artifacts',
+      }),
+    ).toBe(true);
+  });
+
+  it('rewrites Artifacts to its locale, device, and theme variant', async () => {
+    const { default: middleware } = await import('./middleware');
+    const request = new NextRequest('https://chathub.example/artifacts?hl=zh-CN', {
+      headers: {
+        'accept-language': 'en-US',
+        'user-agent': 'Mozilla/5.0',
+      },
+    });
+
+    const response = await middleware(request, createNextFetchEvent());
+
+    expect(response).toBeInstanceOf(Response);
+    expect(response?.headers.get('x-middleware-rewrite')).toContain(
+      '/zh-CN__0__light/artifacts?hl=zh-CN',
+    );
+  });
+
   it('matches the legacy Labs route so its redirect page is reachable', async () => {
     const { config } = await import('./middleware');
 

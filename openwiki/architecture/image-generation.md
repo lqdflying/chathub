@@ -24,6 +24,10 @@ and focus return. Header actions expose `aria-controls` and `aria-expanded`.
 Generation, batch, upload, replace, and delete actions remain visible on coarse
 pointer devices instead of depending on hover.
 
+Global navigation uses the public `/artifacts` URL. That path must remain in the
+Next.js middleware matcher so middleware can rewrite it to the serialized
+locale, device, and theme variant before App Router resolution.
+
 ## Artifacts and history housekeeping
 
 `/artifacts` is a separate, account-scoped gallery backed by `files.source =
@@ -40,6 +44,14 @@ starts a transaction, locks the candidate topic rows, reloads their latest
 topic/batch/generation/task activity, and only then deletes eligible topics.
 Pending and processing tasks are skipped. Image submission obtains a compatible
 share lock on the topic row, so a submission and cleanup cannot silently race.
+
+The housekeeping dialog defaults to the 30-day cutoff and maps the 1-, 7-, and
+30-day presets directly to the existing `olderThan.days` input. **Custom** accepts
+an integer from 1 through 3650; an empty or invalid value suppresses preview and
+submission. **All history** sends `{ mode: 'all' }` and hides the age controls.
+The live preview remains visible, while the deletion-scope explanation is
+available from the accessible help popover. The footer has equal-width
+**Cancel** and **Delete history** actions.
 
 Topic deletion cascades the topic, batch, and generation records. The model
 returns only disposable topic covers and generation thumbnail keys for

@@ -40,6 +40,7 @@ export const config = {
     '/changelog(.*)',
     '/settings(.*)',
     '/image',
+    '/artifacts',
     '/tools',
     '/tools(.*)',
     '/knowledge',

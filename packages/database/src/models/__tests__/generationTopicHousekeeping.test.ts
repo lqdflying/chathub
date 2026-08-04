@@ -12,6 +12,7 @@ import {
   users,
 } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
+import { FileModel } from '../file';
 import { GenerationTopicModel } from '../generationTopic';
 import { getTestDB } from './_util';
 
@@ -23,6 +24,7 @@ const serverDB: LobeChatDatabase = await getTestDB();
 const userId = 'generation-housekeeping-user';
 const otherUserId = 'generation-housekeeping-other-user';
 const model = new GenerationTopicModel(serverDB, userId);
+const fileModel = new FileModel(serverDB, userId);
 const now = new Date('2026-08-04T00:00:00Z');
 const old = new Date('2026-05-01T00:00:00Z');
 const recent = new Date('2026-08-01T00:00:00Z');
@@ -173,6 +175,15 @@ describe('GenerationTopicModel housekeeping', () => {
     await expect(
       serverDB.query.files.findFirst({ where: eq(files.id, 'durable-artifact') }),
     ).resolves.toBeDefined();
+    await expect(fileModel.queryImageArtifacts()).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({
+          id: 'durable-artifact',
+          url: 'generations/images/original.png',
+        }),
+      ],
+      total: 1,
+    });
     await expect(
       serverDB.query.generationTopics.findFirst({ where: eq(generationTopics.id, 'old-topic') }),
     ).resolves.toBeUndefined();
