@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   describeKnowledgeDebugError,
+  getKnowledgeDebugContext,
   logKnowledgeDebugSafe,
   logKnowledgeDebugVerbose,
   runWithKnowledgeDebugContext,
+  runWithKnowledgeDebugOperation,
 } from './knowledgeDebug';
 
 const diagnosticId = 'kb_1234567890abcdef';
@@ -71,6 +73,7 @@ describe('knowledgeDebug', () => {
     runWithKnowledgeDebugContext({ diagnosticId }, () => {
       logKnowledgeDebugVerbose('embedding_provider_started', {
         chunks: [{ text: rawChunk }],
+        inputTexts: [rawChunk],
         model: 'private-model-name',
       });
       logKnowledgeDebugSafe('embedding_provider_settled', {
@@ -85,7 +88,40 @@ describe('knowledgeDebug', () => {
     expect(output).not.toContain(rawError);
     expect(output).not.toContain('private-model-name');
     expect(output).toContain('hash');
+    const record = JSON.parse(consoleSpy.mock.calls[0][1]);
+    expect(record.payload.inputTexts).toMatchObject({ hash: expect.any(String), type: 'array' });
     expect(Buffer.byteLength(consoleSpy.mock.calls[0][1], 'utf8')).toBeLessThanOrEqual(16 * 1024);
+  });
+
+  it('retains diagnostic context in a fire-and-forget promise continuation', async () => {
+    vi.stubEnv('CHATHUB_KNOWLEDGE_DEBUG', '1');
+    let rejectDispatch!: (reason: Error) => void;
+    const dispatch = new Promise<void>((_, reject) => {
+      rejectDispatch = reject;
+    });
+    let continuationDiagnosticId: string | undefined;
+
+    const taskId = await runWithKnowledgeDebugOperation(
+      {
+        diagnosticId,
+        operation: 'chunking_task',
+        runtime: 'lambda',
+        transport: 'internal_http',
+      },
+      async () => {
+        void dispatch.catch(() => {
+          continuationDiagnosticId = getKnowledgeDebugContext()?.diagnosticId;
+        });
+        return 'task-1';
+      },
+    );
+
+    expect(taskId).toBe('task-1');
+    expect(continuationDiagnosticId).toBeUndefined();
+
+    rejectDispatch(new Error('dispatch failed'));
+
+    await vi.waitFor(() => expect(continuationDiagnosticId).toBe(diagnosticId));
   });
 
   it('replaces an oversized verbose record with bounded truncation metadata', () => {

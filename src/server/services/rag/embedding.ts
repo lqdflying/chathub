@@ -307,10 +307,10 @@ export class RagEmbeddingService {
     });
     logKnowledgeDebugVerbose('embedding_provider_started', {
       inputLengths: values.map((value) => value.length),
+      inputTexts: values,
       inputType,
       model: this.config.model,
       provider: this.config.provider,
-      values,
     });
 
     try {

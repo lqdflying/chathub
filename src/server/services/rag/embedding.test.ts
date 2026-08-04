@@ -19,6 +19,7 @@ const vector = Array.from({ length: 1024 }, (_, index) => index / 1024);
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
@@ -91,6 +92,41 @@ describe('RAG key vault reads', () => {
 });
 
 describe('RagEmbeddingService', () => {
+  it('never emits raw embedding input in verbose Knowledge diagnostics', async () => {
+    vi.stubEnv('CHATHUB_KNOWLEDGE_DEBUG', 'verbose');
+    vi.stubEnv('KEY_VAULTS_SECRET', '0123456789abcdef0123456789abcdef');
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ data: [{ embedding: vector, index: 0 }] }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        }),
+      ),
+    );
+    const rawInput = 'SENTINEL private embedding input';
+    const service = new RagEmbeddingService({
+      apiKey: 'secret',
+      baseURL: 'https://rag.example.test/v1/',
+      model: 'private-model-name',
+      provider: 'openai',
+    });
+
+    await service.embed(rawInput, 'query');
+
+    const output = JSON.stringify(consoleSpy.mock.calls);
+    expect(output).not.toContain(rawInput);
+    expect(output).not.toContain('private-model-name');
+    const verboseRecord = consoleSpy.mock.calls
+      .map(([, json]) => JSON.parse(json))
+      .find((record) => record.debugLevel === 'verbose');
+    expect(verboseRecord.payload.inputTexts).toMatchObject({
+      hash: expect.any(String),
+      type: 'array',
+    });
+  });
+
   it('calls an OpenAI-compatible embeddings endpoint with 1024 dimensions', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ data: [{ embedding: vector, index: 0 }] }), {

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { RAG_CHAT_RESULT_LIMIT } from './rag';
+
 export type ContextExportJsonValue =
   | boolean
   | null
@@ -118,7 +120,7 @@ export const ContextExportRequestContextSchema = z.object({
         minimumSimilarity: z.number().min(-1).max(1),
         resultLimit: z.number().int().nonnegative(),
         selectedCount: z.number().int().nonnegative(),
-        selectedScores: z.array(z.number().min(-1).max(1)).max(8),
+        selectedScores: z.array(z.number().min(-1).max(1)).max(RAG_CHAT_RESULT_LIMIT),
         strategy: z.literal('cosine'),
       }),
       scope: z.object({

@@ -168,7 +168,7 @@ export class ChunkService {
             await this.asyncTaskModel.update(asyncTaskId, {
               error: new AsyncTaskError(
                 AsyncTaskErrorType.TaskTriggerError,
-                'trigger chunk embedding async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
+                'trigger file chunking async task error. Please make sure the APP_URL is available from your server. You can check the proxy config or WAF blocking',
                 getKnowledgeDebugContext()?.diagnosticId,
               ),
               status: AsyncTaskStatus.Error,
