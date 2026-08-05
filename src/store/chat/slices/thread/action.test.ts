@@ -1302,6 +1302,44 @@ describe('thread action', () => {
         );
       });
 
+      it('clears owned loading state when RAG preparation rejects', async () => {
+        const preparationError = new Error('Knowledge Base preparation failed');
+        const { result } = renderHook(() => useChatStore());
+
+        act(() => {
+          useChatStore.setState({ portalThreadId: 'existing-thread-id' });
+        });
+
+        vi.spyOn(result.current, 'internal_shouldUseRAG').mockReturnValue(true);
+        vi.spyOn(result.current, 'internal_createMessage').mockResolvedValue('new-msg-id');
+        vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('temp-msg-id');
+        const toggleMessageLoadingSpy = vi.spyOn(result.current, 'internal_toggleMessageLoading');
+        const coreProcessSpy = vi
+          .spyOn(result.current, 'internal_coreProcessMessage')
+          .mockRejectedValue(preparationError);
+
+        await act(async () => {
+          await expect(result.current.sendThreadMessage({ message: 'test with rag' })).rejects.toBe(
+            preparationError,
+          );
+        });
+
+        expect(coreProcessSpy).toHaveBeenCalledWith(
+          expect.any(Array),
+          'new-msg-id',
+          expect.objectContaining({
+            inPortalThread: true,
+            ragQuery: 'test with rag',
+            threadId: 'existing-thread-id',
+          }),
+        );
+        expect(useChatStore.getState()).toMatchObject({
+          isCreatingThreadMessage: false,
+          threadMessageSendingId: undefined,
+        });
+        expect(toggleMessageLoadingSpy).toHaveBeenLastCalledWith(false, 'temp-msg-id');
+      });
+
       it('captures and finalizes the next persisted portal send', async () => {
         const { result } = renderHook(() => useChatStore());
 

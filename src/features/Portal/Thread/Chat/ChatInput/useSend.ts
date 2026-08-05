@@ -62,7 +62,9 @@ export const useSendThreadMessage = () => {
 
     updateInputMessage(inputMessage);
 
-    sendMessage({ message: inputMessage, ...params });
+    void sendMessage({ message: inputMessage, ...params }).catch((error) => {
+      console.error('Failed to send thread message', error);
+    });
 
     updateInputMessage('');
     threadInputEditor.clearContent();

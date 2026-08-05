@@ -18,10 +18,7 @@ import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { threadService } from '@/services/thread';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { threadSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
@@ -303,16 +300,12 @@ export const chatThreadMessage: StateCreator<
         inPortalThread: true,
       });
     } finally {
+      clearCurrentThreadMessageLoading();
       if (contextExportCaptureId && isCurrentRequest()) {
         get().completeContextExport(contextExportCaptureId);
       }
     }
-    if (!isCurrentRequest()) {
-      clearCurrentThreadMessageLoading();
-      return;
-    }
-
-    clearCurrentThreadMessageLoading();
+    if (!isCurrentRequest()) return;
 
     // 说明是在新建 thread，需要自动总结标题
     if (!portalThreadId) {
