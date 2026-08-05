@@ -1,4 +1,8 @@
-import { SemanticSearchSchema } from '@lobechat/types';
+import {
+  KnowledgeBaseClientPreparationFailurePhaseSchema,
+  KnowledgeBasePromptTokenCountModeSchema,
+  SemanticSearchSchema,
+} from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
@@ -94,8 +98,10 @@ export const chunkRouter = router({
     .input(
       z.object({
         chunkCount: z.number().int().nonnegative().max(10_000).optional(),
+        countMode: KnowledgeBasePromptTokenCountModeSchema.optional(),
         diagnosticId: z.string().max(64).optional(),
         event: z.enum(['client_preparation_failed', 'prompt_injection_reported']),
+        failurePhase: KnowledgeBaseClientPreparationFailurePhaseSchema.optional(),
         promptTokens: z.number().int().nonnegative().max(10_000_000).optional(),
         queryRewritten: z.boolean().optional(),
       }),
@@ -110,6 +116,8 @@ export const chunkRouter = router({
         async () => {
           logKnowledgeDebugSafe(input.event, {
             chunkCount: input.chunkCount,
+            countMode: input.countMode,
+            failurePhase: input.failurePhase,
             outcome: input.event === 'client_preparation_failed' ? 'failed' : 'completed',
             phase: 'client_prompt_preparation',
             promptTokens: input.promptTokens,

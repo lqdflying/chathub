@@ -110,12 +110,23 @@ The retrieval result is rendered into the full
 `<knowledge_base_qa_info>` prompt block and appended to a cloned latest-user
 message for the initial provider request. This block is not persisted in chat
 history and is cleared before tool continuations, but it consumes context tokens
-while that request is active. The regular context popover exposes those exact
-tokens in a `Knowledge Base` bucket. It never performs speculative retrieval to
-estimate them. `Context Export Next Request` adds the bucket and a bounded
-summary containing rewrite state, scope counts, candidate/threshold/result
-counts, selected cosine scores, and the diagnostic ID when available; the
-sanitized Engineered Context already carries the actual injected prompt.
+while that request is active. The regular context popover exposes the resulting
+token count in a `Knowledge Base` bucket. It never performs speculative
+retrieval to estimate the block.
+
+Prompt token accounting is best-effort and cannot block the provider request.
+For inputs up to 10,000 characters, the browser first tries exact
+`gpt-tokenizer` counting in a Web Worker. Worker construction, posting,
+decoding, runtime errors, and a three-second timeout reject that exact attempt;
+the Knowledge path then uses `tokenx` estimation and finally character length
+if estimation also fails. The shared worker uses opaque request IDs and clears
+all pending work before it is recreated after a worker-level failure.
+
+`Context Export Next Request` adds the resulting bucket and a bounded summary
+containing `countMode` (`exact`, `estimated`, or `character`), rewrite state,
+scope counts, candidate/threshold/result counts, selected cosine scores, and
+the diagnostic ID when available. The sanitized Engineered Context already
+carries the actual injected prompt, regardless of the token-count mode.
 
 ## Indexing lifecycle
 
@@ -150,6 +161,14 @@ Provider absence is explicit: Knowledge renders a warning banner linking to
 and chat retrieval surfaces the failure rather than silently returning an empty
 result. Provider HTTP errors and invalid vector shapes are recorded on the
 embedding task with readable messages.
+
+Server-mode chat reserves and persists the assistant placeholder before client
+RAG prompt preparation. Any remaining preparation failure is converted into an
+`UnknownChatFetchError` containing the opaque Knowledge diagnostic ID when one
+is available. The client updates the live row, persists the error, and refreshes
+the conversation, so a failed request renders an error instead of leaving a
+permanent `...` placeholder after reload. Tokenizer failure alone no longer
+enters this error path because accounting uses the fallbacks above.
 
 ### File-object lifecycle and recovery
 
@@ -192,6 +211,12 @@ propagates `x-chathub-knowledge-diagnostic-id` only on requests authenticated
 with the internal bearer secret. Relevant chunking, embedding, and retrieval
 errors surface the same opaque `kb_...` diagnostic ID in task/UI errors.
 
+The successful client boundary reports `prompt_injection_reported` with
+`countMode`. `client_preparation_failed` reports a categorical `failurePhase`:
+`retrieval`, `prompt_assembly`, `token_accounting`, or `message_metadata`.
+These fields distinguish a healthy server retrieval from a browser-side
+preparation failure without recording raw browser error text.
+
 Safe records contain enumerated outcomes, counts, timings, dimensions, and
 bounded similarity data. `verbose` adds shapes and HMAC fingerprints keyed by
 `KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET`; without a fingerprint key those
@@ -205,12 +230,15 @@ embedding, or reranking behavior.
 
 - `packages/types/src/rag.ts`
 - `packages/utils/src/isChunkableFile.ts`
+- `packages/utils/src/tokenizer/client.ts`
 - `src/envs/knowledge.ts`
 - `src/server/modules/S3/index.ts`
 - `src/server/services/chunk/index.ts`
 - `src/server/services/file/index.ts`
 - `src/server/services/rag/embedding.ts`
 - `src/libs/logger/knowledgeDebug.ts`
+- `src/store/chat/helpers/knowledgeBaseContext.ts`
+- `src/store/chat/slices/aiChat/actions/generateAIChatV2.ts`
 - `src/server/routers/async/file.ts`
 - `src/server/routers/lambda/chunk.ts`
 - `src/server/routers/lambda/file.ts`

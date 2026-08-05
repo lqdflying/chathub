@@ -9,6 +9,17 @@ export const RAG_CHAT_CANDIDATE_LIMIT = 24;
 export const RAG_CHAT_MINIMUM_SIMILARITY = 0.2;
 export const RAG_CHAT_RESULT_LIMIT = 8;
 
+export const KnowledgeBaseClientPreparationFailurePhaseSchema = z.enum([
+  'retrieval',
+  'prompt_assembly',
+  'token_accounting',
+  'message_metadata',
+]);
+
+export type KnowledgeBaseClientPreparationFailurePhase = z.infer<
+  typeof KnowledgeBaseClientPreparationFailurePhaseSchema
+>;
+
 export interface RagChatRetrievalStats {
   candidateCount: number;
   candidateLimit: number;

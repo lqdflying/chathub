@@ -7,6 +7,7 @@ const createRequest = (selectedScores: number[]) => ({
   captureId: 'capture-1',
   continuationReason: 'initial',
   knowledgeBase: {
+    countMode: 'exact',
     promptTokens: 42,
     queryRewritten: false,
     retrieval: {
@@ -39,6 +40,16 @@ describe('ContextExportRequestContextSchema', () => {
     );
     expect(
       ContextExportRequestContextSchema.safeParse(createRequest([...selectedScores, 0.5])).success,
+    ).toBe(false);
+  });
+
+  it('accepts only known Knowledge Base token count modes', () => {
+    expect(ContextExportRequestContextSchema.safeParse(createRequest([0.5])).success).toBe(true);
+    expect(
+      ContextExportRequestContextSchema.safeParse({
+        ...createRequest([0.5]),
+        knowledgeBase: { ...createRequest([0.5]).knowledgeBase, countMode: 'unknown' },
+      }).success,
     ).toBe(false);
   });
 });

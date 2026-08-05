@@ -7,6 +7,7 @@ import {
   ChatTopic,
   ChatVideoItem,
   ContextExportRequestContext,
+  type KnowledgeBaseClientPreparationFailurePhase,
   MessageSemanticSearchChunk,
   SendMessageParams,
   SendMessageServerResponse,
@@ -33,6 +34,7 @@ import {
   addKnowledgeDiagnosticIdToError,
   attachKnowledgeBaseExportSummary,
   countKnowledgeBasePromptTokens,
+  createKnowledgeBasePreparationMessageError,
   createKnowledgeBaseSummary,
   getKnowledgeDiagnosticIdFromError,
 } from '@/store/chat/helpers/knowledgeBaseContext';
@@ -633,6 +635,7 @@ export const generateAIChatV2: StateCreator<
     // go into RAG flow if there is ragQuery flag
     if (ragQuery) {
       let diagnosticId: string | undefined;
+      let failurePhase: KnowledgeBaseClientPreparationFailurePhase = 'retrieval';
       try {
         // 1. get the relative chunks from semantic search
         const {
@@ -657,6 +660,7 @@ export const generateAIChatV2: StateCreator<
         const lastMsg = messages.pop() as UIChatMessage;
 
         // 2. build the retrieve context messages
+        failurePhase = 'prompt_assembly';
         const knowledgeBaseQAContext = knowledgeBaseQAPrompts({
           chunks,
           userQuery: lastMsg.content,
@@ -670,9 +674,14 @@ export const generateAIChatV2: StateCreator<
           content: (lastMsg.content + '\n\n' + knowledgeBaseQAContext).trim(),
         });
 
-        knowledgeBasePromptTokens = await countKnowledgeBasePromptTokens(knowledgeBaseQAContext);
+        failurePhase = 'token_accounting';
+        const { countMode, promptTokens } =
+          await countKnowledgeBasePromptTokens(knowledgeBaseQAContext);
+        knowledgeBasePromptTokens = promptTokens;
         if (!isCurrentConversation()) return;
+        failurePhase = 'message_metadata';
         const summary = createKnowledgeBaseSummary({
+          countMode,
           diagnosticId,
           promptTokens: knowledgeBasePromptTokens,
           queryRewritten: !!rewriteQuery && rewriteQuery !== ragQuery,
@@ -686,6 +695,7 @@ export const generateAIChatV2: StateCreator<
           void ragService
             .reportKnowledgeClientEvent({
               chunkCount: chunks.length,
+              countMode,
               diagnosticId,
               event: 'prompt_injection_reported',
               promptTokens: knowledgeBasePromptTokens,
@@ -705,6 +715,7 @@ export const generateAIChatV2: StateCreator<
           try {
             const report = await ragService.reportKnowledgeClientEvent({
               event: 'client_preparation_failed',
+              failurePhase,
             });
             diagnosticId = report.diagnosticId;
           } catch {
@@ -715,6 +726,7 @@ export const generateAIChatV2: StateCreator<
             .reportKnowledgeClientEvent({
               diagnosticId,
               event: 'client_preparation_failed',
+              failurePhase,
             })
             .catch(() => {});
         }
@@ -729,7 +741,24 @@ export const generateAIChatV2: StateCreator<
             status: 'error',
           });
         }
-        throw addKnowledgeDiagnosticIdToError(error, diagnosticId);
+
+        const preparationError = addKnowledgeDiagnosticIdToError(error, diagnosticId);
+        if (isCurrentConversation()) {
+          const messageError = createKnowledgeBasePreparationMessageError(diagnosticId);
+          get().internal_dispatchMessage(
+            { id: assistantId, type: 'updateMessage', value: { error: messageError } },
+            dispatchContext,
+          );
+
+          try {
+            await messageService.updateMessageError(assistantId, messageError);
+            if (isCurrentConversation()) await refreshMessages(conversationContext);
+          } catch (persistenceError) {
+            console.error('Failed to persist Knowledge Base preparation error', persistenceError);
+          }
+        }
+
+        throw preparationError;
       }
     }
 

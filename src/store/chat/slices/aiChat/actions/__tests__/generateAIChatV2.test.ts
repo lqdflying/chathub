@@ -1,4 +1,4 @@
-import { UIChatMessage } from '@lobechat/types';
+import { ChatErrorType, UIChatMessage } from '@lobechat/types';
 import { act, renderHook } from '@testing-library/react';
 import { TRPCClientError } from '@trpc/client';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@/co
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
+import { ragService } from '@/services/rag';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { aiChatSelectors } from '@/store/chat/selectors';
@@ -16,6 +17,8 @@ import { getSkillSelectionKey, useSkillStore } from '@/store/skill';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { UploadFileItem } from '@/types/files/upload';
+import { encodeAsync } from '@/utils/tokenizer';
+import { estimatedEncodeAsync } from '@/utils/tokenizer/estimated';
 
 import { useChatStore } from '../../../../store';
 import { messageMapKey } from '../../../../utils/messageMapKey';
@@ -24,6 +27,15 @@ import { resetTestEnvironment, setupMockSelectors, spyOnMessageService } from '.
 
 // Keep zustand mock as it's needed globally
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
+
+vi.mock('@/utils/tokenizer', () => ({
+  MAX_EXACT_TOKENIZER_INPUT_LENGTH: 10_000,
+  encodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
+}));
+
+vi.mock('@/utils/tokenizer/estimated', () => ({
+  estimatedEncodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
+}));
 
 // Mock aiChatService for V2 server flow
 vi.mock('@/services/aiChat', () => ({
@@ -90,6 +102,7 @@ beforeEach(() => {
   resetTestEnvironment();
   setupMockSelectors();
   useSkillStore.setState({ selectedSkillIdsByConversation: {} });
+  vi.stubGlobal('Worker', class TokenizerWorker {});
 
   // Setup default spies that most tests need
   spyOnMessageService();
@@ -113,6 +126,7 @@ beforeEach(() => {
 afterEach(() => {
   process.env.NEXT_PUBLIC_BASE_PATH = undefined;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('generateAIChatV2 actions', () => {
@@ -935,7 +949,7 @@ describe('generateAIChatV2 actions', () => {
       expect(result.current.refreshMessages).toHaveBeenCalled();
     });
 
-    it('keeps Knowledge Base tokens active only for the initial provider request', async () => {
+    it('keeps Knowledge Base tokens active for the provider when exact tokenization fails', async () => {
       act(() => {
         useChatStore.setState({
           internal_execAgentRuntime: realExecAgentRuntime,
@@ -968,6 +982,7 @@ describe('generateAIChatV2 actions', () => {
         rewriteQuery: 'rewritten question',
         scope: { directFileCount: 1, expandedFileCount: 2, knowledgeBaseCount: 1 },
       });
+      vi.mocked(encodeAsync).mockRejectedValueOnce(new Error('worker unavailable'));
 
       let capturedRequest: any;
       vi.spyOn(result.current, 'internal_fetchAIChatMessage').mockImplementation(
@@ -1002,12 +1017,107 @@ describe('generateAIChatV2 actions', () => {
       expect(capturedRequest).toMatchObject({
         allocation: { chatMessages: 50, knowledgeBase: expect.any(Number) },
         knowledgeBase: {
+          countMode: 'estimated',
           promptTokens: expect.any(Number),
           retrieval: { selectedCount: 1 },
         },
       });
       expect(capturedRequest.knowledgeBase.promptTokens).toBeGreaterThan(0);
+      expect(estimatedEncodeAsync).toHaveBeenCalled();
       expect(useChatStore.getState().knowledgeBaseContextTokens).toEqual({});
+    });
+
+    it('persists a KB preparation error instead of leaving the assistant placeholder loading', async () => {
+      const diagnosticId = 'kb_1234567890abcdef';
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const reportEvent = vi
+        .spyOn(ragService, 'reportKnowledgeClientEvent')
+        .mockResolvedValue({ diagnosticId });
+      const updateMessageRAG = vi.fn().mockRejectedValue(new Error('metadata update failed'));
+      const userMessage = {
+        content: TEST_CONTENT.RAG_QUERY,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      } as UIChatMessage;
+      act(() => {
+        useChatStore.setState({
+          internal_execAgentRuntime: realExecAgentRuntime,
+          internal_updateMessageRAG: updateMessageRAG,
+          knowledgeBaseContextTokens: {},
+          messageRAGLoadingIds: [],
+          messagesMap: {
+            [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: [
+              userMessage,
+              {
+                content: LOADING_FLAT,
+                id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+                parentId: TEST_IDS.USER_MESSAGE_ID,
+                role: 'assistant',
+                sessionId: TEST_IDS.SESSION_ID,
+                topicId: TEST_IDS.TOPIC_ID,
+              } as UIChatMessage,
+            ],
+          },
+        });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      vi.spyOn(result.current, 'internal_retrieveChunks').mockResolvedValue({
+        chunks: [{ id: 'chunk-1', similarity: 0.88, text: 'retrieved context' }] as any,
+        diagnosticId,
+        queryId: 'query-1',
+        retrieval: {
+          candidateCount: 5,
+          candidateLimit: 24,
+          eligibleCount: 2,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 1,
+          selectedScores: [0.88],
+          strategy: 'cosine',
+        },
+        rewriteQuery: TEST_CONTENT.RAG_QUERY,
+        scope: { directFileCount: 1, expandedFileCount: 2, knowledgeBaseCount: 1 },
+      });
+
+      await act(async () => {
+        await expect(
+          result.current.internal_execAgentRuntime({
+            assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+            messages: [userMessage],
+            ragQuery: TEST_CONTENT.RAG_QUERY,
+            userMessageId: TEST_IDS.USER_MESSAGE_ID,
+          }),
+        ).rejects.toThrow('metadata update failed');
+      });
+
+      const assistant = Object.values(useChatStore.getState().messagesMap)
+        .flat()
+        .find((message) => message.id === TEST_IDS.ASSISTANT_MESSAGE_ID);
+      const expectedError = {
+        body: { diagnosticId },
+        message:
+          'Knowledge Base preparation failed. Retry the message. (Diagnostic ID: kb_1234567890abcdef)',
+        type: ChatErrorType.UnknownChatFetchError,
+      };
+
+      expect(updateMessageRAG).toHaveBeenCalled();
+      expect(assistant).toMatchObject({ content: LOADING_FLAT, error: expectedError });
+      expect(messageService.updateMessageError).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expectedError,
+      );
+      expect(reportEvent).toHaveBeenCalledWith({
+        diagnosticId,
+        event: 'client_preparation_failed',
+        failurePhase: 'message_metadata',
+      });
+      expect(result.current.refreshMessages).toHaveBeenCalled();
+      expect(useChatStore.getState().messageRAGLoadingIds).toEqual([]);
+      expect(useChatStore.getState().knowledgeBaseContextTokens).toEqual({});
+      expect(useChatStore.getState().chatLoadingIds).toEqual([]);
     });
   });
 

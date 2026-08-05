@@ -16,7 +16,7 @@ const SENSITIVE_KEY =
 const IDENTIFIER_KEY =
   /(?:^|_)(?:user|account|session|topic|message|file|chunk|task|knowledge)ids?$/i;
 const SAFE_STRING_KEY =
-  /^(?:debugLevel|diagnosticId|errorClass|errorCode|event|failurePhase|inputType|operation|outcome|phase|providerSource|reason|runtime|schemaVersion|spanId|status|strategy|timestamp|transport|type)$/;
+  /^(?:countMode|debugLevel|diagnosticId|errorClass|errorCode|event|failurePhase|inputType|operation|outcome|phase|providerSource|reason|runtime|schemaVersion|spanId|status|strategy|timestamp|transport|type)$/;
 
 export type KnowledgeDebugEvent =
   | 'async_route_settled'

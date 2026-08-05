@@ -1,3 +1,8 @@
+import type {
+  KnowledgeBaseClientPreparationFailurePhase,
+  KnowledgeBasePromptTokenCountMode,
+} from '@lobechat/types';
+
 import { lambdaClient } from '@/libs/trpc/client';
 import { SemanticSearchSchemaType } from '@/types/rag';
 
@@ -28,8 +33,10 @@ class RAGService {
 
   reportKnowledgeClientEvent = async (params: {
     chunkCount?: number;
+    countMode?: KnowledgeBasePromptTokenCountMode;
     diagnosticId?: string;
     event: 'client_preparation_failed' | 'prompt_injection_reported';
+    failurePhase?: KnowledgeBaseClientPreparationFailurePhase;
     promptTokens?: number;
     queryRewritten?: boolean;
   }) => lambdaClient.chunk.reportKnowledgeClientEvent.mutate(params);

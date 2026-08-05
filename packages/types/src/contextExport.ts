@@ -16,6 +16,12 @@ export type ContextExportContinuationReason = 'initial' | 'tool';
 
 export type ContextExportRequestStatus = 'capturing' | 'complete' | 'error' | 'partial';
 
+export const KnowledgeBasePromptTokenCountModeSchema = z.enum(['exact', 'estimated', 'character']);
+
+export type KnowledgeBasePromptTokenCountMode = z.infer<
+  typeof KnowledgeBasePromptTokenCountModeSchema
+>;
+
 export interface ContextExportAllocation {
   assistantMemory?: number;
   chatInstruction?: number;
@@ -30,6 +36,7 @@ export interface ContextExportAllocation {
 }
 
 export interface ContextExportKnowledgeBaseSummary {
+  countMode?: KnowledgeBasePromptTokenCountMode;
   diagnosticId?: string;
   promptTokens: number;
   queryRewritten: boolean;
@@ -110,6 +117,7 @@ export const ContextExportRequestContextSchema = z.object({
   continuationReason: z.enum(['initial', 'tool']),
   knowledgeBase: z
     .object({
+      countMode: KnowledgeBasePromptTokenCountModeSchema.optional(),
       diagnosticId: z.string().min(1).max(64).optional(),
       promptTokens: z.number().int().nonnegative(),
       queryRewritten: z.boolean(),

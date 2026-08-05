@@ -1,12 +1,16 @@
-import type {
-  ContextExportAllocation,
-  ContextExportKnowledgeBaseSummary,
-  ContextExportRequestContext,
-  RagChatRetrievalStats,
-  RagChatScopeStats,
+import {
+  ChatErrorType,
+  type ChatMessageError,
+  type ContextExportAllocation,
+  type ContextExportKnowledgeBaseSummary,
+  type ContextExportRequestContext,
+  type KnowledgeBasePromptTokenCountMode,
+  type RagChatRetrievalStats,
+  type RagChatScopeStats,
 } from '@lobechat/types';
 
-import { encodeAsync } from '@/utils/tokenizer';
+import { MAX_EXACT_TOKENIZER_INPUT_LENGTH, encodeAsync } from '@/utils/tokenizer';
+import { estimatedEncodeAsync } from '@/utils/tokenizer/estimated';
 
 export const CONTEXT_EXPORT_REDACTIONS = [
   'credentials',
@@ -20,16 +24,40 @@ export const CONTEXT_EXPORT_REDACTIONS = [
   'inlineMediaData',
 ];
 
-export const countKnowledgeBasePromptTokens = async (prompt: string) =>
-  prompt ? encodeAsync(prompt) : 0;
+export interface KnowledgeBasePromptTokenCount {
+  countMode: KnowledgeBasePromptTokenCountMode;
+  promptTokens: number;
+}
+
+export const countKnowledgeBasePromptTokens = async (
+  prompt: string,
+): Promise<KnowledgeBasePromptTokenCount> => {
+  if (!prompt) return { countMode: 'exact', promptTokens: 0 };
+
+  if (prompt.length <= MAX_EXACT_TOKENIZER_INPUT_LENGTH && typeof Worker !== 'undefined') {
+    try {
+      return { countMode: 'exact', promptTokens: await encodeAsync(prompt) };
+    } catch {
+      // Token accounting is diagnostic context only and must never block the provider request.
+    }
+  }
+
+  try {
+    return { countMode: 'estimated', promptTokens: await estimatedEncodeAsync(prompt) };
+  } catch {
+    return { countMode: 'character', promptTokens: prompt.length };
+  }
+};
 
 export const createKnowledgeBaseSummary = (params: {
+  countMode: KnowledgeBasePromptTokenCountMode;
   diagnosticId?: string;
   promptTokens: number;
   queryRewritten: boolean;
   retrieval: RagChatRetrievalStats;
   scope: RagChatScopeStats;
 }): ContextExportKnowledgeBaseSummary => ({
+  countMode: params.countMode,
   diagnosticId: params.diagnosticId,
   promptTokens: params.promptTokens,
   queryRewritten: params.queryRewritten,
@@ -72,4 +100,17 @@ export const addKnowledgeDiagnosticIdToError = (error: unknown, diagnosticId?: s
   const next = new Error(`${message}${suffix}`);
   next.cause = error;
   return next;
+};
+
+export const createKnowledgeBasePreparationMessageError = (
+  diagnosticId?: string,
+): ChatMessageError => {
+  const diagnosticSuffix = diagnosticId ? ` (Diagnostic ID: ${diagnosticId})` : '';
+  const message = `Knowledge Base preparation failed. Retry the message.${diagnosticSuffix}`;
+
+  return {
+    body: diagnosticId ? { diagnosticId } : undefined,
+    message,
+    type: ChatErrorType.UnknownChatFetchError,
+  };
 };

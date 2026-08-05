@@ -38,6 +38,8 @@ describe('knowledgeDebug', () => {
       { diagnosticId, operation: 'chat_retrieval', runtime: 'lambda', transport: 'trpc' },
       () => {
         logKnowledgeDebugSafe('retrieval_started', {
+          countMode: 'estimated',
+          failurePhase: 'token_accounting',
           fileId: rawFileId,
           outcome: 'completed',
           phase: 'retrieval',
@@ -53,7 +55,9 @@ describe('knowledgeDebug', () => {
     expect(json).not.toContain(rawFileId);
     const record = JSON.parse(json);
     expect(record).toMatchObject({
+      countMode: 'estimated',
       diagnosticId,
+      failurePhase: 'token_accounting',
       outcome: 'completed',
       phase: 'retrieval',
       promptTokens: 42,
