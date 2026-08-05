@@ -117,6 +117,17 @@ const inferProviderExtendParams = (
     if (modelId === 'kimi-k2.6') return ['enableReasoning', 'moonshotPreservedReasoning'];
   }
 
+  if (providerId === ModelProvider.Zhipu) {
+    if (item.abilities?.reasoning) {
+      // `reasoning_effort` is GLM-5.2+ only; mirror the runtime's supportsReasoningEffort.
+      const match = modelId.match(/^glm-(\d+)(?:\.(\d+))?/);
+      const is52Plus = match
+        ? Number(match[1]) > 5 || (Number(match[1]) === 5 && Number(match[2] ?? 0) >= 2)
+        : false;
+      return ['enableReasoning', 'zhipuClearThinking', ...(is52Plus ? ['zhipuReasoningEffort'] : [])];
+    }
+  }
+
   return undefined;
 };
 

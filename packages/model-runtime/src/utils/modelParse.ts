@@ -111,9 +111,17 @@ export const MODEL_LIST_CONFIGS = {
     visionKeywords: ['vision'],
   },
   zhipu: {
-    functionCallKeywords: ['glm-4', 'glm-z1'],
-    reasoningKeywords: ['glm-zero', 'glm-z1', 'glm-4.5'],
-    visionKeywords: ['glm-4v', 'glm-4.1v', 'glm-4.5v'],
+    functionCallKeywords: ['glm-4', 'glm-z1', 'glm-4.5', 'glm-4.6', 'glm-4.7', 'glm-5'],
+    reasoningKeywords: [
+      'glm-zero',
+      'glm-z1',
+      'glm-4.5',
+      'glm-4.6',
+      'glm-4.7',
+      'glm-5',
+      'glm-5v',
+    ],
+    visionKeywords: ['glm-4v', 'glm-4.1v', 'glm-4.5v', 'glm-4.6v', 'glm-5v'],
   },
 } as const;
 

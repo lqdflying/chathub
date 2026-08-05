@@ -129,6 +129,21 @@
     "urlContext": {
       "desc": "开启后将自动解析网页链接，以获取实际网页上下文内容",
       "title": "提取网页链接内容"
+    },
+    "zhipuClearThinking": {
+      "desc": "关闭后启用 Preserved Thinking（thinking.clear_thinking=false），历史 reasoning_content 将原样回传以提升多轮推理质量。默认开启（按 Zhipu 服务端默认，从上下文中剥离历史思考以降低成本）。需与深度思考同时开启。",
+      "title": "保留历史思考（Preserved Thinking）"
+    },
+    "zhipuReasoning": {
+      "desc": "开启后 GLM-5.x / 4.5+ 会先进行内部链式思考再输出；关闭可更快、更省 Token。",
+      "title": "开启深度思考（GLM）"
+    },
+    "zhipuReasoningEffort": {
+      "desc": "仅 GLM-5.2+ 支持。max=深度思考（默认），high=增强思考，skip=跳过思考（映射到 API 的 minimal）。仅在思考开启时生效。",
+      "high": "High",
+      "max": "Max",
+      "skip": "Skip",
+      "title": "推理强度（reasoning_effort）"
     }
   },
   "group": {

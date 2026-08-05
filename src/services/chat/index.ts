@@ -311,6 +311,11 @@ class ChatService {
               ...(payload.model === 'kimi-k2.6' && chatConfig.moonshotPreservedReasoning
                 ? { keep: 'all' as const }
                 : {}),
+              // Zhipu GLM Preserved Thinking: replay historical reasoning_content unmodified.
+              // The runtime strips budget_tokens before sending to Zhipu.
+              ...(payload.provider === 'zhipu' && chatConfig.zhipuClearThinking === false
+                ? { clear_thinking: false as const }
+                : {}),
             };
           }
         } else {
@@ -397,6 +402,17 @@ class ChatService {
 
       if (modelExtendParams!.includes('minimaxReasoningSplit')) {
         extendParams.reasoning_split = chatConfig.minimaxReasoningSplit !== false;
+      }
+
+      // Zhipu GLM-5.2 only: reasoning_effort ('skip' maps to API 'minimal'). Only sent
+      // when thinking is enabled; the runtime drops it otherwise.
+      if (
+        modelExtendParams!.includes('zhipuReasoningEffort') &&
+        chatConfig.enableReasoning &&
+        chatConfig.zhipuReasoningEffort
+      ) {
+        extendParams.reasoning_effort =
+          chatConfig.zhipuReasoningEffort === 'skip' ? 'minimal' : chatConfig.zhipuReasoningEffort;
       }
     }
 

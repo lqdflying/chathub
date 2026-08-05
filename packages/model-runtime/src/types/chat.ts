@@ -172,6 +172,11 @@ export interface ChatStreamPayload {
   thinking?: {
     budget_tokens: number;
     /**
+     * Zhipu GLM only: Preserved Thinking — when `false`, historical `reasoning_content`
+     * is replayed unmodified (see Zhipu chat API `thinking.clear_thinking`). Default true.
+     */
+    clear_thinking?: boolean;
+    /**
      * Anthropic adaptive thinking (Opus 4.7+): mapped to `output_config.effort`.
      * Ignored for `thinking.type: "enabled"` on models that still use budget_tokens.
      */

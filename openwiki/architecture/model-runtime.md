@@ -125,20 +125,40 @@ For multi-turn conversations and tool calls, the adapter replays the complete as
 
 The default ChatHub Moonshot route is the China endpoint `https://api.moonshot.cn/v1`, with `MOONSHOT_PROXY_URL` and request/user-provider `baseURL` taking precedence. The global Kimi documentation uses `https://api.moonshot.ai/v1`; deployments targeting that endpoint must configure the base URL explicitly and should confirm that the account and endpoint expose K3.
 
+### Zhipu GLM-5.2
+
+`zhipu` is a first-class OpenAI-compatible provider built with the shared factory. Its default ChatHub route is the China endpoint `https://open.bigmodel.cn/api/paas/v4`; deployments targeting the international `https://api.z.ai/api/paas/v4/` endpoint must configure the base URL explicitly. `glm-5.2` is the enabled default model with a `1_048_576`-token context window and a `65_536`-token default `max_tokens` (128K maximum).
+
+The Zhipu adapter (`packages/model-runtime/src/providers/zhipu/index.ts`) is a single `buildZhipuPayload` function plus the factory registration. It translates the shared `ChatStreamPayload` into Zhipu's request body:
+
+- **Thinking object** — `thinking: { type: 'enabled' | 'disabled', clear_thinking?: false }`. The adapter strips Anthropic-style `budget_tokens` and Moonshot-style `keep` that the service layer may attach, because Zhipu rejects both. `thinking.type` defaults to `enabled` on thinking-capable models (`glm-5`, `glm-4.7`, `glm-4.6`, `glm-4.5`).
+- **reasoning_effort** — forwarded only on `glm-5.2` and above, and only when thinking is enabled. The chat service maps the UI `skip` value to the API `minimal` value before it reaches the runtime; the runtime forwards the value verbatim.
+- **do_sample** — set to `false` (greedy decoding) when `temperature === 0`; sampling params are then omitted because Zhipu ignores them when `do_sample` is false.
+- **tool_stream** — set to `true` when streaming with function tools, so Zhipu streams tool-call arguments incrementally (`tool_call.index` accumulation).
+- **tool_choice** — coerced to `'auto'` when tools are present; Zhipu rejects `none`, `required`, and specific-function selection.
+- **web_search tool** — injected into the `tools` array when `enabledSearch` is set, using `{ type: 'web_search', web_search: { search_engine: 'search_pro_jina', enable: true } }`.
+- **GLM-5.2 thinking + search/JSON mutual exclusion** — on `glm-5.2` only, `enabledSearch` or `response_format: json_object` forces `thinking.type` to `disabled` because Zhipu documents web search and JSON mode as non-thinking-only on GLM-5.2.
+- **Preserved Thinking** — when `thinking.clear_thinking === false`, the adapter keeps the internal `reasoning` field on assistant messages so the shared `convertOpenAIMessages` context builder replays it as `reasoning_content`; otherwise it strips `reasoning` to match Zhipu's default behavior of discarding historical thinking.
+
+The shared `OpenAIStream` already extracts Zhipu's `delta.reasoning_content` (same field as DeepSeek/Moonshot) and Zhipu's `web_search` citations, so no custom stream handler is required. The `convertOpenAIMessages` `reasoning_content` provider gate is a negative check on `openaicompatible` only, so Zhipu keeps `reasoning_content` replay by default — no provider-list change was needed there.
+
+The default model list ships 8 GLM cards (`glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-turbo`, `glm-4.7`, `glm-4.6`, `glm-4.5`, `glm-5v-turbo`). Only `glm-5.2` carries `zhipuReasoningEffort` in its `extendParams`; the rest carry `enableReasoning` and `zhipuClearThinking`. Fetched Zhipu models receive inferred `extendParams` at read time in `packages/database/src/repositories/aiInfra/index.ts` because the remote model table cannot persist `settings.extendParams`.
+
 ## Model fetch normalization
 
 Providers that expose `/models` can return new model ids before ChatHub's built-in model list is refreshed. The runtime still needs to normalize fetched ids through provider-specific capability rules so the UI can detect function calling, reasoning, vision, video, search, and image-output support.
 
-DeepSeek, MiniMax, and Moonshot use provider-specific model fetchers rather than a raw generic list. The fetchers call the shared model parser with provider configs, and the database repository adds read-time-only `settings.extendParams` for fetched models where the remote model table cannot store option-panel settings. This keeps fetched DeepSeek V4 and MiniMax M-series models usable in the model option panel, while Moonshot Kimi K2.7 Code and Kimi K3 remain reasoning-capable without a toggle because the provider forces thinking/preserved reasoning. Fetched K3 variants receive reasoning, vision, and video capabilities from the Moonshot keyword normalizer when an exact built-in card is unavailable.
+DeepSeek, MiniMax, Moonshot, and Zhipu use provider-specific model fetchers rather than a raw generic list. The fetchers call the shared model parser with provider configs, and the database repository adds read-time-only `settings.extendParams` for fetched models where the remote model table cannot store option-panel settings. This keeps fetched DeepSeek V4 and MiniMax M-series models usable in the model option panel, while Moonshot Kimi K2.7 Code and Kimi K3 remain reasoning-capable without a toggle because the provider forces thinking/preserved reasoning. Fetched Zhipu GLM reasoning models infer `enableReasoning` + `zhipuClearThinking` (plus `zhipuReasoningEffort` for `glm-5.2` and above). Fetched K3 variants receive reasoning, vision, and video capabilities from the Moonshot keyword normalizer when an exact built-in card is unavailable.
 
 ## Provider request debug
 
-Moonshot, MiniMax, DeepSeek, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with hashed endpoint origin/path, path depth, query-key names, upstream route, model, turn shape, tool count/fingerprint, and payload fingerprint. URL credentials, hosts, path segments, query values, authorization secrets, and tool names are omitted:
+Moonshot, MiniMax, DeepSeek, Zhipu, and Anthropic-compatible troubleshooting can use provider-specific chat debug flags. In addition to the existing raw payload/stream logs, these flags emit a structured `[provider-debug:request]` summary with hashed endpoint origin/path, path depth, query-key names, upstream route, model, turn shape, tool count/fingerprint, and payload fingerprint. URL credentials, hosts, path segments, query values, authorization secrets, and tool names are omitted:
 
 - `DEBUG_MOONSHOT_CHAT_COMPLETION=1`
 - `DEBUG_MINIMAX_CHAT_COMPLETION=1`
 - `DEBUG_DEEPSEEK_CHAT_COMPLETION=1`
 - `DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1`
+- `DEBUG_ZHIPU_CHAT_COMPLETION=1`
 
 Use this first for endpoint/path problems such as `url.not_found`, then inspect the full payload/stream logs only if the structured request shape is not enough. Those logs are one-record-per-line JSON: the request logs a `[requestPayload]` marker followed by the entire payload as a single compact JSON line, and streams log `[stream start]` / `[stream finished]` markers with delta chunks merged into one consolidated JSON record of the assembled response (id, model, finish reason, text, reasoning, tool calls, usage) — only chunks of unrecognized shape are logged individually. The full debug logs can include prompt and response content.
 
@@ -198,6 +218,7 @@ If you modify provider support, update the tests next to the implementation. The
 - `packages/model-runtime/src/core/streams/openai/responsesStream.test.ts`
 - `packages/model-runtime/src/providers/openai/index.test.ts`
 - `packages/model-runtime/src/providers/google/index.test.ts`
+- `packages/model-runtime/src/providers/zhipu/index.test.ts`
 - `packages/model-runtime/src/providerTestUtils.test.ts`
 
 For changes tied to the OpenAI SDK upgrade path, pay special attention to error-shape assertions and any stream fixtures that depend on Responses annotations or usage payloads.

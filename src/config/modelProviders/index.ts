@@ -10,6 +10,7 @@ import MinimaxProvider from './minimax';
 import MoonshotProvider from './moonshot';
 import OpenAIProvider from './openai';
 import OpenAICompatibleProvider from './openaicompatible';
+import ZhipuProvider from './zhipu';
 
 /**
  * @deprecated
@@ -31,6 +32,7 @@ export const DEFAULT_MODEL_PROVIDER_LIST = [
   MinimaxProvider,
   MoonshotProvider,
   OpenAICompatibleProvider,
+  ZhipuProvider,
 ];
 
 export const filterEnabledModels = (provider: ModelProviderCard) => {
@@ -53,3 +55,4 @@ export { default as MinimaxProviderCard } from './minimax';
 export { default as MoonshotProviderCard } from './moonshot';
 export { default as OpenAIProviderCard } from './openai';
 export { default as OpenAICompatibleProviderCard } from './openaicompatible';
+export { default as ZhipuProviderCard } from './zhipu';

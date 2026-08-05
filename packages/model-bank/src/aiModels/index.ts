@@ -9,6 +9,7 @@ import { default as minimax } from './minimax';
 import { default as moonshot } from './moonshot';
 import { default as openai } from './openai';
 import { default as openaicompatible } from './openaicompatible';
+import { default as zhipu } from './zhipu';
 
 type ModelsMap = Record<string, AiFullModelCard[]>;
 
@@ -40,6 +41,7 @@ export const LOBE_DEFAULT_MODEL_LIST = buildDefaultModelList({
   moonshot,
   openai,
   openaicompatible,
+  zhipu,
 });
 
 export { default as anthropic } from './anthropic';
@@ -52,6 +54,7 @@ export { default as minimax } from './minimax';
 export { default as moonshot } from './moonshot';
 export { default as openai } from './openai';
 export { default as openaicompatible } from './openaicompatible';
+export { default as zhipu } from './zhipu';
 export { gptImage1ParamsSchema, openaiChatModels } from './openai';
 export {
   GPT_IMAGE_2_SIZE_PRESETS,

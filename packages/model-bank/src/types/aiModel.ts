@@ -239,7 +239,9 @@ export type ExtendParamsType =
   | 'textVerbosity'
   | 'thinking'
   | 'thinkingBudget'
-  | 'urlContext';
+  | 'urlContext'
+  | 'zhipuReasoningEffort'
+  | 'zhipuClearThinking';
 
 export interface AiModelSettings {
   extendParams?: ExtendParamsType[];

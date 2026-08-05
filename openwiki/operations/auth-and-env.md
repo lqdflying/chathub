@@ -301,6 +301,7 @@ DEBUG_MOONSHOT_CHAT_COMPLETION=1
 DEBUG_MINIMAX_CHAT_COMPLETION=1
 DEBUG_DEEPSEEK_CHAT_COMPLETION=1
 DEBUG_ANTHROPICCOMPATIBLE_CHAT_COMPLETION=1
+DEBUG_ZHIPU_CHAT_COMPLETION=1
 ```
 
 The structured line starts with `[provider-debug:request]` and includes provider, hashed endpoint origin/path, path depth, query-key names, upstream route, model, stream flag, payload fingerprint, turn shape, tool count/fingerprint, and key parameter presence. It omits URL credentials, hosts, path segments, query values, authorization secrets, and tool names. It is intended for comparing endpoint/request shape without immediately inspecting full prompt text.
