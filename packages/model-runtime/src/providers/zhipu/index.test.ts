@@ -132,6 +132,39 @@ describe('buildZhipuPayload', () => {
     expect(out.tools.some((t: any) => t.type === 'web_search')).toBe(true);
   });
 
+  it('omits tool_stream for glm-4.5 even with function tools + stream', () => {
+    const tools = [{ function: { name: 'x', parameters: {} }, type: 'function' }] as any;
+    const out = buildZhipuPayload({
+      messages: baseMessage,
+      model: 'glm-4.5',
+      stream: true,
+      tools,
+    } as any) as any;
+    expect(out.tool_stream).toBeUndefined();
+  });
+
+  it('omits tool_stream for vision models (glm-5v-turbo) even with function tools + stream', () => {
+    const tools = [{ function: { name: 'x', parameters: {} }, type: 'function' }] as any;
+    const out = buildZhipuPayload({
+      messages: baseMessage,
+      model: 'glm-5v-turbo',
+      stream: true,
+      tools,
+    } as any) as any;
+    expect(out.tool_stream).toBeUndefined();
+  });
+
+  it('sets tool_stream for glm-4.6 with function tools + stream', () => {
+    const tools = [{ function: { name: 'x', parameters: {} }, type: 'function' }] as any;
+    const out = buildZhipuPayload({
+      messages: baseMessage,
+      model: 'glm-4.6',
+      stream: true,
+      tools,
+    } as any) as any;
+    expect(out.tool_stream).toBe(true);
+  });
+
   it('forces thinking disabled when response_format json_object is set on glm-5.2', () => {
     const out = buildZhipuPayload({
       messages: baseMessage,

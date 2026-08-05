@@ -79,18 +79,18 @@ const ZhipuOptions = memo(() => {
     }
 
     // Preserved Thinking (clear_thinking=false) is meaningless without thinking on.
-    if (extendParams.includes('zhipuClearThinking') && config.enableReasoning) {
+    if (extendParams.includes('zhipuPreservedThinking') && config.enableReasoning) {
       result.push({
         children: <Switch />,
         desc: (
           <span style={isNarrow ? descNarrow : descWide}>
-            {t('extendParams.zhipuClearThinking.desc')}
+            {t('extendParams.zhipuPreservedThinking.desc')}
           </span>
         ),
-        label: t('extendParams.zhipuClearThinking.title'),
+        label: t('extendParams.zhipuPreservedThinking.title'),
         layout: isNarrow ? 'vertical' : 'horizontal',
         minWidth: undefined,
-        name: 'zhipuClearThinking',
+        name: 'zhipuPreservedThinking',
         valuePropName: 'checked',
       });
     }

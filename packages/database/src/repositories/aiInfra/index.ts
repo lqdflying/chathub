@@ -124,7 +124,7 @@ const inferProviderExtendParams = (
       const is52Plus = match
         ? Number(match[1]) > 5 || (Number(match[1]) === 5 && Number(match[2] ?? 0) >= 2)
         : false;
-      return ['enableReasoning', 'zhipuClearThinking', ...(is52Plus ? ['zhipuReasoningEffort'] : [])];
+      return ['enableReasoning', 'zhipuPreservedThinking', ...(is52Plus ? ['zhipuReasoningEffort'] : [])];
     }
   }
 

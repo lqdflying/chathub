@@ -86,11 +86,12 @@ export interface LobeAgentChatConfig {
    */
   zhipuReasoningEffort?: 'high' | 'max' | 'skip';
   /**
-   * Zhipu GLM: when false, enables Preserved Thinking (`thinking.clear_thinking: false`),
-   * replaying historical `reasoning_content` unmodified. Default true (Zhipu server
-   * default strips prior thinking from context to reduce cost).
+   * Zhipu GLM: when true, enables Preserved Thinking (`thinking.clear_thinking: false`),
+   * replaying historical `reasoning_content` unmodified for multi-turn reasoning
+   * continuity. Default false (Zhipu server default strips prior thinking from
+   * context to reduce cost).
    */
-  zhipuClearThinking?: boolean;
+  zhipuPreservedThinking?: boolean;
   /**
    * 自定义推理强度
    */
@@ -191,6 +192,6 @@ export const AgentChatConfigSchema = z.object({
     .optional(),
   searchMode: z.enum(['off', 'on', 'auto']).optional(),
   textVerbosity: z.enum(['low', 'medium', 'high']).optional(),
-  zhipuClearThinking: z.boolean().optional(),
+  zhipuPreservedThinking: z.boolean().optional(),
   zhipuReasoningEffort: z.enum(['max', 'high', 'skip']).optional(),
 });

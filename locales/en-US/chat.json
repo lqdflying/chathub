@@ -130,8 +130,8 @@
       "desc": "When enabled, web links will be automatically parsed to retrieve the actual webpage context content",
       "title": "Extract Webpage Link Content"
     },
-    "zhipuClearThinking": {
-      "desc": "When off, enables Preserved Thinking (thinking.clear_thinking=false) so historical reasoning_content is replayed unmodified to improve multi-turn reasoning quality. Default on (Zhipu server default strips prior thinking from context to reduce cost). Requires thinking to be enabled.",
+    "zhipuPreservedThinking": {
+      "desc": "When enabled, turns on Preserved Thinking (thinking.clear_thinking=false) so historical reasoning_content is replayed unmodified to improve multi-turn reasoning quality (increases context length and cost). Default off (Zhipu server default strips prior thinking from context to reduce cost). Requires thinking to be enabled.",
       "title": "Preserve Historical Thinking (Preserved Thinking)"
     },
     "zhipuReasoning": {

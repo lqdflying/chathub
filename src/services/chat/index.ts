@@ -311,9 +311,10 @@ class ChatService {
               ...(payload.model === 'kimi-k2.6' && chatConfig.moonshotPreservedReasoning
                 ? { keep: 'all' as const }
                 : {}),
-              // Zhipu GLM Preserved Thinking: replay historical reasoning_content unmodified.
-              // The runtime strips budget_tokens before sending to Zhipu.
-              ...(payload.provider === 'zhipu' && chatConfig.zhipuClearThinking === false
+              // Zhipu GLM Preserved Thinking: when true, replay historical reasoning_content
+              // unmodified (thinking.clear_thinking=false). The runtime strips
+              // budget_tokens before sending to Zhipu.
+              ...(payload.provider === 'zhipu' && chatConfig.zhipuPreservedThinking
                 ? { clear_thinking: false as const }
                 : {}),
             };

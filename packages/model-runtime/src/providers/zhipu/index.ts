@@ -20,6 +20,19 @@ const supportsReasoningEffort = (model: string) => {
   return major > 5 || (major === 5 && minor >= 2);
 };
 
+// `tool_stream` is documented for glm-4.6, glm-4.7, glm-5 text models only
+// (https://docs.z.ai/guides/tools/stream-tool). Vision variants (glm-5v-turbo,
+// glm-4.5v, glm-4.6v) use the Vision request schema, which has no tool_stream
+// field; exclude them via the 'v' id heuristic.
+const supportsToolStream = (model: string) => {
+  if (model.includes('v')) return false;
+  const match = model.match(/^glm-(\d+)(?:\.(\d+))?/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2] ?? 0);
+  return major > 4 || (major === 4 && minor >= 6);
+};
+
 const ZHIPU_WEB_SEARCH_TOOL = {
   type: 'web_search',
   web_search: { enable: true, search_engine: 'search_pro_jina' },
@@ -58,6 +71,11 @@ export const buildZhipuPayload = (
   } = payload;
 
   // GLM-5.2: built-in web search and JSON response_format require thinking disabled.
+  // NOTE: This exclusion is NOT documented by Zhipu (verified across the chat-completion
+  // API ref, thinking guide, thinking-mode guide, and web-search guide as of 2026-08-05).
+  // Kept as an empirical guard pending canary verification against the live GLM-5.2 API.
+  // If the canary confirms GLM-5.2 accepts thinking + web_search/JSON, remove this guard
+  // in a follow-up.
   const wantsJson = response_format?.type === 'json_object';
   const mustDisableThinking = model === 'glm-5.2' && (!!enabledSearch || wantsJson);
 
@@ -83,9 +101,9 @@ export const buildZhipuPayload = (
   // `do_sample: false` selects greedy decoding; sampling params then do not apply.
   const greedy = temperature === 0;
 
-  // `tool_stream` streams tool-call arguments incrementally (GLM-4.6+, requires stream).
+  // `tool_stream` streams tool-call arguments incrementally (GLM-4.6+ text models, requires stream).
   const hasFunctionTools = Array.isArray(tools) && tools.length > 0;
-  const toolStream = (payload.stream ?? true) && hasFunctionTools;
+  const toolStream = (payload.stream ?? true) && hasFunctionTools && supportsToolStream(model);
 
   // Zhipu only supports `tool_choice: 'auto'`; other variants are rejected.
   const finalTools = enabledSearch
