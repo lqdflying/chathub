@@ -115,7 +115,16 @@ export class AiProviderModel {
     // eslint-disable-next-line unicorn/consistent-function-scoping
     const defaultSerialize = (s: string) => s;
     const encrypt = encryptor ?? defaultSerialize;
-    const keyVaults = await encrypt(JSON.stringify(value.keyVaults));
+    // `value.keyVaults` is `undefined` when the form sent `null` (coerced by
+    // UpdateAiProviderConfigSchema) or when the caller omitted the field.
+    // Skip encryption and let Drizzle omit the column — for a new provider
+    // the column stays NULL (read back as {}), for an existing provider the
+    // previously saved keys are preserved. `JSON.stringify(undefined)` would
+    // otherwise return the value `undefined` and crash the gatekeeper.
+    const keyVaults =
+      value.keyVaults === undefined
+        ? undefined
+        : await encrypt(JSON.stringify(value.keyVaults));
 
     const commonFields = {
       checkModel: value.checkModel,

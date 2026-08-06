@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiProviderModel } from '@/database/models/aiProvider';
@@ -8,11 +9,21 @@ import { AiProviderDetailItem, AiProviderRuntimeState } from '@/types/aiProvider
 
 import { aiProviderRouter } from '../aiProvider';
 
-vi.mock('@/server/globalConfig');
+// Explicit factory avoids the auto-mock loading the real globalConfig (which
+// imports @/envs/app and throws without APP_URL at module-load time).
+vi.mock('@/server/globalConfig', () => ({
+  getServerGlobalConfig: vi.fn(),
+}));
 vi.mock('@/server/modules/KeyVaultsEncrypt');
 vi.mock('@/database/repositories/aiInfra');
 vi.mock('@/database/models/aiProvider');
 vi.mock('@/database/models/user');
+// Avoid the top-level `getDBInstance()` call in db-adaptor (needs KEY_VAULTS_SECRET
+// + DATABASE_URL at import time). Provide a stub serverDB so ctx.serverDB exists
+// for the mocked AiProviderModel/AiInfraRepos constructors. Mirrors user.test.ts.
+vi.mock('@/database/core/db-adaptor', () => ({
+  getServerDB: vi.fn().mockResolvedValue({}),
+}));
 
 describe('aiProviderRouter', () => {
   const mockUserId = 'test-user-id';
@@ -197,6 +208,23 @@ describe('aiProviderRouter', () => {
       expect(mockUpdateConfig).toHaveBeenCalledWith(
         mockProviderId,
         { checkModel: undefined, config: { enableResponseApi: false } },
+        mockGateKeeper.encrypt,
+      );
+    });
+
+    it('should tolerate null keyVaults from form (new provider with no saved vault)', async () => {
+      const mockUpdateConfig = vi.fn();
+      vi.mocked(AiProviderModel).prototype.updateConfig = mockUpdateConfig;
+
+      const caller = aiProviderRouter.createCaller(createMockContext());
+      await caller.updateAiProviderConfig({
+        id: mockProviderId,
+        value: { keyVaults: null as any, checkModel: 'gpt-4' },
+      });
+
+      expect(mockUpdateConfig).toHaveBeenCalledWith(
+        mockProviderId,
+        { keyVaults: undefined, checkModel: 'gpt-4' },
         mockGateKeeper.encrypt,
       );
     });

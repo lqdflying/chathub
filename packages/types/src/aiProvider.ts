@@ -426,15 +426,22 @@ export const UpdateAiProviderConfigSchema = z.object({
     })
     .optional(),
   fetchOnClient: z.boolean().nullable().optional(),
-  keyVaults: z
-    .record(
-      z.string(),
-      z.union([
-        z.string().optional(),
-        z.record(z.string(), z.string()).optional(), // 支持嵌套对象，如 customHeaders
-      ]),
-    )
-    .optional(),
+  // AntD Form.getFieldsValue(true) returns `keyVaults: null` when the nested
+  // apiKey/baseURL fields are registered but empty (e.g. a newly added
+  // provider with no saved vault). `.optional()` accepts `undefined` but
+  // rejects `null`, so coerce null → undefined — same pattern as `checkModel`.
+  keyVaults: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    z
+      .record(
+        z.string(),
+        z.union([
+          z.string().optional(),
+          z.record(z.string(), z.string()).optional(), // 支持嵌套对象，如 customHeaders
+        ]),
+      )
+      .optional(),
+  ),
 });
 
 export type UpdateAiProviderConfigParams = z.infer<typeof UpdateAiProviderConfigSchema>;
