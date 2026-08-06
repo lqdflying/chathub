@@ -17,6 +17,7 @@ import DeepSeekOptions from './providers/DeepSeekOptions';
 import MinimaxOptions from './providers/MinimaxOptions';
 import MoonshotOptions from './providers/MoonshotOptions';
 import OpenAIOptions from './providers/OpenAIOptions';
+import ZhipuOptions from './providers/ZhipuOptions';
 
 const useStyles = createStyles(({ css, token, cx }) => ({
   container: css`
@@ -99,6 +100,8 @@ const ModelSwitch = memo(() => {
                 <DeepSeekOptions />
               ) : provider === 'openai' || provider === 'openaicompatible' ? (
                 <OpenAIOptions />
+              ) : provider === 'zhipu' ? (
+                <ZhipuOptions />
               ) : (
                 <ControlsForm />
               ),
@@ -109,7 +112,8 @@ const ModelSwitch = memo(() => {
               provider === 'anthropiccompatible' ||
               provider === 'deepseek' ||
               provider === 'openai' ||
-              provider === 'openaicompatible'
+              provider === 'openaicompatible' ||
+              provider === 'zhipu'
                 ? 320
                 : 350,
             placement: 'topLeft',

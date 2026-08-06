@@ -15,13 +15,14 @@ const zhipuChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 1_048_576,
     description:
-      'GLM-5.2 is Zhipu\'s flagship text-only coding/agent model with a 1M-token context window and Deep Thinking (always on by default).',
+      'GLM-5.2 is Zhipu\'s flagship text-only coding/agent model with a 1M-token context window, Deep Thinking, and GLM-5.2-only reasoning_effort control. Web search and JSON mode require thinking disabled.',
     displayName: 'GLM-5.2',
     enabled: true,
     id: 'glm-5.2',
     maxOutput: 131_072,
     releasedAt: '2026-06-13',
     settings: {
+      extendParams: ['enableReasoning', 'zhipuReasoningEffort', 'zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -41,6 +42,7 @@ const zhipuChatModels: AIChatModelCard[] = [
     maxOutput: 131_072,
     releasedAt: '2026-03-01',
     settings: {
+      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -59,6 +61,7 @@ const zhipuChatModels: AIChatModelCard[] = [
     maxOutput: 131_072,
     releasedAt: '2026-01-01',
     settings: {
+      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -77,6 +80,7 @@ const zhipuChatModels: AIChatModelCard[] = [
     maxOutput: 131_072,
     releasedAt: '2026-02-01',
     settings: {
+      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -89,12 +93,13 @@ const zhipuChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 204_800,
     description:
-      'GLM-4.7 is a text model with forced Deep Thinking (thinking is forced per Zhipu docs) and a 200K context window.',
+      'GLM-4.7 is a text model with forced Deep Thinking (thinking is forced per Zhipu docs) and a 200K context window. Ships no reasoning toggle, but Preserved Thinking (clear_thinking) is a documented GLM-4.5+ capability.',
     displayName: 'GLM-4.7',
     id: 'glm-4.7',
     maxOutput: 131_072,
     releasedAt: '2025-12-01',
     settings: {
+      extendParams: ['zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -113,6 +118,7 @@ const zhipuChatModels: AIChatModelCard[] = [
     maxOutput: 131_072,
     releasedAt: '2025-10-01',
     settings: {
+      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -131,6 +137,7 @@ const zhipuChatModels: AIChatModelCard[] = [
     maxOutput: 98_304,
     releasedAt: '2025-07-01',
     settings: {
+      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',
@@ -149,6 +156,9 @@ const zhipuChatModels: AIChatModelCard[] = [
     id: 'glm-5v-turbo',
     maxOutput: 131_072,
     releasedAt: '2026-05-01',
+    settings: {
+      extendParams: ['enableReasoning', 'zhipuPreservedThinking'],
+    },
     type: 'chat',
   },
 ];

@@ -445,12 +445,11 @@ describe('ChatService', () => {
         );
       });
 
-      it('should ignore a stale zhipuPreservedThinking config on zhipu glm-4.7 (no thinking field sent)', async () => {
+      it('should attach Preserved Thinking on zhipu glm-4.7 (forced thinking, no enableReasoning toggle)', async () => {
         const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
         const messages = [{ content: 'Test glm-4.7 preserved', role: 'user' }] as UIChatMessage[];
 
-        // Legacy saved configs may still carry zhipuPreservedThinking; ChatHub no
-        // longer sends any `thinking` field for zhipu, so it must be ignored.
+        // glm-4.7 carries zhipuPreservedThinking but NOT enableReasoning (thinking forced)
         vi.spyOn(aiModelSelectors, 'isModelHasExtendParams').mockReturnValue(() => true);
         vi.spyOn(aiModelSelectors, 'modelExtendParams').mockReturnValue(() => [
           'zhipuPreservedThinking',
@@ -468,8 +467,19 @@ describe('ChatService', () => {
           plugins: [],
         });
 
-        const callArg = getChatCompletionSpy.mock.calls[0][0];
-        expect(callArg.thinking).toBeUndefined();
+        // Service emits thinking with clear_thinking:false + type:enabled (forced);
+        // the runtime translates this to the gateway-safe {clear_thinking:false}
+        // wire form (no `type`) and strips budget_tokens before sending to Zhipu.
+        expect(getChatCompletionSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            thinking: {
+              budget_tokens: 0,
+              clear_thinking: false,
+              type: 'enabled',
+            },
+          }),
+          undefined,
+        );
       });
 
       it('should send no thinking object on zhipu glm-4.7 when Preserved Thinking is off', async () => {
@@ -495,6 +505,37 @@ describe('ChatService', () => {
 
         const callArg = getChatCompletionSpy.mock.calls[0][0];
         expect(callArg.thinking).toBeUndefined();
+      });
+
+      it('should map zhipuReasoningEffort skip to API none (not minimal) on glm-5.2', async () => {
+        const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+        const messages = [{ content: 'Test glm-5.2 effort skip', role: 'user' }] as UIChatMessage[];
+
+        vi.spyOn(aiModelSelectors, 'isModelHasExtendParams').mockReturnValue(() => true);
+        vi.spyOn(aiModelSelectors, 'modelExtendParams').mockReturnValue(() => [
+          'enableReasoning',
+          'zhipuReasoningEffort',
+          'zhipuPreservedThinking',
+        ]);
+
+        vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockReturnValue({
+          enableReasoning: true,
+          searchMode: 'off',
+          zhipuReasoningEffort: 'skip',
+        } as any);
+
+        await chatService.createAssistantMessage({
+          messages,
+          model: 'glm-5.2',
+          provider: 'zhipu',
+          plugins: [],
+        });
+
+        // 'skip' maps to 'none' — some LiteLLM → vLLM GLM gateways reject 'minimal'.
+        expect(getChatCompletionSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ reasoning_effort: 'none' }),
+          undefined,
+        );
       });
 
       it('should use default budget when reasoningBudgetToken is not set', async () => {
