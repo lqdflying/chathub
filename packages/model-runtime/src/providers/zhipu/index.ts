@@ -146,7 +146,10 @@ const fetchZhipuModels = async ({ client }: { client: OpenAI }): Promise<any[]> 
 
 export const LobeZhipuAI = createOpenAICompatibleRuntime({
   baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-  cacheSupport: 'unobservable',
+  // GLM-5.x/4.x expose implicit prompt caching and report hits in
+  // `usage.prompt_tokens_details.cached_tokens` (https://docs.z.ai/guides/capabilities/cache),
+  // confirmed live via canary probe (stable prefix → cached_tokens > 0 on repeat, stream included).
+  cacheSupport: 'supported',
   chatCompletion: {
     handlePayload: buildZhipuPayload,
   },

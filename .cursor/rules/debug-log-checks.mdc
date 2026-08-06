@@ -25,6 +25,7 @@ Both dedicated switches emit prefixed JSON. Query their distinct `debug_namespac
 | `DEBUG_ANTHROPICCOMPATIBLE_CACHE=1` | safe    | Anthropic-compatible cache events              |
 | `DEBUG_GOOGLE_CACHE=1`              | safe    | Gemini and Vertex cache events                 |
 | `DEBUG_OPENAICOMPATIBLE_CACHE=1`    | safe    | OpenAI-compatible cache events                 |
+| `DEBUG_ZHIPU_CACHE=1`               | safe    | Zhipu (GLM) implicit-cache events              |
 
 Cache switches require `KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET`. Raw `DEBUG_*_CHAT_COMPLETION` and `DEBUG_OPENAICOMPATIBLE_RESPONSES` switches are separate transport debugging and can expose prompts/responses.
 

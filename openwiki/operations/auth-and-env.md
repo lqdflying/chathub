@@ -306,7 +306,7 @@ DEBUG_ZHIPU_CHAT_COMPLETION=1
 
 The structured line starts with `[provider-debug:request]` and includes provider, hashed endpoint origin/path, path depth, query-key names, upstream route, model, stream flag, payload fingerprint, turn shape, tool count/fingerprint, and key parameter presence. It omits URL credentials, hosts, path segments, query values, authorization secrets, and tool names. It is intended for comparing endpoint/request shape without immediately inspecting full prompt text.
 
-The same flags still enable raw `[requestPayload]` and stream logs, so do not leave them enabled in privacy-sensitive production sessions. For OpenAI-compatible cache diagnostics, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1`, which is a separate redacted cache-focused logger.
+The same flags still enable raw `[requestPayload]` and stream logs, so do not leave them enabled in privacy-sensitive production sessions. For OpenAI-compatible cache diagnostics, prefer `DEBUG_OPENAICOMPATIBLE_CACHE=1`, which is a separate redacted cache-focused logger. For Zhipu (GLM) cache diagnostics, prefer `DEBUG_ZHIPU_CACHE=1` (shared `model-cache-debug` namespace) — GLM uses implicit prefix caching and reports hits in `usage.prompt_tokens_details.cached_tokens`; it needs no request cache fields.
 
 ## Tool and MCP debug environment variable
 

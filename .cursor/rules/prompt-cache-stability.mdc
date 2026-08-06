@@ -12,7 +12,7 @@ For OpenAI-compatible request conversion, stream lifecycle, cancellation, tool c
 
 ## What breaks the cache prefix
 
-1. **Re-expanding placeholders in history or volatile system prompts.** Historical user/assistant messages were already expanded when originally sent and must not be re-expanded. System messages may be processed because templates can be injected each request, but for `openaicompatible`, volatile generators like `{{time}}`, `{{datetime}}`, `{{iso}}`, `{{timestamp}}`, `{{hour}}`, `{{minute}}`, `{{second}}`, `{{random*}}`, and `{{uuid*}}` must remain unexpanded in system messages. Latest user messages may expand placeholders.
+1. **Re-expanding placeholders in history or volatile system prompts.** Historical user/assistant messages were already expanded when originally sent and must not be re-expanded. System messages may be processed because templates can be injected each request, but for cache-prefix-sensitive providers (`openaicompatible`, `zhipu`), volatile generators like `{{time}}`, `{{datetime}}`, `{{iso}}`, `{{timestamp}}`, `{{hour}}`, `{{minute}}`, `{{second}}`, `{{random*}}`, and `{{uuid*}}` must remain unexpanded in system messages. Latest user messages may expand placeholders.
 
 2. **Leaking runtime-only or provider-specific fields into the wrong upstream body.** Generic `openaicompatible` requests must strip internal routing/config fields like `provider`, `apiMode`, `enabledContextCaching`, `enabledSearch`, `responseMode`, `thinkingBudget`, `urlContext`, `openAICompatCache`, and `openAICompatResponsesParams`, plus native-only fields such as `reasoning_content` or `reasoning_split`. Keep provider-documented fields in native adapters that accept them, such as DeepSeek/Moonshot `reasoning_content` and MiniMax `reasoning_split`.
 
@@ -26,7 +26,7 @@ For OpenAI-compatible request conversion, stream lifecycle, cancellation, tool c
 
 ### Context Engine (`packages/context-engine/`)
 
-- `PlaceholderVariablesProcessor`: Expand **system** + **latest user** messages only. Historical user/assistant messages must remain untouched. For `openaicompatible`, skip volatile generators in system messages with `VOLATILE_GENERATOR_KEYS`; other providers keep existing placeholder behavior unless cache requirements change.
+- `PlaceholderVariablesProcessor`: Expand **system** + **latest user** messages only. Historical user/assistant messages must remain untouched. For cache-prefix-sensitive providers (`openaicompatible`, `zhipu` — see `CACHE_PREFIX_SENSITIVE_PROVIDERS`), skip volatile generators in system messages with `VOLATILE_GENERATOR_KEYS`; other providers keep existing placeholder behavior unless cache requirements change. `zhipu` is included because GLM implicit prefix caching requires a byte-stable prefix ("minor formatting differences may affect cache effectiveness" — https://docs.z.ai/guides/capabilities/cache).
 - `HistoryTruncateProcessor`: Anchor the configured history window to the latest user message. Retain the assistant/tool tail after it without sliding the prefix; if that tail exceeds the default continuation bound, keep its **newest 20 messages** so the current tool loop can still progress. Re-anchor only when a new user message starts. Tool continuations must pass the complete conversation into context engineering instead of pre-slicing it in the store.
 - `MessageContentProcessor`: Replay exactly **one** signed `thinking` block + standalone `redacted_thinking` blocks. Never duplicate thinking text across multiple signatures. Never fabricate a thinking block with an empty signature — unsigned reasoning (OpenAI-compatible history, interrupted streams) stays on `message.reasoning` and is NOT converted into content parts; Anthropic rejects `signature: ''` blocks.
 - `SystemRoleInjector` / `ToolSystemRoleProvider`: These inject raw templates every request. `Date.now()` in `id`/`createdAt` fields is OK because `MessageCleanupProcessor` strips them — but if cleanup ever stops stripping `id`, these timestamps would leak into the prefix.
@@ -98,7 +98,7 @@ When using or updating `skills/chathub-provider-probe`:
 
 - Assert historical messages are NOT re-expanded (PlaceholderVariables tests)
 - Assert a pathological assistant/tool tail keeps the newest 20 continuation messages without moving the latest-user-anchored prefix
-- Assert volatile generators are skipped in system messages for `openaicompatible`
+- Assert volatile generators are skipped in system messages for `openaicompatible` and `zhipu` (cache-prefix-sensitive providers)
 - Assert `reasoning_content` is NOT present for `openaicompatible` provider (Chat Completions), and no `reasoning` items appear in Responses `input`
 - Assert Responses-API-only fields (`reasoning`, `text`, `verbosity`, `truncation`) are NOT present in Chat Completions mode
 - Assert OpenAI-compatible cache matrix fields produce the intended body/header shape for both Chat Completions and Responses

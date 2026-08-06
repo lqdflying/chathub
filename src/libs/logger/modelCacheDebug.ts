@@ -23,6 +23,7 @@ const CACHE_DEBUG_ENV_BY_PROVIDER: Readonly<Record<string, string>> = {
   openai: 'DEBUG_OPENAI_CACHE',
   openaicompatible: 'DEBUG_OPENAICOMPATIBLE_CACHE',
   vertexai: 'DEBUG_GOOGLE_CACHE',
+  zhipu: 'DEBUG_ZHIPU_CACHE',
 };
 
 const TRUSTED_PROVIDER_NAMES = new Set(Object.keys(CACHE_DEBUG_ENV_BY_PROVIDER));
@@ -182,7 +183,8 @@ export const resolveModelCacheRuntimeFamily = (provider: string): ModelCacheRunt
     case 'deepseek':
     case 'minimax':
     case 'moonshot':
-    case 'openaicompatible': {
+    case 'openaicompatible':
+    case 'zhipu': {
       return 'openai-compatible';
     }
     default: {

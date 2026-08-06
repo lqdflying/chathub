@@ -31,16 +31,29 @@ const VOLATILE_GENERATOR_KEYS = new Set<string>([
 
 const log = debug('context-engine:processor:PlaceholderVariablesProcessor');
 
+/**
+ * Providers whose prompt caching is keyed on a byte-identical prefix, so any
+ * volatile placeholder expanded into a SYSTEM message (time, random, uuid,
+ * etc.) breaks the cache for the whole session.
+ *
+ * - `openaicompatible`: OpenAI prompt caching.
+ * - `zhipu`: GLM implicit prefix caching (https://docs.z.ai/guides/capabilities/cache);
+ *   "minor formatting differences may affect cache effectiveness" and the cached
+ *   prefix must be byte-stable. Confirmed live via canary probe.
+ */
+const CACHE_PREFIX_SENSITIVE_PROVIDERS = new Set(['openaicompatible', 'zhipu']);
+
 const placeholderVariablesRegex = /{{(.*?)}}/g;
 
 export interface PlaceholderVariablesConfig {
   /** Recursive parsing depth, default is 2 */
   depth?: number;
   /**
-   * The runtime provider id. When `openaicompatible`, volatile placeholder
-   * generators (time, random, uuid, etc.) are skipped in SYSTEM messages so
-   * the system prompt stays byte-stable across requests and OpenAI prompt
-   * caching keeps hitting. Other providers expand all placeholders as before.
+   * The runtime provider id. For cache-prefix-sensitive providers
+   * (`openaicompatible`, `zhipu`), volatile placeholder generators (time,
+   * random, uuid, etc.) are skipped in SYSTEM messages so the system prompt
+   * stays byte-stable across requests and prompt caching keeps hitting. Other
+   * providers expand all placeholders as before.
    */
   provider?: string;
   /** Variable generators mapping, key is variable name, value is generator function */
@@ -211,20 +224,24 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
    *
    * @param message 消息对象
    * @param depth 递归深度
-   * @param isSystem 是否为系统消息 — 当 provider 为 `openaicompatible` 时，
-   *   系统消息会跳过 volatile 生成器以保持 prompt-cache 前缀稳定。
+   * @param isSystem 是否为系统消息 — 当 provider 属于缓存前缀敏感集合
+   *   (`openaicompatible`、`zhipu`) 时，系统消息会跳过 volatile 生成器以保持
+   *   prompt-cache 前缀稳定。
    */
   private processMessagePlaceholders(message: any, depth: number, isSystem = false): any {
     if (!message?.content) return message;
 
     const { content } = message;
 
-    // For `openaicompatible` system messages, filter out volatile generators
-    // (time, random, uuid, etc.) so the system prompt stays byte-stable across
-    // requests and OpenAI prompt caching keeps hitting. All other providers and
-    // message roles expand all placeholders as before.
+    // For cache-prefix-sensitive providers (openaicompatible, zhipu) system
+    // messages, filter out volatile generators (time, random, uuid, etc.) so the
+    // system prompt stays byte-stable across requests and prompt caching keeps
+    // hitting. All other providers and message roles expand all placeholders as
+    // before.
     const generators =
-      isSystem && this.config.provider === 'openaicompatible'
+      isSystem &&
+      this.config.provider !== undefined &&
+      CACHE_PREFIX_SENSITIVE_PROVIDERS.has(this.config.provider)
         ? Object.fromEntries(
             Object.entries(this.config.variableGenerators).filter(
               ([key]) => !VOLATILE_GENERATOR_KEYS.has(key),

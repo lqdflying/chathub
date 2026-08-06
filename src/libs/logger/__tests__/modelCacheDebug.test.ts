@@ -5,6 +5,7 @@ import {
   createModelCacheDiagnosticContext,
   createTrustedPromptCacheKey,
   protectExternalToolsDiagnosticId,
+  resolveModelCacheRuntimeFamily,
 } from '../modelCacheDebug';
 
 describe('model cache diagnostic logging', () => {
@@ -241,5 +242,47 @@ describe('model cache diagnostic logging', () => {
       type: 'terminal_error',
     });
     expect(serializedRecord).not.toMatch(/PRIVATE_ERROR_MESSAGE|secret\.example\.com/);
+  });
+
+  it('creates a zhipu cache diagnostic context and maps it to the openai-compatible family', () => {
+    vi.stubEnv('DEBUG_ZHIPU_CACHE', '1');
+    const context = createModelCacheDiagnosticContext({
+      provider: 'zhipu',
+      runtimeFamily: resolveModelCacheRuntimeFamily('zhipu'),
+    });
+
+    expect(context).toBeDefined();
+    expect(context?.provider).toBe('zhipu');
+    expect(context?.runtimeFamily).toBe('openai-compatible');
+
+    context?.emit({
+      apiType: 'chat-completions',
+      cacheStatus: 'hit',
+      cacheSupport: 'supported',
+      requestHash: '0123456789abcdef0123456789abcdef',
+      responseHash: 'abcdef0123456789abcdef0123456789',
+      type: 'usage',
+      usage: { inputCachedTokens: 1024, totalInputTokens: 1042 },
+    });
+
+    expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+    expect(consoleLogSpy.mock.calls[0][0]).toBe('[model-cache-debug:usage]');
+    expect(JSON.parse(consoleLogSpy.mock.calls[0][1] as string)).toMatchObject({
+      cacheStatus: 'hit',
+      provider: 'zhipu',
+      runtimeFamily: 'openai-compatible',
+      type: 'usage',
+      usage: { inputCachedTokens: 1024, totalInputTokens: 1042 },
+    });
+  });
+
+  it('does not create a zhipu context unless DEBUG_ZHIPU_CACHE is enabled', () => {
+    const context = createModelCacheDiagnosticContext({
+      provider: 'zhipu',
+      runtimeFamily: resolveModelCacheRuntimeFamily('zhipu'),
+    });
+
+    expect(context).toBeUndefined();
+    expect(consoleLogSpy).not.toHaveBeenCalled();
   });
 });

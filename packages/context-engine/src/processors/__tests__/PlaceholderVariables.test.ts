@@ -448,22 +448,22 @@ describe('PlaceholderVariablesProcessor', () => {
       expect(result.messages[1].content).toBe('Latest user at 14:30:45 with 12345');
     });
 
-    it('should expand ALL placeholders in system messages for non-openaicompatible providers', async () => {
+    it('should expand ALL placeholders in system messages for non-cache-prefix-sensitive providers', async () => {
       const generators = {
         date: () => '2023-12-25',
         time: () => '14:30:45',
       };
 
       const processor = new PlaceholderVariablesProcessor({
-        provider: 'openai',
+        provider: 'anthropic',
         variableGenerators: generators,
       });
 
       const context = {
         initialState: {
           messages: [],
-          model: 'gpt-4',
-          provider: 'openai',
+          model: 'claude-3-5-sonnet',
+          provider: 'anthropic',
           systemRole: '',
           tools: [],
         },
@@ -476,15 +476,110 @@ describe('PlaceholderVariablesProcessor', () => {
             updatedAt: Date.now(),
           },
         ],
-        metadata: { model: 'gpt-4', maxTokens: 4096 },
+        metadata: { model: 'claude-3-5-sonnet', maxTokens: 4096 },
         isAborted: false,
         executedProcessors: [],
       };
 
       const result = await processor.process(context as any);
 
-      // All placeholders expanded (backward compat for non-openaicompatible)
+      // All placeholders expanded (backward compat for non-cache-prefix-sensitive providers)
       expect(result.messages[0].content).toBe('System at 14:30:45 on 2023-12-25');
+    });
+
+    it('should skip volatile placeholders in system messages for zhipu provider', async () => {
+      const generators = {
+        date: () => '2023-12-25',
+        random: () => '12345',
+        time: () => '14:30:45',
+      };
+
+      const processor = new PlaceholderVariablesProcessor({
+        provider: 'zhipu',
+        variableGenerators: generators,
+      });
+
+      const context = {
+        initialState: {
+          messages: [],
+          model: 'glm-5.2',
+          provider: 'zhipu',
+          systemRole: '',
+          tools: [],
+        },
+        messages: [
+          {
+            id: 'sys',
+            role: 'system',
+            content: 'System at {{time}} on {{date}} with {{random}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+          {
+            id: '1',
+            role: 'user',
+            content: 'Latest user at {{time}} with {{random}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+        metadata: { model: 'glm-5.2', maxTokens: 4096 },
+        isAborted: false,
+        executedProcessors: [],
+      };
+
+      const result = await processor.process(context as any);
+
+      // System message: only stable generators (date) expanded; volatile ones (time, random) left as-is
+      expect(result.messages[0].content).toBe(
+        'System at {{time}} on 2023-12-25 with {{random}}',
+      );
+      // Latest user message: ALL generators expanded (volatile values are fine here)
+      expect(result.messages[1].content).toBe('Latest user at 14:30:45 with 12345');
+    });
+
+    it('should keep the zhipu system prompt byte-stable across successive runs', async () => {
+      // Simulates two consecutive requests: volatile generators change value each
+      // call, but the system message must stay byte-identical so GLM implicit
+      // prefix caching can hit.
+      let tick = 0;
+      const generators = {
+        date: () => '2023-12-25',
+        time: () => `14:30:${String(45 + tick++).padStart(2, '0')}`,
+      };
+
+      const processor = new PlaceholderVariablesProcessor({
+        provider: 'zhipu',
+        variableGenerators: generators,
+      });
+
+      const buildContext = () => ({
+        initialState: {
+          messages: [],
+          model: 'glm-5.2',
+          provider: 'zhipu',
+          systemRole: '',
+          tools: [],
+        },
+        messages: [
+          {
+            id: 'sys',
+            role: 'system',
+            content: 'System at {{time}} on {{date}}',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          },
+        ],
+        metadata: { model: 'glm-5.2', maxTokens: 4096 },
+        isAborted: false,
+        executedProcessors: [],
+      });
+
+      const first = await processor.process(buildContext() as any);
+      const second = await processor.process(buildContext() as any);
+
+      expect(first.messages[0].content).toBe('System at {{time}} on 2023-12-25');
+      expect(second.messages[0].content).toBe(first.messages[0].content);
     });
   });
 });

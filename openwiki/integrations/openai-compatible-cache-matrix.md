@@ -74,6 +74,7 @@ debugging and are suitable for production troubleshooting:
 | Anthropic-compatible      | `DEBUG_ANTHROPICCOMPATIBLE_CACHE=1` | Existing configured compatibility behavior only.                                                    |
 | Google Gemini / Vertex AI | `DEBUG_GOOGLE_CACHE=1`              | Automatic cache telemetry where usage reports it; no cached-content resources are created.          |
 | Azure AI Inference        | `DEBUG_AZUREAI_CACHE=1`             | Reported as `unobservable`; no cache counters are fabricated.                                       |
+| Zhipu (GLM)               | `DEBUG_ZHIPU_CACHE=1`               | Implicit prefix caching; `usage.prompt_tokens_details.cached_tokens` reported; no request fields.   |
 
 All switches require `KEY_VAULTS_SECRET` or `NEXT_AUTH_SECRET` so request,
 response, model, and native prompt-cache correlations use deployment-keyed
