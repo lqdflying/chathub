@@ -44,6 +44,8 @@ When producing or updating an **implementation plan** (e.g. Cursor Plan mode / `
 
 ## Agent commit policy (STRICT)
 
+**One round done → one local commit, immediately — no exceptions.** A completed, verified round must never be left in unstashed/uncommitted status. Commit it locally before sending your final response, in every affected repository. Do not defer the commit to the next prompt; do not stash completed work; do not leave it for "later."
+
 **After one bugfix or feature is complete, verified, and documented as required,
 stage only that work and create local commits automatically in every affected
 Git repository.** Do not wait for another user prompt. If both the main
