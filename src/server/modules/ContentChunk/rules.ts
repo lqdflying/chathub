@@ -1,4 +1,6 @@
-export type ChunkingService = 'unstructured' | 'doc2x' | 'default';
+export type ChunkingService = 'unstructured' | 'markitdown' | 'doc2x' | 'default';
+
+const KNOWN_CHUNKING_SERVICES = new Set<string>(['unstructured', 'markitdown', 'doc2x', 'default']);
 
 export const ChunkingRuleParser = {
   parse(rulesStr: string): Record<string, ChunkingService[]> {
@@ -15,7 +17,7 @@ export const ChunkingRuleParser = {
       rules[fileType.toLowerCase()] = services
         .split(',')
         .map((s) => s.trim().toLowerCase())
-        .filter((s): s is ChunkingService => ['unstructured', 'doc2x', 'default'].includes(s));
+        .filter((s): s is ChunkingService => KNOWN_CHUNKING_SERVICES.has(s));
     }
 
     return rules;

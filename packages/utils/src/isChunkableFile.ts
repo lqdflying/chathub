@@ -70,6 +70,76 @@ const UNSUPPORTED_EXTENSIONS = new Set([
   'zip',
 ]);
 
+/**
+ * Formats the MarkItDown sidecar converts to Markdown that the built-in loaders
+ * cannot read. Mirrors the converter set in `docker/markitdown` — spreadsheets,
+ * Outlook mail, notebooks, archives, feeds, images and audio.
+ *
+ * Legacy `.doc`/`.docm` stay out: MarkItDown has no converter for them either.
+ */
+const MARKITDOWN_EXTENSIONS = new Set([
+  'atom',
+  'htm',
+  'ipynb',
+  'jpeg',
+  'jpg',
+  'jsonl',
+  'm4a',
+  'mp3',
+  'mp4',
+  'msg',
+  'png',
+  'rss',
+  'rtf',
+  'text',
+  'wav',
+  'xls',
+  'xlsx',
+  'xml',
+  'zip',
+]);
+
+const MARKITDOWN_MIME_TYPES = new Set([
+  'application/atom+xml',
+  'application/csv',
+  'application/excel',
+  'application/rss+xml',
+  'application/rtf',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-outlook',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+  'audio/mp4',
+  'audio/mpeg',
+  'audio/wav',
+  'audio/x-m4a',
+  'audio/x-wav',
+  'image/jpeg',
+  'image/png',
+  'text/rtf',
+  'video/mp4',
+]);
+
+export interface ChunkableFileCapabilities {
+  /** A MarkItDown conversion sidecar is configured for this deployment. */
+  markitdown: boolean;
+}
+
+/**
+ * Which converters the deployment can reach. Resolved from the environment on
+ * the server; the client hydrates it from `GlobalServerConfig` so the upload
+ * picker offers exactly the formats the server can actually ingest.
+ */
+const capabilities: ChunkableFileCapabilities = {
+  markitdown: typeof process !== 'undefined' && !!process.env?.MARKITDOWN_SERVICE_URL,
+};
+
+export const setChunkableFileCapabilities = (next: Partial<ChunkableFileCapabilities>) => {
+  Object.assign(capabilities, next);
+};
+
+export const getChunkableFileCapabilities = (): ChunkableFileCapabilities => ({ ...capabilities });
+
 const extensionOf = (name: string) =>
   name
     .toLowerCase()
@@ -80,6 +150,16 @@ const extensionOf = (name: string) =>
 export const isChunkableFile = (name = '', fileType = ''): boolean => {
   const normalizedType = fileType.toLowerCase().split(';', 1)[0].trim();
   const extension = extensionOf(name || normalizedType);
+  const withMarkItDown = capabilities.markitdown;
+
+  if (
+    withMarkItDown && // Checked before the media-prefix and unsupported-extension rejections
+    // below, which exist only because the built-in loaders cannot read these.
+    (MARKITDOWN_EXTENSIONS.has(extension) || MARKITDOWN_MIME_TYPES.has(normalizedType))
+  ) {
+    return true;
+  }
+
   if (UNSUPPORTED_EXTENSIONS.has(extension)) return false;
   if (
     normalizedType.startsWith('image/') ||
@@ -93,6 +173,16 @@ export const isChunkableFile = (name = '', fileType = ''): boolean => {
   return CHUNKABLE_EXTENSIONS.has(extension);
 };
 
-export const chunkableFileExtensions = [...CHUNKABLE_EXTENSIONS].map(
-  (extension) => `.${extension}`,
-);
+const toDotted = (extensions: Iterable<string>) => [...extensions].map((ext) => `.${ext}`);
+
+/**
+ * Extensions to offer in the Knowledge Base upload picker. Depends on the
+ * deployment's converters, so call it at render time rather than caching it.
+ */
+export const getChunkableFileExtensions = (): string[] =>
+  capabilities.markitdown
+    ? toDotted([...CHUNKABLE_EXTENSIONS, ...MARKITDOWN_EXTENSIONS])
+    : toDotted(CHUNKABLE_EXTENSIONS);
+
+/** @deprecated prefer {@link getChunkableFileExtensions}, which honours the deployment's converters. */
+export const chunkableFileExtensions = toDotted(CHUNKABLE_EXTENSIONS);

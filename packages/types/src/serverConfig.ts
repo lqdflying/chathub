@@ -28,6 +28,11 @@ export interface GlobalServerConfig {
   enableUploadFileToServer?: boolean;
   enabledAccessCode?: boolean;
   /**
+   * A MarkItDown conversion sidecar is configured, so the Knowledge Base can
+   * ingest every format MarkItDown converts, not just the built-in loaders'.
+   */
+  enabledMarkItDown?: boolean;
+  /**
    * @deprecated
    */
   enabledOAuthSSO?: boolean;

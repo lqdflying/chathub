@@ -28,6 +28,18 @@ class LangChainError extends Error {
 }
 
 export class ChunkingLoader {
+  /**
+   * Split already-converted Markdown, keeping the markdown-aware splitter (and
+   * its chunk size / overlap) as the single place that decides chunk shape.
+   */
+  partitionMarkdown = async (text: string) => {
+    try {
+      return await MarkdownLoader(text);
+    } catch (e) {
+      throw new LangChainError((e as Error).message);
+    }
+  };
+
   partitionContent = async (filename: string, content: Uint8Array, fileType?: string) => {
     try {
       const fileBlob = new Blob([Buffer.from(content)]);

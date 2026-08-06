@@ -39,6 +39,7 @@ export const getServerGlobalConfig = async () => {
     },
     enableUploadFileToServer: !!fileEnv.S3_SECRET_ACCESS_KEY,
     enabledAccessCode: ACCESS_CODES?.length > 0,
+    enabledMarkItDown: !!knowledgeEnv.MARKITDOWN_SERVICE_URL,
 
     enabledOAuthSSO: enableNextAuth,
     image: cleanObject({

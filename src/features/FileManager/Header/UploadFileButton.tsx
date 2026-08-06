@@ -1,6 +1,6 @@
 'use client';
 
-import { chunkableFileExtensions, isChunkableFile } from '@lobechat/utils';
+import { getChunkableFileExtensions, isChunkableFile } from '@lobechat/utils';
 import { Button, Dropdown, Icon, MenuProps } from '@lobehub/ui';
 import { Upload } from 'antd';
 import { css, cx } from 'antd-style';
@@ -36,7 +36,7 @@ const UploadFileButton = ({
   const { t } = useTranslation('file');
 
   const pushDockFileList = useFileStore((s) => s.pushDockFileList);
-  const accept = knowledgeMode ? [...chunkableFileExtensions, '.zip'].join(',') : undefined;
+  const accept = knowledgeMode ? [...getChunkableFileExtensions(), '.zip'].join(',') : undefined;
   const filterFiles = (files: File[]) => (knowledgeMode ? filterKnowledgeUploads(files) : files);
   const items = useMemo<MenuProps['items']>(
     () => [
