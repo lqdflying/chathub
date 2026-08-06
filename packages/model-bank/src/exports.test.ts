@@ -15,8 +15,8 @@ describe('model-bank package.json exports should cover all aiModels files', () =
   const allModelFiles = readdirSync(aiModelsDir)
     .filter((f) => f.endsWith('.ts'))
     .map((f) => f.replace(/\.ts$/, ''))
-    // 排除非 provider 文件，如 index、类型声明等
-    .filter((name) => !['index'].includes(name));
+    // 排除非 provider 文件，如 index、类型声明、测试文件等
+    .filter((name) => !['index'].includes(name) && !name.endsWith('.test'));
 
   it('every aiModels file should be exported in package.json.exports', () => {
     const exportsMap = packageJson.exports ?? {};

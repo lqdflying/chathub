@@ -14,7 +14,8 @@
     "./moonshot": "./src/aiModels/moonshot.ts",
     "./openai": "./src/aiModels/openai.ts",
     "./openaicompatible": "./src/aiModels/openaicompatible.ts",
-    "./types": "./src/types/index.ts"
+    "./types": "./src/types/index.ts",
+    "./zhipu": "./src/aiModels/zhipu.ts"
   },
   "scripts": {
     "test": "vitest",
