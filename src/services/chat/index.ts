@@ -291,7 +291,11 @@ class ChatService {
       )(aiInfraStoreState);
       // if model has extended params, then we need to check if the model can use reasoning
 
-      if (modelExtendParams!.includes('enableReasoning')) {
+      // Zhipu never sends a `thinking` field: the official API defaults to
+      // thinking enabled, so omitting is behavior-identical, and some GLM
+      // gateways (LiteLLM → vLLM) reject the `thinking` object with HTTP 400.
+      // Skip the whole reasoning-param block for zhipu.
+      if (modelExtendParams!.includes('enableReasoning') && payload.provider !== 'zhipu') {
         if (chatConfig.enableReasoning) {
           if (
             isAnthropicRuntimeProvider(payload.provider) &&
@@ -311,33 +315,12 @@ class ChatService {
               ...(payload.model === 'kimi-k2.6' && chatConfig.moonshotPreservedReasoning
                 ? { keep: 'all' as const }
                 : {}),
-              // Zhipu GLM Preserved Thinking: when true, replay historical reasoning_content
-              // unmodified (thinking.clear_thinking=false). The runtime strips
-              // budget_tokens before sending to Zhipu.
-              ...(payload.provider === 'zhipu' && chatConfig.zhipuPreservedThinking
-                ? { clear_thinking: false as const }
-                : {}),
             };
           }
         } else {
           extendParams.thinking = {
             budget_tokens: 0,
             type: 'disabled',
-          };
-        }
-      } else if (payload.provider === 'zhipu' && modelExtendParams!.includes('zhipuPreservedThinking')) {
-        // GLM-4.7 forced-thinking + Preserved Thinking. No `enableReasoning` toggle
-        // (thinking forced by Zhipu), but `clear_thinking` is a documented GLM-4.5+
-        // capability orthogonal to forced thinking — it controls cross-turn replay,
-        // not current-turn thinking. Emit thinking={type:enabled, clear_thinking:false}
-        // only when the user enables Preserved Thinking; the runtime strips
-        // budget_tokens and rebuilds the thinking object. When off, send nothing so
-        // the runtime defaults to {type:enabled} (history stripped, Zhipu default).
-        if (chatConfig.zhipuPreservedThinking) {
-          extendParams.thinking = {
-            budget_tokens: 0,
-            clear_thinking: false as const,
-            type: 'enabled',
           };
         }
       } else if (modelExtendParams!.includes('reasoningBudgetToken')) {
@@ -418,17 +401,6 @@ class ChatService {
 
       if (modelExtendParams!.includes('minimaxReasoningSplit')) {
         extendParams.reasoning_split = chatConfig.minimaxReasoningSplit !== false;
-      }
-
-      // Zhipu GLM-5.2 only: reasoning_effort ('skip' maps to API 'minimal'). Only sent
-      // when thinking is enabled; the runtime drops it otherwise.
-      if (
-        modelExtendParams!.includes('zhipuReasoningEffort') &&
-        chatConfig.enableReasoning &&
-        chatConfig.zhipuReasoningEffort
-      ) {
-        extendParams.reasoning_effort =
-          chatConfig.zhipuReasoningEffort === 'skip' ? 'minimal' : chatConfig.zhipuReasoningEffort;
       }
     }
 

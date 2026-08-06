@@ -6,80 +6,31 @@ import { LobeZhipuAI, buildZhipuPayload } from './index';
 const baseMessage = [{ content: 'hi', role: 'user' }];
 
 describe('buildZhipuPayload', () => {
-  it('defaults thinking to enabled when omitted on a thinking-capable model', () => {
-    const out = buildZhipuPayload({
+  it('never sends a thinking field, even when the payload asks for it', () => {
+    const enabled = buildZhipuPayload({
       messages: baseMessage,
       model: 'glm-5.2',
+      thinking: { budget_tokens: 1024, type: 'enabled' },
     } as any) as any;
-    expect(out.thinking).toEqual({ type: 'enabled' });
-  });
+    expect(enabled.thinking).toBeUndefined();
 
-  it('sends thinking.type disabled when payload thinking.type is disabled', () => {
-    const out = buildZhipuPayload({
+    const disabled = buildZhipuPayload({
       messages: baseMessage,
       model: 'glm-5.2',
       thinking: { budget_tokens: 0, type: 'disabled' },
     } as any) as any;
-    expect(out.thinking).toEqual({ type: 'disabled' });
+    expect(disabled.thinking).toBeUndefined();
   });
 
-  it('forwards clear_thinking=false when set on thinking and strips budget_tokens', () => {
+  it('never sends reasoning_effort or clear_thinking (gateway compat)', () => {
     const out = buildZhipuPayload({
       messages: baseMessage,
       model: 'glm-5.2',
+      reasoning_effort: 'max',
       thinking: { budget_tokens: 1024, clear_thinking: false, type: 'enabled' },
     } as any) as any;
-    expect(out.thinking).toEqual({ clear_thinking: false, type: 'enabled' });
-    expect(out.thinking.budget_tokens).toBeUndefined();
-  });
-
-  it('strips Moonshot-style keep field when set on thinking', () => {
-    const out = buildZhipuPayload({
-      messages: baseMessage,
-      model: 'glm-5.2',
-      thinking: { budget_tokens: 1024, keep: 'all', type: 'enabled' },
-    } as any) as any;
-    expect(out.thinking).toEqual({ type: 'enabled' });
-    expect(out.thinking.keep).toBeUndefined();
-  });
-
-  it('forwards reasoning_effort only when thinking is enabled', () => {
-    const on = buildZhipuPayload({
-      messages: baseMessage,
-      model: 'glm-5.2',
-      reasoning_effort: 'max',
-      thinking: { budget_tokens: 1024, type: 'enabled' },
-    } as any) as any;
-    expect(on.reasoning_effort).toBe('max');
-
-    const off = buildZhipuPayload({
-      messages: baseMessage,
-      model: 'glm-5.2',
-      reasoning_effort: 'max',
-      thinking: { budget_tokens: 0, type: 'disabled' },
-    } as any) as any;
-    expect(off.reasoning_effort).toBeUndefined();
-  });
-
-  it('drops reasoning_effort for non-5.2 models even when thinking is on', () => {
-    const out = buildZhipuPayload({
-      messages: baseMessage,
-      model: 'glm-5.1',
-      reasoning_effort: 'max',
-      thinking: { budget_tokens: 1024, type: 'enabled' },
-    } as any) as any;
+    expect(out.thinking).toBeUndefined();
     expect(out.reasoning_effort).toBeUndefined();
-  });
-
-  it('passes reasoning_effort through verbatim for glm-5.2', () => {
-    const out = buildZhipuPayload({
-      messages: baseMessage,
-      model: 'glm-5.2',
-      reasoning_effort: 'minimal',
-      thinking: { budget_tokens: 1024, type: 'enabled' },
-    } as any) as any;
-    // runtime forwards the value as-is; the chat service maps 'skip' -> 'minimal'
-    expect(out.reasoning_effort).toBe('minimal');
   });
 
   it('sets do_sample=false and omits temperature when temperature is 0', () => {
@@ -104,14 +55,13 @@ describe('buildZhipuPayload', () => {
     expect(out.top_p).toBe(0.9);
   });
 
-  it('injects web_search tool and forces thinking disabled when enabledSearch is set on glm-5.2', () => {
+  it('injects web_search tool when enabledSearch is set on glm-5.2 (no thinking field sent)', () => {
     const out = buildZhipuPayload({
       enabledSearch: true,
       messages: baseMessage,
       model: 'glm-5.2',
-      thinking: { budget_tokens: 1024, type: 'enabled' },
     } as any) as any;
-    expect(out.thinking).toEqual({ type: 'disabled' });
+    expect(out.thinking).toBeUndefined();
     expect(Array.isArray(out.tools)).toBe(true);
     expect(out.tools.some((t: any) => t.type === 'web_search')).toBe(true);
     expect(out.tool_choice).toBe('auto');
@@ -165,14 +115,14 @@ describe('buildZhipuPayload', () => {
     expect(out.tool_stream).toBe(true);
   });
 
-  it('forces thinking disabled when response_format json_object is set on glm-5.2', () => {
+  it('sends response_format json_object without any thinking field on glm-5.2', () => {
     const out = buildZhipuPayload({
       messages: baseMessage,
       model: 'glm-5.2',
       response_format: { type: 'json_object' },
-      thinking: { budget_tokens: 1024, type: 'enabled' },
     } as any) as any;
-    expect(out.thinking).toEqual({ type: 'disabled' });
+    expect(out.thinking).toBeUndefined();
+    expect(out.response_format).toEqual({ type: 'json_object' });
   });
 
   it('coerces tool_choice to auto when tools are present', () => {
@@ -213,12 +163,11 @@ describe('buildZhipuPayload', () => {
     const out = buildZhipuPayload({
       messages: baseMessage,
       model: 'glm-4-32b-0414-128k',
-      thinking: { budget_tokens: 1024, type: 'enabled' },
     } as any) as any;
     expect(out.thinking).toBeUndefined();
   });
 
-  it('strips internal assistant reasoning when Preserved Thinking is off', () => {
+  it('always strips internal assistant reasoning from history (no Preserved Thinking)', () => {
     const messages: any = [
       ...baseMessage,
       { content: 'answer', reasoning: { content: 'secret thoughts' }, role: 'assistant' },
@@ -226,25 +175,12 @@ describe('buildZhipuPayload', () => {
     const out = buildZhipuPayload({
       messages,
       model: 'glm-5.2',
-      thinking: { budget_tokens: 1024, clear_thinking: true, type: 'enabled' },
+      thinking: { budget_tokens: 1024, clear_thinking: false, type: 'enabled' },
     } as any) as any;
     expect(out.messages.some((m: any) => m.reasoning)).toBe(false);
   });
 
-  it('keeps internal assistant reasoning when Preserved Thinking is on', () => {
-    const messages: any = [
-      ...baseMessage,
-      { content: 'answer', reasoning: { content: 'secret thoughts' }, role: 'assistant' },
-    ];
-    const out = buildZhipuPayload({
-      messages,
-      model: 'glm-5.2',
-      thinking: { budget_tokens: 1024, clear_thinking: false, type: 'enabled' },
-    } as any) as any;
-    expect(out.messages.some((m: any) => m.reasoning)).toBe(true);
-  });
-
-  it('strips bare assistant reasoning_content when Preserved Thinking is off', () => {
+  it('always strips bare assistant reasoning_content from history (no Preserved Thinking)', () => {
     const messages: any = [
       ...baseMessage,
       { content: 'answer', reasoning_content: 'secret thoughts', role: 'assistant' },
@@ -252,22 +188,9 @@ describe('buildZhipuPayload', () => {
     const out = buildZhipuPayload({
       messages,
       model: 'glm-5.2',
-      thinking: { budget_tokens: 1024, clear_thinking: true, type: 'enabled' },
+      thinking: { budget_tokens: 1024, clear_thinking: false, type: 'enabled' },
     } as any) as any;
     expect(out.messages.some((m: any) => m.reasoning_content !== undefined)).toBe(false);
-  });
-
-  it('keeps bare assistant reasoning_content when Preserved Thinking is on', () => {
-    const messages: any = [
-      ...baseMessage,
-      { content: 'answer', reasoning_content: 'secret thoughts', role: 'assistant' },
-    ];
-    const out = buildZhipuPayload({
-      messages,
-      model: 'glm-5.2',
-      thinking: { budget_tokens: 1024, clear_thinking: false, type: 'enabled' },
-    } as any) as any;
-    expect(out.messages.some((m: any) => m.reasoning_content !== undefined)).toBe(true);
   });
 });
 

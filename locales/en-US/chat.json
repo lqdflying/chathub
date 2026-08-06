@@ -129,21 +129,6 @@
     "urlContext": {
       "desc": "When enabled, web links will be automatically parsed to retrieve the actual webpage context content",
       "title": "Extract Webpage Link Content"
-    },
-    "zhipuPreservedThinking": {
-      "desc": "When enabled, turns on Preserved Thinking (thinking.clear_thinking=false) so historical reasoning_content is replayed unmodified to improve multi-turn reasoning quality (increases context length and cost). Default off (Zhipu server default strips prior thinking from context to reduce cost). Requires thinking to be enabled.",
-      "title": "Preserve Historical Thinking (Preserved Thinking)"
-    },
-    "zhipuReasoning": {
-      "desc": "When on, GLM-5.x / 4.5+ performs internal chain-of-thought reasoning before answering; turning it off is faster and cheaper.",
-      "title": "Enable Deep Thinking (GLM)"
-    },
-    "zhipuReasoningEffort": {
-      "desc": "GLM-5.2+ only. max = deep reasoning (default), high = enhanced reasoning, skip = bypass thinking (maps to API minimal). Only effective when thinking is enabled.",
-      "high": "High",
-      "max": "Max",
-      "skip": "Skip",
-      "title": "Reasoning Effort (reasoning_effort)"
     }
   },
   "group": {

@@ -5,21 +5,6 @@ import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactor
 import type { ChatStreamPayload } from '../../types';
 import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
 
-// https://docs.z.ai/api-reference/llm/chat-completion
-// https://docs.z.ai/guides/capabilities/thinking
-// Deep Thinking is supported on the GLM-5.x family and the GLM-4.5/4.6/4.7 series.
-const supportsThinking = (model: string) =>
-  ['glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.5'].some((prefix) => model.startsWith(prefix));
-
-// `reasoning_effort` is documented for GLM-5.2 and above only.
-const supportsReasoningEffort = (model: string) => {
-  const match = model.match(/^glm-(\d+)(?:\.(\d+))?/);
-  if (!match) return false;
-  const major = Number(match[1]);
-  const minor = Number(match[2] ?? 0);
-  return major > 5 || (major === 5 && minor >= 2);
-};
-
 // `tool_stream` is documented for glm-4.6, glm-4.7, glm-5 text models only
 // (https://docs.z.ai/guides/tools/stream-tool). Vision variants (glm-5v-turbo,
 // glm-4.5v, glm-4.6v) use the Vision request schema, which has no tool_stream
@@ -38,16 +23,14 @@ const ZHIPU_WEB_SEARCH_TOOL = {
   web_search: { enable: true, search_engine: 'search_pro_jina' },
 } as any;
 
-// When Preserved Thinking is off (Zhipu default `clear_thinking: true`), the server
-// discards historical `reasoning_content`; strip the internal `reasoning` field AND
-// any bare `reasoning_content` so convertOpenAIMessages does not re-inject either and
-// waste input tokens. When on, keep both so the shared OpenAI context builder replays
-// them as `reasoning_content`.
-const normalizeMessagesForZhipu = (
-  messages: ChatStreamPayload['messages'],
-  preserveReasoning: boolean,
-) => {
-  if (preserveReasoning) return messages;
+// Zhipu's official default is thinking enabled (https://docs.z.ai/guides/capabilities/thinking:
+// `thinking.type` `enabled` is the default). ChatHub therefore OMITS the `thinking`,
+// `reasoning_effort`, and `clear_thinking` request fields entirely: omitting is
+// behavior-identical on the official API, and some OpenAI-compatible GLM gateways
+// (LiteLLM → vLLM) hard-reject the `thinking` object with HTTP 400. With no
+// Preserved Thinking in play, historical `reasoning`/`reasoning_content` is always
+// stripped so convertOpenAIMessages does not re-inject it and waste input tokens.
+const normalizeMessagesForZhipu = (messages: ChatStreamPayload['messages']) => {
   return messages.map((message: any) => {
     if (message.role === 'assistant' && (message.reasoning || message.reasoning_content !== undefined)) {
       const { reasoning, reasoning_content, ...rest } = message;
@@ -67,37 +50,10 @@ export const buildZhipuPayload = (
     model,
     response_format,
     temperature,
-    thinking,
     tools,
   } = payload;
 
-  // GLM-5.2: built-in web search and JSON response_format require thinking disabled.
-  // NOTE: This exclusion is NOT documented by Zhipu (verified across the chat-completion
-  // API ref, thinking guide, thinking-mode guide, and web-search guide as of 2026-08-05).
-  // Kept as an empirical guard pending canary verification against the live GLM-5.2 API.
-  // If the canary confirms GLM-5.2 accepts thinking + web_search/JSON, remove this guard
-  // in a follow-up.
-  const wantsJson = response_format?.type === 'json_object';
-  const mustDisableThinking = model === 'glm-5.2' && (!!enabledSearch || wantsJson);
-
-  const thinkingRequested = thinking?.type !== 'disabled';
-  const thinkingEnabled = supportsThinking(model) && thinkingRequested && !mustDisableThinking;
-  const preserveReasoning = thinkingEnabled && thinking?.clear_thinking === false;
-
-  const normalizedMessages = normalizeMessagesForZhipu(messages, preserveReasoning);
-
-  // Zhipu `thinking` object: only `type` + `clear_thinking`. Strip the Anthropic-style
-  // `budget_tokens` and Moonshot-style `keep` that the shared service layer may attach.
-  const thinkingParam = supportsThinking(model)
-    ? {
-        type: thinkingEnabled ? ('enabled' as const) : ('disabled' as const),
-        ...(preserveReasoning ? { clear_thinking: false as const } : {}),
-      }
-    : undefined;
-
-  // `reasoning_effort` is GLM-5.2+ only and only meaningful when thinking is enabled.
-  const reasoningEffort =
-    thinkingEnabled && supportsReasoningEffort(model) ? payload.reasoning_effort : undefined;
+  const normalizedMessages = normalizeMessagesForZhipu(messages);
 
   // `do_sample: false` selects greedy decoding; sampling params then do not apply.
   const greedy = temperature === 0;
@@ -118,8 +74,6 @@ export const buildZhipuPayload = (
     messages: normalizedMessages,
     model,
     stream: payload.stream ?? true,
-    ...(thinkingParam ? { thinking: thinkingParam } : {}),
-    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     ...(greedy ? { do_sample: false } : {}),
     ...(toolStream ? { tool_stream: true } : {}),
     ...(finalTools ? { tools: finalTools, tool_choice: 'auto' } : {}),
