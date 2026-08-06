@@ -45,13 +45,14 @@ Do not treat an OpenWiki update as a substitute for user-facing documentation.
   locally in the separate Wiki repository. If both repositories changed, the
   main repository and Wiki repository each require their own local commit before
   the work is complete.
-- **Push the Wiki directly** once committed, whenever `git -C wiki push --dry-run
-  origin master` succeeds. The Wiki has standing push permission and needs no
-  separate approval; documentation is not delivered until it is on `origin`. Only
-  when that dry run is *denied* — a cloud session, whose credentials are scoped to
-  the main repository — fall back to the patch handoff in `CLAUDE.md`. This
-  permission covers the Wiki only: main-repository pushes, tags and releases still
-  require an explicit in-turn instruction.
+- **Edit and commit the Wiki pages in the `wiki/` clone directly.** Do not
+  generate a `format-patch` file as the routine deliverable — the files are
+  already on the user's disk, so a patch they must `git am` is wasted work.
+- **Wiki push still requires explicit in-turn user approval**, exactly like the
+  main repository. Having write access to the clone is not permission to publish.
+  Commit, report the SHA, and stop. Only when an instructed push is *denied* — a
+  cloud session, whose credentials are scoped to the main repository — fall back
+  to the patch handoff in `CLAUDE.md`.
 
 ## Completion gate
 
