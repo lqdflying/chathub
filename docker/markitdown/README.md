@@ -15,14 +15,22 @@ and no package manager.
 docker compose -f docker/markitdown/docker-compose.yml up -d --build
 ```
 
-Then point ChatHub at it and restart ChatHub:
+Then point ChatHub at it and restart ChatHub. **The URL depends on where ChatHub
+itself runs**, because the Compose file binds the port to the host's loopback
+interface only:
 
-```bash
-MARKITDOWN_SERVICE_URL=http://markitdown:5000
-```
+| ChatHub runs… | `MARKITDOWN_SERVICE_URL` |
+| --- | --- |
+| in a container on the **same** Docker network (recommended — copy the `markitdown` service into your ChatHub Compose file) | `http://markitdown:5000` |
+| directly on the host (`pnpm dev`, or `node` outside Docker) | `http://127.0.0.1:5000` |
 
-Use `http://127.0.0.1:5000` if ChatHub is not on the same Docker network. Once
-the variable is set, MarkItDown becomes the preferred converter for every
+Do **not** use `http://127.0.0.1:5000` from a containerized ChatHub: inside a
+container that address is the container itself, so the request never reaches the
+sidecar. The Docker bridge gateway (`172.17.0.1`) does not work either while the
+port is bound to `127.0.0.1` — put both containers on one network instead, or
+change the binding and set `MARKITDOWN_API_KEY`.
+
+Once the variable is set, MarkItDown becomes the preferred converter for every
 upload, with the previous LangChain loaders kept as the fallback.
 
 Verify it is up:
