@@ -93,12 +93,13 @@ const zhipuChatModels: AIChatModelCard[] = [
     },
     contextWindowTokens: 204_800,
     description:
-      'GLM-4.7 is a text model with forced Deep Thinking (thinking always on, thinking.type: disabled is ignored) and a 200K context window. Ships no reasoning toggle.',
+      'GLM-4.7 is a text model with forced Deep Thinking (thinking is forced per Zhipu docs) and a 200K context window. Ships no reasoning toggle, but Preserved Thinking (clear_thinking) is a documented GLM-4.5+ capability.',
     displayName: 'GLM-4.7',
     id: 'glm-4.7',
     maxOutput: 131_072,
     releasedAt: '2025-12-01',
     settings: {
+      extendParams: ['zhipuPreservedThinking'],
       searchImpl: 'params',
     },
     type: 'chat',

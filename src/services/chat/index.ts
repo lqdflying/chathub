@@ -325,6 +325,21 @@ class ChatService {
             type: 'disabled',
           };
         }
+      } else if (payload.provider === 'zhipu' && modelExtendParams!.includes('zhipuPreservedThinking')) {
+        // GLM-4.7 forced-thinking + Preserved Thinking. No `enableReasoning` toggle
+        // (thinking forced by Zhipu), but `clear_thinking` is a documented GLM-4.5+
+        // capability orthogonal to forced thinking — it controls cross-turn replay,
+        // not current-turn thinking. Emit thinking={type:enabled, clear_thinking:false}
+        // only when the user enables Preserved Thinking; the runtime strips
+        // budget_tokens and rebuilds the thinking object. When off, send nothing so
+        // the runtime defaults to {type:enabled} (history stripped, Zhipu default).
+        if (chatConfig.zhipuPreservedThinking) {
+          extendParams.thinking = {
+            budget_tokens: 0,
+            clear_thinking: false as const,
+            type: 'enabled',
+          };
+        }
       } else if (modelExtendParams!.includes('reasoningBudgetToken')) {
         if (
           isAnthropicRuntimeProvider(payload.provider) &&

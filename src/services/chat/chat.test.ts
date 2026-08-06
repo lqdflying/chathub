@@ -445,6 +445,69 @@ describe('ChatService', () => {
         );
       });
 
+      it('should attach Preserved Thinking on zhipu glm-4.7 (forced thinking, no enableReasoning toggle)', async () => {
+        const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+        const messages = [{ content: 'Test glm-4.7 preserved', role: 'user' }] as UIChatMessage[];
+
+        // glm-4.7 carries zhipuPreservedThinking but NOT enableReasoning (thinking forced)
+        vi.spyOn(aiModelSelectors, 'isModelHasExtendParams').mockReturnValue(() => true);
+        vi.spyOn(aiModelSelectors, 'modelExtendParams').mockReturnValue(() => [
+          'zhipuPreservedThinking',
+        ]);
+
+        vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockReturnValue({
+          zhipuPreservedThinking: true,
+          searchMode: 'off',
+        } as any);
+
+        await chatService.createAssistantMessage({
+          messages,
+          model: 'glm-4.7',
+          provider: 'zhipu',
+          plugins: [],
+        });
+
+        // Service emits thinking with clear_thinking:false + type:enabled (forced).
+        // budget_tokens:0 is stripped by the runtime before sending to Zhipu.
+        expect(getChatCompletionSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            thinking: {
+              budget_tokens: 0,
+              clear_thinking: false,
+              type: 'enabled',
+            },
+          }),
+          undefined,
+        );
+      });
+
+      it('should send no thinking object on zhipu glm-4.7 when Preserved Thinking is off', async () => {
+        const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
+        const messages = [{ content: 'Test glm-4.7 no preserved', role: 'user' }] as UIChatMessage[];
+
+        vi.spyOn(aiModelSelectors, 'isModelHasExtendParams').mockReturnValue(() => true);
+        vi.spyOn(aiModelSelectors, 'modelExtendParams').mockReturnValue(() => [
+          'zhipuPreservedThinking',
+        ]);
+
+        vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockReturnValue({
+          zhipuPreservedThinking: false,
+          searchMode: 'off',
+        } as any);
+
+        await chatService.createAssistantMessage({
+          messages,
+          model: 'glm-4.7',
+          provider: 'zhipu',
+          plugins: [],
+        });
+
+        // No thinking object emitted by the service; the runtime defaults to
+        // {type:'enabled'} (Zhipu default clear_thinking:true strips history).
+        const callArg = getChatCompletionSpy.mock.calls[0][0];
+        expect(callArg.thinking).toBeUndefined();
+      });
+
       it('should use default budget when reasoningBudgetToken is not set', async () => {
         const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
         const messages = [{ content: 'Test default budget', role: 'user' }] as UIChatMessage[];

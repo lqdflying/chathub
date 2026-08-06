@@ -78,8 +78,14 @@ const ZhipuOptions = memo(() => {
       });
     }
 
-    // Preserved Thinking (clear_thinking=false) is meaningless without thinking on.
-    if (extendParams.includes('zhipuPreservedThinking') && config.enableReasoning) {
+    // Preserved Thinking (clear_thinking=false) requires thinking to be on. For
+    // models with an enableReasoning toggle, that means the toggle must be on. For
+    // forced-thinking models like glm-4.7 (no enableReasoning toggle), thinking is
+    // always on, so the switch is always available.
+    const showPreservedThinking =
+      extendParams.includes('zhipuPreservedThinking') &&
+      (extendParams.includes('enableReasoning') ? config.enableReasoning : true);
+    if (showPreservedThinking) {
       result.push({
         children: <Switch />,
         desc: (
