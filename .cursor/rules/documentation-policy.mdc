@@ -44,7 +44,14 @@ Do not treat an OpenWiki update as a substitute for user-facing documentation.
 - After the associated fix/feature is complete, commit only its Wiki pages
   locally in the separate Wiki repository. If both repositories changed, the
   main repository and Wiki repository each require their own local commit before
-  the work is complete. Wiki push still requires explicit in-turn user approval.
+  the work is complete.
+- **Push the Wiki directly** once committed, whenever `git -C wiki push --dry-run
+  origin master` succeeds. The Wiki has standing push permission and needs no
+  separate approval; documentation is not delivered until it is on `origin`. Only
+  when that dry run is *denied* — a cloud session, whose credentials are scoped to
+  the main repository — fall back to the patch handoff in `CLAUDE.md`. This
+  permission covers the Wiki only: main-repository pushes, tags and releases still
+  require an explicit in-turn instruction.
 
 ## Completion gate
 

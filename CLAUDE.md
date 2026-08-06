@@ -61,24 +61,42 @@ in via `NEXT_PUBLIC_APP_TAG` so the in-app About page shows the canary version; 
 bump `package.json` for canaries. A failed build cannot be re-run manually — fix, then
 delete the bad tag and have the user push the next `N`. Docs-only commits never get a tag.
 
-## GitHub Wiki updates (cloud sessions)
+## GitHub Wiki updates — detect, do not assume
 
-Cloud-session GitHub credentials are scoped to the main repository (`lqdflying/chathub`)
-and **cannot push to the wiki repository** (`lqdflying/chathub.wiki` — the local `wiki/`
-clone, branch `master`; see `AGENTS.md` / `.cursor/rules/documentation-policy.mdc`).
-Use the **patch-based handoff**, mirroring the canary-tag division of labor:
+The wiki (`lqdflying/chathub.wiki`) is the local `wiki/` clone on branch `master`; see
+`AGENTS.md` / `.cursor/rules/documentation-policy.mdc`. **Default: edit, commit and push
+it directly.** The patch handoff below is a cloud-only fallback, not the normal path —
+using it in a local session wastes the user's time on a manual `git am` they never needed.
 
-1. Claude commits the wiki change locally in the `wiki/` clone (verify it first with
-   `git -C wiki branch -avv`; if `wiki/` is absent, report that instead of cloning it
-   implicitly), then generates a portable patch:
+**Decide by testing, never by guessing which environment this is:**
+
+```bash
+git -C wiki branch -avv              # present, a real clone, on master?
+git -C wiki push --dry-run origin master
+```
+
+The dry run is the whole decision, and it changes nothing. If it succeeds, credentials
+work — **push for real.** Do not produce a patch, do not ask the user to run anything, and
+do not reason about "cloud vs local" from anything other than this result.
+
+- **Dry run succeeds** (typical local session, SSH remote): commit and push the wiki as
+  part of completing the work. No separate approval is needed for the **wiki** — the user
+  has standing permission for it. This does **not** extend to the main repository, whose
+  pushes, tags and releases still require an explicit in-turn instruction.
+- **`wiki/` is absent**: report that and stop. Never clone it implicitly.
+- **Dry run is denied** (HTTP 403 — a cloud session, whose credentials are scoped to the
+  main repo): fall back to the patch handoff, mirroring the canary-tag division of labor.
+
+### Cloud fallback: patch handoff
+
+1. Commit the wiki change in the `wiki/` clone, then generate a portable patch — batching
+   several commits with `-N` or a range when needed — and give the user the file:
 
    ```bash
    git -C wiki format-patch -1 --stdout > wiki-updates.patch
    ```
 
-   Batch several wiki commits into one patch with `-N` (or a range) when needed, and
-   provide the patch file to the user for download.
-2. The **user applies and pushes from their local machine** (full SSH access):
+2. The **user applies and pushes from their machine** (full SSH access):
 
    ```bash
    cd path/to/chathub.wiki
@@ -88,9 +106,9 @@ Use the **patch-based handoff**, mirroring the canary-tag division of labor:
 
    They can inspect it first with `git am --show-current-patch < wiki-updates.patch`.
 
-`git format-patch` + `git am` preserves author, date, and message — the wiki history looks
-the same as a direct push, with no credential sharing. The handoff is async: keep
-developing while the user applies it.
+`git format-patch` + `git am` preserves author, date and message, so the wiki history looks
+the same as a direct push, with no credential sharing. Delete the patch file once the push
+lands — by either route — so a stale patch cannot be applied twice.
 
 ## Cloud environment quirks
 
