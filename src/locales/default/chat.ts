@@ -133,8 +133,8 @@ export default {
       title: '提取网页链接内容',
     },
     zhipuPreservedThinking: {
-      desc: '开启后启用 Preserved Thinking（thinking.clear_thinking=false），历史 reasoning_content 将原样回传以提升多轮推理质量（会增加上下文长度与费用）。默认关闭（按 Zhipu 服务端默认，从上下文中剥离历史思考以降低成本）。需与深度思考同时开启。',
-      title: '保留历史思考（Preserved Thinking）',
+      desc: '保留历史轮的 reasoning_content（Preserved Thinking，clear_thinking=false）以提升多轮推理质量。需与深度思考同时开启；会增加上下文长度与费用。',
+      title: '保留历史思考（GLM）',
     },
     zhipuReasoning: {
       desc: '开启后 GLM-5.x / 4.5+ 会先进行内部链式思考再输出；关闭可更快、更省 Token。',

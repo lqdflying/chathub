@@ -131,8 +131,8 @@
       "title": "Extract Webpage Link Content"
     },
     "zhipuPreservedThinking": {
-      "desc": "When enabled, turns on Preserved Thinking (thinking.clear_thinking=false) so historical reasoning_content is replayed unmodified to improve multi-turn reasoning quality (increases context length and cost). Default off (Zhipu server default strips prior thinking from context to reduce cost). Requires thinking to be enabled.",
-      "title": "Preserve Historical Thinking (Preserved Thinking)"
+      "desc": "Keep prior turns' reasoning_content in context (Preserved Thinking, clear_thinking=false) to improve multi-turn reasoning. Enable together with deep thinking; increases tokens and cost.",
+      "title": "Preserved Thinking (GLM)"
     },
     "zhipuReasoning": {
       "desc": "When on, GLM-5.x / 4.5+ performs internal chain-of-thought reasoning before answering; turning it off is faster and cheaper.",
