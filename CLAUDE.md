@@ -3,13 +3,28 @@
 Instructions for Claude Code working in this repository. General agent rules live in
 `AGENTS.md`; authoritative workflow detail lives under `.cursor/rules/` (especially
 `git-and-release.mdc` for the full release flow). This file adds what those docs do not
-cover: how to operate from the **Claude Code cloud/remote environment**.
+cover.
+
+**Not every section here is cloud-specific — check before assuming one does not apply.**
+Two sections bind every session, local included; two describe limits that exist only in
+the Claude Code cloud/remote environment:
+
+| Section | Applies to |
+| --- | --- |
+| Git workflow | **all sessions** |
+| GitHub Wiki updates | **all sessions** |
+| Canary / testing image builds | cloud only (a cloud session cannot push tags) |
+| Cloud environment quirks | cloud only (egress proxy, sandbox baselines) |
+
+A cloud-only section describes a **capability limit**, never a procedure to adopt
+elsewhere: do not reach for its workaround in a local session where the direct route
+works. Where a limit is claimed, confirm it with a cheap test rather than inferring the
+environment.
 
 ## Git workflow (ALL sessions — local *and* cloud)
 
-Unlike the rest of this file, this section is **not** cloud-specific. The branch rule binds
-every Claude Code session, local included; the `claude/*` naming below is the only
-cloud-only part.
+This section is **not** cloud-specific. The branch rule binds every Claude Code session,
+local included; the `claude/*` naming below is the only cloud-only part.
 
 In a cloud session the designated `claude/*` branch is the working branch. **When already on
 any non-`main` branch, keep committing successive rounds (fixes, features, docs) to that same

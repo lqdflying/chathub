@@ -41,13 +41,12 @@ Do not treat an OpenWiki update as a substitute for user-facing documentation.
   the separate wiki repository on `master`.
 - Preserve unrelated wiki changes and stage only files for the current task.
 - If `wiki/` is absent, report that it is unavailable; do not clone it implicitly.
-- After the associated fix/feature is complete, commit only its Wiki pages
-  locally in the separate Wiki repository. If both repositories changed, the
-  main repository and Wiki repository each require their own local commit before
-  the work is complete.
-- **Edit and commit the Wiki pages in the `wiki/` clone directly.** Do not
-  generate a `format-patch` file as the routine deliverable — the files are
-  already on the user's disk, so a patch they must `git am` is wasted work.
+- **Edit the pages in the `wiki/` clone directly**, then commit them there once
+  the associated fix/feature is complete — never hand over a `format-patch` file
+  as the routine deliverable, since the files are already on the user's disk and
+  a patch they must `git am` is wasted work. If both repositories changed, the
+  main repository and Wiki repository each require their own local commit,
+  containing only its own files, before the work is complete.
 - **Wiki push still requires explicit in-turn user approval**, exactly like the
   main repository. Having write access to the clone is not permission to publish.
   Commit, report the SHA, and stop. Only when an instructed push is *denied* — a
