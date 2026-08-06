@@ -35,10 +35,17 @@ export interface MarkItDownResult {
 export const isMarkItDownEnabled = () => !!knowledgeEnv.MARKITDOWN_SERVICE_URL;
 
 /**
- * Client for the MarkItDown conversion sidecar (see `docker/markitdown`).
+ * Client for the MarkItDown conversion sidecar.
  *
  * MarkItDown is a Python library, and the ChatHub runtime image is distroless
  * (node only), so conversion runs out of process behind a small HTTP API.
+ *
+ * The sidecar is an optional add-on that ships in no ChatHub image. Its files
+ * and the wire format below live in the wiki:
+ * https://github.com/lqdflying/chathub/wiki/MarkItDown-Sidecar
+ *
+ * Nothing here tests the server side — the suite mocks `fetch` — so the request
+ * shape and status-code handling must stay in step with that page by hand.
  */
 export class MarkItDown {
   private baseUrl?: string;

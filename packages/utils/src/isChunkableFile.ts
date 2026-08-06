@@ -72,8 +72,13 @@ const UNSUPPORTED_EXTENSIONS = new Set([
 
 /**
  * Formats the MarkItDown sidecar converts to Markdown that the built-in loaders
- * cannot read. Mirrors the converter set in `docker/markitdown` — spreadsheets,
- * Outlook mail, notebooks, archives, feeds, images and audio.
+ * cannot read — spreadsheets, Outlook mail, notebooks, archives, feeds, images
+ * and audio.
+ *
+ * Mirrors the format table at
+ * https://github.com/lqdflying/chathub/wiki/MarkItDown-Sidecar, which is the
+ * authority: if the sidecar's converter set changes, this set must follow, or
+ * the upload picker offers files the deployment cannot ingest.
  *
  * Legacy `.doc`/`.docm` stay out: MarkItDown has no converter for them either.
  */
