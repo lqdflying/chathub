@@ -9,15 +9,26 @@ alwaysApply: true
 
 Use this for any **bugfix**, **feature**, or **multi-file / non-trivial** implementation. Skip only for **read-only** tasks or when the user explicitly says "no branch" / "edit on `main` only".
 
-**Never edit implementation work directly on `main`.** If the current branch is already not `main`, continue on that branch by default even when the troubleshooting target changes before GA; do **not** create a second topic branch unless the user explicitly asks or the work must be isolated. Use separate commits with clear messages to distinguish different bugfix/feature phases on the same pre-GA branch.
+**Never edit implementation work directly on `main`.** If the current branch is already not `main`, continue on that branch by default even when the troubleshooting target changes before GA. **Creating a second topic branch requires an explicit in-turn user request — it is never the agent's own call.** Use separate commits with clear messages to distinguish different bugfix/feature phases on the same pre-GA branch.
+
+The following are **not** reasons to create another branch. Continue on the current branch:
+
+- the next fix or feature touches a **different area** of the codebase;
+- the current branch is **already pushed** or has an **open pull request**, and the new work is unrelated — an extra commit on that PR is the accepted cost of this workflow, and whether to split it is the user's call, not the agent's;
+- the new work feels **larger**, **riskier**, or **more release-worthy** than what the branch was named for;
+- the branch **slug no longer describes** the work — a stale name is cosmetic, never a reason to fork.
+
+If isolation still seems genuinely warranted, **ask first**. Do not create the branch and explain afterwards.
 
 1. **Do not** use repo-editing tools (`apply_patch`, scripted bulk edits, etc.) while on `main` (see also: *Never commit fixes or features directly on `main`* under canary flow below).
 2. **If currently on `main`, branch from the current HEAD before editing** — never switch away and back just to branch:
    - `git checkout -b fix/<short-slug>` **or** `git checkout -b feat/<short-slug>` directly from the current `main` HEAD.
    - Do **not** `git checkout main && git pull` unless the user explicitly asks to sync first.
+   - A new branch **always forks from the current HEAD**. Never create one from `main`'s commit while standing on a non-`main` branch: that silently drops the current branch's committed work out of the new base, and the result looks like a clean branch while being an orphan of the work in progress.
 3. **If currently on a non-`main` branch, continue there by default.** This still applies when the immediate target changes from one bug or feature to another before GA. Do not create a new branch just because the next fix touches a different area; separate the phases with distinct commits. All non-`main` branches are pre-GA work branches; they should be merged to `main` for GA and deleted afterward.
 4. **Uncommitted changes on `main`:** run **`git checkout -b fix/<slug>`** (or `feat/<slug>`) *before* continuing edits. If Git blocks branch creation with a dirty tree, **`git stash push`**, create the branch, then **`git stash pop`**.
 5. **Verify before editing:** `git branch --show-current` — must **not** be `main` (unless the user explicitly asked to work on `main`).
+6. **Verify before `git checkout -b`:** step 5 authorizes *editing*, not branching — passing it says nothing about whether a new branch is allowed. Before creating one, confirm **either** `git branch --show-current` returns `main`, **or** the user requested a branch in this turn. If neither holds, do not create it. Name the current branch and the authorizing reason in the same turn the branch is created, so a wrong base is caught before commits land on it rather than after.
 
 ## Branch cleanup — one active branch at a time
 

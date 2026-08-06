@@ -5,14 +5,21 @@ Instructions for Claude Code working in this repository. General agent rules liv
 `git-and-release.mdc` for the full release flow). This file adds what those docs do not
 cover: how to operate from the **Claude Code cloud/remote environment**.
 
-## Git workflow (cloud sessions)
+## Git workflow (ALL sessions — local *and* cloud)
 
-The session's designated `claude/*` branch is the working branch. **When already on any
-non-`main` branch, keep committing successive rounds (fixes, features, docs) to that same
-branch — do not create additional branches per fix/feature.** This deliberately avoids
-branch chains; distinct commit messages separate the phases (aligned with `AGENTS.md`).
+Unlike the rest of this file, this section is **not** cloud-specific. The branch rule binds
+every Claude Code session, local included; the `claude/*` naming below is the only
+cloud-only part.
+
+In a cloud session the designated `claude/*` branch is the working branch. **When already on
+any non-`main` branch, keep committing successive rounds (fixes, features, docs) to that same
+branch — do not create additional branches per fix/feature.** This deliberately avoids branch
+chains; distinct commit messages separate the phases (aligned with `AGENTS.md`).
 Create a new branch only when currently on `main` or when the user explicitly asks for an
-isolation branch.
+isolation branch — **an open PR on the current branch is not a reason to fork**, and a new
+branch always forks from the current HEAD, never from `main` while standing elsewhere. The
+enumerated non-reasons are in **`.cursor/rules/git-and-release.mdc`** (*Before first code
+edit*); read them before concluding a second branch is justified.
 
 ## Canary / testing image builds (cloud sessions)
 
