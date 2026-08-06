@@ -119,12 +119,20 @@ const inferProviderExtendParams = (
 
   if (providerId === ModelProvider.Zhipu) {
     if (item.abilities?.reasoning) {
-      // `reasoning_effort` is GLM-5.2+ only; mirror the runtime's supportsReasoningEffort.
+      // GLM-4.7 forces thinking (Zhipu docs: "GLM-4.7 will think compulsorily"),
+      // so it ships no enableReasoning toggle — mirrors the Moonshot K3 precedent
+      // for forced-thinking models. `reasoning_effort` is GLM-5.2+ only and mirrors
+      // the runtime's supportsReasoningEffort; order matches the shipped glm-5.2 card.
+      if (modelId.startsWith('glm-4.7')) return undefined;
       const match = modelId.match(/^glm-(\d+)(?:\.(\d+))?/);
       const is52Plus = match
         ? Number(match[1]) > 5 || (Number(match[1]) === 5 && Number(match[2] ?? 0) >= 2)
         : false;
-      return ['enableReasoning', 'zhipuPreservedThinking', ...(is52Plus ? ['zhipuReasoningEffort'] : [])];
+      return [
+        'enableReasoning',
+        ...(is52Plus ? ['zhipuReasoningEffort' as const] : []),
+        'zhipuPreservedThinking',
+      ];
     }
   }
 

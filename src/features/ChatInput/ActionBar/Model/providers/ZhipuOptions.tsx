@@ -9,6 +9,13 @@ import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
 
+const descWide = { display: 'inline-block', width: 280 } as const;
+const descNarrow = {
+  display: 'block',
+  maxWidth: '100%',
+  whiteSpace: 'normal',
+} as const;
+
 /** Zhipu GLM-5.2 — extended options (thinking toggle, reasoning_effort, Preserved Thinking). */
 const ZhipuOptions = memo(() => {
   const { t } = useTranslation('chat');
@@ -24,13 +31,6 @@ const ZhipuOptions = memo(() => {
 
   const screens = Grid.useBreakpoint();
   const isNarrow = !screens.sm;
-
-  const descWide = { display: 'inline-block', width: 280 } as const;
-  const descNarrow = {
-    display: 'block',
-    maxWidth: '100%',
-    whiteSpace: 'normal',
-  } as const;
 
   const extendParams = modelExtendParams ?? [];
   const items = useMemo(() => {
@@ -96,7 +96,7 @@ const ZhipuOptions = memo(() => {
     }
 
     return result;
-  }, [extendParams, config.enableReasoning, isNarrow, descNarrow, descWide, t]);
+  }, [extendParams, config.enableReasoning, isNarrow, t]);
 
   return (
     <Form

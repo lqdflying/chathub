@@ -39,17 +39,18 @@ const ZHIPU_WEB_SEARCH_TOOL = {
 } as any;
 
 // When Preserved Thinking is off (Zhipu default `clear_thinking: true`), the server
-// discards historical `reasoning_content`; strip the internal `reasoning` field so
-// convertOpenAIMessages does not re-inject it and waste input tokens. When on, keep
-// `reasoning` so the shared OpenAI context builder replays it as `reasoning_content`.
+// discards historical `reasoning_content`; strip the internal `reasoning` field AND
+// any bare `reasoning_content` so convertOpenAIMessages does not re-inject either and
+// waste input tokens. When on, keep both so the shared OpenAI context builder replays
+// them as `reasoning_content`.
 const normalizeMessagesForZhipu = (
   messages: ChatStreamPayload['messages'],
   preserveReasoning: boolean,
 ) => {
   if (preserveReasoning) return messages;
   return messages.map((message: any) => {
-    if (message.role === 'assistant' && message.reasoning) {
-      const { reasoning, ...rest } = message;
+    if (message.role === 'assistant' && (message.reasoning || message.reasoning_content !== undefined)) {
+      const { reasoning, reasoning_content, ...rest } = message;
       return rest;
     }
     return message;

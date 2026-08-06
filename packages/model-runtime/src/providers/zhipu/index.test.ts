@@ -243,6 +243,32 @@ describe('buildZhipuPayload', () => {
     } as any) as any;
     expect(out.messages.some((m: any) => m.reasoning)).toBe(true);
   });
+
+  it('strips bare assistant reasoning_content when Preserved Thinking is off', () => {
+    const messages: any = [
+      ...baseMessage,
+      { content: 'answer', reasoning_content: 'secret thoughts', role: 'assistant' },
+    ];
+    const out = buildZhipuPayload({
+      messages,
+      model: 'glm-5.2',
+      thinking: { budget_tokens: 1024, clear_thinking: true, type: 'enabled' },
+    } as any) as any;
+    expect(out.messages.some((m: any) => m.reasoning_content !== undefined)).toBe(false);
+  });
+
+  it('keeps bare assistant reasoning_content when Preserved Thinking is on', () => {
+    const messages: any = [
+      ...baseMessage,
+      { content: 'answer', reasoning_content: 'secret thoughts', role: 'assistant' },
+    ];
+    const out = buildZhipuPayload({
+      messages,
+      model: 'glm-5.2',
+      thinking: { budget_tokens: 1024, clear_thinking: false, type: 'enabled' },
+    } as any) as any;
+    expect(out.messages.some((m: any) => m.reasoning_content !== undefined)).toBe(true);
+  });
 });
 
 describe('LobeZhipuAI debug', () => {
