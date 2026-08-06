@@ -698,6 +698,10 @@ describe('ChatService', () => {
           }, // Message with files
         ] as UIChatMessage[];
 
+        // gpt-4-vision-preview is no longer in the model bank, so the real
+        // isCanUseVision returns false; mock the vision path this test targets.
+        vi.spyOn(helpers, 'isCanUseVision').mockReturnValue(true);
+
         const getChatCompletionSpy = vi.spyOn(chatService, 'getChatCompletion');
         await chatService.createAssistantMessage({
           messages,
@@ -712,7 +716,21 @@ describe('ChatService', () => {
               {
                 content: [
                   {
-                    text: 'Hello',
+                    text: `Hello
+
+<!-- SYSTEM CONTEXT (NOT PART OF USER QUERY) -->
+<context.instruction>following part contains context information injected by the system. Please follow these instructions:
+
+1. Always prioritize handling user-visible content.
+2. the context is only required when user's queries rely on it.
+</context.instruction>
+<files_info>
+<images>
+<images_docstring>here are user upload images you can refer to</images_docstring>
+<image name="abc.png" url="http://example.com/image.jpg"></image>
+</images>
+</files_info>
+<!-- END SYSTEM CONTEXT -->`,
                     type: 'text',
                   },
                   {
