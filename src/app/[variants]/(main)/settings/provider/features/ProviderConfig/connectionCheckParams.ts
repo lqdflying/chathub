@@ -27,6 +27,16 @@ export const buildConnectionCheckParams = (provider: string, model: string) => {
         ...cappedBase,
         thinking: { type: 'disabled' as const },
       };
+    case 'zhipu':
+      // GLM-5.2/4.x reasoning models enable Deep Thinking by default; with the
+      // 256-token probe budget the thinking phase exhausts tokens and surfaces
+      // no final content → ConnectionCheckFailed. Disable thinking for the
+      // connectivity probe (mirrors moonshot). buildZhipuPayload drops the
+      // field for non-thinking ids, so this is safe for all Zhipu models.
+      return {
+        ...cappedBase,
+        thinking: { type: 'disabled' as const },
+      };
     case 'minimax':
       return {
         ...cappedBase,

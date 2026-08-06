@@ -27,6 +27,13 @@ describe('connectionCheckParams', () => {
     expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
   });
 
+  it('disables Zhipu thinking for connectivity probes', () => {
+    const params = buildConnectionCheckParams('zhipu', 'glm-5.2');
+
+    expect(params.thinking).toEqual({ type: 'disabled' });
+    expect(params.max_tokens).toBe(CONNECTION_CHECK_MAX_TOKENS);
+  });
+
   it('disables MiniMax reasoning_split for connectivity probes', () => {
     const params = buildConnectionCheckParams('minimax', 'MiniMax-M2.5');
 
