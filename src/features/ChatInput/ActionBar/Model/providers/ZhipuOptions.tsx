@@ -5,16 +5,10 @@ import isEqual from 'fast-deep-equal';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import InfoTooltip from '@/components/InfoTooltip';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { aiModelSelectors, useAiInfraStore } from '@/store/aiInfra';
-
-const descWide = { display: 'inline-block', width: 280 } as const;
-const descNarrow = {
-  display: 'block',
-  maxWidth: '100%',
-  whiteSpace: 'normal',
-} as const;
 
 /** Zhipu GLM-5.2 — extended options (thinking toggle, reasoning_effort, Preserved Thinking). */
 const ZhipuOptions = memo(() => {
@@ -39,12 +33,12 @@ const ZhipuOptions = memo(() => {
     if (extendParams.includes('enableReasoning')) {
       result.push({
         children: <Switch />,
-        desc: (
-          <span style={isNarrow ? descNarrow : descWide}>
-            {t('extendParams.zhipuReasoning.desc')}
-          </span>
+        label: (
+          <>
+            {t('extendParams.zhipuReasoning.title')}
+            <InfoTooltip size={'small'} title={t('extendParams.zhipuReasoning.desc')} />
+          </>
         ),
-        label: t('extendParams.zhipuReasoning.title'),
         layout: isNarrow ? 'vertical' : 'horizontal',
         minWidth: undefined,
         name: 'enableReasoning',
@@ -66,12 +60,12 @@ const ZhipuOptions = memo(() => {
             size={'small'}
           />
         ),
-        desc: (
-          <span style={isNarrow ? descNarrow : descWide}>
-            {t('extendParams.zhipuReasoningEffort.desc')}
-          </span>
+        label: (
+          <>
+            {t('extendParams.zhipuReasoningEffort.title')}
+            <InfoTooltip size={'small'} title={t('extendParams.zhipuReasoningEffort.desc')} />
+          </>
         ),
-        label: t('extendParams.zhipuReasoningEffort.title'),
         layout: 'vertical',
         minWidth: 0,
         name: 'zhipuReasoningEffort',
@@ -88,12 +82,12 @@ const ZhipuOptions = memo(() => {
     if (showPreservedThinking) {
       result.push({
         children: <Switch />,
-        desc: (
-          <span style={isNarrow ? descNarrow : descWide}>
-            {t('extendParams.zhipuPreservedThinking.desc')}
-          </span>
+        label: (
+          <>
+            {t('extendParams.zhipuPreservedThinking.title')}
+            <InfoTooltip size={'small'} title={t('extendParams.zhipuPreservedThinking.desc')} />
+          </>
         ),
-        label: t('extendParams.zhipuPreservedThinking.title'),
         layout: isNarrow ? 'vertical' : 'horizontal',
         minWidth: undefined,
         name: 'zhipuPreservedThinking',
