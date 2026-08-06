@@ -106,22 +106,22 @@ describe('buildZhipuPayload', () => {
     expect(out.top_p).toBe(0.9);
   });
 
-  it('injects web_search tool and forces thinking disabled when enabledSearch is set on glm-5.2', () => {
+  it('injects web_search tool and omits thinking (stays enabled) when enabledSearch is set on glm-5.2', () => {
     const out = buildZhipuPayload({
       enabledSearch: true,
       messages: baseMessage,
       model: 'glm-5.2',
       thinking: { budget_tokens: 1024, type: 'enabled' },
     } as any) as any;
-    expect(out.thinking).toEqual({ type: 'disabled' });
+    // Search no longer forces `{ type: 'disabled' }`; the field is omitted like normal
+    // thinking-ON so the body stays byte-stable for implicit prefix caching.
+    expect(out.thinking).toBeUndefined();
     expect(Array.isArray(out.tools)).toBe(true);
     expect(out.tools.some((t: any) => t.type === 'web_search')).toBe(true);
     expect(out.tool_choice).toBe('auto');
-    // tool_stream only applies to function tools; a lone web_search tool does not set it.
-    expect(out.tool_stream).toBeUndefined();
   });
 
-  it('sets tool_stream when streaming with function tools', () => {
+  it('never sends tool_stream, even with function tools + stream + search', () => {
     const tools = [{ function: { name: 'x', parameters: {} }, type: 'function' }] as any;
     const out = buildZhipuPayload({
       enabledSearch: true,
@@ -130,33 +130,11 @@ describe('buildZhipuPayload', () => {
       stream: true,
       tools,
     } as any) as any;
-    expect(out.tool_stream).toBe(true);
+    expect(out.tool_stream).toBeUndefined();
     expect(out.tools.some((t: any) => t.type === 'web_search')).toBe(true);
   });
 
-  it('omits tool_stream for glm-4.5 even with function tools + stream', () => {
-    const tools = [{ function: { name: 'x', parameters: {} }, type: 'function' }] as any;
-    const out = buildZhipuPayload({
-      messages: baseMessage,
-      model: 'glm-4.5',
-      stream: true,
-      tools,
-    } as any) as any;
-    expect(out.tool_stream).toBeUndefined();
-  });
-
-  it('omits tool_stream for vision models (glm-5v-turbo) even with function tools + stream', () => {
-    const tools = [{ function: { name: 'x', parameters: {} }, type: 'function' }] as any;
-    const out = buildZhipuPayload({
-      messages: baseMessage,
-      model: 'glm-5v-turbo',
-      stream: true,
-      tools,
-    } as any) as any;
-    expect(out.tool_stream).toBeUndefined();
-  });
-
-  it('sets tool_stream for glm-4.6 with function tools + stream', () => {
+  it('never sends tool_stream for glm-4.6 with function tools + stream', () => {
     const tools = [{ function: { name: 'x', parameters: {} }, type: 'function' }] as any;
     const out = buildZhipuPayload({
       messages: baseMessage,
@@ -164,17 +142,17 @@ describe('buildZhipuPayload', () => {
       stream: true,
       tools,
     } as any) as any;
-    expect(out.tool_stream).toBe(true);
+    expect(out.tool_stream).toBeUndefined();
   });
 
-  it('forces thinking disabled when response_format json_object is set on glm-5.2', () => {
+  it('keeps thinking enabled when response_format json_object is set on glm-5.2', () => {
     const out = buildZhipuPayload({
       messages: baseMessage,
       model: 'glm-5.2',
       response_format: { type: 'json_object' },
       thinking: { budget_tokens: 1024, type: 'enabled' },
     } as any) as any;
-    expect(out.thinking).toEqual({ type: 'disabled' });
+    expect(out.thinking).toBeUndefined();
     expect(out.response_format).toEqual({ type: 'json_object' });
   });
 
@@ -187,7 +165,7 @@ describe('buildZhipuPayload', () => {
       tools,
     } as any) as any;
     expect(out.tool_choice).toBe('auto');
-    expect(out.tool_stream).toBe(true);
+    expect(out.tool_stream).toBeUndefined();
     expect(out.tools).toEqual([...tools]);
   });
 

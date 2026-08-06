@@ -20,19 +20,6 @@ const supportsReasoningEffort = (model: string) => {
   return major > 5 || (major === 5 && minor >= 2);
 };
 
-// `tool_stream` is documented for glm-4.6, glm-4.7, glm-5 text models only
-// (https://docs.z.ai/guides/tools/stream-tool). Vision variants (glm-5v-turbo,
-// glm-4.5v, glm-4.6v) use the Vision request schema, which has no tool_stream
-// field; exclude them via the 'v' id heuristic.
-const supportsToolStream = (model: string) => {
-  if (model.includes('v')) return false;
-  const match = model.match(/^glm-(\d+)(?:\.(\d+))?/);
-  if (!match) return false;
-  const major = Number(match[1]);
-  const minor = Number(match[2] ?? 0);
-  return major > 4 || (major === 4 && minor >= 6);
-};
-
 const ZHIPU_WEB_SEARCH_TOOL = {
   type: 'web_search',
   web_search: { enable: true, search_engine: 'search_pro_jina' },
@@ -48,6 +35,15 @@ const ZHIPU_WEB_SEARCH_TOOL = {
 //   defaults type to enabled; gateways reject the explicit enabled string but accept
 //   a type-less object).
 // - `reasoning_effort` skip maps to `none` (documented; some gateways reject `minimal`).
+// - `tool_stream` is NEVER sent: gateway backends reject it intermittently with HTTP 400
+//   ("Extra inputs are not permitted, field: 'tool_stream'") and the pool rotates between
+//   lenient and strict backends, so no model-id gating can be safe. Trade-off accepted:
+//   tool-call arguments arrive as one chunk instead of incrementally streamed (native too).
+// - Built-in web search and JSON response_format no longer force `{ type: 'disabled' }`:
+//   the thinking field is omitted like normal thinking-ON, keeping the request body
+//   byte-stable for implicit prefix caching (the gateway reasons regardless; on native
+//   Zhipu thinking is default-on anyway). The "thinking + search mutually exclusive"
+//   guard was never documented by Zhipu and is unproven on native — treated as a myth.
 // When Preserved Thinking is off (Zhipu default `clear_thinking: true`), the server
 // discards historical `reasoning_content`; strip the internal `reasoning` field AND
 // any bare `reasoning_content` so convertOpenAIMessages does not re-inject either and
@@ -81,15 +77,8 @@ export const buildZhipuPayload = (
     tools,
   } = payload;
 
-  // GLM-5.2: built-in web search and JSON response_format require thinking disabled.
-  // NOTE: This exclusion is NOT documented by Zhipu (verified across the chat-completion
-  // API ref, thinking guide, thinking-mode guide, and web-search guide as of 2026-08-05).
-  // Kept as an empirical guard pending canary verification against the live GLM-5.2 API.
-  const wantsJson = response_format?.type === 'json_object';
-  const mustDisableThinking = model === 'glm-5.2' && (!!enabledSearch || wantsJson);
-
   const thinkingRequested = thinking?.type !== 'disabled';
-  const thinkingEnabled = supportsThinking(model) && thinkingRequested && !mustDisableThinking;
+  const thinkingEnabled = supportsThinking(model) && thinkingRequested;
   const preserveReasoning = thinkingEnabled && thinking?.clear_thinking === false;
 
   const normalizedMessages = normalizeMessagesForZhipu(messages, preserveReasoning);
@@ -112,10 +101,6 @@ export const buildZhipuPayload = (
   // `do_sample: false` selects greedy decoding; sampling params then do not apply.
   const greedy = temperature === 0;
 
-  // `tool_stream` streams tool-call arguments incrementally (GLM-4.6+ text models, requires stream).
-  const hasFunctionTools = Array.isArray(tools) && tools.length > 0;
-  const toolStream = (payload.stream ?? true) && hasFunctionTools && supportsToolStream(model);
-
   // Zhipu only supports `tool_choice: 'auto'`; other variants are rejected.
   const finalTools = enabledSearch
     ? [...(tools ?? []), ZHIPU_WEB_SEARCH_TOOL]
@@ -131,7 +116,6 @@ export const buildZhipuPayload = (
     ...(thinkingParam ? { thinking: thinkingParam } : {}),
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     ...(greedy ? { do_sample: false } : {}),
-    ...(toolStream ? { tool_stream: true } : {}),
     ...(finalTools ? { tools: finalTools, tool_choice: 'auto' } : {}),
     ...(response_format ? { response_format } : {}),
     ...(greedy ? {} : { temperature, top_p: payload.top_p }),
