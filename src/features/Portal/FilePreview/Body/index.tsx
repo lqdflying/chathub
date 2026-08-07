@@ -19,12 +19,15 @@ enum FilePreviewTab {
 }
 
 const IMAGE_EXT_REGEX = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const IMAGE_BARE_TYPE_REGEX = /^(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 const isPdfFile = (fileType?: string, name?: string) =>
   fileType?.toLowerCase() === 'pdf' || !!name?.toLowerCase().endsWith('.pdf');
 
 const isImageFile = (fileType?: string, name?: string) =>
-  fileType?.toLowerCase().startsWith('image/') || !!IMAGE_EXT_REGEX.test(name ?? '');
+  IMAGE_BARE_TYPE_REGEX.test(fileType ?? '') ||
+  !!fileType?.toLowerCase().startsWith('image/') ||
+  !!IMAGE_EXT_REGEX.test(name ?? '');
 
 const FilePreview = () => {
   const previewFileId = useChatStore(chatPortalSelectors.previewFileId);
@@ -47,10 +50,16 @@ const FilePreview = () => {
 
   // For the File tab: fetch all chunks of the file when it is a chunkable text-like
   // document (not PDF / not image). PDFs paginate via PDF.js; images render natively.
-  const fileTabChunkable = !!data && !isPdfFile(data.fileType, data.name) && !isImageFile(data.fileType, data.name);
+  const fileTabChunkable =
+    !!data && !isPdfFile(data.fileType, data.name) && !isImageFile(data.fileType, data.name);
   const allChunksQuery = lambdaQuery.chunk.getAllByFileId.useQuery(
     { id: previewFileId! },
-    { enabled: !!previewFileId && fileTabChunkable },
+    {
+      // Chunk content is immutable once embedded; avoid refetching the full-file
+      // payload on every window focus.
+      enabled: !!previewFileId && fileTabChunkable,
+      staleTime: 5 * 60 * 1000,
+    },
   );
 
   if (isLoading) return <Loading />;
@@ -88,14 +97,24 @@ const FilePreview = () => {
 
       {showChunk ? (
         <Flexbox flex={1} paddingBlock={8} style={{ minHeight: 0 }}>
-          <ChunkPager chunks={retrievedChunks!} initialIndex={chunkInitialIndex} />
+          <ChunkPager
+            chunks={retrievedChunks!}
+            initialIndex={chunkInitialIndex}
+            // Remount when the clicked chunk (or target file) changes so the
+            // pager re-seeds initialIndex instead of reusing stale page state.
+            key={`retrieved-${portalFile?.chunkId ?? previewFileId}`}
+          />
         </Flexbox>
       ) : fileTabChunkable ? (
         allChunksQuery.isLoading ? (
           <Loading />
         ) : allChunksQuery.data && allChunksQuery.data.length > 0 ? (
           <Flexbox flex={1} paddingBlock={8} style={{ minHeight: 0 }}>
-            <ChunkPager chunks={allChunksQuery.data} initialIndex={0} />
+            <ChunkPager
+              chunks={allChunksQuery.data}
+              initialIndex={0}
+              key={`file-${previewFileId}`}
+            />
           </Flexbox>
         ) : (
           <Flexbox flex={1} paddingBlock={8} style={{ overflow: 'scroll' }}>

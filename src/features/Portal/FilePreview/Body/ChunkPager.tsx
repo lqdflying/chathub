@@ -4,7 +4,7 @@ import { ActionIcon, Markdown } from '@lobehub/ui';
 import { Pagination } from 'antd';
 import { createStyles } from 'antd-style';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -75,17 +75,6 @@ const ChunkPager = memo<ChunkPagerProps>(({ chunks, initialIndex }) => {
 
   const [currentPage, setCurrentPage] = useState(initialPage);
 
-  useEffect(() => {
-    // Re-clamp when the chunk list (length / initial) changes — e.g. switching tabs
-    // or after the all-chunks fetch resolves.
-    if (currentPage > totalPages) setCurrentPage(totalPages);
-    else if (currentPage < 1 && totalPages > 0) setCurrentPage(1);
-  }, [currentPage, totalPages]);
-
-  if (!totalPages) return null;
-
-  const currentChunk = chunks[currentPage - 1];
-
   const handlePageChange = useCallback(
     (nextPage: number) => {
       const clamped = Math.min(Math.max(nextPage, 1), totalPages);
@@ -97,9 +86,17 @@ const ChunkPager = memo<ChunkPagerProps>(({ chunks, initialIndex }) => {
     [currentPage, totalPages],
   );
 
+  if (!totalPages) return null;
+
+  // Derive the displayed page at render time so a shrinking chunks list (e.g.
+  // switching tabs, or a different file's chunks arriving from cache) can never
+  // index past the end before state re-syncs.
+  const page = Math.min(Math.max(currentPage, 1), totalPages);
+  const currentChunk = chunks[page - 1];
+
   return (
     <Flexbox flex={1} gap={8} style={{ minHeight: 0 }}>
-      <Flexbox ref={scrollRef} className={styles.scroll} flex={1}>
+      <Flexbox className={styles.scroll} flex={1} ref={scrollRef}>
         <Markdown>{currentChunk.text}</Markdown>
       </Flexbox>
       {totalPages > 1 && (
@@ -113,7 +110,7 @@ const ChunkPager = memo<ChunkPagerProps>(({ chunks, initialIndex }) => {
         >
           <ActionIcon
             aria-label={t('FilePreview.chunkPager.first')}
-            disabled={currentPage === 1}
+            disabled={page === 1}
             icon={ChevronsLeft}
             onClick={() => handlePageChange(1)}
             size={{ blockSize: 44, size: 18 }}
@@ -121,7 +118,7 @@ const ChunkPager = memo<ChunkPagerProps>(({ chunks, initialIndex }) => {
           />
           <Pagination
             className={styles.pagination}
-            current={currentPage}
+            current={page}
             onChange={handlePageChange}
             pageSize={1}
             showQuickJumper={!isMobile}
@@ -129,14 +126,14 @@ const ChunkPager = memo<ChunkPagerProps>(({ chunks, initialIndex }) => {
             showTotal={
               isMobile
                 ? undefined
-                : (total) => t('FilePreview.chunkPager.total', { count: total })
+                : (total, range) => t('FilePreview.chunkPager.total', { current: range[0], total })
             }
             simple={isMobile}
             total={totalPages}
           />
           <ActionIcon
             aria-label={t('FilePreview.chunkPager.last')}
-            disabled={currentPage === totalPages}
+            disabled={page === totalPages}
             icon={ChevronsRight}
             onClick={() => handlePageChange(totalPages)}
             size={{ blockSize: 44, size: 18 }}

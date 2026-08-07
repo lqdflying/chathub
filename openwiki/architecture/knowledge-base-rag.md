@@ -244,12 +244,15 @@ Data flow:
   `ChatFileChunk[]` list so the **Chunk** tab can page client-side without a
   new request, starting at the clicked `chunkId`.
 - The **File** tab fetches all chunks of the file in one request via the
-  `chunk.getAllByFileId` tRPC procedure
-  (`ChunkModel.findAllByFileId`, ordered by `asc(chunks.index)`, applies
-  `mapChunkText` so Table chunks include `text_as_html`). PDF and image files
-  skip chunking and keep `FileViewer` (PDF.js paginates by PDF page; images
-  render natively). Non-PDF text documents with zero chunks fall back to
-  `FileViewer`.
+  `chunk.getAllByFileId` tRPC procedure (`ChunkModel.findAllByFileId`,
+  ordered by `asc(chunks.index)`, returns plain `chunk.text` — no
+  `mapChunkText` decoration, since this is a user-facing viewer and the
+  Table-chunk `text_as_html` scaffold would render as literal markup).
+  The `useQuery` is gated by file type (PDF/image skip it) and pinned with
+  a 5-minute `staleTime` since chunk content is immutable once embedded.
+  PDF and image files skip chunking and keep `FileViewer` (PDF.js paginates
+  by PDF page; images render natively). Non-PDF text documents with zero
+  chunks fall back to `FileViewer`.
 
 The existing cursor-paginated `chunk.getChunksByFileId` (page size 20, used by
 the FileManager ChunkDrawer's virtualized infinite list) is unchanged.

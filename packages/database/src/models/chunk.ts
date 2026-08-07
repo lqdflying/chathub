@@ -188,7 +188,7 @@ export class ChunkModel {
 
   findAllByFileId = async (id: string): Promise<{ id: string; text: string }[]> => {
     const data = await this.db
-      .select({ id: chunks.id, text: chunks.text, type: chunks.type, metadata: chunks.metadata })
+      .select({ id: chunks.id, text: chunks.text })
       .from(chunks)
       .innerJoin(fileChunks, eq(chunks.id, fileChunks.chunkId))
       .where(
@@ -200,8 +200,12 @@ export class ChunkModel {
       )
       .orderBy(asc(chunks.index));
 
+    // Surface plain chunk text only — this is a user-facing viewer (the portal
+    // File Preview), not an LLM context path, so the Table-chunk `text_as_html`
+    // scaffold added by `mapChunkText` would render as literal markup. Matches
+    // the FileManager ChunkDrawer precedent (plain `chunk.text` only).
     return data
-      .map((item) => ({ id: item.id, text: this.mapChunkText(item) }))
+      .map((item) => ({ id: item.id, text: item.text }))
       .filter((chunk) => chunk.text) as { id: string; text: string }[];
   };
 

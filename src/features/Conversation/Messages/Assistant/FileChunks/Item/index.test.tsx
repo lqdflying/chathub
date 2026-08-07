@@ -3,6 +3,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import ChunkItem from './index';
+
 vi.stubGlobal('React', React);
 
 const openFilePreview = vi.hoisted(() => vi.fn());
@@ -47,8 +49,6 @@ vi.mock('./style', () => ({
     styles: { badge: 'badge', container: 'container', mobile: 'mobile' },
   }),
 }));
-
-import ChunkItem from './index';
 
 describe('FileChunks/Item', () => {
   const baseChunk: ChatFileChunk = {

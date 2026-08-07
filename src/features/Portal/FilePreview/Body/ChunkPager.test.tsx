@@ -16,9 +16,9 @@ vi.mock('@lobehub/ui', () => ({
     title,
   }: {
     'aria-label': string;
-    disabled?: boolean;
-    onClick: () => void;
-    title: string;
+    'disabled'?: boolean;
+    'onClick': () => void;
+    'title': string;
   }) => <button aria-label={ariaLabel} disabled={disabled} onClick={onClick} title={title} />,
   Markdown: ({ children }: { children: React.ReactNode }) => (
     <div data-testid={'chunk-markdown'}>{children}</div>
@@ -31,6 +31,8 @@ vi.mock('antd', () => ({
     onChange,
     pageSize,
     showQuickJumper,
+    showSizeChanger,
+    showTotal,
     simple,
     total,
   }: {
@@ -38,6 +40,8 @@ vi.mock('antd', () => ({
     onChange: (page: number) => void;
     pageSize: number;
     showQuickJumper?: boolean;
+    showSizeChanger?: boolean;
+    showTotal?: (total: number, range: [number, number]) => React.ReactNode;
     simple?: boolean;
     total: number;
   }) => (
@@ -49,6 +53,9 @@ vi.mock('antd', () => ({
       data-testid={'pagination'}
       data-total={String(total)}
     >
+      {showTotal ? (
+        <span data-testid={'pagination-total'}>{showTotal(total, [current, current])}</span>
+      ) : null}
       {Array.from({ length: Math.ceil(total / pageSize) }, (_, index) => {
         const targetPage = index + 1;
         return (
@@ -79,10 +86,12 @@ vi.mock('@/hooks/useIsMobile', () => ({
 }));
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string, opts?: Record<string, unknown>) => {
-    if (opts && key.endsWith('.total')) return `${key}:${JSON.stringify(opts)}`;
-    return key;
-  } }),
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) => {
+      if (opts && key.endsWith('.total')) return `${key}:${JSON.stringify(opts)}`;
+      return key;
+    },
+  }),
 }));
 
 vi.mock('react-layout-kit', () => ({
@@ -171,5 +180,32 @@ describe('ChunkPager', () => {
     const pagination = screen.getByTestId('pagination');
     expect(pagination.getAttribute('data-quick-jumper')).toBe('false');
     expect(pagination.getAttribute('data-simple')).toBe('true');
+  });
+
+  it('does not throw and re-clamps when the chunks list shrinks past the current page', () => {
+    const { rerender } = render(<ChunkPager chunks={makeChunks(5)} initialIndex={4} />);
+    expect(screen.getByTestId('chunk-markdown').textContent).toBe('text-5');
+
+    // Simulate a tab switch / cache swap to a shorter list while the pager
+    // instance is reused — must not index past the end and must re-clamp.
+    expect(() => rerender(<ChunkPager chunks={makeChunks(2)} initialIndex={4} />)).not.toThrow();
+    expect(screen.getByTestId('chunk-markdown').textContent).toBe('text-2');
+    expect(screen.getByTestId('pagination').getAttribute('data-current')).toBe('2');
+  });
+
+  it('fills the showTotal label with the current page and total on desktop', () => {
+    // initialIndex is 0-based, page is 1-based, so initialIndex=2 -> page 3.
+    render(<ChunkPager chunks={makeChunks(4)} initialIndex={2} />);
+    const label = screen.getByTestId('pagination-total').textContent ?? '';
+    // The useTranslation mock echoes interpolation opts as JSON for .total keys.
+    expect(label).toContain('FilePreview.chunkPager.total');
+    expect(label).toContain('"current":3');
+    expect(label).toContain('"total":4');
+  });
+
+  it('omits the showTotal label on mobile', () => {
+    responsiveState.isMobile = true;
+    render(<ChunkPager chunks={makeChunks(4)} initialIndex={1} />);
+    expect(screen.queryByTestId('pagination-total')).toBeNull();
   });
 });
