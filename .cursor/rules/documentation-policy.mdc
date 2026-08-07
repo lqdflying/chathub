@@ -47,8 +47,11 @@ Do not treat an OpenWiki update as a substitute for user-facing documentation.
   a patch they must `git am` is wasted work. If both repositories changed, the
   main repository and Wiki repository each require their own local commit,
   containing only its own files, before the work is complete.
-- **Wiki push still requires explicit in-turn user approval**, exactly like the
-  main repository. Having write access to the clone is not permission to publish.
+- **Wiki push requires explicit in-turn user approval**, exactly like the
+  main repository — **with one standing exception: a user-instructed canary
+  flow includes publishing the wiki's committed changes** (see
+  `.cursor/rules/git-and-release.mdc` *Fix / feature canary flow*). Outside
+  that flow, having write access to the clone is not permission to publish.
   Commit, report the SHA, and stop. Only when an instructed push is *denied* — a
   cloud session, whose credentials are scoped to the main repository — fall back
   to the patch handoff in `CLAUDE.md`.

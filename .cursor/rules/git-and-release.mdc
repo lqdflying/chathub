@@ -176,6 +176,7 @@ flow** sections and state the intended action:
 - commit message, including the required gitmoji prefix
 - whether a Docker image build is expected
 - exact canary tag to push, or `no tag` with the docs/rules-only reason
+- wiki state: unpushed commits to publish alongside the canary, or `wiki up to date` / `wiki unavailable`
 
 Hard gates:
 
@@ -186,7 +187,7 @@ Hard gates:
   ```bash
   gh run list -R lqdflying/chathub --workflow=docker-release.yml --limit 3
   ```
-- The final response for a canary flow must include the pushed tag and the workflow run id/status.
+- The final response for a canary flow must include the pushed tag, the workflow run id/status, and the wiki publish result (pushed commit range, `already up to date`, or `unavailable`).
 
 ## Docs / rules-only commits — no tag needed
 
@@ -224,11 +225,23 @@ both canary and formal tags.
    git tag vX.Y.Z-canary.N
    git push origin vX.Y.Z-canary.N
    ```
-5. Verify the build on the **fork**, not upstream:
+5. **Publish the wiki alongside (standing rule).** A canary instruction
+   implicitly authorizes pushing the wiki's committed changes, so user-facing
+   docs ship together with the image that carries the feature:
+   ```bash
+   git -C wiki branch -avv                       # sanity: must be the wiki repo on master
+   git -C wiki log origin/master..master --oneline
+   git -C wiki push origin master                # only if the log shows unpushed commits
+   ```
+   If there are no unpushed wiki commits, report `wiki already up to date`; if
+   `wiki/` is absent, report it unavailable. This exception applies **only** to
+   canary flows — every other wiki push still requires its own explicit in-turn
+   instruction (see `.cursor/rules/documentation-policy.mdc`).
+6. Verify the build on the **fork**, not upstream:
    ```bash
    gh run list -R lqdflying/chathub --workflow=docker-release.yml --limit 3
    ```
-6. Do not merge the branch to `main` until the canary image has been tested.
+7. Do not merge the branch to `main` until the canary image has been tested.
 
 ## Recover from a wrong tag
 

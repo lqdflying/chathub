@@ -88,8 +88,12 @@ the user then has to `git am` is wasted work when the files are already on their
 
 **Do not push the wiki.** Committing is part of completing the work; pushing is not. The
 wiki is a published, user-facing surface, so it follows the same gate as the main
-repository: **`git -C wiki push` requires an explicit in-turn instruction**, every time.
-Having write access is not permission to use it. Report the commit and let the user decide.
+repository: **`git -C wiki push` requires an explicit in-turn instruction**, every time —
+**with one standing exception: a user-instructed canary flow includes publishing the
+wiki's committed commits alongside the tag** (`.cursor/rules/git-and-release.mdc` *Fix /
+feature canary flow*; in a cloud session the wiki push is denied, so list the unpushed SHA
+for the user alongside the tag commands instead). Having write access is not permission to
+use it. Report the commit and let the user decide.
 
 - **`wiki/` present**: edit, commit, report the SHA. Stop there.
 - **`wiki/` absent**: report that it is unavailable. Never clone it implicitly.
