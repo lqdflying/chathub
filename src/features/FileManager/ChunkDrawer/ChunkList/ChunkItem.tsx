@@ -37,9 +37,9 @@ const useStyles = createStyles(({ css, token }) => ({
 }));
 
 // The DB stores a converter-specific `type` on each chunk. Map it to a
-// human-facing provenance label; anything unrecognised is shown verbatim.
+// human-facing provenance label first; fall back to `converted_by` (e.g.
+// 'markitdown') or the raw type for shapes outside the known map.
 export const getChunkProvenance = (type?: string | null, convertedBy?: string | null): string => {
-  if (convertedBy) return convertedBy;
   switch (type) {
     case 'MarkItDownElement': {
       return 'MarkItDown';
@@ -47,11 +47,8 @@ export const getChunkProvenance = (type?: string | null, convertedBy?: string | 
     case 'LangChainElement': {
       return 'LangChain';
     }
-    case 'UnstructuredElement': {
-      return 'Unstructured';
-    }
     default: {
-      return type || '';
+      return convertedBy || type || '';
     }
   }
 };
@@ -147,9 +144,7 @@ const ChunkItem = memo<ChunkItemProps>(({ text, type, id, index, metadata }) => 
         width={720}
       >
         <Flexbox className={styles.modalBody} gap={16}>
-          {metaItems.length > 0 && (
-            <Descriptions column={1} items={metaItems} size={'small'} />
-          )}
+          {metaItems.length > 0 && <Descriptions column={1} items={metaItems} size={'small'} />}
           <div className={styles.text}>{text}</div>
         </Flexbox>
       </Modal>
