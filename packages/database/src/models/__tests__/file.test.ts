@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { eq, inArray } from 'drizzle-orm';
 import { getChunkableFileCapabilities, setChunkableFileCapabilities } from '@lobechat/utils';
+import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileSource, FilesTabs, SortType } from '@/types/files';
