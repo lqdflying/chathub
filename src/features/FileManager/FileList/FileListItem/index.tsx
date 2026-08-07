@@ -227,15 +227,13 @@ const FileRenderItem = memo<FileRenderItemProps>(
             {isMarkItDownConvertible && (
               <MarkItDownAction fileType={fileType} id={id} name={name} />
             )}
-            <div className={styles.hover}>
-              <DropdownMenu
-                filename={name}
-                id={id}
-                knowledgeBaseId={knowledgeBaseId}
-                supportsReParse={isSupportedForChunking}
-                url={url}
-              />
-            </div>
+            <DropdownMenu
+              filename={name}
+              id={id}
+              knowledgeBaseId={knowledgeBaseId}
+              supportsReParse={isSupportedForChunking}
+              url={url}
+            />
           </Flexbox>
         </Flexbox>
         <Flexbox className={styles.item} width={FILE_DATE_WIDTH}>

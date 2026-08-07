@@ -101,7 +101,7 @@ const useStyles = createStyles(({ css, token }) => ({
     inset-block-start: 8px;
     inset-inline-end: 8px;
 
-    opacity: 0;
+    opacity: 1;
 
     transition: opacity ${token.motionDurationMid};
   `,
