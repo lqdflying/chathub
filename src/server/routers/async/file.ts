@@ -235,6 +235,7 @@ export const fileRouter = router({
     .input(
       z.object({
         fileId: z.string(),
+        service: z.enum(['markitdown']).optional(),
         taskId: z.string(),
       }),
     )
@@ -315,6 +316,7 @@ export const fileRouter = router({
             content,
             fileType: file.fileType,
             filename: file.name,
+            service: input.service,
           });
 
           // after finish partition, we need to filter out some elements

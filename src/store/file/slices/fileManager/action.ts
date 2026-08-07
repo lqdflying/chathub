@@ -147,6 +147,7 @@ export interface FileManageAction {
 
   reEmbeddingChunks: (id: string) => Promise<void>;
   reParseFile: (id: string) => Promise<void>;
+  reParseFileWithMarkItDown: (id: string) => Promise<void>;
   refreshFileList: (mutationCheckpoint?: FileMutationCheckpoint) => Promise<void>;
   removeAllFiles: () => Promise<void>;
   removeFileItem: (id: string) => Promise<void>;
@@ -443,6 +444,38 @@ export const createFileManageSlice: StateCreator<
     try {
       if (!isOperationCurrent()) return;
       await ragService.retryParseFile(id);
+      if (!isOperationCurrent()) return;
+
+      await get().refreshFileList(mutationCheckpoint);
+      if (!isOperationCurrent()) return;
+    } finally {
+      releaseLoadingOperation(
+        activeParsingOperations,
+        loadingOwnership,
+        isOperationCurrent(),
+        (ids, loading) => get().toggleParsingIds(ids, loading),
+      );
+    }
+  },
+  reParseFileWithMarkItDown: async (id) => {
+    const mutationCheckpoint = captureFileMutationCheckpoint(get().scopeGeneration);
+    if (!mutationCheckpoint) return;
+
+    const isOperationCurrent = () =>
+      isFileMutationCurrent(mutationCheckpoint, get().scopeGeneration);
+    if (!isOperationCurrent()) return;
+
+    const loadingOwnership = acquireLoadingOperation(
+      activeParsingOperations,
+      [id],
+      mutationCheckpoint,
+      get().creatingChunkingTaskIds,
+      (ids) => get().toggleParsingIds(ids),
+    );
+
+    try {
+      if (!isOperationCurrent()) return;
+      await ragService.retryParseFileWithMarkItDown(id);
       if (!isOperationCurrent()) return;
 
       await get().refreshFileList(mutationCheckpoint);

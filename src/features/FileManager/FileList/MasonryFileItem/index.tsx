@@ -1,4 +1,4 @@
-import { isChunkableFile } from '@lobechat/utils';
+import { isChunkableFile, isOfficePreviewFile } from '@lobechat/utils';
 import { Button, Tooltip } from '@lobehub/ui';
 import { Checkbox, Image } from 'antd';
 import { createStyles } from 'antd-style';
@@ -15,6 +15,7 @@ import { formatSize } from '@/utils/format';
 
 import ChunksBadge from '../FileListItem/ChunkTag';
 import DropdownMenu from '../FileListItem/DropdownMenu';
+import MarkItDownAction from '../MarkItDownAction';
 
 // Image file types
 const IMAGE_TYPES = new Set([
@@ -293,14 +294,26 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
     const [imageLoaded, setImageLoaded] = useState(false);
     const [markdownContent, setMarkdownContent] = useState<string>('');
     const [isLoadingMarkdown, setIsLoadingMarkdown] = useState(false);
-    const [isCreatingFileParseTask, parseFiles] = useFileStore((s) => [
+    const [isCreatingFileParseTask, parseFiles, openChunkDrawer] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,
+      s.openChunkDrawer,
     ]);
 
     const isSupportedForChunking = isChunkableFile(name, fileType);
     const isImage = fileType && IMAGE_TYPES.has(fileType);
     const isMarkdown = isMarkdownFile(name, fileType);
+
+    // Office-type files preview via Microsoft Office Online, which must fetch
+    // the file URL publicly and fails on a private host. Route those to the
+    // converted-chunk content viewer (what the LLM sees) once chunked.
+    const handleOpen = () => {
+      if (isOfficePreviewFile(name, fileType) && (chunkCount ?? 0) > 0) {
+        openChunkDrawer(id);
+        return;
+      }
+      onOpen(id);
+    };
 
     const cardRef = useRef<HTMLDivElement>(null);
     const [isInView, setIsInView] = useState(false);
@@ -364,20 +377,21 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
         </div>
 
         <div className={cx('dropdown', styles.dropdown)} onClick={(e) => e.stopPropagation()}>
-          <DropdownMenu
-            filename={name}
-            id={id}
-            knowledgeBaseId={knowledgeBaseId}
-            supportsReParse={isSupportedForChunking}
-            url={url}
-          />
+          <Flexbox align={'center'} gap={4} horizontal>
+            <MarkItDownAction fileType={fileType} id={id} name={name} />
+            <DropdownMenu
+              filename={name}
+              id={id}
+              knowledgeBaseId={knowledgeBaseId}
+              supportsReParse={isSupportedForChunking}
+              url={url}
+            />
+          </Flexbox>
         </div>
 
         <div
           className={cx(styles.content, !isImage && !isMarkdown && styles.contentWithPadding)}
-          onClick={() => {
-            onOpen(id);
-          }}
+          onClick={handleOpen}
         >
           {isImage && url ? (
             <>

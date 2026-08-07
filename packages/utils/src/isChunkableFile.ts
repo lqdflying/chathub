@@ -145,6 +145,53 @@ export const setChunkableFileCapabilities = (next: Partial<ChunkableFileCapabili
 
 export const getChunkableFileCapabilities = (): ChunkableFileCapabilities => ({ ...capabilities });
 
+/**
+ * Office/MSDoc formats that the in-app file preview delegates to Microsoft
+ * Office Online, which must fetch the file URL publicly. On a private /
+ * self-hosted host that fetch fails, so these types cannot be previewed
+ * locally and should fall back to the converted-chunk content viewer.
+ */
+const OFFICE_PREVIEW_EXTENSIONS = new Set(['doc', 'docx', 'odt', 'ppt', 'pptx', 'xls', 'xlsx']);
+
+/** True for Office/MSDoc types whose preview requires the external Office Online service. */
+export const isOfficePreviewFile = (name = '', fileType = ''): boolean => {
+  const extension = extensionOf(name || fileType.toLowerCase().split(';', 1)[0].trim());
+  return OFFICE_PREVIEW_EXTENSIONS.has(extension);
+};
+
+/**
+ * True when the file can be converted by the MarkItDown sidecar. MarkItDown
+ * reads its own extended set (spreadsheets, images, audio, archives — the very
+ * formats the built-in loaders reject) plus the standard Office/code/text
+ * formats. Only legacy `.doc`/`.docm` and database/binary types are excluded.
+ */
+export const isMarkItDownConvertibleFile = (name = '', fileType = ''): boolean => {
+  if (!capabilities.markitdown) return false;
+  const normalizedType = fileType.toLowerCase().split(';', 1)[0].trim();
+  const extension = extensionOf(name || normalizedType);
+
+  // MarkItDown converts these despite the built-in loaders rejecting them, so
+  // check its sets before the unsupported/media rejections (mirrors isChunkableFile).
+  if (MARKITDOWN_EXTENSIONS.has(extension) || MARKITDOWN_MIME_TYPES.has(normalizedType)) {
+    return true;
+  }
+
+  if (UNSUPPORTED_EXTENSIONS.has(extension)) return false;
+  if (
+    normalizedType.startsWith('image/') ||
+    normalizedType.startsWith('audio/') ||
+    normalizedType.startsWith('video/')
+  ) {
+    return false;
+  }
+
+  return (
+    CHUNKABLE_EXTENSIONS.has(extension) ||
+    CHUNKABLE_MIME_TYPES.has(normalizedType) ||
+    normalizedType.startsWith('text/')
+  );
+};
+
 const extensionOf = (name: string) =>
   name
     .toLowerCase()

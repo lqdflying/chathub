@@ -1,6 +1,4 @@
 import { Drawer } from 'antd';
-import { useTheme } from 'antd-style';
-import dynamic from 'next/dynamic';
 import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
@@ -8,8 +6,10 @@ import { fileManagerSelectors, useFileStore } from '@/store/file';
 
 import Content from './Content';
 
-const FileViewer = dynamic(() => import('@/features/FileViewer'), { ssr: false });
-
+// The drawer shows only the converted/chunked content — what the LLM actually
+// sees. The original-document preview pane (FileViewer) is intentionally
+// removed: Office-type previews delegate to Microsoft Office Online, which
+// must fetch the file URL publicly and fails on a private host.
 const ChunkDrawer = memo(() => {
   const [fileId, open, closeChunkDrawer] = useFileStore((s) => [
     s.chunkDetailId,
@@ -18,7 +18,6 @@ const ChunkDrawer = memo(() => {
   ]);
   const file = useFileStore(fileManagerSelectors.getFileById(fileId));
 
-  const theme = useTheme();
   return (
     <Drawer
       onClose={() => {
@@ -29,17 +28,10 @@ const ChunkDrawer = memo(() => {
         body: { padding: 0 },
       }}
       title={file?.name}
-      width={'90%'}
+      width={'60%'}
     >
-      <Flexbox height={'100%'} horizontal style={{ overflow: 'hidden' }}>
-        {file && (
-          <Flexbox flex={2} style={{ overflow: 'scroll' }}>
-            <FileViewer {...file} />
-          </Flexbox>
-        )}
-        <Flexbox flex={1} style={{ borderInlineStart: `1px solid ${theme.colorSplit}` }}>
-          <Content />
-        </Flexbox>
+      <Flexbox height={'100%'} style={{ overflow: 'hidden' }}>
+        <Content />
       </Flexbox>
     </Drawer>
   );

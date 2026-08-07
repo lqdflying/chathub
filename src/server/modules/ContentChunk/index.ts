@@ -14,6 +14,13 @@ export interface ChunkContentParams {
   fileType: string;
   filename: string;
   mode?: 'fast' | 'hi-res';
+  /**
+   * Force a specific converter first, bypassing the per-type rules. Currently
+   * only `'markitdown'` is supported (used by the per-file "re-parse with
+   * MarkItDown" action). Falls back to the default LangChain chunker on
+   * failure so a sidecar outage never hard-errors.
+   */
+  service?: 'markitdown';
 }
 
 interface ChunkResult {
@@ -59,7 +66,11 @@ export class ContentChunk {
   }
 
   async chunkContent(params: ChunkContentParams): Promise<ChunkResult> {
-    const services = this.getChunkingServices(params.fileType, params.filename);
+    // A forced per-file converter overrides the per-type rules but still falls
+    // back to LangChain so a sidecar failure never hard-errors.
+    const services = params.service
+      ? ([params.service, 'default'] as ChunkingService[])
+      : this.getChunkingServices(params.fileType, params.filename);
     const earlierFailures: string[] = [];
 
     for (const service of services) {

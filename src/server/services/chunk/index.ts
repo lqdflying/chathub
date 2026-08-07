@@ -113,7 +113,12 @@ export class ChunkService {
   /**
    * parse file to chunks with async task
    */
-  async asyncParseFileToChunks(fileId: string, payload: ClientSecretPayload, skipExist?: boolean) {
+  async asyncParseFileToChunks(
+    fileId: string,
+    payload: ClientSecretPayload,
+    skipExist?: boolean,
+    service?: 'markitdown',
+  ) {
     return runWithKnowledgeDebugOperation(
       { operation: 'chunking_task', runtime: 'lambda', transport: 'internal_http' },
       async () => {
@@ -145,7 +150,7 @@ export class ChunkService {
           taskId: asyncTaskId,
         });
         asyncCaller.file
-          .parseFileToChunks({ fileId: fileId, taskId: asyncTaskId })
+          .parseFileToChunks({ fileId: fileId, service, taskId: asyncTaskId })
           .then(() => {
             logKnowledgeDebugSafe('task_dispatch_settled', {
               durationMs: Date.now() - startedAt,

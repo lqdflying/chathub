@@ -19,6 +19,10 @@ class RAGService {
     return lambdaClient.chunk.retryParseFileTask.mutate({ id });
   };
 
+  retryParseFileWithMarkItDown = async (id: string) => {
+    return lambdaClient.chunk.retryParseFileTask.mutate({ id, service: 'markitdown' });
+  };
+
   createEmbeddingChunksTask = async (id: string) => {
     return lambdaClient.chunk.createEmbeddingChunksTask.mutate({ id });
   };

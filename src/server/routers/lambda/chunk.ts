@@ -132,6 +132,7 @@ export const chunkRouter = router({
     .input(
       z.object({
         id: z.string(),
+        service: z.enum(['markitdown']).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -145,7 +146,12 @@ export const chunkRouter = router({
       }
 
       // 2. create a new asyncTask for chunking
-      const asyncTaskId = await ctx.chunkService.asyncParseFileToChunks(input.id, ctx.jwtPayload);
+      const asyncTaskId = await ctx.chunkService.asyncParseFileToChunks(
+        input.id,
+        ctx.jwtPayload,
+        undefined,
+        input.service,
+      );
 
       return { id: asyncTaskId, success: true };
     }),

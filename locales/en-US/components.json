@@ -34,6 +34,9 @@
       "createChunkingTask": "Preparing...",
       "deleteSuccess": "File deleted successfully.",
       "downloading": "Downloading file...",
+      "markitdown": "Parse with MarkItDown",
+      "markitdownTooltip": "Convert with MarkItDown and view chunk content",
+      "confirmMarkItDown": "This will re-parse the file with MarkItDown and replace existing chunks. Continue?",
       "reParseChunks": "Re-parse chunks",
       "removeFromKnowledgeBase": "Remove from Knowledge Base",
       "removeFromKnowledgeBaseSuccess": "File removed successfully."

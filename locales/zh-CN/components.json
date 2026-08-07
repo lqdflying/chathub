@@ -34,6 +34,9 @@
       "createChunkingTask": "准备中...",
       "deleteSuccess": "文件删除成功",
       "downloading": "文件下载中...",
+      "markitdown": "MarkItDown 解析",
+      "markitdownTooltip": "使用 MarkItDown 转换并查看分块内容",
+      "confirmMarkItDown": "将使用 MarkItDown 重新解析该文件并替换现有分块，请确认你的操作",
       "reParseChunks": "重新解析分块",
       "removeFromKnowledgeBase": "从知识库中移除",
       "removeFromKnowledgeBaseSuccess": "文件移除成功"

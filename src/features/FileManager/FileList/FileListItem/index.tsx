@@ -1,4 +1,4 @@
-import { isChunkableFile } from '@lobechat/utils';
+import { isChunkableFile, isOfficePreviewFile } from '@lobechat/utils';
 import { Button, Tooltip } from '@lobehub/ui';
 import { Checkbox } from 'antd';
 import { createStyles } from 'antd-style';
@@ -17,6 +17,7 @@ import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { FileListItem } from '@/types/files';
 import { formatSize } from '@/utils/format';
 
+import MarkItDownAction from '../MarkItDownAction';
 import ChunksBadge from './ChunkTag';
 import DropdownMenu from './DropdownMenu';
 
@@ -105,12 +106,31 @@ const FileRenderItem = memo<FileRenderItemProps>(
     const { t } = useTranslation('components');
     const { styles, cx } = useStyles();
     const [, setSearchParams] = useSearchParams();
-    const [isCreatingFileParseTask, parseFiles] = useFileStore((s) => [
+    const [isCreatingFileParseTask, parseFiles, openChunkDrawer] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,
+      s.openChunkDrawer,
     ]);
 
     const isSupportedForChunking = isChunkableFile(name, fileType);
+
+    // Office-type files preview via Microsoft Office Online, which must fetch
+    // the file URL publicly and fails on a private host. Route those to the
+    // converted-chunk content viewer (what the LLM sees) once chunked.
+    const openFile = () => {
+      if (isOfficePreviewFile(name, fileType) && (chunkCount ?? 0) > 0) {
+        openChunkDrawer(id);
+        return;
+      }
+      setSearchParams(
+        (prev) => {
+          const newParams = new URLSearchParams(prev);
+          newParams.set('file', id);
+          return newParams;
+        },
+        { replace: true },
+      );
+    };
 
     const displayTime =
       dayjs().diff(dayjs(createdAt), 'd') < 7
@@ -131,16 +151,7 @@ const FileRenderItem = memo<FileRenderItemProps>(
           distribution={'space-between'}
           flex={1}
           horizontal
-          onClick={() => {
-            setSearchParams(
-              (prev) => {
-                const newParams = new URLSearchParams(prev);
-                newParams.set('file', id);
-                return newParams;
-              },
-              { replace: true },
-            );
-          }}
+          onClick={openFile}
         >
           <Flexbox align={'center'} horizontal>
             <Center
@@ -212,6 +223,9 @@ const FileRenderItem = memo<FileRenderItemProps>(
                 />
               </div>
             )}
+            <div className={styles.hover}>
+              <MarkItDownAction fileType={fileType} id={id} name={name} />
+            </div>
             <div className={styles.hover}>
               <DropdownMenu
                 filename={name}

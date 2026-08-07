@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getChunkableFileExtensions,
   isChunkableFile,
+  isMarkItDownConvertibleFile,
+  isOfficePreviewFile,
   setChunkableFileCapabilities,
 } from './isChunkableFile';
 
@@ -92,5 +94,55 @@ describe('getChunkableFileExtensions', () => {
     expect(extensions).toContain('.xlsx');
     expect(extensions).toContain('.msg');
     expect(extensions).not.toContain('.doc');
+  });
+});
+
+describe('isOfficePreviewFile', () => {
+  it('detects Office/MSDoc types by extension', () => {
+    expect(isOfficePreviewFile('a.docx')).toBe(true);
+    expect(isOfficePreviewFile('a.xlsx')).toBe(true);
+    expect(isOfficePreviewFile('a.pptx')).toBe(true);
+    expect(isOfficePreviewFile('A.DOC')).toBe(true);
+  });
+
+  it('returns false for locally-previewable types', () => {
+    expect(isOfficePreviewFile('a.pdf')).toBe(false);
+    expect(isOfficePreviewFile('a.png')).toBe(false);
+    expect(isOfficePreviewFile('a.md')).toBe(false);
+  });
+});
+
+describe('isMarkItDownConvertibleFile', () => {
+  afterEach(() => setChunkableFileCapabilities({ markitdown: false }));
+
+  it('returns false when the sidecar is not configured', () => {
+    setChunkableFileCapabilities({ markitdown: false });
+
+    expect(isMarkItDownConvertibleFile('a.docx')).toBe(false);
+    expect(isMarkItDownConvertibleFile('a.xlsx')).toBe(false);
+  });
+
+  it('accepts MarkItDown-only extended types when configured', () => {
+    setChunkableFileCapabilities({ markitdown: true });
+
+    expect(isMarkItDownConvertibleFile('a.xlsx')).toBe(true);
+    expect(isMarkItDownConvertibleFile('a.png')).toBe(true);
+    expect(isMarkItDownConvertibleFile('a.mp3')).toBe(true);
+  });
+
+  it('accepts standard chunkable types MarkItDown also reads', () => {
+    setChunkableFileCapabilities({ markitdown: true });
+
+    expect(isMarkItDownConvertibleFile('a.docx')).toBe(true);
+    expect(isMarkItDownConvertibleFile('a.pdf')).toBe(true);
+    expect(isMarkItDownConvertibleFile('a.md')).toBe(true);
+  });
+
+  it('rejects hard-unsupported types even when configured', () => {
+    setChunkableFileCapabilities({ markitdown: true });
+
+    expect(isMarkItDownConvertibleFile('a.doc')).toBe(false);
+    expect(isMarkItDownConvertibleFile('a.db')).toBe(false);
+    expect(isMarkItDownConvertibleFile('a.sqlite')).toBe(false);
   });
 });
