@@ -7,7 +7,21 @@ import {
   SortType,
 } from '@lobechat/types';
 import { isChunkableFile } from '@lobechat/utils';
-import { and, asc, count, desc, eq, ilike, inArray, isNull, like, ne, notExists, or, sum } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  like,
+  ne,
+  notExists,
+  or,
+  sum,
+} from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 
 import {
@@ -248,7 +262,7 @@ export class FileModel {
     chunkableOnly,
     showFilesInKnowledgeBase,
   }: QueryFileListParams = {}) => {
-        // 1. query where
+    // 1. query where
     // Hide AI-generated images from the general/overview file list — they have
     // their own home in the art gallery (queryImageArtifacts). Scoped to the
     // overview only: a file the user explicitly added to a knowledge base must

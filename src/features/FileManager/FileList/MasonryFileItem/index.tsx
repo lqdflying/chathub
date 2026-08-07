@@ -91,7 +91,7 @@ const useStyles = createStyles(({ css, token }) => ({
   contentWithPadding: css`
     padding: 12px;
   `,
-    dropdown: css`
+  dropdown: css`
     position: absolute;
     z-index: 2;
     inset-block-start: 8px;
