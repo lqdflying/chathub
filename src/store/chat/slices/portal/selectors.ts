@@ -18,6 +18,7 @@ const toolUIIdentifier = (s: ChatStoreState) => s.portalToolMessage?.identifier;
 const showFilePreview = (s: ChatStoreState) => !!s.portalFile;
 const previewFileId = (s: ChatStoreState) => s.portalFile?.fileId;
 const chunkText = (s: ChatStoreState) => s.portalFile?.chunkText;
+const chunks = (s: ChatStoreState) => s.portalFile?.chunks;
 
 const showArtifactUI = (s: ChatStoreState) => !!s.portalArtifact;
 const artifactTitle = (s: ChatStoreState) => s.portalArtifact?.title;
@@ -56,6 +57,7 @@ export const chatPortalSelectors = {
   previewFileId,
   showFilePreview,
   chunkText,
+  chunks,
 
   messageDetailId,
   showMessageDetail,

@@ -226,6 +226,34 @@ credentials, private database identifiers, request/response bodies, or stacks.
 Each record is capped at 16 KiB. Diagnostics do not change retrieval, chunking,
 embedding, or reranking behavior.
 
+## File Preview portal and chunk pagination
+
+The chat File Preview popup (`src/features/Portal/FilePreview/Body/`) renders
+retrieved Knowledge chunks and whole source files. Both the **Chunk** tab
+(retrieved chunks for a message) and the **File** tab (all chunks of a file)
+are chunk-paginated one chunk per page via the shared `ChunkPager` component,
+modeled on the Picbed antd `Pagination` pattern (`pageSize = 1`, first/last
+`ActionIcon` jumpers, `showQuickJumper`, mobile `simple` mode). The previous
+single-scrollable markdown blob is replaced by chunk paging so very large
+Knowledge documents stay navigable.
+
+Data flow:
+
+- A chat chunk citation calls `openFilePreview({ fileId, chunkId, chunks })`
+  in the chat portal slice; `chunks` carries the message's retrieved
+  `ChatFileChunk[]` list so the **Chunk** tab can page client-side without a
+  new request, starting at the clicked `chunkId`.
+- The **File** tab fetches all chunks of the file in one request via the
+  `chunk.getAllByFileId` tRPC procedure
+  (`ChunkModel.findAllByFileId`, ordered by `asc(chunks.index)`, applies
+  `mapChunkText` so Table chunks include `text_as_html`). PDF and image files
+  skip chunking and keep `FileViewer` (PDF.js paginates by PDF page; images
+  render natively). Non-PDF text documents with zero chunks fall back to
+  `FileViewer`.
+
+The existing cursor-paginated `chunk.getChunksByFileId` (page size 20, used by
+the FileManager ChunkDrawer's virtualized infinite list) is unchanged.
+
 ## Source map
 
 - `packages/types/src/rag.ts`
@@ -247,3 +275,6 @@ embedding, or reranking behavior.
 - `packages/database/src/models/embedding.ts`
 - `packages/database/src/models/file.ts`
 - `packages/database/src/schemas/rag.ts`
+- `src/features/Portal/FilePreview/Body/index.tsx`
+- `src/features/Portal/FilePreview/Body/ChunkPager.tsx`
+- `src/store/chat/slices/portal/initialState.ts`

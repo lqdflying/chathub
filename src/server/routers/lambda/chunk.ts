@@ -94,6 +94,16 @@ export const chunkRouter = router({
       };
     }),
 
+  getAllByFileId: chunkProcedure
+    .input(
+      z.object({
+        id: z.string(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.chunkModel.findAllByFileId(input.id);
+    }),
+
   reportKnowledgeClientEvent: chunkProcedure
     .input(
       z.object({

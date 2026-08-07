@@ -64,7 +64,7 @@ const FileChunks = memo<FileChunksProps>(({ data }) => {
       {showDetail && (
         <Flexbox gap={8} horizontal wrap={'wrap'}>
           {data.map((item, index) => {
-            return <ChunkItem index={index} key={item.id} {...item} />;
+            return <ChunkItem chunks={data} index={index} key={item.id} {...item} />;
           })}
         </Flexbox>
       )}

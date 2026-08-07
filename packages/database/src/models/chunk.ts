@@ -186,6 +186,25 @@ export class ChunkModel {
       .filter((chunk) => chunk.text) as { id: string; text: string }[];
   };
 
+  findAllByFileId = async (id: string): Promise<{ id: string; text: string }[]> => {
+    const data = await this.db
+      .select({ id: chunks.id, text: chunks.text, type: chunks.type, metadata: chunks.metadata })
+      .from(chunks)
+      .innerJoin(fileChunks, eq(chunks.id, fileChunks.chunkId))
+      .where(
+        and(
+          eq(fileChunks.fileId, id),
+          eq(fileChunks.userId, this.userId),
+          eq(chunks.userId, this.userId),
+        ),
+      )
+      .orderBy(asc(chunks.index));
+
+    return data
+      .map((item) => ({ id: item.id, text: this.mapChunkText(item) }))
+      .filter((chunk) => chunk.text) as { id: string; text: string }[];
+  };
+
   countByFileIds = async (ids: string[]) => {
     if (ids.length === 0) return [];
 

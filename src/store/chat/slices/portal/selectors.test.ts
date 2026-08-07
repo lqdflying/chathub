@@ -103,6 +103,25 @@ describe('chatDockSelectors', () => {
     });
   });
 
+  describe('chunks', () => {
+    it('should return undefined when portalFile is not set', () => {
+      expect(chatPortalSelectors.chunks(createState())).toBeUndefined();
+    });
+
+    it('should return undefined when portalFile has no chunks', () => {
+      const state = createState({ portalFile: { fileId: 'file-id' } });
+      expect(chatPortalSelectors.chunks(state)).toBeUndefined();
+    });
+
+    it('should return the retrieved chunks list when set', () => {
+      const chunks = [
+        { fileId: 'file-id', fileType: 'md', fileUrl: 'u', filename: 'a.md', id: 'c1', text: 't1' },
+      ];
+      const state = createState({ portalFile: { fileId: 'file-id', chunks } });
+      expect(chatPortalSelectors.chunks(state)).toBe(chunks);
+    });
+  });
+
   describe('artifactMessageContent', () => {
     it('should return empty string when message not found', () => {
       const state = createState();

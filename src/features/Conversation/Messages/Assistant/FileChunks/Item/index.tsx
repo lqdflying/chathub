@@ -10,10 +10,11 @@ import { useChatStore } from '@/store/chat';
 import { useStyles } from './style';
 
 export interface ChunkItemProps extends ChatFileChunk {
+  chunks: ChatFileChunk[];
   index: number;
 }
 
-const ChunkItem = memo<ChunkItemProps>(({ id, fileId, similarity, text, filename, fileType }) => {
+const ChunkItem = memo<ChunkItemProps>(({ id, fileId, similarity, text, filename, fileType, chunks }) => {
   const { styles, cx } = useStyles();
   const openFilePreview = useChatStore((s) => s.openFilePreview);
 
@@ -27,7 +28,7 @@ const ChunkItem = memo<ChunkItemProps>(({ id, fileId, similarity, text, filename
       key={id}
       onClick={(e) => {
         e.stopPropagation();
-        openFilePreview({ chunkId: id, chunkText: text, fileId });
+        openFilePreview({ chunkId: id, chunkText: text, chunks, fileId });
       }}
     >
       <FileIcon fileName={filename} fileType={fileType} size={20} variant={'raw'} />

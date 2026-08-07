@@ -1,3 +1,5 @@
+import { ChatFileChunk } from '@lobechat/types';
+
 import { PortalArtifact } from '@/types/artifact';
 
 export enum ArtifactDisplayMode {
@@ -8,6 +10,7 @@ export enum ArtifactDisplayMode {
 export interface PortalFile {
   chunkId?: string;
   chunkText?: string;
+  chunks?: ChatFileChunk[];
   fileId: string;
 }
 

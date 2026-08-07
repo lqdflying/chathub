@@ -1,6 +1,11 @@
 export default {
   Artifacts: 'Artifacts',
   FilePreview: {
+    chunkPager: {
+      first: '第一块',
+      last: '最后一块',
+      total: '分块 {{current}} / {{total}}',
+    },
     tabs: {
       chunk: '分块',
       file: '文件',
