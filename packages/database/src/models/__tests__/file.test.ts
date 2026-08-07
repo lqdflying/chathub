@@ -2,6 +2,10 @@
 import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  getChunkableFileCapabilities,
+  setChunkableFileCapabilities,
+} from '@lobechat/utils';
 import { FileSource, FilesTabs, SortType } from '@/types/files';
 
 import { chunks, embeddings, fileChunks, files, globalFiles, knowledgeBaseFiles, knowledgeBases, users } from '../../schemas';
@@ -639,6 +643,37 @@ describe('FileModel', () => {
         const result = await fileModel.query({ knowledgeBaseId: 'kb1' });
         expect(result).toHaveLength(1);
         expect(result[0].id).toBe('file1');
+      });
+
+      it('keeps a generated image visible inside a KB it was explicitly added to', async () => {
+        // The source filter targets the overview only. A generated image that
+        // is a KB member must stay visible (and removable) in that KB's list,
+        // otherwise it becomes an invisible "ghost" member. The KB branch also
+        // post-filters with isChunkableFile, which accepts image/png only when
+        // the MarkItDown sidecar capability is on — flip it for this assertion
+        // and restore it afterwards (the suite runs singleFork, module state
+        // would otherwise leak into sibling tests).
+        const original = getChunkableFileCapabilities();
+        try {
+          setChunkableFileCapabilities({ markitdown: true });
+          await serverDB.insert(files).values({
+            id: 'gen-img',
+            name: 'generated.png',
+            userId,
+            fileType: 'image/png',
+            size: 800,
+            url: 'https://example.com/generated.png',
+            source: FileSource.ImageGeneration,
+          });
+          await serverDB
+            .insert(knowledgeBaseFiles)
+            .values([{ fileId: 'gen-img', knowledgeBaseId: 'kb1', userId }]);
+
+          const result = await fileModel.query({ knowledgeBaseId: 'kb1' });
+          expect(result.map((f) => f.id)).toContain('gen-img');
+        } finally {
+          setChunkableFileCapabilities(original);
+        }
       });
 
       it('should exclude files in knowledge bases when showFilesInKnowledgeBase is false', async () => {

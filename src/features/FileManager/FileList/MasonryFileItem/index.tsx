@@ -70,10 +70,6 @@ const useStyles = createStyles(({ css, token }) => ({
         opacity: 1;
       }
 
-      .dropdown {
-        opacity: 1;
-      }
-
       .floatingChunkBadge {
         opacity: 1;
       }
@@ -95,15 +91,13 @@ const useStyles = createStyles(({ css, token }) => ({
   contentWithPadding: css`
     padding: 12px;
   `,
-  dropdown: css`
+    dropdown: css`
     position: absolute;
     z-index: 2;
     inset-block-start: 8px;
     inset-inline-end: 8px;
 
     opacity: 1;
-
-    transition: opacity ${token.motionDurationMid};
   `,
   floatingChunkBadge: css`
     position: absolute;
@@ -376,7 +370,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
           <Checkbox checked={selected} />
         </div>
 
-        <div className={cx('dropdown', styles.dropdown)} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.dropdown} onClick={(e) => e.stopPropagation()}>
           <Flexbox align={'center'} gap={4} horizontal>
             <MarkItDownAction fileType={fileType} id={id} name={name} />
             <DropdownMenu
