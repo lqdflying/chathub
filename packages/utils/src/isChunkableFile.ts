@@ -145,6 +145,12 @@ export const setChunkableFileCapabilities = (next: Partial<ChunkableFileCapabili
 
 export const getChunkableFileCapabilities = (): ChunkableFileCapabilities => ({ ...capabilities });
 
+const extensionOf = (name: string) =>
+  name
+    .toLowerCase()
+    .split(/[./\\]/)
+    .pop() || '';
+
 /**
  * Office/MSDoc formats that the in-app file preview delegates to Microsoft
  * Office Online, which must fetch the file URL publicly. On a private /
@@ -191,12 +197,6 @@ export const isMarkItDownConvertibleFile = (name = '', fileType = ''): boolean =
     normalizedType.startsWith('text/')
   );
 };
-
-const extensionOf = (name: string) =>
-  name
-    .toLowerCase()
-    .split(/[./\\]/)
-    .pop() || '';
 
 /** Returns true only for formats handled by the Knowledge Base loaders. */
 export const isChunkableFile = (name = '', fileType = ''): boolean => {

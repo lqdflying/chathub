@@ -27,6 +27,7 @@
       "chunkingUnsupported": "This file does not support chunking.",
       "confirmDelete": "You are about to delete this file. Once deleted, it cannot be recovered. Please confirm your action.",
       "confirmDeleteMultiFiles": "You are about to delete the selected {{count}} files. Once deleted, they cannot be recovered. Please confirm your action.",
+      "confirmMarkItDown": "This will re-parse the file with MarkItDown and replace existing chunks. Continue?",
       "confirmReParseChunks": "This will re-parse the file and replace its existing chunks. Please confirm your action.",
       "confirmRemoveFromKnowledgeBase": "You are about to remove the selected {{count}} files from the knowledge base. They will still be viewable in all files. Please confirm your action.",
       "copyUrl": "Copy Link",
@@ -36,7 +37,6 @@
       "downloading": "Downloading file...",
       "markitdown": "Parse with MarkItDown",
       "markitdownTooltip": "Convert with MarkItDown and view chunk content",
-      "confirmMarkItDown": "This will re-parse the file with MarkItDown and replace existing chunks. Continue?",
       "reParseChunks": "Re-parse chunks",
       "removeFromKnowledgeBase": "Remove from Knowledge Base",
       "removeFromKnowledgeBaseSuccess": "File removed successfully."

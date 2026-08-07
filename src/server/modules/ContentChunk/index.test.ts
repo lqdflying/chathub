@@ -120,6 +120,35 @@ describe('ContentChunk', () => {
     expect(result.chunks[0].type).toBe('LangChainElement');
   });
 
+  it('forces MarkItDown when service=markitdown even when a rule would bypass it', async () => {
+    // A rule that would normally route xlsx to LangChain is overridden by the
+    // explicit forced parser — the per-file MarkItDown re-parse must win.
+    mocks.knowledgeEnv.FILE_TYPE_CHUNKING_RULES = 'xlsx=default';
+    mocks.convert.mockResolvedValue({ markdown: '## Sheet1\n| a | b |', title: 'Budget' });
+
+    const result = await new ContentChunk().chunkContent({ ...xlsx, service: 'markitdown' });
+
+    expect(mocks.convert).toHaveBeenCalledWith({
+      content: xlsx.content,
+      fileType: xlsx.fileType,
+      filename: 'budget.xlsx',
+    });
+    expect(result.chunks[0].type).toBe('MarkItDownElement');
+    expect(result.chunks[0].metadata).toMatchObject({ converted_by: 'markitdown' });
+  });
+
+  it('falls back to LangChain when a forced MarkItDown conversion fails', async () => {
+    // The forced chain is ['markitdown','default'] — a sidecar outage must never
+    // hard-error, it degrades to LangChain (the documented contract).
+    mocks.convert.mockRejectedValue(new Error('service unreachable'));
+
+    const result = await new ContentChunk().chunkContent({ ...xlsx, service: 'markitdown' });
+
+    expect(mocks.convert).toHaveBeenCalled();
+    expect(mocks.partitionContent).toHaveBeenCalled();
+    expect(result.chunks[0].type).toBe('LangChainElement');
+  });
+
   it('still matches rules on the MIME subtype, as it always has', async () => {
     mocks.knowledgeEnv.FILE_TYPE_CHUNKING_RULES = 'pdf=markitdown';
     mocks.convert.mockResolvedValue({ markdown: '# Report' });

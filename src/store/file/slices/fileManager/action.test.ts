@@ -1051,6 +1051,27 @@ describe('FileManagerActions', () => {
     });
   });
 
+  describe('reParseFileWithMarkItDown', () => {
+    it('should toggle parsing and retry parse via the MarkItDown-forced service', async () => {
+      const { result } = renderHook(() => useStore());
+
+      const toggleSpy = vi.spyOn(result.current, 'toggleParsingIds');
+      const retrySpy = vi
+        .spyOn(ragService, 'retryParseFileWithMarkItDown')
+        .mockResolvedValue(undefined as any);
+      const refreshSpy = vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+
+      await act(async () => {
+        await result.current.reParseFileWithMarkItDown('file-1');
+      });
+
+      expect(toggleSpy).toHaveBeenCalledWith(['file-1']);
+      expect(retrySpy).toHaveBeenCalledWith('file-1');
+      expect(refreshSpy).toHaveBeenCalled();
+      expect(toggleSpy).toHaveBeenCalledWith(['file-1'], false);
+    });
+  });
+
   describe('refreshFileList', () => {
     it('should call mutate with correct key', async () => {
       const { result } = renderHook(() => useStore());

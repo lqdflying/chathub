@@ -27,6 +27,7 @@
       "chunkingUnsupported": "该文件不支持分块",
       "confirmDelete": "即将删除该文件，删除后该将无法找回，请确认你的操作",
       "confirmDeleteMultiFiles": "即将删除选中的 {{count}} 个文件，删除后该将无法找回，请确认你的操作",
+      "confirmMarkItDown": "将使用 MarkItDown 重新解析该文件并替换现有分块，请确认你的操作",
       "confirmReParseChunks": "将重新解析该文件并替换现有分块，请确认你的操作",
       "confirmRemoveFromKnowledgeBase": "即将从知识库中移除选中的 {{count}} 个文件，移除后文件仍然可以在全部文件中查看，请确认你的操作",
       "copyUrl": "复制链接",
@@ -36,7 +37,6 @@
       "downloading": "文件下载中...",
       "markitdown": "MarkItDown 解析",
       "markitdownTooltip": "使用 MarkItDown 转换并查看分块内容",
-      "confirmMarkItDown": "将使用 MarkItDown 重新解析该文件并替换现有分块，请确认你的操作",
       "reParseChunks": "重新解析分块",
       "removeFromKnowledgeBase": "从知识库中移除",
       "removeFromKnowledgeBaseSuccess": "文件移除成功"

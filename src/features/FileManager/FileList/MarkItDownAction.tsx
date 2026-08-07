@@ -11,8 +11,6 @@ interface MarkItDownActionProps {
   fileType?: string;
   id: string;
   name: string;
-  size?: 'small';
-  variant?: 'button' | 'floating';
 }
 
 /**

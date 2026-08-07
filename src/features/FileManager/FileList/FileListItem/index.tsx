@@ -1,4 +1,4 @@
-import { isChunkableFile, isOfficePreviewFile } from '@lobechat/utils';
+import { isChunkableFile, isMarkItDownConvertibleFile, isOfficePreviewFile } from '@lobechat/utils';
 import { Button, Tooltip } from '@lobehub/ui';
 import { Checkbox } from 'antd';
 import { createStyles } from 'antd-style';
@@ -113,6 +113,7 @@ const FileRenderItem = memo<FileRenderItemProps>(
     ]);
 
     const isSupportedForChunking = isChunkableFile(name, fileType);
+    const isMarkItDownConvertible = isMarkItDownConvertibleFile(name, fileType);
 
     // Office-type files preview via Microsoft Office Online, which must fetch
     // the file URL publicly and fails on a private host. Route those to the
@@ -223,9 +224,11 @@ const FileRenderItem = memo<FileRenderItemProps>(
                 />
               </div>
             )}
-            <div className={styles.hover}>
-              <MarkItDownAction fileType={fileType} id={id} name={name} />
-            </div>
+            {isMarkItDownConvertible && (
+              <div className={styles.hover}>
+                <MarkItDownAction fileType={fileType} id={id} name={name} />
+              </div>
+            )}
             <div className={styles.hover}>
               <DropdownMenu
                 filename={name}
