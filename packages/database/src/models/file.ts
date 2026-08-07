@@ -7,7 +7,7 @@ import {
   SortType,
 } from '@lobechat/types';
 import { isChunkableFile } from '@lobechat/utils';
-import { and, asc, count, desc, eq, ilike, inArray, like, notExists, or, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, like, ne, notExists, or, sum } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 
 import {
@@ -249,9 +249,14 @@ export class FileModel {
     showFilesInKnowledgeBase,
   }: QueryFileListParams = {}) => {
     // 1. query where
+    // Exclude AI-generated images from the general/knowledge-base file list —
+    // they have their own home in the art gallery (queryImageArtifacts) and
+    // shouldn't surface in the KB overview as if they were manually uploaded.
+    // KB uploads leave `source` NULL; image-gen sets it to FileSource.ImageGeneration.
     let whereClause = and(
       q ? ilike(files.name, `%${q}%`) : undefined,
       eq(files.userId, this.userId),
+      or(isNull(files.source), ne(files.source, FileSource.ImageGeneration)),
     );
     if (category && category !== FilesTabs.All) {
       const fileTypePrefix = this.getFileTypePrefix(category as FilesTabs);

@@ -2,7 +2,7 @@
 import { eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { FilesTabs, SortType } from '@/types/files';
+import { FileSource, FilesTabs, SortType } from '@/types/files';
 
 import { chunks, embeddings, fileChunks, files, globalFiles, knowledgeBaseFiles, knowledgeBases, users } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
@@ -513,6 +513,30 @@ describe('FileModel', () => {
       expect(userFiles).toHaveLength(2);
       expect(userFiles[0].name).toBe('test-file-2.txt');
       expect(userFiles[1].name).toBe('test-file-1.txt');
+    });
+
+    it('excludes AI-generated images but keeps manually-uploaded files', async () => {
+      // A manually-uploaded KB file (source NULL) must stay; a generated image
+      // (source = FileSource.ImageGeneration) must not surface in the general/
+      // KB list — it belongs to the art gallery (queryImageArtifacts).
+      await fileModel.create({
+        name: 'upload.png',
+        url: 'https://example.com/upload.png',
+        size: 500,
+        fileType: 'image/png',
+      });
+      await serverDB.insert(files).values({
+        name: 'generated.png',
+        url: 'https://example.com/generated.png',
+        size: 800,
+        fileType: 'image/png',
+        source: FileSource.ImageGeneration,
+        userId,
+      });
+
+      const result = await fileModel.query();
+      expect(result).toHaveLength(1);
+      expect(result[0].name).toBe('upload.png');
     });
 
     it('should filter files by name', async () => {
