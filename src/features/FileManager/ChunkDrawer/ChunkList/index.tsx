@@ -1,7 +1,10 @@
-import { memo, useEffect, useRef } from 'react';
-import { Flexbox } from 'react-layout-kit';
-import { Virtuoso } from 'react-virtuoso';
+import { Button, Empty } from '@lobehub/ui';
+import { FileBoxIcon } from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Center, Flexbox } from 'react-layout-kit';
 
+import ChunkPager from '@/features/ChunkPager';
 import { lambdaQuery } from '@/libs/trpc/client';
 import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
@@ -13,6 +16,7 @@ interface ChunkListProps {
   fileId: string;
 }
 const ChunkList = memo<ChunkListProps>(({ fileId }) => {
+  const { t } = useTranslation('components');
   // The file list polls task status every 5s while any task is processing, so
   // the store's chunkingStatus is live even with the drawer open. A re-parse
   // only replaces rows in the DB at task completion — poll while processing
@@ -22,40 +26,64 @@ const ChunkList = memo<ChunkListProps>(({ fileId }) => {
     (s) => fileManagerSelectors.getFileById(fileId)(s)?.chunkingStatus,
   );
   const isProcessing = chunkingStatus === AsyncTaskStatus.Processing;
+  const isCreatingParseTask = useFileStore(fileManagerSelectors.isCreatingFileParseTask(fileId));
+  const parseFilesToChunks = useFileStore((s) => s.parseFilesToChunks);
+  const isParsing = isProcessing || isCreatingParseTask;
 
-  const { data, isLoading, fetchNextPage, refetch } =
-    lambdaQuery.chunk.getChunksByFileId.useInfiniteQuery(
-      { id: fileId },
-      {
-        getNextPageParam: (lastPage) => lastPage.nextCursor,
-        refetchInterval: isProcessing ? 3000 : false,
-      },
-    );
+  const { data, isLoading, refetch } = lambdaQuery.chunk.getAllByFileId.useQuery(
+    { id: fileId },
+    {
+      refetchInterval: isProcessing ? 3000 : false,
+      staleTime: 5 * 60 * 1000,
+    },
+  );
 
   const wasProcessing = useRef(isProcessing);
+  const [page, setPage] = useState(1);
   useEffect(() => {
     if (wasProcessing.current && !isProcessing) refetch();
     wasProcessing.current = isProcessing;
   }, [isProcessing, refetch]);
 
-  const dataSource = data?.pages.flatMap((page) => page.items) || [];
+  useEffect(() => {
+    setPage(1);
+  }, [fileId]);
+
+  const dataSource = data || [];
+  const effectivePage = Math.min(Math.max(page, 1), Math.max(dataSource.length, 1));
+  const currentChunk = dataSource[effectivePage - 1];
 
   return isLoading ? (
     <SkeletonLoading />
-  ) : (
-    <Flexbox flex={1}>
-      <Virtuoso
-        data={dataSource}
-        endReached={() => {
-          fetchNextPage();
-        }}
-        itemContent={(index, item) => (
-          <Flexbox key={item.id} paddingInline={12}>
-            <ChunkItem {...item} index={index} />
-          </Flexbox>
-        )}
+  ) : currentChunk ? (
+    <Flexbox flex={1} style={{ minHeight: 0 }}>
+      <ChunkItem
+        id={currentChunk.id}
+        index={currentChunk.index ?? effectivePage - 1}
+        metadata={currentChunk.metadata}
+        text={currentChunk.text}
+        type={currentChunk.type}
       />
+      <ChunkPager chunks={dataSource} key={fileId} onPageChange={setPage} />
     </Flexbox>
+  ) : (
+    <Center flex={1} height={'100%'} padding={24}>
+      <Empty
+        description={t(
+          isParsing ? 'FileManager.chunkEmpty.processing' : 'FileManager.chunkEmpty.description',
+        )}
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+      >
+        <Button
+          disabled={isParsing}
+          icon={FileBoxIcon}
+          loading={isParsing}
+          onClick={() => parseFilesToChunks([fileId])}
+        >
+          {t(isParsing ? 'FileManager.chunkEmpty.parsing' : 'FileManager.chunkEmpty.parse')}
+        </Button>
+      </Empty>
+    </Center>
   );
 });
 

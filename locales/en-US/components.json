@@ -49,6 +49,12 @@
       "title": "Chunk #{{index}}",
       "type": "Type"
     },
+    "chunkEmpty": {
+      "description": "This file has not been parsed yet. Parse it to create text chunks.",
+      "parse": "Parse file",
+      "parsing": "Parsing",
+      "processing": "This file is being parsed. Its chunks will appear here when processing finishes."
+    },
     "config": {
       "showFilesInKnowledgeBase": "Show content in Knowledge Base"
     },
@@ -213,5 +219,10 @@
     "thinking": "Deep Thinking...",
     "thought": "Deeply Thought (in {{duration}} seconds)",
     "thoughtWithDuration": "Deeply Thought"
+  },
+  "chunkPager": {
+    "first": "First chunk",
+    "last": "Last chunk",
+    "total": "Chunk {{current}} / {{total}}"
   }
 }

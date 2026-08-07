@@ -1,11 +1,6 @@
 {
   "Artifacts": "Artifacts",
   "FilePreview": {
-    "chunkPager": {
-      "first": "First",
-      "last": "Last",
-      "total": "Chunk {{current}} / {{total}}"
-    },
     "tabs": {
       "chunk": "Chunk",
       "file": "File"

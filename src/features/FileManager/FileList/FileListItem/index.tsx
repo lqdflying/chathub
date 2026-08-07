@@ -115,11 +115,10 @@ const FileRenderItem = memo<FileRenderItemProps>(
     const isSupportedForChunking = isChunkableFile(name, fileType);
     const isMarkItDownConvertible = isMarkItDownConvertibleFile(name, fileType);
 
-    // Office-type files preview via Microsoft Office Online, which must fetch
-    // the file URL publicly and fails on a private host. Route those to the
-    // converted-chunk content viewer (what the LLM sees) once chunked.
+    // Office Online cannot fetch self-hosted file URLs. Office files always
+    // use the chunk drawer, which provides a parse action when chunks are empty.
     const openFile = () => {
-      if (isOfficePreviewFile(name, fileType) && (chunkCount ?? 0) > 0) {
+      if (isOfficePreviewFile(name, fileType)) {
         openChunkDrawer(id);
         return;
       }

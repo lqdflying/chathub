@@ -3,6 +3,7 @@ import { Strategy } from 'unstructured-client/sdk/models/shared';
 import type { NewChunkItem, NewUnstructuredChunkItem } from '@/database/schemas';
 import { knowledgeEnv } from '@/envs/knowledge';
 import { ChunkingLoader } from '@/libs/langchain';
+import { normalizeMarkdownTables } from '@/libs/langchain/loaders/markdown/tables';
 import { MarkItDown, isMarkItDownEnabled } from '@/libs/markitdown';
 import { ChunkingStrategy, Unstructured } from '@/libs/unstructured';
 
@@ -219,7 +220,8 @@ export class ContentChunk {
       filename,
     });
 
-    const res = await this.langchainClient.partitionMarkdown(markdown);
+    const normalizedMarkdown = normalizeMarkdownTables(markdown);
+    const res = await this.langchainClient.partitionMarkdown(normalizedMarkdown);
 
     const chunks = res.map((item, index): NewChunkItem => ({
       id: item.id,

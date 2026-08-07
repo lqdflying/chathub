@@ -49,6 +49,12 @@
       "title": "分块 #{{index}}",
       "type": "类型"
     },
+    "chunkEmpty": {
+      "description": "此文件尚未解析，请先创建文本分块",
+      "parse": "解析文件",
+      "parsing": "正在解析",
+      "processing": "文件正在解析，完成后将在此显示分块内容"
+    },
     "config": {
       "showFilesInKnowledgeBase": "显示知识库中内容"
     },
@@ -213,5 +219,10 @@
     "thinking": "深度思考中...",
     "thought": "已深度思考（用时 {{duration}} 秒）",
     "thoughtWithDuration": "已深度思考"
+  },
+  "chunkPager": {
+    "first": "第一块",
+    "last": "最后一块",
+    "total": "分块 {{current}} / {{total}}"
   }
 }

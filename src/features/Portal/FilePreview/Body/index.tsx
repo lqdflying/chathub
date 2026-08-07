@@ -5,13 +5,12 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import Loading from '@/components/Loading/CircleLoading';
+import ChunkPager from '@/features/ChunkPager';
 import FileViewer from '@/features/FileViewer';
 import { lambdaQuery } from '@/libs/trpc/client';
 import { useChatStore } from '@/store/chat';
 import { chatPortalSelectors } from '@/store/chat/selectors';
 import { useFileStore } from '@/store/file';
-
-import ChunkPager from './ChunkPager';
 
 enum FilePreviewTab {
   Chunk = 'chunk',

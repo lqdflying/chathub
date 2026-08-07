@@ -186,9 +186,25 @@ export class ChunkModel {
       .filter((chunk) => chunk.text) as { id: string; text: string }[];
   };
 
-  findAllByFileId = async (id: string): Promise<{ id: string; text: string }[]> => {
+  findAllByFileId = async (
+    id: string,
+  ): Promise<
+    {
+      id: string;
+      index: number | null;
+      metadata: ChunkMetadata | null;
+      text: string;
+      type: string | null;
+    }[]
+  > => {
     const data = await this.db
-      .select({ id: chunks.id, text: chunks.text })
+      .select({
+        id: chunks.id,
+        index: chunks.index,
+        metadata: chunks.metadata,
+        text: chunks.text,
+        type: chunks.type,
+      })
       .from(chunks)
       .innerJoin(fileChunks, eq(chunks.id, fileChunks.chunkId))
       .where(
@@ -200,13 +216,15 @@ export class ChunkModel {
       )
       .orderBy(asc(chunks.index));
 
-    // Surface plain chunk text only — this is a user-facing viewer (the portal
-    // File Preview), not an LLM context path, so the Table-chunk `text_as_html`
-    // scaffold added by `mapChunkText` would render as literal markup. Matches
-    // the FileManager ChunkDrawer precedent (plain `chunk.text` only).
+    // Keep raw chunk text for user-facing Markdown renderers. `mapChunkText`
+    // adds LLM-only Table scaffolding that would render as literal markup.
     return data
-      .map((item) => ({ id: item.id, text: item.text }))
-      .filter((chunk) => chunk.text) as { id: string; text: string }[];
+      .filter((item) => item.text)
+      .map((item) => ({
+        ...item,
+        metadata: item.metadata as ChunkMetadata | null,
+        text: item.text as string,
+      }));
   };
 
   countByFileIds = async (ids: string[]) => {

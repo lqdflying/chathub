@@ -105,7 +105,7 @@ describe('ContentChunk', () => {
 
     // Without this, a down sidecar looks like an unsupported-format problem.
     await expect(new ContentChunk().chunkContent(xlsx)).rejects.toThrow(
-      /Unsupported file type \[xlsx\].*markitdown: MarkItDown service is unreachable/s,
+      /Unsupported file type \[xlsx].*markitdown: MarkItDown service is unreachable/s,
     );
   });
 
@@ -135,6 +135,19 @@ describe('ContentChunk', () => {
     });
     expect(result.chunks[0].type).toBe('MarkItDownElement');
     expect(result.chunks[0].metadata).toMatchObject({ converted_by: 'markitdown' });
+  });
+
+  it('normalizes an invalidly merged GFM separator before splitting', async () => {
+    mocks.convert.mockResolvedValue({
+      markdown: ['| Item | Quantity || --- | --- |', '| Pens | 12 |'].join('\n'),
+      title: 'Inventory',
+    });
+
+    await new ContentChunk().chunkContent(xlsx);
+
+    expect(mocks.partitionMarkdown).toHaveBeenCalledWith(
+      ['| Item | Quantity |', '| --- | --- |', '| Pens | 12 |'].join('\n'),
+    );
   });
 
   it('falls back to LangChain when a forced MarkItDown conversion fails', async () => {

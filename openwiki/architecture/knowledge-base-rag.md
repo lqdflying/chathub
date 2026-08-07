@@ -29,6 +29,14 @@ is UTF-8 sanitized, trimmed, and stripped of blank chunks. Re-parsing replaces
 old chunks, unstructured elements, relations, and cascading embeddings in one
 transaction so a file cannot expose a mixed old/new index.
 
+MarkItDown conversion enters the Markdown loader through
+`ContentChunk.chunkByMarkItDown`. Before splitting, `normalizeMarkdownTables`
+repairs a GFM separator that was merged onto a header line. The loader then
+extracts each valid table block and emits it as one atomic document, while the
+existing `MarkdownTextSplitter` continues to split prose. This prevents
+`chunkOverlap` from detaching or duplicating a table separator. It only affects
+new parses; older persisted malformed table chunks must be re-parsed.
+
 ## Provider resolution
 
 `src/server/services/rag/embedding.ts` owns provider resolution and HTTP
@@ -226,16 +234,23 @@ credentials, private database identifiers, request/response bodies, or stacks.
 Each record is capped at 16 KiB. Diagnostics do not change retrieval, chunking,
 embedding, or reranking behavior.
 
-## File Preview portal and chunk pagination
+## File Preview and ChunkDrawer pagination
+
+The shared `src/features/ChunkPager` renders Markdown one chunk at a time for
+both the chat File Preview popup and the FileManager ChunkDrawer. It is
+container-width responsive rather than viewport responsive: wide panes use
+numbered pages and a quick jumper, medium panes collapse the page range, and
+narrow panes use compact simple pagination. First/last `ActionIcon` jumpers
+remain available at every density; the control row never wraps. The content
+surface scales its reading rhythm for narrow panes and makes wide tables
+horizontally scrollable.
 
 The chat File Preview popup (`src/features/Portal/FilePreview/Body/`) renders
 retrieved Knowledge chunks and whole source files. Both the **Chunk** tab
 (retrieved chunks for a message) and the **File** tab (all chunks of a file)
-are chunk-paginated one chunk per page via the shared `ChunkPager` component,
-modeled on the Picbed antd `Pagination` pattern (`pageSize = 1`, first/last
-`ActionIcon` jumpers, `showQuickJumper`, mobile `simple` mode). The previous
-single-scrollable markdown blob is replaced by chunk paging so very large
-Knowledge documents stay navigable.
+are chunk-paginated one chunk per page through that shared component. The
+previous single-scrollable markdown blob is replaced by chunk paging so very
+large Knowledge documents stay navigable.
 
 Data flow:
 
@@ -254,8 +269,18 @@ Data flow:
   by PDF page; images render natively). Non-PDF text documents with zero
   chunks fall back to `FileViewer`.
 
-The existing cursor-paginated `chunk.getChunksByFileId` (page size 20, used by
-the FileManager ChunkDrawer's virtualized infinite list) is unchanged.
+The FileManager `ChunkDrawer/ChunkList` also uses
+`chunk.getAllByFileId`, with the same five-minute `staleTime` and a
+refetch-on-parsing-completion transition. It derives the selected chunk's
+provenance header from the pager page. This deliberately trades a potentially
+large all-chunk response for direct numbered navigation; revisit server-side
+page loading if real files make the payload too large.
+
+Office preview types are routed from both list and masonry file cards directly
+to the ChunkDrawer, even with zero chunks. The external Office Online renderer
+cannot fetch private self-hosted URLs. The drawer therefore displays a local
+empty state with `parseFilesToChunks([fileId])`, polls during parsing, then
+fetches the completed chunks.
 
 ## Source map
 
@@ -278,6 +303,11 @@ the FileManager ChunkDrawer's virtualized infinite list) is unchanged.
 - `packages/database/src/models/embedding.ts`
 - `packages/database/src/models/file.ts`
 - `packages/database/src/schemas/rag.ts`
+- `src/features/ChunkPager/index.tsx`
+- `src/features/FileManager/ChunkDrawer/ChunkList/index.tsx`
+- `src/features/FileManager/FileList/FileListItem/index.tsx`
+- `src/features/FileManager/FileList/MasonryFileItem/index.tsx`
 - `src/features/Portal/FilePreview/Body/index.tsx`
-- `src/features/Portal/FilePreview/Body/ChunkPager.tsx`
+- `src/libs/langchain/loaders/markdown/tables.ts`
+- `src/server/modules/ContentChunk/index.ts`
 - `src/store/chat/slices/portal/initialState.ts`

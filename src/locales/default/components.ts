@@ -11,6 +11,11 @@ export default {
     wrap: '自动换行',
     wrapOff: '取消换行',
   },
+  chunkPager: {
+    first: '第一块',
+    last: '最后一块',
+    total: '分块 {{current}} / {{total}}',
+  },
   DragUpload: {
     dragDesc: '拖拽文件到这里，支持上传多个图片。',
     dragFileDesc: '拖拽图片和文件到这里，支持上传多个图片和文件。',
@@ -50,6 +55,12 @@ export default {
       sourceTitle: '源标题',
       title: '分块 #{{index}}',
       type: '类型',
+    },
+    chunkEmpty: {
+      description: '此文件尚未解析，请先创建文本分块',
+      parse: '解析文件',
+      parsing: '正在解析',
+      processing: '文件正在解析，完成后将在此显示分块内容',
     },
     config: {
       showFilesInKnowledgeBase: '显示知识库中内容',

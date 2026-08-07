@@ -1,26 +1,21 @@
-import { Tag } from '@lobehub/ui';
+import { ActionIcon, Tag } from '@lobehub/ui';
 import { Descriptions, Modal } from 'antd';
 import { createStyles } from 'antd-style';
+import { InfoIcon } from 'lucide-react';
 import { ReactNode, memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { useFileStore } from '@/store/file';
-import { FileChunk } from '@/types/chunk';
+import { ChunkMetadata } from '@/types/chunk';
 
 const useStyles = createStyles(({ css, token }) => ({
   container: css`
-    padding-block: 12px;
-    padding-inline: 8px;
-    border-block-end: 1px dashed ${token.colorBorderSecondary};
-    border-radius: 4px;
-
-    &:hover {
-      background: ${token.colorFillTertiary};
-    }
-  `,
-  content: css`
-    cursor: pointer;
+    flex: none;
+    padding-block: 8px;
+    padding-inline: 16px;
+    border-block-end: 1px solid ${token.colorBorderSecondary};
+    background: ${token.colorBgContainer};
   `,
   modalBody: css`
     max-height: 60vh;
@@ -30,9 +25,6 @@ const useStyles = createStyles(({ css, token }) => ({
     font-size: 14px;
     line-height: 24px;
     white-space: pre-wrap;
-  `,
-  title: css`
-    font-size: 18px;
   `,
 }));
 
@@ -53,10 +45,16 @@ export const getChunkProvenance = (type?: string | null, convertedBy?: string | 
   }
 };
 
-type ChunkItemProps = FileChunk;
+interface ChunkItemProps {
+  id: string;
+  index: number;
+  metadata: ChunkMetadata | null;
+  text: string;
+  type: string | null;
+}
 
 const ChunkItem = memo<ChunkItemProps>(({ text, type, id, index, metadata }) => {
-  const { styles, cx } = useStyles();
+  const { styles } = useStyles();
   const { t } = useTranslation('components');
   const [open, setOpen] = useState(false);
 
@@ -66,17 +64,6 @@ const ChunkItem = memo<ChunkItemProps>(({ text, type, id, index, metadata }) => 
     () => getChunkProvenance(type, metadata?.converted_by),
     [type, metadata?.converted_by],
   );
-
-  const typeClassName = useMemo(() => {
-    switch (type) {
-      default: {
-        return styles.text;
-      }
-      case 'Title': {
-        return styles.title;
-      }
-    }
-  }, [type]);
 
   const metaItems = useMemo(
     () =>
@@ -108,8 +95,10 @@ const ChunkItem = memo<ChunkItemProps>(({ text, type, id, index, metadata }) => 
   return (
     <>
       <Flexbox
-        className={cx(styles.container, typeClassName)}
-        gap={6}
+        align={'center'}
+        className={styles.container}
+        distribution={'space-between'}
+        horizontal
         onMouseEnter={() => {
           highlightChunks([id]);
         }}
@@ -117,21 +106,23 @@ const ChunkItem = memo<ChunkItemProps>(({ text, type, id, index, metadata }) => 
           highlightChunks([]);
         }}
       >
-        {provenance && (
-          <Flexbox>
+        <Flexbox align={'center'} gap={8} horizontal>
+          <Tag bordered={false}>{t('FileManager.chunkDetail.title', { index: index + 1 })}</Tag>
+          {provenance && (
             <Tag bordered={false} color={type === 'MarkItDownElement' ? 'geekblue' : 'default'}>
               {provenance}
             </Tag>
-          </Flexbox>
-        )}
-        <div
-          className={styles.content}
+          )}
+        </Flexbox>
+        <ActionIcon
+          aria-label={t('FileManager.chunkDetail.title', { index: index + 1 })}
+          icon={InfoIcon}
           onClick={() => {
             setOpen(true);
           }}
-        >
-          {text}
-        </div>
+          size={'small'}
+          title={t('FileManager.chunkDetail.title', { index: index + 1 })}
+        />
       </Flexbox>
 
       <Modal
