@@ -5,7 +5,6 @@ export const featureFlagsSelectors = (s: ServerConfigStore) => s.featureFlags;
 export const serverConfigSelectors = {
   enableUploadFileToServer: (s: ServerConfigStore) => s.serverConfig.enableUploadFileToServer,
   enabledAccessCode: (s: ServerConfigStore) => !!s.serverConfig?.enabledAccessCode,
-  enabledMarkItDown: (s: ServerConfigStore) => !!s.serverConfig?.enabledMarkItDown,
   enabledOAuthSSO: (s: ServerConfigStore) => s.serverConfig.enabledOAuthSSO,
   enabledTelemetryChat: (s: ServerConfigStore) => s.serverConfig.telemetry.langfuse || false,
   isMobile: (s: ServerConfigStore) => s.isMobile || false,
