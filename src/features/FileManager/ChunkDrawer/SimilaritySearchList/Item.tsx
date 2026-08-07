@@ -5,6 +5,8 @@ import { Flexbox } from 'react-layout-kit';
 
 import { SemanticSearchChunk } from '@/types/chunk';
 
+import { getChunkProvenance } from '../ChunkList/ChunkItem';
+
 const useStyles = createStyles(({ css, token }) => ({
   container: css`
     padding-block: 12px;
@@ -33,7 +35,7 @@ interface ChunkItemProps extends Omit<SemanticSearchChunk, 'index'> {
   index: number;
 }
 
-const SearchItem = memo<ChunkItemProps>(({ text, pageNumber, type, similarity }) => {
+const SearchItem = memo<ChunkItemProps>(({ text, pageNumber, type, similarity, metadata }) => {
   const { styles, cx } = useStyles();
 
   const typeClassName = useMemo(() => {
@@ -47,12 +49,24 @@ const SearchItem = memo<ChunkItemProps>(({ text, pageNumber, type, similarity })
     }
   }, [type]);
 
+  const provenance = useMemo(
+    () => getChunkProvenance(type, metadata?.converted_by),
+    [type, metadata?.converted_by],
+  );
+
   return (
     <Flexbox className={cx(styles.container, typeClassName)} gap={8}>
       {text}
 
       <Flexbox align={'center'} distribution={'space-between'} horizontal>
-        <Tag bordered={false}>{similarity.toFixed(2)}</Tag>
+        <Flexbox align={'center'} gap={8} horizontal>
+          <Tag bordered={false}>{similarity.toFixed(2)}</Tag>
+          {provenance && (
+            <Tag bordered={false} color={type === 'MarkItDownElement' ? 'geekblue' : 'default'}>
+              {provenance}
+            </Tag>
+          )}
+        </Flexbox>
         <Flexbox className={styles.pageNumber}>第 {pageNumber} 页</Flexbox>
       </Flexbox>
     </Flexbox>

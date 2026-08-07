@@ -27,16 +27,25 @@
       "chunkingUnsupported": "This file does not support chunking.",
       "confirmDelete": "You are about to delete this file. Once deleted, it cannot be recovered. Please confirm your action.",
       "confirmDeleteMultiFiles": "You are about to delete the selected {{count}} files. Once deleted, they cannot be recovered. Please confirm your action.",
+      "confirmReParseChunks": "This will re-parse the file and replace its existing chunks. Please confirm your action.",
       "confirmRemoveFromKnowledgeBase": "You are about to remove the selected {{count}} files from the knowledge base. They will still be viewable in all files. Please confirm your action.",
       "copyUrl": "Copy Link",
       "copyUrlSuccess": "File url copied successfully.",
       "createChunkingTask": "Preparing...",
       "deleteSuccess": "File deleted successfully.",
       "downloading": "Downloading file...",
+      "reParseChunks": "Re-parse chunks",
       "removeFromKnowledgeBase": "Remove from Knowledge Base",
       "removeFromKnowledgeBaseSuccess": "File removed successfully."
     },
     "bottom": "You've reached the end.",
+    "chunkDetail": {
+      "convertedBy": "Converter",
+      "sourceFileType": "Source file type",
+      "sourceTitle": "Source title",
+      "title": "Chunk #{{index}}",
+      "type": "Type"
+    },
     "config": {
       "showFilesInKnowledgeBase": "Show content in Knowledge Base"
     },

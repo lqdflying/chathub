@@ -27,16 +27,25 @@
       "chunkingUnsupported": "该文件不支持分块",
       "confirmDelete": "即将删除该文件，删除后该将无法找回，请确认你的操作",
       "confirmDeleteMultiFiles": "即将删除选中的 {{count}} 个文件，删除后该将无法找回，请确认你的操作",
+      "confirmReParseChunks": "将重新解析该文件并替换现有分块，请确认你的操作",
       "confirmRemoveFromKnowledgeBase": "即将从知识库中移除选中的 {{count}} 个文件，移除后文件仍然可以在全部文件中查看，请确认你的操作",
       "copyUrl": "复制链接",
       "copyUrlSuccess": "文件地址复制成功",
       "createChunkingTask": "准备中...",
       "deleteSuccess": "文件删除成功",
       "downloading": "文件下载中...",
+      "reParseChunks": "重新解析分块",
       "removeFromKnowledgeBase": "从知识库中移除",
       "removeFromKnowledgeBaseSuccess": "文件移除成功"
     },
     "bottom": "已经到底啦",
+    "chunkDetail": {
+      "convertedBy": "转换器",
+      "sourceFileType": "源文件类型",
+      "sourceTitle": "源标题",
+      "title": "分块 #{{index}}",
+      "type": "类型"
+    },
     "config": {
       "showFilesInKnowledgeBase": "显示知识库中内容"
     },

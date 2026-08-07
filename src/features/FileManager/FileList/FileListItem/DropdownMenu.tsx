@@ -7,6 +7,7 @@ import {
   DownloadIcon,
   LinkIcon,
   MoreHorizontalIcon,
+  RotateCwIcon,
   Trash,
 } from 'lucide-react';
 import { memo, useMemo } from 'react';
@@ -28,7 +29,7 @@ const DropdownMenu = memo<DropdownMenuProps>(({ id, knowledgeBaseId, url, filena
   const { t } = useTranslation(['components', 'common']);
   const { message, modal } = App.useApp();
 
-  const [removeFile] = useFileStore((s) => [s.removeFileItem]);
+  const [removeFile, reParseFile] = useFileStore((s) => [s.removeFileItem, s.reParseFile]);
   const [removeFilesFromKnowledgeBase] = useKnowledgeBaseStore((s) => [
     s.removeFilesFromKnowledgeBase,
   ]);
@@ -89,6 +90,23 @@ const DropdownMenu = memo<DropdownMenuProps>(({ id, knowledgeBaseId, url, filena
     return (
       [
         ...knowledgeBaseActions,
+        {
+          type: 'divider',
+        },
+        {
+          icon: <Icon icon={RotateCwIcon} />,
+          key: 'reParseChunks',
+          label: t('FileManager.actions.reParseChunks'),
+          onClick: async ({ domEvent }) => {
+            domEvent.stopPropagation();
+            modal.confirm({
+              content: t('FileManager.actions.confirmReParseChunks'),
+              onOk: async () => {
+                await reParseFile(id);
+              },
+            });
+          },
+        },
         {
           type: 'divider',
         },

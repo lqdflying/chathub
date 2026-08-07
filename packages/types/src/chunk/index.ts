@@ -17,6 +17,11 @@ export interface ChunkMetadata {
   pageNumber?: number;
   parent_id?: string;
   text_as_html?: string;
+  // Written by the MarkItDown chunking path (ContentChunk.chunkByMarkItDown).
+  // Present on MarkItDownElement chunks; absent on LangChain/Unstructured chunks.
+  converted_by?: string;
+  source_file_type?: string;
+  source_title?: string | null;
 }
 
 export interface Coordinates {
