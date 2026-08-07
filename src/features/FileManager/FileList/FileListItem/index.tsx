@@ -225,9 +225,7 @@ const FileRenderItem = memo<FileRenderItemProps>(
               </div>
             )}
             {isMarkItDownConvertible && (
-              <div className={styles.hover}>
-                <MarkItDownAction fileType={fileType} id={id} name={name} />
-              </div>
+              <MarkItDownAction fileType={fileType} id={id} name={name} />
             )}
             <div className={styles.hover}>
               <DropdownMenu
