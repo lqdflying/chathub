@@ -44,10 +44,9 @@ interface FileListProps {
   category?: string;
   knowledgeBaseId?: string;
   knowledgeMode?: boolean;
-  onOpenFile: (id: string) => void;
 }
 
-const FileList = memo<FileListProps>(({ knowledgeBaseId, knowledgeMode = false, category, onOpenFile }) => {
+const FileList = memo<FileListProps>(({ knowledgeBaseId, knowledgeMode = false, category }) => {
   const { t } = useTranslation('components');
   const { styles } = useStyles();
 
@@ -150,11 +149,10 @@ const FileList = memo<FileListProps>(({ knowledgeBaseId, knowledgeMode = false, 
   const masonryContext = useMemo(
     () => ({
       knowledgeBaseId,
-      openFile: onOpenFile,
       selectFileIds,
       setSelectedFileIds,
     }),
-    [onOpenFile, knowledgeBaseId, selectFileIds],
+    [knowledgeBaseId, selectFileIds],
   );
 
   return !isLoading && data?.length === 0 ? (

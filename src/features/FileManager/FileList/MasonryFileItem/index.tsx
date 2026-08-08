@@ -260,7 +260,6 @@ const useStyles = createStyles(({ css, token }) => ({
 
 interface MasonryFileItemProps extends FileListItem {
   knowledgeBaseId?: string;
-  onOpen: (id: string) => void;
   onSelectedChange: (id: string, selected: boolean) => void;
   selected?: boolean;
 }

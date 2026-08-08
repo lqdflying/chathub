@@ -13,9 +13,14 @@ import SimilaritySearchList from './SimilaritySearchList';
 const useStyles = createStyles(({ css, token }) => ({
   basicInfo: css`
     flex-shrink: 0;
+    max-block-size: min(40%, 360px);
+    overflow-y: auto;
     padding: 12px;
     border-block-end: 1px solid ${token.colorSplit};
     background: ${token.colorBgLayout};
+  `,
+  search: css`
+    margin-block-start: 8px;
   `,
 }));
 
@@ -35,7 +40,7 @@ const Content = memo(() => {
       <div className={styles.basicInfo}>
         <FileBasicInfo file={file} variant={'compact'} />
       </div>
-      <Flexbox paddingInline={12}>
+      <Flexbox className={styles.search} paddingInline={12}>
         <SearchBar
           onChange={(text) => {
             if (!text) useFileStore.setState({ isSimilaritySearch: false });

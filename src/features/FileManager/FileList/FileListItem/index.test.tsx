@@ -37,7 +37,6 @@ function getNotCreatingFileParseTaskSelector() {
 const mocks = vi.hoisted(() => ({
   openChunkDrawer: vi.fn(),
   parseFilesToChunks: vi.fn(),
-  setSearchParams: vi.fn(),
 }));
 
 vi.stubGlobal('React', React);
@@ -77,10 +76,6 @@ vi.mock('react-layout-kit', () => ({
   }: React.PropsWithChildren<{ onClick?: React.MouseEventHandler<HTMLDivElement> }>) => (
     <div onClick={onClick}>{children}</div>
   ),
-}));
-
-vi.mock('react-router-dom', () => ({
-  useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
 }));
 
 vi.mock('@/components/FileIcon', () => ({ default: () => <span /> }));
@@ -134,7 +129,6 @@ describe('FileRenderItem opening behavior', () => {
     fireEvent.click(screen.getByText('inventory.xlsx'));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith('file-1');
-    expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
   it('keeps Office files in the chunk drawer after chunking', () => {
@@ -143,7 +137,6 @@ describe('FileRenderItem opening behavior', () => {
     fireEvent.click(screen.getByText('inventory.xlsx'));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith('file-1');
-    expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
   it('opens an unsupported legacy Office file in the explanatory chunk drawer', () => {
@@ -159,7 +152,6 @@ describe('FileRenderItem opening behavior', () => {
     fireEvent.click(screen.getByText('legacy.doc'));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith('file-1');
-    expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -171,6 +163,5 @@ describe('FileRenderItem opening behavior', () => {
     fireEvent.click(screen.getByText(file.name));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith(file.id);
-    expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 });

@@ -46,7 +46,6 @@ function getNotCreatingFileParseTaskSelector() {
 }
 
 const mocks = vi.hoisted(() => ({
-  onOpen: vi.fn(),
   openChunkDrawer: vi.fn(),
   parseFilesToChunks: vi.fn(),
 }));
@@ -125,7 +124,6 @@ const createFileProps = (
   finishEmbedding: false,
   id: 'file-1',
   name: 'inventory.xlsx',
-  onOpen: mocks.onOpen,
   onSelectedChange: vi.fn(),
   size: 1024,
   updatedAt: new Date('2026-08-01T00:00:00Z'),
@@ -144,7 +142,6 @@ describe('MasonryFileItem opening behavior', () => {
     fireEvent.click(screen.getByText('inventory.xlsx'));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith('file-1');
-    expect(mocks.onOpen).not.toHaveBeenCalled();
   });
 
   it('opens an unsupported legacy Office file in the explanatory chunk drawer', () => {
@@ -160,7 +157,6 @@ describe('MasonryFileItem opening behavior', () => {
     fireEvent.click(screen.getByText('legacy.doc'));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith('file-1');
-    expect(mocks.onOpen).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -172,6 +168,5 @@ describe('MasonryFileItem opening behavior', () => {
     fireEvent.click(screen.getByText(file.name));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith(file.id);
-    expect(mocks.onOpen).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,13 @@
 'use client';
 
 import { ActionIcon, Icon, Tag } from '@lobehub/ui';
+import { useSize } from 'ahooks';
 import type { DescriptionsProps } from 'antd';
 import { Descriptions, Divider } from 'antd';
 import { createStyles } from 'antd-style';
 import dayjs from 'dayjs';
 import { BoltIcon, DownloadIcon } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { FileListItem } from '@/types/files';
@@ -49,8 +50,12 @@ const useStyles = createStyles(({ css, token }) => ({
 const FileBasicInfo = memo<FileBasicInfoProps>(({ file, variant = 'panel' }) => {
   const { t } = useTranslation('file');
   const { styles } = useStyles();
+  const compactContainerRef = useRef<HTMLDivElement>(null);
+  const compactContainerSize = useSize(compactContainerRef);
   const { chunkCount, createdAt, embeddingStatus, name, size, updatedAt, url } = file;
   const isCompact = variant === 'compact';
+  const compactContainerWidth = compactContainerSize?.width ?? 640;
+  const compactColumnCount = compactContainerWidth < 380 ? 1 : compactContainerWidth < 640 ? 2 : 4;
 
   const downloadAction = url ? (
     <ActionIcon
@@ -111,17 +116,19 @@ const FileBasicInfo = memo<FileBasicInfoProps>(({ file, variant = 'panel' }) => 
 
   if (isCompact) {
     return (
-      <Descriptions
-        bordered
-        className={styles.compact}
-        colon={false}
-        column={{ lg: 4, md: 3, sm: 2, xl: 4, xs: 1, xxl: 4 }}
-        extra={downloadAction}
-        items={[...(basicItems || []), ...(dataItems || [])]}
-        layout={'vertical'}
-        size={'small'}
-        title={t('detail.basic.title')}
-      />
+      <div ref={compactContainerRef}>
+        <Descriptions
+          bordered
+          className={styles.compact}
+          colon={false}
+          column={compactColumnCount}
+          extra={downloadAction}
+          items={[...(basicItems || []), ...(dataItems || [])]}
+          layout={'vertical'}
+          size={'small'}
+          title={t('detail.basic.title')}
+        />
+      </div>
     );
   }
 

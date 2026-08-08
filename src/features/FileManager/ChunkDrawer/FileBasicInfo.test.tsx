@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileBasicInfo from './FileBasicInfo';
 
 const mocks = vi.hoisted(() => ({
+  containerWidth: 640,
+  descriptionsProps: [] as Array<{ column?: number }>,
   downloadFile: vi.fn(),
 }));
 
@@ -30,27 +32,32 @@ vi.mock('@lobehub/ui', () => ({
   Tag: ({ children }: React.PropsWithChildren) => <span>{children}</span>,
 }));
 
+vi.mock('ahooks', () => ({
+  useSize: () => ({ width: mocks.containerWidth }),
+}));
+
 vi.mock('antd', () => ({
-  Descriptions: ({
-    extra,
-    items,
-    title,
-  }: {
+  Descriptions: (props: {
+    column?: number;
     extra?: React.ReactNode;
     items?: Array<{ children: React.ReactNode; key: React.Key; label: React.ReactNode }>;
     title?: React.ReactNode;
-  }) => (
-    <section>
-      <h2>{title}</h2>
-      {extra}
-      {items?.map((item) => (
-        <div key={item.key}>
-          <span>{item.label}</span>
-          <span>{item.children}</span>
-        </div>
-      ))}
-    </section>
-  ),
+  }) => {
+    mocks.descriptionsProps.push(props);
+
+    return (
+      <section>
+        <h2>{props.title}</h2>
+        {props.extra}
+        {props.items?.map((item) => (
+          <div key={item.key}>
+            <span>{item.label}</span>
+            <span>{item.children}</span>
+          </div>
+        ))}
+      </section>
+    );
+  },
   Divider: () => <hr />,
 }));
 
@@ -87,6 +94,8 @@ const file = {
 
 describe('FileBasicInfo', () => {
   beforeEach(() => {
+    mocks.containerWidth = 640;
+    mocks.descriptionsProps = [];
     vi.clearAllMocks();
   });
 
@@ -101,7 +110,22 @@ describe('FileBasicInfo', () => {
     expect(screen.getByText('2026-08-02 10:45')).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy();
     expect(screen.getByText('detail.data.embedding.success')).toBeTruthy();
+    expect(mocks.descriptionsProps[0].column).toBe(4);
   });
+
+  it.each([
+    { columnCount: 1, containerWidth: 320 },
+    { columnCount: 2, containerWidth: 480 },
+  ])(
+    'uses $columnCount compact columns when the drawer is $containerWidth pixels wide',
+    ({ columnCount, containerWidth }) => {
+      mocks.containerWidth = containerWidth;
+
+      render(<FileBasicInfo file={file} variant={'compact'} />);
+
+      expect(mocks.descriptionsProps[0].column).toBe(columnCount);
+    },
+  );
 
   it('downloads the selected file from the shared information renderer', () => {
     render(<FileBasicInfo file={file} variant={'compact'} />);

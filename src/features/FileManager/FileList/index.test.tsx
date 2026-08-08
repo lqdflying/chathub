@@ -21,10 +21,14 @@ const mocks = vi.hoisted(() => ({
   updateSystemStatus: vi.fn(),
 }));
 
-vi.mock('antd-style', () => ({
-  createStyles: () => () => ({
+function createMockStyles() {
+  return () => ({
     styles: { header: 'header', headerItem: 'headerItem', total: 'total' },
-  }),
+  });
+}
+
+vi.mock('antd-style', () => ({
+  createStyles: createMockStyles,
 }));
 vi.mock('@lobehub/ui', () => ({
   Text: ({ children }: React.PropsWithChildren) => <span>{children}</span>,
@@ -32,7 +36,9 @@ vi.mock('@lobehub/ui', () => ({
 vi.mock('nuqs', () => ({ useQueryState: () => [undefined] }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('react-virtuoso', () => ({
-  Virtuoso: ({ data }: { data?: unknown[] }) => <div data-testid="file-results">{data?.length}</div>,
+  Virtuoso: ({ data }: { data?: unknown[] }) => (
+    <div data-testid="file-results">{data?.length}</div>
+  ),
 }));
 vi.mock('@virtuoso.dev/masonry', () => ({
   VirtuosoMasonry: () => <div />,
@@ -68,6 +74,7 @@ vi.mock('./ToolBar', () => ({
     <button
       data-testid="knowledge-visibility-toggle"
       onClick={() => onConfigChange({ showFilesInKnowledgeBase: false })}
+      type="button"
     >
       {String(config.showFilesInKnowledgeBase)}
     </button>
@@ -77,7 +84,7 @@ vi.mock('./useCheckTaskStatus', () => ({ useCheckTaskStatus: vi.fn() }));
 
 describe('FileList knowledge-base visibility', () => {
   it('shows files associated with a knowledge base by default and keeps the hide control', () => {
-    render(<FileList knowledgeMode onOpenFile={vi.fn()} />);
+    render(<FileList knowledgeMode />);
 
     expect(mocks.fetchFiles).toHaveBeenLastCalledWith(
       expect.objectContaining({ showFilesInKnowledgeBase: true }),

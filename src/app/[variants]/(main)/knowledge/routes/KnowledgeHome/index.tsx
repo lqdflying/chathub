@@ -15,7 +15,6 @@ import { FilesTabs } from '@/types/files';
 
 import { useFileCategory } from '../../hooks/useFileCategory';
 import FileModalQueryRoute from '../../shared/FileModalQueryRoute';
-import { useSetFileModalId } from '../../shared/useFileQueryParam';
 import Container from './layout/Container';
 import RegisterHotkeys from './layout/RegisterHotkeys';
 import FileMenu from './menu/FileMenu';
@@ -49,16 +48,8 @@ MenuContent.displayName = 'MenuContent';
 // Main files list component
 const FilesListPage = memo(() => {
   const [category] = useFileCategory();
-  const setFileModalId = useSetFileModalId();
 
-  return (
-    <FileManager
-      category={category}
-      knowledgeMode
-      onOpenFile={setFileModalId}
-      title={`${category as FilesTabs}`}
-    />
-  );
+  return <FileManager category={category} knowledgeMode title={`${category as FilesTabs}`} />;
 });
 
 FilesListPage.displayName = 'FilesListPage';
