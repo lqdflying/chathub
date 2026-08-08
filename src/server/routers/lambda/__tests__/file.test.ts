@@ -274,6 +274,33 @@ describe('fileRouter', () => {
       expect(ctx.fileModel.create).not.toHaveBeenCalled();
     });
 
+    it('rejects a Knowledge upload when the reusable stored file type is unsupported', async () => {
+      ctx.fileModel.checkHash.mockResolvedValue({
+        fileType: 'video/mp4',
+        isExist: true,
+        metadata: { canonical: true },
+        size: 321,
+        url: 'files/canonical/recording.mp4',
+      });
+
+      await expect(
+        caller.createFile({
+          fileType: 'text/plain',
+          hash: TEST_HASH,
+          knowledgeBaseUpload: true,
+          metadata: {},
+          name: 'knowledge.txt',
+          size: 100,
+          url: `files/${sha256('test-user')}/466737/knowledge.txt`,
+        }),
+      ).rejects.toThrow(
+        'Only documents supported by the chunking loaders can be added to a Knowledge Base.',
+      );
+
+      expect(ctx.fileService.hasFile).toHaveBeenCalledWith('files/canonical/recording.mp4');
+      expect(ctx.fileModel.create).not.toHaveBeenCalled();
+    });
+
     it('uses the canonical global-file values for an existing hash', async () => {
       await expect(createFileWithUrl('files/victim/known-key.png')).resolves.toEqual({
         id: 'test-id',

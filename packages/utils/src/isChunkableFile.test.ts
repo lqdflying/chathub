@@ -85,7 +85,15 @@ describe('isDocumentParseableFile', () => {
     expect(isDocumentParseableFile('data.json', 'application/json')).toBe(true);
     expect(isDocumentParseableFile('table.csv', 'text/csv')).toBe(true);
     expect(isDocumentParseableFile('guide.pdf', 'application/pdf')).toBe(true);
+    expect(isDocumentParseableFile('legacy.doc', 'application/msword')).toBe(true);
     expect(isDocumentParseableFile('report.docx')).toBe(true);
+    expect(
+      isDocumentParseableFile(
+        'budget.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ),
+    ).toBe(true);
+    expect(isDocumentParseableFile('legacy.xls', 'application/vnd.ms-excel')).toBe(true);
     expect(isDocumentParseableFile('slides.pptx')).toBe(true);
     expect(isDocumentParseableFile('source.custom', 'text/x-custom')).toBe(true);
   });
@@ -99,13 +107,7 @@ describe('isDocumentParseableFile', () => {
     expect(isDocumentParseableFile('bundle.zip', 'application/zip')).toBe(false);
     expect(isDocumentParseableFile('thread.msg', 'application/vnd.ms-outlook')).toBe(false);
     expect(isDocumentParseableFile('meeting.mp3', 'audio/mpeg')).toBe(false);
-    expect(
-      isDocumentParseableFile(
-        'budget.xlsx',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      ),
-    ).toBe(false);
-    expect(isDocumentParseableFile('legacy.doc', 'application/msword')).toBe(false);
+    expect(isDocumentParseableFile('macro.docm', 'application/msword')).toBe(false);
     expect(isDocumentParseableFile('book.epub', 'application/epub+zip')).toBe(false);
   });
 
@@ -116,7 +118,8 @@ describe('isDocumentParseableFile', () => {
     expect(isDocumentParseableFile('bundle.zip', 'application/zip')).toBe(false);
     expect(isDocumentParseableFile('thread.msg', 'application/vnd.ms-outlook')).toBe(false);
     expect(isDocumentParseableFile('meeting.mp3', 'audio/mpeg')).toBe(false);
-    expect(isDocumentParseableFile('budget.xlsx')).toBe(false);
+    expect(isDocumentParseableFile('budget.xlsx')).toBe(true);
+    expect(isDocumentParseableFile('legacy.doc')).toBe(true);
     expect(isDocumentParseableFile('book.epub', 'application/epub+zip')).toBe(false);
     expect(isDocumentParseableFile('notes.txt', 'text/plain')).toBe(true);
     expect(isDocumentParseableFile('guide.pdf', 'application/pdf')).toBe(true);

@@ -70,6 +70,8 @@ const UNSUPPORTED_EXTENSIONS = new Set([
   'zip',
 ]);
 
+const SYNCHRONOUS_OFFICE_EXTENSIONS = new Set(['doc', 'xls', 'xlsx']);
+
 /**
  * Formats the MarkItDown sidecar converts to Markdown that the built-in loaders
  * cannot read — spreadsheets, Outlook mail, notebooks, archives, feeds, images
@@ -208,6 +210,8 @@ export const isDocumentParseableFile = (name = '', fileType = ''): boolean => {
   const extension = extensionOf(name || normalizedType);
 
   if (extension === 'epub' || normalizedType === 'application/epub+zip') return false;
+  if (SYNCHRONOUS_OFFICE_EXTENSIONS.has(extension)) return true;
+
   return isBuiltInDocumentParseableFile(extension, normalizedType);
 };
 

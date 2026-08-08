@@ -23,11 +23,14 @@ before any file row is created.
 Topic-chat attachment registration follows a narrower path.
 `isDocumentParseableFile` admits only formats handled by the synchronous
 `@lobechat/file-loaders` pipeline, regardless of whether MarkItDown is
-configured. `DocumentService.parseFile` repeats that check server-side before
-downloading the object, then sanitizes aggregate and per-page text before
-writing the `documents` row. Sidecar-only files and EPUB therefore remain
-attached to the topic without entering this legacy document parser; Knowledge
-Base ingestion continues to use the async, sidecar-aware path.
+configured. This includes the dedicated PDF, DOC, DOCX, XLS/XLSX, and PPTX
+loaders plus supported text formats. `DocumentService.parseFile` repeats that
+check server-side before downloading the object. Before writing the `documents`
+row, it removes PostgreSQL-incompatible controls and malformed Unicode from
+aggregate text, per-page text, titles, and nested document/page metadata while
+preserving valid non-BMP characters. Sidecar-only files and EPUB therefore
+remain attached to the topic without entering this legacy document parser;
+Knowledge Base ingestion continues to use the async, sidecar-aware path.
 
 This boundary does not delete or relocate other media:
 

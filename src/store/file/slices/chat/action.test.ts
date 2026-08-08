@@ -1,5 +1,5 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
 import { setChunkableFileCapabilities } from '@lobechat/utils';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { notification } from '@/components/AntdStaticMethods';
@@ -127,7 +127,9 @@ describe('useFileStore:chat', () => {
           return uploadResult.promise;
         },
       );
-      const parseFileContent = vi.spyOn(ragService, 'parseFileContent').mockResolvedValue(undefined);
+      const parseFileContent = vi
+        .spyOn(ragService, 'parseFileContent')
+        .mockResolvedValue(undefined);
       const file = new File(['content'], 'account-a.txt', { type: 'text/plain' });
 
       const uploadPromise = useStore.getState().uploadChatFiles([file]);
@@ -190,7 +192,7 @@ describe('useFileStore:chat', () => {
   });
 
   describe('topic attachment chunking', () => {
-    it('keeps screenshots and unsupported documents without sending them to chunking', async () => {
+    it('keeps screenshots without parsing them and parses supported spreadsheets', async () => {
       const screenshot = new File(['image'], 'screenshot.png', { type: 'image/png' });
       const spreadsheet = new File(['sheet'], 'report.xlsx', {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -198,12 +200,14 @@ describe('useFileStore:chat', () => {
       vi.spyOn(useStore.getState(), 'uploadWithProgress')
         .mockResolvedValueOnce({ id: 'image-file', url: 'https://example.com/image' })
         .mockResolvedValueOnce({ id: 'sheet-file', url: 'https://example.com/sheet' });
-      const parseFileContent = vi.spyOn(ragService, 'parseFileContent');
+      const parseFileContent = vi.spyOn(ragService, 'parseFileContent').mockResolvedValue();
 
       await useStore.getState().uploadChatFiles([screenshot, spreadsheet]);
 
       expect(useStore.getState().uploadWithProgress).toHaveBeenCalledTimes(2);
-      expect(parseFileContent).not.toHaveBeenCalled();
+      expect(parseFileContent).toHaveBeenCalledTimes(1);
+      expect(parseFileContent).toHaveBeenCalledWith('sheet-file');
+      expect(parseFileContent).not.toHaveBeenCalledWith('image-file');
     });
 
     it('still chunks a loader-supported topic document', async () => {

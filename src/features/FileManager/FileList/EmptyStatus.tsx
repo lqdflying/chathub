@@ -1,3 +1,4 @@
+import { getChunkableFileExtensions } from '@lobechat/utils';
 import { FileTypeIcon, Icon, Text } from '@lobehub/ui';
 import { Upload } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
@@ -75,6 +76,7 @@ const EmptyStatus = ({
   const { styles } = useStyles();
 
   const pushDockFileList = useFileStore((s) => s.pushDockFileList);
+  const accept = knowledgeMode ? [...getChunkableFileExtensions(), '.zip'].join(',') : undefined;
 
   const { open } = useCreateNewModal();
 
@@ -107,6 +109,7 @@ const EmptyStatus = ({
           </Flexbox>
         )}
         <Upload
+          accept={accept}
           beforeUpload={async (file) => {
             await pushDockFileList([file], knowledgeBaseId, knowledgeMode);
 
@@ -127,6 +130,7 @@ const EmptyStatus = ({
           </Flexbox>
         </Upload>
         <Upload
+          accept={accept}
           beforeUpload={async (file) => {
             await pushDockFileList([file], knowledgeBaseId, knowledgeMode);
 

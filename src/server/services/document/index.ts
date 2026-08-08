@@ -7,7 +7,7 @@ import debug from 'debug';
 import { DocumentModel } from '@/database/models/document';
 import { FileModel } from '@/database/models/file';
 import { LobeDocument } from '@/types/document';
-import { sanitizeUTF8 } from '@/utils/sanitizeUTF8';
+import { sanitizeUTF8, sanitizeUTF8Deep } from '@/utils/sanitizeUTF8';
 
 import { FileService } from '../file';
 
@@ -36,9 +36,10 @@ export class DocumentService {
       throw new TRPCError({ code: 'BAD_REQUEST', message: 'File not found' });
     }
     if (!isDocumentParseableFile(file.name, file.fileType)) {
-      throw new Error(
-        `File type '${file.fileType}' is not supported by the built-in document parser`,
-      );
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: `File type '${file.fileType}' is not supported by the built-in document parser`,
+      });
     }
 
     const { filePath, cleanup } = await this.fileService.downloadFileToLocal(fileId);
@@ -55,8 +56,10 @@ export class DocumentService {
         size: fileDocument.content.length,
       });
 
+      const sanitizedMetadata = sanitizeUTF8Deep(fileDocument.metadata);
       const sanitizedPages = fileDocument.pages?.map((page) => ({
         ...page,
+        metadata: sanitizeUTF8Deep(page.metadata),
         pageContent: sanitizeUTF8(page.pageContent),
       }));
 
@@ -64,11 +67,11 @@ export class DocumentService {
         content: sanitizeUTF8(fileDocument.content),
         fileId,
         fileType: file.fileType,
-        metadata: fileDocument.metadata,
+        metadata: sanitizedMetadata,
         pages: sanitizedPages,
         source: file.url,
         sourceType: 'file',
-        title: fileDocument.metadata?.title,
+        title: sanitizedMetadata.title,
         totalCharCount: fileDocument.totalCharCount,
         totalLineCount: fileDocument.totalLineCount,
       });
