@@ -1,4 +1,4 @@
-import { isChunkableFile, isOfficePreviewFile } from '@lobechat/utils';
+import { isChunkableFile } from '@lobechat/utils';
 import { Button, Tooltip } from '@lobehub/ui';
 import { Checkbox, Image } from 'antd';
 import { createStyles } from 'antd-style';
@@ -281,7 +281,6 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
     onSelectedChange,
     knowledgeBaseId,
     size,
-    onOpen,
   }) => {
     const { t } = useTranslation('components');
     const { styles, cx } = useStyles();
@@ -298,15 +297,7 @@ const MasonryFileItem = memo<MasonryFileItemProps>(
     const isImage = fileType && IMAGE_TYPES.has(fileType);
     const isMarkdown = isMarkdownFile(name, fileType);
 
-    // Office Online cannot fetch self-hosted file URLs. Office files always
-    // use the chunk drawer, which provides a parse action when chunks are empty.
-    const handleOpen = () => {
-      if (isOfficePreviewFile(name, fileType)) {
-        openChunkDrawer(id);
-        return;
-      }
-      onOpen(id);
-    };
+    const handleOpen = () => openChunkDrawer(id);
 
     const cardRef = useRef<HTMLDivElement>(null);
     const [isInView, setIsInView] = useState(false);

@@ -285,15 +285,22 @@ large text response for direct numbered navigation. Per-chunk metadata is kept
 small by the provenance-only projection; revisit server-side page loading if
 real files make the text payload too large.
 
-Office preview types are routed from both list and masonry file cards directly
-to the ChunkDrawer, even with zero chunks. The external Office Online renderer
-cannot fetch private self-hosted URLs. The drawer therefore displays a local
-empty state. It offers `parseFilesToChunks([fileId])` only when
-`isChunkableFile(name, fileType)` confirms that the current deployment can
-parse the file, polls during parsing, then fetches the completed chunks.
-Built-in DOCX/PPTX files and sidecar-enabled XLS/XLSX files get the action;
-legacy DOC/ODT/PPT and spreadsheets without a configured sidecar get an
-informative unsupported state without a failing action.
+Every FileManager filename/card click, in both list and masonry layouts, routes
+directly to the ChunkDrawer regardless of extension. HTML, text, Markdown,
+Office, and other Knowledge files therefore use the same local chunk viewer
+instead of falling through to the fullscreen `FileViewer`. The drawer keeps a
+shared `FileBasicInfo` block above semantic search and chunk content; the same
+renderer also supplies the existing fullscreen detail panel. It shows file
+size, format, created/updated times, chunk count, embedding status, and a
+download action without a new server query.
+
+Files with zero chunks get a local empty state. It offers
+`parseFilesToChunks([fileId])` only when `isChunkableFile(name, fileType)`
+confirms that the current deployment can parse the file, polls during parsing,
+then fetches the completed chunks. Built-in DOCX/PPTX files and sidecar-enabled
+XLS/XLSX files get the action; legacy DOC/ODT/PPT and spreadsheets without a
+configured sidecar get an informative unsupported state without a failing
+action.
 
 ## Source map
 

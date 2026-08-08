@@ -1,4 +1,5 @@
 import { SearchBar } from '@lobehub/ui';
+import { createStyles } from 'antd-style';
 import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
@@ -6,9 +7,20 @@ import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { fileChunkSelectors } from '@/store/file/slices/chunk';
 
 import ChunkList from './ChunkList';
+import FileBasicInfo from './FileBasicInfo';
 import SimilaritySearchList from './SimilaritySearchList';
 
+const useStyles = createStyles(({ css, token }) => ({
+  basicInfo: css`
+    flex-shrink: 0;
+    padding: 12px;
+    border-block-end: 1px solid ${token.colorSplit};
+    background: ${token.colorBgLayout};
+  `,
+}));
+
 const Content = memo(() => {
+  const { styles } = useStyles();
   const [fileId, showSimilaritySearch, semanticSearch] = useFileStore((s) => [
     fileChunkSelectors.enabledChunkFileId(s),
     fileChunkSelectors.showSimilaritySearchResult(s),
@@ -19,7 +31,10 @@ const Content = memo(() => {
   if (!fileId || !file) return;
 
   return (
-    <Flexbox gap={8} height={'100%'} paddingBlock={'16px 0'}>
+    <Flexbox height={'100%'}>
+      <div className={styles.basicInfo}>
+        <FileBasicInfo file={file} variant={'compact'} />
+      </div>
       <Flexbox paddingInline={12}>
         <SearchBar
           onChange={(text) => {
@@ -32,11 +47,13 @@ const Content = memo(() => {
           variant={'filled'}
         />
       </Flexbox>
-      {showSimilaritySearch ? (
-        <SimilaritySearchList />
-      ) : (
-        <ChunkList fileId={fileId} fileType={file.fileType} key={fileId} name={file.name} />
-      )}
+      <Flexbox flex={1} paddingBlock={'8px 0'} style={{ minHeight: 0 }}>
+        {showSimilaritySearch ? (
+          <SimilaritySearchList />
+        ) : (
+          <ChunkList fileId={fileId} fileType={file.fileType} key={fileId} name={file.name} />
+        )}
+      </Flexbox>
     </Flexbox>
   );
 });

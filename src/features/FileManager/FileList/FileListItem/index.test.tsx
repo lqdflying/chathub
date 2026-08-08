@@ -45,7 +45,6 @@ vi.stubGlobal('React', React);
 vi.mock('@lobechat/utils', () => ({
   isChunkableFile: () => true,
   isMarkItDownConvertibleFile: () => false,
-  isOfficePreviewFile: (name: string) => /\.(doc|docx|odt|ppt|pptx|xls|xlsx)$/i.test(name),
 }));
 
 vi.mock('@lobehub/ui', () => ({
@@ -163,20 +162,15 @@ describe('FileRenderItem opening behavior', () => {
     expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 
-  it('continues to use the file preview route for non-Office files', () => {
-    render(
-      <FileRenderItem
-        {...createFileProps({
-          fileType: 'text/plain',
-          id: 'notes-file',
-          name: 'notes.txt',
-        })}
-      />,
-    );
+  it.each([
+    { fileType: 'text/html', id: 'html-file', name: 'report.html' },
+    { fileType: 'text/plain', id: 'text-file', name: 'notes.txt' },
+  ])('opens $name in the chunk drawer instead of the preview route', (file) => {
+    render(<FileRenderItem {...createFileProps(file)} />);
 
-    fireEvent.click(screen.getByText('notes.txt'));
+    fireEvent.click(screen.getByText(file.name));
 
-    expect(mocks.openChunkDrawer).not.toHaveBeenCalled();
-    expect(mocks.setSearchParams).toHaveBeenCalledWith(expect.any(Function), { replace: true });
+    expect(mocks.openChunkDrawer).toHaveBeenCalledWith(file.id);
+    expect(mocks.setSearchParams).not.toHaveBeenCalled();
   });
 });

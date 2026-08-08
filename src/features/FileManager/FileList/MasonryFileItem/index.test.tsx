@@ -55,7 +55,6 @@ vi.stubGlobal('React', React);
 
 vi.mock('@lobechat/utils', () => ({
   isChunkableFile: () => true,
-  isOfficePreviewFile: (name: string) => /\.(doc|docx|odt|ppt|pptx|xls|xlsx)$/i.test(name),
 }));
 
 vi.mock('@lobehub/ui', () => ({
@@ -164,20 +163,15 @@ describe('MasonryFileItem opening behavior', () => {
     expect(mocks.onOpen).not.toHaveBeenCalled();
   });
 
-  it('continues to use the file preview callback for non-Office files', () => {
-    render(
-      <MasonryFileItem
-        {...createFileProps({
-          fileType: 'text/plain',
-          id: 'notes-file',
-          name: 'notes.txt',
-        })}
-      />,
-    );
+  it.each([
+    { fileType: 'text/html', id: 'html-file', name: 'report.html' },
+    { fileType: 'text/plain', id: 'text-file', name: 'notes.txt' },
+  ])('opens $name in the chunk drawer instead of the preview callback', (file) => {
+    render(<MasonryFileItem {...createFileProps(file)} />);
 
-    fireEvent.click(screen.getByText('notes.txt'));
+    fireEvent.click(screen.getByText(file.name));
 
-    expect(mocks.openChunkDrawer).not.toHaveBeenCalled();
-    expect(mocks.onOpen).toHaveBeenCalledWith('notes-file');
+    expect(mocks.openChunkDrawer).toHaveBeenCalledWith(file.id);
+    expect(mocks.onOpen).not.toHaveBeenCalled();
   });
 });

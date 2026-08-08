@@ -1,4 +1,4 @@
-import { isChunkableFile, isMarkItDownConvertibleFile, isOfficePreviewFile } from '@lobechat/utils';
+import { isChunkableFile, isMarkItDownConvertibleFile } from '@lobechat/utils';
 import { Button, Tooltip } from '@lobehub/ui';
 import { Checkbox } from 'antd';
 import { createStyles } from 'antd-style';
@@ -10,7 +10,6 @@ import { rgba } from 'polished';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
-import { useSearchParams } from 'react-router-dom';
 
 import FileIcon from '@/components/FileIcon';
 import { fileManagerSelectors, useFileStore } from '@/store/file';
@@ -105,7 +104,6 @@ const FileRenderItem = memo<FileRenderItemProps>(
   }) => {
     const { t } = useTranslation('components');
     const { styles, cx } = useStyles();
-    const [, setSearchParams] = useSearchParams();
     const [isCreatingFileParseTask, parseFiles, openChunkDrawer] = useFileStore((s) => [
       fileManagerSelectors.isCreatingFileParseTask(id)(s),
       s.parseFilesToChunks,
@@ -115,22 +113,7 @@ const FileRenderItem = memo<FileRenderItemProps>(
     const isSupportedForChunking = isChunkableFile(name, fileType);
     const isMarkItDownConvertible = isMarkItDownConvertibleFile(name, fileType);
 
-    // Office Online cannot fetch self-hosted file URLs. Office files always
-    // use the chunk drawer, which provides a parse action when chunks are empty.
-    const openFile = () => {
-      if (isOfficePreviewFile(name, fileType)) {
-        openChunkDrawer(id);
-        return;
-      }
-      setSearchParams(
-        (prev) => {
-          const newParams = new URLSearchParams(prev);
-          newParams.set('file', id);
-          return newParams;
-        },
-        { replace: true },
-      );
-    };
+    const openFile = () => openChunkDrawer(id);
 
     const displayTime =
       dayjs().diff(dayjs(createdAt), 'd') < 7
