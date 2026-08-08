@@ -1,4 +1,4 @@
-import { isChunkableFile } from '@lobechat/utils';
+import { isDocumentParseableFile } from '@lobechat/utils';
 import { t } from 'i18next';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -224,7 +224,7 @@ export const createFileSlice: StateCreator<
 
         // Screenshots and other non-document attachments remain in the topic,
         // but only loader-supported documents enter the chunking pipeline.
-        if (!isChunkableFile(file.name, file.type)) return;
+        if (!isDocumentParseableFile(file.name, file.type)) return;
 
         if (!isFileOperationCurrent()) return;
         await ragService.parseFileContent(fileResult.id);

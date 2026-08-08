@@ -8,19 +8,30 @@ semantic search, chat retrieval, and RAG evaluations are unavailable.
 
 ## Content boundary
 
-Knowledge is document-only. `isChunkableFile` is the shared positive capability
-check used by upload, file queries, Knowledge Base association, parse actions,
-and reindexing. Supported inputs are PDF, DOCX, PPTX, EPUB, CSV, Markdown,
-LaTeX, plain text, and the text/source extensions routed by the LangChain
-loaders. Legacy DOC, spreadsheets, SQLite/database files, images, audio, video,
-archives, and unknown binary formats are rejected or hidden. The explicit
-database-extension rejection wins even when a file is mislabeled as plain
-text. ZIP is accepted only as an upload transport; extracted entries are
-filtered before any file row is created.
+Knowledge is document-only. `isChunkableFile` is the deployment-aware positive
+capability check used by upload, file queries, Knowledge Base association,
+async parse actions, and reindexing. Supported inputs are PDF, DOCX, PPTX,
+EPUB, CSV, Markdown, LaTeX, plain text, and the text/source extensions routed
+by the LangChain loaders. A configured MarkItDown sidecar extends this boundary
+to its converter formats, including spreadsheets, mail, archives, images, and
+audio. Legacy DOC, SQLite/database files, unsupported media, and unknown binary
+formats are rejected or hidden. The explicit database-extension rejection wins
+even when a file is mislabeled as plain text. ZIP is accepted only as an upload
+transport or through MarkItDown conversion; extracted entries are filtered
+before any file row is created.
+
+Topic-chat attachment registration follows a narrower path.
+`isDocumentParseableFile` admits only formats handled by the synchronous
+`@lobechat/file-loaders` pipeline, regardless of whether MarkItDown is
+configured. `DocumentService.parseFile` repeats that check server-side before
+downloading the object, then sanitizes aggregate and per-page text before
+writing the `documents` row. Sidecar-only files and EPUB therefore remain
+attached to the topic without entering this legacy document parser; Knowledge
+Base ingestion continues to use the async, sidecar-aware path.
 
 This boundary does not delete or relocate other media:
 
-- screenshots and media attached during a topic remain topic files and skip chunking
+- screenshots and media attached during a topic remain topic files and skip synchronous parsing
 - generated images remain available through the Image workflow and Artifacts
 - an old unsupported file relation is hidden from Knowledge but the underlying file remains owned by the account
 
@@ -311,10 +322,12 @@ action.
 - `src/server/modules/S3/index.ts`
 - `src/server/services/chunk/index.ts`
 - `src/server/services/file/index.ts`
+- `src/server/services/document/index.ts`
 - `src/server/services/rag/embedding.ts`
 - `src/libs/logger/knowledgeDebug.ts`
 - `src/store/chat/helpers/knowledgeBaseContext.ts`
 - `src/store/chat/slices/aiChat/actions/generateAIChatV2.ts`
+- `src/store/file/slices/chat/action.ts`
 - `src/server/routers/async/file.ts`
 - `src/server/routers/lambda/chunk.ts`
 - `src/server/routers/lambda/file.ts`

@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { setChunkableFileCapabilities } from '@lobechat/utils';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { notification } from '@/components/AntdStaticMethods';
@@ -41,6 +42,7 @@ beforeAll(() => {
 beforeEach(() => {
   // Reset all mocks before each test
   vi.clearAllMocks();
+  setChunkableFileCapabilities({ markitdown: false });
   useUserStore.setState({
     authUserId: 'account-a',
     isLoaded: true,
@@ -58,6 +60,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setChunkableFileCapabilities({ markitdown: false });
   vi.restoreAllMocks();
 });
 
@@ -214,6 +217,22 @@ describe('useFileStore:chat', () => {
       await useStore.getState().uploadChatFiles([document]);
 
       expect(parseFileContent).toHaveBeenCalledWith('document-file');
+    });
+
+    it('skips MarkItDown-only images while still parsing loader-supported documents', async () => {
+      setChunkableFileCapabilities({ markitdown: true });
+      const screenshot = new File(['image'], 'screenshot.png', { type: 'image/png' });
+      const document = new File(['notes'], 'notes.txt', { type: 'text/plain' });
+      vi.spyOn(useStore.getState(), 'uploadWithProgress')
+        .mockResolvedValueOnce({ id: 'image-file', url: 'https://example.com/image' })
+        .mockResolvedValueOnce({ id: 'document-file', url: 'https://example.com/document' });
+      const parseFileContent = vi.spyOn(ragService, 'parseFileContent').mockResolvedValue();
+
+      await useStore.getState().uploadChatFiles([screenshot, document]);
+
+      expect(parseFileContent).toHaveBeenCalledTimes(1);
+      expect(parseFileContent).toHaveBeenCalledWith('document-file');
+      expect(parseFileContent).not.toHaveBeenCalledWith('image-file');
     });
   });
 
