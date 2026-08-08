@@ -1,3 +1,4 @@
+import { setChunkableFileCapabilities } from '@lobechat/utils';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -127,6 +128,7 @@ vi.mock('react-i18next', () => ({
 describe('ChunkList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setChunkableFileCapabilities({ markitdown: false });
     mocks.subscribers.clear();
     mocks.storeState.chunkingStatus = undefined;
     mocks.storeState.creatingChunkingTaskIds = [];
@@ -154,11 +156,12 @@ describe('ChunkList', () => {
   });
 
   afterEach(() => {
+    setChunkableFileCapabilities({ markitdown: false });
     vi.useRealTimers();
   });
 
   it('loads all file chunks once and updates the provenance header for the selected page', () => {
-    render(<ChunkList fileId={'file-1'} />);
+    render(<ChunkList fileId={'file-1'} fileType={'application/pdf'} name={'report.pdf'} />);
 
     expect(mocks.getAllByFileId).toHaveBeenCalledWith(
       { id: 'file-1' },
@@ -186,7 +189,13 @@ describe('ChunkList', () => {
       refetch: mocks.refetch,
     });
 
-    render(<ChunkList fileId={'file-1'} />);
+    render(
+      <ChunkList
+        fileId={'file-1'}
+        fileType={'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
+        name={'report.docx'}
+      />,
+    );
 
     expect(screen.getByTestId('chunk-empty')).not.toBeNull();
     expect(screen.getByText('FileManager.chunkEmpty.description')).not.toBeNull();
@@ -196,8 +205,52 @@ describe('ChunkList', () => {
     expect(mocks.parseFilesToChunks).toHaveBeenCalledWith(['file-1']);
   });
 
+  it('shows a parse action for a spreadsheet when the MarkItDown sidecar is available', () => {
+    setChunkableFileCapabilities({ markitdown: true });
+    mocks.getAllByFileId.mockReturnValue({
+      data: [],
+      isLoading: false,
+      refetch: mocks.refetch,
+    });
+
+    render(
+      <ChunkList
+        fileId={'file-1'}
+        fileType={'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}
+        name={'inventory.xlsx'}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'FileManager.chunkEmpty.parse' }));
+
+    expect(mocks.parseFilesToChunks).toHaveBeenCalledWith(['file-1']);
+  });
+
+  it.each([
+    {
+      fileType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      name: 'inventory.xlsx',
+    },
+    {
+      fileType: 'application/msword',
+      name: 'legacy.doc',
+    },
+  ])('explains unsupported empty Office files without offering parse for $name', (file) => {
+    mocks.getAllByFileId.mockReturnValue({
+      data: [],
+      isLoading: false,
+      refetch: mocks.refetch,
+    });
+
+    render(<ChunkList fileId={'file-1'} fileType={file.fileType} name={file.name} />);
+
+    expect(screen.getByText('FileManager.chunkEmpty.unsupported')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'FileManager.chunkEmpty.parse' })).toBeNull();
+    expect(mocks.parseFilesToChunks).not.toHaveBeenCalled();
+  });
+
   it('polls while parsing and refetches once when parsing completes', () => {
-    render(<ChunkList fileId={'file-1'} />);
+    render(<ChunkList fileId={'file-1'} fileType={'application/pdf'} name={'report.pdf'} />);
 
     mocks.storeState.chunkingStatus = AsyncTaskStatus.Processing;
     mocks.storeState.fileList = [{ chunkingStatus: AsyncTaskStatus.Processing, id: 'file-1' }];

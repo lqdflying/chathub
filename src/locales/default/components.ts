@@ -11,11 +11,6 @@ export default {
     wrap: '自动换行',
     wrapOff: '取消换行',
   },
-  chunkPager: {
-    first: '第一块',
-    last: '最后一块',
-    total: '分块 {{current}} / {{total}}',
-  },
   DragUpload: {
     dragDesc: '拖拽文件到这里，支持上传多个图片。',
     dragFileDesc: '拖拽图片和文件到这里，支持上传多个图片和文件。',
@@ -61,6 +56,7 @@ export default {
       parse: '解析文件',
       parsing: '正在解析',
       processing: '文件正在解析，完成后将在此显示分块内容',
+      unsupported: '此 Office 文件无法在当前部署中解析，请转换为 DOCX、PPTX 或其他支持的格式',
     },
     config: {
       showFilesInKnowledgeBase: '显示知识库中内容',
@@ -230,5 +226,9 @@ export default {
     thinking: '深度思考中...',
     thought: '已深度思考（用时 {{duration}} 秒）',
     thoughtWithDuration: '已深度思考',
+  },
+  chunkPager: {
+    first: '第一块',
+    last: '最后一块',
   },
 };

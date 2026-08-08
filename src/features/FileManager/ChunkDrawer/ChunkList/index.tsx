@@ -1,3 +1,4 @@
+import { isChunkableFile } from '@lobechat/utils';
 import { Button, Empty } from '@lobehub/ui';
 import { FileBoxIcon } from 'lucide-react';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -14,9 +15,12 @@ import ChunkItem from './ChunkItem';
 
 interface ChunkListProps {
   fileId: string;
+  fileType: string;
+  name: string;
 }
-const ChunkList = memo<ChunkListProps>(({ fileId }) => {
+const ChunkList = memo<ChunkListProps>(({ fileId, fileType, name }) => {
   const { t } = useTranslation('components');
+  const canParseFile = isChunkableFile(name, fileType);
   // The file list polls task status every 5s while any task is processing, so
   // the store's chunkingStatus is live even with the drawer open. A re-parse
   // only replaces rows in the DB at task completion — poll while processing
@@ -45,10 +49,6 @@ const ChunkList = memo<ChunkListProps>(({ fileId }) => {
     wasProcessing.current = isProcessing;
   }, [isProcessing, refetch]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [fileId]);
-
   const dataSource = data || [];
   const effectivePage = Math.min(Math.max(page, 1), Math.max(dataSource.length, 1));
   const currentChunk = dataSource[effectivePage - 1];
@@ -70,18 +70,24 @@ const ChunkList = memo<ChunkListProps>(({ fileId }) => {
     <Center flex={1} height={'100%'} padding={24}>
       <Empty
         description={t(
-          isParsing ? 'FileManager.chunkEmpty.processing' : 'FileManager.chunkEmpty.description',
+          isParsing
+            ? 'FileManager.chunkEmpty.processing'
+            : canParseFile
+              ? 'FileManager.chunkEmpty.description'
+              : 'FileManager.chunkEmpty.unsupported',
         )}
         image={Empty.PRESENTED_IMAGE_SIMPLE}
       >
-        <Button
-          disabled={isParsing}
-          icon={FileBoxIcon}
-          loading={isParsing}
-          onClick={() => parseFilesToChunks([fileId])}
-        >
-          {t(isParsing ? 'FileManager.chunkEmpty.parsing' : 'FileManager.chunkEmpty.parse')}
-        </Button>
+        {canParseFile && (
+          <Button
+            disabled={isParsing}
+            icon={FileBoxIcon}
+            loading={isParsing}
+            onClick={() => parseFilesToChunks([fileId])}
+          >
+            {t(isParsing ? 'FileManager.chunkEmpty.parsing' : 'FileManager.chunkEmpty.parse')}
+          </Button>
+        )}
       </Empty>
     </Center>
   );

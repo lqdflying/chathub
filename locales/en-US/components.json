@@ -53,7 +53,8 @@
       "description": "This file has not been parsed yet. Parse it to create text chunks.",
       "parse": "Parse file",
       "parsing": "Parsing",
-      "processing": "This file is being parsed. Its chunks will appear here when processing finishes."
+      "processing": "This file is being parsed. Its chunks will appear here when processing finishes.",
+      "unsupported": "This Office file cannot be parsed by the current deployment. Convert it to DOCX, PPTX, or another supported format."
     },
     "config": {
       "showFilesInKnowledgeBase": "Show content in Knowledge Base"
@@ -222,7 +223,6 @@
   },
   "chunkPager": {
     "first": "First chunk",
-    "last": "Last chunk",
-    "total": "Chunk {{current}} / {{total}}"
+    "last": "Last chunk"
   }
 }

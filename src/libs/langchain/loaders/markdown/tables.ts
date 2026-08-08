@@ -1,13 +1,43 @@
+import { Root, Table } from 'mdast';
+import { remark } from 'remark';
+import remarkGfm from 'remark-gfm';
+
 export interface MarkdownBlock {
   content: string;
   type: 'table' | 'text';
 }
 
-const isCodeFence = (line: string): boolean => /^\s*(`{3,}|~{3,})/.test(line);
+interface CodeFenceState {
+  character: '`' | '~';
+  length: number;
+}
 
-const isTableRow = (line: string): boolean => {
-  const trimmedLine = line.trim();
-  return trimmedLine.length > 0 && trimmedLine.includes('|');
+const markdownParser = remark().use(remarkGfm);
+
+const getNextCodeFenceState = (
+  line: string,
+  currentState?: CodeFenceState,
+): CodeFenceState | undefined => {
+  if (currentState) {
+    const closingFence = line.match(/^ {0,3}(`{3,}|~{3,})[\t ]*$/);
+    const delimiter = closingFence?.[1];
+
+    if (delimiter?.[0] === currentState.character && delimiter.length >= currentState.length) {
+      return undefined;
+    }
+
+    return currentState;
+  }
+
+  const openingFence = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+  const delimiter = openingFence?.[1];
+  const info = openingFence?.[2] ?? '';
+  if (!delimiter || (delimiter[0] === '`' && info.includes('`'))) return undefined;
+
+  return {
+    character: delimiter[0] as CodeFenceState['character'],
+    length: delimiter.length,
+  };
 };
 
 const isTableSeparatorRow = (line: string): boolean => {
@@ -23,16 +53,29 @@ const isTableSeparatorRow = (line: string): boolean => {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 };
 
+const parseTable = (markdown: string): Table | undefined => {
+  const tree = markdownParser.parse(markdown) as Root;
+  if (tree.children.length !== 1) return undefined;
+
+  const [node] = tree.children;
+  return node.type === 'table' ? (node as Table) : undefined;
+};
+
 const splitMergedTableSeparator = (
   line: string,
 ): { header: string; separator: string } | undefined => {
+  if (isTableSeparatorRow(line)) return undefined;
+
   for (let characterIndex = 0; characterIndex < line.length; characterIndex += 1) {
     if (line[characterIndex] !== '|') continue;
 
     const separator = line.slice(characterIndex).trim();
     const header = line.slice(0, characterIndex).trimEnd();
+    if (!header.endsWith('|') || !isTableSeparatorRow(separator)) continue;
 
-    if (isTableRow(header) && isTableSeparatorRow(separator)) {
+    const table = parseTable(`${header}\n${separator}`);
+    const headerColumnCount = table?.children[0]?.children.length;
+    if (headerColumnCount && headerColumnCount === table.align?.length) {
       return { header, separator };
     }
   }
@@ -46,103 +89,57 @@ const splitMergedTableSeparator = (
 export const normalizeMarkdownTables = (markdown: string): string => {
   const sourceLines = markdown.replaceAll(/\r\n?/g, '\n').split('\n');
   const normalizedLines: string[] = [];
-  let insideCodeFence = false;
+  let codeFenceState: CodeFenceState | undefined;
 
-  const appendLine = (line: string) => {
-    if (line === '' && normalizedLines.at(-1) === '') return;
-    normalizedLines.push(line);
-  };
+  for (const currentLine of sourceLines) {
+    const nextCodeFenceState = getNextCodeFenceState(currentLine, codeFenceState);
+    const isFenceBoundary = nextCodeFenceState !== codeFenceState;
 
-  for (let lineIndex = 0; lineIndex < sourceLines.length;) {
-    const currentLine = sourceLines[lineIndex];
-
-    if (isCodeFence(currentLine)) {
-      insideCodeFence = !insideCodeFence;
-      appendLine(currentLine);
-      lineIndex += 1;
+    if (codeFenceState || isFenceBoundary) {
+      normalizedLines.push(currentLine);
+      codeFenceState = nextCodeFenceState;
       continue;
     }
 
-    if (!insideCodeFence) {
-      const mergedTableSeparator = splitMergedTableSeparator(currentLine);
-      const tableHeader = mergedTableSeparator?.header ?? currentLine;
-      const tableSeparator = mergedTableSeparator?.separator ?? sourceLines[lineIndex + 1];
-
-      if (isTableRow(tableHeader) && isTableSeparatorRow(tableSeparator ?? '')) {
-        appendLine(tableHeader);
-        appendLine(tableSeparator);
-        lineIndex += mergedTableSeparator ? 1 : 2;
-
-        while (
-          lineIndex < sourceLines.length &&
-          !isCodeFence(sourceLines[lineIndex]) &&
-          isTableRow(sourceLines[lineIndex])
-        ) {
-          appendLine(sourceLines[lineIndex].trimEnd());
-          lineIndex += 1;
-        }
-
-        continue;
-      }
+    const mergedTableSeparator = splitMergedTableSeparator(currentLine);
+    if (mergedTableSeparator) {
+      normalizedLines.push(mergedTableSeparator.header, mergedTableSeparator.separator);
+    } else {
+      normalizedLines.push(currentLine);
     }
-
-    appendLine(currentLine);
-    lineIndex += 1;
   }
 
-  return normalizedLines.join('\n').trim();
+  return normalizedLines.join('\n');
 };
 
 export const splitMarkdownIntoBlocks = (markdown: string): MarkdownBlock[] => {
-  const sourceLines = markdown.split('\n');
+  const tree = markdownParser.parse(markdown) as Root;
   const blocks: MarkdownBlock[] = [];
-  let textLines: string[] = [];
-  let insideCodeFence = false;
+  let sourceOffset = 0;
 
-  const appendTextBlock = () => {
-    const content = textLines.join('\n').trim();
-    if (content) blocks.push({ content, type: 'text' });
-    textLines = [];
-  };
+  for (const node of tree.children) {
+    if (node.type !== 'table') continue;
 
-  for (let lineIndex = 0; lineIndex < sourceLines.length;) {
-    const currentLine = sourceLines[lineIndex];
+    const tableStart = node.position?.start.offset;
+    const tableEnd = node.position?.end.offset;
+    if (tableStart === undefined || tableEnd === undefined) continue;
 
-    if (isCodeFence(currentLine)) {
-      insideCodeFence = !insideCodeFence;
-      textLines.push(currentLine);
-      lineIndex += 1;
-      continue;
+    const textContent = markdown.slice(sourceOffset, tableStart).trim();
+    if (textContent) {
+      blocks.push({ content: textContent, type: 'text' });
     }
 
-    if (
-      !insideCodeFence &&
-      isTableRow(currentLine) &&
-      isTableSeparatorRow(sourceLines[lineIndex + 1] ?? '')
-    ) {
-      appendTextBlock();
-
-      const tableLines = [currentLine, sourceLines[lineIndex + 1]];
-      lineIndex += 2;
-
-      while (
-        lineIndex < sourceLines.length &&
-        !isCodeFence(sourceLines[lineIndex]) &&
-        isTableRow(sourceLines[lineIndex])
-      ) {
-        tableLines.push(sourceLines[lineIndex]);
-        lineIndex += 1;
-      }
-
-      blocks.push({ content: tableLines.join('\n'), type: 'table' });
-      continue;
-    }
-
-    textLines.push(currentLine);
-    lineIndex += 1;
+    blocks.push({
+      content: markdown.slice(tableStart, tableEnd),
+      type: 'table',
+    });
+    sourceOffset = tableEnd;
   }
 
-  appendTextBlock();
+  const trailingText = markdown.slice(sourceOffset).trim();
+  if (trailingText) {
+    blocks.push({ content: trailingText, type: 'text' });
+  }
 
   return blocks;
 };

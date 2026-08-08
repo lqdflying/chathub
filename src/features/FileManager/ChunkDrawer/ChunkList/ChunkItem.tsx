@@ -1,3 +1,4 @@
+import { ChunkDisplayMetadata } from '@lobechat/types';
 import { ActionIcon, Tag } from '@lobehub/ui';
 import { Descriptions, Modal } from 'antd';
 import { createStyles } from 'antd-style';
@@ -7,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { useFileStore } from '@/store/file';
-import { ChunkMetadata } from '@/types/chunk';
 
 const useStyles = createStyles(({ css, token }) => ({
   container: css`
@@ -48,7 +48,7 @@ export const getChunkProvenance = (type?: string | null, convertedBy?: string | 
 interface ChunkItemProps {
   id: string;
   index: number;
-  metadata: ChunkMetadata | null;
+  metadata: ChunkDisplayMetadata | null;
   text: string;
   type: string | null;
 }

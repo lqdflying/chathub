@@ -2,7 +2,7 @@ import { SearchBar } from '@lobehub/ui';
 import { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
-import { useFileStore } from '@/store/file';
+import { fileManagerSelectors, useFileStore } from '@/store/file';
 import { fileChunkSelectors } from '@/store/file/slices/chunk';
 
 import ChunkList from './ChunkList';
@@ -14,8 +14,9 @@ const Content = memo(() => {
     fileChunkSelectors.showSimilaritySearchResult(s),
     s.semanticSearch,
   ]);
+  const file = useFileStore(fileManagerSelectors.getFileById(fileId));
 
-  if (!fileId) return;
+  if (!fileId || !file) return;
 
   return (
     <Flexbox gap={8} height={'100%'} paddingBlock={'16px 0'}>
@@ -31,7 +32,11 @@ const Content = memo(() => {
           variant={'filled'}
         />
       </Flexbox>
-      {showSimilaritySearch ? <SimilaritySearchList /> : <ChunkList fileId={fileId} />}
+      {showSimilaritySearch ? (
+        <SimilaritySearchList />
+      ) : (
+        <ChunkList fileId={fileId} fileType={file.fileType} key={fileId} name={file.name} />
+      )}
     </Flexbox>
   );
 });

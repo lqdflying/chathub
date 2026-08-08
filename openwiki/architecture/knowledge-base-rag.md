@@ -31,11 +31,16 @@ transaction so a file cannot expose a mixed old/new index.
 
 MarkItDown conversion enters the Markdown loader through
 `ContentChunk.chunkByMarkItDown`. Before splitting, `normalizeMarkdownTables`
-repairs a GFM separator that was merged onto a header line. The loader then
-extracts each valid table block and emits it as one atomic document, while the
-existing `MarkdownTextSplitter` continues to split prose. This prevents
-`chunkOverlap` from detaching or duplicating a table separator. It only affects
-new parses; older persisted malformed table chunks must be re-parsed.
+repairs only a positively identified GFM separator merged onto its header. A
+GFM-aware fence state prevents repair inside fenced code, and all other
+whitespace remains unchanged. The loader detects tables through the
+`remark-gfm` AST. Under-limit tables remain one byte-identical document;
+oversized tables are packed into documents of at most 1,000 characters with
+the header and delimiter repeated on each page. A single oversized row falls
+back to bounded, column-labeled continuation documents. Prose continues through
+`MarkdownTextSplitter` with its 200-character overlap, while table pages do not
+overlap. These rules affect only new parses; older persisted malformed or
+oversized table chunks must be re-parsed.
 
 ## Provider resolution
 
@@ -262,7 +267,10 @@ Data flow:
   `chunk.getAllByFileId` tRPC procedure (`ChunkModel.findAllByFileId`,
   ordered by `asc(chunks.index)`, returns plain `chunk.text` — no
   `mapChunkText` decoration, since this is a user-facing viewer and the
-  Table-chunk `text_as_html` scaffold would render as literal markup).
+  Table-chunk `text_as_html` scaffold would render as literal markup). The
+  query projects only `converted_by`, `source_file_type`, and `source_title`
+  from chunk JSONB metadata; coordinates, duplicated table HTML, and future
+  converter payloads do not enter this all-chunks response.
   The `useQuery` is gated by file type (PDF/image skip it) and pinned with
   a 5-minute `staleTime` since chunk content is immutable once embedded.
   PDF and image files skip chunking and keep `FileViewer` (PDF.js paginates
@@ -273,14 +281,19 @@ The FileManager `ChunkDrawer/ChunkList` also uses
 `chunk.getAllByFileId`, with the same five-minute `staleTime` and a
 refetch-on-parsing-completion transition. It derives the selected chunk's
 provenance header from the pager page. This deliberately trades a potentially
-large all-chunk response for direct numbered navigation; revisit server-side
-page loading if real files make the payload too large.
+large text response for direct numbered navigation. Per-chunk metadata is kept
+small by the provenance-only projection; revisit server-side page loading if
+real files make the text payload too large.
 
 Office preview types are routed from both list and masonry file cards directly
 to the ChunkDrawer, even with zero chunks. The external Office Online renderer
 cannot fetch private self-hosted URLs. The drawer therefore displays a local
-empty state with `parseFilesToChunks([fileId])`, polls during parsing, then
-fetches the completed chunks.
+empty state. It offers `parseFilesToChunks([fileId])` only when
+`isChunkableFile(name, fileType)` confirms that the current deployment can
+parse the file, polls during parsing, then fetches the completed chunks.
+Built-in DOCX/PPTX files and sidecar-enabled XLS/XLSX files get the action;
+legacy DOC/ODT/PPT and spreadsheets without a configured sidecar get an
+informative unsupported state without a failing action.
 
 ## Source map
 

@@ -53,7 +53,8 @@
       "description": "此文件尚未解析，请先创建文本分块",
       "parse": "解析文件",
       "parsing": "正在解析",
-      "processing": "文件正在解析，完成后将在此显示分块内容"
+      "processing": "文件正在解析，完成后将在此显示分块内容",
+      "unsupported": "此 Office 文件无法在当前部署中解析，请转换为 DOCX、PPTX 或其他支持的格式"
     },
     "config": {
       "showFilesInKnowledgeBase": "显示知识库中内容"
@@ -222,7 +223,6 @@
   },
   "chunkPager": {
     "first": "第一块",
-    "last": "最后一块",
-    "total": "分块 {{current}} / {{total}}"
+    "last": "最后一块"
   }
 }

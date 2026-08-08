@@ -12,13 +12,19 @@ export interface Elements {
 }
 
 export interface ChunkMetadata {
+  // Written by the MarkItDown chunking path (ContentChunk.chunkByMarkItDown).
+  // Present on MarkItDownElement chunks; absent on LangChain/Unstructured chunks.
+  converted_by?: string;
   coordinates: Coordinates;
   languages: string[];
   pageNumber?: number;
   parent_id?: string;
+  source_file_type?: string;
+  source_title?: string | null;
   text_as_html?: string;
-  // Written by the MarkItDown chunking path (ContentChunk.chunkByMarkItDown).
-  // Present on MarkItDownElement chunks; absent on LangChain/Unstructured chunks.
+}
+
+export interface ChunkDisplayMetadata {
   converted_by?: string;
   source_file_type?: string;
   source_title?: string | null;

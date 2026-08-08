@@ -1,5 +1,6 @@
 import {
   AsyncTaskStatus,
+  ChunkDisplayMetadata,
   ChunkMetadata,
   FileChunk,
   RAG_CHAT_CANDIDATE_LIMIT,
@@ -192,7 +193,7 @@ export class ChunkModel {
     {
       id: string;
       index: number | null;
-      metadata: ChunkMetadata | null;
+      metadata: ChunkDisplayMetadata | null;
       text: string;
       type: string | null;
     }[]
@@ -201,7 +202,18 @@ export class ChunkModel {
       .select({
         id: chunks.id,
         index: chunks.index,
-        metadata: chunks.metadata,
+        metadata: sql<ChunkDisplayMetadata | null>`
+          nullif(
+            jsonb_strip_nulls(
+              jsonb_build_object(
+                'converted_by', ${chunks.metadata} ->> 'converted_by',
+                'source_file_type', ${chunks.metadata} ->> 'source_file_type',
+                'source_title', ${chunks.metadata} ->> 'source_title'
+              )
+            ),
+            '{}'::jsonb
+          )
+        `,
         text: chunks.text,
         type: chunks.type,
       })
@@ -222,7 +234,6 @@ export class ChunkModel {
       .filter((item) => item.text)
       .map((item) => ({
         ...item,
-        metadata: item.metadata as ChunkMetadata | null,
         text: item.text as string,
       }));
   };

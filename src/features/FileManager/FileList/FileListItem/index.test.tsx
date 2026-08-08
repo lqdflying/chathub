@@ -45,7 +45,7 @@ vi.stubGlobal('React', React);
 vi.mock('@lobechat/utils', () => ({
   isChunkableFile: () => true,
   isMarkItDownConvertibleFile: () => false,
-  isOfficePreviewFile: (name: string) => /\.(docx|xlsx|pptx)$/i.test(name),
+  isOfficePreviewFile: (name: string) => /\.(doc|docx|odt|ppt|pptx|xls|xlsx)$/i.test(name),
 }));
 
 vi.mock('@lobehub/ui', () => ({
@@ -142,6 +142,22 @@ describe('FileRenderItem opening behavior', () => {
     render(<FileRenderItem {...createFileProps({ chunkCount: 4 })} />);
 
     fireEvent.click(screen.getByText('inventory.xlsx'));
+
+    expect(mocks.openChunkDrawer).toHaveBeenCalledWith('file-1');
+    expect(mocks.setSearchParams).not.toHaveBeenCalled();
+  });
+
+  it('opens an unsupported legacy Office file in the explanatory chunk drawer', () => {
+    render(
+      <FileRenderItem
+        {...createFileProps({
+          fileType: 'application/msword',
+          name: 'legacy.doc',
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('legacy.doc'));
 
     expect(mocks.openChunkDrawer).toHaveBeenCalledWith('file-1');
     expect(mocks.setSearchParams).not.toHaveBeenCalled();
