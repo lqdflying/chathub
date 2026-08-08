@@ -87,7 +87,10 @@ describe('FileList knowledge-base visibility', () => {
     render(<FileList knowledgeMode />);
 
     expect(mocks.fetchFiles).toHaveBeenLastCalledWith(
-      expect.objectContaining({ showFilesInKnowledgeBase: true }),
+      expect.objectContaining({
+        knowledgeBaseOnly: true,
+        showFilesInKnowledgeBase: true,
+      }),
     );
     expect(screen.getByTestId('knowledge-visibility-toggle').textContent).toBe('true');
 
@@ -95,6 +98,17 @@ describe('FileList knowledge-base visibility', () => {
 
     expect(mocks.fetchFiles).toHaveBeenLastCalledWith(
       expect.objectContaining({ showFilesInKnowledgeBase: false }),
+    );
+  });
+
+  it('uses explicit association filtering inside a named Knowledge Base', () => {
+    render(<FileList knowledgeBaseId="kb-123" knowledgeMode />);
+
+    expect(mocks.fetchFiles).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        knowledgeBaseId: 'kb-123',
+        knowledgeBaseOnly: false,
+      }),
     );
   });
 });

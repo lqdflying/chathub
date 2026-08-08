@@ -27,6 +27,7 @@ export const QueryFileListSchema = z.object({
   category: z.string().optional(),
   chunkableOnly: z.boolean().default(false),
   knowledgeBaseId: z.string().optional(),
+  knowledgeBaseOnly: z.boolean().default(false),
   q: z.string().nullable().optional(),
   showFilesInKnowledgeBase: z.boolean().default(false),
   sortType: z.enum(['desc', 'asc']).optional(),
@@ -39,6 +40,7 @@ export interface QueryFileListParams {
   category?: string;
   chunkableOnly?: boolean;
   knowledgeBaseId?: string;
+  knowledgeBaseOnly?: boolean;
   q?: string | null;
   showFilesInKnowledgeBase?: boolean;
   sortType?: string;

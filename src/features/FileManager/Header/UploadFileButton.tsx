@@ -47,7 +47,7 @@ const UploadFileButton = ({
           <Upload
             accept={accept}
             beforeUpload={async (file) => {
-              await pushDockFileList(filterFiles([file]), knowledgeBaseId);
+              await pushDockFileList(filterFiles([file]), knowledgeBaseId, knowledgeMode);
 
               return false;
             }}
@@ -65,7 +65,7 @@ const UploadFileButton = ({
           <Upload
             accept={accept}
             beforeUpload={async (file) => {
-              await pushDockFileList(filterFiles([file]), knowledgeBaseId);
+              await pushDockFileList(filterFiles([file]), knowledgeBaseId, knowledgeMode);
 
               return false;
             }}
@@ -87,7 +87,9 @@ const UploadFileButton = ({
       </Dropdown>
       <DragUpload
         enabledFiles
-        onUploadFiles={(files) => pushDockFileList(filterFiles(files), knowledgeBaseId)}
+        onUploadFiles={(files) =>
+          pushDockFileList(filterFiles(files), knowledgeBaseId, knowledgeMode)
+        }
       />
     </>
   );

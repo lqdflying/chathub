@@ -106,6 +106,7 @@ const FileList = memo<FileListProps>(({ knowledgeBaseId, knowledgeMode = false, 
     category,
     chunkableOnly: knowledgeMode || !!knowledgeBaseId,
     knowledgeBaseId,
+    knowledgeBaseOnly: knowledgeMode && !knowledgeBaseId,
     q: query,
     sortType,
     sorter,
@@ -156,7 +157,11 @@ const FileList = memo<FileListProps>(({ knowledgeBaseId, knowledgeMode = false, 
   );
 
   return !isLoading && data?.length === 0 ? (
-    <EmptyStatus knowledgeBaseId={knowledgeBaseId} showKnowledgeBase={!knowledgeBaseId} />
+    <EmptyStatus
+      knowledgeBaseId={knowledgeBaseId}
+      knowledgeMode={knowledgeMode}
+      showKnowledgeBase={!knowledgeBaseId}
+    />
   ) : (
     <Flexbox height={'100%'}>
       <Flexbox style={{ fontSize: 12, marginInline: 24 }}>

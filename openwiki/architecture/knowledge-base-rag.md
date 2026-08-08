@@ -35,6 +35,27 @@ This boundary does not delete or relocate other media:
 - generated images remain available through the Image workflow and Artifacts
 - an old unsupported file relation is hidden from Knowledge but the underlying file remains owned by the account
 
+Format capability and Knowledge membership are separate checks. Microsoft
+[MarkItDown](https://github.com/microsoft/markitdown) can convert images,
+including PNG, but that capability only makes a file eligible for Knowledge
+ingestion; it does not make every matching account file a Knowledge document.
+Uploads started from the Knowledge file manager carry
+`knowledgeBaseUpload: true`, and uploads into a named Knowledge Base carry
+`knowledgeBaseId`. The authenticated file router validates chunkability and
+stores `FileSource.KnowledgeBase`; clients cannot assign the raw `source`
+column.
+
+The top-level Knowledge overview sends `knowledgeBaseOnly: true`. Its positive
+membership predicate admits files with `FileSource.KnowledgeBase`, files with
+an owned `knowledge_base_files` association, and legacy files that already have
+an async Knowledge chunk task from before explicit provenance existed. A
+topic-chat attachment has none of those signals, so it remains available to the
+conversation without appearing in Knowledge even when MarkItDown supports its
+format. A named Knowledge Base continues to query its junction rows directly.
+The **Show content in Knowledge Base** control only determines whether
+associated files are included in the combined overview; it does not weaken the
+positive membership requirement.
+
 The loader uses 1,000-character chunks with 200-character overlap. Parsed text
 is UTF-8 sanitized, trimmed, and stripped of blank chunks. Re-parsing replaces
 old chunks, unstructured elements, relations, and cascading embeddings in one

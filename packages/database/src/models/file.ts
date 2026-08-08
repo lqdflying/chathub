@@ -13,8 +13,10 @@ import {
   count,
   desc,
   eq,
+  exists,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   like,
   ne,
@@ -242,10 +244,7 @@ export class FileModel {
       await trx.delete(globalFiles).where(inArray(globalFiles.hashId, hashesToDelete));
 
       // 仅返回真正失去最后引用的对象，每个哈希最多一个清理候选项
-      return [
-        ...unhashedFiles,
-        ...hashesToDelete.map((hash) => cleanupCandidateByHash.get(hash)!),
-      ];
+      return [...unhashedFiles, ...hashesToDelete.map((hash) => cleanupCandidateByHash.get(hash)!)];
     });
   };
 
@@ -259,6 +258,7 @@ export class FileModel {
     sortType,
     sorter,
     knowledgeBaseId,
+    knowledgeBaseOnly,
     chunkableOnly,
     showFilesInKnowledgeBase,
   }: QueryFileListParams = {}) => {
@@ -267,13 +267,31 @@ export class FileModel {
     // their own home in the art gallery (queryImageArtifacts). Scoped to the
     // overview only: a file the user explicitly added to a knowledge base must
     // stay visible (and manageable) in that KB's list, even if it's generated.
-    // KB uploads leave `source` NULL; image-gen sets FileSource.ImageGeneration.
+    // New Knowledge uploads use FileSource.KnowledgeBase. Explicit KB membership
+    // and a legacy async chunk task retain files created before provenance existed.
     let whereClause = and(
       q ? ilike(files.name, `%${q}%`) : undefined,
       eq(files.userId, this.userId),
       knowledgeBaseId
         ? undefined
         : or(isNull(files.source), ne(files.source, FileSource.ImageGeneration)),
+      knowledgeBaseOnly && !knowledgeBaseId
+        ? or(
+            eq(files.source, FileSource.KnowledgeBase),
+            isNotNull(files.chunkTaskId),
+            exists(
+              this.db
+                .select()
+                .from(knowledgeBaseFiles)
+                .where(
+                  and(
+                    eq(knowledgeBaseFiles.fileId, files.id),
+                    eq(knowledgeBaseFiles.userId, this.userId),
+                  ),
+                ),
+            ),
+          )
+        : undefined,
     );
     if (category && category !== FilesTabs.All) {
       const fileTypePrefix = this.getFileTypePrefix(category as FilesTabs);

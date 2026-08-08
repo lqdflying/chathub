@@ -7,6 +7,7 @@ import { FileModel } from '@/database/models/file';
 import { fileRouter } from '@/server/routers/lambda/file';
 import { FileService } from '@/server/services/file';
 import { AsyncTaskStatus } from '@/types/asyncTask';
+import { FileSource } from '@/types/files';
 
 const TEST_FILE_CONTENT = new Uint8Array([1, 2, 3]);
 const TEST_HASH = sha256(TEST_FILE_CONTENT);
@@ -228,6 +229,51 @@ describe('fileRouter', () => {
       },
     );
 
+    it('stores authoritative provenance for a top-level Knowledge upload', async () => {
+      const url = `files/${sha256('test-user')}/466737/knowledge.txt`;
+      ctx.fileModel.checkHash.mockResolvedValue({ isExist: false });
+
+      await expect(
+        caller.createFile({
+          fileType: 'text/plain',
+          hash: TEST_HASH,
+          knowledgeBaseUpload: true,
+          metadata: {},
+          name: 'knowledge.txt',
+          size: 100,
+          url,
+        }),
+      ).resolves.toEqual({ id: 'test-id', url: 'ui-url' });
+
+      expect(ctx.fileModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileType: 'text/plain',
+          source: FileSource.KnowledgeBase,
+          url,
+        }),
+        true,
+      );
+    });
+
+    it('rejects unsupported files that claim Knowledge upload provenance', async () => {
+      await expect(
+        caller.createFile({
+          fileType: 'video/mp4',
+          hash: TEST_HASH,
+          knowledgeBaseUpload: true,
+          metadata: {},
+          name: 'recording.mp4',
+          size: 100,
+          url: `files/${sha256('test-user')}/466737/recording.mp4`,
+        }),
+      ).rejects.toThrow(
+        'Only documents supported by the chunking loaders can be added to a Knowledge Base.',
+      );
+
+      expect(ctx.fileModel.checkHash).not.toHaveBeenCalled();
+      expect(ctx.fileModel.create).not.toHaveBeenCalled();
+    });
+
     it('uses the canonical global-file values for an existing hash', async () => {
       await expect(createFileWithUrl('files/victim/known-key.png')).resolves.toEqual({
         id: 'test-id',
@@ -291,9 +337,7 @@ describe('fileRouter', () => {
       ctx.fileService.hasFile.mockResolvedValue(false);
       ctx.fileService.getFileByteArray.mockResolvedValue(new Uint8Array([9, 9, 9]));
 
-      await expect(createFileWithUrl(repairedUrl)).rejects.toThrow(
-        'uploaded file hash mismatch',
-      );
+      await expect(createFileWithUrl(repairedUrl)).rejects.toThrow('uploaded file hash mismatch');
 
       expect(ctx.fileModel.repairGlobalFile).not.toHaveBeenCalled();
       expect(ctx.fileModel.create).not.toHaveBeenCalled();

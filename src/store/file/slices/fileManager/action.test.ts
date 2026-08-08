@@ -528,6 +528,31 @@ describe('FileManagerActions', () => {
       });
     });
 
+    it('marks files uploaded from the Knowledge overview', async () => {
+      const { result } = renderHook(() => useStore());
+      const file = new File(['content'], 'knowledge.txt', { type: 'text/plain' });
+      const uploadSpy = vi
+        .spyOn(result.current, 'uploadWithProgress')
+        .mockResolvedValue({ id: 'file-1', url: 'http://example.com/file-1' });
+      vi.spyOn(result.current, 'refreshFileList').mockResolvedValue();
+      vi.spyOn(result.current, 'parseFilesToChunks').mockResolvedValue();
+
+      await act(async () => {
+        await result.current.pushDockFileList([file], undefined, true);
+      });
+
+      expect(uploadSpy).toHaveBeenCalledWith({
+        file,
+        knowledgeBaseId: undefined,
+        knowledgeBaseUpload: true,
+        mutationCheckpoint: expect.objectContaining({
+          accountMutationSnapshot: expect.objectContaining({ scope: 'local' }),
+          scopeGeneration: 0,
+        }),
+        onStatusUpdate: expect.any(Function),
+      });
+    });
+
     it('keeps unsupported files out of Knowledge Base uploads', async () => {
       const { result } = renderHook(() => useStore());
       const document = new File(['content'], 'notes.txt', { type: 'text/plain' });

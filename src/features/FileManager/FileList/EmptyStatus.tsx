@@ -62,9 +62,14 @@ const useStyles = createStyles(({ css, token }) => ({
 
 interface EmptyStatusProps {
   knowledgeBaseId?: string;
+  knowledgeMode?: boolean;
   showKnowledgeBase: boolean;
 }
-const EmptyStatus = ({ showKnowledgeBase, knowledgeBaseId }: EmptyStatusProps) => {
+const EmptyStatus = ({
+  showKnowledgeBase,
+  knowledgeBaseId,
+  knowledgeMode = false,
+}: EmptyStatusProps) => {
   const { t } = useTranslation('components');
   const theme = useTheme();
   const { styles } = useStyles();
@@ -103,7 +108,7 @@ const EmptyStatus = ({ showKnowledgeBase, knowledgeBaseId }: EmptyStatusProps) =
         )}
         <Upload
           beforeUpload={async (file) => {
-            await pushDockFileList([file], knowledgeBaseId);
+            await pushDockFileList([file], knowledgeBaseId, knowledgeMode);
 
             return false;
           }}
@@ -123,7 +128,7 @@ const EmptyStatus = ({ showKnowledgeBase, knowledgeBaseId }: EmptyStatusProps) =
         </Upload>
         <Upload
           beforeUpload={async (file) => {
-            await pushDockFileList([file], knowledgeBaseId);
+            await pushDockFileList([file], knowledgeBaseId, knowledgeMode);
 
             return false;
           }}
