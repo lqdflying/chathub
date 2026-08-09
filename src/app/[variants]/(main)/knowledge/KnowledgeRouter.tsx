@@ -1,54 +1,29 @@
 'use client';
 
 import { App } from 'antd';
-import React, { memo, useEffect } from 'react';
-import { MemoryRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import React, { Suspense, memo } from 'react';
+import { Flexbox } from 'react-layout-kit';
+import { useMediaQuery } from 'react-responsive';
 
+import KnowledgeRoutes from './KnowledgeRoutes';
+import KnowledgeMobileShell from './_layout/Mobile';
 import RagProviderBanner from './components/RagProviderBanner';
-import KnowledgeBaseDetailPage from './routes/KnowledgeBaseDetail';
-import KnowledgeBasesListPage from './routes/KnowledgeBasesList';
-import KnowledgeHomePage from './routes/KnowledgeHome';
-
-// Get initial path from URL
-const getInitialPath = () => {
-  if (typeof window === 'undefined') return '/';
-  const fullPath = window.location.pathname;
-  const searchParams = window.location.search;
-  const knowledgeIndex = fullPath.indexOf('/knowledge');
-
-  if (knowledgeIndex !== -1) {
-    const pathAfterKnowledge = fullPath.slice(knowledgeIndex + '/knowledge'.length) || '/';
-    return pathAfterKnowledge + searchParams;
-  }
-  return '/';
-};
-
-// Helper component to sync URL with MemoryRouter
-const UrlSynchronizer = () => {
-  const location = useLocation();
-
-  // Update browser URL when location changes
-  useEffect(() => {
-    const newUrl = `/knowledge${location.pathname}${location.search}`;
-    if (window.location.pathname + window.location.search !== newUrl) {
-      window.history.replaceState({}, '', newUrl);
-    }
-  }, [location.pathname, location.search]);
-
-  return null;
-};
 
 /**
- * Main Knowledge Router component with MemoryRouter
- * This serves as the entry point for all knowledge-related routes
- * Uses MemoryRouter with URL synchronization to support query parameters like ?file=[id]
+ * Main Knowledge Router.
  *
- * Route structure:
- * - / → Knowledge home (file list with categories)
- * - /bases → Knowledge bases list
- * - /bases/:id → Knowledge base detail (file list for specific base)
+ * The Next.js App Router owns every Knowledge subroute (see `KnowledgeRoutes`):
+ * paths, query parameters, deep links, and Back behavior all flow through
+ * `usePathname` / `useSearchParams` / `useRouter`. There is no separate
+ * in-memory router and no manual `replaceState`, so browser Back returns to the
+ * previous Knowledge surface instead of leaving the section.
+ *
+ * The root is explicitly full-width so the centered global app container
+ * (`align-items: center`) cannot shrink Knowledge to the intrinsic menu width.
  */
 const KnowledgeRouter = memo(() => {
+  const isMobile = useMediaQuery({ maxWidth: 768 });
+
   return (
     <App
       style={{
@@ -58,36 +33,30 @@ const KnowledgeRouter = memo(() => {
         height: '100%',
         minHeight: 0,
         minWidth: 0,
+        width: '100%',
       }}
     >
-      <RagProviderBanner />
-      <div
-        data-testid="knowledge-route-viewport"
-        style={{
-          display: 'flex',
-          flex: 1,
-          flexDirection: 'row',
-          minHeight: 0,
-          minWidth: 0,
-          overflow: 'hidden',
-          width: '100%',
-        }}
-      >
-        <MemoryRouter initialEntries={[getInitialPath()]} initialIndex={0}>
-          <UrlSynchronizer />
-          <Routes>
-            {/* Knowledge home - file list page */}
-            <Route element={<KnowledgeHomePage />} path="/" />
-
-            {/* Knowledge bases routes */}
-            <Route element={<KnowledgeBasesListPage />} path="/bases" />
-            <Route element={<KnowledgeBaseDetailPage />} path="/bases/:id" />
-
-            {/* Fallback */}
-            <Route element={<Navigate replace to="/" />} path="*" />
-          </Routes>
-        </MemoryRouter>
-      </div>
+      {isMobile ? (
+        <Suspense fallback={null}>
+          <KnowledgeMobileShell>
+            <KnowledgeRoutes mobile />
+          </KnowledgeMobileShell>
+        </Suspense>
+      ) : (
+        <Flexbox
+          data-testid="knowledge-route-viewport"
+          flex={1}
+          height={'100%'}
+          horizontal={false}
+          style={{ minHeight: 0, minWidth: 0, overflow: 'hidden', position: 'relative' }}
+          width={'100%'}
+        >
+          <RagProviderBanner />
+          <Suspense fallback={null}>
+            <KnowledgeRoutes />
+          </Suspense>
+        </Flexbox>
+      )}
     </App>
   );
 });

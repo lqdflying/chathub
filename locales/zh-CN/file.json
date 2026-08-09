@@ -38,6 +38,9 @@
     "new": "新建知识库",
     "title": "知识库"
   },
+  "mobile": {
+    "navigation": "知识库导航"
+  },
   "networkError": "获取知识库失败，请检测网络连接后重试",
   "preview": {
     "downloadFile": "下载文件",

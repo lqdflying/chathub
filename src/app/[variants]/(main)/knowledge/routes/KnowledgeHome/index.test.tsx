@@ -2,115 +2,78 @@ import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { MOBILE_TABBAR_SAFE_HEIGHT } from '@/const/layoutTokens';
-
 import KnowledgeHomePage from './index';
 
-const { knowledgeLayoutState } = vi.hoisted(() => ({
-  knowledgeLayoutState: {
-    showMobileWorkspace: false,
-  },
-}));
-
-vi.mock('antd-style', () => ({
-  createStyles: () => () => ({ styles: { main: 'main' } }),
+const { categoryState } = vi.hoisted(() => ({
+  categoryState: { category: 'all' },
 }));
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => key.replace('tab.', '') }),
 }));
 
-vi.mock('react-responsive', () => ({
-  useMediaQuery: () => true,
-}));
-
-vi.mock('react-layout-kit', () => ({
-  Flexbox: ({ children, style }: React.PropsWithChildren<{ style?: React.CSSProperties }>) => (
-    <div
-      data-display={style?.display || ''}
-      data-padding-bottom={style?.paddingBottom || ''}
-      data-testid="flexbox"
-    >
-      {children}
-    </div>
-  ),
-}));
-
-vi.mock('@/components/NProgress', () => ({
-  default: () => null,
-}));
-
-vi.mock('@/components/PanelTitle', () => ({
-  default: () => <div>File panel title</div>,
-}));
+vi.mock('@/components/NProgress', () => ({ default: () => null }));
+vi.mock('@/components/PanelTitle', () => ({ default: () => <div>File panel title</div> }));
 
 vi.mock('@/features/FileManager', () => ({
-  default: () => <div>File workspace</div>,
+  default: ({ category, mobile, title }: any) => (
+    <div
+      data-category={category ?? ''}
+      data-mobile={String(!!mobile)}
+      data-testid="file-manager"
+      title={title}
+    />
+  ),
 }));
 
 vi.mock('@/features/FileSidePanel', () => ({
   default: ({ children }: React.PropsWithChildren) => <aside>{children}</aside>,
 }));
 
-vi.mock('@/hooks/useShowMobileWorkspace', () => ({
-  useShowMobileWorkspace: () => knowledgeLayoutState.showMobileWorkspace,
-}));
-
 vi.mock('../../hooks/useFileCategory', () => ({
-  useFileCategory: () => ['all'],
+  useFileCategory: () => [categoryState.category],
 }));
 
-vi.mock('../../shared/FileModalQueryRoute', () => ({
-  default: () => null,
-}));
-
+vi.mock('../../shared/FileModalQueryRoute', () => ({ default: () => null }));
 vi.mock('./layout/Container', () => ({
   default: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
 }));
-
-vi.mock('./layout/RegisterHotkeys', () => ({
-  default: () => null,
-}));
-
-vi.mock('./menu/FileMenu', () => ({
-  default: () => <div>File menu</div>,
-}));
-
-vi.mock('./menu/KnowledgeBase', () => ({
-  default: () => <div>Knowledge bases</div>,
-}));
+vi.mock('./layout/RegisterHotkeys', () => ({ default: () => null }));
+vi.mock('./menu/FileMenu', () => ({ default: () => <div>File menu</div> }));
+vi.mock('./menu/KnowledgeBase', () => ({ default: () => <div>Knowledge bases</div> }));
 
 afterEach(() => {
   cleanup();
-  knowledgeLayoutState.showMobileWorkspace = false;
+  categoryState.category = 'all';
 });
 
-describe('Knowledge home mobile layout', () => {
-  it('reserves the tab-bar safe height on the visible menu surface', () => {
+describe('Knowledge home page', () => {
+  it('renders the desktop layout with the desktop file manager and menu surface', () => {
     render(<KnowledgeHomePage />);
 
-    const menuSurface = screen
-      .getAllByTestId('flexbox')
-      .find(
-        (container) => container.getAttribute('data-padding-bottom') === MOBILE_TABBAR_SAFE_HEIGHT,
-      );
-    expect(menuSurface).toBeTruthy();
-    expect(screen.getByText('File workspace').parentElement?.getAttribute('data-display')).toBe(
-      'none',
-    );
+    const manager = screen.getByTestId('file-manager');
+    expect(manager.getAttribute('data-mobile')).toBe('false');
+    expect(manager.getAttribute('data-category')).toBe('all');
+    expect(screen.getByText('File menu')).toBeTruthy();
+    expect(screen.getByText('Knowledge bases')).toBeTruthy();
   });
 
-  it('keeps the full-screen file workspace unpadded while mobile navigation is hidden', () => {
-    knowledgeLayoutState.showMobileWorkspace = true;
+  it('renders the compact mobile file manager without the desktop menu surface', () => {
+    render(<KnowledgeHomePage mobile />);
 
-    render(<KnowledgeHomePage />);
+    const manager = screen.getByTestId('file-manager');
+    expect(manager.getAttribute('data-mobile')).toBe('true');
+    expect(screen.queryByText('File menu')).toBeNull();
+    expect(screen.queryByText('Knowledge bases')).toBeNull();
+  });
 
-    const menuSurface = screen
-      .getAllByTestId('flexbox')
-      .find((container) => container.getAttribute('data-display') === 'none');
-    const workspaceSurface = screen.getByText('File workspace').parentElement;
+  it('threads the active category into the file manager title', () => {
+    categoryState.category = 'documents';
 
-    expect(menuSurface).toBeTruthy();
-    expect(workspaceSurface?.getAttribute('data-padding-bottom')).toBe('');
+    render(<KnowledgeHomePage mobile />);
+
+    const manager = screen.getByTestId('file-manager');
+    expect(manager.getAttribute('data-category')).toBe('documents');
+    expect(manager.getAttribute('title')).toBe('documents');
   });
 });

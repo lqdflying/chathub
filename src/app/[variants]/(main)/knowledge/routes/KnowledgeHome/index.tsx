@@ -1,17 +1,13 @@
 'use client';
 
-import { createStyles } from 'antd-style';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
-import { useMediaQuery } from 'react-responsive';
 
 import NProgress from '@/components/NProgress';
 import PanelTitle from '@/components/PanelTitle';
-import { MOBILE_TABBAR_SAFE_HEIGHT } from '@/const/layoutTokens';
 import FileManager from '@/features/FileManager';
 import FilePanel from '@/features/FileSidePanel';
-import { useShowMobileWorkspace } from '@/hooks/useShowMobileWorkspace';
 import { FilesTabs } from '@/types/files';
 
 import { useFileCategory } from '../../hooks/useFileCategory';
@@ -21,15 +17,6 @@ import RegisterHotkeys from './layout/RegisterHotkeys';
 import FileMenu from './menu/FileMenu';
 import KnowledgeBase from './menu/KnowledgeBase';
 
-const useStyles = createStyles(({ css, token }) => ({
-  main: css`
-    position: relative;
-    overflow: hidden;
-    background: ${token.colorBgLayout};
-  `,
-}));
-
-// Menu content component
 const MenuContent = memo(() => {
   const { t } = useTranslation('file');
 
@@ -46,16 +33,17 @@ const MenuContent = memo(() => {
 
 MenuContent.displayName = 'MenuContent';
 
-// Main files list component
+// Desktop workspace: file manager filtered by the active category.
 const FilesListPage = memo(() => {
+  const { t } = useTranslation('file');
   const [category] = useFileCategory();
 
-  return <FileManager category={category} knowledgeMode title={`${category as FilesTabs}`} />;
+  return <FileManager category={category} knowledgeMode title={t(`tab.${category}`)} />;
 });
 
 FilesListPage.displayName = 'FilesListPage';
 
-// Desktop layout
+// Desktop layout: side panel (categories + knowledge bases) + workspace.
 const DesktopLayout = memo(() => {
   return (
     <>
@@ -81,32 +69,25 @@ const DesktopLayout = memo(() => {
 
 DesktopLayout.displayName = 'DesktopLayout';
 
-// Mobile layout
+interface KnowledgeHomePageProps {
+  /** When true, render the compact mobile workspace (shell provides header + drawer). */
+  mobile?: boolean;
+}
+
+// Mobile workspace: the shell already renders the header, drawer, and banner;
+// the home route only contributes the filtered file manager.
 const MobileLayout = memo(() => {
-  const showMobileWorkspace = useShowMobileWorkspace();
-  const { styles } = useStyles();
+  const { t } = useTranslation('file');
+  const [category] = useFileCategory();
 
   return (
     <>
-      <NProgress />
-      <Flexbox
-        className={styles.main}
-        height="100%"
-        style={
-          showMobileWorkspace ? { display: 'none' } : { paddingBottom: MOBILE_TABBAR_SAFE_HEIGHT }
-        }
-        width="100%"
-      >
-        <MenuContent />
-      </Flexbox>
-      <Flexbox
-        className={styles.main}
-        height="100%"
-        style={showMobileWorkspace ? undefined : { display: 'none' }}
-        width="100%"
-      >
-        <FilesListPage />
-      </Flexbox>
+      <FileManager
+        category={category}
+        knowledgeMode
+        mobile
+        title={t(`tab.${category as FilesTabs}`)}
+      />
       <FileModalQueryRoute />
     </>
   );
@@ -115,10 +96,8 @@ const MobileLayout = memo(() => {
 MobileLayout.displayName = 'MobileLayout';
 
 // Main Knowledge Home Page
-const KnowledgeHomePage = memo(() => {
-  const isMobile = useMediaQuery({ maxWidth: 768 });
-
-  return isMobile ? <MobileLayout /> : <DesktopLayout />;
+const KnowledgeHomePage = memo<KnowledgeHomePageProps>(({ mobile = false }) => {
+  return mobile ? <MobileLayout /> : <DesktopLayout />;
 });
 
 KnowledgeHomePage.displayName = 'KnowledgeHomePage';

@@ -2,7 +2,7 @@
 
 import { SearchBar } from '@lobehub/ui';
 import { useQueryState } from 'nuqs';
-import { memo, useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useUserStore } from '@/store/user';
@@ -35,7 +35,7 @@ const FilesSearchBar = memo<{ mobile?: boolean }>(({ mobile }) => {
       placeholder={t('searchFilePlaceholder')}
       shortKey={hotkey}
       spotlight={!mobile}
-      style={{ width: 320 }}
+      style={{ width: mobile ? '100%' : 320 }}
       value={keywords}
       variant={'filled'}
     />

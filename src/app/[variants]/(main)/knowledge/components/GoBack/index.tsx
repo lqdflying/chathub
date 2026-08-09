@@ -1,10 +1,12 @@
+'use client';
+
 import { Icon } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { ArrowLeft } from 'lucide-react';
-import { memo } from 'react';
+import { useRouter } from 'next/navigation';
+import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
-import { useNavigate } from 'react-router-dom';
 
 const useStyles = createStyles(({ css, token }) => {
   return {
@@ -28,23 +30,27 @@ const useStyles = createStyles(({ css, token }) => {
 
 interface GoBackProps {
   /**
-   * The path to navigate to (relative to MemoryRouter)
-   * e.g., "/" for /knowledge, "/bases" for /knowledge/bases
+   * Fallback absolute path to navigate to (Next App Router path).
+   * Used when there is no meaningful browser history to pop to on this route.
    */
-  to: string;
+  to?: string;
 }
 
 /**
- * GoBack component for react-router-dom
- * Uses useNavigate instead of Next.js Link
+ * GoBack component (Next.js App Router).
+ * Pops the browser history stack when available; otherwise falls back to `to`.
  */
 const GoBack = memo<GoBackProps>(({ to }) => {
   const { t } = useTranslation('components');
   const { styles } = useStyles();
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const handleClick = () => {
-    navigate(to);
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    if (to) router.push(to);
   };
 
   return (

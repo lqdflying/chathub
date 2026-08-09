@@ -2,13 +2,15 @@
 
 import React, { PropsWithChildren, memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
-import { useMediaQuery } from 'react-responsive';
 
-import { MOBILE_TABBAR_SAFE_HEIGHT } from '@/const/layoutTokens';
-
+/**
+ * Horizontal container for desktop Knowledge routes.
+ *
+ * Mobile safe-area spacing is owned by the mobile Knowledge shell, so this
+ * container deliberately does not reserve the bottom tab-bar height. Rendering
+ * it on mobile would double-count the bottom inset.
+ */
 const KnowledgeRouteContainer = memo<PropsWithChildren>(({ children }) => {
-  const isMobile = useMediaQuery({ maxWidth: 768 });
-
   return (
     <Flexbox
       flex={1}
@@ -18,7 +20,6 @@ const KnowledgeRouteContainer = memo<PropsWithChildren>(({ children }) => {
         minHeight: 0,
         minWidth: 0,
         overflow: 'hidden',
-        paddingBottom: isMobile ? MOBILE_TABBAR_SAFE_HEIGHT : undefined,
         position: 'relative',
       }}
       width={'100%'}

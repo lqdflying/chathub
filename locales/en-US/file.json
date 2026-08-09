@@ -38,6 +38,9 @@
     "new": "New Knowledge Base",
     "title": "Knowledge Base"
   },
+  "mobile": {
+    "navigation": "Knowledge navigation"
+  },
   "networkError": "Failed to retrieve the knowledge base. Please check your network connection and try again.",
   "preview": {
     "downloadFile": "Download File",

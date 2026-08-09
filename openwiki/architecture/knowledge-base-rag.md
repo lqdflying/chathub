@@ -6,6 +6,52 @@ chat-provider credentials, or `DEFAULT_FILES_CONFIG`. Without a complete RAG
 provider configuration, document parsing can still run, but vector indexing,
 semantic search, chat retrieval, and RAG evaluations are unavailable.
 
+## Knowledge route and mobile shell contract
+
+The Next.js App Router is the single owner of Knowledge history. The catch-all
+`/knowledge/[[...path]]` route mounts `KnowledgeRouter`, which renders
+`KnowledgeRoutes` — a pathname-based renderer that derives `/knowledge`,
+`/knowledge/bases`, and `/knowledge/bases/:id` from `usePathname`, reads query
+state with `useSearchParams`, and navigates with `useRouter`. There is no
+secondary in-memory router and no manual `window.history.replaceState`, so the
+browser or hardware Back button follows real Knowledge surfaces instead of
+leaving the section.
+
+Navigation contract:
+
+- Category and named-Knowledge-Base selections call `router.push` so Back
+  returns to the preceding workspace (`useFileCategory`,
+  `KnowledgeBaseItem`, `KnowledgeBase` create flow).
+- `router.replace` is reserved for canonical redirects and modal dismissal:
+  the mobile shell canonicalizes `/knowledge/bases` to `/knowledge` while
+  opening the navigation drawer, and `useSetFileModalId` replaces when
+  dismissing a directly linked `?file=<id>` preview.
+- `category`, `q`, `sorter`, `sortType`, canonical `file`, and legacy `files`
+  parameters are preserved across navigation.
+
+Layout contract:
+
+- The root `App` and route viewport carry explicit `width: '100%'` so the
+  centered global app container cannot shrink Knowledge to the intrinsic menu
+  width.
+- On compact screens (`maxWidth: 768`) `KnowledgeRouter` renders
+  `KnowledgeMobileShell`, which owns the safe `ChatHeader` (title + navigation
+  + upload), a left navigation `Drawer` with categories and Knowledge Bases,
+  and the single bottom tab-bar safe-area reservation through
+  `MobileContentLayout` `withNav`. Route content therefore must not add a
+  second `MOBILE_TABBAR_SAFE_HEIGHT` reservation; `KnowledgeRouteContainer`
+  is desktop-only padding now.
+- Desktop layout (`KnowledgeHome/DesktopLayout` + `KnowledgeRouteContainer`)
+  retains the `FileSidePanel` sidebar, hotkeys, and deep-link behavior.
+
+`FileManager` accepts a `mobile` prop threaded through its header, list,
+toolbar, row, and chunk drawer. Mobile mode hides the desktop panel toggle and
+duplicate title, uses a flexible full-width search field plus an icon upload
+action, collapses fixed date/size columns under the filename, keeps row menus
+and selection reachable without hover, and opens the chunk drawer at full
+viewport width. Desktop rendering and file/RAG request semantics are
+unchanged.
+
 ## Content boundary
 
 Knowledge is document-only. `isChunkableFile` is the deployment-aware positive
@@ -364,7 +410,14 @@ action.
 - `src/features/FileManager/ChunkDrawer/ChunkList/index.tsx`
 - `src/features/FileManager/FileList/FileListItem/index.tsx`
 - `src/features/FileManager/FileList/MasonryFileItem/index.tsx`
+- `src/features/FileManager/index.tsx`
+- `src/features/FileManager/Header/index.tsx`
 - `src/features/Portal/FilePreview/Body/index.tsx`
 - `src/libs/langchain/loaders/markdown/tables.ts`
 - `src/server/modules/ContentChunk/index.ts`
 - `src/store/chat/slices/portal/initialState.ts`
+- `src/app/[variants]/(main)/knowledge/KnowledgeRouter.tsx`
+- `src/app/[variants]/(main)/knowledge/KnowledgeRoutes.tsx`
+- `src/app/[variants]/(main)/knowledge/_layout/Mobile/index.tsx`
+- `src/app/[variants]/(main)/knowledge/hooks/useFileCategory.ts`
+- `src/app/[variants]/(main)/knowledge/shared/useFileQueryParam.ts`

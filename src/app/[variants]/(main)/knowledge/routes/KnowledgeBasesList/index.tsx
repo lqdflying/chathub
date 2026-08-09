@@ -11,8 +11,11 @@ import KnowledgeBaseList from '../../components/KnowledgeBaseList';
 import KnowledgeRouteContainer from '../KnowledgeRouteContainer';
 
 /**
- * Knowledge Bases List Page
- * Shows all available knowledge bases
+ * Knowledge Bases List Page (desktop).
+ *
+ * On compact screens the mobile Knowledge shell canonicalizes `/knowledge/bases`
+ * to `/knowledge` and opens the navigation drawer, so this placeholder only
+ * renders for desktop direct links.
  */
 const KnowledgeBasesListPage = memo(() => {
   const { t } = useTranslation('file');

@@ -2,7 +2,7 @@
 
 import { Text } from '@lobehub/ui';
 import dynamic from 'next/dynamic';
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import FileList from './FileList';
@@ -15,25 +15,29 @@ interface FileManagerProps {
   category?: string;
   knowledgeBaseId?: string;
   knowledgeMode?: boolean;
+  mobile?: boolean;
   title: string;
 }
 const FileManager = memo<FileManagerProps>(
-  ({ title, knowledgeBaseId, knowledgeMode = false, category }) => {
+  ({ title, knowledgeBaseId, knowledgeMode = false, category, mobile = false }) => {
     return (
       <>
-        <Header knowledgeBaseId={knowledgeBaseId} knowledgeMode={knowledgeMode} />
+        <Header knowledgeBaseId={knowledgeBaseId} knowledgeMode={knowledgeMode} mobile={mobile} />
         <Flexbox gap={12} height={'100%'}>
-          <Text strong style={{ fontSize: 16, marginBlock: 16, marginInline: 24 }}>
-            {title}
-          </Text>
+          {!mobile && (
+            <Text strong style={{ fontSize: 16, marginBlock: 16, marginInline: 24 }}>
+              {title}
+            </Text>
+          )}
           <FileList
             category={category}
             knowledgeBaseId={knowledgeBaseId}
             knowledgeMode={knowledgeMode}
+            mobile={mobile}
           />
         </Flexbox>
         <UploadDock />
-        <ChunkDrawer />
+        <ChunkDrawer mobile={mobile} />
       </>
     );
   },

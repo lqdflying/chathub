@@ -1,31 +1,44 @@
 'use client';
 
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
-import { useParams } from 'react-router-dom';
 
-import FileModalQueryRoute from '@/app/[variants]/(main)/knowledge/shared/FileModalQueryRoute';
 import FileManager from '@/features/FileManager';
 import FilePanel from '@/features/FileSidePanel';
 import { knowledgeBaseSelectors, useKnowledgeBaseStore } from '@/store/knowledgeBase';
 
 import { useKnowledgeBaseItem } from '../../hooks/useKnowledgeItem';
+import FileModalQueryRoute from '../../shared/FileModalQueryRoute';
 import KnowledgeRouteContainer from '../KnowledgeRouteContainer';
 import Menu from './menu/Menu';
 
+interface KnowledgeBaseDetailPageProps {
+  /** Knowledge base id, parsed from the Next App Router pathname. */
+  id: string;
+  /** When true, render the compact mobile workspace (no desktop side panel). */
+  mobile?: boolean;
+}
+
 /**
  * Knowledge Base Detail Page
- * Shows file list for a specific knowledge base
- * Supports ?file=[fileId] query param for file preview modal
+ * Shows the file list for a specific knowledge base.
+ * Supports ?file=[fileId] query param for file preview modal.
  */
-const KnowledgeBaseDetailPage = memo(() => {
-  const { id } = useParams<{ id: string }>();
-
-  useKnowledgeBaseItem(id!);
-  const name = useKnowledgeBaseStore(knowledgeBaseSelectors.getKnowledgeBaseNameById(id!));
+const KnowledgeBaseDetailPage = memo<KnowledgeBaseDetailPageProps>(({ id, mobile = false }) => {
+  useKnowledgeBaseItem(id);
+  const name = useKnowledgeBaseStore(knowledgeBaseSelectors.getKnowledgeBaseNameById(id));
 
   if (!id) {
     return <div>Knowledge base ID is required</div>;
+  }
+
+  if (mobile) {
+    return (
+      <>
+        <FileManager knowledgeBaseId={id} knowledgeMode mobile title={name} />
+        <FileModalQueryRoute />
+      </>
+    );
   }
 
   return (

@@ -7,7 +7,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { isNull } from 'lodash-es';
 import { FileBoxIcon } from 'lucide-react';
 import { rgba } from 'polished';
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Center, Flexbox } from 'react-layout-kit';
 
@@ -56,6 +56,23 @@ const useStyles = createStyles(({ css, token, cx, isDarkMode }) => {
       padding-inline: 0 24px;
       color: ${token.colorTextSecondary};
     `,
+    // Compact mobile row: no fixed date/size columns; metadata sits under the name.
+    mobileContainer: css`
+      cursor: pointer;
+      padding-block: 8px;
+      padding-inline: 16px;
+      border-block-end: 1px solid ${isDarkMode ? token.colorSplit : rgba(token.colorSplit, 0.06)};
+
+      &:hover {
+        background: ${token.colorFillTertiary};
+      }
+    `,
+    mobileMeta: css`
+      font-size: 12px;
+      color: ${token.colorTextTertiary};
+      margin-inline-start: 36px;
+      margin-block-start: 2px;
+    `,
     name: css`
       overflow: hidden;
       display: -webkit-box;
@@ -79,6 +96,7 @@ const useStyles = createStyles(({ css, token, cx, isDarkMode }) => {
 interface FileRenderItemProps extends FileListItem {
   index: number;
   knowledgeBaseId?: string;
+  mobile?: boolean;
   onSelectedChange: (id: string, selected: boolean, shiftKey: boolean, index: number) => void;
   selected?: boolean;
 }
@@ -101,6 +119,7 @@ const FileRenderItem = memo<FileRenderItemProps>(
     onSelectedChange,
     knowledgeBaseId,
     index,
+    mobile = false,
   }) => {
     const { t } = useTranslation('components');
     const { styles, cx } = useStyles();
@@ -119,6 +138,94 @@ const FileRenderItem = memo<FileRenderItemProps>(
       dayjs().diff(dayjs(createdAt), 'd') < 7
         ? dayjs(createdAt).fromNow()
         : dayjs(createdAt).format('YYYY-MM-DD');
+
+    if (mobile) {
+      return (
+        <Flexbox
+          align={'center'}
+          className={cx(styles.mobileContainer, selected && styles.selected)}
+          horizontal
+          onClick={openFile}
+          paddingInline={8}
+        >
+          <Center
+            height={40}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectedChange(id, !selected, e.shiftKey, index);
+            }}
+            style={{ paddingInline: 4 }}
+          >
+            <Checkbox checked={selected} style={{ borderRadius: '50%' }} />
+          </Center>
+          <Flexbox flex={1} style={{ minWidth: 0 }}>
+            <Flexbox align={'center'} gap={8} horizontal>
+              <FileIcon fileName={name} fileType={fileType} />
+              <span className={styles.name}>{name}</span>
+            </Flexbox>
+            <div className={styles.mobileMeta}>
+              {displayTime} · {formatSize(size)}
+            </div>
+          </Flexbox>
+          <Flexbox
+            align={'center'}
+            gap={8}
+            horizontal
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            {isCreatingFileParseTask || isNull(chunkingStatus) || !chunkingStatus ? (
+              <Tooltip
+                styles={{ root: { pointerEvents: 'none' } }}
+                title={t(
+                  isSupportedForChunking
+                    ? 'FileManager.actions.chunkingTooltip'
+                    : 'FileManager.actions.chunkingUnsupported',
+                )}
+              >
+                <Button
+                  disabled={!isSupportedForChunking}
+                  icon={FileBoxIcon}
+                  loading={isCreatingFileParseTask}
+                  onClick={() => {
+                    parseFiles([id]);
+                  }}
+                  size={'small'}
+                  type={'text'}
+                >
+                  {t(
+                    isCreatingFileParseTask
+                      ? 'FileManager.actions.createChunkingTask'
+                      : 'FileManager.actions.chunking',
+                  )}
+                </Button>
+              </Tooltip>
+            ) : (
+              <ChunksBadge
+                chunkCount={chunkCount}
+                chunkingError={chunkingError}
+                chunkingStatus={chunkingStatus}
+                embeddingError={embeddingError}
+                embeddingStatus={embeddingStatus}
+                finishEmbedding={finishEmbedding}
+                id={id}
+              />
+            )}
+            {isMarkItDownConvertible && (
+              <MarkItDownAction fileType={fileType} id={id} name={name} />
+            )}
+            <DropdownMenu
+              filename={name}
+              id={id}
+              knowledgeBaseId={knowledgeBaseId}
+              supportsReParse={isSupportedForChunking}
+              url={url}
+            />
+          </Flexbox>
+        </Flexbox>
+      );
+    }
 
     return (
       <Flexbox

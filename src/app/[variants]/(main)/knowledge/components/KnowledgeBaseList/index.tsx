@@ -8,7 +8,12 @@ import KnowledgeBaseItem from '../KnowledgeBaseItem';
 import EmptyStatus from './EmptyStatus';
 import { SkeletonList } from './SkeletonList';
 
-const KnowledgeBaseList = () => {
+interface KnowledgeBaseListProps {
+  /** Called after the user navigates into a knowledge base. */
+  onNavigate?: () => void;
+}
+
+const KnowledgeBaseList = ({ onNavigate }: KnowledgeBaseListProps = {}) => {
   const useFetchKnowledgeBaseList = useKnowledgeBaseStore((s) => s.useFetchKnowledgeBaseList);
   const { data, isLoading } = useFetchKnowledgeBaseList();
 
@@ -22,7 +27,7 @@ const KnowledgeBaseList = () => {
         data={data}
         fixedItemHeight={36}
         itemContent={(index, item) => (
-          <KnowledgeBaseItem id={item.id} key={item.id} name={item.name} />
+          <KnowledgeBaseItem id={item.id} key={item.id} name={item.name} onNavigate={onNavigate} />
         )}
       />
     </Flexbox>
