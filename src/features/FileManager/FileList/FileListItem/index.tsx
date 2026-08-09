@@ -68,10 +68,10 @@ const useStyles = createStyles(({ css, token, cx, isDarkMode }) => {
       }
     `,
     mobileMeta: css`
+      margin-block-start: 2px;
+      margin-inline-start: 36px;
       font-size: 12px;
       color: ${token.colorTextTertiary};
-      margin-inline-start: 36px;
-      margin-block-start: 2px;
     `,
     name: css`
       overflow: hidden;

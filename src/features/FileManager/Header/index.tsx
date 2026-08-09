@@ -26,12 +26,13 @@ const Header = memo<HeaderProps>(({ knowledgeBaseId, knowledgeMode, mobile = fal
           </>
         )
       }
+      // On mobile the shell owns the upload affordance to avoid mounting a
+      // second `DragUpload` (which attaches window-level paste/drop handlers
+      // that would double-upload). Only the desktop header renders it here.
       right={
-        <UploadFileButton
-          knowledgeBaseId={knowledgeBaseId}
-          knowledgeMode={knowledgeMode}
-          mobile={mobile}
-        />
+        mobile ? undefined : (
+          <UploadFileButton knowledgeBaseId={knowledgeBaseId} knowledgeMode={knowledgeMode} />
+        )
       }
       styles={{
         left: { padding: 0 },

@@ -23,7 +23,6 @@ const useStyles = createStyles(({ css, token, isDarkMode }) => ({
 interface MultiSelectActionsProps {
   config: { showFilesInKnowledgeBase: boolean };
   knowledgeBaseId?: string;
-  mobile?: boolean;
   onConfigChange: (config: { showFilesInKnowledgeBase: boolean }) => void;
   onViewChange: (view: ViewMode) => void;
   selectCount: number;

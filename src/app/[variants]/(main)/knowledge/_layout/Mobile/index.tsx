@@ -9,6 +9,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
+
 import MobileContentLayout from '@/components/server/MobileNavLayout';
 import { MOBILE_HEADER_ICON_SIZE } from '@/const/layoutTokens';
 import UploadFileButton from '@/features/FileManager/Header/UploadFileButton';
@@ -60,7 +61,7 @@ const KnowledgeMobileShell = memo<KnowledgeMobileShellProps>(({ children }) => {
     }
   }, [pathname, router]);
 
-  const title = knowledgeBaseId ? baseName ?? '' : t(`tab.${category}`);
+  const title = knowledgeBaseId ? (baseName ?? '') : t(`tab.${category}`);
   const navigationLabel = t('mobile.navigation');
 
   const closeDrawer = () => setNavigationOpen(false);
@@ -82,13 +83,7 @@ const KnowledgeMobileShell = memo<KnowledgeMobileShellProps>(({ children }) => {
                 title={navigationLabel}
               />
             }
-            right={
-              <UploadFileButton
-                knowledgeBaseId={knowledgeBaseId}
-                knowledgeMode
-                mobile
-              />
-            }
+            right={<UploadFileButton knowledgeBaseId={knowledgeBaseId} knowledgeMode mobile />}
             style={{ borderBlockEnd: `1px solid ${theme.colorBorderSecondary}` }}
           />
         }

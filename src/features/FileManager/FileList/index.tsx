@@ -171,7 +171,6 @@ const FileList = memo<FileListProps>(
             config={viewConfig}
             key={selectFileIds.join('-')}
             knowledgeBaseId={knowledgeBaseId}
-            mobile={mobile}
             onConfigChange={setViewConfig}
             onViewChange={setViewMode}
             selectCount={selectFileIds.length}

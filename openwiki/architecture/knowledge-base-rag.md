@@ -26,8 +26,14 @@ Navigation contract:
   the mobile shell canonicalizes `/knowledge/bases` to `/knowledge` while
   opening the navigation drawer, and `useSetFileModalId` replaces when
   dismissing a directly linked `?file=<id>` preview.
-- `category`, `q`, `sorter`, `sortType`, canonical `file`, and legacy `files`
-  parameters are preserved across navigation.
+- A category tap always targets the home workspace `/knowledge` (even from a
+  base-detail route), so switching categories visibly changes the filtered
+  list rather than silently rewriting the detail URL. Opening a named
+  Knowledge Base (`KnowledgeBaseItem`) pushes a bare `/knowledge/bases/:id`
+  and deliberately drops current filters — they are a home-workspace concept.
+- Across category/filter navigation on the same workspace, `category`, `q`,
+  `sorter`, and `sortType` are preserved; detail-only `file` and legacy
+  `files` are stripped before reaching home.
 
 Layout contract:
 
@@ -46,11 +52,13 @@ Layout contract:
 
 `FileManager` accepts a `mobile` prop threaded through its header, list,
 toolbar, row, and chunk drawer. Mobile mode hides the desktop panel toggle and
-duplicate title, uses a flexible full-width search field plus an icon upload
-action, collapses fixed date/size columns under the filename, keeps row menus
-and selection reachable without hover, and opens the chunk drawer at full
-viewport width. Desktop rendering and file/RAG request semantics are
-unchanged.
+duplicate title, uses a flexible full-width search field, collapses fixed
+date/size columns under the filename, keeps row menus and selection reachable
+without hover, and opens the chunk drawer at full viewport width. The mobile
+header does **not** render an upload button — the mobile shell owns the single
+upload affordance, so only one `DragUpload` (and one set of window-level
+paste/drop handlers) is mounted. Desktop rendering and file/RAG request
+semantics are unchanged.
 
 ## Content boundary
 

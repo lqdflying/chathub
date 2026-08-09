@@ -4,11 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import KnowledgeRouter from './KnowledgeRouter';
 
-const { layoutState } = vi.hoisted(() => ({
+const { layoutState, routerMocks } = vi.hoisted(() => ({
   layoutState: {
     isMobile: false,
     pathname: '/knowledge',
     search: '',
+  },
+  routerMocks: {
+    push: { current: null as null | ReturnType<typeof vi.fn> },
+    replace: { current: null as null | ReturnType<typeof vi.fn> },
   },
 }));
 
@@ -56,11 +60,16 @@ vi.mock('react-responsive', () => ({
 
 vi.mock('next/navigation', () => ({
   usePathname: () => layoutState.pathname,
-  useRouter: () => ({
-    push: vi.fn(),
-    replace: vi.fn(),
-    back: vi.fn(),
-  }),
+  useRouter: () => {
+    // Shared mocks so a test can assert calls across renders.
+    if (!routerMocks.push.current) routerMocks.push.current = vi.fn();
+    if (!routerMocks.replace.current) routerMocks.replace.current = vi.fn();
+    return {
+      back: vi.fn(),
+      push: routerMocks.push.current,
+      replace: routerMocks.replace.current,
+    };
+  },
   useSearchParams: () => new URLSearchParams(layoutState.search),
 }));
 
@@ -134,6 +143,8 @@ beforeEach(() => {
   layoutState.isMobile = false;
   layoutState.pathname = '/knowledge';
   layoutState.search = '';
+  routerMocks.push.current = null;
+  routerMocks.replace.current = null;
 });
 
 afterEach(() => {
@@ -182,5 +193,17 @@ describe('KnowledgeRouter', () => {
     const detail = screen.getByTestId('knowledge-detail');
     expect(detail.getAttribute('data-id')).toBe('kb-9');
     expect(detail.getAttribute('data-mobile')).toBe('true');
+  });
+
+  it('canonicalizes the desktop-only /knowledge/bases placeholder on mobile and opens the drawer', () => {
+    layoutState.isMobile = true;
+    layoutState.pathname = '/knowledge/bases';
+
+    const { container } = render(<KnowledgeRouter />);
+
+    // The canonicalization effect runs and pushes the URL to /knowledge.
+    expect(routerMocks.replace.current).toHaveBeenCalledWith('/knowledge');
+    // The effect also opens the drawer so the user can pick a base.
+    expect(screen.getByTestId('knowledge-drawer')).toBeTruthy();
   });
 });
