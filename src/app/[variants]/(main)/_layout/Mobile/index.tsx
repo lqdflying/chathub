@@ -23,11 +23,18 @@ const MOBILE_NAV_ROUTES = new Set([
   '/discover/provider',
   '/me',
 ]);
+const MOBILE_NAV_ROUTE_PREFIXES = ['/knowledge', '/tools'];
+
+export const isMobileNavRoute = (pathname: string) =>
+  MOBILE_NAV_ROUTES.has(pathname) ||
+  MOBILE_NAV_ROUTE_PREFIXES.some(
+    (routePrefix) => pathname === routePrefix || pathname.startsWith(`${routePrefix}/`),
+  );
 
 const Layout = memo(({ children }: PropsWithChildren) => {
   const showMobileWorkspace = useShowMobileWorkspace();
   const pathname = usePathname();
-  const showNav = !showMobileWorkspace && MOBILE_NAV_ROUTES.has(pathname);
+  const showNav = !showMobileWorkspace && isMobileNavRoute(pathname);
 
   const { showCloudPromotion } = useServerConfigStore(featureFlagsSelectors);
 

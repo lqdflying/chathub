@@ -87,6 +87,7 @@ export default {
     title: 'Password Generator',
     uppercase: 'Uppercase',
   },
+  navigation: 'Tool navigation',
   picbed: {
     copied: 'Copied!',
     copy: 'Copy URL',

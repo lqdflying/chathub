@@ -8,6 +8,7 @@ import PanelTitle from '@/components/PanelTitle';
 import FilePanel from '@/features/FileSidePanel';
 
 import KnowledgeBaseList from '../../components/KnowledgeBaseList';
+import KnowledgeRouteContainer from '../KnowledgeRouteContainer';
 
 /**
  * Knowledge Bases List Page
@@ -17,7 +18,7 @@ const KnowledgeBasesListPage = memo(() => {
   const { t } = useTranslation('file');
 
   return (
-    <>
+    <KnowledgeRouteContainer>
       <FilePanel>
         <Flexbox gap={16} height={'100%'} paddingInline={8}>
           <PanelTitle title={t('knowledgeBase.title')} />
@@ -32,7 +33,7 @@ const KnowledgeBasesListPage = memo(() => {
       >
         <div>Select a knowledge base to view details</div>
       </Flexbox>
-    </>
+    </KnowledgeRouteContainer>
   );
 });
 

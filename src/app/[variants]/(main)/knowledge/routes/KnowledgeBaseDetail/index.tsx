@@ -10,6 +10,7 @@ import FilePanel from '@/features/FileSidePanel';
 import { knowledgeBaseSelectors, useKnowledgeBaseStore } from '@/store/knowledgeBase';
 
 import { useKnowledgeBaseItem } from '../../hooks/useKnowledgeItem';
+import KnowledgeRouteContainer from '../KnowledgeRouteContainer';
 import Menu from './menu/Menu';
 
 /**
@@ -28,7 +29,7 @@ const KnowledgeBaseDetailPage = memo(() => {
   }
 
   return (
-    <>
+    <KnowledgeRouteContainer>
       <FilePanel>
         <Menu id={id} />
       </FilePanel>
@@ -36,7 +37,7 @@ const KnowledgeBaseDetailPage = memo(() => {
         <FileManager knowledgeBaseId={id} knowledgeMode title={name} />
       </Flexbox>
       <FileModalQueryRoute />
-    </>
+    </KnowledgeRouteContainer>
   );
 });
 

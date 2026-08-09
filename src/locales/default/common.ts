@@ -225,6 +225,7 @@ export default {
     files: '文件',
     knowledgeBase: '知识库',
     me: '我',
+    more: '更多',
     setting: '设置',
     tools: 'Tools',
   },

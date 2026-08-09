@@ -1,13 +1,14 @@
 'use client';
 
 import { createStyles } from 'antd-style';
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 import { useMediaQuery } from 'react-responsive';
 
 import NProgress from '@/components/NProgress';
 import PanelTitle from '@/components/PanelTitle';
+import { MOBILE_TABBAR_SAFE_HEIGHT } from '@/const/layoutTokens';
 import FileManager from '@/features/FileManager';
 import FilePanel from '@/features/FileSidePanel';
 import { useShowMobileWorkspace } from '@/hooks/useShowMobileWorkspace';
@@ -91,7 +92,11 @@ const MobileLayout = memo(() => {
       <Flexbox
         className={styles.main}
         height="100%"
-        style={showMobileWorkspace ? { display: 'none' } : undefined}
+        style={
+          showMobileWorkspace
+            ? { display: 'none' }
+            : { paddingBottom: MOBILE_TABBAR_SAFE_HEIGHT }
+        }
         width="100%"
       >
         <MenuContent />
