@@ -1,8 +1,7 @@
 import { render } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import React from 'react';
-
 import { HardDriveDownload, HardDriveUpload } from 'lucide-react';
+import React from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import Category from './Category';
 
@@ -40,11 +39,15 @@ describe('mobile Data Storage Category', () => {
   it('renders compact setting-namespace labels with matched transfer icons', () => {
     render(<Category />);
 
-    const exportRow = mocks.Cell.mock.calls.find((c) => c[0].icon === HardDriveUpload)![0];
-    const importRow = mocks.Cell.mock.calls.find((c) => c[0].icon === HardDriveDownload)![0];
+    const exportRow = mocks.Cell.mock.calls.find((c) => c[0].icon === HardDriveUpload)?.[0];
+    const importRow = mocks.Cell.mock.calls.find((c) => c[0].icon === HardDriveDownload)?.[0];
 
-    expect(exportRow.label).toBe('storage.actions.export.title');
-    expect(importRow.icon).toBe(HardDriveDownload);
+    expect(exportRow).toBeDefined();
+    expect(importRow).toBeDefined();
+
+    expect(exportRow!.label).toBe('storage.actions.export.title');
+    expect(exportRow!.onClick).toBeInstanceOf(Function);
+    expect(importRow!.onClick).toBeUndefined();
     expect(mocks.DataImporter).toHaveBeenCalledTimes(1);
     expect(mocks.DataImporter.mock.calls[0][0].children).toBe('storage.actions.import.title');
   });
@@ -60,8 +63,9 @@ describe('mobile Data Storage Category', () => {
   it('invokes configService.exportAll when the export row is clicked', async () => {
     render(<Category />);
 
-    const exportRow = mocks.Cell.mock.calls.find((c) => c[0].icon === HardDriveUpload)![0];
-    await exportRow.onClick();
+    const exportRow = mocks.Cell.mock.calls.find((c) => c[0].icon === HardDriveUpload)?.[0];
+    expect(exportRow).toBeDefined();
+    await exportRow!.onClick();
 
     expect(mocks.exportAll).toHaveBeenCalledTimes(1);
   });
