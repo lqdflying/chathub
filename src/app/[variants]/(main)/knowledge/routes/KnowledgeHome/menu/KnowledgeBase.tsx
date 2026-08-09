@@ -2,10 +2,10 @@ import { CaretDownFilled, CaretRightOutlined } from '@ant-design/icons';
 import { ActionIcon } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { PlusIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
-import { useNavigate } from 'react-router-dom';
 
 import { useCreateNewModal } from '@/features/KnowledgeBaseModal';
 
@@ -17,10 +17,15 @@ const useStyles = createStyles(({ css, token }) => ({
   `,
 }));
 
-const KnowledgeBase = () => {
+interface KnowledgeBaseMenuProps {
+  /** Called after the user creates or opens a knowledge base. */
+  onNavigate?: () => void;
+}
+
+const KnowledgeBase = ({ onNavigate }: KnowledgeBaseMenuProps = {}) => {
   const { t } = useTranslation('file');
   const { styles } = useStyles();
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const [showList, setShowList] = useState(true);
 
@@ -29,7 +34,8 @@ const KnowledgeBase = () => {
   const handleCreate = () => {
     open({
       onSuccess: (id) => {
-        navigate(`/bases/${id}`);
+        router.push(`/knowledge/bases/${id}`);
+        onNavigate?.();
       },
     });
   };
@@ -61,7 +67,7 @@ const KnowledgeBase = () => {
         />
       </Flexbox>
 
-      {showList && <KnowledgeBaseList />}
+      {showList && <KnowledgeBaseList onNavigate={onNavigate} />}
     </Flexbox>
   );
 };

@@ -12,7 +12,12 @@ import { FilesTabs } from '@/types/files';
 
 import { useFileCategory } from '../../../hooks/useFileCategory';
 
-const FileMenu = memo(() => {
+interface FileMenuProps {
+  /** Called after the user picks a category. */
+  onSelect?: () => void;
+}
+
+const FileMenu = memo<FileMenuProps>(({ onSelect }) => {
   const { t } = useTranslation('file');
   const [activeKey, setActiveKey] = useFileCategory();
 
@@ -62,6 +67,7 @@ const FileMenu = memo(() => {
         items={items}
         onClick={({ key }) => {
           setActiveKey(key);
+          onSelect?.();
         }}
         selectable
         selectedKeys={[activeKey]}

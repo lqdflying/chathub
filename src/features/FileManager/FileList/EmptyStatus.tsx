@@ -1,3 +1,4 @@
+import { getChunkableFileExtensions } from '@lobechat/utils';
 import { FileTypeIcon, Icon, Text } from '@lobehub/ui';
 import { Upload } from 'antd';
 import { createStyles, useTheme } from 'antd-style';
@@ -62,14 +63,20 @@ const useStyles = createStyles(({ css, token }) => ({
 
 interface EmptyStatusProps {
   knowledgeBaseId?: string;
+  knowledgeMode?: boolean;
   showKnowledgeBase: boolean;
 }
-const EmptyStatus = ({ showKnowledgeBase, knowledgeBaseId }: EmptyStatusProps) => {
+const EmptyStatus = ({
+  showKnowledgeBase,
+  knowledgeBaseId,
+  knowledgeMode = false,
+}: EmptyStatusProps) => {
   const { t } = useTranslation('components');
   const theme = useTheme();
   const { styles } = useStyles();
 
   const pushDockFileList = useFileStore((s) => s.pushDockFileList);
+  const accept = knowledgeMode ? [...getChunkableFileExtensions(), '.zip'].join(',') : undefined;
 
   const { open } = useCreateNewModal();
 
@@ -102,8 +109,9 @@ const EmptyStatus = ({ showKnowledgeBase, knowledgeBaseId }: EmptyStatusProps) =
           </Flexbox>
         )}
         <Upload
+          accept={accept}
           beforeUpload={async (file) => {
-            await pushDockFileList([file], knowledgeBaseId);
+            await pushDockFileList([file], knowledgeBaseId, knowledgeMode);
 
             return false;
           }}
@@ -122,8 +130,9 @@ const EmptyStatus = ({ showKnowledgeBase, knowledgeBaseId }: EmptyStatusProps) =
           </Flexbox>
         </Upload>
         <Upload
+          accept={accept}
           beforeUpload={async (file) => {
-            await pushDockFileList([file], knowledgeBaseId);
+            await pushDockFileList([file], knowledgeBaseId, knowledgeMode);
 
             return false;
           }}

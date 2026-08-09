@@ -62,6 +62,7 @@ export const UploadFileSchema = z.object({
   hash: z.string().optional(),
 
   knowledgeBaseId: z.string().optional(),
+  knowledgeBaseUpload: z.boolean().optional(),
 
   metadata: z.any().optional(),
 

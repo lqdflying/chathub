@@ -35,7 +35,7 @@ beforeAll(() => {
   });
 });
 
-const createDeferred = <Value,>() => {
+const createDeferred = <Value>() => {
   let resolve!: (value: Value | PromiseLike<Value>) => void;
   const promise = new Promise<Value>((resolvePromise) => {
     resolve = resolvePromise;
@@ -472,6 +472,51 @@ describe('FileUploadAction', () => {
         });
       });
 
+      it('forwards top-level Knowledge upload provenance to file creation', async () => {
+        const { result } = renderHook(() => useStore());
+        const mockFile = new File(['knowledge content'], 'knowledge.txt', {
+          type: 'text/plain',
+        });
+        const mockMetadata = {
+          date: '12345',
+          dirname: '/uploads',
+          filename: 'knowledge.txt',
+          path: '/uploads/knowledge.txt',
+        };
+
+        vi.mocked(getImageDimensions).mockResolvedValue(undefined);
+        vi.spyOn(fileService, 'checkFileHash').mockResolvedValue({ isExist: false });
+        vi.spyOn(uploadService, 'uploadFileToS3').mockResolvedValue({
+          data: mockMetadata,
+          success: true,
+        });
+        vi.spyOn(fileService, 'createFile').mockResolvedValue({
+          id: 'knowledge-file-id',
+          url: 'https://example.com/knowledge.txt',
+        });
+
+        await act(async () => {
+          await result.current.uploadWithProgress({
+            file: mockFile,
+            knowledgeBaseUpload: true,
+          });
+        });
+
+        expect(fileService.createFile).toHaveBeenCalledWith(
+          {
+            fileType: mockFile.type,
+            hash: 'mock-hash-value',
+            knowledgeBaseUpload: true,
+            metadata: mockMetadata,
+            name: mockFile.name,
+            size: mockFile.size,
+            url: mockMetadata.path,
+          },
+          undefined,
+          expect.any(AbortSignal),
+        );
+      });
+
       it('should call onProgress callback during upload', async () => {
         const { result } = renderHook(() => useStore());
 
@@ -542,7 +587,6 @@ describe('FileUploadAction', () => {
         expect(uploadResult).toBeUndefined();
         expect(createFileSpy).not.toHaveBeenCalled();
       });
-
     });
 
     describe('file type detection', () => {

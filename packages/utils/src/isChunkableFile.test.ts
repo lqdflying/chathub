@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getChunkableFileExtensions,
   isChunkableFile,
+  isDocumentParseableFile,
   isMarkItDownConvertibleFile,
   isOfficePreviewFile,
   setChunkableFileCapabilities,
@@ -72,6 +73,56 @@ describe('isChunkableFile', () => {
       expect(isChunkableFile('notes.md', 'text/markdown')).toBe(true);
       expect(isChunkableFile('report.docx', '')).toBe(true);
     });
+  });
+});
+
+describe('isDocumentParseableFile', () => {
+  afterEach(() => setChunkableFileCapabilities({ markitdown: false }));
+
+  it('accepts only formats handled by the synchronous document loaders', () => {
+    expect(isDocumentParseableFile('notes.txt', 'text/plain')).toBe(true);
+    expect(isDocumentParseableFile('readme.md', 'text/markdown')).toBe(true);
+    expect(isDocumentParseableFile('data.json', 'application/json')).toBe(true);
+    expect(isDocumentParseableFile('table.csv', 'text/csv')).toBe(true);
+    expect(isDocumentParseableFile('guide.pdf', 'application/pdf')).toBe(true);
+    expect(isDocumentParseableFile('legacy.doc', 'application/msword')).toBe(true);
+    expect(isDocumentParseableFile('report.docx')).toBe(true);
+    expect(
+      isDocumentParseableFile(
+        'budget.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ),
+    ).toBe(true);
+    expect(isDocumentParseableFile('legacy.xls', 'application/vnd.ms-excel')).toBe(true);
+    expect(isDocumentParseableFile('slides.pptx')).toBe(true);
+    expect(isDocumentParseableFile('source.custom', 'text/x-custom')).toBe(true);
+  });
+
+  it('rejects binary and unsupported formats without a MarkItDown sidecar', () => {
+    setChunkableFileCapabilities({ markitdown: false });
+
+    expect(isDocumentParseableFile('scan.png', 'image/png')).toBe(false);
+    expect(isDocumentParseableFile('photo.jpg', 'image/jpeg')).toBe(false);
+    expect(isDocumentParseableFile('photo.jpeg', 'image/jpeg')).toBe(false);
+    expect(isDocumentParseableFile('bundle.zip', 'application/zip')).toBe(false);
+    expect(isDocumentParseableFile('thread.msg', 'application/vnd.ms-outlook')).toBe(false);
+    expect(isDocumentParseableFile('meeting.mp3', 'audio/mpeg')).toBe(false);
+    expect(isDocumentParseableFile('macro.docm', 'application/msword')).toBe(false);
+    expect(isDocumentParseableFile('book.epub', 'application/epub+zip')).toBe(false);
+  });
+
+  it('stays limited to built-in loaders when a MarkItDown sidecar is configured', () => {
+    setChunkableFileCapabilities({ markitdown: true });
+
+    expect(isDocumentParseableFile('scan.png', 'image/png')).toBe(false);
+    expect(isDocumentParseableFile('bundle.zip', 'application/zip')).toBe(false);
+    expect(isDocumentParseableFile('thread.msg', 'application/vnd.ms-outlook')).toBe(false);
+    expect(isDocumentParseableFile('meeting.mp3', 'audio/mpeg')).toBe(false);
+    expect(isDocumentParseableFile('budget.xlsx')).toBe(true);
+    expect(isDocumentParseableFile('legacy.doc')).toBe(true);
+    expect(isDocumentParseableFile('book.epub', 'application/epub+zip')).toBe(false);
+    expect(isDocumentParseableFile('notes.txt', 'text/plain')).toBe(true);
+    expect(isDocumentParseableFile('guide.pdf', 'application/pdf')).toBe(true);
   });
 });
 

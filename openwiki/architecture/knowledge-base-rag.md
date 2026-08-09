@@ -6,23 +6,112 @@ chat-provider credentials, or `DEFAULT_FILES_CONFIG`. Without a complete RAG
 provider configuration, document parsing can still run, but vector indexing,
 semantic search, chat retrieval, and RAG evaluations are unavailable.
 
+## Knowledge route and mobile shell contract
+
+The Next.js App Router is the single owner of Knowledge history. The catch-all
+`/knowledge/[[...path]]` route mounts `KnowledgeRouter`, which renders
+`KnowledgeRoutes` — a pathname-based renderer that derives `/knowledge`,
+`/knowledge/bases`, and `/knowledge/bases/:id` from `usePathname`, reads query
+state with `useSearchParams`, and navigates with `useRouter`. There is no
+secondary in-memory router and no manual `window.history.replaceState`, so the
+browser or hardware Back button follows real Knowledge surfaces instead of
+leaving the section.
+
+Navigation contract:
+
+- Category and named-Knowledge-Base selections call `router.push` so Back
+  returns to the preceding workspace (`useFileCategory`,
+  `KnowledgeBaseItem`, `KnowledgeBase` create flow).
+- `router.replace` is reserved for canonical redirects and modal dismissal:
+  the mobile shell canonicalizes `/knowledge/bases` to `/knowledge` while
+  opening the navigation drawer, and `useSetFileModalId` replaces when
+  dismissing a directly linked `?file=<id>` preview.
+- A category tap always targets the home workspace `/knowledge` (even from a
+  base-detail route), so switching categories visibly changes the filtered
+  list rather than silently rewriting the detail URL. Opening a named
+  Knowledge Base (`KnowledgeBaseItem`) pushes a bare `/knowledge/bases/:id`
+  and deliberately drops current filters — they are a home-workspace concept.
+- Across category/filter navigation on the same workspace, `category`, `q`,
+  `sorter`, and `sortType` are preserved; detail-only `file` and legacy
+  `files` are stripped before reaching home.
+
+Layout contract:
+
+- The root `App` and route viewport carry explicit `width: '100%'` so the
+  centered global app container cannot shrink Knowledge to the intrinsic menu
+  width.
+- On compact screens (`maxWidth: 768`) `KnowledgeRouter` renders
+  `KnowledgeMobileShell`, which owns the safe `ChatHeader` (title + navigation
+  + upload), a left navigation `Drawer` with categories and Knowledge Bases,
+  and the single bottom tab-bar safe-area reservation through
+  `MobileContentLayout` `withNav`. Route content therefore must not add a
+  second `MOBILE_TABBAR_SAFE_HEIGHT` reservation; `KnowledgeRouteContainer`
+  is desktop-only padding now.
+- Desktop layout (`KnowledgeHome/DesktopLayout` + `KnowledgeRouteContainer`)
+  retains the `FileSidePanel` sidebar, hotkeys, and deep-link behavior.
+
+`FileManager` accepts a `mobile` prop threaded through its header, list,
+toolbar, row, and chunk drawer. Mobile mode hides the desktop panel toggle and
+duplicate title, uses a flexible full-width search field, collapses fixed
+date/size columns under the filename, keeps row menus and selection reachable
+without hover, and opens the chunk drawer at full viewport width. The mobile
+header does **not** render an upload button — the mobile shell owns the single
+upload affordance, so only one `DragUpload` (and one set of window-level
+paste/drop handlers) is mounted. Desktop rendering and file/RAG request
+semantics are unchanged.
+
 ## Content boundary
 
-Knowledge is document-only. `isChunkableFile` is the shared positive capability
-check used by upload, file queries, Knowledge Base association, parse actions,
-and reindexing. Supported inputs are PDF, DOCX, PPTX, EPUB, CSV, Markdown,
-LaTeX, plain text, and the text/source extensions routed by the LangChain
-loaders. Legacy DOC, spreadsheets, SQLite/database files, images, audio, video,
-archives, and unknown binary formats are rejected or hidden. The explicit
-database-extension rejection wins even when a file is mislabeled as plain
-text. ZIP is accepted only as an upload transport; extracted entries are
-filtered before any file row is created.
+Knowledge is document-only. `isChunkableFile` is the deployment-aware positive
+capability check used by upload, file queries, Knowledge Base association,
+async parse actions, and reindexing. Supported inputs are PDF, DOCX, PPTX,
+EPUB, CSV, Markdown, LaTeX, plain text, and the text/source extensions routed
+by the LangChain loaders. A configured MarkItDown sidecar extends this boundary
+to its converter formats, including spreadsheets, mail, archives, images, and
+audio. Legacy DOC, SQLite/database files, unsupported media, and unknown binary
+formats are rejected or hidden. The explicit database-extension rejection wins
+even when a file is mislabeled as plain text. ZIP is accepted only as an upload
+transport or through MarkItDown conversion; extracted entries are filtered
+before any file row is created.
+
+Topic-chat attachment registration follows a narrower path.
+`isDocumentParseableFile` admits only formats handled by the synchronous
+`@lobechat/file-loaders` pipeline, regardless of whether MarkItDown is
+configured. This includes the dedicated PDF, DOC, DOCX, XLS/XLSX, and PPTX
+loaders plus supported text formats. `DocumentService.parseFile` repeats that
+check server-side before downloading the object. Before writing the `documents`
+row, it removes PostgreSQL-incompatible controls and malformed Unicode from
+aggregate text, per-page text, titles, and nested document/page metadata while
+preserving valid non-BMP characters. Sidecar-only files and EPUB therefore
+remain attached to the topic without entering this legacy document parser;
+Knowledge Base ingestion continues to use the async, sidecar-aware path.
 
 This boundary does not delete or relocate other media:
 
-- screenshots and media attached during a topic remain topic files and skip chunking
+- screenshots and media attached during a topic remain topic files and skip synchronous parsing
 - generated images remain available through the Image workflow and Artifacts
 - an old unsupported file relation is hidden from Knowledge but the underlying file remains owned by the account
+
+Format capability and Knowledge membership are separate checks. Microsoft
+[MarkItDown](https://github.com/microsoft/markitdown) can convert images,
+including PNG, but that capability only makes a file eligible for Knowledge
+ingestion; it does not make every matching account file a Knowledge document.
+Uploads started from the Knowledge file manager carry
+`knowledgeBaseUpload: true`, and uploads into a named Knowledge Base carry
+`knowledgeBaseId`. The authenticated file router validates chunkability and
+stores `FileSource.KnowledgeBase`; clients cannot assign the raw `source`
+column.
+
+The top-level Knowledge overview sends `knowledgeBaseOnly: true`. Its positive
+membership predicate admits files with `FileSource.KnowledgeBase`, files with
+an owned `knowledge_base_files` association, and legacy files that already have
+an async Knowledge chunk task from before explicit provenance existed. A
+topic-chat attachment has none of those signals, so it remains available to the
+conversation without appearing in Knowledge even when MarkItDown supports its
+format. A named Knowledge Base continues to query its junction rows directly.
+The **Show content in Knowledge Base** control only determines whether
+associated files are included in the combined overview; it does not weaken the
+positive membership requirement.
 
 The loader uses 1,000-character chunks with 200-character overlap. Parsed text
 is UTF-8 sanitized, trimmed, and stripped of blank chunks. Re-parsing replaces
@@ -311,10 +400,12 @@ action.
 - `src/server/modules/S3/index.ts`
 - `src/server/services/chunk/index.ts`
 - `src/server/services/file/index.ts`
+- `src/server/services/document/index.ts`
 - `src/server/services/rag/embedding.ts`
 - `src/libs/logger/knowledgeDebug.ts`
 - `src/store/chat/helpers/knowledgeBaseContext.ts`
 - `src/store/chat/slices/aiChat/actions/generateAIChatV2.ts`
+- `src/store/file/slices/chat/action.ts`
 - `src/server/routers/async/file.ts`
 - `src/server/routers/lambda/chunk.ts`
 - `src/server/routers/lambda/file.ts`
@@ -327,7 +418,14 @@ action.
 - `src/features/FileManager/ChunkDrawer/ChunkList/index.tsx`
 - `src/features/FileManager/FileList/FileListItem/index.tsx`
 - `src/features/FileManager/FileList/MasonryFileItem/index.tsx`
+- `src/features/FileManager/index.tsx`
+- `src/features/FileManager/Header/index.tsx`
 - `src/features/Portal/FilePreview/Body/index.tsx`
 - `src/libs/langchain/loaders/markdown/tables.ts`
 - `src/server/modules/ContentChunk/index.ts`
 - `src/store/chat/slices/portal/initialState.ts`
+- `src/app/[variants]/(main)/knowledge/KnowledgeRouter.tsx`
+- `src/app/[variants]/(main)/knowledge/KnowledgeRoutes.tsx`
+- `src/app/[variants]/(main)/knowledge/_layout/Mobile/index.tsx`
+- `src/app/[variants]/(main)/knowledge/hooks/useFileCategory.ts`
+- `src/app/[variants]/(main)/knowledge/shared/useFileQueryParam.ts`

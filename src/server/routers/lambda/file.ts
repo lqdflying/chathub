@@ -22,7 +22,7 @@ import { extractKeyFromAppFileProxyUrl } from '@/server/services/file/fileRefere
 import { isUserUploadKey } from '@/server/services/file/uploadTarget';
 import { resolveRagEmbeddingConfig } from '@/server/services/rag';
 import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
-import { FileListItem, QueryFileListSchema, UploadFileSchema } from '@/types/files';
+import { FileListItem, FileSource, QueryFileListSchema, UploadFileSchema } from '@/types/files';
 
 const fileProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -102,7 +102,8 @@ export const fileRouter = router({
         async () => {
           const startedAt = Date.now();
           try {
-            if (input.knowledgeBaseId && !isChunkableFile(input.name, input.fileType)) {
+            const isKnowledgeBaseUpload = input.knowledgeBaseUpload || !!input.knowledgeBaseId;
+            if (isKnowledgeBaseUpload && !isChunkableFile(input.name, input.fileType)) {
               throw new TRPCError({
                 code: 'BAD_REQUEST',
                 message:
@@ -144,19 +145,28 @@ export const fileRouter = router({
             if (!canonicalUrl) {
               throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid file url' });
             }
+            const resolvedFileType = reuseGlobalFile
+              ? (globalFile.fileType ?? input.fileType)
+              : input.fileType;
+            if (isKnowledgeBaseUpload && !isChunkableFile(input.name, resolvedFileType)) {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message:
+                  'Only documents supported by the chunking loaders can be added to a Knowledge Base.',
+              });
+            }
 
             const { id } = await ctx.fileModel.create(
               {
                 fileHash: input.hash,
-                fileType: reuseGlobalFile
-                  ? (globalFile.fileType ?? input.fileType)
-                  : input.fileType,
+                fileType: resolvedFileType,
                 knowledgeBaseId: input.knowledgeBaseId,
                 metadata: reuseGlobalFile
                   ? (globalFile.metadata ?? input.metadata)
                   : input.metadata,
                 name: input.name,
                 size: reuseGlobalFile ? (globalFile.size ?? input.size) : input.size,
+                source: isKnowledgeBaseUpload ? FileSource.KnowledgeBase : undefined,
                 url: canonicalUrl,
               },
               // if the file is not exist in global file, create a new one

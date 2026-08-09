@@ -143,7 +143,11 @@ export interface FileManageAction {
     params?: { skipExist?: boolean },
     mutationCheckpoint?: FileMutationCheckpoint,
   ) => Promise<void>;
-  pushDockFileList: (files: File[], knowledgeBaseId?: string) => Promise<void>;
+  pushDockFileList: (
+    files: File[],
+    knowledgeBaseId?: string,
+    knowledgeBaseUpload?: boolean,
+  ) => Promise<void>;
 
   reEmbeddingChunks: (id: string) => Promise<void>;
   reParseFile: (id: string) => Promise<void>;
@@ -264,7 +268,7 @@ export const createFileManageSlice: StateCreator<
       );
     }
   },
-  pushDockFileList: async (rawFiles, knowledgeBaseId) => {
+  pushDockFileList: async (rawFiles, knowledgeBaseId, knowledgeBaseUpload = false) => {
     const mutationCheckpoint = captureFileMutationCheckpoint(get().scopeGeneration);
     if (!mutationCheckpoint) return;
 
@@ -298,10 +302,11 @@ export const createFileManageSlice: StateCreator<
 
     // 1. skip file in blacklist
     if (!isOperationCurrent()) return;
+    const isKnowledgeUpload = knowledgeBaseUpload || !!knowledgeBaseId;
     const files = filesToUpload.filter(
       (file) =>
         !FILE_UPLOAD_BLACKLIST.includes(file.name) &&
-        (!knowledgeBaseId || isChunkableFile(file.name, file.type)),
+        (!isKnowledgeUpload || isChunkableFile(file.name, file.type)),
     );
     if (!isOperationCurrent()) return;
 
@@ -348,6 +353,7 @@ export const createFileManageSlice: StateCreator<
         const result = await get().uploadWithProgress({
           file,
           knowledgeBaseId,
+          ...(knowledgeBaseUpload ? { knowledgeBaseUpload: true } : {}),
           mutationCheckpoint,
           onStatusUpdate: dispatchUploadStatus,
         });

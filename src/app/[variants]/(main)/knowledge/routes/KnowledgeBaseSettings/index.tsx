@@ -1,20 +1,22 @@
 'use client';
 
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
-import { useParams } from 'react-router-dom';
 
 import FilePanel from '@/features/FileSidePanel';
 
 import Menu from '../KnowledgeBaseDetail/menu/Menu';
 
+interface KnowledgeBaseSettingsPageProps {
+  /** Knowledge base id, parsed from the Next App Router pathname. */
+  id: string;
+}
+
 /**
  * Knowledge Base Settings Page
- * Configuration page for a specific knowledge base
+ * Configuration page for a specific knowledge base.
  */
-const KnowledgeBaseSettingsPage = memo(() => {
-  const { id } = useParams<{ id: string }>();
-
+const KnowledgeBaseSettingsPage = memo<KnowledgeBaseSettingsPageProps>(({ id }) => {
   if (!id) {
     return <div>Knowledge base ID is required</div>;
   }

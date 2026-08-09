@@ -1,6 +1,7 @@
 'use client';
 
 import { App } from 'antd';
+import { HardDriveDownload, HardDriveUpload } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -9,7 +10,7 @@ import DataImporter from '@/features/DataImporter';
 import { configService } from '@/services/config';
 
 const Category = memo(() => {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation('setting');
   const { message } = App.useApp();
   const runExport = (action: () => Promise<void>) => async () => {
     try {
@@ -20,16 +21,18 @@ const Category = memo(() => {
   };
   const items: CellProps[] = [
     {
+      icon: HardDriveUpload,
       key: 'all',
-      label: t('exportType.all'),
+      label: t('storage.actions.export.title'),
       onClick: runExport(configService.exportAll),
     },
     {
       type: 'divider',
     },
     {
+      icon: HardDriveDownload,
       key: 'import',
-      label: <DataImporter>{t('importData')}</DataImporter>,
+      label: <DataImporter>{t('storage.actions.import.title')}</DataImporter>,
     },
   ];
 

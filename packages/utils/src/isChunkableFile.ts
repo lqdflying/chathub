@@ -70,6 +70,8 @@ const UNSUPPORTED_EXTENSIONS = new Set([
   'zip',
 ]);
 
+const SYNCHRONOUS_OFFICE_EXTENSIONS = new Set(['doc', 'xls', 'xlsx']);
+
 /**
  * Formats the MarkItDown sidecar converts to Markdown that the built-in loaders
  * cannot read — spreadsheets, Outlook mail, notebooks, archives, feeds, images
@@ -165,6 +167,23 @@ export const isOfficePreviewFile = (name = '', fileType = ''): boolean => {
   return OFFICE_PREVIEW_EXTENSIONS.has(extension);
 };
 
+const isBuiltInDocumentParseableFile = (extension: string, normalizedType: string): boolean => {
+  if (UNSUPPORTED_EXTENSIONS.has(extension)) return false;
+  if (
+    normalizedType.startsWith('image/') ||
+    normalizedType.startsWith('audio/') ||
+    normalizedType.startsWith('video/')
+  ) {
+    return false;
+  }
+
+  return (
+    CHUNKABLE_MIME_TYPES.has(normalizedType) ||
+    normalizedType.startsWith('text/') ||
+    CHUNKABLE_EXTENSIONS.has(extension)
+  );
+};
+
 /**
  * True when the file can be converted by the MarkItDown sidecar. MarkItDown
  * reads its own extended set (spreadsheets, images, audio, archives — the very
@@ -182,20 +201,18 @@ export const isMarkItDownConvertibleFile = (name = '', fileType = ''): boolean =
     return true;
   }
 
-  if (UNSUPPORTED_EXTENSIONS.has(extension)) return false;
-  if (
-    normalizedType.startsWith('image/') ||
-    normalizedType.startsWith('audio/') ||
-    normalizedType.startsWith('video/')
-  ) {
-    return false;
-  }
+  return isBuiltInDocumentParseableFile(extension, normalizedType);
+};
 
-  return (
-    CHUNKABLE_EXTENSIONS.has(extension) ||
-    CHUNKABLE_MIME_TYPES.has(normalizedType) ||
-    normalizedType.startsWith('text/')
-  );
+/** Returns true only for formats handled by the synchronous built-in document loaders. */
+export const isDocumentParseableFile = (name = '', fileType = ''): boolean => {
+  const normalizedType = fileType.toLowerCase().split(';', 1)[0].trim();
+  const extension = extensionOf(name || normalizedType);
+
+  if (extension === 'epub' || normalizedType === 'application/epub+zip') return false;
+  if (SYNCHRONOUS_OFFICE_EXTENSIONS.has(extension)) return true;
+
+  return isBuiltInDocumentParseableFile(extension, normalizedType);
 };
 
 /** Returns true only for formats handled by the Knowledge Base loaders. */
@@ -212,17 +229,7 @@ export const isChunkableFile = (name = '', fileType = ''): boolean => {
     return true;
   }
 
-  if (UNSUPPORTED_EXTENSIONS.has(extension)) return false;
-  if (
-    normalizedType.startsWith('image/') ||
-    normalizedType.startsWith('audio/') ||
-    normalizedType.startsWith('video/')
-  ) {
-    return false;
-  }
-  if (CHUNKABLE_MIME_TYPES.has(normalizedType) || normalizedType.startsWith('text/')) return true;
-
-  return CHUNKABLE_EXTENSIONS.has(extension);
+  return isBuiltInDocumentParseableFile(extension, normalizedType);
 };
 
 const toDotted = (extensions: Iterable<string>) => [...extensions].map((ext) => `.${ext}`);

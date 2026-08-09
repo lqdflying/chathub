@@ -4,10 +4,7 @@ import { StateCreator } from 'zustand/vanilla';
 import { fileService } from '@/services/file';
 import { uploadService } from '@/services/upload';
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { useUserStore } from '@/store/user';
 import { FileMetadata, UploadFileItem } from '@/types/files';
 import { getImageDimensions } from '@/utils/client/imageDimensions';
@@ -35,6 +32,7 @@ type OnStatusUpdate = (
 interface UploadWithProgressParams {
   file: File;
   knowledgeBaseId?: string;
+  knowledgeBaseUpload?: boolean;
   mutationCheckpoint?: FileMutationCheckpoint;
   onStatusUpdate?: OnStatusUpdate;
   signal?: AbortSignal;
@@ -158,6 +156,7 @@ export const createFileUploadSlice: StateCreator<
     file,
     onStatusUpdate,
     knowledgeBaseId,
+    knowledgeBaseUpload,
     mutationCheckpoint: requestedMutationCheckpoint,
     signal,
   }) => {
@@ -259,6 +258,7 @@ export const createFileUploadSlice: StateCreator<
         {
           fileType,
           hash,
+          ...(knowledgeBaseUpload ? { knowledgeBaseUpload: true } : {}),
           metadata,
           name: file.name,
           size: file.size,

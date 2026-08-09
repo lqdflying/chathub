@@ -1,7 +1,7 @@
 import { createStyles } from 'antd-style';
-import React, { memo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import React, { memo } from 'react';
 import { Flexbox } from 'react-layout-kit';
-import { useNavigate } from 'react-router-dom';
 
 import Content, { knowledgeItemClass } from './Content';
 
@@ -39,15 +39,17 @@ export interface KnowledgeBaseItemProps {
   active?: boolean;
   id: string;
   name: string;
+  /** Called after the user navigates to this knowledge base. */
+  onNavigate?: () => void;
 }
 
-const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(({ name, active, id }) => {
+const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(({ name, active, id, onNavigate }) => {
   const { styles, cx } = useStyles();
-  const [isHover, setHovering] = useState(false);
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const handleClick = () => {
-    navigate(`/bases/${id}`);
+    router.push(`/knowledge/bases/${id}`);
+    onNavigate?.();
   };
 
   return (
@@ -57,15 +59,9 @@ const KnowledgeBaseItem = memo<KnowledgeBaseItemProps>(({ name, active, id }) =>
       distribution={'space-between'}
       horizontal
       onClick={handleClick}
-      onMouseEnter={() => {
-        setHovering(true);
-      }}
-      onMouseLeave={() => {
-        setHovering(false);
-      }}
       style={{ cursor: 'pointer' }}
     >
-      <Content id={id} name={name} showMore={isHover} />
+      <Content id={id} name={name} showMore />
     </Flexbox>
   );
 });

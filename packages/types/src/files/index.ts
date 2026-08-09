@@ -9,6 +9,7 @@ export enum FilesTabs {
 
 export enum FileSource {
   ImageGeneration = 'image_generation',
+  KnowledgeBase = 'knowledge_base',
 }
 
 export interface ImageArtifactItem {

@@ -49,14 +49,6 @@ export default {
   duplicate: '创建副本',
   edit: '编辑',
   export: '导出配置',
-  exportType: {
-    agent: '导出助手设定',
-    agentWithMessage: '导出助手和消息',
-    all: '导出全局设置和所有助手数据',
-    allAgent: '导出所有助手设定',
-    allAgentWithMessage: '导出所有助手和消息',
-    globalSetting: '导出全局设置',
-  },
   feedback: '反馈与建议',
   follow: '在 {{name}} 上关注我们',
   footer: {
@@ -233,6 +225,7 @@ export default {
     files: '文件',
     knowledgeBase: '知识库',
     me: '我',
+    more: '更多',
     setting: '设置',
     tools: 'Tools',
   },

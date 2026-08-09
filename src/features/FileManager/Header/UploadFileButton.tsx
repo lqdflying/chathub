@@ -1,11 +1,11 @@
 'use client';
 
 import { getChunkableFileExtensions, isChunkableFile } from '@lobechat/utils';
-import { Button, Dropdown, Icon, MenuProps } from '@lobehub/ui';
+import { ActionIcon, Button, Dropdown, Icon, MenuProps } from '@lobehub/ui';
 import { Upload } from 'antd';
 import { css, cx } from 'antd-style';
 import { FileUp, FolderUp, UploadIcon } from 'lucide-react';
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import DragUpload from '@/components/DragUpload';
@@ -26,13 +26,17 @@ const isZipFile = (file: File) =>
 const filterKnowledgeUploads = (files: File[]) =>
   files.filter((file) => isZipFile(file) || isChunkableFile(file.name, file.type));
 
+interface UploadFileButtonProps {
+  knowledgeBaseId?: string;
+  knowledgeMode?: boolean;
+  mobile?: boolean;
+}
+
 const UploadFileButton = ({
   knowledgeBaseId,
   knowledgeMode = false,
-}: {
-  knowledgeBaseId?: string;
-  knowledgeMode?: boolean;
-}) => {
+  mobile = false,
+}: UploadFileButtonProps) => {
   const { t } = useTranslation('file');
 
   const pushDockFileList = useFileStore((s) => s.pushDockFileList);
@@ -47,7 +51,7 @@ const UploadFileButton = ({
           <Upload
             accept={accept}
             beforeUpload={async (file) => {
-              await pushDockFileList(filterFiles([file]), knowledgeBaseId);
+              await pushDockFileList(filterFiles([file]), knowledgeBaseId, knowledgeMode);
 
               return false;
             }}
@@ -65,7 +69,7 @@ const UploadFileButton = ({
           <Upload
             accept={accept}
             beforeUpload={async (file) => {
-              await pushDockFileList(filterFiles([file]), knowledgeBaseId);
+              await pushDockFileList(filterFiles([file]), knowledgeBaseId, knowledgeMode);
 
               return false;
             }}
@@ -80,14 +84,23 @@ const UploadFileButton = ({
     ],
     [accept, knowledgeBaseId, knowledgeMode, pushDockFileList, t],
   );
+
+  const trigger = mobile ? (
+    <ActionIcon icon={UploadIcon} title={t('header.uploadButton')} />
+  ) : (
+    <Button icon={UploadIcon}>{t('header.uploadButton')}</Button>
+  );
+
   return (
     <>
       <Dropdown menu={{ items }} placement="bottomRight">
-        <Button icon={UploadIcon}>{t('header.uploadButton')}</Button>
+        {trigger}
       </Dropdown>
       <DragUpload
         enabledFiles
-        onUploadFiles={(files) => pushDockFileList(filterFiles(files), knowledgeBaseId)}
+        onUploadFiles={(files) =>
+          pushDockFileList(filterFiles(files), knowledgeBaseId, knowledgeMode)
+        }
       />
     </>
   );
