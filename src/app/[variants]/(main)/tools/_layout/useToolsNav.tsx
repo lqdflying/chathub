@@ -13,7 +13,7 @@ const TOOL_NAV_KEYS = ['picbed', 'password', 'apitest'] as const;
 export type ToolNavKey = (typeof TOOL_NAV_KEYS)[number];
 
 const isToolNavKey = (routeSegment: string | undefined): routeSegment is ToolNavKey =>
-  TOOL_NAV_KEYS.some((toolNavKey) => toolNavKey === routeSegment);
+  routeSegment !== undefined && (TOOL_NAV_KEYS as readonly string[]).includes(routeSegment);
 
 export const getActiveToolNavKey = (pathname: string): ToolNavKey => {
   const routeSegment = pathname.split('/').filter(Boolean).at(1);

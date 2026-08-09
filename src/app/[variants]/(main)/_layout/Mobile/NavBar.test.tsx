@@ -143,9 +143,7 @@ describe('mobile NavBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'tab.more' }));
 
     const drawer = screen.getByRole('dialog', { name: 'tab.more' });
-    expect(drawer.querySelector('[role="menu"]')?.getAttribute('data-selected-keys')).toBe(
-      'tools',
-    );
+    expect(drawer.querySelector('[role="menu"]')?.getAttribute('data-selected-keys')).toBe('tools');
     expect(screen.getByRole('menuitem', { name: 'tab.knowledgeBase' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'tab.tools' })).toBeTruthy();
 

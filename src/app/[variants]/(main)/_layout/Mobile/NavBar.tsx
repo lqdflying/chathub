@@ -69,11 +69,12 @@ const NavBar = memo(() => {
     pathname.startsWith('/tools/')
       ? SidebarTabKey.More
       : routeActiveKey;
-  const moreSelectedKey = pathname === '/knowledge' || pathname.startsWith('/knowledge/')
-    ? 'knowledge'
-    : pathname === '/tools' || pathname.startsWith('/tools/')
-      ? 'tools'
-      : undefined;
+  const moreSelectedKey =
+    pathname === '/knowledge' || pathname.startsWith('/knowledge/')
+      ? 'knowledge'
+      : pathname === '/tools' || pathname.startsWith('/tools/')
+        ? 'tools'
+        : undefined;
   const moreItems = useMemo(
     () =>
       [

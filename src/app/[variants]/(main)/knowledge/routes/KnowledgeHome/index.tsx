@@ -93,9 +93,7 @@ const MobileLayout = memo(() => {
         className={styles.main}
         height="100%"
         style={
-          showMobileWorkspace
-            ? { display: 'none' }
-            : { paddingBottom: MOBILE_TABBAR_SAFE_HEIGHT }
+          showMobileWorkspace ? { display: 'none' } : { paddingBottom: MOBILE_TABBAR_SAFE_HEIGHT }
         }
         width="100%"
       >

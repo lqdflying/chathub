@@ -92,8 +92,7 @@ describe('Knowledge home mobile layout', () => {
     const menuSurface = screen
       .getAllByTestId('flexbox')
       .find(
-        (container) =>
-          container.getAttribute('data-padding-bottom') === MOBILE_TABBAR_SAFE_HEIGHT,
+        (container) => container.getAttribute('data-padding-bottom') === MOBILE_TABBAR_SAFE_HEIGHT,
       );
     expect(menuSurface).toBeTruthy();
     expect(screen.getByText('File workspace').parentElement?.getAttribute('data-display')).toBe(
