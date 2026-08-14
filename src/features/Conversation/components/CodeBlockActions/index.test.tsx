@@ -15,6 +15,12 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+// the real HtmlPreviewAction pulls in the workspace/server-config zustand store
+// (needs a provider); stub it so the action-routing assertions stay lightweight
+vi.mock('@/components/HtmlPreview', () => ({
+  HtmlPreviewAction: () => <button data-testid={'html-preview-action'}>preview</button>,
+}));
+
 describe('renderCodeBlockBody', () => {
   it('renders short code blocks without collapse controls', () => {
     const originalNode = <pre>short</pre>;
@@ -73,6 +79,29 @@ describe('renderCodeBlockBody', () => {
 
     expect(container.querySelector('iframe')).toBeNull();
     expect(container.textContent).toContain('partial');
+  });
+
+  it('keeps a bare html fragment as source with the eye-icon preview still available', () => {
+    const fragment = '<div class="card">done</div>';
+    const originalNode = <pre>source</pre>;
+
+    // a fragment is not inlined — it renders as ordinary source, no iframe
+    expect(renderCodeBlockBody({ content: fragment, language: 'html', originalNode } as any)).toBe(
+      originalNode,
+    );
+
+    // but the on-demand full-screen preview (eye icon) is still offered
+    const { container } = render(
+      <>
+        {renderCodeBlockActions({
+          actionIconSize: 'small',
+          content: fragment,
+          language: 'html',
+          originalNode: null,
+        } as any)}
+      </>,
+    );
+    expect(container.querySelector('[data-testid="html-preview-action"]')).not.toBeNull();
   });
 
   it('omits the word-wrap control for visual blocks but keeps it for code', () => {
