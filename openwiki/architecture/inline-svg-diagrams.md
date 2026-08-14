@@ -90,15 +90,24 @@ blocks to `VisualCodeBlock`:
 
 - **Detection is content-based** (`visualCode.ts`): `isSvgCode` (starts with
   `<svg` or `svg` language), `isHtmlCode` (full document — `<!doctype html>`/
-  `<html>` — or `html` language). Bare HTML fragments stay source.
+  `<html>` — or `html` language).
 - **Render is a sandboxed iframe** for BOTH html and svg —
   `sandbox="allow-scripts"` and **never `allow-same-origin`** (opaque origin: no
   app cookie/storage/DOM access), `srcDoc`, `referrerPolicy="no-referrer"`. SVG
   is wrapped in a minimal responsive HTML document so it scales. Unlike the
   artifact path (strict `sanitizeSVGContent`, no gradients, themed), code blocks
   are arbitrary art → full fidelity via isolation instead of sanitization.
-- **Streaming**: defaults to source until the closing tag streams
-  (`isVisualComplete`), then auto-flips to rendered; a manual toggle sticks.
+- **Streaming / completion** (`isVisualComplete`): defaults to source until the
+  block is renderable, then auto-flips to rendered (a manual toggle sticks). SVG
+  needs `</svg>`; a **full HTML document** needs `</html>`/`</body>`; an
+  **html-language fragment** has no closing-document marker, so it counts as
+  complete and renders once received (a partial full document stays source).
+- **Toolbar**: the word-wrap action is omitted for visual blocks — in render
+  mode a visual block mounts no `<pre>`, so its ancestor-walk would restyle an
+  unrelated code block. Downloads use the effective detected type (a mislabeled
+  SVG saves as `.svg`, a full HTML doc as `.html`), not the source language.
+- Full-screen preview (the eye-icon drawer) is HTML-only; SVG code blocks have
+  the inline Preview/Code toggle and fill the block.
 - Mermaid is untouched (rendered by `@lobehub/ui`, never reaches `bodyRender`).
 
 ## Mobile navigation & interrupted replies
@@ -114,8 +123,31 @@ blocks to `VisualCodeBlock`:
 - An interrupted reply persists as `LOADING_FLAT` ('...') because content saves
   only at `onFinish`; `Messages/Default.tsx` gates the loading dots on
   `isMessageGenerating` + a `createdAt`-staleness check so a reloaded orphan
-  renders nothing instead of looping on dots (content itself is still lost —
-  fixing the mobile-dismiss traps removes the main cause of interruption).
+  renders nothing instead of looping on dots.
+
+## Background generation across topic switches
+
+A topic switch no longer cancels the in-flight reply — it finishes streaming in
+the background and persists to its original topic. The write path was already
+topic-safe: every stream handler and `onFinish` targets the captured
+`conversationContext = {generation, sessionId, topicId}` (`store/chat/types.ts`),
+and the DB update keys off `messages.id`, never the active topic. Two changes
+enable it:
+
+- **`isCurrentConversation()`** (`generateAIChat.ts` ×2, `generateAIChatV2.ts`
+  ×2) drops the `activeTopicId` clause — validity is pinned to account +
+  `conversationClearGeneration` + `sessionId`, so a backgrounded run's handlers
+  keep firing and persisting after a switch. (The retry gate, which writes by
+  captured `activeTopicId`, is intentionally unchanged.)
+- **`switchTopic`** (`topic/action.ts`) skips `internal_invalidateConversation`
+  **only while a generation is running** (`chatLoadingIds.length > 0`); idle
+  switches keep their existing cleanup, so no stale generation counter lingers.
+
+Scope: single background run. The one global `chatLoadingIdsAbortController` means
+a backgrounded reply can't be manually Stopped, and an explicit invalidate (agent
+switch via `internal_updateActiveId`, clear-history) or Stop still cancels it.
+Full concurrent per-topic generation (per-`messageMapKey` controllers + Stop)
+would be a larger refactor.
 
 ## Testing
 
