@@ -97,11 +97,15 @@ blocks to `VisualCodeBlock`:
   is wrapped in a minimal responsive HTML document so it scales. Unlike the
   artifact path (strict `sanitizeSVGContent`, no gradients, themed), code blocks
   are arbitrary art → full fidelity via isolation instead of sanitization.
+- **What inlines** (`isVisualCode`): SVG and **full HTML documents only**. A bare
+  html fragment (`<div>…</div>`) is NOT inlined — it has no closing-document
+  marker, so it can't be stream-gated and would otherwise mount/run its scripts
+  repeatedly mid-stream; it stays a normal source block (with the on-demand
+  eye-icon preview via `isHtmlCode`).
 - **Streaming / completion** (`isVisualComplete`): defaults to source until the
   block is renderable, then auto-flips to rendered (a manual toggle sticks). SVG
-  needs `</svg>`; a **full HTML document** needs `</html>`/`</body>`; an
-  **html-language fragment** has no closing-document marker, so it counts as
-  complete and renders once received (a partial full document stays source).
+  needs `</svg>`; a full HTML document needs `</html>`/`</body>` — a partial
+  document stays source.
 - **Toolbar**: the word-wrap action is omitted for visual blocks — in render
   mode a visual block mounts no `<pre>`, so its ancestor-walk would restyle an
   unrelated code block. Downloads use the effective detected type (a mislabeled

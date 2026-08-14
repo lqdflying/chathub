@@ -48,10 +48,16 @@ describe('isHtmlCode', () => {
 });
 
 describe('isVisualCode', () => {
-  it('is true for svg or full html, false otherwise', () => {
+  it('inlines svg and full html documents only', () => {
     expect(isVisualCode('<svg></svg>', '')).toBe(true);
     expect(isVisualCode('<!DOCTYPE html>', '')).toBe(true);
     expect(isVisualCode('print(1)', 'python')).toBe(false);
+  });
+
+  it('does not inline a bare html fragment (it stays source)', () => {
+    // a fragment has no closing-document marker, so it can't be stream-gated
+    // and would otherwise mount/run repeatedly mid-stream
+    expect(isVisualCode('<div class="card">done</div>', 'html')).toBe(false);
   });
 });
 
@@ -65,9 +71,5 @@ describe('isVisualComplete', () => {
     expect(isVisualComplete('<!DOCTYPE html><html><body>', 'html')).toBe(false);
     expect(isVisualComplete('<!DOCTYPE html><html><body></body></html>', 'html')).toBe(true);
     expect(isVisualComplete('<html><body>x</body>', 'html')).toBe(true);
-  });
-
-  it('treats an html-language fragment as complete (renders by default)', () => {
-    expect(isVisualComplete('<div class="card">done</div>', 'html')).toBe(true);
   });
 });
