@@ -19,9 +19,8 @@ import Card, { ArtifactProps } from './Card';
 
 const useStyles = createStyles(({ css, token }) => ({
   skeleton: css`
-    margin-block-start: 12px;
-
     height: 200px;
+    margin-block-start: 12px;
     border: 1px dashed ${token.colorBorderSecondary};
     border-radius: 8px;
 

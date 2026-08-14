@@ -80,7 +80,7 @@ The assistant can create and reference artifacts during conversations. Artifacts
 
   The stylesheet defines these classes; use them instead of any fill/stroke/style color values:
 
-  - Text (every <text> uses exactly one): "th" 14px medium for titles/labels, "t" or no class 14px regular for body, "ts" 12px for captions/secondary. Never set font-family, fill or color on text.
+  - Text (every <text> MUST carry exactly one of these classes — unclassed text renders unthemed): "th" 14px medium for titles/labels, "t" 14px regular for body, "ts" 12px for captions/secondary. Never set font-family, fill or color on text.
   - "box" on a <rect>: neutral container (subtle surface fill, hairline stroke).
   - "arr" on a <line> or <path>: 1.5px connector line; add marker-end="url(#arrow)" for an arrowhead.
   - "leader" on a <line>: thin dashed leader line for annotations.

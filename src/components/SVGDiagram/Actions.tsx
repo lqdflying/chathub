@@ -10,6 +10,8 @@ import { useTranslation } from 'react-i18next';
 
 import { BRANDING_NAME } from '@/const/branding';
 
+import { buildDiagramRules, buildStandaloneSVG } from './diagramRules';
+
 interface ActionsProps {
   /** sanitized SVG source, used for the .svg download */
   content: string;
@@ -43,7 +45,10 @@ const Actions = memo<ActionsProps>(({ content, getContainer, title }) => {
     let dataUrl = '';
     if (type === 'png') dataUrl = await generatePng();
     else if (type === 'svg') {
-      const blob = new Blob([content], { type: 'image/svg+xml' });
+      // embed the app-generated design-system stylesheet so the standalone
+      // file renders like the preview (classes have no definitions otherwise)
+      const standalone = buildStandaloneSVG(content, buildDiagramRules(theme, theme.isDarkMode));
+      const blob = new Blob([standalone], { type: 'image/svg+xml' });
 
       dataUrl = URL.createObjectURL(blob);
     }

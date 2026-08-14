@@ -1,13 +1,5 @@
 export type RampName =
-  | 'amber'
-  | 'blue'
-  | 'coral'
-  | 'gray'
-  | 'green'
-  | 'pink'
-  | 'purple'
-  | 'red'
-  | 'teal';
+  'amber' | 'blue' | 'coral' | 'gray' | 'green' | 'pink' | 'purple' | 'red' | 'teal';
 
 export interface DiagramRamp {
   /** darkest stop — dark-mode fill / light-mode text */

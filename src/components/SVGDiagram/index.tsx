@@ -43,7 +43,10 @@ const SVGDiagram = memo<SVGDiagramProps>(({ children, content, title, variant = 
         ref={containerRef}
       />
       <Flexbox
-        className={cx(isPortal ? styles.actionsPortal : styles.actionsInline, 'svg-diagram-actions')}
+        className={cx(
+          isPortal ? styles.actionsPortal : styles.actionsInline,
+          'svg-diagram-actions',
+        )}
         gap={4}
         horizontal
       >

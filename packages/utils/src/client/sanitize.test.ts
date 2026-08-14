@@ -160,6 +160,50 @@ describe('sanitizeSVGContent', () => {
     expect(sanitized).toContain('role="img"');
   });
 
+  it('should block UI-redress and remote-resource vectors', () => {
+    const attack = `
+      <svg xmlns="http://www.w3.org/2000/svg" style="position:fixed;inset:0;width:100vw;height:100vh;z-index:999999">
+        <rect class="box" width="10" height="10"/>
+        <image href="https://attacker.example/pixel.png" />
+        <image xlink:href="//attacker.example/pixel2.png" />
+        <a href="https://attacker.example/login"><text class="t">Continue</text></a>
+        <a href="javascript:alert(1)"><text class="t">Click</text></a>
+      </svg>
+    `;
+
+    const sanitized = sanitizeSVGContent(attack);
+
+    expect(sanitized).not.toContain('style=');
+    expect(sanitized).not.toContain('position:fixed');
+    expect(sanitized).not.toContain('<image');
+    expect(sanitized).not.toContain('<a');
+    expect(sanitized).not.toContain('href');
+    expect(sanitized).not.toContain('attacker.example');
+    expect(sanitized).not.toContain('javascript:');
+    expect(sanitized).toContain('class="box"');
+  });
+
+  it('should only keep same-document url() references in paint attributes', () => {
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <rect x="1" y="1" width="10" height="10" fill="url(#grad1)"/>
+        <line x1="0" y1="0" x2="9" y2="9" class="arr" marker-end="url(#arrow)"/>
+        <rect x="20" y="1" width="10" height="10" fill="url(https://attacker.example/paint.svg#p)"/>
+        <rect x="40" y="1" width="10" height="10" stroke="url(//attacker.example/p.svg#x)"/>
+        <rect x="60" y="1" width="10" height="10" fill="url(data:image/svg+xml;base64,PHN2Zz4=)"/>
+        <circle cx="5" cy="5" r="4" fill="u\\72l(https://attacker.example/e.svg#p)"/>
+      </svg>
+    `;
+
+    const sanitized = sanitizeSVGContent(svg);
+
+    expect(sanitized).toContain('fill="url(#grad1)"');
+    expect(sanitized).toContain('marker-end="url(#arrow)"');
+    expect(sanitized).not.toContain('attacker.example');
+    expect(sanitized).not.toContain('data:');
+    expect(sanitized).toContain('<circle');
+  });
+
   it('should preserve complex SVG structures while removing threats', () => {
     const complexSvg = `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
