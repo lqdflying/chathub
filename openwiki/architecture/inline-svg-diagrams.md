@@ -67,11 +67,17 @@ name-only allowlisting still lets SVG opt into loaded global CSS:
   exists); `marker-*`: only same-document `url(#id)`. External paint servers
   and CSS-escape smuggling are dropped.
 
-The **standalone export** (`buildStandaloneSVG`) XML-escapes the stylesheet
-before embedding it as a `<style>` element: the download is serialized as
-`image/svg+xml`, so an interpolated value containing `&` or `<` — notably the
-operator-set `CUSTOM_FONT_FAMILY` flowing through `token.fontFamily` — would
-otherwise invalidate the XML or inject active markup.
+The **standalone export** (`buildStandaloneSVG`) serializes the *whole* finished
+document as XML, not just the injected stylesheet. `sanitizeSVGContent` returns
+HTML serialization, which can carry named entities XML does not define — e.g.
+ordinary diagram text with a non-breaking space comes back as `&nbsp;`, which
+makes an `image/svg+xml` download fail to parse. So the sanitized body is parsed
+as HTML (decoding those entities), the stylesheet is added as a `<style>` node
+via `textContent`, and the SVG root is re-serialized with `XMLSerializer`. That
+serialization also escapes any `&`/`<`/`>` in the rules — notably the
+operator-set `CUSTOM_FONT_FAMILY` flowing through `token.fontFamily` — so no
+manual escaping is needed and injected markup stays inert text. The helper is
+browser/jsdom-only (its sole caller is the download handler).
 
 ## Testing
 

@@ -92,24 +92,35 @@ export const buildDiagramRules = (token: DiagramRuleTokens, isDarkMode: boolean)
   `;
 };
 
-// Escape XML text characters so a value interpolated into the rules (notably
-// the operator-configured CUSTOM_FONT_FAMILY, which flows into token.fontFamily)
-// cannot break out of the <style> element or invalidate the exported XML.
-const escapeXml = (text: string): string =>
-  text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 /**
  * Embeds the trusted, app-generated design-system stylesheet into a sanitized
  * SVG so the downloaded file renders like the inline preview without the app's
- * CSS. The stylesheet is XML-escaped: the exported artifact is serialized as
- * `image/svg+xml`, so raw concatenation of a value containing `&` or `<` would
- * produce invalid or active markup. Only `rules` produced by
- * {@link buildDiagramRules} may be passed — never content-derived CSS.
+ * CSS.
+ *
+ * The exported artifact is served as `image/svg+xml` (XML), but
+ * `sanitizeSVGContent` returns HTML serialization — which can contain named
+ * entities XML does not define (e.g. `&nbsp;` from ordinary diagram text) and
+ * would make the download unparseable. So the whole document is normalized to
+ * XML: the sanitized body is parsed as HTML (decoding those entities), the
+ * stylesheet is added as a `<style>` node via `textContent`, and the SVG root
+ * is re-serialized with `XMLSerializer`. That also escapes any `&`/`<`/`>` in
+ * the rules (notably the operator-set `CUSTOM_FONT_FAMILY` flowing through
+ * `token.fontFamily`), so no manual escaping is needed. Browser/jsdom only —
+ * the sole caller is the download handler. Only `rules` produced by
+ * {@link buildDiagramRules} should be passed — never content-derived CSS.
  */
 export const buildStandaloneSVG = (sanitizedSVG: string, rules: string): string => {
-  const openingTag = sanitizedSVG.match(/<svg\b[^>]*>/i);
-  if (!openingTag || openingTag.index === undefined) return sanitizedSVG;
+  const parsed = new DOMParser().parseFromString(sanitizedSVG, 'text/html');
+  const svg = parsed.querySelector('svg');
+  if (!svg) return sanitizedSVG;
 
-  const insertAt = openingTag.index + openingTag[0].length;
-  return `${sanitizedSVG.slice(0, insertAt)}<defs><style>${escapeXml(rules)}</style></defs>${sanitizedSVG.slice(insertAt)}`;
+  const style = parsed.createElementNS(SVG_NAMESPACE, 'style');
+  style.textContent = rules;
+  const defs = parsed.createElementNS(SVG_NAMESPACE, 'defs');
+  defs.append(style);
+  svg.prepend(defs);
+
+  return new XMLSerializer().serializeToString(svg);
 };
