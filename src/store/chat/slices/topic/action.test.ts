@@ -469,6 +469,42 @@ describe('topic action', () => {
       expect(refreshMessagesSpy).toHaveBeenCalled();
     });
 
+    it('does not cancel a running generation on topic switch (backgrounds it)', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const invalidateSpy = vi
+        .spyOn(result.current, 'internal_invalidateConversation')
+        .mockImplementation(() => {});
+      vi.spyOn(result.current, 'refreshMessages').mockResolvedValue(undefined);
+
+      await act(async () => {
+        useChatStore.setState({ activeTopicId: 'topic-a', chatLoadingIds: ['assistant-msg'] });
+      });
+      await act(async () => {
+        await result.current.switchTopic('topic-b');
+      });
+
+      // a running reply keeps streaming in the background — no invalidate/abort
+      expect(invalidateSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().activeTopicId).toBe('topic-b');
+    });
+
+    it('invalidates on an idle topic switch', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const invalidateSpy = vi
+        .spyOn(result.current, 'internal_invalidateConversation')
+        .mockImplementation(() => {});
+      vi.spyOn(result.current, 'refreshMessages').mockResolvedValue(undefined);
+
+      await act(async () => {
+        useChatStore.setState({ activeTopicId: 'topic-a', chatLoadingIds: [] });
+      });
+      await act(async () => {
+        await result.current.switchTopic('topic-c');
+      });
+
+      expect(invalidateSpy).toHaveBeenCalled();
+    });
+
     it('should reset supervisor todos and cancel supervisor decision for group sessions', async () => {
       const { result } = renderHook(() => useChatStore());
       const groupId = 'group-1';
@@ -649,7 +685,9 @@ describe('topic action', () => {
       const topicId = 'topic-being-removed';
       const activeId = 'test-session-id';
       const { result } = renderHook(() => useChatStore());
-      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(removedMessages.promise);
+      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(
+        removedMessages.promise,
+      );
       vi.spyOn(topicService, 'removeTopic').mockResolvedValue(undefined);
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
       const switchTopicSpy = vi.spyOn(result.current, 'switchTopic');
@@ -680,7 +718,9 @@ describe('topic action', () => {
       const topicId = 'topic-being-removed';
       const activeId = 'test-session-id';
       const { result } = renderHook(() => useChatStore());
-      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(removedMessages.promise);
+      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(
+        removedMessages.promise,
+      );
       vi.spyOn(topicService, 'removeTopic').mockResolvedValue(undefined);
       vi.spyOn(result.current, 'refreshMessages').mockResolvedValue(undefined);
 

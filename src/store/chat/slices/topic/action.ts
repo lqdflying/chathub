@@ -17,15 +17,12 @@ import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { CreateTopicParams } from '@/services/topic/type';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
-import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -449,14 +446,11 @@ export const chatTopic: StateCreator<
           if (!isCurrentTopicRequest()) return;
 
           updateOwnedTitle(text);
-          await enqueueTitleSummaryPersistence(
-            `${requestedScope}:topic:${topicId}`,
-            async () => {
-              if (!isCurrentTopicRequest()) return;
+          await enqueueTitleSummaryPersistence(`${requestedScope}:topic:${topicId}`, async () => {
+            if (!isCurrentTopicRequest()) return;
 
-              await topicService.updateTopic(topicId, { title: text });
-            },
-          );
+            await topicService.updateTopic(topicId, { title: text });
+          });
           if (isCurrentTopicRequest()) didResolveTitle = true;
         },
         onMessageHandle: (chunk) => {
@@ -618,7 +612,13 @@ export const chatTopic: StateCreator<
   switchTopic: async (id, skipRefreshMessage) => {
     const nextTopicId = id ?? null;
     if ((get().activeTopicId ?? null) === nextTopicId) return;
-    if (!skipRefreshMessage) get().internal_invalidateConversation();
+    // Don't cancel an in-flight reply on topic switch: let it keep streaming in
+    // the background and persist to its original topic (its handlers are pinned
+    // to the captured conversation, so they no longer depend on the active
+    // topic). Only invalidate when nothing is generating, so idle switches keep
+    // their existing cleanup and a stale generation counter never lingers.
+    if (!skipRefreshMessage && get().chatLoadingIds.length === 0)
+      get().internal_invalidateConversation();
 
     set(
       { activeTopicId: !id ? (null as any) : id, activeThreadId: undefined },
@@ -779,8 +779,7 @@ export const chatTopic: StateCreator<
   },
   refreshTopic: async (context) => {
     const accountMutationSnapshot =
-      context?.accountMutationSnapshot ??
-      captureAccountMutationSnapshot(useUserStore.getState());
+      context?.accountMutationSnapshot ?? captureAccountMutationSnapshot(useUserStore.getState());
     if (!accountMutationSnapshot) return;
     const containerId = context?.containerId ?? get().activeId;
     if (!containerId) return;
