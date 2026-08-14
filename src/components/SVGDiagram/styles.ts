@@ -1,3 +1,4 @@
+import { DIAGRAM_CLASS_PREFIX } from '@lobechat/utils/client';
 import { createStyles } from 'antd-style';
 
 import { buildDiagramRules } from './diagramRules';
@@ -41,7 +42,7 @@ export const useStyles = createStyles(({ css, token, isDarkMode }) => ({
       user-select: text;
     }
 
-    .node {
+    .${DIAGRAM_CLASS_PREFIX}node {
       cursor: default;
     }
 

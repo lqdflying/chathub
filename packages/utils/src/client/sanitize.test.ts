@@ -93,7 +93,7 @@ describe('sanitizeSVGContent', () => {
     const sanitized = sanitizeSVGContent(bareSvg);
 
     expect(sanitized).toContain('<svg');
-    expect(sanitized).toContain('class="box"');
+    expect(sanitized).toContain('class="svgd-box"');
     expect(sanitized).toContain('role="img"');
   });
 
@@ -127,13 +127,15 @@ describe('sanitizeSVGContent', () => {
     expect(sanitized).toContain('<desc>');
     expect(sanitized).toContain('viewBox="0 0 680 240"');
     expect(sanitized).toContain('<marker');
-    expect(sanitized).toContain('id="arrow"');
     expect(sanitized).toContain('fill="context-stroke"');
-    expect(sanitized).toContain('class="c-blue"');
-    expect(sanitized).toContain('class="th"');
-    expect(sanitized).toContain('class="box"');
-    expect(sanitized).toContain('class="arr"');
-    expect(sanitized).toContain('marker-end="url(#arrow)"');
+    // vocabulary classes survive but are namespaced; the marker id and its
+    // reference are rewritten together so the arrowhead still resolves
+    expect(sanitized).toContain('id="svgd-arrow"');
+    expect(sanitized).toContain('class="svgd-c-blue"');
+    expect(sanitized).toContain('class="svgd-th"');
+    expect(sanitized).toContain('class="svgd-box"');
+    expect(sanitized).toContain('class="svgd-arr"');
+    expect(sanitized).toContain('marker-end="url(#svgd-arrow)"');
     expect(sanitized).toContain('text-anchor="middle"');
     expect(sanitized).toContain('<tspan');
     expect(sanitized).toContain('stroke-dasharray="4 3"');
@@ -156,7 +158,7 @@ describe('sanitizeSVGContent', () => {
     expect(sanitized).not.toContain('<script');
     expect(sanitized).not.toContain('<use');
     expect(sanitized).not.toContain('foreignObject');
-    expect(sanitized).toContain('class="box"');
+    expect(sanitized).toContain('class="svgd-box"');
     expect(sanitized).toContain('role="img"');
   });
 
@@ -180,7 +182,40 @@ describe('sanitizeSVGContent', () => {
     expect(sanitized).not.toContain('href');
     expect(sanitized).not.toContain('attacker.example');
     expect(sanitized).not.toContain('javascript:');
-    expect(sanitized).toContain('class="box"');
+    expect(sanitized).toContain('class="svgd-box"');
+  });
+
+  it('should strip page/framework class and id gadgets while keeping the vocabulary', () => {
+    // an attacker cannot opt a node into loaded global CSS (e.g. antd's
+    // fixed, full-inset modal wrap) by borrowing its class or id name
+    const gadget = `
+      <svg xmlns="http://www.w3.org/2000/svg" class="ant-modal-root" viewBox="0 0 680 100" role="img">
+        <rect class="box ant-modal-wrap css-1a2b3c" id="ant-modal-root" x="1" y="1" width="10" height="10"/>
+        <g class="c-blue"><rect x="1" y="1" width="10" height="10"/></g>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"/>
+          </marker>
+        </defs>
+        <line class="arr" x1="0" y1="0" x2="9" y2="9" marker-end="url(#arrow)"/>
+      </svg>
+    `;
+
+    const sanitized = sanitizeSVGContent(gadget);
+
+    // framework/hashed class tokens and page ids are gone
+    expect(sanitized).not.toContain('ant-modal-root');
+    expect(sanitized).not.toContain('ant-modal-wrap');
+    expect(sanitized).not.toContain('css-1a2b3c');
+    // the diagram vocabulary survives, namespaced; the id survived only on the
+    // marker and its reference tracks it
+    expect(sanitized).toContain('class="svgd-box"');
+    expect(sanitized).toContain('class="svgd-c-blue"');
+    expect(sanitized).toContain('class="svgd-arr"');
+    expect(sanitized).toContain('id="svgd-arrow"');
+    expect(sanitized).toContain('marker-end="url(#svgd-arrow)"');
+    // the rect's id (not on a marker) is dropped entirely
+    expect(sanitized).not.toMatch(/<rect[^>]*\sid=/);
   });
 
   it('should restrict url() references to same-document marker lookups', () => {
@@ -198,7 +233,7 @@ describe('sanitizeSVGContent', () => {
 
     const sanitized = sanitizeSVGContent(svg);
 
-    expect(sanitized).toContain('marker-end="url(#arrow)"');
+    expect(sanitized).toContain('marker-end="url(#svgd-arrow)"');
     // gradients are not part of the vocabulary, so fill/stroke never keep
     // url() values — not even same-document ones
     expect(sanitized).not.toContain('url(#grad1)');

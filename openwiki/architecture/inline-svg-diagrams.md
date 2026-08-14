@@ -24,6 +24,12 @@ a prompt vocabulary and an app stylesheet that must stay in sync.
   `isArtifactTagClosed`, card fallback on abort or empty sanitize) and
   `Portal/Artifacts/Body/Renderer/SVG.tsx` (portal).
 
+The class vocabulary is **namespaced**: the model emits the short names
+(`box`, `c-blue`, …) but the sanitizer rewrites every surviving token to a
+`svgd-` prefix (`DIAGRAM_CLASS_PREFIX`, exported from `sanitize.ts` and consumed
+by `diagramRules.ts`/`styles.ts` so the selectors match). This is a security
+boundary, not cosmetics — see below.
+
 Typography and ink rules are scoped to the explicit prompt classes
 (`text.t/.ts/.th`, `.c-*` descendants) — never bare `text` — so legacy SVGs
 styled through presentation attributes render as authored instead of being
@@ -42,14 +48,35 @@ markers, `#text`) and presentation attributes survive. Excluded by design:
 `style` elements AND attributes (document-wide CSS / fixed-overlay UI
 redress), `script` and handlers (XSS), `a`/`image`/`use`/`foreignObject`
 (navigation hijack, remote fetches), and gradients (unused by the design
-system). Paint-capable attributes additionally pass a value grammar —
-`fill`/`stroke` admit only colors and keywords (no `url()` at all, since no
-gradient targets exist), `marker-*` admit only same-document `url(#id)` —
-so external paint servers and CSS-escape smuggling are dropped. CSS-in-JS regenerates on
-appearance change, so dark mode needs no work in the SVG itself.
+system). CSS-in-JS regenerates on appearance change, so dark mode needs no
+work in the SVG itself.
+
+The boundary is enforced at the **value** level, not just the attribute name —
+name-only allowlisting still lets SVG opt into loaded global CSS:
+
+- `class`: each token must be in the diagram vocabulary; unknown tokens
+  (framework classes like `ant-modal-wrap`, hashed `css-*`) are dropped, and
+  survivors are `svgd-`-namespaced so they can never match app/third-party
+  rules. Without this, `class="ant-modal-wrap"` inherits antd's fixed,
+  full-inset modal CSS and recreates the redress vector.
+- `id`: kept only on `<marker>` (nothing else needs one once gradients are
+  gone) and namespaced, so it cannot collide with app element ids or `#id`
+  rules. `marker-*` references are rewritten with the same namespace so the
+  arrowhead still resolves.
+- `fill`/`stroke`: colors and keywords only (no `url()` — no gradient target
+  exists); `marker-*`: only same-document `url(#id)`. External paint servers
+  and CSS-escape smuggling are dropped.
+
+The **standalone export** (`buildStandaloneSVG`) XML-escapes the stylesheet
+before embedding it as a `<style>` element: the download is serialized as
+`image/svg+xml`, so an interpolated value containing `&` or `<` — notably the
+operator-set `CUSTOM_FONT_FAMILY` flowing through `token.fontFamily` — would
+otherwise invalidate the XML or inject active markup.
 
 ## Testing
 
-Sanitizer behavior is covered by `packages/utils/src/client/sanitize.test.ts`,
-which must run under jsdom — see the "Vitest DOM environments" section in
-`openwiki/testing.md`.
+Sanitizer behavior is covered by `packages/utils/src/client/sanitize.test.ts`
+(including class/id gadget and paint-value vectors); the export-escaping and
+rule-scoping behavior by `src/components/SVGDiagram/diagramRules.test.ts`
+(which parses the export as `image/svg+xml`). Both must run under jsdom — see
+the "Vitest DOM environments" section in `openwiki/testing.md`.
