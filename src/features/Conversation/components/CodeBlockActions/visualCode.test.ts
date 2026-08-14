@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
-import { isHtmlCode, isSvgCode, isVisualCode, isVisualComplete } from './visualCode';
+import {
+  isHtmlCode,
+  isHtmlDocument,
+  isSvgCode,
+  isVisualCode,
+  isVisualComplete,
+} from './visualCode';
+
+describe('isHtmlDocument', () => {
+  it('detects a full document, not a fragment', () => {
+    expect(isHtmlDocument('<!DOCTYPE html><html></html>')).toBe(true);
+    expect(isHtmlDocument('  <html lang="en">')).toBe(true);
+    expect(isHtmlDocument('<div class="card">done</div>')).toBe(false);
+  });
+});
 
 describe('isSvgCode', () => {
   it('detects the svg language', () => {
@@ -47,9 +61,13 @@ describe('isVisualComplete', () => {
     expect(isVisualComplete('<svg><rect/></svg>', 'svg')).toBe(true);
   });
 
-  it('treats html complete on </html> or </body>', () => {
+  it('treats a full html document complete only on </html> or </body>', () => {
     expect(isVisualComplete('<!DOCTYPE html><html><body>', 'html')).toBe(false);
     expect(isVisualComplete('<!DOCTYPE html><html><body></body></html>', 'html')).toBe(true);
     expect(isVisualComplete('<html><body>x</body>', 'html')).toBe(true);
+  });
+
+  it('treats an html-language fragment as complete (renders by default)', () => {
+    expect(isVisualComplete('<div class="card">done</div>', 'html')).toBe(true);
   });
 });

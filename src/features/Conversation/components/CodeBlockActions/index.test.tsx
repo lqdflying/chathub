@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { renderCodeBlockBody } from './index';
+import { renderCodeBlockActions, renderCodeBlockBody } from './index';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -73,6 +73,68 @@ describe('renderCodeBlockBody', () => {
 
     expect(container.querySelector('iframe')).toBeNull();
     expect(container.textContent).toContain('partial');
+  });
+
+  it('omits the word-wrap control for visual blocks but keeps it for code', () => {
+    const visual = render(
+      <>
+        {renderCodeBlockActions({
+          actionIconSize: 'small',
+          content: '<svg></svg>',
+          language: 'svg',
+          originalNode: null,
+        } as any)}
+      </>,
+    );
+    // the wrap toggle would walk the DOM and restyle an unrelated <pre>
+    expect(visual.container.querySelector('.lucide-text-wrap')).toBeNull();
+    visual.unmount();
+
+    const normal = render(
+      <>
+        {renderCodeBlockActions({
+          actionIconSize: 'small',
+          content: 'const a = 1',
+          language: 'ts',
+          originalNode: null,
+        } as any)}
+      </>,
+    );
+    expect(normal.container.querySelector('.lucide-text-wrap')).not.toBeNull();
+  });
+
+  it('downloads a content-detected diagram with its effective extension', () => {
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation(((
+      tag: string,
+      opts?: any,
+    ) => {
+      const el = origCreate(tag, opts);
+      if (tag === 'a') {
+        (el as HTMLAnchorElement).click = vi.fn();
+        created.push(el as HTMLAnchorElement);
+      }
+      return el;
+    }) as any);
+    (URL as any).createObjectURL = vi.fn(() => 'blob:x');
+    (URL as any).revokeObjectURL = vi.fn();
+
+    // an SVG the model mislabeled as "plaintext"
+    const { container } = render(
+      <>
+        {renderCodeBlockActions({
+          actionIconSize: 'small',
+          content: '<svg viewBox="0 0 1 1"></svg>',
+          language: 'plaintext',
+          originalNode: null,
+        } as any)}
+      </>,
+    );
+    fireEvent.click(container.querySelector('.lucide-download')!.closest('[role="button"]')!);
+
+    expect(created.at(-1)?.download).toBe('code.svg');
+    createSpy.mockRestore();
   });
 
   it('lets keyboard users expand and collapse long code blocks', async () => {

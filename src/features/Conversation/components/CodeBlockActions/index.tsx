@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { HtmlPreviewAction } from '@/components/HtmlPreview';
 
 import VisualCodeBlock from './VisualCodeBlock';
-import { isHtmlCode, isVisualCode } from './visualCode';
+import { isHtmlCode, isSvgCode, isVisualCode } from './visualCode';
 
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   bash: 'sh',
@@ -32,8 +32,8 @@ const LANGUAGE_EXTENSIONS: Record<string, string> = {
   shell: 'sh',
   sql: 'sql',
   swift: 'swift',
-  typescript: 'ts',
   tsx: 'tsx',
+  typescript: 'ts',
   xml: 'xml',
   yaml: 'yml',
 };
@@ -43,7 +43,14 @@ const DownloadAction = memo<{ content: string; language: string; size?: any }>(
     const { t } = useTranslation('components');
 
     const handleDownload = useCallback(() => {
-      const extension = LANGUAGE_EXTENSIONS[language?.toLowerCase()] || language || 'txt';
+      // a content-detected diagram (e.g. an SVG mislabeled "plaintext") must
+      // save under its effective type, not the source language, or the file
+      // won't open as a diagram
+      const extension = isSvgCode(content, language)
+        ? 'svg'
+        : isHtmlCode(content, language)
+          ? 'html'
+          : LANGUAGE_EXTENSIONS[language?.toLowerCase()] || language || 'txt';
       const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -112,7 +119,9 @@ export const renderCodeBlockActions: NonNullable<HighlighterProps['actionsRender
 }) => (
   <>
     {isHtmlCode(content, language) && <HtmlPreviewAction content={content} size={actionIconSize} />}
-    <WrapToggleAction size={actionIconSize} />
+    {/* a visual block renders no <pre> in preview mode, so the wrap toggle's
+        ancestor-walk would restyle an unrelated code block — omit it */}
+    {!isVisualCode(content, language) && <WrapToggleAction size={actionIconSize} />}
     <DownloadAction content={content} language={language} size={actionIconSize} />
     {originalNode}
   </>
