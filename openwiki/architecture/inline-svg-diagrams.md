@@ -67,7 +67,7 @@ name-only allowlisting still lets SVG opt into loaded global CSS:
   exists); `marker-*`: only same-document `url(#id)`. External paint servers
   and CSS-escape smuggling are dropped.
 
-The **standalone export** (`buildStandaloneSVG`) serializes the *whole* finished
+The **standalone export** (`buildStandaloneSVG`) serializes the _whole_ finished
 document as XML, not just the injected stylesheet. `sanitizeSVGContent` returns
 HTML serialization, which can carry named entities XML does not define — e.g.
 ordinary diagram text with a non-breaking space comes back as `&nbsp;`, which
