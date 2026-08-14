@@ -1,6 +1,6 @@
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderCodeBlockBody } from './index';
@@ -27,6 +27,54 @@ describe('renderCodeBlockBody', () => {
     expect(result).toBe(originalNode);
   });
 
+  it('renders a complete svg block in a script-only sandboxed iframe', () => {
+    const { container } = render(
+      <>
+        {renderCodeBlockBody({
+          content: '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>',
+          language: 'svg',
+          originalNode: <pre>source</pre>,
+        } as any)}
+      </>,
+    );
+
+    const iframe = container.querySelector('iframe');
+    expect(iframe).not.toBeNull();
+    // the load-bearing security control: allow-scripts but NEVER allow-same-origin
+    expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts');
+  });
+
+  it('renders a complete html document in a script-only sandboxed iframe', () => {
+    const { container } = render(
+      <>
+        {renderCodeBlockBody({
+          content: '<!DOCTYPE html><html><body><h1>hi</h1></body></html>',
+          language: 'html',
+          originalNode: <pre>source</pre>,
+        } as any)}
+      </>,
+    );
+
+    const sandbox = container.querySelector('iframe')?.getAttribute('sandbox');
+    expect(sandbox).toBe('allow-scripts');
+    expect(sandbox).not.toContain('allow-same-origin');
+  });
+
+  it('keeps an incomplete (streaming) visual block as source', () => {
+    const { container } = render(
+      <>
+        {renderCodeBlockBody({
+          content: '<svg viewBox="0 0 10 10"><rect',
+          language: 'svg',
+          originalNode: <pre data-testid={'src'}>partial</pre>,
+        } as any)}
+      </>,
+    );
+
+    expect(container.querySelector('iframe')).toBeNull();
+    expect(container.textContent).toContain('partial');
+  });
+
   it('lets keyboard users expand and collapse long code blocks', async () => {
     const user = userEvent.setup();
     const content = Array.from({ length: 101 }, (_, i) => `line ${i + 1}`).join('\n');
@@ -38,9 +86,9 @@ describe('renderCodeBlockBody', () => {
     expect(button.getAttribute('aria-expanded')).toBe('false');
 
     await user.keyboard('{Enter}');
-    expect(screen.getByRole('button', { name: 'Collapse code' }).getAttribute('aria-expanded')).toBe(
-      'true',
-    );
+    expect(
+      screen.getByRole('button', { name: 'Collapse code' }).getAttribute('aria-expanded'),
+    ).toBe('true');
 
     await user.keyboard(' ');
     expect(

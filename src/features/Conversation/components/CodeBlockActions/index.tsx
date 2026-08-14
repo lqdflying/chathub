@@ -8,13 +8,8 @@ import { useTranslation } from 'react-i18next';
 
 import { HtmlPreviewAction } from '@/components/HtmlPreview';
 
-export const isHtmlCode = (content: string, language: string) => {
-  return (
-    language === 'html' ||
-    (language === '' && content.includes('<html>')) ||
-    (language === '' && content.includes('<!DOCTYPE html>'))
-  );
-};
+import VisualCodeBlock from './VisualCodeBlock';
+import { isHtmlCode, isVisualCode } from './visualCode';
 
 const LANGUAGE_EXTENSIONS: Record<string, string> = {
   bash: 'sh',
@@ -182,7 +177,9 @@ const CollapsibleCodeBody = memo<{ children: React.ReactNode; lines: number }>(
     const { t } = useTranslation('components');
     const [expanded, setExpanded] = useState(false);
     const toggleExpanded = useCallback(() => setExpanded((value) => !value), []);
-    const buttonLabel = expanded ? t('CodeBlock.collapse') : t('CodeBlock.expand', { count: lines });
+    const buttonLabel = expanded
+      ? t('CodeBlock.collapse')
+      : t('CodeBlock.expand', { count: lines });
     const handleKeyDown = useCallback(
       (event: React.KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -220,8 +217,12 @@ const CollapsibleCodeBody = memo<{ children: React.ReactNode; lines: number }>(
  */
 export const renderCodeBlockBody: NonNullable<HighlighterProps['bodyRender']> = ({
   content,
+  language,
   originalNode,
 }) => {
+  if (isVisualCode(content, language))
+    return <VisualCodeBlock content={content} language={language} originalNode={originalNode} />;
+
   const lines = content.split('\n').length;
 
   if (lines <= LONG_CODE_LINES) return originalNode;
