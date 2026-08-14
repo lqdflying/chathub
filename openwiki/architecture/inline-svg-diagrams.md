@@ -79,10 +79,50 @@ operator-set `CUSTOM_FONT_FAMILY` flowing through `token.fontFamily` — so no
 manual escaping is needed and injected markup stays inert text. The helper is
 browser/jsdom-only (its sole caller is the download handler).
 
+## Visual code blocks (non-artifact models)
+
+The inline SVG **artifact** path above only fires for `<lobeArtifact
+type="image/svg+xml">`. Non-Claude models (e.g. kimi-k3) instead return diagrams
+as fenced **code blocks** (often mislabeled — an SVG tagged "plaintext"), which
+would otherwise show as raw source. `renderCodeBlockBody`
+(`src/features/Conversation/components/CodeBlockActions/index.tsx`) routes such
+blocks to `VisualCodeBlock`:
+
+- **Detection is content-based** (`visualCode.ts`): `isSvgCode` (starts with
+  `<svg` or `svg` language), `isHtmlCode` (full document — `<!doctype html>`/
+  `<html>` — or `html` language). Bare HTML fragments stay source.
+- **Render is a sandboxed iframe** for BOTH html and svg —
+  `sandbox="allow-scripts"` and **never `allow-same-origin`** (opaque origin: no
+  app cookie/storage/DOM access), `srcDoc`, `referrerPolicy="no-referrer"`. SVG
+  is wrapped in a minimal responsive HTML document so it scales. Unlike the
+  artifact path (strict `sanitizeSVGContent`, no gradients, themed), code blocks
+  are arbitrary art → full fidelity via isolation instead of sanitization.
+- **Streaming**: defaults to source until the closing tag streams
+  (`isVisualComplete`), then auto-flips to rendered; a manual toggle sticks.
+- Mermaid is untouched (rendered by `@lobehub/ui`, never reaches `bodyRender`).
+
+## Mobile navigation & interrupted replies
+
+- The code-block HTML preview drawer (`HtmlPreview/PreviewDrawer.tsx`) uses
+  `100dvh` (not `100vh`, which pushed the close X off-screen on mobile) and its
+  open state is `useWorkspaceModal` so a phone Back closes it; its iframe also
+  drops `allow-same-origin`.
+- HTML **artifacts** open the workspace once per generation and never on mobile
+  (`LobeArtifact/Render/index.tsx`) — the old effect re-opened on every stream
+  tick; the mobile portal Modal (`@portal/_layout/Mobile.tsx`) is tied to the
+  route so Back closes it.
+- An interrupted reply persists as `LOADING_FLAT` ('...') because content saves
+  only at `onFinish`; `Messages/Default.tsx` gates the loading dots on
+  `isMessageGenerating` + a `createdAt`-staleness check so a reloaded orphan
+  renders nothing instead of looping on dots (content itself is still lost —
+  fixing the mobile-dismiss traps removes the main cause of interruption).
+
 ## Testing
 
 Sanitizer behavior is covered by `packages/utils/src/client/sanitize.test.ts`
 (including class/id gadget and paint-value vectors); the export-escaping and
 rule-scoping behavior by `src/components/SVGDiagram/diagramRules.test.ts`
 (which parses the export as `image/svg+xml`). Both must run under jsdom — see
-the "Vitest DOM environments" section in `openwiki/testing.md`.
+the "Vitest DOM environments" section in `openwiki/testing.md`. The code-block
+detectors and the `allow-scripts`-only iframe are covered by
+`src/features/Conversation/components/CodeBlockActions/{visualCode,index}.test.*`.
