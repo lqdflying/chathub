@@ -38,13 +38,14 @@ The sanitized SVG is injected inline into the app document
 (`dangerouslySetInnerHTML`), not an iframe, so `sanitizeSVGContent`
 (`packages/utils/src/client/sanitize.ts`) enforces a strict allowlist rather
 than DOMPurify's broad SVG profile: only diagram elements (shapes, text,
-gradients, markers, `#text`) and presentation attributes survive. Excluded by
-design: `style` elements AND attributes (document-wide CSS / fixed-overlay UI
+markers, `#text`) and presentation attributes survive. Excluded by design:
+`style` elements AND attributes (document-wide CSS / fixed-overlay UI
 redress), `script` and handlers (XSS), `a`/`image`/`use`/`foreignObject`
-(navigation hijack, remote fetches). Paint-capable attributes (`fill`,
-`stroke`, `marker-*`) additionally pass a value grammar that only admits
-colors, keywords, or same-document `url(#id)` references — external paint
-servers and CSS-escape smuggling are dropped. CSS-in-JS regenerates on
+(navigation hijack, remote fetches), and gradients (unused by the design
+system). Paint-capable attributes additionally pass a value grammar —
+`fill`/`stroke` admit only colors and keywords (no `url()` at all, since no
+gradient targets exist), `marker-*` admit only same-document `url(#id)` —
+so external paint servers and CSS-escape smuggling are dropped. CSS-in-JS regenerates on
 appearance change, so dark mode needs no work in the SVG itself.
 
 ## Testing

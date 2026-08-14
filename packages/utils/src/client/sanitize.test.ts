@@ -183,11 +183,12 @@ describe('sanitizeSVGContent', () => {
     expect(sanitized).toContain('class="box"');
   });
 
-  it('should only keep same-document url() references in paint attributes', () => {
+  it('should restrict url() references to same-document marker lookups', () => {
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-        <rect x="1" y="1" width="10" height="10" fill="url(#grad1)"/>
         <line x1="0" y1="0" x2="9" y2="9" class="arr" marker-end="url(#arrow)"/>
+        <line x1="0" y1="9" x2="9" y2="0" class="arr" marker-end="url(https://attacker.example/m.svg#a)"/>
+        <rect x="1" y="1" width="10" height="10" fill="url(#grad1)"/>
         <rect x="20" y="1" width="10" height="10" fill="url(https://attacker.example/paint.svg#p)"/>
         <rect x="40" y="1" width="10" height="10" stroke="url(//attacker.example/p.svg#x)"/>
         <rect x="60" y="1" width="10" height="10" fill="url(data:image/svg+xml;base64,PHN2Zz4=)"/>
@@ -197,11 +198,14 @@ describe('sanitizeSVGContent', () => {
 
     const sanitized = sanitizeSVGContent(svg);
 
-    expect(sanitized).toContain('fill="url(#grad1)"');
     expect(sanitized).toContain('marker-end="url(#arrow)"');
+    // gradients are not part of the vocabulary, so fill/stroke never keep
+    // url() values — not even same-document ones
+    expect(sanitized).not.toContain('url(#grad1)');
     expect(sanitized).not.toContain('attacker.example');
     expect(sanitized).not.toContain('data:');
     expect(sanitized).toContain('<circle');
+    expect(sanitized).toContain('<rect');
   });
 
   it('should preserve complex SVG structures while removing threats', () => {
@@ -223,13 +227,14 @@ describe('sanitizeSVGContent', () => {
 
     const sanitized = sanitizeSVGContent(complexSvg);
 
-    expect(sanitized).toContain('<linearGradient id="grad1">');
-    expect(sanitized).toContain('stop-color="red"');
+    // gradients are outside the diagram vocabulary and get stripped
+    expect(sanitized).not.toContain('<linearGradient');
+    expect(sanitized).not.toContain('stop-color');
+    expect(sanitized).not.toContain('url(#grad1)');
     expect(sanitized).toContain('transform="translate(50,50)"');
     expect(sanitized).not.toContain('<script');
     expect(sanitized).not.toContain('malicious');
     expect(sanitized).toContain('<circle');
-    expect(sanitized).toContain('fill="url(#grad1)"');
     expect(sanitized).not.toContain('onclick');
     expect(sanitized).toContain('Hello');
     expect(sanitized).not.toContain('onload');

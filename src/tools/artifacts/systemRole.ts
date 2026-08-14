@@ -89,7 +89,7 @@ The assistant can create and reference artifacts during conversations. Artifacts
 
   Hard rules:
   - NO color literals anywhere: no fill="#...", fill="blue", stroke="...", stop-color, or style="..." colors (the single exception is fill="context-stroke" inside the arrow marker).
-  - NO <style> blocks, <script>, event handlers (onclick etc.), <use>, <foreignObject>, external images or hrefs — the sanitizer strips them and can drop surrounding content with them.
+  - NO <style> blocks, <script>, event handlers (onclick etc.), <use>, <foreignObject>, gradients (<linearGradient>/<radialGradient>), external images or hrefs — the sanitizer strips them and can drop surrounding content with them.
   - Filled shapes must be <rect>, <circle>, <ellipse> or <polygon> inside a ramp group or carry class="box". Use <path> only with class "arr" or "leader" (outlines/connectors) — a bare <path> renders unthemed black.
 
   ## Arrowheads

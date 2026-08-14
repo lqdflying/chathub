@@ -43,9 +43,6 @@ const SVG_ALLOWED_TAGS = [
   'path',
   'text',
   'tspan',
-  'lineargradient',
-  'radialgradient',
-  'stop',
 ];
 
 const SVG_ALLOWED_ATTR = [
@@ -107,37 +104,31 @@ const SVG_ALLOWED_ATTR = [
   'orient',
   'refx',
   'refy',
-  // gradients
-  'gradienttransform',
-  'gradientunits',
-  'offset',
-  'spreadmethod',
-  'stop-color',
-  'stop-opacity',
 ];
 
 // Paint-capable presentation attributes are parsed as CSS values by the
-// browser, so their values are validated against an allowlist grammar: plain
-// colors, keywords, or a same-document fragment reference. This blocks
-// external paint servers (`url(https://…)`) and CSS-escape smuggling
+// browser, so their values are validated against an allowlist grammar. This
+// blocks external paint servers (`url(https://…)`) and CSS-escape smuggling
 // (`u\72l(…)`) — anything not matching is dropped with its attribute.
-const CSS_URL_CAPABLE_ATTRS = new Set([
-  'fill',
-  'marker-end',
-  'marker-mid',
-  'marker-start',
-  'stroke',
-]);
+// `fill`/`stroke` admit only colors and keywords (gradients are not allowed,
+// so a fragment reference has no legitimate target); `marker-*` admit only a
+// same-document fragment reference (the arrowhead marker).
+const COLOR_ATTRS = new Set(['fill', 'stroke']);
 
-const SAFE_PAINT_VALUE =
-  /^(none|inherit|transparent|currentcolor|context-fill|context-stroke|[a-z]{3,30}|#[\da-f]{3,8}|rgba?\([\d\s%,./]*\)|hsla?\([\d\s%,./a-z]*\)|url\(#[\w.:-]+\))$/i;
+const MARKER_ATTRS = new Set(['marker-end', 'marker-mid', 'marker-start']);
+
+const SAFE_COLOR_VALUE =
+  /^(none|inherit|transparent|currentcolor|context-fill|context-stroke|[a-z]{3,30}|#[\da-f]{3,8}|rgba?\([\d\s%,./]*\)|hsla?\([\d\s%,./a-z]*\))$/i;
+
+const SAFE_MARKER_VALUE = /^(none|url\(#[\w.:-]+\))$/i;
 
 const enforceSafePaintValues = (
   _node: Node,
   data: { attrName: string; attrValue: string; keepAttr: boolean },
 ) => {
-  if (!CSS_URL_CAPABLE_ATTRS.has(data.attrName)) return;
-  if (!SAFE_PAINT_VALUE.test(data.attrValue.trim())) data.keepAttr = false;
+  const value = data.attrValue.trim();
+  if (COLOR_ATTRS.has(data.attrName) && !SAFE_COLOR_VALUE.test(value)) data.keepAttr = false;
+  if (MARKER_ATTRS.has(data.attrName) && !SAFE_MARKER_VALUE.test(value)) data.keepAttr = false;
 };
 
 /**
