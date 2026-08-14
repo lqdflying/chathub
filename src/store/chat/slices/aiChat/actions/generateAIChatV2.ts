@@ -142,7 +142,8 @@ export const generateAIChatV2: StateCreator<
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
-      get().activeId === conversationContext.sessionId;
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
 
     const fileIdList = files?.map((f) => f.id);
 
@@ -598,7 +599,8 @@ export const generateAIChatV2: StateCreator<
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
-      get().activeId === conversationContext.sessionId;
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =
       params.expectedConversationVersion ?? (await messageService.getConversationVersion());
     if (!isCurrentConversation()) return;

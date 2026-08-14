@@ -314,7 +314,8 @@ export const generateAIChat: StateCreator<
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
-      get().activeId === conversationContext.sessionId;
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =
       params?.expectedConversationVersion ?? (await messageService.getConversationVersion());
     if (!isCurrentConversation()) return;
@@ -679,16 +680,11 @@ export const generateAIChat: StateCreator<
       sessionId: conversationContext.sessionId,
       topicId: conversationContext.topicId,
     };
-    // Validity is pinned to the captured conversation (account + generation +
-    // session), NOT the on-screen topic: the reply keeps streaming and
-    // persisting to its original topic after a topic switch (all writes target
-    // the captured dispatchContext, never the newly-active topic). It is still
-    // cancelled by an explicit invalidate (generation bump) — agent switch or
-    // clear-history — or by Stop.
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === conversationContext.generation &&
-      get().activeId === conversationContext.sessionId;
+      get().activeId === conversationContext.sessionId &&
+      (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     if (!isCurrentConversation()) {
       return { content: '', isFunctionCall: false };
     }
