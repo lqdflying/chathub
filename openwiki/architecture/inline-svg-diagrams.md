@@ -127,31 +127,11 @@ blocks to `VisualCodeBlock`:
 - An interrupted reply persists as `LOADING_FLAT` ('...') because content saves
   only at `onFinish`; `Messages/Default.tsx` gates the loading dots on
   `isMessageGenerating` + a `createdAt`-staleness check so a reloaded orphan
-  renders nothing instead of looping on dots.
-
-## Background generation across topic switches
-
-A topic switch no longer cancels the in-flight reply — it finishes streaming in
-the background and persists to its original topic. The write path was already
-topic-safe: every stream handler and `onFinish` targets the captured
-`conversationContext = {generation, sessionId, topicId}` (`store/chat/types.ts`),
-and the DB update keys off `messages.id`, never the active topic. Two changes
-enable it:
-
-- **`isCurrentConversation()`** (`generateAIChat.ts` ×2, `generateAIChatV2.ts`
-  ×2) drops the `activeTopicId` clause — validity is pinned to account +
-  `conversationClearGeneration` + `sessionId`, so a backgrounded run's handlers
-  keep firing and persisting after a switch. (The retry gate, which writes by
-  captured `activeTopicId`, is intentionally unchanged.)
-- **`switchTopic`** (`topic/action.ts`) skips `internal_invalidateConversation`
-  **only while a generation is running** (`chatLoadingIds.length > 0`); idle
-  switches keep their existing cleanup, so no stale generation counter lingers.
-
-Scope: single background run. The one global `chatLoadingIdsAbortController` means
-a backgrounded reply can't be manually Stopped, and an explicit invalidate (agent
-switch via `internal_updateActiveId`, clear-history) or Stop still cancels it.
-Full concurrent per-topic generation (per-`messageMapKey` controllers + Stop)
-would be a larger refactor.
+  renders nothing instead of looping on dots. (A topic switch still cancels the
+  in-flight reply — a "keep generating in the background" attempt was reverted
+  because the minimal `chatLoadingIds`-based approach broke tool-call
+  continuation, translation cleanup, and concurrent sends; correct support needs
+  an explicit per-conversation operation lifecycle.)
 
 ## Testing
 
