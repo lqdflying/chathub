@@ -649,7 +649,9 @@ describe('topic action', () => {
       const topicId = 'topic-being-removed';
       const activeId = 'test-session-id';
       const { result } = renderHook(() => useChatStore());
-      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(removedMessages.promise);
+      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(
+        removedMessages.promise,
+      );
       vi.spyOn(topicService, 'removeTopic').mockResolvedValue(undefined);
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
       const switchTopicSpy = vi.spyOn(result.current, 'switchTopic');
@@ -680,7 +682,9 @@ describe('topic action', () => {
       const topicId = 'topic-being-removed';
       const activeId = 'test-session-id';
       const { result } = renderHook(() => useChatStore());
-      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(removedMessages.promise);
+      vi.spyOn(messageService, 'removeMessagesByAssistant').mockReturnValue(
+        removedMessages.promise,
+      );
       vi.spyOn(topicService, 'removeTopic').mockResolvedValue(undefined);
       vi.spyOn(result.current, 'refreshMessages').mockResolvedValue(undefined);
 
