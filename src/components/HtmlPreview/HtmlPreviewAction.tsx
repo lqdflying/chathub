@@ -1,7 +1,9 @@
 import { ActionIcon } from '@lobehub/ui';
 import { Eye } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import { useWorkspaceModal } from '@/hooks/useWorkspaceModal';
 
 import HtmlPreviewDrawer from './PreviewDrawer';
 
@@ -12,7 +14,9 @@ interface HtmlPreviewActionProps {
 
 const HtmlPreviewAction = memo<HtmlPreviewActionProps>(({ content, size }) => {
   const { t } = useTranslation('components');
-  const [open, setOpen] = useState(false);
+  // useWorkspaceModal force-closes on mobile when the route/workspace changes,
+  // so a phone Back dismisses the drawer instead of stranding it on top
+  const [open, setOpen] = useWorkspaceModal();
 
   return (
     <>

@@ -2,11 +2,12 @@
 
 import { Modal } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
-import { PropsWithChildren } from 'react';
+import { PropsWithChildren, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
 import { PortalHeader } from '@/features/Portal/router';
+import { useShowMobileWorkspace } from '@/hooks/useShowMobileWorkspace';
 import { useChatStore } from '@/store/chat';
 
 const useStyles = createStyles(({ css, token }) => ({
@@ -22,7 +23,14 @@ const Layout = ({ children }: PropsWithChildren) => {
     !!s.portalThreadId,
     s.togglePortal,
   ]);
+  const showMobileWorkspace = useShowMobileWorkspace();
   const { t } = useTranslation('portal');
+
+  // tie the portal Modal to the route so a phone Back (which clears the
+  // workspace query) closes it instead of leaving it stranded on top
+  useEffect(() => {
+    if (!showMobileWorkspace && showMobilePortal) togglePortal(false);
+  }, [showMobileWorkspace, showMobilePortal]);
 
   return (
     <Modal
