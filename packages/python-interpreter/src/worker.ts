@@ -169,9 +169,17 @@ class PythonWorker {
     }
 
     // Always surface an execution exception, even if ordinary output already hit
-    // the cap (pushOutput drops everything once outputTruncated is set).
+    // the cap (pushOutput drops everything once outputTruncated is set). This
+    // record is intentionally exempt from the record/char budget so a late
+    // failure stays visible — but its own message must still be bounded, or a
+    // Python `raise Exception('x' * 10**7)` would cross Comlink unbounded and
+    // bloat the persisted message.
     if (execError !== undefined) {
-      output.push({ data: execError, type: 'stderr' });
+      const boundedError =
+        execError.length > MAX_RESULT_CHARS
+          ? `${execError.slice(0, MAX_RESULT_CHARS)}\n…[error truncated]`
+          : execError;
+      output.push({ data: boundedError, type: 'stderr' });
     }
 
     let resultStr = result?.toString();

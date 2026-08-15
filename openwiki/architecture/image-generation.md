@@ -803,13 +803,19 @@ configurable model rather than a hard-coded one.
 params})` → `POST /webapi/create-image/[provider]` → `agentRuntime.createImage`
   (the same modern primitive as the workspace, not the legacy `textToImage`).
 - **Remote image download** — `createImage` may return a `data:` URI (used
-  directly) or a remote URL. Remote URLs go through `/webapi/proxy`, which now
-  forwards the upstream status/headers; `getImageFileByUrlWithCORS` rejects a
-  non-OK response (no corrupt upload) and derives the file MIME from the upstream
-  content-type. The bytes are uploaded to object storage and the message stores a
-  durable `fileId` (the transient blob preview is replaced on success, cleared on
-  failure). Results settle independently with bounded concurrency; per-image retry
-  regenerates only failed items.
+  directly) or a remote URL. Remote URLs go through `/webapi/proxy`, which
+  preserves the upstream **status/statusText and raw bytes** but forwards only a
+  **content-type response header** (untrusted headers such as `Set-Cookie` and
+  CSP are dropped). `getImageFileByUrlWithCORS` then rejects a non-OK response and
+  classifies the body by its **actual bytes** via `file-type`
+  (`fileTypeFromBuffer`), not the spoofable content-type: a body whose bytes are
+  not a supported image is rejected (no corrupt upload), and the file MIME and
+  extension are derived from the verified result. An optional caller-supplied type
+  may only confirm the bytes, never bypass them. The verified bytes are uploaded
+  to object storage and the message stores a durable `fileId` (the transient blob
+  preview is replaced on success, cleared on failure). Results settle
+  independently with bounded concurrency; per-image retry regenerates only failed
+  items.
 
 ## Testing
 

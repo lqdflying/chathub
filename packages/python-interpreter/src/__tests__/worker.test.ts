@@ -223,12 +223,17 @@ describe('PythonWorker', () => {
       });
     });
 
-    it('bounds the output record count and still surfaces a late exception (finding C)', async () => {
+    it('bounds the output record count and the size of a late exception (finding C / R3-2)', async () => {
+      const MAX_RESULT_CHARS = 100_000;
+      const hugeMessage = 'x'.repeat(500_000);
       mockPyodide.runPythonAsync.mockImplementation(async () => {
         const stdout = mockPyodide.setStdout.mock.calls.at(-1)?.[0].batched as (o: string) => void;
         // blank prints emit '' (0 chars) — the record-count budget must still cap
-        for (let i = 0; i < 10_000; i++) stdout('');
-        throw new Error('late failure');
+        for (let i = 0; i < 3000; i++) stdout('');
+        // a Python `raise Exception('x' * 500000)`: the terminal record is exempt
+        // from the record/char budget so it stays visible, but its OWN message
+        // must still be bounded before it crosses Comlink and is persisted
+        throw new Error(hugeMessage);
       });
 
       const result = await worker.runPython('...');
@@ -240,8 +245,15 @@ describe('PythonWorker', () => {
           (o: any) => typeof o.data === 'string' && o.data.includes('[output truncated]'),
         ),
       ).toHaveLength(1);
-      // the exception is still visible even though output hit the cap first
-      expect(result.output).toContainEqual({ data: 'late failure', type: 'stderr' });
+      // the exception is still visible even though ordinary output hit the cap…
+      const terminal = result.output.at(-1);
+      expect(terminal?.type).toBe('stderr');
+      expect(terminal?.data.startsWith('x')).toBe(true);
+      expect(terminal?.data).toContain('[error truncated]');
+      // …but it is truncated, and NO returned record exceeds the declared bound
+      for (const record of result.output as { data: string }[]) {
+        expect(record.data.length).toBeLessThanOrEqual(MAX_RESULT_CHARS + 32);
+      }
       expect(result.success).toBe(false);
     });
 

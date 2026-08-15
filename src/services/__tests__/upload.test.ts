@@ -308,7 +308,12 @@ describe('UploadService', () => {
       global.fetch = vi.fn();
     });
 
-    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer;
+    // real bytes so `file-type` classifies them (it reads past the magic prefix)
+    const b64ToBuffer = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+    // a valid 1×1 PNG
+    const PNG = b64ToBuffer(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    );
     const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]).buffer;
     const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])
       .buffer;
@@ -319,7 +324,7 @@ describe('UploadService', () => {
         ok: true,
       }) as unknown as Response;
 
-    it('sniffs PNG bytes and creates a file', async () => {
+    it('classifies PNG bytes and creates a file (the response header is not trusted)', async () => {
       vi.mocked(global.fetch).mockResolvedValue(mockOk(PNG));
 
       const result = await uploadService.getImageFileByUrlWithCORS(
@@ -337,7 +342,7 @@ describe('UploadService', () => {
       expect(result.type).toBe('image/png');
     });
 
-    it('sniffs JPEG/WebP bytes and matches File.type + File.name to the format', async () => {
+    it('classifies JPEG/WebP bytes and matches File.type + File.name to the format', async () => {
       vi.mocked(global.fetch).mockResolvedValue(mockOk(JPEG));
       const jpg = await uploadService.getImageFileByUrlWithCORS('https://x/y', 'y.png');
       expect(jpg.type).toBe('image/jpeg');
@@ -349,7 +354,14 @@ describe('UploadService', () => {
       expect(webp.name).toBe('z.webp');
     });
 
-    it('honors an explicit caller file type', async () => {
+    it('classifies by bytes even when the header is absent / application/octet-stream', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(PNG, 'application/octet-stream'));
+      const png = await uploadService.getImageFileByUrlWithCORS('https://x/y', 'y');
+      expect(png.type).toBe('image/png');
+      expect(png.name).toBe('y.png');
+    });
+
+    it('honors an explicit caller file type when it agrees with the verified bytes', async () => {
       vi.mocked(global.fetch).mockResolvedValue(mockOk(JPEG));
       const result = await uploadService.getImageFileByUrlWithCORS(
         'https://example.com/image.jpg',
@@ -359,10 +371,36 @@ describe('UploadService', () => {
       expect(result.type).toBe('image/jpeg');
     });
 
-    it('falls back to the proxied image content-type when bytes are unrecognized', async () => {
+    it('rejects an explicit caller file type that disagrees with the bytes (finding R3-1)', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(JPEG));
+      await expect(
+        uploadService.getImageFileByUrlWithCORS('https://x/y', 'y.png', 'image/png'),
+      ).rejects.toThrow('does not match the fetched bytes');
+    });
+
+    it('rejects unrecognized bytes even when the response claims image/webp (finding R3-1)', async () => {
+      // eight zero bytes with a spoofed image/* header must NOT become a WebP File
       vi.mocked(global.fetch).mockResolvedValue(mockOk(new ArrayBuffer(8), 'image/webp'));
-      const result = await uploadService.getImageFileByUrlWithCORS('https://x/y', 'y');
-      expect(result.type).toBe('image/webp');
+      await expect(uploadService.getImageFileByUrlWithCORS('https://x/y', 'y')).rejects.toThrow(
+        'not a supported image',
+      );
+    });
+
+    it('rejects an HTML error body carrying a spoofed image/png header (finding R3-1)', async () => {
+      const html = new TextEncoder().encode('<html><body>error</body></html>').buffer;
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(html, 'image/png'));
+      await expect(
+        uploadService.getImageFileByUrlWithCORS('https://example.com/x.png', 'x.png'),
+      ).rejects.toThrow('not a supported image');
+    });
+
+    it('rejects a truncated magic prefix (finding R3-1)', async () => {
+      // only the first two PNG signature bytes — not a decodable image
+      const truncated = new Uint8Array([0x89, 0x50]).buffer;
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(truncated, 'image/png'));
+      await expect(uploadService.getImageFileByUrlWithCORS('https://x/y', 'y.png')).rejects.toThrow(
+        'not a supported image',
+      );
     });
 
     it('rejects a 200 non-image (HTML) response so no corrupt file is uploaded (finding B)', async () => {
