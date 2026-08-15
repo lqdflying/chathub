@@ -8,11 +8,9 @@ import { StateCreator } from 'zustand/vanilla';
 import { useClientDataSWR } from '@/libs/swr';
 import { fileService } from '@/services/file';
 import { imageGenerationService } from '@/services/textToImage';
-import { uploadService } from '@/services/upload';
 import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
-import { useFileStore } from '@/store/file';
 import { getImageStoreState } from '@/store/image';
 import {
   getModelAndDefaults,
@@ -70,27 +68,49 @@ const resolveImageModel = ():
   }
 };
 
-// The upload presign API rejects filenames over 255 chars, and prompts (which
-// routinely run longer and can contain newlines/path separators) are the name
-// source — so sanitize and bound the stem before it ever reaches an upload.
-const toImageFileName = (prompt: string, index: number) => {
-  const stem = prompt
-    .replaceAll(/[\p{Cc}/\\]/gu, ' ')
-    .replaceAll(/\s+/gu, ' ')
-    .trim()
-    .slice(0, 120)
-    .trim();
-  return `${stem || 'image'}_${index}.png`;
-};
+// Poll cadence/budget for the async generation task (the same task infra the
+// Image workspace uses; ASYNC_TASK_TIMEOUT server-side is 298 s).
+const TASK_POLL_INTERVAL = 2500;
+const TASK_POLL_BUDGET = 300_000;
+const TERMINAL_TASK_STATUSES = new Set(['success', 'error']);
 
-// data: URIs (e.g. gpt-image-1 base64 output) convert straight to a File; remote
-// provider URLs go through the CORS proxy (they usually block a direct fetch).
-const imageUrlToFile = async (imageUrl: string, filename: string): Promise<File> => {
-  if (!imageUrl.startsWith('data:')) {
-    return uploadService.getImageFileByUrlWithCORS(imageUrl, filename);
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+// Wait for the async generation task to settle. The generation itself (which
+// can take 30–60 s) runs server-side — the browser only ever polls small
+// status payloads, never holds a long request open, and never receives image
+// bytes (the server uploads them and returns a durable file id).
+const waitForChatImageTask = async (
+  taskId: string,
+  isCurrent: () => boolean,
+): Promise<{ file?: { height?: number; id: string; width?: number }; ok: boolean }> => {
+  const deadline = Date.now() + TASK_POLL_BUDGET;
+  while (Date.now() < deadline) {
+    await sleep(TASK_POLL_INTERVAL);
+    if (!isCurrent()) return { ok: false };
+
+    let result;
+    try {
+      result = await imageGenerationService.getChatImageResult(taskId);
+    } catch {
+      // transient poll failure (network blip) — keep polling until the budget
+      continue;
+    }
+
+    const status = (result.status ?? '').toLowerCase();
+    if (status === 'success' && result.file) return { file: result.file, ok: true };
+    if (TERMINAL_TASK_STATUSES.has(status) || status === 'not_found') {
+      const error = result.error;
+      throw Object.assign(
+        new Error(error?.body?.detail || error?.name || `Image generation ${status}`),
+        { name: error?.name ?? 'ImageGenerationError' },
+      );
+    }
   }
-  const blob = await fetch(imageUrl).then((res) => res.blob());
-  return new File([blob], filename, { lastModified: Date.now(), type: blob.type || 'image/png' });
+  throw new Error('Image generation timed out while waiting for the task result.');
 };
 
 export interface ChatDallEAction {
@@ -112,14 +132,8 @@ export const dalleSlice: StateCreator<
     const invocationGeneration = get().conversationClearGeneration;
     const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
 
-    // eslint-disable-next-line unicorn/consistent-function-scoping
-    const getMessageById = (id: string) => chatSelectors.getMessageById(id)(get());
-
-    const message = getMessageById(messageId);
+    const message = chatSelectors.getMessageById(messageId)(get());
     if (!message) return;
-
-    const parent = getMessageById(message.parentId!);
-    const originPrompt = parent?.content;
 
     const resolved = resolveImageModel();
     if (!resolved) {
@@ -145,32 +159,23 @@ export const dalleSlice: StateCreator<
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
-          const { imageUrl } = await imageGenerationService.createImage({
+          // async-task pattern (same as the Image workspace): create the task,
+          // then poll — never hold a request open for the 30–60 s generation,
+          // and never let multi-MB image data reach the browser/message content
+          const { taskId } = await imageGenerationService.createChatImageTask({
             model,
             params: { ...baseParams, prompt: item.prompt },
             provider,
           });
           if (!invocationIsCurrent()) return undefined;
-          if (!imageUrl) throw new Error('The image provider returned an empty result.');
 
-          await get().updateImageItem(messageId, (draft) => {
-            if (draft[index]) draft[index].previewUrl = imageUrl;
-          });
-          if (!invocationIsCurrent()) return undefined;
-
-          const imageFile = await imageUrlToFile(
-            imageUrl,
-            toImageFileName(originPrompt || item.prompt, index),
-          );
-          if (!invocationIsCurrent()) return undefined;
-
-          const data = await useFileStore.getState().uploadWithProgress({ file: imageFile });
-          if (!invocationIsCurrent()) return undefined;
-          if (!data) return undefined;
+          const { ok, file } = await waitForChatImageTask(taskId, invocationIsCurrent);
+          if (!ok || !invocationIsCurrent()) return undefined;
+          if (!file) throw new Error('The image provider returned an empty result.');
 
           await get().updateImageItem(messageId, (draft) => {
             if (draft[index]) {
-              draft[index].imageId = data.id;
+              draft[index].imageId = file.id;
               draft[index].previewUrl = undefined;
             }
           });

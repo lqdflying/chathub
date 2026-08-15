@@ -1,51 +1,43 @@
-import { ChatCompletionErrorPayload, CreateImagePayload } from '@lobechat/model-runtime';
+import { ChatCompletionErrorPayload } from '@lobechat/model-runtime';
 import { ChatErrorType } from '@lobechat/types';
 import { NextResponse } from 'next/server';
 
 import { checkAuth } from '@/app/(backend)/middleware/auth';
-import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
+import { createCallerFactory } from '@/libs/trpc/lambda';
+import { lambdaRouter } from '@/server/routers/lambda';
 import { createErrorResponse } from '@/utils/errorResponse';
 
-export const preferredRegion = [
-  'arn1',
-  'bom1',
-  'cdg1',
-  'cle1',
-  'cpt1',
-  'dub1',
-  'fra1',
-  'gru1',
-  'hnd1',
-  'iad1',
-  'icn1',
-  'kix1',
-  'lhr1',
-  'pdx1',
-  'sfo1',
-  'sin1',
-  'syd1',
-];
+export const runtime = 'nodejs';
+export const maxDuration = 60;
 
-// The modern, provider-agnostic image endpoint. Unlike /webapi/text-to-image
-// (legacy `agentRuntime.textToImage` → string[] URLs, OpenAI-only), this calls
-// `agentRuntime.createImage` so the built-in Image tool can use whatever image
-// model/provider the user configured (gpt-image-1, dall-e-3, flux, …), the same
-// primitive the main Image workspace uses.
+// The in-chat Image tool's entry point. This does NOT generate synchronously —
+// image generation can take 30–60 s and a request held open that long dies at
+// proxies/CDNs. It creates an async generation task (the same pattern the
+// Image workspace uses) and returns its id immediately; the client polls
+// `image.getChatImageResult` for the outcome. It exists as a webapi route
+// (rather than a direct lambda call) because the client must send the auth
+// payload scoped to the IMAGE provider, which `createHeaderWithAuth(provider)`
+// on this dedicated request guarantees.
 export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
   const { provider } = await params;
 
   try {
-    const agentRuntime = await initModelRuntimeWithUserPayload(provider, jwtPayload);
+    const body = (await req.json()) as { model: string; params: { prompt: string } };
 
-    const data = (await req.json()) as CreateImagePayload;
+    const createCaller = createCallerFactory(lambdaRouter);
+    const caller = createCaller({
+      jwtPayload,
+      nextAuth: undefined,
+      userId: jwtPayload?.userId,
+    } as any);
 
-    if (!agentRuntime.createImage) {
-      throw new Error(`Provider "${provider}" does not support image creation.`);
-    }
+    const result = await caller.image.createChatImage({
+      model: body.model,
+      params: body.params,
+      provider,
+    });
 
-    const image = await agentRuntime.createImage(data);
-
-    return NextResponse.json(image);
+    return NextResponse.json(result);
   } catch (e) {
     const {
       errorType = ChatErrorType.InternalServerError,
@@ -54,8 +46,7 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
     } = e as ChatCompletionErrorPayload;
 
     const error = errorContent || e;
-    // track the error at server side
-    console.error('Route:', provider, errorType, error);
+    console.error('Route: create-image', provider, errorType, error);
 
     return createErrorResponse(errorType, { error, ...res, provider });
   }

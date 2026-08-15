@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { getServerDB } from '@/database/core/db-adaptor';
+import { AsyncTaskModel } from '@/database/models/asyncTask';
+import { FileModel } from '@/database/models/file';
 import { createCallerFactory } from '@/libs/trpc/lambda';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import {
@@ -23,6 +25,10 @@ vi.mock('@/database/core/db-adaptor', () => ({
 
 vi.mock('@/database/models/asyncTask', () => ({
   AsyncTaskModel: vi.fn(),
+}));
+
+vi.mock('@/database/models/file', () => ({
+  FileModel: vi.fn(),
 }));
 
 const { mockExistsByAssetKey } = vi.hoisted(() => ({ mockExistsByAssetKey: vi.fn() }));
@@ -911,6 +917,132 @@ describe('imageRouter', () => {
         };
 
         expect(() => validateNoUrlsInConfig(config)).not.toThrow();
+      });
+    });
+  });
+
+  describe('createChatImage (in-chat async generation)', () => {
+    it('creates a pending task, dispatches the async chat generation, and returns the task id', async () => {
+      const createTask = vi.fn().mockResolvedValue('task-1');
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ create: createTask, updatePendingToError: vi.fn() }) as never,
+      );
+      const dispatchChatImage = vi.fn().mockResolvedValue({ success: true });
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatchChatImage },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const caller = createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never);
+
+      const result = await caller.createChatImage({
+        model: 'gpt-image-2',
+        params: { prompt: 'a rain-washed street at night' },
+        provider: 'openaicompatible',
+      });
+
+      expect(result).toEqual({ taskId: 'task-1' });
+      expect(createTask).toHaveBeenCalledWith({
+        status: 'pending',
+        type: 'image_generation',
+      });
+      // the generation itself is dispatched to the async router — the mutation
+      // returns immediately and the client polls, never holding a long request
+      expect(dispatchChatImage).toHaveBeenCalledWith({
+        model: 'gpt-image-2',
+        params: { prompt: 'a rain-washed street at night' },
+        provider: 'openaicompatible',
+        taskId: 'task-1',
+      });
+    });
+
+    it('marks the task failed when the async dispatch rejects', async () => {
+      const updatePendingToError = vi.fn().mockResolvedValue(true);
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ create: vi.fn().mockResolvedValue('task-2'), updatePendingToError }) as never,
+      );
+      let rejectDispatch!: (e: Error) => void;
+      const dispatchChatImage = vi.fn().mockReturnValue(
+        new Promise((_, reject) => {
+          rejectDispatch = reject;
+        }),
+      );
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatchChatImage },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const caller = createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never);
+
+      await caller.createChatImage({
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+      });
+      rejectDispatch(new Error('dispatch failed'));
+      await vi.waitFor(() => expect(updatePendingToError).toHaveBeenCalled());
+
+      expect(updatePendingToError).toHaveBeenCalledWith(
+        'task-2',
+        expect.objectContaining({ status: 'error' }),
+      );
+    });
+  });
+
+  describe('getChatImageResult', () => {
+    it('returns the task status and error while not successful', async () => {
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () =>
+          ({
+            findById: vi
+              .fn()
+              .mockResolvedValue({ error: { name: 'ServerError' }, status: 'error' }),
+          }) as never,
+      );
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const caller = createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never);
+
+      const result = await caller.getChatImageResult({ taskId: 'task-3' });
+
+      expect(result).toEqual({ error: { name: 'ServerError' }, status: 'error' });
+    });
+
+    it('returns the linked file (via metadata.chatImageTaskId) on success', async () => {
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById: vi.fn().mockResolvedValue({ status: 'success' }) }) as never,
+      );
+      const findByChatImageTaskId = vi.fn().mockResolvedValue({
+        id: 'file-1',
+        metadata: { chatImageTaskId: 'task-4', height: 4096, width: 4096 },
+      });
+      vi.mocked(FileModel).mockImplementation(() => ({ findByChatImageTaskId }) as never);
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const caller = createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never);
+
+      const result = await caller.getChatImageResult({ taskId: 'task-4' });
+
+      expect(findByChatImageTaskId).toHaveBeenCalledWith('task-4');
+      expect(result).toEqual({
+        file: { height: 4096, id: 'file-1', width: 4096 },
+        status: 'success',
       });
     });
   });

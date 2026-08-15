@@ -75,9 +75,100 @@ describe('imageRouter', () => {
     expect(mockClaimPendingTask).toHaveBeenCalledOnce();
     expect(mockClaimPendingTask).toHaveBeenCalledWith('task-1');
     expect(initModelRuntimeWithUserPayload).not.toHaveBeenCalled();
-    expect(logImageDebugSafe).not.toHaveBeenCalledWith(
-      'async_task_started',
-      expect.any(Object),
-    );
+    expect(logImageDebugSafe).not.toHaveBeenCalledWith('async_task_started', expect.any(Object));
+  });
+
+  describe('createChatImage', () => {
+    it('generates server-side, creates the task-linked file, and marks the task successful', async () => {
+      mockClaimPendingTask.mockResolvedValue(true);
+      const updateTask = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ claimPendingTask: mockClaimPendingTask, update: updateTask }) as never,
+      );
+      const createImage = vi.fn().mockResolvedValue({
+        height: 4096,
+        imageUrl: 'data:image/png;base64,AAAA',
+        width: 4096,
+      });
+      vi.mocked(initModelRuntimeWithUserPayload).mockResolvedValue({ createImage } as never);
+      const transformImageForGeneration = vi.fn().mockResolvedValue({
+        image: {
+          extension: 'png',
+          hash: 'hash-1',
+          height: 4096,
+          mime: 'image/png',
+          size: 123,
+          width: 4096,
+        },
+        thumbnailImage: { height: 512, mime: 'image/png', size: 12, width: 512 },
+      });
+      const uploadImageForGeneration = vi.fn().mockResolvedValue({
+        imageUrl: 'files/generations/img.png',
+        thumbnailImageUrl: 'files/generations/thumb.png',
+      });
+      const { GenerationService } = await import('@/server/services/generation');
+      vi.mocked(GenerationService).mockImplementation(
+        () => ({ transformImageForGeneration, uploadImageForGeneration }) as never,
+      );
+      const createFile = vi.fn().mockResolvedValue({ id: 'file-1' });
+      const { FileModel } = await import('@/database/models/file');
+      vi.mocked(FileModel).mockImplementation(() => ({ create: createFile }) as never);
+
+      const caller = imageRouter.createCaller({
+        jwtPayload: { apiKey: 'test-key' },
+        secret: 'test-internal-secret',
+        userId: 'test-user',
+      });
+
+      const result = await caller.createChatImage({
+        model: 'gpt-image-2',
+        params: { prompt: 'a rain-washed street' },
+        provider: 'openaicompatible',
+        taskId: 'task-2',
+      });
+
+      expect(result).toEqual({ success: true });
+      // the image bytes are handled entirely server-side: transform → upload →
+      // durable files row linked to the task via metadata.chatImageTaskId
+      expect(transformImageForGeneration).toHaveBeenCalledWith('data:image/png;base64,AAAA');
+      expect(uploadImageForGeneration).toHaveBeenCalled();
+      expect(createFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ chatImageTaskId: 'task-2' }),
+          url: 'files/generations/img.png',
+        }),
+        true,
+      );
+      expect(updateTask).toHaveBeenCalledWith('task-2', { status: 'success' });
+    });
+
+    it('marks the task failed with a categorized error when the provider call rejects', async () => {
+      mockClaimPendingTask.mockResolvedValue(true);
+      const updateTask = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ claimPendingTask: mockClaimPendingTask, update: updateTask }) as never,
+      );
+      const createImage = vi.fn().mockRejectedValue(new Error('upstream 503'));
+      vi.mocked(initModelRuntimeWithUserPayload).mockResolvedValue({ createImage } as never);
+
+      const caller = imageRouter.createCaller({
+        jwtPayload: { apiKey: 'test-key' },
+        secret: 'test-internal-secret',
+        userId: 'test-user',
+      });
+
+      const result = await caller.createChatImage({
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+        taskId: 'task-3',
+      });
+
+      expect(result).toEqual({ message: expect.stringContaining('upstream 503'), success: false });
+      expect(updateTask).toHaveBeenCalledWith(
+        'task-3',
+        expect.objectContaining({ status: 'error' }),
+      );
+    });
   });
 });

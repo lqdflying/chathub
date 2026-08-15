@@ -2,12 +2,9 @@ import { UIChatMessage } from '@lobechat/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { messageService } from '@/services/message';
 import { imageGenerationService } from '@/services/textToImage';
-import { uploadService } from '@/services/upload';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
-import { useFileStore } from '@/store/file';
 import { DallEImageItem } from '@/types/tool/dalle';
 
 // The Image tool reads the configured (provider, model) from the image store.
@@ -15,7 +12,7 @@ import { DallEImageItem } from '@/types/tool/dalle';
 const { mockImageState } = vi.hoisted(() => ({
   mockImageState: {
     isInit: true,
-    model: 'gpt-image-1',
+    model: 'gpt-image-2',
     // include reference-image params to prove they're stripped (finding r1/6)
     parameters: {
       imageUrl: 'ref-single',
@@ -23,7 +20,7 @@ const { mockImageState } = vi.hoisted(() => ({
       prompt: 'ignored',
       size: '1024x1024',
     } as Record<string, unknown>,
-    provider: 'openai',
+    provider: 'openaicompatible',
   },
 }));
 vi.mock('@/store/image', () => ({ getImageStoreState: () => mockImageState }));
@@ -39,6 +36,7 @@ vi.mock('@/store/aiInfra', () => ({
 describe('chatToolSlice - dalle', () => {
   afterEach(() => {
     mockImageState.isInit = true;
+    vi.useRealTimers();
   });
 
   describe('generateImageFromPrompts', () => {
@@ -49,7 +47,7 @@ describe('chatToolSlice - dalle', () => {
       vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
         (id) => () => ({ content: JSON.stringify([{ prompt: 'p' }]), id }) as UIChatMessage,
       );
-      const createImageMock = vi.spyOn(imageGenerationService, 'createImage');
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
       const updatePluginState = vi
         .spyOn(result.current, 'updatePluginState')
         .mockResolvedValue(undefined);
@@ -61,20 +59,20 @@ describe('chatToolSlice - dalle', () => {
         );
       });
 
-      expect(createImageMock).not.toHaveBeenCalled();
+      expect(createTaskMock).not.toHaveBeenCalled();
       expect(updatePluginState).toHaveBeenCalledWith(messageId, {
         error: [{ errorType: 'NoImageModelConfigured' }],
       });
     });
 
-    it('generates via createImage, updates items, and uploads images', async () => {
+    it('creates async tasks, polls them, and stores only the durable file id (no data: URIs)', async () => {
+      vi.useFakeTimers();
       const { result } = renderHook(() => useChatStore());
 
       const initialMessageContent = JSON.stringify([
         { prompt: 'test prompt 1' },
         { prompt: 'test prompt 2' },
       ]);
-
       vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
         (id) => () => ({ content: initialMessageContent, id }) as UIChatMessage,
       );
@@ -85,49 +83,60 @@ describe('chatToolSlice - dalle', () => {
         { prompt: 'test prompt 2' },
       ] as DallEImageItem[];
 
-      const createImageMock = vi
-        .spyOn(imageGenerationService, 'createImage')
-        .mockResolvedValue({ height: 512, imageUrl: 'https://example.com/image.png', width: 512 });
-      vi.spyOn(uploadService, 'getImageFileByUrlWithCORS').mockResolvedValue(
-        new File(['1'], 'file.png', { type: 'image/png' }),
-      );
-
-      vi.spyOn(useFileStore, 'getState').mockReturnValue({
-        uploadWithProgress: vi.fn().mockResolvedValue({
-          dimensions: { height: 512, width: 512 },
-          filename: 'file.png',
-          id: 'image-id',
-          url: '',
-        }),
-      } as any);
+      let taskCounter = 0;
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async () => ({ taskId: `task-${++taskCounter}` }));
+      const pollMock = vi
+        .spyOn(imageGenerationService, 'getChatImageResult')
+        .mockImplementation(async (taskId) => ({
+          file: { height: 1024, id: `file-for-${taskId}`, width: 1024 },
+          status: 'success',
+        }));
 
       vi.spyOn(result.current, 'toggleDallEImageLoading');
       vi.spyOn(result.current, 'updatePluginState').mockResolvedValue(undefined);
-      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
+      const updateContent = vi
+        .spyOn(result.current, 'internal_updateMessageContent')
+        .mockResolvedValue({ persistenceAmbiguous: false });
 
       await act(async () => {
-        await result.current.generateImageFromPrompts(prompts, messageId);
+        const run = result.current.generateImageFromPrompts(prompts, messageId);
+        // both items poll once after the 2.5 s interval
+        await vi.advanceTimersByTimeAsync(3000);
+        await run;
       });
 
-      expect(createImageMock).toHaveBeenCalledTimes(prompts.length);
-      // it passes the configured provider/model, not a hardcoded dall-e-3
-      expect(createImageMock).toHaveBeenCalledWith(
-        expect.objectContaining({ model: 'gpt-image-1', provider: 'openai' }),
+      // it passes the configured provider/model, not a hardcoded dall-e-3, and
+      // the generation runs as an async task (create + poll), never a long
+      // synchronous request
+      expect(createTaskMock).toHaveBeenCalledTimes(prompts.length);
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'gpt-image-2', provider: 'openaicompatible' }),
       );
       // reference-image params are stripped (finding r1/6); prompt is the item's
-      const callParams = (createImageMock.mock.calls[0][0] as { params: Record<string, unknown> })
+      const callParams = (createTaskMock.mock.calls[0][0] as { params: Record<string, unknown> })
         .params;
       expect(callParams.imageUrl).toBeUndefined();
       expect(callParams.imageUrls).toBeUndefined();
       expect(callParams.prompt).toBe('test prompt 1');
-      expect(useFileStore.getState().uploadWithProgress).toHaveBeenCalledTimes(prompts.length);
-      // loading toggled on then off per prompt
+      expect(pollMock).toHaveBeenCalledWith('task-1');
+      expect(pollMock).toHaveBeenCalledWith('task-2');
+
+      // the persisted content carries the durable file ids and NEVER any
+      // image bytes — multi-MB data: URIs were exactly what crashed the chat
+      const persistedPayloads = updateContent.mock.calls.map((call) => String(call[1]));
+      expect(persistedPayloads.some((p) => p.includes('file-for-task-1'))).toBe(true);
+      for (const payload of persistedPayloads) {
+        expect(payload).not.toContain('data:');
+      }
+      // loading toggled on then off per prompt; no failures → no error state
       expect(result.current.toggleDallEImageLoading).toHaveBeenCalledTimes(prompts.length * 2);
-      // no failures → no error state set
       expect(result.current.updatePluginState).not.toHaveBeenCalled();
     });
 
-    it('records a per-index error when generation fails, without throwing', async () => {
+    it('records a per-index serialized error when a task fails, without throwing', async () => {
+      vi.useFakeTimers();
       const { result } = renderHook(() => useChatStore());
       const messageId = 'message-id';
       const initialMessageContent = JSON.stringify([{ prompt: 'p1' }, { prompt: 'p2' }]);
@@ -136,86 +145,44 @@ describe('chatToolSlice - dalle', () => {
         (id) => () => ({ content: initialMessageContent, id }) as UIChatMessage,
       );
 
-      // first prompt succeeds, second fails with TRPC-like detail attached
-      vi.spyOn(imageGenerationService, 'createImage')
-        .mockResolvedValueOnce({ imageUrl: 'https://example.com/ok.png' })
-        .mockRejectedValueOnce(
-          Object.assign(new Error('boom'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } }),
-        );
-      vi.spyOn(uploadService, 'getImageFileByUrlWithCORS').mockResolvedValue(
-        new File(['1'], 'file.png', { type: 'image/png' }),
+      let taskCounter = 0;
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockImplementation(async () => ({
+        taskId: `task-${++taskCounter}`,
+      }));
+      // first task succeeds, second fails with a categorized task error
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === 'task-1'
+          ? { file: { id: 'image-id' }, status: 'success' }
+          : {
+              error: { body: { detail: 'upstream 503' }, name: 'ServerError' },
+              status: 'error',
+            },
       );
-      vi.spyOn(useFileStore, 'getState').mockReturnValue({
-        uploadWithProgress: vi.fn().mockResolvedValue({ id: 'image-id', url: '' }),
-      } as any);
 
       vi.spyOn(result.current, 'toggleDallEImageLoading');
       const updatePluginState = vi
         .spyOn(result.current, 'updatePluginState')
         .mockResolvedValue(undefined);
-      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
+      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue({
+        persistenceAmbiguous: false,
+      });
 
       await act(async () => {
-        await result.current.generateImageFromPrompts(
+        const run = result.current.generateImageFromPrompts(
           [{ prompt: 'p1' }, { prompt: 'p2' }] as DallEImageItem[],
           messageId,
         );
+        await vi.advanceTimersByTimeAsync(3000);
+        await run;
       });
 
-      // error recorded at index 1 only, and loading always turned back off
+      // error recorded at index 1 only, as a plain serialized object (an Error
+      // instance would lose its message on the jsonb write)
       expect(updatePluginState).toHaveBeenCalledTimes(1);
       const errorArg = updatePluginState.mock.calls[0][1] as { error: unknown[] };
       expect(errorArg.error[0]).toBeUndefined();
-      // a plain serialized object, NOT the Error instance — an Error's message is
-      // non-enumerable and would be dropped by the jsonb persistence
-      expect(errorArg.error[1]).toEqual({
-        code: 'BAD_REQUEST',
-        message: 'boom',
-        name: 'Error',
-        status: 400,
-      });
+      expect(errorArg.error[1]).toEqual({ message: 'upstream 503', name: 'ServerError' });
       expect(result.current.toggleDallEImageLoading).toHaveBeenCalledTimes(4);
-    });
-
-    it('bounds and sanitizes the upload filename derived from a long prompt', async () => {
-      const { result } = renderHook(() => useChatStore());
-      const messageId = 'message-id';
-      // > 255 chars, with a newline and a path separator mixed in
-      const longPrompt = `Digital illustration\nof a small red sailboat / ${'crossing a calm turquoise sea at golden hour '.repeat(8)}`;
-      const initialMessageContent = JSON.stringify([{ prompt: longPrompt }]);
-
-      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
-        (id) => () =>
-          (id === messageId
-            ? { content: initialMessageContent, id, parentId: 'parent-id' }
-            : // empty parent content → the item prompt becomes the name source
-              { content: '', id }) as UIChatMessage,
-      );
-      vi.spyOn(imageGenerationService, 'createImage').mockResolvedValue({
-        imageUrl: 'https://example.com/image.png',
-      });
-      const corsDownload = vi
-        .spyOn(uploadService, 'getImageFileByUrlWithCORS')
-        .mockResolvedValue(new File(['1'], 'file.png', { type: 'image/png' }));
-      vi.spyOn(useFileStore, 'getState').mockReturnValue({
-        uploadWithProgress: vi.fn().mockResolvedValue({ id: 'image-id', url: '' }),
-      } as any);
-      vi.spyOn(result.current, 'toggleDallEImageLoading');
-      vi.spyOn(result.current, 'updatePluginState').mockResolvedValue(undefined);
-      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
-
-      await act(async () => {
-        await result.current.generateImageFromPrompts(
-          [{ prompt: longPrompt }] as DallEImageItem[],
-          messageId,
-        );
-      });
-
-      const filename = corsDownload.mock.calls[0][1];
-      // the presign API rejects anything over 255 chars
-      expect(filename.length).toBeLessThanOrEqual(255);
-      expect(filename.endsWith('_0.png')).toBe(true);
-      expect(filename).not.toMatch(/[\n/\\]/);
     });
   });
 
@@ -230,12 +197,13 @@ describe('chatToolSlice - dalle', () => {
         draft[0].previewUrl = 'new-url';
         draft[0].imageId = 'new-id';
       };
-      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
+      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue({
+        persistenceAmbiguous: false,
+      });
 
       vi.spyOn(chatSelectors, 'getMessageById').mockImplementationOnce(
         (id) => () => ({ content: initialMessageContent, id }) as UIChatMessage,
       );
-      vi.spyOn(messageService, 'updateMessage').mockResolvedValueOnce(undefined);
 
       await act(async () => {
         await result.current.updateImageItem(messageId, updateFunction);
@@ -245,24 +213,6 @@ describe('chatToolSlice - dalle', () => {
         messageId,
         JSON.stringify([{ imageId: 'new-id', previewUrl: 'new-url', prompt: 'test prompt' }]),
       );
-    });
-  });
-
-  describe('text2image', () => {
-    it('should call generateImageFromPrompts with provided data', async () => {
-      const { result } = renderHook(() => useChatStore());
-      const id = 'message-id';
-      const data = [{ prompt: 'prompt 1' }, { prompt: 'prompt 2' }] as DallEImageItem[];
-
-      const generateImageFromPromptsMock = vi
-        .spyOn(result.current, 'generateImageFromPrompts')
-        .mockResolvedValue(undefined);
-
-      await act(async () => {
-        await result.current.text2image(id, data);
-      });
-
-      expect(generateImageFromPromptsMock).toHaveBeenCalledWith(data, id);
     });
   });
 });

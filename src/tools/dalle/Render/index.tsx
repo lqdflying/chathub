@@ -1,7 +1,7 @@
 import { BuiltinRenderProps } from '@lobechat/types';
 import { ActionIcon, PreviewGroup } from '@lobehub/ui';
 import { Download } from 'lucide-react';
-import { memo, useRef } from 'react';
+import React, { memo, useRef } from 'react';
 import { Flexbox } from 'react-layout-kit';
 
 import { fileService } from '@/services/file';
@@ -13,9 +13,14 @@ import ImageItem from './Item';
 const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }) => {
   const currentRef = useRef(0);
 
+  // While the tool call is still streaming/being transformed, `content` can be
+  // the raw arguments object (or undefined) rather than the item array — a
+  // bare .map would throw at render and take down the whole chat page.
+  const items = Array.isArray(content) ? content : [];
+
   const handleDownload = async () => {
     // 1. Retrieve the blob URL of an image by its imageId
-    const id = content[currentRef.current]?.imageId;
+    const id = items[currentRef.current]?.imageId;
     if (!id) return;
     const { url, name } = await fileService.getFile(id);
     // 2. Download the image
@@ -43,7 +48,7 @@ const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }
           } as any
         }
       >
-        <GalleyGrid items={content.map((c) => ({ ...c, messageId }))} renderItem={ImageItem} />
+        <GalleyGrid items={items.map((c) => ({ ...c, messageId }))} renderItem={ImageItem} />
       </PreviewGroup>
     </Flexbox>
   );

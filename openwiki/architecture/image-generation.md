@@ -799,25 +799,29 @@ configurable model rather than a hard-coded one.
   to the first usable `enabledImageModelList` entry; if none, it surfaces a
   no-model error. Per-generation fields (`prompt`, `imageUrl`, `imageUrls`) are
   stripped so the tool is always text-only.
-- **Generation** — it calls `imageGenerationService.createImage({provider, model,
-params})` → `POST /webapi/create-image/[provider]` → `agentRuntime.createImage`
-  (the same modern primitive as the workspace, not the legacy `textToImage`).
-- **Remote image download** — `createImage` may return a `data:` URI (used
-  directly) or a remote URL. Remote URLs go through `/webapi/proxy`, which
-  preserves the upstream **status/statusText and raw bytes** but forwards only a
-  **content-type response header** (untrusted headers such as `Set-Cookie` and
-  CSP are dropped). `getImageFileByUrlWithCORS` then rejects a non-OK response and
-  classifies the body by its **actual bytes** via `file-type`
-  (`fileTypeFromBuffer`), not the spoofable content-type: a body whose bytes are
-  not a supported image is rejected (no corrupt upload), and the file MIME and
-  extension are derived from the verified result. An optional caller-supplied type
-  may only confirm the bytes, never bypass them. The upload name is derived from
-  the prompt but sanitized and bounded (the presign API rejects filenames over
-  255 chars; the upload service also clamps any over-long name as a backstop).
-  The verified bytes are uploaded to object storage and the message stores a
-  durable `fileId` (the transient blob preview is replaced on success, cleared on
-  failure). Results settle independently with bounded concurrency; per-image
-  retry regenerates only failed items.
+- **Generation — async task + polling (same pattern as the workspace).**
+  Generation can take 30–60 s (e.g. 4K `gpt-image-2`), so the chat tool never
+  holds a synchronous request open: `imageGenerationService.createChatImageTask`
+  → `POST /webapi/create-image/[provider]` (a thin bridge that exists so the
+  auth payload carries the IMAGE provider's keyVaults via
+  `createHeaderWithAuth(provider)`; the lambda client's default headers resolve
+  the image provider only on `/image`) → `lambda image.createChatImage` creates
+  a pending `asyncTask` and dispatches `async image.createChatImage`, returning
+  the task id immediately. The client polls `image.getChatImageResult` (2.5 s
+  interval, 300 s budget, staleness-checked) until the task settles.
+- **Server-side image handling — no bytes ever reach the browser.** The async
+  procedure runs `agentRuntime.createImage` (same runtime init as the
+  workspace), then `GenerationService.transformImageForGeneration` +
+  `uploadImageForGeneration`, and creates a **files row** linked to the task
+  via `metadata.chatImageTaskId` (`FileModel.findByChatImageTaskId`). The chat
+  message stores only the durable `fileId` — multi-MB base64/`data:` URIs are
+  never written into message content or the store (that was the cause of the
+  live-page crash this design replaced). Provider/task failures are categorized
+  onto the task (`categorizeError`) and surface as the per-item error card.
+  Results settle independently with bounded concurrency; per-image retry
+  regenerates only failed items. The byte-verifying CORS download path
+  (`getImageFileByUrlWithCORS` + `/webapi/proxy` hardening) remains in the
+  upload service for other callers but is no longer part of generation.
 
 ## Testing
 

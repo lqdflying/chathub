@@ -1,5 +1,4 @@
-import { CreateImagePayload, CreateImageResponse } from '@lobechat/model-runtime';
-
+import { lambdaClient } from '@/libs/trpc/client';
 import { createHeaderWithAuth } from '@/services/_auth';
 
 import { API_ENDPOINTS } from './_url';
@@ -8,23 +7,32 @@ interface FetchOptions {
   signal?: AbortSignal | undefined;
 }
 
+export interface ChatImageTaskResult {
+  error?: { body?: { detail?: string }; name?: string } | null;
+  file?: { height?: number; id: string; width?: number };
+  status: string;
+}
+
 class ImageGenerationService {
   /**
-   * Generate an image through the modern, provider-agnostic `createImage` runtime
-   * path so the built-in Image tool uses whatever image model/provider the user
-   * has configured (the same primitive as the main Image workspace).
+   * Start an in-chat image generation as an ASYNC TASK (the same pattern the
+   * Image workspace uses) and return its task id. Generation can take 30–60 s;
+   * a synchronous request held open that long dies at proxies/CDNs, so the
+   * caller polls `getChatImageResult` instead. This creation request goes
+   * through the dedicated webapi route because its auth payload must carry the
+   * IMAGE provider's keyVaults (`createHeaderWithAuth(provider)`).
    */
-  createImage = async (
-    { provider, model, params }: CreateImagePayload & { provider: string },
+  createChatImageTask = async (
+    { provider, model, params }: { model: string; params: { prompt: string }; provider: string },
     options?: FetchOptions,
-  ): Promise<CreateImageResponse> => {
+  ): Promise<{ taskId: string }> => {
     const headers = await createHeaderWithAuth({
       headers: { 'Content-Type': 'application/json' },
       provider,
     });
 
     const res = await fetch(API_ENDPOINTS.createImage(provider), {
-      body: JSON.stringify({ model, params } satisfies CreateImagePayload),
+      body: JSON.stringify({ model, params }),
       headers,
       method: 'POST',
       signal: options?.signal,
@@ -45,6 +53,14 @@ class ImageGenerationService {
     }
 
     return res.json();
+  };
+
+  /**
+   * Poll the outcome of a chat image task: status/error, and on success the
+   * durable file the server created (id + dimensions).
+   */
+  getChatImageResult = async (taskId: string): Promise<ChatImageTaskResult> => {
+    return lambdaClient.image.getChatImageResult.query({ taskId }) as Promise<ChatImageTaskResult>;
   };
 }
 

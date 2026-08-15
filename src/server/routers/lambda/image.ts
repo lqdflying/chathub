@@ -1,8 +1,10 @@
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 
 import { IMAGE_REFERENCE_ERROR_MESSAGES } from '@/const/imageGeneration';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
+import { FileModel } from '@/database/models/file';
 import { GenerationModel } from '@/database/models/generation';
 import {
   NewGeneration,
@@ -269,6 +271,79 @@ const imageProcedure = authedProcedure
   });
 
 export const imageRouter = router({
+  /**
+   * In-chat Image tool: create one async generation task and dispatch it. The
+   * chat tool must never hold a synchronous request open for the whole
+   * generation (30–60 s through proxies) — it polls getChatImageResult
+   * instead, exactly like the workspace polls its generations.
+   */
+  createChatImage: imageProcedure
+    .input(
+      z.object({
+        model: z.string().trim().min(1),
+        params: z.object({ prompt: z.string().trim().min(1) }).passthrough(),
+        provider: z.string().trim().min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { asyncTaskModel } = ctx;
+      const taskId = await asyncTaskModel.create({
+        status: AsyncTaskStatus.Pending,
+        type: AsyncTaskType.ImageGeneration,
+      });
+
+      try {
+        const asyncCaller = await createAsyncCaller({
+          jwtPayload: ctx.jwtPayload,
+          userId: ctx.userId,
+        });
+        asyncCaller.image
+          .createChatImage({
+            model: input.model,
+            params: input.params as { prompt: string },
+            provider: input.provider,
+            taskId,
+          })
+          .catch(async (error) => {
+            await asyncTaskModel
+              .updatePendingToError(taskId, {
+                error: new AsyncTaskError(
+                  AsyncTaskErrorType.TaskTriggerError,
+                  IMAGE_TRIGGER_ERROR_MESSAGE,
+                ),
+                status: AsyncTaskStatus.Error,
+              })
+              .catch(() => {});
+            logImageDebugSafe('dispatch_settled', {
+              ...describeImageDebugError(error),
+              failurePhase: 'dispatch',
+              outcome: 'failed',
+              phase: 'chat_dispatch',
+              taskHash: fingerprintImageDebugValue('async-task-id', taskId),
+            });
+          });
+      } catch (error) {
+        await asyncTaskModel
+          .updatePendingToError(taskId, {
+            error: new AsyncTaskError(
+              AsyncTaskErrorType.TaskTriggerError,
+              IMAGE_TRIGGER_ERROR_MESSAGE,
+            ),
+            status: AsyncTaskStatus.Error,
+          })
+          .catch(() => {});
+        logImageDebugSafe('dispatch_settled', {
+          ...describeImageDebugError(error),
+          failurePhase: 'caller_initialization',
+          outcome: 'failed',
+          phase: 'chat_dispatch',
+          taskHash: fingerprintImageDebugValue('async-task-id', taskId),
+        });
+      }
+
+      return { taskId };
+    }),
+
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {
     const execute = async () => {
       const { userId, serverDB, asyncTaskModel, fileService, generationModel } = ctx;
@@ -588,6 +663,38 @@ export const imageRouter = router({
       execute,
     );
   }),
+
+  /**
+   * Poll result for createChatImage: task status/error plus, on success, the
+   * files row the async procedure created (linked via metadata.chatImageTaskId).
+   */
+  getChatImageResult: imageProcedure
+    .input(z.object({ taskId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const task = await ctx.asyncTaskModel.findById(input.taskId);
+      if (!task) return { status: 'not_found' as const };
+
+      if (task.status !== AsyncTaskStatus.Success) {
+        return {
+          error: task.error as { body?: { detail?: string }; name?: string } | null,
+          status: task.status as string,
+        };
+      }
+
+      const fileModel = new FileModel(ctx.serverDB, ctx.userId);
+      const file = await fileModel.findByChatImageTaskId(input.taskId);
+      if (!file) return { status: 'not_found' as const };
+
+      const metadata = (file.metadata ?? {}) as { height?: number; width?: number };
+      return {
+        file: {
+          height: metadata.height,
+          id: file.id,
+          width: metadata.width,
+        },
+        status: AsyncTaskStatus.Success as string,
+      };
+    }),
 });
 
 export type ImageRouter = typeof imageRouter;
