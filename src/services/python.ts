@@ -1,15 +1,17 @@
-import { PythonInterpreter } from '@lobechat/python-interpreter';
+import { PythonWorkerHandle, createPythonWorker } from '@lobechat/python-interpreter';
 import { CodeInterpreterResponse } from '@lobechat/types';
 
 import { pythonEnv } from '@/envs/python';
 
 // Recover the UI if execution hangs (e.g. `while True: pass`, or a slow/blocked
-// Pyodide/CDN load). The worker itself keeps running until it's terminated
-// (handled at the store layer); this timeout surfaces a clear error instead of
-// an infinite spinner.
+// Pyodide/CDN load): time the run out and terminate the worker so the next run
+// starts fresh.
 const EXECUTION_TIMEOUT = 60_000;
 
 class PythonService {
+  private handle: PythonWorkerHandle | undefined;
+  private queue: Promise<unknown> = Promise.resolve();
+
   async runPython(
     code: string,
     packages: string[],
@@ -17,8 +19,36 @@ class PythonService {
   ): Promise<CodeInterpreterResponse | undefined> {
     if (typeof Worker === 'undefined') return;
 
+    // Serialize runs onto one worker so concurrent tool calls can't race the
+    // shared Pyodide global; keep the chain alive even if a run rejects.
+    const task = this.queue.then(() => this.runOnce(code, packages, files));
+    this.queue = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
+  }
+
+  private getHandle(): PythonWorkerHandle | undefined {
+    if (!this.handle) this.handle = createPythonWorker();
+    return this.handle;
+  }
+
+  private terminate() {
+    this.handle?.worker.terminate();
+    this.handle = undefined;
+  }
+
+  private async runOnce(
+    code: string,
+    packages: string[],
+    files: File[],
+  ): Promise<CodeInterpreterResponse | undefined> {
+    const handle = this.getHandle();
+    if (!handle) return;
+
     const run = async (): Promise<CodeInterpreterResponse> => {
-      const interpreter = await new PythonInterpreter!({
+      const interpreter = await new handle.RemoteInterpreter({
         pyodideIndexUrl: pythonEnv.NEXT_PUBLIC_PYODIDE_INDEX_URL,
         pypiIndexUrl: pythonEnv.NEXT_PUBLIC_PYODIDE_PIP_INDEX_URL,
       });
@@ -39,6 +69,11 @@ class PythonService {
       };
     };
 
+    const runPromise = run();
+    // if the worker is terminated after a timeout, the pending call can reject
+    // late — swallow it so it never surfaces as an unhandled rejection
+    runPromise.catch(() => {});
+
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
@@ -48,7 +83,11 @@ class PythonService {
     });
 
     try {
-      return await Promise.race([run(), timeout]);
+      return await Promise.race([runPromise, timeout]);
+    } catch (error) {
+      // kill the (possibly hung) worker so the next run starts from a clean state
+      this.terminate();
+      throw error;
     } finally {
       if (timer) clearTimeout(timer);
     }
