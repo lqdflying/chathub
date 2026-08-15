@@ -123,14 +123,19 @@ blocks to `VisualCodeBlock`:
   when the drawer opens on mobile and closes on `popstate`, so the phone Back
   closes only the drawer instead of popping the chat route and ejecting the user
   to the session list (`useWorkspaceModal` remains the navigate-away safety net).
-  The iframe drops `allow-same-origin`.
+  The history effect depends only on `[mobile, open]` — `useWorkspaceModal`'s
+  setter is held in a ref (it's a fresh function each render, so listing it would
+  re-run the effect and churn the stack) — and tracks entry ownership in a ref so
+  cleanup pops exactly its entry and a real Back close doesn't pop again. The
+  iframe drops `allow-same-origin`.
 - **Loading resets must include `messageRAGLoadingIds`.** The avatar spinner is
   `loading = isInRAGFlow || generating` (`Assistant/index.tsx`), i.e.
   `messageRAGLoadingIds || chatLoadingIds`. `internal_invalidateConversation`
-  (`message/action.ts`) must clear BOTH; it previously omitted the RAG array, so
-  an id orphaned mid-retrieval (its `rag.ts` cleanup was `isCurrentRequest`-gated)
-  left the ring spinning forever across topic switches. `rag.ts`'s `finally`
-  toggle-off is now unconditional.
+  (`message/action.ts`) clears BOTH; it previously omitted the RAG array, so an id
+  orphaned mid-retrieval left the ring spinning forever across topic switches.
+  `rag.ts`'s `finally` toggle-off keeps its `isCurrentRequest()` guard (so a stale
+  request can't clear a newer request that reused the id) — the orphan case that
+  guard used to cause is now covered by the invalidate reset above.
 - HTML **artifacts** open the workspace once per generation and never on mobile
   (`LobeArtifact/Render/index.tsx`) — the old effect re-opened on every stream
   tick; the mobile portal Modal (`@portal/_layout/Mobile.tsx`) is tied to the
