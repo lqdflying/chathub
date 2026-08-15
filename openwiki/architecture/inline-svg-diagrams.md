@@ -116,10 +116,21 @@ blocks to `VisualCodeBlock`:
 
 ## Mobile navigation & interrupted replies
 
-- The code-block HTML preview drawer (`HtmlPreview/PreviewDrawer.tsx`) uses
-  `100dvh` (not `100vh`, which pushed the close X off-screen on mobile) and its
-  open state is `useWorkspaceModal` so a phone Back closes it; its iframe also
-  drops `allow-same-origin`.
+- The code-block HTML preview drawer (`HtmlPreview/PreviewDrawer.tsx`) is a
+  bottom `Drawer` at `calc(100dvh - env(safe-area-inset-top))` on mobile — plain
+  `100dvh`/`100vh` renders the header (close X) behind the status bar under
+  `viewport-fit=cover`. `HtmlPreviewAction.tsx` pushes a same-URL history entry
+  when the drawer opens on mobile and closes on `popstate`, so the phone Back
+  closes only the drawer instead of popping the chat route and ejecting the user
+  to the session list (`useWorkspaceModal` remains the navigate-away safety net).
+  The iframe drops `allow-same-origin`.
+- **Loading resets must include `messageRAGLoadingIds`.** The avatar spinner is
+  `loading = isInRAGFlow || generating` (`Assistant/index.tsx`), i.e.
+  `messageRAGLoadingIds || chatLoadingIds`. `internal_invalidateConversation`
+  (`message/action.ts`) must clear BOTH; it previously omitted the RAG array, so
+  an id orphaned mid-retrieval (its `rag.ts` cleanup was `isCurrentRequest`-gated)
+  left the ring spinning forever across topic switches. `rag.ts`'s `finally`
+  toggle-off is now unconditional.
 - HTML **artifacts** open the workspace once per generation and never on mobile
   (`LobeArtifact/Render/index.tsx`) — the old effect re-opened on every stream
   tick; the mobile portal Modal (`@portal/_layout/Mobile.tsx`) is tied to the
