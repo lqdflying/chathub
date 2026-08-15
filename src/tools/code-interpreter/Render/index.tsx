@@ -16,6 +16,9 @@ import { chatToolSelectors } from '@/store/chat/slices/builtinTool/selectors';
 
 import ResultFileGallery from './components/ResultFileGallery';
 
+// cap per-output-chunk length so a runaway print can't bloat the DOM / persisted content
+const MAX_OUTPUT_CHARS = 50_000;
+
 const CodeInterpreter = memo<
   BuiltinRenderProps<CodeInterpreterResponse, CodeInterpreterParams, CodeInterpreterState>
 >(({ content, args, pluginState, messageId, apiName }) => {
@@ -103,7 +106,9 @@ const CodeInterpreter = memo<
               >
                 {content.output?.map((item, index) => (
                   <Text code key={index} type={item.type === 'stderr' ? 'danger' : undefined}>
-                    {item.data}
+                    {item.data.length > MAX_OUTPUT_CHARS
+                      ? `${item.data.slice(0, MAX_OUTPUT_CHARS)}\n…[truncated]`
+                      : item.data}
                   </Text>
                 ))}
               </div>

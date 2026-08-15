@@ -101,7 +101,14 @@ export const codeInterpreterSlice: StateCreator<
       }
 
       if (result?.files) {
-        await get().internal_updateMessageContent(id, JSON.stringify(result));
+        // don't persist the raw File objects (they serialize to `{}`); keep the
+        // blob previewUrl only for this session's immediate display, then
+        // uploadInterpreterFiles swaps in a durable fileId
+        const persistable = {
+          ...result,
+          files: result.files.map((file) => ({ ...file, data: undefined })),
+        };
+        await get().internal_updateMessageContent(id, JSON.stringify(persistable));
         if (!invocationIsCurrent()) {
           return { data: undefined, outcome: 'cancelled', shouldContinue: false };
         }
@@ -189,6 +196,12 @@ export const codeInterpreterSlice: StateCreator<
         }
       } catch (error) {
         console.error('Failed to upload CodeInterpreter file:', error);
+        // clear the dead blob previewUrl so a reload doesn't show a broken image
+        if (invocationIsCurrent()) {
+          await get().updateInterpreterFileItem(id, (draft) => {
+            if (draft.files?.[index]) draft.files[index].previewUrl = undefined;
+          });
+        }
       }
     });
   },

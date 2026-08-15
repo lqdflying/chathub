@@ -139,10 +139,22 @@ describe('PythonWorker', () => {
       expect(worker.uploadedFiles).toContain(mockFile);
     });
 
-    it('should upload files with absolute path as-is', async () => {
+    it('sanitizes an absolute-path filename into /mnt/data (no traversal)', async () => {
       const absFile = new File([Uint8Array.from([1, 2])], '/abs.txt');
       await worker.uploadFiles([absFile]);
-      expect(mockPyodide.FS.writeFile).toHaveBeenCalledWith('/abs.txt', expect.any(Uint8Array));
+      expect(mockPyodide.FS.writeFile).toHaveBeenCalledWith(
+        '/mnt/data/abs.txt',
+        expect.any(Uint8Array),
+      );
+    });
+
+    it('strips parent-dir traversal from filenames', async () => {
+      const evilFile = new File([Uint8Array.from([1])], '../../etc/passwd');
+      await worker.uploadFiles([evilFile]);
+      expect(mockPyodide.FS.writeFile).toHaveBeenCalledWith(
+        '/mnt/data/passwd',
+        expect.any(Uint8Array),
+      );
     });
 
     it('should download new files from filesystem', async () => {

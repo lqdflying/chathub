@@ -74,11 +74,10 @@ class PythonWorker {
     for (const file of files) {
       const content = new Uint8Array(await file.arrayBuffer());
       // TODO: 此处可以考虑使用 WORKERFS 减少一次拷贝
-      if (file.name.startsWith('/')) {
-        this.pyodide.FS.writeFile(file.name, content);
-      } else {
-        this.pyodide.FS.writeFile(`/mnt/data/${file.name}`, content);
-      }
+      // Always write under /mnt/data using the basename only — a crafted
+      // absolute or `../`-containing name must not escape the sandbox dir.
+      const safeName = file.name.split(/[/\\]/).pop() || file.name;
+      this.pyodide.FS.writeFile(`/mnt/data/${safeName}`, content);
       this.uploadedFiles.push(file);
     }
   }
