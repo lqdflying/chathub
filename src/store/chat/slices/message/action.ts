@@ -788,23 +788,20 @@ export const chatMessage: StateCreator<
       const diagnosticId = extra.diagnosticId || `td_${nanoid(20)}`;
 
       // The write may have been applied while only the RESPONSE was lost or
-      // mangled (gateway/proxy interception) — read the conversation straight
-      // from the server (NOT the store: the optimistic dispatch above already
-      // wrote `update` into the in-memory map, and for a background
-      // conversation a refresh won't overwrite it) and check whether this
-      // update actually landed.
+      // mangled (gateway/proxy interception) — read the message straight from
+      // the server (NOT the store: the optimistic dispatch above already wrote
+      // `update` into the in-memory map, and for a background conversation a
+      // refresh won't overwrite it) and check whether this update actually
+      // landed. The read MUST be scoped by id only: a conversation-list query
+      // silently misses group messages (its groupId filter defaults to NULL)
+      // and anything past its 1,000-row oldest-first page.
       const verifyFinalizationLanded = async (): Promise<boolean> => {
         try {
-          const persisted = await messageService.getMessages(
-            requestedSessionId,
-            requestedTopicId ?? undefined,
-          );
-          const message = persisted.find((m) => m.id === id);
-          if (!message) return false;
-          const wantedToolCallId = update.tools?.[0]?.id;
-          const toolsLanded =
-            !wantedToolCallId || !!message.tools?.some((t) => t.id === wantedToolCallId);
-          return message.content === content && toolsLanded;
+          const persisted = await messageService.getMessageById(id);
+          if (!persisted) return false;
+          const persistedToolIds = new Set((persisted.tools ?? []).map((tool) => tool.id));
+          const toolsLanded = (update.tools ?? []).every((tool) => persistedToolIds.has(tool.id));
+          return persisted.content === content && toolsLanded;
         } catch {
           return false;
         }

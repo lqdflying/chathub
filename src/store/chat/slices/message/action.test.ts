@@ -28,6 +28,7 @@ vi.mock('zustand/traditional', async (importOriginal) => await importOriginal())
 vi.mock('@/services/message', () => ({
   messageService: {
     createMessage: vi.fn(() => Promise.resolve('new-message-id')),
+    getMessageById: vi.fn(),
     getMessages: vi.fn(),
     removeAllTopicsHistory: vi.fn(() => Promise.resolve()),
     removeMessage: vi.fn(),
@@ -916,9 +917,9 @@ describe('chatMessage actions', () => {
         .spyOn(messageService, 'updateMessage')
         .mockRejectedValue(gatewayError);
       // server truth is stale — the write really did not land
-      vi.mocked(messageService.getMessages).mockResolvedValue([
-        { content: 'streamed…', id: 'message-id' },
-      ] as any);
+      vi.mocked(messageService.getMessageById).mockResolvedValue({
+        content: 'streamed…',
+      } as any);
       const dispatchMessage = vi.fn();
       const refreshMessages = vi.fn();
       useChatStore.setState({ internal_dispatchMessage: dispatchMessage, refreshMessages });
@@ -986,10 +987,14 @@ describe('chatMessage actions', () => {
         reason: 'response_parse_failed',
       });
       vi.spyOn(messageService, 'updateMessage').mockRejectedValue(gatewayError);
-      // the server actually applied the update — only the responses were mangled
-      vi.mocked(messageService.getMessages).mockResolvedValue([
-        { content: 'final content', id: 'message-id' },
-      ] as any);
+      // the server actually applied the update — only the responses were
+      // mangled. The persisted row is GROUP-shaped (non-null groupId): the
+      // id-scoped read must recover it (a conversation-list query would not).
+      vi.mocked(messageService.getMessageById).mockResolvedValue({
+        content: 'final content',
+        groupId: 'group-1',
+        tools: [{ id: 'call_ci_1' }],
+      } as any);
       const refreshMessages = vi.fn();
       useChatStore.setState({ refreshMessages });
       const { result } = renderHook(() => useChatStore());
@@ -997,15 +1002,24 @@ describe('chatMessage actions', () => {
       const response = await act(async () =>
         result.current.internal_updateMessageContent('message-id', 'final content', {
           persistenceRecovery: 'assistant_finalization',
+          toolCalls: [
+            {
+              function: { arguments: '{}', name: 'lobe-code-interpreter____python' },
+              id: 'call_ci_1',
+              type: 'function',
+            },
+          ],
         }),
       );
 
       expect(response).toEqual({ persistenceAmbiguous: false });
-      expect(messageService.getMessages).toHaveBeenCalled();
+      // verified via the id-scoped read, not a bounded conversation-list query
+      expect(messageService.getMessageById).toHaveBeenCalledWith('message-id');
+      expect(messageService.getMessages).not.toHaveBeenCalled();
       expect(refreshMessages).toHaveBeenCalledTimes(1);
     });
 
-    it('verifies a tool-call finalization against the persisted tool call id', async () => {
+    it('stays ambiguous when any intended tool call is missing from the persisted message', async () => {
       const gatewayError = new ToolsRPCResponseError({
         bodyKind: 'html',
         diagnosticId: 'td_gatewayresponse1234',
@@ -1017,10 +1031,12 @@ describe('chatMessage actions', () => {
         reason: 'response_parse_failed',
       });
       vi.spyOn(messageService, 'updateMessage').mockRejectedValue(gatewayError);
-      // content matches but the tool call is absent — the tools update did NOT land
-      vi.mocked(messageService.getMessages).mockResolvedValue([
-        { content: 'final content', id: 'message-id', tools: [] },
-      ] as any);
+      // content matches and ONE of two intended tool calls is present — the
+      // tools update did NOT land completely, so recovery must not trigger
+      vi.mocked(messageService.getMessageById).mockResolvedValue({
+        content: 'final content',
+        tools: [{ id: 'call_ci_1' }],
+      } as any);
       useChatStore.setState({ refreshMessages: vi.fn() });
       const { result } = renderHook(() => useChatStore());
 
@@ -1031,6 +1047,11 @@ describe('chatMessage actions', () => {
             {
               function: { arguments: '{}', name: 'lobe-code-interpreter____python' },
               id: 'call_ci_1',
+              type: 'function',
+            },
+            {
+              function: { arguments: '{}', name: 'lobe-code-interpreter____python' },
+              id: 'call_ci_2',
               type: 'function',
             },
           ],

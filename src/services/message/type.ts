@@ -30,12 +30,12 @@ export interface IMessageService {
     data: CreateMessageParams,
     options?: ConversationWriteOptions,
   ): Promise<CreateMessageResult>;
-  batchCreateMessages(
-    messages: DBMessageItem[],
-    options?: ConversationWriteOptions,
-  ): Promise<any>;
+  batchCreateMessages(messages: DBMessageItem[], options?: ConversationWriteOptions): Promise<any>;
 
   getConversationVersion(): Promise<number | undefined>;
+  getMessageById(
+    id: string,
+  ): Promise<{ content?: string | null; tools?: { id: string }[] | null } | null | undefined>;
   getMessages(sessionId: string, topicId?: string, groupId?: string): Promise<UIChatMessage[]>;
   getGroupMessages(groupId: string, topicId?: string): Promise<UIChatMessage[]>;
   getAllMessages(): Promise<UIChatMessage[]>;

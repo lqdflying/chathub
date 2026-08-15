@@ -44,6 +44,12 @@ export class ServerService implements IMessageService {
     return version;
   };
 
+  getMessageById: IMessageService['getMessageById'] = async (id) => {
+    return lambdaClient.message.getMessageById.query({ id }) as ReturnType<
+      IMessageService['getMessageById']
+    >;
+  };
+
   getMessages: IMessageService['getMessages'] = async (sessionId, topicId, groupId) => {
     const data = await lambdaClient.message.getMessages.query({
       groupId,

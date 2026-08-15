@@ -141,6 +141,15 @@ export const messageRouter = router({
     return ctx.messageModel.getHeatmaps();
   }),
 
+  // Single-message read scoped by id + user only — unlike getMessages/query it
+  // applies no session/topic/group filter and no pagination, so it can confirm
+  // a write landed for ANY conversation shape (used by finalization recovery).
+  getMessageById: messageProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ input, ctx }) => {
+      return ctx.messageModel.findById(input.id);
+    }),
+
   // TODO: 未来这部分方法也需要使用 authedProcedure
   getMessages: publicProcedure
     .input(

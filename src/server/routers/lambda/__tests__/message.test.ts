@@ -66,6 +66,25 @@ describe('messageRouter', () => {
     expect(result.rowCount).toBe(2);
   });
 
+  it('getMessageById reads a single message scoped by id only (no conversation filters)', async () => {
+    // a GROUP message (non-null groupId): findById must return it — unlike
+    // query(), which filters groupId to NULL and pages at 1,000 rows
+    const groupMessage = {
+      content: 'final content',
+      groupId: 'group-1',
+      id: 'msg-1',
+      tools: [{ id: 'call_1' }],
+    };
+    const mockFindById = vi.fn().mockResolvedValue(groupMessage);
+    vi.mocked(MessageModel).mockImplementation(() => ({ findById: mockFindById }) as any);
+
+    const ctx = { messageModel: new MessageModel({} as any, 'user1') };
+    const result = await ctx.messageModel.findById('msg-1');
+
+    expect(mockFindById).toHaveBeenCalledWith('msg-1');
+    expect(result).toEqual(groupMessage);
+  });
+
   it('should handle count', async () => {
     const mockCount = vi.fn().mockResolvedValue(5);
     vi.mocked(MessageModel).mockImplementation(
