@@ -304,3 +304,27 @@ For built-in Tools Hub features, also check:
 - `src/server/routers/`
 - `src/app/[variants]/(main)/tools/`
 - `src/app/(backend)/webapi/tools/`
+
+## Code Interpreter runtime
+
+The `lobe-code-interpreter` builtin runs Python **client-side** via Pyodide in a
+Web Worker (`packages/python-interpreter`); there is no server execution path.
+
+- **Lifecycle** — `src/services/python.ts` owns a single worker. Runs are
+  **serialized** onto it (a promise-chain queue) so concurrent tool calls can't
+  race the shared Pyodide global. Each run is raced against a 60s timeout; on
+  timeout or an infrastructure error the worker is **terminated** and dropped so
+  the next run recreates a fresh one (a runaway `while True` can't poison later
+  runs). `createPythonWorker()` returns `{ RemoteInterpreter, worker }` so the
+  service controls that lifecycle.
+- **Output bounds** — the worker caps total stdout/stderr and the return value
+  before the result crosses Comlink and is persisted, with truncation markers; the
+  renderer cap is defense-in-depth.
+- **Persistence & files** — result `File` objects and blob URLs are not persisted;
+  generated files are uploaded and the message keeps a durable `fileId` (blob
+  previews are revoked on unmount, cleared on upload failure). Conversation input
+  files loaded into the sandbox are fetched per file (a stale id or non-OK
+  response is skipped, not fatal) and written under `/mnt/data` by a sanitized
+  basename (no path traversal). The runtime is `sandbox="allow-scripts"` only
+  (opaque origin); a storage shim keeps CDN-loaded libraries from crashing on
+  `localStorage` access.

@@ -103,9 +103,11 @@ hardcoded initial value.
 
 `useFetchAiImageConfig` continues to wait for three prerequisites owned by the
 active canonical scope: browser system status, user state, and provider runtime
-state. `ImageWorkspace` remains the single owner of that initializer; the
-desktop panel and mobile drawer only render the resulting loading, failure, or
-settled state.
+state. It is now mounted globally in `StoreInitialization` so the config hydrates
+for every session — the built-in chat Image tool depends on this (see _Chat Image
+tool_ below). The initializer is idempotent (it no-ops once `isInit` is set), so
+the additional `ImageWorkspace` mount is harmless; the desktop panel and mobile
+drawer only render the resulting loading, failure, or settled state.
 
 User-state and provider-runtime request failures are stored as category-only
 records tagged with the requested scope. User hydration can report
@@ -781,6 +783,35 @@ configured `DATABASE_TEST_URL` and cover source/account filtering, age cutoffs,
 active-task skips, row-lock rechecks, and durable-original preservation.
 Legacy ComfyUI transformer tests use test-local model schemas so removed
 provider exports are not restored.
+
+## Chat Image tool (provider resolution + generation)
+
+The built-in chat **Image** tool (`lobe-image-designer`) shares the workspace's
+configurable model rather than a hard-coded one.
+
+- **Preference resolution** — `resolveImageModel()`
+  (`src/store/chat/slices/builtinTool/actions/dalle.ts`) reads the image store's
+  `generationConfig` (`provider`/`model`/`parameters`). It only trusts the store
+  once `isInit` is true, so it never bills the hard-coded initial default
+  (`openai`/`gpt-image-1`); the owner-aware hydration (`useFetchAiImageConfig`) is
+  mounted globally in `StoreInitialization` so the config is populated even when
+  the user never opened `/image`. If the stored model isn't enabled it falls back
+  to the first usable `enabledImageModelList` entry; if none, it surfaces a
+  no-model error. Per-generation fields (`prompt`, `imageUrl`, `imageUrls`) are
+  stripped so the tool is always text-only.
+- **Generation** — it calls `imageGenerationService.createImage({provider, model,
+params})` → `POST /webapi/create-image/[provider]` → `agentRuntime.createImage`
+  (the same modern primitive as the workspace, not the legacy `textToImage`).
+- **Remote image download** — `createImage` may return a `data:` URI (used
+  directly) or a remote URL. Remote URLs go through `/webapi/proxy`, which now
+  forwards the upstream status/headers; `getImageFileByUrlWithCORS` rejects a
+  non-OK response (no corrupt upload) and derives the file MIME from the upstream
+  content-type. The bytes are uploaded to object storage and the message stores a
+  durable `fileId` (the transient blob preview is replaced on success, cleared on
+  failure). Results settle independently with bounded concurrency; per-image retry
+  regenerates only failed items.
+
+## Testing
 
 Run the targeted image Vitest suites, the ComfyUI service tests when transformer
 fixtures change, and `bun run type-check`. Follow the repository constraints in
