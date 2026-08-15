@@ -53,7 +53,9 @@ class PythonService {
         pypiIndexUrl: pythonEnv.NEXT_PUBLIC_PYODIDE_PIP_INDEX_URL,
       });
       await interpreter.init();
-      await interpreter.installPackages(packages.filter((p) => p !== ''));
+      // bundled-first package preparation: Pyodide-distribution packages load
+      // before micropip ever resolves anything from PyPI
+      await interpreter.prepareEnvironment(code, packages);
       await interpreter.uploadFiles(files);
 
       const result = await interpreter.runPython(code);

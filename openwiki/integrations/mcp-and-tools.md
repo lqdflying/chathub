@@ -320,6 +320,18 @@ Web Worker (`packages/python-interpreter`); there is no server execution path.
 - **Output bounds** — the worker caps total stdout/stderr and the return value
   before the result crosses Comlink and is persisted, with truncation markers; the
   renderer cap is defense-in-depth.
+- **Bundled-first package preparation** — `prepareEnvironment(code, packages)`
+  (worker) runs BEFORE upload/exec: `loadPackagesFromImports(code)` first, then
+  any requested name that exists in `pyodide.lockfile.packages` loads from the
+  Pyodide distribution (bundled version, offline), then a Python-side check
+  (`packaging.Requirement` + `importlib.metadata`) drops requirements the
+  installed environment already satisfies — only the remainder reaches
+  `micropip.install`. Ordering is the invariant: micropip must never resolve an
+  unpinned name Pyodide bundles (e.g. `jsonschema` → PyPI latest → native
+  `rpds-py>=0.25` with no wasm wheel). A "Can't find a pure Python 3 wheel"
+  failure is wrapped in an explicit Pyodide-compatibility error; the tool's
+  systemRole/param description steer the model away from listing or pinning
+  bundled packages.
 - **Persistence & files** — result `File` objects and blob URLs are not persisted;
   generated files are uploaded and the message keeps a durable `fileId` (blob
   previews are revoked on unmount, cleared on upload failure). Conversation input

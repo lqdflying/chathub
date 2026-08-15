@@ -9,6 +9,11 @@ declare global {
   var loadPyodide: typeof loadPyodideType;
 }
 
+// PEP 503 name normalization + requirement-name extraction, used to match
+// requested packages against the Pyodide lockfile's bundled package names
+const normalizePackageName = (name: string) => name.toLowerCase().replaceAll(/[._-]+/g, '-');
+const requirementBareName = (req: string) => req.split(/[\s!;<=>@[~]/)[0];
+
 const PATCH_MATPLOTLIB = `
 def patch_matplotlib():
   import matplotlib
@@ -119,7 +124,100 @@ class PythonWorker {
     await this.pyodide.loadPackage('micropip');
     const micropip = this.pyodide.pyimport('micropip');
     micropip.set_index_urls([this.pypiIndexUrl, 'PYPI']);
-    await micropip.install(packages);
+    try {
+      await micropip.install(packages);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // micropip's "Can't find a pure Python 3 wheel" means a (transitive)
+      // native dependency has no WebAssembly build — say so plainly instead of
+      // surfacing the raw resolver error
+      if (/pure python 3 wheel/i.test(message)) {
+        throw new Error(
+          `No Pyodide/WebAssembly-compatible build exists for: ${packages.join(', ')}. ` +
+            `Use the version bundled with Pyodide (drop the version pin) or remove the package. ` +
+            `Original error: ${message}`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Prepare the interpreter for a run: load Pyodide-bundled packages FIRST
+   * (both the code's imports and any requested names that are bundled), then
+   * send micropip only the requirements the loaded environment does not
+   * already satisfy. Ordering matters: giving micropip an unpinned name like
+   * "jsonschema" first lets it resolve PyPI's latest, whose native deps
+   * (rpds-py>=0.25) have no wasm wheel — while Pyodide bundles a compatible
+   * version all along.
+   */
+  async prepareEnvironment(code: string, packages: string[]) {
+    await this.pyodide.loadPackagesFromImports(code);
+
+    const requested = packages.map((p) => p.trim()).filter((p) => p !== '');
+    if (requested.length === 0) return;
+
+    const lockfilePackages: Record<string, unknown> =
+      (this.pyodide as { lockfile?: { packages?: Record<string, unknown> } }).lockfile?.packages ??
+      {};
+    const bundledByNormalized = new Map(
+      Object.keys(lockfilePackages).map((name) => [normalizePackageName(name), name]),
+    );
+
+    // load the bundled copy for every requested name Pyodide ships — a plain
+    // name is fully satisfied by it; a versioned one gets checked against the
+    // bundled version below instead of being resolved from PyPI first
+    const bundledToLoad: string[] = [];
+    const remaining: string[] = [];
+    for (const req of requested) {
+      const bundled = bundledByNormalized.get(normalizePackageName(requirementBareName(req)));
+      if (bundled) {
+        bundledToLoad.push(bundled);
+        if (requirementBareName(req) !== req) remaining.push(req);
+      } else {
+        remaining.push(req);
+      }
+    }
+    if (bundledToLoad.length > 0) await this.pyodide.loadPackage(bundledToLoad);
+    if (remaining.length === 0) return;
+
+    // evaluate requirement satisfaction in Python (bundled `packaging` parses
+    // specifiers; micropip vendors its own copy, so load it explicitly)
+    await this.pyodide.loadPackage('packaging');
+    this.pyodide.globals.set('__chathub_requested_packages', JSON.stringify(remaining));
+    const unsatisfiedJson = await this.pyodide.runPythonAsync(`
+import json
+from importlib.metadata import PackageNotFoundError, version
+from packaging.requirements import InvalidRequirement, Requirement
+
+def __chathub_unsatisfied(raw_reqs):
+    out = []
+    for raw in raw_reqs:
+        try:
+            req = Requirement(raw)
+        except InvalidRequirement:
+            out.append(raw)
+            continue
+        if req.marker is not None and not req.marker.evaluate():
+            continue
+        if req.extras:
+            out.append(raw)
+            continue
+        try:
+            installed = version(req.name)
+        except PackageNotFoundError:
+            out.append(raw)
+            continue
+        if not req.specifier.contains(installed, prereleases=True):
+            out.append(raw)
+    return out
+
+json.dumps(__chathub_unsatisfied(json.loads(__chathub_requested_packages)))
+`);
+    const unsatisfied: string[] = JSON.parse(String(unsatisfiedJson));
+    if (unsatisfied.length === 0) return;
+
+    await this.installPackages(unsatisfied);
   }
 
   /**

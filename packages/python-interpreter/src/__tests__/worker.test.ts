@@ -21,6 +21,17 @@ describe('PythonWorker', () => {
     setStderr: vi.fn(),
     runPythonAsync: vi.fn(),
     loadedPackages: {},
+    // bundled-package map used by prepareEnvironment (subset of the real lock)
+    lockfile: {
+      packages: {
+        'jsonschema': { version: '4.23.0' },
+        'numpy': { version: '2.0.2' },
+        'rpds-py': { version: '0.23.1' },
+      },
+    },
+    globals: {
+      set: vi.fn(),
+    },
   };
 
   const mockMicropip = {
@@ -265,6 +276,71 @@ describe('PythonWorker', () => {
       expect(mockPyodide.loadPackage).toHaveBeenCalledWith('micropip');
       expect(mockMicropip.set_index_urls).toHaveBeenCalledWith([worker.pypiIndexUrl, 'PYPI']);
       expect(mockMicropip.install).toHaveBeenCalledWith(packages);
+    });
+
+    it('wraps the missing-wasm-wheel micropip error in a compatibility message', async () => {
+      mockMicropip.install.mockRejectedValueOnce(
+        new Error("Can't find a pure Python 3 wheel for: 'rpds-py>=0.25.0'"),
+      );
+
+      await expect(worker.installPackages(['jsonschema>=4.26'])).rejects.toThrow(
+        /No Pyodide\/WebAssembly-compatible build exists for: jsonschema>=4\.26[\S\s]*Can't find a pure Python 3 wheel/,
+      );
+    });
+
+    describe('prepareEnvironment (bundled-first package preparation)', () => {
+      it('loads a bundled unversioned request via loadPackage and never micropip (jsonschema case)', async () => {
+        await worker.prepareEnvironment('import jsonschema\nprint(1)', ['jsonschema']);
+
+        expect(mockPyodide.loadPackagesFromImports).toHaveBeenCalledWith(
+          'import jsonschema\nprint(1)',
+        );
+        expect(mockPyodide.loadPackage).toHaveBeenCalledWith(['jsonschema']);
+        expect(mockMicropip.install).not.toHaveBeenCalled();
+      });
+
+      it('with no requested packages only loads the code imports', async () => {
+        await worker.prepareEnvironment('import jsonschema', []);
+
+        expect(mockPyodide.loadPackagesFromImports).toHaveBeenCalledWith('import jsonschema');
+        expect(mockPyodide.loadPackage).not.toHaveBeenCalled();
+        expect(mockMicropip.install).not.toHaveBeenCalled();
+      });
+
+      it('sends a non-bundled requirement to micropip AFTER the bundled import load', async () => {
+        // the Python satisfaction filter reports it unsatisfied
+        mockPyodide.runPythonAsync.mockResolvedValueOnce('["python-docx"]');
+
+        await worker.prepareEnvironment('import docx', ['python-docx']);
+
+        expect(mockMicropip.install).toHaveBeenCalledWith(['python-docx']);
+        // ordering is the whole point: bundled/import loading must precede micropip
+        const importsOrder = mockPyodide.loadPackagesFromImports.mock.invocationCallOrder[0];
+        const micropipOrder = mockMicropip.install.mock.invocationCallOrder[0];
+        expect(importsOrder).toBeLessThan(micropipOrder);
+      });
+
+      it('drops a versioned requirement the bundled version already satisfies', async () => {
+        mockPyodide.runPythonAsync.mockResolvedValueOnce('[]');
+
+        await worker.prepareEnvironment('import jsonschema', ['jsonschema>=4.20']);
+
+        // bundled copy loaded so the check runs against 4.23.0, then satisfied
+        expect(mockPyodide.loadPackage).toHaveBeenCalledWith(['jsonschema']);
+        expect(mockPyodide.loadPackage).toHaveBeenCalledWith('packaging');
+        expect(mockMicropip.install).not.toHaveBeenCalled();
+      });
+
+      it('still fails an explicitly incompatible pin, with the compatibility message', async () => {
+        mockPyodide.runPythonAsync.mockResolvedValueOnce('["jsonschema>=4.26"]');
+        mockMicropip.install.mockRejectedValueOnce(
+          new Error("Can't find a pure Python 3 wheel for: 'rpds-py>=0.25.0'"),
+        );
+
+        await expect(
+          worker.prepareEnvironment('import jsonschema', ['jsonschema>=4.26']),
+        ).rejects.toThrow(/No Pyodide\/WebAssembly-compatible build exists/);
+      });
     });
 
     it('should patch matplotlib when loaded', async () => {
