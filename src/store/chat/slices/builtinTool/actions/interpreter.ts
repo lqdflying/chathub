@@ -19,6 +19,8 @@ import { authSelectors } from '@/store/user/selectors';
 import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import { setNamespace } from '@/utils/storeDebug';
 
+import { serializePluginError } from './helpers';
+
 const n = setNamespace('codeInterpreter');
 
 const SWR_FETCH_INTERPRETER_FILE_KEY = 'FetchCodeInterpreterFileItem';
@@ -142,10 +144,13 @@ export const codeInterpreterSlice: StateCreator<
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
-      await get().updatePluginState(id, { error });
+      // plain object, not the Error instance — an Error loses `message` on the
+      // jsonb write (non-enumerable) and the UI would only see `{name}`
+      const serializedError = serializePluginError(error);
+      await get().updatePluginState(id, { error: serializedError });
 
       return {
-        data: error,
+        data: serializedError,
         outcome: 'failed',
         shouldContinue: false,
       };

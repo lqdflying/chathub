@@ -24,6 +24,8 @@ import { authSelectors } from '@/store/user/selectors';
 import { DallEImageItem } from '@/types/tool/dalle';
 import { setNamespace } from '@/utils/storeDebug';
 
+import { serializePluginError } from './helpers';
+
 const n = setNamespace('tool');
 
 const SWR_FETCH_KEY = 'FetchImageItem';
@@ -66,6 +68,19 @@ const resolveImageModel = ():
       }
     }
   }
+};
+
+// The upload presign API rejects filenames over 255 chars, and prompts (which
+// routinely run longer and can contain newlines/path separators) are the name
+// source — so sanitize and bound the stem before it ever reaches an upload.
+const toImageFileName = (prompt: string, index: number) => {
+  const stem = prompt
+    .replaceAll(/[\p{Cc}/\\]/gu, ' ')
+    .replaceAll(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 120)
+    .trim();
+  return `${stem || 'image'}_${index}.png`;
 };
 
 // data: URIs (e.g. gpt-image-1 base64 output) convert straight to a File; remote
@@ -145,7 +160,7 @@ export const dalleSlice: StateCreator<
 
           const imageFile = await imageUrlToFile(
             imageUrl,
-            `${originPrompt || item.prompt}_${index}.png`,
+            toImageFileName(originPrompt || item.prompt, index),
           );
           if (!invocationIsCurrent()) return undefined;
 
@@ -182,7 +197,7 @@ export const dalleSlice: StateCreator<
     const failures = results.filter((r): r is { error: unknown; index: number } => r !== undefined);
     if (failures.length > 0) {
       const errorArray: unknown[] = [];
-      for (const f of failures) errorArray[f.index] = f.error;
+      for (const f of failures) errorArray[f.index] = serializePluginError(f.error);
       await get().updatePluginState(messageId, { error: errorArray });
     }
   },

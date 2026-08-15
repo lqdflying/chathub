@@ -1,6 +1,8 @@
 export default {
   assistantToolCallPersistence: {
     description: '助手的工具调用尚未确认保存，因此未执行外部工具。请重试当前请求。',
+    interceptedDescription:
+      '保存请求在到达服务器前被网关拦截（HTML {{status}} 响应），未执行外部工具。这通常由代理/WAF 规则或访问会话过期导致，请检查 Cloudflare 等边缘配置后重试。',
     title: '工具调用尚未保存',
   },
   clerkAuth: {

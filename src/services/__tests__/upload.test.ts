@@ -301,6 +301,25 @@ describe('UploadService', () => {
         { signal: undefined },
       );
     });
+
+    it('clamps a filename over the 255-char presign limit, preserving the extension', async () => {
+      const xhr = new XMLHttpRequest();
+      vi.spyOn(xhr, 'addEventListener').mockImplementation((event, handler) => {
+        if (event === 'load') {
+          // @ts-expect-error - mock implementation
+          handler({ target: { status: 200 } });
+        }
+      });
+      const longName = `${'a'.repeat(300)}.png`;
+      const longFile = new File(['x'], longName, { type: 'image/png' });
+
+      await uploadService.uploadToServerS3(longFile, {});
+
+      const { filename } = vi.mocked(lambdaClient.upload.createS3PreSignedUrl.mutate).mock
+        .calls[0][0] as { filename: string };
+      expect(filename.length).toBeLessThanOrEqual(255);
+      expect(filename.endsWith('.png')).toBe(true);
+    });
   });
 
   describe('getImageFileByUrlWithCORS', () => {

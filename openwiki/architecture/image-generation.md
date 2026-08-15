@@ -811,11 +811,13 @@ params})` → `POST /webapi/create-image/[provider]` → `agentRuntime.createIma
   (`fileTypeFromBuffer`), not the spoofable content-type: a body whose bytes are
   not a supported image is rejected (no corrupt upload), and the file MIME and
   extension are derived from the verified result. An optional caller-supplied type
-  may only confirm the bytes, never bypass them. The verified bytes are uploaded
-  to object storage and the message stores a durable `fileId` (the transient blob
-  preview is replaced on success, cleared on failure). Results settle
-  independently with bounded concurrency; per-image retry regenerates only failed
-  items.
+  may only confirm the bytes, never bypass them. The upload name is derived from
+  the prompt but sanitized and bounded (the presign API rejects filenames over
+  255 chars; the upload service also clamps any over-long name as a backstop).
+  The verified bytes are uploaded to object storage and the message stores a
+  durable `fileId` (the transient blob preview is replaced on success, cleared on
+  failure). Results settle independently with bounded concurrency; per-image
+  retry regenerates only failed items.
 
 ## Testing
 

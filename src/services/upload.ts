@@ -17,6 +17,17 @@ interface UploadFileToS3Options {
   signal?: AbortSignal;
 }
 
+// The presign API rejects filenames over 255 chars (zod, lambda/edge upload
+// routers). Names can come from unbounded sources — image prompts, files a
+// Python program creates in the interpreter sandbox — so clamp the stem and
+// keep the extension instead of letting the whole upload fail.
+const MAX_UPLOAD_FILENAME_CHARS = 255;
+const clampFileName = (name: string) => {
+  if (name.length <= MAX_UPLOAD_FILENAME_CHARS) return name;
+  const ext = /\.[^./\\]{1,31}$/.exec(name)?.[0] ?? '';
+  return `${name.slice(0, MAX_UPLOAD_FILENAME_CHARS - ext.length)}${ext}`;
+};
+
 class UploadService {
   uploadFileToS3 = async (
     file: File,
@@ -215,7 +226,10 @@ class UploadService {
     options: { directory?: 'ragEval'; signal?: AbortSignal } = {},
   ): Promise<{ metadata: FileMetadata; preSignUrl: string }> => {
     return lambdaClient.upload.createS3PreSignedUrl.mutate(
-      { filename: file.name, purpose: options.directory === 'ragEval' ? 'ragEval' : 'file' },
+      {
+        filename: clampFileName(file.name),
+        purpose: options.directory === 'ragEval' ? 'ragEval' : 'file',
+      },
       { signal: options.signal },
     );
   };

@@ -59,13 +59,16 @@ describe('code interpreter actions', () => {
       });
     });
 
+    // a plain serialized object, NOT the Error instance — an Error's message is
+    // non-enumerable and would be dropped by the jsonb persistence
+    const serializedError = { message: 'Python execution failed', name: 'Error' };
     expect(executionResult).toEqual({
-      data: executionError,
+      data: serializedError,
       outcome: 'failed',
       shouldContinue: false,
     });
     expect(result.current.updatePluginState).toHaveBeenCalledWith('tool-message', {
-      error: executionError,
+      error: serializedError,
     });
     expect(result.current.codeInterpreterExecuting['tool-message']).toBe(false);
   });

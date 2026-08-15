@@ -901,7 +901,7 @@ describe('chatMessage actions', () => {
       expect(refreshMessages).toHaveBeenCalledTimes(1);
     });
 
-    it('reconciles double ambiguity and restores the streamed final payload', async () => {
+    it('reconciles triple ambiguity, restores the streamed final payload and classifies the failure', async () => {
       const gatewayError = new ToolsRPCResponseError({
         bodyKind: 'html',
         diagnosticId: 'td_gatewayresponse1234',
@@ -915,6 +915,10 @@ describe('chatMessage actions', () => {
       const updateMessage = vi
         .spyOn(messageService, 'updateMessage')
         .mockRejectedValue(gatewayError);
+      // server truth is stale — the write really did not land
+      vi.mocked(messageService.getMessages).mockResolvedValue([
+        { content: 'streamed…', id: 'message-id' },
+      ] as any);
       const dispatchMessage = vi.fn();
       const refreshMessages = vi.fn();
       useChatStore.setState({ internal_dispatchMessage: dispatchMessage, refreshMessages });
@@ -926,9 +930,12 @@ describe('chatMessage actions', () => {
         }),
       );
 
-      expect(response).toEqual({ persistenceAmbiguous: true });
-      expect(updateMessage).toHaveBeenCalledTimes(2);
-      expect(reportClientRPCFailure).toHaveBeenCalledTimes(2);
+      expect(response).toEqual({
+        failure: { bodyKind: 'html', httpStatus: 502 },
+        persistenceAmbiguous: true,
+      });
+      expect(updateMessage).toHaveBeenCalledTimes(3);
+      expect(reportClientRPCFailure).toHaveBeenCalledTimes(3);
       expect(refreshMessages).toHaveBeenCalledTimes(1);
       expect(dispatchMessage).toHaveBeenLastCalledWith(
         {
@@ -938,6 +945,102 @@ describe('chatMessage actions', () => {
         },
         undefined,
       );
+    });
+
+    it('succeeds on the third attempt after two mangled responses', async () => {
+      const gatewayError = new ToolsRPCResponseError({
+        bodyKind: 'network_error',
+        diagnosticId: 'td_gatewayresponse1234',
+        durationMs: 42,
+        failurePhase: 'network',
+        operation: 'finalize_assistant_message',
+        reason: 'network_error',
+      });
+      const updateMessage = vi
+        .spyOn(messageService, 'updateMessage')
+        .mockRejectedValueOnce(gatewayError)
+        .mockRejectedValueOnce(gatewayError)
+        .mockResolvedValueOnce(undefined);
+      const { result } = renderHook(() => useChatStore());
+
+      const response = await act(async () =>
+        result.current.internal_updateMessageContent('message-id', 'final content', {
+          persistenceRecovery: 'assistant_finalization',
+        }),
+      );
+
+      expect(response).toEqual({ persistenceAmbiguous: false });
+      expect(updateMessage).toHaveBeenCalledTimes(3);
+      expect(reportClientRPCFailure).toHaveBeenCalledTimes(2);
+    });
+
+    it('recovers without ambiguity when the write landed but every response was lost', async () => {
+      const gatewayError = new ToolsRPCResponseError({
+        bodyKind: 'html',
+        diagnosticId: 'td_gatewayresponse1234',
+        durationMs: 123,
+        failurePhase: 'response_parse',
+        httpStatus: 401,
+        mediaType: 'text/html',
+        operation: 'finalize_assistant_message',
+        reason: 'response_parse_failed',
+      });
+      vi.spyOn(messageService, 'updateMessage').mockRejectedValue(gatewayError);
+      // the server actually applied the update — only the responses were mangled
+      vi.mocked(messageService.getMessages).mockResolvedValue([
+        { content: 'final content', id: 'message-id' },
+      ] as any);
+      const refreshMessages = vi.fn();
+      useChatStore.setState({ refreshMessages });
+      const { result } = renderHook(() => useChatStore());
+
+      const response = await act(async () =>
+        result.current.internal_updateMessageContent('message-id', 'final content', {
+          persistenceRecovery: 'assistant_finalization',
+        }),
+      );
+
+      expect(response).toEqual({ persistenceAmbiguous: false });
+      expect(messageService.getMessages).toHaveBeenCalled();
+      expect(refreshMessages).toHaveBeenCalledTimes(1);
+    });
+
+    it('verifies a tool-call finalization against the persisted tool call id', async () => {
+      const gatewayError = new ToolsRPCResponseError({
+        bodyKind: 'html',
+        diagnosticId: 'td_gatewayresponse1234',
+        durationMs: 123,
+        failurePhase: 'response_parse',
+        httpStatus: 403,
+        mediaType: 'text/html',
+        operation: 'finalize_assistant_message',
+        reason: 'response_parse_failed',
+      });
+      vi.spyOn(messageService, 'updateMessage').mockRejectedValue(gatewayError);
+      // content matches but the tool call is absent — the tools update did NOT land
+      vi.mocked(messageService.getMessages).mockResolvedValue([
+        { content: 'final content', id: 'message-id', tools: [] },
+      ] as any);
+      useChatStore.setState({ refreshMessages: vi.fn() });
+      const { result } = renderHook(() => useChatStore());
+
+      const response = await act(async () =>
+        result.current.internal_updateMessageContent('message-id', 'final content', {
+          persistenceRecovery: 'assistant_finalization',
+          toolCalls: [
+            {
+              function: { arguments: '{}', name: 'lobe-code-interpreter____python' },
+              id: 'call_ci_1',
+              type: 'function',
+            },
+          ],
+        }),
+      );
+
+      expect(response).toEqual({
+        failure: { bodyKind: 'html', httpStatus: 403 },
+        persistenceAmbiguous: true,
+      });
     });
 
     it('does not absorb non-gateway assistant finalization failures', async () => {

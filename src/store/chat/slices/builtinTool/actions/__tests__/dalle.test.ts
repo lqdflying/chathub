@@ -136,10 +136,12 @@ describe('chatToolSlice - dalle', () => {
         (id) => () => ({ content: initialMessageContent, id }) as UIChatMessage,
       );
 
-      // first prompt succeeds, second fails
+      // first prompt succeeds, second fails with TRPC-like detail attached
       vi.spyOn(imageGenerationService, 'createImage')
         .mockResolvedValueOnce({ imageUrl: 'https://example.com/ok.png' })
-        .mockRejectedValueOnce(new Error('boom'));
+        .mockRejectedValueOnce(
+          Object.assign(new Error('boom'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } }),
+        );
       vi.spyOn(uploadService, 'getImageFileByUrlWithCORS').mockResolvedValue(
         new File(['1'], 'file.png', { type: 'image/png' }),
       );
@@ -164,8 +166,56 @@ describe('chatToolSlice - dalle', () => {
       expect(updatePluginState).toHaveBeenCalledTimes(1);
       const errorArg = updatePluginState.mock.calls[0][1] as { error: unknown[] };
       expect(errorArg.error[0]).toBeUndefined();
-      expect(errorArg.error[1]).toBeInstanceOf(Error);
+      // a plain serialized object, NOT the Error instance — an Error's message is
+      // non-enumerable and would be dropped by the jsonb persistence
+      expect(errorArg.error[1]).toEqual({
+        code: 'BAD_REQUEST',
+        message: 'boom',
+        name: 'Error',
+        status: 400,
+      });
       expect(result.current.toggleDallEImageLoading).toHaveBeenCalledTimes(4);
+    });
+
+    it('bounds and sanitizes the upload filename derived from a long prompt', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+      // > 255 chars, with a newline and a path separator mixed in
+      const longPrompt = `Digital illustration\nof a small red sailboat / ${'crossing a calm turquoise sea at golden hour '.repeat(8)}`;
+      const initialMessageContent = JSON.stringify([{ prompt: longPrompt }]);
+
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () =>
+          (id === messageId
+            ? { content: initialMessageContent, id, parentId: 'parent-id' }
+            : // empty parent content → the item prompt becomes the name source
+              { content: '', id }) as UIChatMessage,
+      );
+      vi.spyOn(imageGenerationService, 'createImage').mockResolvedValue({
+        imageUrl: 'https://example.com/image.png',
+      });
+      const corsDownload = vi
+        .spyOn(uploadService, 'getImageFileByUrlWithCORS')
+        .mockResolvedValue(new File(['1'], 'file.png', { type: 'image/png' }));
+      vi.spyOn(useFileStore, 'getState').mockReturnValue({
+        uploadWithProgress: vi.fn().mockResolvedValue({ id: 'image-id', url: '' }),
+      } as any);
+      vi.spyOn(result.current, 'toggleDallEImageLoading');
+      vi.spyOn(result.current, 'updatePluginState').mockResolvedValue(undefined);
+      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
+
+      await act(async () => {
+        await result.current.generateImageFromPrompts(
+          [{ prompt: longPrompt }] as DallEImageItem[],
+          messageId,
+        );
+      });
+
+      const filename = corsDownload.mock.calls[0][1];
+      // the presign API rejects anything over 255 chars
+      expect(filename.length).toBeLessThanOrEqual(255);
+      expect(filename.endsWith('_0.png')).toBe(true);
+      expect(filename).not.toMatch(/[\n/\\]/);
     });
   });
 

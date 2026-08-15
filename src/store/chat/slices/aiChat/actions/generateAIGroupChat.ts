@@ -12,7 +12,6 @@ import {
   UIChatMessage,
 } from '@lobechat/types';
 import debug from 'debug';
-import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -38,6 +37,7 @@ import {
   SupervisorDecisionList,
   SupervisorTodoItem,
 } from '../../message/supervisor';
+import { notifyToolCallPersistenceFailure } from './persistenceNotification';
 
 const n = setNamespace('aiGroupChat');
 const log = debug('lobe-chat:group-chat');
@@ -896,28 +896,25 @@ export const chatAiGroupChat: StateCreator<
         const messagesForAPI = [systemMessage, ...messagesWithAuthors];
 
         if (assistantId) {
-          const { isFunctionCall, persistenceAmbiguous } = await internal_fetchAIChatMessage({
-            messages: messagesForAPI,
-            messageId: assistantId,
-            model: agentModel,
-            provider: agentProvider,
-            params: {
-              contextExportCaptureId,
-              isToolContinuation,
-              traceId: `group-${groupId}-agent-${agentId}`,
-              agentConfig: agentData,
-            },
-          });
+          const { isFunctionCall, persistenceAmbiguous, persistenceFailure } =
+            await internal_fetchAIChatMessage({
+              messages: messagesForAPI,
+              messageId: assistantId,
+              model: agentModel,
+              provider: agentProvider,
+              params: {
+                contextExportCaptureId,
+                isToolContinuation,
+                traceId: `group-${groupId}-agent-${agentId}`,
+                agentConfig: agentData,
+              },
+            });
           if (!isCurrentConversation()) return;
 
           // Handle tool calling in group chat like single chat
           if (isFunctionCall) {
             if (persistenceAmbiguous) {
-              const { notification } = await import('@/components/AntdStaticMethods');
-              notification.warning({
-                description: t('assistantToolCallPersistence.description', { ns: 'error' }),
-                message: t('assistantToolCallPersistence.title', { ns: 'error' }),
-              });
+              await notifyToolCallPersistenceFailure(persistenceFailure);
               return;
             }
 
