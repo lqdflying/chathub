@@ -37,8 +37,11 @@ let pyodide: PyodideAPI | undefined;
 
 // Bound the result BEFORE it crosses Comlink and gets persisted, so a runaway
 // program can't exhaust memory during transfer or bloat the stored message. The
-// renderer cap is only defense-in-depth.
+// renderer cap is only defense-in-depth. Both a total-character AND a record-count
+// budget are needed: blank prints emit empty strings, so a char-only cap would
+// still allow an unbounded array of empty records.
 const MAX_TOTAL_OUTPUT_CHARS = 200_000;
+const MAX_OUTPUT_RECORDS = 2000;
 const MAX_RESULT_CHARS = 100_000;
 
 class PythonWorker {
@@ -131,21 +134,25 @@ class PythonWorker {
 
     // 安装依赖后再捕获标准输出，避免记录安装日志
     const output: PythonOutput[] = [];
-    // enforce ONE total stdout/stderr budget across all chunks (not per-chunk)
+    // bound BOTH total characters and record count; charge each record its
+    // length + 1 (the batched newline) so blank lines still consume budget
     let totalOutput = 0;
     let outputTruncated = false;
     const pushOutput = (data: string, type: 'stderr' | 'stdout') => {
       if (outputTruncated) return;
-      const remaining = MAX_TOTAL_OUTPUT_CHARS - totalOutput;
-      if (data.length >= remaining) {
-        if (remaining > 0) output.push({ data: data.slice(0, remaining), type });
+      if (output.length >= MAX_OUTPUT_RECORDS || totalOutput >= MAX_TOTAL_OUTPUT_CHARS) {
         output.push({ data: '\n…[output truncated]', type: 'stderr' });
         outputTruncated = true;
-        totalOutput = MAX_TOTAL_OUTPUT_CHARS;
         return;
       }
-      output.push({ data, type });
-      totalOutput += data.length;
+      const remaining = MAX_TOTAL_OUTPUT_CHARS - totalOutput;
+      const slice = data.length > remaining ? data.slice(0, remaining) : data;
+      output.push({ data: slice, type });
+      totalOutput += slice.length + 1;
+      if (slice.length < data.length) {
+        output.push({ data: '\n…[output truncated]', type: 'stderr' });
+        outputTruncated = true;
+      }
     };
     this.pyodide.setStdout({ batched: (o: string) => pushOutput(o, 'stdout') });
     this.pyodide.setStderr({ batched: (o: string) => pushOutput(o, 'stderr') });
@@ -153,11 +160,18 @@ class PythonWorker {
     // 执行代码
     let result;
     let success = false;
+    let execError: string | undefined;
     try {
       result = await this.pyodide.runPythonAsync(code);
       success = true;
     } catch (error) {
-      pushOutput(error instanceof Error ? error.message : String(error), 'stderr');
+      execError = error instanceof Error ? error.message : String(error);
+    }
+
+    // Always surface an execution exception, even if ordinary output already hit
+    // the cap (pushOutput drops everything once outputTruncated is set).
+    if (execError !== undefined) {
+      output.push({ data: execError, type: 'stderr' });
     }
 
     let resultStr = result?.toString();
@@ -165,11 +179,7 @@ class PythonWorker {
       resultStr = `${resultStr.slice(0, MAX_RESULT_CHARS)}\n…[result truncated]`;
     }
 
-    return {
-      output,
-      result: resultStr,
-      success,
-    };
+    return { output, result: resultStr, success };
   }
 
   private async patchPackages() {

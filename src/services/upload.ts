@@ -17,6 +17,31 @@ interface UploadFileToS3Options {
   signal?: AbortSignal;
 }
 
+// Magic-number sniffing so a 200 HTML/JSON error page (or an octet-stream image)
+// is classified by its actual bytes, not a spoofable/absent content-type.
+const IMAGE_SIGNATURES: { ext: string; match: (b: Uint8Array) => boolean; type: string }[] = [
+  {
+    ext: 'png',
+    match: (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+    type: 'image/png',
+  },
+  { ext: 'jpg', match: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff, type: 'image/jpeg' },
+  { ext: 'gif', match: (b) => b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46, type: 'image/gif' },
+  {
+    ext: 'webp',
+    match: (b) =>
+      b[0] === 0x52 &&
+      b[1] === 0x49 &&
+      b[2] === 0x46 &&
+      b[3] === 0x46 &&
+      b[8] === 0x57 &&
+      b[9] === 0x45 &&
+      b[10] === 0x42 &&
+      b[11] === 0x50,
+    type: 'image/webp',
+  },
+];
+
 class UploadService {
   uploadFileToS3 = async (
     file: File,
@@ -183,14 +208,29 @@ class UploadService {
       throw new Error(`Failed to fetch image (${res.status}): ${detail.slice(0, 200)}`);
     }
 
-    // prefer the caller's explicit type, then the (now-forwarded) upstream
-    // content-type when it is an image, else fall back to png
-    const proxiedType = res.headers?.get?.('content-type') ?? '';
-    const type = fileType ?? (proxiedType.startsWith('image/') ? proxiedType : 'image/png');
-
     const data = await res.arrayBuffer();
+    const sniffed = IMAGE_SIGNATURES.find((sig) => sig.match(new Uint8Array(data.slice(0, 16))));
+    const proxiedType = (res.headers?.get?.('content-type') ?? '')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
 
-    return new File([data], filename, { lastModified: Date.now(), type });
+    // caller's explicit type wins; else the sniffed type; else a proxied image/*
+    const type =
+      fileType ?? sniffed?.type ?? (proxiedType.startsWith('image/') ? proxiedType : undefined);
+    if (!type) {
+      // a 200 that isn't actually an image (e.g. an HTML/JSON error page or a
+      // login redirect) — reject rather than uploading a corrupt "png"
+      throw new Error(
+        `Proxied response is not a supported image (content-type: ${proxiedType || 'unknown'})`,
+      );
+    }
+
+    // make the filename extension agree with the resolved type
+    const ext = sniffed?.ext ?? type.split('/')[1];
+    const finalName = ext ? `${filename.replace(/\.[^./\\]+$/, '')}.${ext}` : filename;
+
+    return new File([data], finalName, { lastModified: Date.now(), type });
   };
 
   private getSignedUploadUrl = async (

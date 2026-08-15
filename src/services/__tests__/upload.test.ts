@@ -308,55 +308,70 @@ describe('UploadService', () => {
       global.fetch = vi.fn();
     });
 
-    it('should fetch and create file from URL', async () => {
-      const url = 'https://example.com/image.png';
-      const filename = 'test.png';
-      const mockArrayBuffer = new ArrayBuffer(8);
-
-      vi.mocked(global.fetch).mockResolvedValue({
-        arrayBuffer: () => Promise.resolve(mockArrayBuffer),
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).buffer;
+    const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]).buffer;
+    const WEBP = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50])
+      .buffer;
+    const mockOk = (body: ArrayBuffer, contentType?: string) =>
+      ({
+        arrayBuffer: () => Promise.resolve(body),
+        headers: { get: (k: string) => (k === 'content-type' ? (contentType ?? null) : null) },
         ok: true,
-      } as Response);
+      }) as unknown as Response;
 
-      const result = await uploadService.getImageFileByUrlWithCORS(url, filename);
+    it('sniffs PNG bytes and creates a file', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(PNG));
+
+      const result = await uploadService.getImageFileByUrlWithCORS(
+        'https://example.com/image.png',
+        'test.png',
+      );
 
       expect(global.fetch).toHaveBeenCalledWith(API_ENDPOINTS.proxy, {
-        body: url,
+        body: 'https://example.com/image.png',
         headers: { 'X-lobe-chat-auth': 'encrypted-payload' },
         method: 'POST',
       });
-      expect(createHeaderWithAuth).toHaveBeenCalledOnce();
       expect(result).toBeInstanceOf(File);
-      expect(result.name).toBe(filename);
+      expect(result.name).toBe('test.png');
       expect(result.type).toBe('image/png');
     });
 
-    it('should handle custom file type', async () => {
-      const url = 'https://example.com/image.jpg';
-      const filename = 'test.jpg';
-      const fileType = 'image/jpeg';
-      const mockArrayBuffer = new ArrayBuffer(8);
+    it('sniffs JPEG/WebP bytes and matches File.type + File.name to the format', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(JPEG));
+      const jpg = await uploadService.getImageFileByUrlWithCORS('https://x/y', 'y.png');
+      expect(jpg.type).toBe('image/jpeg');
+      expect(jpg.name).toBe('y.jpg');
 
-      vi.mocked(global.fetch).mockResolvedValue({
-        arrayBuffer: () => Promise.resolve(mockArrayBuffer),
-        ok: true,
-      } as Response);
-
-      const result = await uploadService.getImageFileByUrlWithCORS(url, filename, fileType);
-
-      expect(result.type).toBe(fileType);
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(WEBP));
+      const webp = await uploadService.getImageFileByUrlWithCORS('https://x/z', 'z.png');
+      expect(webp.type).toBe('image/webp');
+      expect(webp.name).toBe('z.webp');
     });
 
-    it('derives the image MIME from the proxied content-type', async () => {
-      vi.mocked(global.fetch).mockResolvedValue({
-        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
-        headers: { get: (k: string) => (k === 'content-type' ? 'image/webp' : null) },
-        ok: true,
-      } as unknown as Response);
+    it('honors an explicit caller file type', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(JPEG));
+      const result = await uploadService.getImageFileByUrlWithCORS(
+        'https://example.com/image.jpg',
+        'test.jpg',
+        'image/jpeg',
+      );
+      expect(result.type).toBe('image/jpeg');
+    });
 
+    it('falls back to the proxied image content-type when bytes are unrecognized', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(new ArrayBuffer(8), 'image/webp'));
       const result = await uploadService.getImageFileByUrlWithCORS('https://x/y', 'y');
-
       expect(result.type).toBe('image/webp');
+    });
+
+    it('rejects a 200 non-image (HTML) response so no corrupt file is uploaded (finding B)', async () => {
+      const html = new TextEncoder().encode('<html><body>error</body></html>').buffer;
+      vi.mocked(global.fetch).mockResolvedValue(mockOk(html, 'text/html'));
+
+      await expect(
+        uploadService.getImageFileByUrlWithCORS('https://example.com/x.png', 'x.png'),
+      ).rejects.toThrow('not a supported image');
     });
 
     it('throws on a non-OK proxy response so no corrupt file is uploaded', async () => {

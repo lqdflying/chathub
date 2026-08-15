@@ -87,4 +87,32 @@ describe('POST /webapi/proxy', () => {
     expect(response.headers.get('content-type')).toBe('text/plain');
     await expect(response.text()).resolves.toBe('Not Found');
   });
+
+  it('does not reflect upstream Set-Cookie / policy headers onto the ChatHub origin (finding A)', async () => {
+    vi.mocked(resolveWebApiAuthFromHeader).mockResolvedValue({
+      authResult: { method: 'nextAuth', userId: 'account-a' },
+      payload: {},
+    });
+    vi.mocked(ssrfSafeFetch).mockResolvedValue(
+      new Response('image-data', {
+        headers: {
+          'content-security-policy': "default-src 'none'",
+          'content-type': 'image/png',
+          'set-cookie': 'session=attacker; Path=/; HttpOnly',
+        },
+      }),
+    );
+    const request = new Request('https://chathub.example/webapi/proxy', {
+      body: 'https://images.example/image.png',
+      method: 'POST',
+    });
+
+    const response = await POST(request);
+
+    // only the content-type is forwarded; untrusted headers are dropped
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(response.headers.get('content-security-policy')).toBeNull();
+    await expect(response.text()).resolves.toBe('image-data');
+  });
 });

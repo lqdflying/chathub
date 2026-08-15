@@ -223,6 +223,28 @@ describe('PythonWorker', () => {
       });
     });
 
+    it('bounds the output record count and still surfaces a late exception (finding C)', async () => {
+      mockPyodide.runPythonAsync.mockImplementation(async () => {
+        const stdout = mockPyodide.setStdout.mock.calls.at(-1)?.[0].batched as (o: string) => void;
+        // blank prints emit '' (0 chars) — the record-count budget must still cap
+        for (let i = 0; i < 10_000; i++) stdout('');
+        throw new Error('late failure');
+      });
+
+      const result = await worker.runPython('...');
+
+      // record count is bounded well below the flood, with exactly one marker
+      expect(result.output.length).toBeLessThan(2100);
+      expect(
+        result.output.filter(
+          (o: any) => typeof o.data === 'string' && o.data.includes('[output truncated]'),
+        ),
+      ).toHaveLength(1);
+      // the exception is still visible even though output hit the cap first
+      expect(result.output).toContainEqual({ data: 'late failure', type: 'stderr' });
+      expect(result.success).toBe(false);
+    });
+
     it('should install packages using micropip', async () => {
       const packages = ['numpy', 'pandas'];
 

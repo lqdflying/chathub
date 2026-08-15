@@ -20,12 +20,17 @@ export const POST = async (req: Request) => {
 
   try {
     const res = await ssrfSafeFetch(url);
-    // Forward the upstream status, statusText and the ACTUAL Headers collection.
-    // `new Response(body)` alone defaults to 200, and `{ ...res.headers }` drops
-    // every header (Headers entries aren't enumerable own-properties) — both of
-    // which would make an upstream 404/500 look like a successful image download.
-    return new Response(res.ok ? await res.arrayBuffer() : await res.text(), {
-      headers: res.headers,
+    // Forward the upstream status/statusText and the raw body bytes, but only a
+    // narrow header allowlist. `new Response(body)` alone defaults to 200 (an
+    // upstream 404 would look successful), yet reflecting the WHOLE upstream
+    // Headers onto this same-origin `/webapi/proxy` response would let a remote
+    // server set `Set-Cookie` etc. on the ChatHub origin. Copy only content-type.
+    const headers = new Headers();
+    const contentType = res.headers.get('content-type');
+    if (contentType) headers.set('content-type', contentType);
+
+    return new Response(await res.arrayBuffer(), {
+      headers,
       status: res.status,
       statusText: res.statusText,
     });
