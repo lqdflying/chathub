@@ -3,6 +3,7 @@
     "error": "执行错误",
     "executing": "执行中...",
     "files": "文件：",
+    "noOutput": "执行完成，没有输出。",
     "output": "输出：",
     "returnValue": "返回值："
   },

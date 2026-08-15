@@ -53,38 +53,44 @@ export const codeInterpreterSlice: StateCreator<
 > = (set, get) => ({
   python: async (id: string, params: CodeInterpreterParams) => {
     const invocationGeneration = get().conversationClearGeneration;
-    const invocationIsCurrent = () =>
-      get().conversationClearGeneration === invocationGeneration;
+    const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
 
     get().toggleInterpreterExecuting(id, true);
 
-    // TODO: 应该只下载 AI 用到的文件
-    const files: File[] = [];
-    for (const message of chatSelectors.mainDisplayChats(get())) {
-      for (const file of message.fileList ?? []) {
-        const blob = await fetch(file.url).then((res) => res.blob());
-        files.push(new File([blob], file.name));
-      }
-      for (const image of message.imageList ?? []) {
-        const blob = await fetch(image.url).then((res) => res.blob());
-        files.push(new File([blob], image.alt));
-      }
-      for (const tool of message.tools ?? []) {
-        if (tool.identifier === CodeInterpreterIdentifier) {
-          const message = chatSelectors.getMessageByToolCallId(tool.id)(get());
-          if (message?.content) {
-            const content = JSON.parse(message.content) as CodeInterpreterResponse;
+    try {
+      // Gather any files the conversation produced so the code can read them.
+      // Done INSIDE the try so a failed fetch / malformed content can't leave the
+      // executing flag stuck; individual failures are skipped, not fatal.
+      // TODO: only load the files the AI actually references.
+      const files: File[] = [];
+      const pushFromUrl = async (url: string, name: string) => {
+        try {
+          const blob = await fetch(url).then((res) => res.blob());
+          files.push(new File([blob], name));
+        } catch {
+          // skip a file that can't be fetched
+        }
+      };
+      for (const message of chatSelectors.mainDisplayChats(get())) {
+        for (const file of message.fileList ?? []) await pushFromUrl(file.url, file.name);
+        for (const image of message.imageList ?? []) await pushFromUrl(image.url, image.alt);
+        for (const tool of message.tools ?? []) {
+          if (tool.identifier !== CodeInterpreterIdentifier) continue;
+          const toolMessage = chatSelectors.getMessageByToolCallId(tool.id)(get());
+          if (!toolMessage?.content) continue;
+          try {
+            const content = JSON.parse(toolMessage.content) as CodeInterpreterResponse;
             for (const file of content.files ?? []) {
-              const item = await fileService.getFile(file.fileId!);
-              const blob = await fetch(item.url).then((res) => res.blob());
-              files.push(new File([blob], file.filename));
+              if (!file.fileId) continue;
+              const item = await fileService.getFile(file.fileId);
+              await pushFromUrl(item.url, file.filename);
             }
+          } catch {
+            // skip a tool message with malformed content
           }
         }
       }
-    }
 
-    try {
       if (!invocationIsCurrent()) {
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
@@ -161,8 +167,7 @@ export const codeInterpreterSlice: StateCreator<
   uploadInterpreterFiles: async (id, files, expectedGeneration) => {
     if (!files) return;
     const invocationIsCurrent = () =>
-      expectedGeneration === undefined ||
-      get().conversationClearGeneration === expectedGeneration;
+      expectedGeneration === undefined || get().conversationClearGeneration === expectedGeneration;
 
     await pMap(files, async (file, index) => {
       if (!file.data || !invocationIsCurrent()) return;

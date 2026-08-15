@@ -3,6 +3,7 @@
     "error": "Execution Error",
     "executing": "Executing...",
     "files": "Files:",
+    "noOutput": "Executed successfully with no output.",
     "output": "Output:",
     "returnValue": "Return Value:"
   },

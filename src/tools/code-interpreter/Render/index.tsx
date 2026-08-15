@@ -24,9 +24,20 @@ const CodeInterpreter = memo<
 
   const isExecuting = useChatStore(chatToolSelectors.isInterpreterExecuting(messageId));
 
-  if (pluginState?.error) {
-    console.error(pluginState.error);
-  }
+  const error = pluginState?.error;
+  const errorText =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : error
+          ? JSON.stringify(error, null, 2)
+          : undefined;
+
+  // completed (has content) but nothing to show — distinguish "ran, no output"
+  // from a broken/empty render
+  const hasOutput = !!(content?.result || content?.output?.length || content?.files?.length);
+  const showEmptyNote = !isExecuting && !error && !!content && !hasOutput;
 
   return (
     <Flexbox gap={12}>
@@ -51,14 +62,12 @@ const CodeInterpreter = memo<
       )}
 
       {/* 执行错误 */}
-      {!isExecuting && pluginState?.error && (
-        <Alert
-          description={String(pluginState.error)}
-          message={t('codeInterpreter.error')}
-          showIcon
-          type="error"
-        />
+      {!isExecuting && errorText && (
+        <Alert description={errorText} message={t('codeInterpreter.error')} showIcon type="error" />
       )}
+
+      {/* 执行成功但没有任何输出 */}
+      {showEmptyNote && <Text type="secondary">{t('codeInterpreter.noOutput')}</Text>}
 
       {!isExecuting && content && (
         <Flexbox gap={8}>
