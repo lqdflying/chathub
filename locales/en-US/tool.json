@@ -12,6 +12,7 @@
     "generate": "Generate",
     "generating": "Generating...",
     "images": "Images:",
+    "noImageModel": "No image model is available. Enable one in the image settings, then try again.",
     "prompt": "Prompt"
   },
   "localFiles": {

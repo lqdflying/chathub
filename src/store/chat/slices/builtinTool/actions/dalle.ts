@@ -72,6 +72,7 @@ const imageUrlToFile = async (imageUrl: string, filename: string): Promise<File>
 
 export interface ChatDallEAction {
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<void>;
+  retryDallEImages: (id: string) => Promise<void>;
   text2image: (id: string, data: DallEImageItem[]) => Promise<void>;
   toggleDallEImageLoading: (key: string, value: boolean) => void;
   updateImageItem: (id: string, updater: (data: DallEImageItem[]) => void) => Promise<void>;
@@ -112,8 +113,12 @@ export const dalleSlice: StateCreator<
       items,
       async (item, index) => {
         if (!invocationIsCurrent()) return undefined;
+        // skip items that already have an uploaded image (e.g. on retry) so a
+        // partial failure never re-generates and re-bills the successful ones
+        if (item.imageId) return undefined;
 
-        const loadingKey = messageId + item.prompt;
+        // key loading by index (duplicate prompts would otherwise collide)
+        const loadingKey = `${messageId}_${index}`;
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
@@ -172,6 +177,17 @@ export const dalleSlice: StateCreator<
       for (const f of failures) errorArray[f.index] = f.error;
       await get().updatePluginState(messageId, { error: errorArray });
     }
+  },
+  retryDallEImages: async (messageId) => {
+    const message = chatSelectors.getMessageById(messageId)(get());
+    if (!message) return;
+
+    const items: DallEImageItem[] = JSON.parse(message.content);
+    // clear prior errors, then regenerate only the items still missing an image
+    // (generateImageFromPrompts skips any item that already has an imageId), so
+    // retrying one failure never re-generates or re-bills the successful ones
+    await get().updatePluginState(messageId, { error: undefined });
+    await get().generateImageFromPrompts(items, messageId);
   },
   text2image: async (id, data) => {
     await get().generateImageFromPrompts(data, id);

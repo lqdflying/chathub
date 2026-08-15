@@ -20,11 +20,7 @@ interface UploadFileToS3Options {
 class UploadService {
   uploadFileToS3 = async (
     file: File,
-    {
-      onProgress,
-      directory,
-      signal,
-    }: UploadFileToS3Options,
+    { onProgress, directory, signal }: UploadFileToS3Options,
   ): Promise<{ data: FileMetadata; success: boolean }> => {
     signal?.throwIfAborted();
 
@@ -179,6 +175,14 @@ class UploadService {
   getImageFileByUrlWithCORS = async (url: string, filename: string, fileType = 'image/png') => {
     const headers = await createHeaderWithAuth();
     const res = await fetch(API_ENDPOINTS.proxy, { body: url, headers, method: 'POST' });
+
+    // A non-OK proxy response returns error HTML/JSON bytes; without this guard
+    // they'd be wrapped as an image/png and uploaded as a corrupt image.
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(`Failed to fetch image (${res.status}): ${detail.slice(0, 200)}`);
+    }
+
     const data = await res.arrayBuffer();
 
     return new File([data], filename, { lastModified: Date.now(), type: fileType });

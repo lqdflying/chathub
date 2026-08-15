@@ -12,6 +12,7 @@ export default {
     generate: '生成',
     generating: '生成中...',
     images: '图片:',
+    noImageModel: '当前没有可用的图像模型，请在图像设置中启用一个后重试。',
     prompt: '提示词',
   },
   localFiles: {

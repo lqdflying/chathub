@@ -27,8 +27,6 @@ const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }
 
   return (
     <Flexbox gap={16}>
-      {/* 没想好工具条的作用 */}
-      {/*<ToolBar content={content} messageId={messageId} />*/}
       <PreviewGroup
         preview={
           {
