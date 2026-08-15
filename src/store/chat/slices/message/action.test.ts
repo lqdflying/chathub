@@ -1013,8 +1013,13 @@ describe('chatMessage actions', () => {
       );
 
       expect(response).toEqual({ persistenceAmbiguous: false });
-      // verified via the id-scoped read, not a bounded conversation-list query
-      expect(messageService.getMessageById).toHaveBeenCalledWith('message-id');
+      // verified via the id-scoped read, not a bounded conversation-list query —
+      // with the global error UI suppressed and the shared finalize diagnostic id
+      expect(messageService.getMessageById).toHaveBeenCalledWith('message-id', {
+        diagnosticId: expect.stringMatching(/^td_[\w-]{20}$/),
+        diagnosticOperation: 'finalize_assistant_message',
+        showNotification: false,
+      });
       expect(messageService.getMessages).not.toHaveBeenCalled();
       expect(refreshMessages).toHaveBeenCalledTimes(1);
     });

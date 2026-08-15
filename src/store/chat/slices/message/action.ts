@@ -797,7 +797,14 @@ export const chatMessage: StateCreator<
       // and anything past its 1,000-row oldest-first page.
       const verifyFinalizationLanded = async (): Promise<boolean> => {
         try {
-          const persisted = await messageService.getMessageById(id);
+          // suppress the global 401-login / fetch-error UI (the dedicated
+          // persistence warning is the single user-facing failure path) and
+          // keep the read on the isolated diagnostic link
+          const persisted = await messageService.getMessageById(id, {
+            diagnosticId,
+            diagnosticOperation: 'finalize_assistant_message',
+            showNotification: false,
+          });
           if (!persisted) return false;
           const persistedToolIds = new Set((persisted.tools ?? []).map((tool) => tool.id));
           const toolsLanded = (update.tools ?? []).every((tool) => persistedToolIds.has(tool.id));

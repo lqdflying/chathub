@@ -1,7 +1,7 @@
 {
   "assistantToolCallPersistence": {
     "description": "The assistant tool call could not be confirmed as saved, so no external tool was executed. Retry the request.",
-    "interceptedDescription": "The save request was intercepted by a gateway before reaching the server (HTML {{status}} response), so no external tool was executed. This is usually a proxy/WAF rule or an expired access session — check your edge configuration (e.g. Cloudflare) and retry.",
+    "interceptedDescription": "The save request received an HTML {{status}} response instead of JSON, so no external tool was executed. This usually — but not always — means a proxy/WAF or access layer intercepted it; an origin-side auth middleware can produce the same response. Correlate the server and edge logs to confirm the source, then retry.",
     "title": "Tool call was not saved"
   },
   "clerkAuth": {

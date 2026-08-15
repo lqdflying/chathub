@@ -174,4 +174,51 @@ describe('lambda tRPC client links', () => {
     expect(JSON.stringify(error)).not.toContain('<!DOCTYPE');
     expect(JSON.stringify(error)).not.toContain('Unexpected token');
   });
+
+  it.each([401, 403])(
+    'suppresses the global login/fetch UI for an HTML %i when showNotification is false',
+    async (status) => {
+      const { loginRequired } = await import('@/components/Error/loginRequiredNotification');
+      const { fetchErrorNotification } = await import('@/components/Error/fetchErrorNotification');
+      const redirectSpy = vi.spyOn(loginRequired, 'redirect').mockImplementation(() => {});
+      const fetchErrorSpy = vi.spyOn(fetchErrorNotification, 'error').mockImplementation(() => {});
+
+      const client = createLambdaClient({
+        fetch: vi.fn(
+          async () =>
+            new Response('<!DOCTYPE html><html><body>gateway page</body></html>', {
+              headers: { 'content-type': 'text/html' },
+              status,
+            }),
+        ) as typeof fetch,
+        getAuthHeaders: async () => ({}),
+      });
+
+      // the finalization read-back path: suppressed notifications + isolated link
+      const error = await client.message.getMessageById
+        .query(
+          { id: 'message-id' },
+          {
+            context: {
+              diagnosticOperation: 'finalize_assistant_message',
+              [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: 'td_1234567890abcdef',
+              showNotification: false,
+            },
+          },
+        )
+        .catch((cause) => cause);
+
+      // the caller still receives the classified failure (fail-closed), but no
+      // global login modal or generic fetch notification ever fires
+      expect(findRPCResponseError(error)?.details).toMatchObject({
+        bodyKind: 'html',
+        httpStatus: status,
+      });
+      expect(redirectSpy).not.toHaveBeenCalled();
+      expect(fetchErrorSpy).not.toHaveBeenCalled();
+
+      redirectSpy.mockRestore();
+      fetchErrorSpy.mockRestore();
+    },
+  );
 });

@@ -35,6 +35,7 @@ export interface IMessageService {
   getConversationVersion(): Promise<number | undefined>;
   getMessageById(
     id: string,
+    options?: MessageOperationOptions,
   ): Promise<{ content?: string | null; tools?: { id: string }[] | null } | null | undefined>;
   getMessages(sessionId: string, topicId?: string, groupId?: string): Promise<UIChatMessage[]>;
   getGroupMessages(groupId: string, topicId?: string): Promise<UIChatMessage[]>;
