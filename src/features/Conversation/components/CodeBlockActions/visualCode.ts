@@ -50,21 +50,60 @@ const SANDBOX_STORAGE_SHIM =
   `['localStorage','sessionStorage'].forEach(function(k){try{void window[k]}catch(e){` +
   `try{Object.defineProperty(window,k,{configurable:true,value:s})}catch(_){}}})})();</script>`;
 
-// Inject the storage shim at the document's LEADING boundary so it runs before
-// any authored node. Anchor ONLY on a leading doctype (matched with `^`), else
-// prepend — never a full-string search for a `<head>` and never parsing the
-// `<html>` tag. A whole-string search is fooled by tag-looking text that is NOT
-// a tag: a `<head>` inside a `<script>`/`<style>`/`<title>`/`<textarea>` body, a
-// template, or a quoted attribute — injecting there lands the shim in raw-text
-// (its own `</script>` closes the authored script) so it never runs and the
-// opaque-origin storage bug persists. And parsing `<html …>` breaks on a `>`
-// inside a quoted attribute. A leading doctype cannot contain `>`, so it is a
-// safe, O(1) boundary; the shim (a script placed right after the doctype, or
-// prepended when there is none) is foster-parented into `<head>` by the HTML
-// parser and executes before any authored script. `isHtmlDocument` (the caller's
-// gate) guarantees the content starts with a doctype or `<html>`.
+// Scan from a `<` to the index just past the tag's closing `>`, honoring quoted
+// attribute values so a `>` inside "…"/'…' never ends the tag early.
+const tagEnd = (s: string, open: number): number => {
+  let quote = '';
+  for (let i = open + 1; i < s.length; i++) {
+    const ch = s[i];
+    if (quote) {
+      if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === '>') {
+      return i + 1;
+    }
+  }
+  return s.length;
+};
+
+// Skip whitespace and HTML comments starting at `from`.
+const skipTrivia = (s: string, from: number): number => {
+  let i = from;
+  for (;;) {
+    while (i < s.length && /\s/.test(s[i])) i++;
+    if (s.startsWith('<!--', i)) {
+      const end = s.indexOf('-->', i + 4);
+      i = end === -1 ? s.length : end + 3;
+      continue;
+    }
+    return i;
+  }
+};
+
+// True when s at i starts the `<name` tag (followed by whitespace, `>`, or `/`).
+const isStartTag = (s: string, i: number, name: string): boolean => {
+  if (s[i] !== '<' || s.slice(i + 1, i + 1 + name.length).toLowerCase() !== name) return false;
+  const after = s[i + 1 + name.length];
+  return after === undefined || after === '>' || after === '/' || /\s/.test(after);
+};
+
+// Insert the storage shim so it runs before any authored script WITHOUT altering
+// the parsed document. A naive string search for `<head>` is fooled by tag-like
+// text in comments, raw-text (`<script>`/`<style>`/`<title>`/`<textarea>`),
+// templates, or quoted attributes; and inserting *before* an authored `<head>`
+// makes the parser synthesize its own head first, silently dropping the authored
+// head's attributes. So we walk only the well-defined prologue — leading
+// whitespace, one doctype, the `<html …>` open tag, comments — with quote-aware
+// tag scanning, then insert immediately AFTER the real `<head …>` (preserving its
+// attributes) or, when there is no explicit head, at that point (before the first
+// head-implying node, so the shim lands in the parser-synthesized head). Nothing
+// past the head is scanned, so raw-text/attribute false tags can't capture it.
+// Pure string work: deterministic on server and client, no DOMParser.
 export const injectSandboxShim = (html: string): string => {
-  const doctype = html.match(/^\s*<!doctype[^>]*>/i);
-  const at = doctype ? doctype[0].length : 0;
-  return html.slice(0, at) + SANDBOX_STORAGE_SHIM + html.slice(at);
+  let i = skipTrivia(html, 0);
+  if (html.slice(i, i + 9).toLowerCase() === '<!doctype') i = skipTrivia(html, tagEnd(html, i));
+  if (isStartTag(html, i, 'html')) i = skipTrivia(html, tagEnd(html, i));
+  if (isStartTag(html, i, 'head')) i = tagEnd(html, i);
+  return html.slice(0, i) + SANDBOX_STORAGE_SHIM + html.slice(i);
 };

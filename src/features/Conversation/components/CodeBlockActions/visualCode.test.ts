@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+// jsdom gives a spec-accurate HTML parser so the injectSandboxShim tests can
+// assert PARSED-DOM semantics (head/html attributes, script placement), not just
+// string containment — a substring test can pass while the shim is inert.
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -8,6 +12,8 @@ import {
   isVisualCode,
   isVisualComplete,
 } from './visualCode';
+
+const parseDoc = (html: string) => new DOMParser().parseFromString(html, 'text/html');
 
 describe('isHtmlDocument', () => {
   it('detects a full document, not a fragment', () => {
@@ -76,65 +82,85 @@ describe('isVisualComplete', () => {
 });
 
 describe('injectSandboxShim', () => {
-  const SHIM = '<script>';
   const STUB = "['localStorage','sessionStorage']";
+  // the shim is the first <script> in the parsed <head>
+  const headShim = (d: Document) => d.head.querySelector('script')?.textContent ?? '';
+  const bodyScripts = (d: Document) =>
+    [...d.querySelectorAll('body script')].map((s) => s.textContent);
 
-  it('inserts the shim right after a leading doctype, before <html>', () => {
-    const doc = '<!doctype html><html><head><title>t</title></head><body>x</body></html>';
-    const out = injectSandboxShim(doc);
-    expect(out).toContain(STUB);
-    // right after the doctype, before any authored node (<html>/<head>/<title>)
-    expect(out.indexOf(SHIM)).toBe('<!doctype html>'.length);
-    expect(out.indexOf(SHIM)).toBeLessThan(out.indexOf('<html>'));
-    // original document content is preserved intact
-    expect(out).toContain('<html><head><title>t</title></head>');
-    expect(out).toContain('<body>x</body>');
-  });
-
-  it('prepends the shim when there is no doctype (leading <html>)', () => {
-    const out = injectSandboxShim('<html lang="en"><head></head><body></body></html>');
-    expect(out.indexOf(SHIM)).toBe(0);
-    expect(out).toContain('<html lang="en"><head></head>');
-  });
-
-  it('anchors on the leading doctype even when a comment precedes <html>', () => {
-    const out = injectSandboxShim('<!doctype html><!-- c --><html><head></head></html>');
-    expect(out.indexOf(SHIM)).toBe('<!doctype html>'.length);
-    // the shim precedes the comment (and everything authored), so it runs first
-    expect(out.indexOf(STUB)).toBeLessThan(out.indexOf('<!-- c -->'));
-  });
-
-  it('is not fooled by a fake <head> inside a later <script> string (finding r14/1)', () => {
-    // no real <head> tag exists — only a `<head>` substring inside script text;
-    // a whole-string search would inject into the script (its own </script>
-    // would close the authored script) and be inert. The leading doctype anchor
-    // is immune: it never looks past the boundary.
+  it('preserves authored <head>/<html> attributes and runs the shim first (finding r15/1)', () => {
     const doc =
-      '<!doctype html><html>' +
+      '<!doctype html><html lang="en"><head id="cfg" data-config="kept"><title>t</title></head>' +
+      '<body><script>void localStorage</script></body></html>';
+    const d = parseDoc(injectSandboxShim(doc));
+    // authored head + html attributes survive (the round-15 regression)
+    expect(d.documentElement.getAttribute('lang')).toBe('en');
+    expect(d.head.getAttribute('id')).toBe('cfg');
+    expect(d.head.dataset.config).toBe('kept');
+    // the shim is the FIRST element in <head>, ahead of authored <title>/scripts
+    expect(d.head.firstElementChild?.tagName).toBe('SCRIPT');
+    expect(d.head.firstElementChild?.textContent).toContain(STUB);
+    expect(d.head.querySelector('title')?.textContent).toBe('t');
+    // doctype preserved verbatim
+    expect(injectSandboxShim(doc).toLowerCase().startsWith('<!doctype html>')).toBe(true);
+  });
+
+  it('preserves head attributes for a no-doctype document', () => {
+    const d = parseDoc(
+      injectSandboxShim(
+        '<html lang="fr"><head data-config="no-doctype"></head><body></body></html>',
+      ),
+    );
+    expect(d.documentElement.getAttribute('lang')).toBe('fr');
+    expect(d.head.dataset.config).toBe('no-doctype');
+    expect(headShim(d)).toContain(STUB);
+  });
+
+  it('is not fooled by a fake <head> inside a <script> string; authored scripts stay intact', () => {
+    const doc =
+      '<!doctype html><html><body>' +
       '<script>const marker = "<head>";</script>' +
       '<script>void localStorage</script>' +
-      '<body></body></html>';
-    const out = injectSandboxShim(doc);
-    // shim lands at the leading boundary, BEFORE the first authored script
-    expect(out.indexOf(SHIM)).toBe('<!doctype html>'.length);
-    expect(out.indexOf(STUB)).toBeLessThan(out.indexOf('<script>const marker'));
-    expect(out.indexOf(STUB)).toBeLessThan(out.indexOf('void localStorage'));
-    // and both authored scripts survive uncorrupted
-    expect(out).toContain('<script>const marker = "<head>";</script>');
-    expect(out).toContain('<script>void localStorage</script>');
+      '</body></html>';
+    const d = parseDoc(injectSandboxShim(doc));
+    // shim went into the (synthesized) head, not inside the authored script
+    expect(headShim(d)).toContain(STUB);
+    // both authored scripts survive with exact text
+    expect(bodyScripts(d)).toContain('const marker = "<head>";');
+    expect(bodyScripts(d)).toContain('void localStorage');
   });
 
   it('is not fooled by a fake <head> inside a quoted attribute', () => {
-    // a `>` inside the attribute would defeat any <html …> matcher; the doctype
-    // anchor never parses the html tag, so the tag survives intact
-    const out = injectSandboxShim('<!doctype html><html data-note="<head>"><body></body></html>');
-    expect(out.indexOf(SHIM)).toBe('<!doctype html>'.length);
-    expect(out).toContain('<html data-note="<head>">');
+    const d = parseDoc(
+      injectSandboxShim('<!doctype html><html data-note="<head>"><body></body></html>'),
+    );
+    expect(d.documentElement.dataset.note).toBe('<head>');
+    expect(headShim(d)).toContain(STUB);
   });
 
-  it('prepends when there is no leading doctype/html anchor', () => {
+  it('inserts the shim after a real <head> even when a comment precedes it', () => {
+    const d = parseDoc(
+      injectSandboxShim(
+        '<!doctype html><!-- c --><html><head id="real"></head><body></body></html>',
+      ),
+    );
+    expect(d.head.getAttribute('id')).toBe('real');
+    expect(headShim(d)).toContain(STUB);
+  });
+
+  it('injects into a synthesized head when the document omits <head>', () => {
+    const d = parseDoc(
+      injectSandboxShim(
+        '<!doctype html><html><body><script>void localStorage</script></body></html>',
+      ),
+    );
+    expect(headShim(d)).toContain(STUB);
+    expect(bodyScripts(d)).toContain('void localStorage');
+  });
+
+  it('prepends when there is no leading doctype/html/head anchor', () => {
     const out = injectSandboxShim('just markup');
-    expect(out.startsWith(SHIM)).toBe(true);
+    expect(out.startsWith('<script>')).toBe(true);
     expect(out.endsWith('just markup')).toBe(true);
   });
 });
