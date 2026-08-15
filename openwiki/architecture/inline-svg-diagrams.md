@@ -98,17 +98,19 @@ blocks to `VisualCodeBlock`:
   artifact path (strict `sanitizeSVGContent`, no gradients, themed), code blocks
   are arbitrary art → full fidelity via isolation instead of sanitization.
 - **Storage shim for the opaque origin** (`injectSandboxShim`, `visualCode.ts`):
-  the HTML-doc `srcDoc` gets one inert `<script>` injected after the first
-  **active-markup** `<head>` (else `<html>`, else `<!doctype>`, else prepended) —
-  anchors that appear only inside an HTML comment (`<!-- <head> -->`) are skipped,
-  so a pre-head comment can't swallow the shim and leave it inert. It replaces
-  `localStorage`/`sessionStorage` with no-op stubs **only if accessing them
-  throws**. Without it, LLM HTML that embeds mermaid.js from a CDN (or anything
-  touching storage) hits `SecurityError` in the `allow-scripts`-only origin, never
-  paints, and leaves its own CSS loading spinner (a big ring) stuck — recurring on
-  every history remount. The shim grants no capability and does **not** relax the
-  sandbox (still no `allow-same-origin`); the SVG wrapper is our own inert document
-  and skips it.
+  the HTML-doc `srcDoc` gets one inert `<script>` injected at the document's
+  **leading boundary** — right after a leading `<!doctype …>` (else prepended),
+  never by searching for a `<head>`. Anchoring on the doctype (which cannot
+  contain `>`) precedes every authored node, so a fake `<head>` in a
+  `<script>`/`<style>`/attribute/comment can't capture the shim and leave it inert
+  in raw-text; the HTML parser foster-parents a script placed there into `<head>`,
+  so it runs before any authored script. It replaces `localStorage`/
+  `sessionStorage` with no-op stubs **only if accessing them throws**. Without it,
+  LLM HTML that embeds mermaid.js from a CDN (or anything touching storage) hits
+  `SecurityError` in the `allow-scripts`-only origin, never paints, and leaves its
+  own CSS loading spinner (a big ring) stuck — recurring on every history remount.
+  The shim grants no capability and does **not** relax the sandbox (still no
+  `allow-same-origin`); the SVG wrapper is our own inert document and skips it.
 - **What inlines** (`isVisualCode`): SVG and **full HTML documents only**. A bare
   html fragment (`<div>…</div>`) is NOT inlined — it has no closing-document
   marker, so it can't be stream-gated and would otherwise mount/run its scripts

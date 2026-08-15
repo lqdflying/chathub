@@ -50,29 +50,21 @@ const SANDBOX_STORAGE_SHIM =
   `['localStorage','sessionStorage'].forEach(function(k){try{void window[k]}catch(e){` +
   `try{Object.defineProperty(window,k,{configurable:true,value:s})}catch(_){}}})})();</script>`;
 
-// Inject the storage shim as early as possible so it runs before the document's
-// own scripts: after `<head …>` if present, else after `<html …>`, else after
-// `<!doctype …>`, else prepend. Anchors are matched only in ACTIVE markup — a
-// match inside an HTML comment is skipped, so a document like
-// `<!doctype html><!-- <head> --><html><head>…` lands the shim after the real
-// head, not inside the comment (where it would be inert and the spinner-bug
-// would persist). The `head`/`html` matchers also require the tag to end or be
-// followed by whitespace so they never match `<header>` etc.
+// Inject the storage shim at the document's LEADING boundary so it runs before
+// any authored node. Anchor ONLY on a leading doctype (matched with `^`), else
+// prepend — never a full-string search for a `<head>` and never parsing the
+// `<html>` tag. A whole-string search is fooled by tag-looking text that is NOT
+// a tag: a `<head>` inside a `<script>`/`<style>`/`<title>`/`<textarea>` body, a
+// template, or a quoted attribute — injecting there lands the shim in raw-text
+// (its own `</script>` closes the authored script) so it never runs and the
+// opaque-origin storage bug persists. And parsing `<html …>` breaks on a `>`
+// inside a quoted attribute. A leading doctype cannot contain `>`, so it is a
+// safe, O(1) boundary; the shim (a script placed right after the doctype, or
+// prepended when there is none) is foster-parented into `<head>` by the HTML
+// parser and executes before any authored script. `isHtmlDocument` (the caller's
+// gate) guarantees the content starts with a doctype or `<html>`.
 export const injectSandboxShim = (html: string): string => {
-  // Comment spans, so an anchor that appears only inside `<!-- … -->` is ignored.
-  const comments: Array<[number, number]> = [];
-  const commentRe = /<!--[\S\s]*?-->/g;
-  let c: RegExpExecArray | null;
-  while ((c = commentRe.exec(html)) !== null) comments.push([c.index, c.index + c[0].length]);
-  const inComment = (i: number) => comments.some(([start, end]) => i >= start && i < end);
-
-  for (const re of [/<head(?:\s[^>]*)?>/gi, /<html(?:\s[^>]*)?>/gi, /<!doctype[^>]*>/gi]) {
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null) {
-      if (inComment(m.index)) continue;
-      const at = m.index + m[0].length;
-      return html.slice(0, at) + SANDBOX_STORAGE_SHIM + html.slice(at);
-    }
-  }
-  return SANDBOX_STORAGE_SHIM + html;
+  const doctype = html.match(/^\s*<!doctype[^>]*>/i);
+  const at = doctype ? doctype[0].length : 0;
+  return html.slice(0, at) + SANDBOX_STORAGE_SHIM + html.slice(at);
 };
