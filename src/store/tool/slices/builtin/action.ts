@@ -1,6 +1,5 @@
 import { StateCreator } from 'zustand/vanilla';
 
-import { OpenAIImagePayload } from '@/types/openai/image';
 import { DallEImageItem } from '@/types/tool/dalle';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -8,7 +7,7 @@ import { ToolStore } from '../../store';
 
 const n = setNamespace('builtinTool');
 
-interface Text2ImageParams extends Pick<OpenAIImagePayload, 'quality' | 'style' | 'size'> {
+interface Text2ImageParams {
   prompts: string[];
 }
 
@@ -31,8 +30,7 @@ export const createBuiltinToolSlice: StateCreator<
   [],
   BuiltinToolAction
 > = (set, get) => ({
-  text2image: ({ prompts, size = '1024x1024' as const, quality = 'standard', style = 'vivid' }) =>
-    prompts.map((p) => ({ prompt: p, quality, size, style })),
+  text2image: ({ prompts }) => prompts.map((p) => ({ prompt: p })),
   toggleBuiltinToolLoading: (key, value) => {
     set({ builtinToolLoading: { [key]: value } }, false, n('toggleBuiltinToolLoading'));
   },

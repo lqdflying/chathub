@@ -66,22 +66,15 @@ describe('createBuiltinToolSlice', () => {
   });
 
   describe('text2image', () => {
-    it('should map the prompts to DallEImageItem objects', () => {
+    it('should map the prompts to prompt-only DallEImageItem objects', () => {
       // When
       const { result } = renderHook(() => useToolStore());
 
-      const data = result.current.text2image({
-        prompts: ['prompt1', 'prompt2'],
-        size: '1024x1024',
-        quality: 'standard',
-        style: 'vivid',
-      });
+      // size/quality/style now come from the configured image model, not the tool
+      const data = result.current.text2image({ prompts: ['prompt1', 'prompt2'] });
 
       // Then
-      expect(data).toEqual([
-        { prompt: 'prompt1', quality: 'standard', size: '1024x1024', style: 'vivid' },
-        { prompt: 'prompt2', quality: 'standard', size: '1024x1024', style: 'vivid' },
-      ]);
+      expect(data).toEqual([{ prompt: 'prompt1' }, { prompt: 'prompt2' }]);
     });
   });
 });

@@ -6,7 +6,10 @@ export interface DallEImageItem {
   imageId?: string;
   previewUrl?: string;
   prompt: string;
-  quality: DallEImageQuality;
-  size: DallEImageSize;
-  style: DallEImageStyle;
+  // Legacy DALL·E-only fields — optional now that the Image tool derives its
+  // parameters from the configured image model. Kept so previously-stored
+  // messages still type-check.
+  quality?: DallEImageQuality;
+  size?: DallEImageSize;
+  style?: DallEImageStyle;
 }

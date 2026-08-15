@@ -10,21 +10,36 @@ import { chatSelectors } from '@/store/chat/selectors';
 import { useFileStore } from '@/store/file';
 import { DallEImageItem } from '@/types/tool/dalle';
 
+// The Image tool now reads the configured (provider, model) from the image store.
+// Mock those sources so resolveImageModel() returns a usable model.
+vi.mock('@/store/image', () => ({
+  getImageStoreState: () => ({
+    model: 'gpt-image-1',
+    parameters: { prompt: 'ignored', size: '1024x1024' },
+    provider: 'openai',
+  }),
+}));
+vi.mock('@/store/image/slices/generationConfig/modelConfig', () => ({
+  getModelAndDefaults: vi.fn(() => ({ defaultValues: {} })),
+  isImageModelConfigUsable: vi.fn(() => true),
+}));
+vi.mock('@/store/aiInfra', () => ({
+  aiProviderSelectors: { enabledImageModelList: () => [] },
+  getAiInfraStoreState: () => ({}),
+}));
+
 describe('chatToolSlice - dalle', () => {
   describe('generateImageFromPrompts', () => {
-    it('should generate images from prompts, update items, and upload images', async () => {
+    it('generates via createImage, updates items, and uploads images', async () => {
       const { result } = renderHook(() => useChatStore());
 
       const initialMessageContent = JSON.stringify([
-        { prompt: 'test prompt', previewUrl: 'old-url', imageId: 'old-id' },
+        { prompt: 'test prompt 1' },
+        { prompt: 'test prompt 2' },
       ]);
 
-      vi.spyOn(chatSelectors, 'getMessageById').mockImplementationOnce(
-        (id) => () =>
-          ({
-            id,
-            content: initialMessageContent,
-          }) as UIChatMessage,
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () => ({ content: initialMessageContent, id }) as UIChatMessage,
       );
 
       const messageId = 'message-id';
@@ -32,25 +47,23 @@ describe('chatToolSlice - dalle', () => {
         { prompt: 'test prompt 1' },
         { prompt: 'test prompt 2' },
       ] as DallEImageItem[];
-      const mockUrl = 'https://example.com/image.png';
-      const mockId = 'image-id';
 
-      vi.spyOn(imageGenerationService, 'generateImage').mockResolvedValue(mockUrl);
+      const createImageMock = vi
+        .spyOn(imageGenerationService, 'createImage')
+        .mockResolvedValue({ height: 512, imageUrl: 'https://example.com/image.png', width: 512 });
       vi.spyOn(uploadService, 'getImageFileByUrlWithCORS').mockResolvedValue(
         new File(['1'], 'file.png', { type: 'image/png' }),
       );
 
-      // Mock the new uploadWithProgress method from useFileStore
       vi.spyOn(useFileStore, 'getState').mockReturnValue({
         uploadWithProgress: vi.fn().mockResolvedValue({
-          id: mockId,
-          url: '',
-          dimensions: { width: 512, height: 512 },
+          dimensions: { height: 512, width: 512 },
           filename: 'file.png',
+          id: 'image-id',
+          url: '',
         }),
       } as any);
 
-      // Mock store methods that are called in the implementation
       vi.spyOn(result.current, 'toggleDallEImageLoading');
       vi.spyOn(result.current, 'updatePluginState').mockResolvedValue(undefined);
       vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
@@ -58,10 +71,58 @@ describe('chatToolSlice - dalle', () => {
       await act(async () => {
         await result.current.generateImageFromPrompts(prompts, messageId);
       });
-      // For each prompt, loading is toggled on and then off
-      expect(imageGenerationService.generateImage).toHaveBeenCalledTimes(prompts.length);
+
+      expect(createImageMock).toHaveBeenCalledTimes(prompts.length);
+      // it passes the configured provider/model, not a hardcoded dall-e-3
+      expect(createImageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'gpt-image-1', provider: 'openai' }),
+      );
       expect(useFileStore.getState().uploadWithProgress).toHaveBeenCalledTimes(prompts.length);
+      // loading toggled on then off per prompt
       expect(result.current.toggleDallEImageLoading).toHaveBeenCalledTimes(prompts.length * 2);
+      // no failures → no error state set
+      expect(result.current.updatePluginState).not.toHaveBeenCalled();
+    });
+
+    it('records a per-index error when generation fails, without throwing', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+      const initialMessageContent = JSON.stringify([{ prompt: 'p1' }, { prompt: 'p2' }]);
+
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () => ({ content: initialMessageContent, id }) as UIChatMessage,
+      );
+
+      // first prompt succeeds, second fails
+      vi.spyOn(imageGenerationService, 'createImage')
+        .mockResolvedValueOnce({ imageUrl: 'https://example.com/ok.png' })
+        .mockRejectedValueOnce(new Error('boom'));
+      vi.spyOn(uploadService, 'getImageFileByUrlWithCORS').mockResolvedValue(
+        new File(['1'], 'file.png', { type: 'image/png' }),
+      );
+      vi.spyOn(useFileStore, 'getState').mockReturnValue({
+        uploadWithProgress: vi.fn().mockResolvedValue({ id: 'image-id', url: '' }),
+      } as any);
+
+      vi.spyOn(result.current, 'toggleDallEImageLoading');
+      const updatePluginState = vi
+        .spyOn(result.current, 'updatePluginState')
+        .mockResolvedValue(undefined);
+      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
+
+      await act(async () => {
+        await result.current.generateImageFromPrompts(
+          [{ prompt: 'p1' }, { prompt: 'p2' }] as DallEImageItem[],
+          messageId,
+        );
+      });
+
+      // error recorded at index 1 only, and loading always turned back off
+      expect(updatePluginState).toHaveBeenCalledTimes(1);
+      const errorArg = updatePluginState.mock.calls[0][1] as { error: unknown[] };
+      expect(errorArg.error[0]).toBeUndefined();
+      expect(errorArg.error[1]).toBeInstanceOf(Error);
+      expect(result.current.toggleDallEImageLoading).toHaveBeenCalledTimes(4);
     });
   });
 
@@ -70,7 +131,7 @@ describe('chatToolSlice - dalle', () => {
       const { result } = renderHook(() => useChatStore());
       const messageId = 'message-id';
       const initialMessageContent = JSON.stringify([
-        { prompt: 'test prompt', previewUrl: 'old-url', imageId: 'old-id' },
+        { imageId: 'old-id', previewUrl: 'old-url', prompt: 'test prompt' },
       ]);
       const updateFunction = (draft: any) => {
         draft[0].previewUrl = 'new-url';
@@ -78,13 +139,8 @@ describe('chatToolSlice - dalle', () => {
       };
       vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue(undefined);
 
-      // 模拟 getMessageById 返回消息内容
       vi.spyOn(chatSelectors, 'getMessageById').mockImplementationOnce(
-        (id) => () =>
-          ({
-            id,
-            content: initialMessageContent,
-          }) as UIChatMessage,
+        (id) => () => ({ content: initialMessageContent, id }) as UIChatMessage,
       );
       vi.spyOn(messageService, 'updateMessage').mockResolvedValueOnce(undefined);
 
@@ -92,10 +148,9 @@ describe('chatToolSlice - dalle', () => {
         await result.current.updateImageItem(messageId, updateFunction);
       });
 
-      // 验证 internal_updateMessageContent 是否被正确调用以更新内容
       expect(result.current.internal_updateMessageContent).toHaveBeenCalledWith(
         messageId,
-        JSON.stringify([{ prompt: 'test prompt', previewUrl: 'new-url', imageId: 'new-id' }]),
+        JSON.stringify([{ imageId: 'new-id', previewUrl: 'new-url', prompt: 'test prompt' }]),
       );
     });
   });
@@ -106,7 +161,6 @@ describe('chatToolSlice - dalle', () => {
       const id = 'message-id';
       const data = [{ prompt: 'prompt 1' }, { prompt: 'prompt 2' }] as DallEImageItem[];
 
-      // Mock generateImageFromPrompts
       const generateImageFromPromptsMock = vi
         .spyOn(result.current, 'generateImageFromPrompts')
         .mockResolvedValue(undefined);

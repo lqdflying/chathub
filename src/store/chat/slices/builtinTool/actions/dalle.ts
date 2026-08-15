@@ -1,4 +1,6 @@
 import { produce } from 'immer';
+import { omit } from 'lodash-es';
+import { RuntimeImageGenParams } from 'model-bank';
 import pMap from 'p-map';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
@@ -7,9 +9,16 @@ import { useClientDataSWR } from '@/libs/swr';
 import { fileService } from '@/services/file';
 import { imageGenerationService } from '@/services/textToImage';
 import { uploadService } from '@/services/upload';
+import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { useFileStore } from '@/store/file';
+import { getImageStoreState } from '@/store/image';
+import {
+  getModelAndDefaults,
+  isImageModelConfigUsable,
+} from '@/store/image/slices/generationConfig/modelConfig';
+import { imageGenerationConfigSelectors } from '@/store/image/slices/generationConfig/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
 import { DallEImageItem } from '@/types/tool/dalle';
@@ -18,6 +27,48 @@ import { setNamespace } from '@/utils/storeDebug';
 const n = setNamespace('tool');
 
 const SWR_FETCH_KEY = 'FetchImageItem';
+
+// Resolve the image model/provider the tool should use — the same configuration
+// as the main Image workspace — falling back to the first usable enabled model.
+const resolveImageModel = ():
+  { model: string; params: RuntimeImageGenParams; provider: string } | undefined => {
+  const s = getImageStoreState();
+  const provider = imageGenerationConfigSelectors.provider(s);
+  const model = imageGenerationConfigSelectors.model(s);
+
+  if (isImageModelConfigUsable(model, provider)) {
+    // reuse the menu's params (size/steps/cfg/…) but drop per-generation fields
+    // that don't apply to a text-only chat tool
+    const params = omit(imageGenerationConfigSelectors.parameters(s), [
+      'imageUrls',
+      'prompt',
+    ]) as RuntimeImageGenParams;
+    return { model, params, provider };
+  }
+
+  const list = aiProviderSelectors.enabledImageModelList(getAiInfraStoreState());
+  for (const providerItem of list) {
+    for (const modelItem of providerItem.children) {
+      if (isImageModelConfigUsable(modelItem.id, providerItem.id)) {
+        return {
+          model: modelItem.id,
+          params: getModelAndDefaults(modelItem.id, providerItem.id).defaultValues,
+          provider: providerItem.id,
+        };
+      }
+    }
+  }
+};
+
+// data: URIs (e.g. gpt-image-1 base64 output) convert straight to a File; remote
+// provider URLs go through the CORS proxy (they usually block a direct fetch).
+const imageUrlToFile = async (imageUrl: string, filename: string): Promise<File> => {
+  if (!imageUrl.startsWith('data:')) {
+    return uploadService.getImageFileByUrlWithCORS(imageUrl, filename);
+  }
+  const blob = await fetch(imageUrl).then((res) => res.blob());
+  return new File([blob], filename, { lastModified: Date.now(), type: blob.type || 'image/png' });
+};
 
 export interface ChatDallEAction {
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<void>;
@@ -35,8 +86,7 @@ export const dalleSlice: StateCreator<
 > = (set, get) => ({
   generateImageFromPrompts: async (items, messageId) => {
     const invocationGeneration = get().conversationClearGeneration;
-    const invocationIsCurrent = () =>
-      get().conversationClearGeneration === invocationGeneration;
+    const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
 
     // eslint-disable-next-line unicorn/consistent-function-scoping
     const getMessageById = (id: string) => chatSelectors.getMessageById(id)(get());
@@ -44,59 +94,86 @@ export const dalleSlice: StateCreator<
     const message = getMessageById(messageId);
     if (!message) return;
 
-    const parent = getMessageById(message!.parentId!);
+    const parent = getMessageById(message.parentId!);
     const originPrompt = parent?.content;
-    let errorArray: any[] = [];
 
-    await pMap(items, async (params, index) => {
-      if (!invocationIsCurrent()) return;
-
-      get().toggleDallEImageLoading(messageId + params.prompt, true);
-
-      let url = '';
-      try {
-        url = await imageGenerationService.generateImage(params);
-      } catch (e) {
-        if (!invocationIsCurrent()) return;
-
-        get().toggleDallEImageLoading(messageId + params.prompt, false);
-        errorArray[index] = e;
-
-        await get().updatePluginState(messageId, { error: errorArray });
-      }
-      if (!invocationIsCurrent()) return;
-
-      if (!url) return;
-
-      await get().updateImageItem(messageId, (draft) => {
-        draft[index].previewUrl = url;
+    const resolved = resolveImageModel();
+    if (!resolved) {
+      // no usable image model is configured — surface a per-item error instead
+      // of silently generating nothing
+      await get().updatePluginState(messageId, {
+        error: items.map(() => ({ errorType: 'NoImageModelConfigured' })),
       });
-      if (!invocationIsCurrent()) return;
+      return;
+    }
+    const { model, provider, params: baseParams } = resolved;
 
-      get().toggleDallEImageLoading(messageId + params.prompt, false);
-      const imageFile = await uploadService.getImageFileByUrlWithCORS(
-        url,
-        `${originPrompt || params.prompt}_${index}.png`,
-      );
-      if (!invocationIsCurrent()) return;
+    const results = await pMap(
+      items,
+      async (item, index) => {
+        if (!invocationIsCurrent()) return undefined;
 
-      const data = await useFileStore.getState().uploadWithProgress({
-        file: imageFile,
-      });
-      if (!invocationIsCurrent()) return;
+        const loadingKey = messageId + item.prompt;
+        get().toggleDallEImageLoading(loadingKey, true);
 
-      if (!data) return;
+        try {
+          const { imageUrl } = await imageGenerationService.createImage({
+            model,
+            params: { ...baseParams, prompt: item.prompt },
+            provider,
+          });
+          if (!invocationIsCurrent()) return undefined;
+          if (!imageUrl) throw new Error('The image provider returned an empty result.');
 
-      await get().updateImageItem(messageId, (draft) => {
-        draft[index].imageId = data.id;
-        draft[index].previewUrl = undefined;
-      });
-    });
+          await get().updateImageItem(messageId, (draft) => {
+            if (draft[index]) draft[index].previewUrl = imageUrl;
+          });
+          if (!invocationIsCurrent()) return undefined;
+
+          const imageFile = await imageUrlToFile(
+            imageUrl,
+            `${originPrompt || item.prompt}_${index}.png`,
+          );
+          if (!invocationIsCurrent()) return undefined;
+
+          const data = await useFileStore.getState().uploadWithProgress({ file: imageFile });
+          if (!invocationIsCurrent()) return undefined;
+          if (!data) return undefined;
+
+          await get().updateImageItem(messageId, (draft) => {
+            if (draft[index]) {
+              draft[index].imageId = data.id;
+              draft[index].previewUrl = undefined;
+            }
+          });
+          return undefined;
+        } catch (error) {
+          if (!invocationIsCurrent()) return undefined;
+          // clear the (possibly expiring) previewUrl so the UI never shows a
+          // soon-to-be-broken image, and record the failure for this index
+          await get().updateImageItem(messageId, (draft) => {
+            if (draft[index]) draft[index].previewUrl = undefined;
+          });
+          return { error, index };
+        } finally {
+          get().toggleDallEImageLoading(loadingKey, false);
+        }
+      },
+      { concurrency: 3 },
+    );
+
+    if (!invocationIsCurrent()) return;
+
+    // set plugin error ONCE, after all items settle, to avoid the concurrent
+    // read-modify-write race the previous shared-array approach had
+    const failures = results.filter((r): r is { error: unknown; index: number } => r !== undefined);
+    if (failures.length > 0) {
+      const errorArray: unknown[] = [];
+      for (const f of failures) errorArray[f.index] = f.error;
+      await get().updatePluginState(messageId, { error: errorArray });
+    }
   },
   text2image: async (id, data) => {
-    // const isAutoGen = settingsSelectors.isDalleAutoGenerating(useGlobalStore.getState());
-    // if (!isAutoGen) return;
-
     await get().generateImageFromPrompts(data, id);
   },
 
