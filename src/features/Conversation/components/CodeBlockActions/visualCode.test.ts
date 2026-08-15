@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  injectSandboxShim,
   isHtmlCode,
   isHtmlDocument,
   isSvgCode,
@@ -71,5 +72,50 @@ describe('isVisualComplete', () => {
     expect(isVisualComplete('<!DOCTYPE html><html><body>', 'html')).toBe(false);
     expect(isVisualComplete('<!DOCTYPE html><html><body></body></html>', 'html')).toBe(true);
     expect(isVisualComplete('<html><body>x</body>', 'html')).toBe(true);
+  });
+});
+
+describe('injectSandboxShim', () => {
+  const SHIM = '<script>';
+  const STUB = "['localStorage','sessionStorage']";
+
+  it('inserts the shim right after <head> when present', () => {
+    const out = injectSandboxShim(
+      '<!doctype html><html><head><title>t</title></head><body>x</body></html>',
+    );
+    expect(out).toContain(STUB);
+    // the shim sits immediately after the opening <head> tag, before <title>
+    expect(out.indexOf(SHIM)).toBe(out.indexOf('<head>') + '<head>'.length);
+    expect(out.indexOf(SHIM)).toBeLessThan(out.indexOf('<title>'));
+    // original document content is preserved
+    expect(out).toContain('<title>t</title>');
+    expect(out).toContain('<body>x</body>');
+  });
+
+  it('respects head attributes and does not match <header>', () => {
+    const out = injectSandboxShim(
+      '<html><head data-x="1"><header>h</header></head><body></body></html>',
+    );
+    // inserted after the real <head ...>, not before the <header> element
+    expect(out.indexOf(SHIM)).toBe(out.indexOf('<head data-x="1">') + '<head data-x="1">'.length);
+    expect(out.indexOf(SHIM)).toBeLessThan(out.indexOf('<header>'));
+  });
+
+  it('falls back to after <html> when there is no head', () => {
+    const out = injectSandboxShim('<html><body>only body</body></html>');
+    expect(out.indexOf(SHIM)).toBe(out.indexOf('<html>') + '<html>'.length);
+    expect(out).toContain('<body>only body</body>');
+  });
+
+  it('falls back to after <!doctype> when there is no head or html tag', () => {
+    const out = injectSandboxShim('<!doctype html>plain');
+    expect(out.startsWith('<!doctype html><script>')).toBe(true);
+    expect(out.endsWith('plain')).toBe(true);
+  });
+
+  it('prepends when there is no doctype/head/html anchor', () => {
+    const out = injectSandboxShim('just markup');
+    expect(out.startsWith(SHIM)).toBe(true);
+    expect(out.endsWith('just markup')).toBe(true);
   });
 });

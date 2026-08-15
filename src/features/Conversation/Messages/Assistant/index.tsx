@@ -29,6 +29,7 @@ import ErrorMessageExtra, { useErrorContent } from '../../Error';
 import { markdownElements } from '../../MarkdownElements';
 import { renderCodeBlockActions, renderCodeBlockBody } from '../../components/CodeBlockActions';
 import MarkdownTable from '../../components/MarkdownTable';
+import MermaidZoom from '../../components/MermaidZoom';
 import { useDoubleClickEdit } from '../../hooks/useDoubleClickEdit';
 import { normalizeThinkTags, processWithArtifact } from '../../utils/markdown';
 import { AssistantActionsBar } from './Actions';
@@ -153,7 +154,16 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
           bodyRender: renderCodeBlockBody,
           theme: highlighterTheme,
         },
-        mermaid: { theme: mermaidTheme },
+        mermaid: {
+          // open the diagram in a dismissible drawer (same design as the HTML
+          // preview) and disable antd's pan-zoom lightbox, whose ✕ sits under the
+          // notch and which the phone Back can't close
+          bodyRender: ({ content, originalNode }: { content: string; originalNode: ReactNode }) => (
+            <MermaidZoom content={content} originalNode={originalNode} theme={mermaidTheme} />
+          ),
+          enablePanZoom: false,
+          theme: mermaidTheme,
+        },
       },
       components,
       enableCustomFootnotes: true,

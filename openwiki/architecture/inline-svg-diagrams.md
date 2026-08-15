@@ -97,6 +97,16 @@ blocks to `VisualCodeBlock`:
   is wrapped in a minimal responsive HTML document so it scales. Unlike the
   artifact path (strict `sanitizeSVGContent`, no gradients, themed), code blocks
   are arbitrary art → full fidelity via isolation instead of sanitization.
+- **Storage shim for the opaque origin** (`injectSandboxShim`, `visualCode.ts`):
+  the HTML-doc `srcDoc` gets one inert `<script>` injected after `<head>` (else
+  `<html>`, else `<!doctype>`, else prepended) that replaces
+  `localStorage`/`sessionStorage` with no-op stubs **only if accessing them
+  throws**. Without it, LLM HTML that embeds mermaid.js from a CDN (or anything
+  touching storage) hits `SecurityError` in the `allow-scripts`-only origin, never
+  paints, and leaves its own CSS loading spinner (a big ring) stuck — recurring on
+  every history remount. The shim grants no capability and does **not** relax the
+  sandbox (still no `allow-same-origin`); the SVG wrapper is our own inert document
+  and skips it.
 - **What inlines** (`isVisualCode`): SVG and **full HTML documents only**. A bare
   html fragment (`<div>…</div>`) is NOT inlined — it has no closing-document
   marker, so it can't be stream-gated and would otherwise mount/run its scripts
@@ -112,7 +122,9 @@ blocks to `VisualCodeBlock`:
   SVG saves as `.svg`, a full HTML doc as `.html`), not the source language.
 - Full-screen preview (the eye-icon drawer) is HTML-only; SVG code blocks have
   the inline Preview/Code toggle and fill the block.
-- Mermaid is untouched (rendered by `@lobehub/ui`, never reaches `bodyRender`).
+- Mermaid fences take a different path — `@lobehub/ui`'s native `Mermaid`, not
+  `VisualCodeBlock` — but their click-to-zoom is now wrapped; see _Mermaid zoom
+  drawer_ under Mobile navigation below.
 
 ## Mobile navigation & interrupted replies
 
@@ -128,6 +140,16 @@ blocks to `VisualCodeBlock`:
   because `history.back()` is async — a rapid ✕-then-reopen let the stale
   traversal's `popstate` reach the newly opened drawer's listener and close it.
   The route-driven close has no such race.) The iframe drops `allow-same-origin`.
+- **Mermaid zoom drawer** reuses that exact model. `@lobehub/ui`'s `Mermaid`
+  accepts a `bodyRender` (flows through `componentProps.mermaid` in
+  `Assistant/index.tsx`), so the diagram is wrapped by
+  `Conversation/components/MermaidZoom`: `enablePanZoom: false` disables antd's
+  `Image` preview lightbox — whose ✕ is fixed at `top:32px` under the notch, whose
+  ESC is desktop-only, and which rc-image never ties to history (the exact mobile
+  trap the HTML drawer avoids) — and tapping the diagram opens `MermaidDrawer`, the
+  same bottom `Drawer` + `useWorkspaceModal` route-close as the HTML preview, with
+  zoom-in/out/reset controls. Applies on **both** mobile and desktop; the drawer
+  re-renders the diagram at full size via the exported `SyntaxMermaid`.
 - **Loading resets must include `messageRAGLoadingIds`.** The avatar spinner is
   `loading = isInRAGFlow || generating` (`Assistant/index.tsx`), i.e.
   `messageRAGLoadingIds || chatLoadingIds`. `internal_invalidateConversation`

@@ -7,7 +7,7 @@ import React, { type ReactNode, memo, useEffect, useMemo, useRef, useState } fro
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
-import { isSvgCode, isVisualComplete } from './visualCode';
+import { injectSandboxShim, isSvgCode, isVisualComplete } from './visualCode';
 
 const useStyles = createStyles(({ css, token }) => ({
   container: css`
@@ -74,7 +74,13 @@ const VisualCodeBlock = memo<VisualCodeBlockProps>(({ content, language, origina
     setMode(complete ? 'render' : 'source');
   }, [complete]);
 
-  const srcDoc = useMemo(() => (isSvg ? wrapSvg(content) : content), [isSvg, content]);
+  // HTML docs get the storage shim so embedded scripts (e.g. mermaid-in-HTML)
+  // survive the opaque-origin sandbox instead of hanging on a stuck spinner; the
+  // SVG wrapper is our own inert document and needs none.
+  const srcDoc = useMemo(
+    () => (isSvg ? wrapSvg(content) : injectSandboxShim(content)),
+    [isSvg, content],
+  );
 
   return (
     <Flexbox className={styles.container}>
