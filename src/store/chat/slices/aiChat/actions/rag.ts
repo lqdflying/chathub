@@ -175,10 +175,12 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
         scope: result.scope ?? emptyScopeStats(),
       };
     } finally {
-      // always clear this message's RAG loading flag, even if the conversation
-      // was invalidated/switched mid-retrieval — otherwise the id orphans and
-      // the avatar spinner stays stuck. Removes only this id.
-      get().internal_toggleMessageRAGLoading(false, id);
+      // Only clear the flag if this is still the current request. The orphan
+      // case (invalidated mid-retrieval) is now handled by
+      // internal_invalidateConversation clearing messageRAGLoadingIds; keeping
+      // the guard here prevents a stale request A from clearing the loading flag
+      // of a newer request B that reused the same message id after invalidation.
+      if (isCurrentRequest()) get().internal_toggleMessageRAGLoading(false, id);
     }
   },
   internal_rewriteQuery: async (id, content, messages) => {
