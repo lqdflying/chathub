@@ -100,7 +100,10 @@ const HtmlPreviewDrawer = memo<HtmlPreviewDrawerProps>(({ content, open, onClose
   return (
     <Drawer
       destroyOnHidden
-      height={'100dvh'}
+      // on mobile, shrink by the top safe-area so the header (close X) drops
+      // below the status bar/notch instead of rendering behind it (matches the
+      // @lobehub/ui Modal fullscreen idiom); env() is 0 on non-notch devices
+      height={mobile ? 'calc(100dvh - env(safe-area-inset-top))' : '100dvh'}
       onClose={onClose}
       open={open}
       placement="bottom"
