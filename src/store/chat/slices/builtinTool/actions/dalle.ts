@@ -33,13 +33,21 @@ const SWR_FETCH_KEY = 'FetchImageItem';
 const resolveImageModel = ():
   { model: string; params: RuntimeImageGenParams; provider: string } | undefined => {
   const s = getImageStoreState();
+  // Only trust the store once the owner-aware image config has hydrated (mounted
+  // globally in StoreInitialization). Before that it still holds the hard-coded
+  // initial default (openai/gpt-image-1), which must NOT be used to bill a
+  // request as if it were the user's saved choice.
+  if (!s.isInit) return undefined;
+
   const provider = imageGenerationConfigSelectors.provider(s);
   const model = imageGenerationConfigSelectors.model(s);
 
   if (isImageModelConfigUsable(model, provider)) {
     // reuse the menu's params (size/steps/cfg/…) but drop per-generation fields
-    // that don't apply to a text-only chat tool
+    // that don't apply to a text-only chat tool (incl. singular/plural reference
+    // images, which would otherwise turn generation into an edit)
     const params = omit(imageGenerationConfigSelectors.parameters(s), [
+      'imageUrl',
       'imageUrls',
       'prompt',
     ]) as RuntimeImageGenParams;

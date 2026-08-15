@@ -1,6 +1,6 @@
 import { UIChatMessage } from '@lobechat/types';
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { messageService } from '@/services/message';
 import { imageGenerationService } from '@/services/textToImage';
@@ -10,15 +10,23 @@ import { chatSelectors } from '@/store/chat/selectors';
 import { useFileStore } from '@/store/file';
 import { DallEImageItem } from '@/types/tool/dalle';
 
-// The Image tool now reads the configured (provider, model) from the image store.
-// Mock those sources so resolveImageModel() returns a usable model.
-vi.mock('@/store/image', () => ({
-  getImageStoreState: () => ({
+// The Image tool reads the configured (provider, model) from the image store.
+// A mutable mock lets tests flip isInit / params.
+const { mockImageState } = vi.hoisted(() => ({
+  mockImageState: {
+    isInit: true,
     model: 'gpt-image-1',
-    parameters: { prompt: 'ignored', size: '1024x1024' },
+    // include reference-image params to prove they're stripped (finding r1/6)
+    parameters: {
+      imageUrl: 'ref-single',
+      imageUrls: ['ref-plural'],
+      prompt: 'ignored',
+      size: '1024x1024',
+    } as Record<string, unknown>,
     provider: 'openai',
-  }),
+  },
 }));
+vi.mock('@/store/image', () => ({ getImageStoreState: () => mockImageState }));
 vi.mock('@/store/image/slices/generationConfig/modelConfig', () => ({
   getModelAndDefaults: vi.fn(() => ({ defaultValues: {} })),
   isImageModelConfigUsable: vi.fn(() => true),
@@ -29,7 +37,36 @@ vi.mock('@/store/aiInfra', () => ({
 }));
 
 describe('chatToolSlice - dalle', () => {
+  afterEach(() => {
+    mockImageState.isInit = true;
+  });
+
   describe('generateImageFromPrompts', () => {
+    it('does not generate before the image config has initialized (finding r1/1)', async () => {
+      mockImageState.isInit = false;
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () => ({ content: JSON.stringify([{ prompt: 'p' }]), id }) as UIChatMessage,
+      );
+      const createImageMock = vi.spyOn(imageGenerationService, 'createImage');
+      const updatePluginState = vi
+        .spyOn(result.current, 'updatePluginState')
+        .mockResolvedValue(undefined);
+
+      await act(async () => {
+        await result.current.generateImageFromPrompts(
+          [{ prompt: 'p' }] as DallEImageItem[],
+          messageId,
+        );
+      });
+
+      expect(createImageMock).not.toHaveBeenCalled();
+      expect(updatePluginState).toHaveBeenCalledWith(messageId, {
+        error: [{ errorType: 'NoImageModelConfigured' }],
+      });
+    });
+
     it('generates via createImage, updates items, and uploads images', async () => {
       const { result } = renderHook(() => useChatStore());
 
@@ -77,6 +114,12 @@ describe('chatToolSlice - dalle', () => {
       expect(createImageMock).toHaveBeenCalledWith(
         expect.objectContaining({ model: 'gpt-image-1', provider: 'openai' }),
       );
+      // reference-image params are stripped (finding r1/6); prompt is the item's
+      const callParams = (createImageMock.mock.calls[0][0] as { params: Record<string, unknown> })
+        .params;
+      expect(callParams.imageUrl).toBeUndefined();
+      expect(callParams.imageUrls).toBeUndefined();
+      expect(callParams.prompt).toBe('test prompt 1');
       expect(useFileStore.getState().uploadWithProgress).toHaveBeenCalledTimes(prompts.length);
       // loading toggled on then off per prompt
       expect(result.current.toggleDallEImageLoading).toHaveBeenCalledTimes(prompts.length * 2);

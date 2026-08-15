@@ -172,20 +172,25 @@ class UploadService {
    * @param filename
    * @param fileType
    */
-  getImageFileByUrlWithCORS = async (url: string, filename: string, fileType = 'image/png') => {
+  getImageFileByUrlWithCORS = async (url: string, filename: string, fileType?: string) => {
     const headers = await createHeaderWithAuth();
     const res = await fetch(API_ENDPOINTS.proxy, { body: url, headers, method: 'POST' });
 
     // A non-OK proxy response returns error HTML/JSON bytes; without this guard
-    // they'd be wrapped as an image/png and uploaded as a corrupt image.
+    // they'd be wrapped as an image and uploaded as a corrupt file.
     if (!res.ok) {
       const detail = await res.text().catch(() => res.statusText);
       throw new Error(`Failed to fetch image (${res.status}): ${detail.slice(0, 200)}`);
     }
 
+    // prefer the caller's explicit type, then the (now-forwarded) upstream
+    // content-type when it is an image, else fall back to png
+    const proxiedType = res.headers?.get?.('content-type') ?? '';
+    const type = fileType ?? (proxiedType.startsWith('image/') ? proxiedType : 'image/png');
+
     const data = await res.arrayBuffer();
 
-    return new File([data], filename, { lastModified: Date.now(), type: fileType });
+    return new File([data], filename, { lastModified: Date.now(), type });
   };
 
   private getSignedUploadUrl = async (

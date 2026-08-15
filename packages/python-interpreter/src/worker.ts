@@ -35,6 +35,12 @@ patch_matplotlib()`;
 // Pyodide 对象不能在 Worker 之间传递，因此定义为全局变量
 let pyodide: PyodideAPI | undefined;
 
+// Bound the result BEFORE it crosses Comlink and gets persisted, so a runaway
+// program can't exhaust memory during transfer or bloat the stored message. The
+// renderer cap is only defense-in-depth.
+const MAX_TOTAL_OUTPUT_CHARS = 200_000;
+const MAX_RESULT_CHARS = 100_000;
+
 class PythonWorker {
   pyodideIndexUrl: string;
   pypiIndexUrl: string;
@@ -125,16 +131,24 @@ class PythonWorker {
 
     // 安装依赖后再捕获标准输出，避免记录安装日志
     const output: PythonOutput[] = [];
-    this.pyodide.setStdout({
-      batched: (o: string) => {
-        output.push({ data: o, type: 'stdout' });
-      },
-    });
-    this.pyodide.setStderr({
-      batched: (o: string) => {
-        output.push({ data: o, type: 'stderr' });
-      },
-    });
+    // enforce ONE total stdout/stderr budget across all chunks (not per-chunk)
+    let totalOutput = 0;
+    let outputTruncated = false;
+    const pushOutput = (data: string, type: 'stderr' | 'stdout') => {
+      if (outputTruncated) return;
+      const remaining = MAX_TOTAL_OUTPUT_CHARS - totalOutput;
+      if (data.length >= remaining) {
+        if (remaining > 0) output.push({ data: data.slice(0, remaining), type });
+        output.push({ data: '\n…[output truncated]', type: 'stderr' });
+        outputTruncated = true;
+        totalOutput = MAX_TOTAL_OUTPUT_CHARS;
+        return;
+      }
+      output.push({ data, type });
+      totalOutput += data.length;
+    };
+    this.pyodide.setStdout({ batched: (o: string) => pushOutput(o, 'stdout') });
+    this.pyodide.setStderr({ batched: (o: string) => pushOutput(o, 'stderr') });
 
     // 执行代码
     let result;
@@ -143,15 +157,17 @@ class PythonWorker {
       result = await this.pyodide.runPythonAsync(code);
       success = true;
     } catch (error) {
-      output.push({
-        data: error instanceof Error ? error.message : String(error),
-        type: 'stderr',
-      });
+      pushOutput(error instanceof Error ? error.message : String(error), 'stderr');
+    }
+
+    let resultStr = result?.toString();
+    if (resultStr !== undefined && resultStr.length > MAX_RESULT_CHARS) {
+      resultStr = `${resultStr.slice(0, MAX_RESULT_CHARS)}\n…[result truncated]`;
     }
 
     return {
       output,
-      result: result?.toString(),
+      result: resultStr,
       success,
     };
   }

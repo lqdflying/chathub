@@ -20,7 +20,15 @@ export const POST = async (req: Request) => {
 
   try {
     const res = await ssrfSafeFetch(url);
-    return new Response(await res.arrayBuffer(), { headers: { ...res.headers } });
+    // Forward the upstream status, statusText and the ACTUAL Headers collection.
+    // `new Response(body)` alone defaults to 200, and `{ ...res.headers }` drops
+    // every header (Headers entries aren't enumerable own-properties) — both of
+    // which would make an upstream 404/500 look like a successful image download.
+    return new Response(res.ok ? await res.arrayBuffer() : await res.text(), {
+      headers: res.headers,
+      status: res.status,
+      statusText: res.statusText,
+    });
   } catch (err) {
     console.error(err); // DNS lookup 127.0.0.1(family:4, host:127.0.0.1.nip.io) is not allowed. Because, It is private IP address.
     return NextResponse.json({ error: 'Not support internal host proxy' }, { status: 400 });

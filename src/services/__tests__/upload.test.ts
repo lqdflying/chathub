@@ -315,6 +315,7 @@ describe('UploadService', () => {
 
       vi.mocked(global.fetch).mockResolvedValue({
         arrayBuffer: () => Promise.resolve(mockArrayBuffer),
+        ok: true,
       } as Response);
 
       const result = await uploadService.getImageFileByUrlWithCORS(url, filename);
@@ -338,11 +339,37 @@ describe('UploadService', () => {
 
       vi.mocked(global.fetch).mockResolvedValue({
         arrayBuffer: () => Promise.resolve(mockArrayBuffer),
+        ok: true,
       } as Response);
 
       const result = await uploadService.getImageFileByUrlWithCORS(url, filename, fileType);
 
       expect(result.type).toBe(fileType);
+    });
+
+    it('derives the image MIME from the proxied content-type', async () => {
+      vi.mocked(global.fetch).mockResolvedValue({
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        headers: { get: (k: string) => (k === 'content-type' ? 'image/webp' : null) },
+        ok: true,
+      } as unknown as Response);
+
+      const result = await uploadService.getImageFileByUrlWithCORS('https://x/y', 'y');
+
+      expect(result.type).toBe('image/webp');
+    });
+
+    it('throws on a non-OK proxy response so no corrupt file is uploaded', async () => {
+      vi.mocked(global.fetch).mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: () => Promise.resolve('not found'),
+      } as Response);
+
+      await expect(
+        uploadService.getImageFileByUrlWithCORS('https://example.com/x.png', 'x.png'),
+      ).rejects.toThrow('Failed to fetch image (404)');
     });
   });
 });

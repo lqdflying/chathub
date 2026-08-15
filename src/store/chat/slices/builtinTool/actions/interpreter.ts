@@ -65,8 +65,10 @@ export const codeInterpreterSlice: StateCreator<
       const files: File[] = [];
       const pushFromUrl = async (url: string, name: string) => {
         try {
-          const blob = await fetch(url).then((res) => res.blob());
-          files.push(new File([blob], name));
+          const res = await fetch(url);
+          // skip a 404/expired URL instead of saving the error page as an input
+          if (!res.ok) return;
+          files.push(new File([await res.blob()], name));
         } catch {
           // skip a file that can't be fetched
         }
@@ -78,15 +80,21 @@ export const codeInterpreterSlice: StateCreator<
           if (tool.identifier !== CodeInterpreterIdentifier) continue;
           const toolMessage = chatSelectors.getMessageByToolCallId(tool.id)(get());
           if (!toolMessage?.content) continue;
+          let priorFiles: CodeInterpreterResponse['files'];
           try {
-            const content = JSON.parse(toolMessage.content) as CodeInterpreterResponse;
-            for (const file of content.files ?? []) {
-              if (!file.fileId) continue;
+            priorFiles = (JSON.parse(toolMessage.content) as CodeInterpreterResponse).files;
+          } catch {
+            continue; // skip a tool message with malformed content
+          }
+          for (const file of priorFiles ?? []) {
+            if (!file.fileId) continue;
+            // per-file so one stale/deleted id can't suppress the later valid files
+            try {
               const item = await fileService.getFile(file.fileId);
               await pushFromUrl(item.url, file.filename);
+            } catch {
+              // skip a stale/deleted file
             }
-          } catch {
-            // skip a tool message with malformed content
           }
         }
       }

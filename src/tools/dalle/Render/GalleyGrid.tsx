@@ -49,7 +49,10 @@ const GalleyGrid = memo<GalleyGridProps>(({ items, renderItem: Render }) => {
       {lastRow.length > 0 && (
         <Grid col={lastRow.length > 2 ? 3 : lastRow.length} gap={gap} max={max}>
           {lastRow.map((i, index) => (
-            <Render {...i} index={index} key={index} />
+            // offset by the first row so the item keeps its GLOBAL index — the
+            // renderer keys loading/error state (`${messageId}_${index}`,
+            // pluginState.error[index]) on it, which generation records 0..n-1
+            <Render {...i} index={firstRow.length + index} key={firstRow.length + index} />
           ))}
         </Grid>
       )}
