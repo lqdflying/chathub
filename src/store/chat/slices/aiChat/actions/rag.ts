@@ -175,7 +175,10 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
         scope: result.scope ?? emptyScopeStats(),
       };
     } finally {
-      if (isCurrentRequest()) get().internal_toggleMessageRAGLoading(false, id);
+      // always clear this message's RAG loading flag, even if the conversation
+      // was invalidated/switched mid-retrieval — otherwise the id orphans and
+      // the avatar spinner stays stuck. Removes only this id.
+      get().internal_toggleMessageRAGLoading(false, id);
     }
   },
   internal_rewriteQuery: async (id, content, messages) => {

@@ -133,6 +133,18 @@ describe('chatMessage actions', () => {
         },
       });
     });
+
+    it('clears the RAG loading ids so a stuck avatar spinner cannot survive a switch', () => {
+      useChatStore.setState({ chatLoadingIds: ['m1'], messageRAGLoadingIds: ['m1'] });
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      expect(useChatStore.getState().messageRAGLoadingIds).toEqual([]);
+      expect(useChatStore.getState().chatLoadingIds).toEqual([]);
+    });
   });
 
   describe('addAIMessage', () => {

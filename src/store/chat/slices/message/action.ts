@@ -1100,6 +1100,9 @@ export const chatMessage: StateCreator<
         messageLoadingIds: [],
         messageInToolsCallingIds: [],
         messageInToolsCallingIdsAbortController: undefined,
+        // clear RAG loading too, or an id orphaned mid-retrieval leaves the
+        // avatar spinner stuck across topic switches (clearMessage clears it)
+        messageRAGLoadingIds: [],
         pluginApiAbortControllers: {},
         pluginApiLoadingIds: [],
         reasoningLoadingIds: [],
