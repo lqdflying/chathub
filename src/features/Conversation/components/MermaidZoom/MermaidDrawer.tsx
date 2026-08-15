@@ -26,9 +26,10 @@ const useStyles = createStyles(({ css, token }) => ({
   diagram: css`
     & .${token.prefixCls}-image, & img {
       display: block;
+
       width: 100% !important;
-      max-width: none !important;
       min-width: 0 !important;
+      max-width: none !important;
       height: auto !important;
       max-height: none !important;
     }

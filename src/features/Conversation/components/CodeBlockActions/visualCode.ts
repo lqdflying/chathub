@@ -52,12 +52,24 @@ const SANDBOX_STORAGE_SHIM =
 
 // Inject the storage shim as early as possible so it runs before the document's
 // own scripts: after `<head …>` if present, else after `<html …>`, else after
-// `<!doctype …>`, else prepend. The `head`/`html` matchers require the tag to
-// end or be followed by whitespace so they never match `<header>` etc.
+// `<!doctype …>`, else prepend. Anchors are matched only in ACTIVE markup — a
+// match inside an HTML comment is skipped, so a document like
+// `<!doctype html><!-- <head> --><html><head>…` lands the shim after the real
+// head, not inside the comment (where it would be inert and the spinner-bug
+// would persist). The `head`/`html` matchers also require the tag to end or be
+// followed by whitespace so they never match `<header>` etc.
 export const injectSandboxShim = (html: string): string => {
-  for (const re of [/<head(?:\s[^>]*)?>/i, /<html(?:\s[^>]*)?>/i, /<!doctype[^>]*>/i]) {
-    const m = html.match(re);
-    if (m && m.index !== undefined) {
+  // Comment spans, so an anchor that appears only inside `<!-- … -->` is ignored.
+  const comments: Array<[number, number]> = [];
+  const commentRe = /<!--[\S\s]*?-->/g;
+  let c: RegExpExecArray | null;
+  while ((c = commentRe.exec(html)) !== null) comments.push([c.index, c.index + c[0].length]);
+  const inComment = (i: number) => comments.some(([start, end]) => i >= start && i < end);
+
+  for (const re of [/<head(?:\s[^>]*)?>/gi, /<html(?:\s[^>]*)?>/gi, /<!doctype[^>]*>/gi]) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) {
+      if (inComment(m.index)) continue;
       const at = m.index + m[0].length;
       return html.slice(0, at) + SANDBOX_STORAGE_SHIM + html.slice(at);
     }

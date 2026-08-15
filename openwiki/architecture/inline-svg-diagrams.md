@@ -98,8 +98,10 @@ blocks to `VisualCodeBlock`:
   artifact path (strict `sanitizeSVGContent`, no gradients, themed), code blocks
   are arbitrary art → full fidelity via isolation instead of sanitization.
 - **Storage shim for the opaque origin** (`injectSandboxShim`, `visualCode.ts`):
-  the HTML-doc `srcDoc` gets one inert `<script>` injected after `<head>` (else
-  `<html>`, else `<!doctype>`, else prepended) that replaces
+  the HTML-doc `srcDoc` gets one inert `<script>` injected after the first
+  **active-markup** `<head>` (else `<html>`, else `<!doctype>`, else prepended) —
+  anchors that appear only inside an HTML comment (`<!-- <head> -->`) are skipped,
+  so a pre-head comment can't swallow the shim and leave it inert. It replaces
   `localStorage`/`sessionStorage` with no-op stubs **only if accessing them
   throws**. Without it, LLM HTML that embeds mermaid.js from a CDN (or anything
   touching storage) hits `SecurityError` in the `allow-scripts`-only origin, never
@@ -134,8 +136,10 @@ blocks to `VisualCodeBlock`:
   `viewport-fit=cover`. The inset keeps the ✕ reachable as the primary close.
   Open state is driven solely by `useWorkspaceModal`, which force-closes the
   drawer on mobile when `showMobileWorkspace` (a nuqs query param) goes false —
-  the phone Back pops exactly the entry that set that param, so Back both
-  dismisses the drawer and returns to the chat list. (An earlier build pushed a
+  the phone Back pops exactly the entry that set that param, so Back dismisses the
+  drawer and navigates to the **previous history destination** (the chat list
+  when the workspace was opened from there; whatever preceded it otherwise — this
+  is route-driven navigation-away, not a close-in-place). (An earlier build pushed a
   custom same-URL history entry so Back closed _only_ the drawer; it was removed
   because `history.back()` is async — a rapid ✕-then-reopen let the stale
   traversal's `popstate` reach the newly opened drawer's listener and close it.

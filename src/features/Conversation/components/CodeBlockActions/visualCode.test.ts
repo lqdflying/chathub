@@ -101,6 +101,20 @@ describe('injectSandboxShim', () => {
     expect(out.indexOf(SHIM)).toBeLessThan(out.indexOf('<header>'));
   });
 
+  it('skips a <head> that only appears inside a comment (finding 1)', () => {
+    const out = injectSandboxShim(
+      '<!doctype html><!-- <head> note --><html><head><script>init()</script></head><body></body></html>',
+    );
+    const shimAt = out.indexOf(STUB);
+    // the shim lands in active markup after the comment, never inside it
+    expect(shimAt).toBeGreaterThan(out.indexOf('-->'));
+    // and it runs before the document's own first script (the spinner bug fix)
+    expect(shimAt).toBeLessThan(out.indexOf('init()'));
+    // the comment and document body are preserved intact
+    expect(out).toContain('<!-- <head> note -->');
+    expect(out).toContain('<script>init()</script>');
+  });
+
   it('falls back to after <html> when there is no head', () => {
     const out = injectSandboxShim('<html><body>only body</body></html>');
     expect(out.indexOf(SHIM)).toBe(out.indexOf('<html>') + '<html>'.length);

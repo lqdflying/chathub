@@ -44,6 +44,15 @@ describe('MermaidZoom', () => {
       />,
     );
 
+  it('exposes exactly one open control with the translated accessible name', () => {
+    const { getAllByRole, getByRole } = renderZoom();
+    // the corner glyph is presentational (aria-hidden), so the wrapper is the
+    // sole focusable button — no nested interactive roles
+    const buttons = getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(getByRole('button', { name: 'Mermaid.actions.open' })).toBe(buttons[0]);
+  });
+
   it('renders the inline diagram and opens the drawer on click', () => {
     const { getByTestId, queryByTestId } = renderZoom();
     expect(getByTestId('diagram')).not.toBeNull();
@@ -54,9 +63,15 @@ describe('MermaidZoom', () => {
     expect(queryByTestId('drawer-close')).not.toBeNull();
   });
 
-  it('opens the drawer via the Enter key on the trigger', () => {
-    const { getByTestId, queryByTestId } = renderZoom();
-    fireEvent.keyDown(getByTestId('diagram').parentElement as Element, { key: 'Enter' });
+  it('opens the drawer with Enter from the open control', () => {
+    const { getByRole, queryByTestId } = renderZoom();
+    fireEvent.keyDown(getByRole('button', { name: 'Mermaid.actions.open' }), { key: 'Enter' });
+    expect(queryByTestId('drawer-close')).not.toBeNull();
+  });
+
+  it('opens the drawer with Space from the open control', () => {
+    const { getByRole, queryByTestId } = renderZoom();
+    fireEvent.keyDown(getByRole('button', { name: 'Mermaid.actions.open' }), { key: ' ' });
     expect(queryByTestId('drawer-close')).not.toBeNull();
   });
 
