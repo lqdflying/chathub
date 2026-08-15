@@ -119,15 +119,15 @@ blocks to `VisualCodeBlock`:
 - The code-block HTML preview drawer (`HtmlPreview/PreviewDrawer.tsx`) is a
   bottom `Drawer` at `calc(100dvh - env(safe-area-inset-top))` on mobile — plain
   `100dvh`/`100vh` renders the header (close X) behind the status bar under
-  `viewport-fit=cover`. `HtmlPreviewAction.tsx` pushes a same-URL history entry
-  when the drawer opens on mobile and closes on `popstate`, so the phone Back
-  closes only the drawer instead of popping the chat route and ejecting the user
-  to the session list (`useWorkspaceModal` remains the navigate-away safety net).
-  The history effect depends only on `[mobile, open]` — `useWorkspaceModal`'s
-  setter is held in a ref (it's a fresh function each render, so listing it would
-  re-run the effect and churn the stack) — and tracks entry ownership in a ref so
-  cleanup pops exactly its entry and a real Back close doesn't pop again. The
-  iframe drops `allow-same-origin`.
+  `viewport-fit=cover`. The inset keeps the ✕ reachable as the primary close.
+  Open state is driven solely by `useWorkspaceModal`, which force-closes the
+  drawer on mobile when `showMobileWorkspace` (a nuqs query param) goes false —
+  the phone Back pops exactly the entry that set that param, so Back both
+  dismisses the drawer and returns to the chat list. (An earlier build pushed a
+  custom same-URL history entry so Back closed _only_ the drawer; it was removed
+  because `history.back()` is async — a rapid ✕-then-reopen let the stale
+  traversal's `popstate` reach the newly opened drawer's listener and close it.
+  The route-driven close has no such race.) The iframe drops `allow-same-origin`.
 - **Loading resets must include `messageRAGLoadingIds`.** The avatar spinner is
   `loading = isInRAGFlow || generating` (`Assistant/index.tsx`), i.e.
   `messageRAGLoadingIds || chatLoadingIds`. `internal_invalidateConversation`
