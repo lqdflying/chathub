@@ -110,6 +110,7 @@ export default {
         '此批次的参考图记录来自旧版本，无法安全地重新生成。请复用设置，删除并重新添加参考图后提交新任务。',
       regenerating: '正在重新生成',
       reuseSettings: '复用设置',
+      reuseSettingsUnavailable: '该批次使用的模型当前不可用，无法复用设置',
       seedApplied: '种子已应用到配置',
       seedApplyFailed: '应用种子失败',
       seedCopied: '种子已复制到剪贴板',

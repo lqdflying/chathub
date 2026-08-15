@@ -7,8 +7,8 @@ import Select from '../../../components/SizeSelect';
 
 const SizeSelect = memo(() => {
   const { value, setValue, enumValues } = useGenerationConfigParam('size');
-  const sizeSchema = useImageStore((state) => state.parametersSchema.size);
-  const options = enumValues!.map((size) => ({
+  const sizeSchema = useImageStore((state) => state.parametersSchema?.size);
+  const options = (enumValues ?? []).map((size) => ({
     label: size,
     value: size,
   }));

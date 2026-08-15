@@ -373,6 +373,22 @@ describe('GenerationConfigAction', () => {
   });
 
   describe('Settings Reuse', () => {
+    it('returns false and leaves state untouched when the batch model is no longer usable', () => {
+      const { result } = renderHook(() => useImageStore());
+      const before = { model: result.current.model, provider: result.current.provider };
+
+      // the batch references a model that has since been removed/disabled —
+      // this must not throw (it previously crashed the whole workspace)
+      let applied = true;
+      act(() => {
+        applied = result.current.reuseSettings('removed-model', 'gone-provider', {});
+      });
+
+      expect(applied).toBe(false);
+      expect(result.current.model).toBe(before.model);
+      expect(result.current.provider).toBe(before.provider);
+    });
+
     it('should merge custom settings with model defaults', () => {
       const { result } = renderHook(() => useImageStore());
       const customSettings: Partial<RuntimeImageGenParams> = {

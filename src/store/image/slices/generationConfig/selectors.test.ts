@@ -149,6 +149,13 @@ describe('imageGenerationConfigSelectors', () => {
   });
 
   describe('isSupportParam', () => {
+    it('returns false without throwing when parametersSchema is absent', () => {
+      // a removed/unresolved model can leave the schema transiently undefined;
+      // a bare `in` would TypeError during render
+      const state = { ...initialStore, parametersSchema: undefined } as any;
+      expect(imageGenerationConfigSelectors.isSupportedParam('size')(state)).toBe(false);
+    });
+
     it('should return true when parameter exists in parametersSchema', () => {
       const state = merge(initialStore, { parametersSchema: testModelSchema });
       const result = imageGenerationConfigSelectors.isSupportedParam('size')(state);
