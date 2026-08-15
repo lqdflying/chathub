@@ -158,9 +158,48 @@ describe('injectSandboxShim', () => {
     expect(bodyScripts(d)).toContain('void localStorage');
   });
 
-  it('prepends when there is no leading doctype/html/head anchor', () => {
-    const out = injectSandboxShim('just markup');
-    expect(out.startsWith('<script>')).toBe(true);
-    expect(out.endsWith('just markup')).toBe(true);
+  it('preserves head attributes across a <!--> empty comment and runs first (finding r16/1)', () => {
+    const d = parseDoc(
+      injectSandboxShim(
+        '<!doctype html><!--><html><head id="real" data-config="kept">' +
+          '<script>void localStorage</script></head><body></body></html>',
+      ),
+    );
+    expect(d.head.getAttribute('id')).toBe('real');
+    expect(d.head.dataset.config).toBe('kept');
+    // shim is first in <head>, ahead of the authored head script (not appended late)
+    expect(d.head.firstElementChild?.tagName).toBe('SCRIPT');
+    expect(d.head.firstElementChild?.textContent).toContain(STUB);
+  });
+
+  it('preserves head attributes across a <?xml …?> bogus comment (finding r16/2)', () => {
+    const d = parseDoc(
+      injectSandboxShim(
+        '<!doctype html><?xml version="1.0"?><html><head id="cfg" data-config="kept"></head>' +
+          '<body></body></html>',
+      ),
+    );
+    expect(d.head.getAttribute('id')).toBe('cfg');
+    expect(d.head.dataset.config).toBe('kept');
+    expect(headShim(d)).toContain(STUB);
+  });
+
+  it('handles <!---> and --!> comment endings without misplacing the shim', () => {
+    for (const doc of [
+      '<!doctype html><!---><html><head data-config="a"></head><body></body></html>',
+      '<!doctype html><!-- x --!><html><head data-config="b"></head><body></body></html>',
+    ]) {
+      const d = parseDoc(injectSandboxShim(doc));
+      expect(d.head.dataset.config).toBeTruthy();
+      expect(headShim(d)).toContain(STUB);
+    }
+  });
+
+  it('wraps bare markup into a document with the shim in <head>', () => {
+    // not a real caller input (isHtmlDocument gates this out) — just proves the
+    // parser path degrades safely rather than throwing
+    const d = parseDoc(injectSandboxShim('just markup'));
+    expect(headShim(d)).toContain(STUB);
+    expect(d.body.textContent).toContain('just markup');
   });
 });
