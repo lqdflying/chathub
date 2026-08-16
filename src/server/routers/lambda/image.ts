@@ -6,7 +6,6 @@ import { IMAGE_REFERENCE_ERROR_MESSAGES } from '@/const/imageGeneration';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
 import { GenerationModel } from '@/database/models/generation';
-import { MessageModel } from '@/database/models/message';
 import {
   NewGeneration,
   NewGenerationBatch,
@@ -14,6 +13,7 @@ import {
   generationBatches,
   generationTopics,
   generations,
+  messages,
 } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
 import {
@@ -281,31 +281,40 @@ export const imageRouter = router({
   createChatImage: imageProcedure
     .input(
       z.object({
-        // when supplied, the user-owned message must STILL contain exactly
-        // this unresolved taskId at this index — the server-authoritative
-        // guard that a deleted/mutated message cannot authorize billable work
-        correlation: z
-          .object({ index: z.number().int().min(0), messageId: z.string().min(1) })
-          .optional(),
+        // MANDATORY: the user-owned message must STILL contain exactly this
+        // unresolved taskId at this index — the server-authoritative guard
+        // that a deleted/mutated message (or a stale/hostile client omitting
+        // the fields) cannot authorize billable work
+        correlation: z.object({ index: z.number().int().min(0), messageId: z.string().min(1) }),
         model: z.string().trim().min(1),
         params: z.object({ prompt: z.string().trim().min(1) }).passthrough(),
         provider: z.string().trim().min(1),
         // client-generated (write-first) correlation id: the item persists it
         // BEFORE this request, so the task must be created under exactly this
         // id; resubmission is idempotent (insert no-ops, claim dedups)
-        taskId: z.string().uuid().optional(),
+        taskId: z.string().uuid(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
       const { asyncTaskModel } = ctx;
 
-      if (input.correlation && input.taskId) {
-        const messageModel = new MessageModel(ctx.serverDB, ctx.userId);
-        const message = await messageModel.findById(input.correlation.messageId);
+      // Verification and the billable insert run in ONE transaction, with the
+      // message row read FOR SHARE — this linearizes against message deletion
+      // (its own transaction): if the deletion commits first the read sees
+      // nothing and we refuse; while we hold the lock the deletion waits, so
+      // a task can never be inserted for a message that no longer exists.
+      const taskId = await ctx.serverDB.transaction(async (tx) => {
+        const [ownedMessage] = await tx
+          .select({ content: messages.content })
+          .from(messages)
+          .where(and(eq(messages.id, input.correlation.messageId), eq(messages.userId, ctx.userId)))
+          .limit(1)
+          .for('share');
+
         let correlated = false;
-        if (message?.content) {
+        if (ownedMessage?.content) {
           try {
-            const items = JSON.parse(message.content) as {
+            const items = JSON.parse(ownedMessage.content) as {
               imageId?: string;
               taskId?: string;
             }[];
@@ -322,12 +331,18 @@ export const imageRouter = router({
               'The originating message no longer carries this unresolved image task, so no generation was started.',
           });
         }
-      }
 
-      const taskId = await asyncTaskModel.create({
-        id: input.taskId,
-        status: AsyncTaskStatus.Pending,
-        type: AsyncTaskType.ImageGeneration,
+        const inserted = await tx
+          .insert(asyncTasks)
+          .values({
+            id: input.taskId,
+            status: AsyncTaskStatus.Pending,
+            type: AsyncTaskType.ImageGeneration,
+            userId: ctx.userId,
+          })
+          .onConflictDoNothing()
+          .returning();
+        return inserted[0]?.id ?? input.taskId;
       });
 
       try {

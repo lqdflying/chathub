@@ -14,7 +14,8 @@
     "generating": "Generating...",
     "images": "Images:",
     "noImageModel": "No image model is available. Enable one in the image settings, then try again.",
-    "prompt": "Prompt"
+    "prompt": "Prompt",
+    "taskUnverified": "This image task could not be verified for this conversation (it may come from a restore), so it was not regenerated automatically. Click Retry to generate it again."
   },
   "localFiles": {
     "file": "File",

@@ -820,10 +820,11 @@ configurable model rather than a hard-coded one.
   budget.
 - **Task durability — deterministic ids, ownership, verified write-first
   correlation.** Task ids are DETERMINISTIC (sha256-derived, RFC-4122-shaped,
-  seeded by user scope + message id + item index for attempt 0; a replacement
-  id is derived from the terminally-failed id): any tab computes the SAME id
-  for the same attempt, so a cross-tab overlap cannot create two different
-  paid tasks — the server's idempotent same-id insert plus the pending-claim
+  seeded by user scope + message id + item index + attempt counter; the
+  counter is persisted on the item next to the id, and a server-confirmed
+  terminal failure advances to the NEXT attempt of the same tuple): any tab
+  computes the SAME id for the same attempt, so a cross-tab overlap cannot
+  create two different paid tasks — the server's idempotent same-id insert plus the pending-claim
   dedup collapse duplicate submissions into ONE task, and every tab adopts
   the same result. Within a tab, a generation run additionally claims
   exclusive per-item ownership (`inFlightTaskKeys`, a key→run-token map)
@@ -853,21 +854,27 @@ configurable model rather than a hard-coded one.
   re-claimed, so only an explicit Retry advancing to the deterministic
   replacement id can move past it. Because that automatic resubmission is
   BILLABLE, it runs only behind four gates: provenance — a persisted id may
-  auto-generate only if it is derivable for (user scope, message id, index)
-  as the attempt-0 id or a bounded replacement-chain descendant, so
-  restored/imported messages (new message ids, no task rows in backups)
-  surface a per-item "could not be verified" error and route through explicit
-  Retry, which replaces the unproven id with the derived attempt-0 id and
-  never submits the old one; config readiness — reconcile waits (bounded,
-  invalidation-aware) for the owner-scoped image config to finish hydrating
-  instead of misreading "still initializing" as "no usable model"; current
-  correlation — the message must still exist and still carry that exact
-  unresolved id at that index when the create is sent (deleting a message
-  mid-probe aborts silently); and server-side verification — the create
-  mutation re-checks the same correlation against the user-scoped message row
-  (exact index, exact id, no image yet) and refuses the insert otherwise, so
-  a stale or hostile client cannot re-authorize work the conversation no
-  longer contains. Item writes are serialized
+  auto-generate only if it derives exactly from (user scope, message id,
+  index, persisted attempt): one derivation, no chain walk and no chain cap,
+  so the validator never rejects an id this action legitimately created and
+  Retry is not limited to any attempt count. Restored/imported messages (new
+  message ids, no task rows in backups) fail the check, surface a per-item
+  localized "could not be verified" notice (a stable error type rendered
+  through the tool locale, never hard-coded English), and route through
+  explicit Retry, which replaces the unproven id with the derived attempt-0
+  id and never submits the old one; config readiness — reconcile waits
+  (bounded, invalidation-aware) for the owner-scoped image config to finish
+  hydrating instead of misreading "still initializing" as "no usable model",
+  and the tool render subscribes to that readiness, re-running reconciliation
+  when hydration settles — even after the bounded wait expired — so recovery
+  needs no remount and no manual Retry; current correlation — the message
+  must still exist and still carry that exact unresolved id at that index
+  when the create is sent (deleting a message mid-probe aborts silently); and
+  server-side verification — the create contract REQUIRES the correlation
+  (message id + index) and the task id, and the mutation verifies and inserts
+  in ONE transaction with the message row read FOR SHARE, linearized against
+  message deletion — neither an omitted field nor a delete/create race can
+  insert work the conversation no longer contains. Item writes are serialized
   per message (a promise queue in `updateImageItem`). The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, resumes
   waiting on a pending one, or surfaces its failure; `retryDallEImages`

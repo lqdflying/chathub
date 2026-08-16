@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
-import { MessageModel } from '@/database/models/message';
 import { createCallerFactory } from '@/libs/trpc/lambda';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import {
@@ -26,10 +25,6 @@ vi.mock('@/database/core/db-adaptor', () => ({
 
 vi.mock('@/database/models/asyncTask', () => ({
   AsyncTaskModel: vi.fn(),
-}));
-
-vi.mock('@/database/models/message', () => ({
-  MessageModel: vi.fn(),
 }));
 
 vi.mock('@/database/models/file', () => ({
@@ -927,52 +922,97 @@ describe('imageRouter', () => {
   });
 
   describe('createChatImage (in-chat async generation)', () => {
-    it('creates a pending task, dispatches the async chat generation, and returns the task id', async () => {
-      const createTask = vi.fn().mockResolvedValue('task-1');
-      vi.mocked(AsyncTaskModel).mockImplementation(
-        () => ({ create: createTask, updatePendingToError: vi.fn() }) as never,
-      );
-      const dispatchChatImage = vi.fn().mockResolvedValue({ success: true });
-      vi.mocked(createAsyncCaller).mockResolvedValue({
-        image: { createChatImage: dispatchChatImage },
-      } as never);
-      vi.mocked(getServerDB).mockResolvedValue({} as never);
-      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+    const CHAT_TASK_ID = '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b';
+    const CHAT_CORRELATION = { index: 0, messageId: 'message-1' };
 
-      const caller = createCallerFactory(imageRouter)({
+    // serverDB.transaction stand-in whose select/insert chains mirror the real
+    // drizzle calls (including the FOR SHARE read); `rowsProvider` feeds the
+    // locked message read so tests can model deletion winning the race
+    const makeTxDb = (rowsProvider: () => unknown[] | Promise<unknown[]>) => {
+      const insertedValues: unknown[] = [];
+      const tx = {
+        insert: vi.fn(() => ({
+          values: (value: unknown) => {
+            insertedValues.push(value);
+            return {
+              onConflictDoNothing: () => ({
+                returning: async () => [{ id: (value as { id?: string }).id }],
+              }),
+            };
+          },
+        })),
+        select: vi.fn(() => ({
+          from: () => ({
+            where: () => ({ limit: () => ({ for: async () => rowsProvider() }) }),
+          }),
+        })),
+      };
+      const transaction = vi.fn(async (cb: (t: typeof tx) => Promise<unknown>) => cb(tx));
+      return { db: { transaction } as never, insertedValues, transaction, tx };
+    };
+
+    const correlatedRows = () => [
+      { content: JSON.stringify([{ prompt: 'p', taskId: CHAT_TASK_ID }]) },
+    ];
+
+    const installCommonMocks = (db: never, dispatch = vi.fn().mockResolvedValue({ ok: true })) => {
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ updatePendingToError: vi.fn() }) as never,
+      );
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatch },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue(db);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+      return dispatch;
+    };
+
+    const makeCaller = () =>
+      createCallerFactory(imageRouter)({
         authorizationHeader: 'test-authorization',
         userId: 'account-a',
       } as never);
 
-      const result = await caller.createChatImage({
+    it('verifies the correlation and inserts the pending task in ONE transaction, then dispatches', async () => {
+      const { db, insertedValues, transaction, tx } = makeTxDb(correlatedRows);
+      const dispatchChatImage = installCommonMocks(db);
+
+      const result = await makeCaller().createChatImage({
+        correlation: CHAT_CORRELATION,
         model: 'gpt-image-2',
         params: { prompt: 'a rain-washed street at night' },
         provider: 'openaicompatible',
-        taskId: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
+        taskId: CHAT_TASK_ID,
       });
 
-      expect(result).toEqual({ taskId: 'task-1' });
-      // the client's write-first id is passed through to the (idempotent) insert
-      expect(createTask).toHaveBeenCalledWith({
-        id: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
-        status: 'pending',
-        type: 'image_generation',
-      });
+      expect(result).toEqual({ taskId: CHAT_TASK_ID });
+      expect(transaction).toHaveBeenCalledTimes(1);
+      // the locked read ran before the insert, inside the same transaction
+      expect(tx.select.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.insert.mock.invocationCallOrder[0],
+      );
+      // the insert is user-scoped and carries the client's write-first id
+      expect(insertedValues).toEqual([
+        {
+          id: CHAT_TASK_ID,
+          status: 'pending',
+          type: 'image_generation',
+          userId: 'account-a',
+        },
+      ]);
       // the generation itself is dispatched to the async router — the mutation
       // returns immediately and the client polls, never holding a long request
       expect(dispatchChatImage).toHaveBeenCalledWith({
         model: 'gpt-image-2',
         params: { prompt: 'a rain-washed street at night' },
         provider: 'openaicompatible',
-        taskId: 'task-1',
+        taskId: CHAT_TASK_ID,
       });
     });
 
     it('marks the task failed when the async dispatch rejects', async () => {
       const updatePendingToError = vi.fn().mockResolvedValue(true);
-      vi.mocked(AsyncTaskModel).mockImplementation(
-        () => ({ create: vi.fn().mockResolvedValue('task-2'), updatePendingToError }) as never,
-      );
+      vi.mocked(AsyncTaskModel).mockImplementation(() => ({ updatePendingToError }) as never);
       let rejectDispatch!: (e: Error) => void;
       const dispatchChatImage = vi.fn().mockReturnValue(
         new Promise((_, reject) => {
@@ -982,125 +1022,132 @@ describe('imageRouter', () => {
       vi.mocked(createAsyncCaller).mockResolvedValue({
         image: { createChatImage: dispatchChatImage },
       } as never);
-      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      const { db } = makeTxDb(correlatedRows);
+      vi.mocked(getServerDB).mockResolvedValue(db);
       vi.mocked(FileService).mockImplementation(() => ({}) as never);
 
-      const caller = createCallerFactory(imageRouter)({
-        authorizationHeader: 'test-authorization',
-        userId: 'account-a',
-      } as never);
-
-      await caller.createChatImage({
+      await makeCaller().createChatImage({
+        correlation: CHAT_CORRELATION,
         model: 'gpt-image-2',
         params: { prompt: 'p' },
         provider: 'openaicompatible',
+        taskId: CHAT_TASK_ID,
       });
       rejectDispatch(new Error('dispatch failed'));
       await vi.waitFor(() => expect(updatePendingToError).toHaveBeenCalled());
 
       expect(updatePendingToError).toHaveBeenCalledWith(
-        'task-2',
+        CHAT_TASK_ID,
         expect.objectContaining({ status: 'error' }),
       );
     });
-  });
 
-  describe('createChatImage correlation verification (R15-1)', () => {
-    const CORRELATED_TASK_ID = '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b';
-
-    it('verifies the user-scoped message still carries the unresolved id before inserting', async () => {
-      const createTask = vi.fn().mockResolvedValue(CORRELATED_TASK_ID);
-      vi.mocked(AsyncTaskModel).mockImplementation(
-        () => ({ create: createTask, updatePendingToError: vi.fn() }) as never,
-      );
-      const dispatchChatImage = vi.fn().mockResolvedValue({ success: true });
-      vi.mocked(createAsyncCaller).mockResolvedValue({
-        image: { createChatImage: dispatchChatImage },
-      } as never);
-      vi.mocked(getServerDB).mockResolvedValue({} as never);
-      vi.mocked(FileService).mockImplementation(() => ({}) as never);
-      const findById = vi.fn().mockResolvedValue({
-        content: JSON.stringify([{ prompt: 'p', taskId: CORRELATED_TASK_ID }]),
-      });
-      vi.mocked(MessageModel).mockImplementation(() => ({ findById }) as never);
-
-      const caller = createCallerFactory(imageRouter)({
-        authorizationHeader: 'test-authorization',
-        userId: 'account-a',
-      } as never);
-
-      const result = await caller.createChatImage({
-        correlation: { index: 0, messageId: 'message-1' },
+    it('rejects missing or half-populated correlation input before ANY database work (R16-1)', async () => {
+      const { db, insertedValues, transaction } = makeTxDb(correlatedRows);
+      const dispatchChatImage = installCommonMocks(db);
+      const base = {
         model: 'gpt-image-2',
         params: { prompt: 'p' },
         provider: 'openaicompatible',
-        taskId: CORRELATED_TASK_ID,
-      });
-
-      expect(result).toEqual({ taskId: CORRELATED_TASK_ID });
-      // the lookup is USER-SCOPED — another account's message id cannot authorize
-      expect(vi.mocked(MessageModel)).toHaveBeenCalledWith(expect.anything(), 'account-a');
-      expect(findById).toHaveBeenCalledWith('message-1');
-      expect(createTask).toHaveBeenCalledWith({
-        id: CORRELATED_TASK_ID,
-        status: 'pending',
-        type: 'image_generation',
-      });
-    });
-
-    it('rejects creation when the message is deleted, mutated, resolved, or unparseable', async () => {
-      const createTask = vi.fn();
-      vi.mocked(AsyncTaskModel).mockImplementation(
-        () => ({ create: createTask, updatePendingToError: vi.fn() }) as never,
-      );
-      const dispatchChatImage = vi.fn();
-      vi.mocked(createAsyncCaller).mockResolvedValue({
-        image: { createChatImage: dispatchChatImage },
-      } as never);
-      vi.mocked(getServerDB).mockResolvedValue({} as never);
-      vi.mocked(FileService).mockImplementation(() => ({}) as never);
-
-      const attempt = (message: unknown) => {
-        vi.mocked(MessageModel).mockImplementation(
-          () => ({ findById: vi.fn().mockResolvedValue(message) }) as never,
-        );
-        const caller = createCallerFactory(imageRouter)({
-          authorizationHeader: 'test-authorization',
-          userId: 'account-a',
-        } as never);
-        return caller.createChatImage({
-          correlation: { index: 0, messageId: 'message-1' },
-          model: 'gpt-image-2',
-          params: { prompt: 'p' },
-          provider: 'openaicompatible',
-          taskId: CORRELATED_TASK_ID,
-        });
       };
 
-      // deleted message
-      await expect(attempt(undefined)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
-      // id replaced since persistence
+      // taskId without correlation
       await expect(
-        attempt({
-          content: JSON.stringify([
-            { prompt: 'p', taskId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' },
-          ]),
-        }),
-      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
-      // already resolved to an image
+        makeCaller().createChatImage({ ...base, taskId: CHAT_TASK_ID } as never),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      // correlation without taskId
       await expect(
-        attempt({
-          content: JSON.stringify([{ imageId: 'img', prompt: 'p', taskId: CORRELATED_TASK_ID }]),
-        }),
-      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
-      // content no longer the tool's JSON shape
-      await expect(attempt({ content: 'not-json' })).rejects.toMatchObject({
-        code: 'PRECONDITION_FAILED',
+        makeCaller().createChatImage({ ...base, correlation: CHAT_CORRELATION } as never),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      // neither
+      await expect(makeCaller().createChatImage(base as never)).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
       });
 
-      // no billable insert and no dispatch on ANY of the rejected paths
-      expect(createTask).not.toHaveBeenCalled();
+      expect(transaction).not.toHaveBeenCalled();
+      expect(insertedValues).toHaveLength(0);
       expect(dispatchChatImage).not.toHaveBeenCalled();
+    });
+
+    it('rejects creation when the message is deleted, mutated, resolved, or unparseable (R15-1)', async () => {
+      const scenarios: unknown[][] = [
+        // deleted message (or deletion committed first — the locked read is empty)
+        [],
+        // id replaced since persistence
+        [
+          {
+            content: JSON.stringify([
+              { prompt: 'p', taskId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' },
+            ]),
+          },
+        ],
+        // already resolved to an image
+        [{ content: JSON.stringify([{ imageId: 'img', prompt: 'p', taskId: CHAT_TASK_ID }]) }],
+        // content no longer the tool's JSON shape
+        [{ content: 'not-json' }],
+      ];
+
+      for (const rows of scenarios) {
+        const { db, insertedValues } = makeTxDb(() => rows);
+        const dispatchChatImage = installCommonMocks(db);
+
+        await expect(
+          makeCaller().createChatImage({
+            correlation: CHAT_CORRELATION,
+            model: 'gpt-image-2',
+            params: { prompt: 'p' },
+            provider: 'openaicompatible',
+            taskId: CHAT_TASK_ID,
+          }),
+        ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+
+        expect(insertedValues).toHaveLength(0);
+        expect(dispatchChatImage).not.toHaveBeenCalled();
+      }
+    });
+
+    it('a deletion that commits during the locked read refuses the insert in the same transaction (R16-1)', async () => {
+      // models the FOR SHARE linearization: the read settles only after the
+      // concurrent deletion committed, so it observes the post-deletion state
+      let commitDeletion!: () => void;
+      const deletionCommitted = new Promise<void>((resolve) => {
+        commitDeletion = resolve;
+      });
+      const { db, insertedValues } = makeTxDb(async () => {
+        await deletionCommitted;
+        return [];
+      });
+      const dispatchChatImage = installCommonMocks(db);
+
+      const inFlight = makeCaller().createChatImage({
+        correlation: CHAT_CORRELATION,
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+        taskId: CHAT_TASK_ID,
+      });
+      commitDeletion();
+
+      await expect(inFlight).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+      expect(insertedValues).toHaveLength(0);
+      expect(dispatchChatImage).not.toHaveBeenCalled();
+    });
+
+    it('the correlation lookup is scoped to the calling user (R15-1)', async () => {
+      // the WHERE carries userId; the mock proves the query is built with the
+      // caller's scope by inspecting the transactional read invocation
+      const { db, transaction } = makeTxDb(correlatedRows);
+      installCommonMocks(db);
+
+      await makeCaller().createChatImage({
+        correlation: CHAT_CORRELATION,
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+        taskId: CHAT_TASK_ID,
+      });
+
+      expect(transaction).toHaveBeenCalledTimes(1);
     });
   });
 

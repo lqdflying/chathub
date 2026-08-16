@@ -30,6 +30,7 @@ describe('imageGenerationService', () => {
         model: 'gpt-image-2',
         params: { prompt: 'a cat' },
         provider: 'comfyui',
+        taskId: 'task-1',
       });
 
       expect(result).toEqual({ taskId: 'task-1' });
@@ -37,11 +38,13 @@ describe('imageGenerationService', () => {
       // /create-image/comfyui is a static synchronous route that would shadow
       // a provider segment — the task bridge must live on its own path
       expect(String(url)).toBe('/webapi/create-chat-image/comfyui');
-      // the correlation rides along so the server can verify the message still
-      // carries this unresolved item before inserting billable work (R15-1)
+      // the MANDATORY correlation + task id ride along so the server can
+      // verify the message still carries this unresolved item before
+      // inserting billable work (R15-1/R16-1)
       expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({
         correlation: { index: 0, messageId: 'message-1' },
         model: 'gpt-image-2',
+        taskId: 'task-1',
       });
     });
 
@@ -53,9 +56,11 @@ describe('imageGenerationService', () => {
 
       await expect(
         imageGenerationService.createChatImageTask({
+          correlation: { index: 0, messageId: 'message-1' },
           model: 'm',
           params: { prompt: 'p' },
           provider: 'comfyui',
+          taskId: 'client-uuid',
         }),
       ).rejects.toThrow('invalid response (expected { taskId })');
     });
@@ -67,6 +72,7 @@ describe('imageGenerationService', () => {
 
       await expect(
         imageGenerationService.createChatImageTask({
+          correlation: { index: 0, messageId: 'message-1' },
           model: 'm',
           params: { prompt: 'p' },
           provider: 'openaicompatible',
@@ -85,9 +91,11 @@ describe('imageGenerationService', () => {
 
       await expect(
         imageGenerationService.createChatImageTask({
+          correlation: { index: 0, messageId: 'message-1' },
           model: 'm',
           params: { prompt: 'p' },
           provider: 'openaicompatible',
+          taskId: 'client-uuid',
         }),
       ).rejects.toEqual({ errorType: 'InvalidProviderAPIKey' });
     });

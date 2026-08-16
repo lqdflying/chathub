@@ -30,11 +30,15 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
   const { provider } = await params;
 
   try {
+    // correlation + taskId are REQUIRED by the lambda schema: the server only
+    // inserts billable work after verifying the user-owned message still
+    // carries exactly this unresolved correlation (R16-1). Absence fails
+    // validation there — this route stays a passthrough.
     const body = (await req.json()) as {
-      correlation?: { index: number; messageId: string };
+      correlation: { index: number; messageId: string };
       model: string;
       params: { prompt: string };
-      taskId?: string;
+      taskId: string;
     };
 
     // Normal requests carry the client's encoded provider header verbatim.

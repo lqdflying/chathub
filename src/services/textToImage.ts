@@ -30,11 +30,15 @@ class ImageGenerationService {
       taskId,
       correlation,
     }: {
-      correlation?: { index: number; messageId: string };
+      // REQUIRED: the server refuses to insert billable work unless the
+      // user-owned message still carries exactly this unresolved (taskId,
+      // index) correlation — optional fields would let a stale caller bypass
+      // that gate (R16-1)
+      correlation: { index: number; messageId: string };
       model: string;
       params: { prompt: string };
       provider: string;
-      taskId?: string;
+      taskId: string;
     },
     options?: FetchOptions,
   ): Promise<{ taskId: string }> => {
@@ -75,10 +79,10 @@ class ImageGenerationService {
         ).slice(0, 200)}`,
       );
     }
-    // a client-supplied id must round-trip unchanged — the item already
-    // persisted it, so a server that answered with a different id would leave
-    // the persisted correlation dangling
-    if (taskId && data.taskId !== taskId) {
+    // the id must round-trip unchanged — the item already persisted it, so a
+    // server that answered with a different id would leave the persisted
+    // correlation dangling
+    if (data.taskId !== taskId) {
       throw new Error(
         `Image task creation answered with a different task id (sent ${taskId}, got ${data.taskId}).`,
       );

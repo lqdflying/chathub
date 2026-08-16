@@ -1,6 +1,6 @@
 import { Alert, Button, Highlighter } from '@lobehub/ui';
 import { LucideRefreshCw } from 'lucide-react';
-import { memo } from 'react';
+import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -35,9 +35,11 @@ const Error = memo<ErrorProps>(({ messageId, index }) => {
   const title =
     errorType === 'NoImageModelConfigured'
       ? tt('dalle.noImageModel')
-      : errorType
-        ? t(`response.${errorType}` as any, { defaultValue: errorType })
-        : (message ?? t('response.PluginServerError' as any));
+      : errorType === 'ChatImageTaskUnverified'
+        ? tt('dalle.taskUnverified')
+        : errorType
+          ? t(`response.${errorType}` as any, { defaultValue: errorType })
+          : (message ?? t('response.PluginServerError' as any));
 
   const detail = body ?? message ?? error;
 

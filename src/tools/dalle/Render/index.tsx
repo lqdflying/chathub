@@ -6,6 +6,7 @@ import { Flexbox } from 'react-layout-kit';
 
 import { fileService } from '@/services/file';
 import { useChatStore } from '@/store/chat';
+import { useImageStore } from '@/store/image';
 import { DallEImageItem } from '@/types/tool/dalle';
 
 import GalleyGrid from './GalleyGrid';
@@ -14,12 +15,17 @@ import ImageItem from './Item';
 const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }) => {
   const currentRef = useRef(0);
   const reconcileDallETasks = useChatStore((s) => s.reconcileDallETasks);
+  const isImageConfigReady = useImageStore((s) => s.isInit);
 
   // A generation task can outlive the tab that started it (reload/navigation):
   // on mount, adopt finished results / resume pending ones for this message.
+  // Also rerun when the owner's image config finishes hydrating — recovery
+  // needs a resolved model, and hydration can settle after the bounded wait
+  // inside reconcile has already expired (in-flight waiters hold the per-item
+  // ownership keys, so an extra invocation converges instead of duplicating).
   useEffect(() => {
     reconcileDallETasks(messageId);
-  }, [messageId, reconcileDallETasks]);
+  }, [messageId, reconcileDallETasks, isImageConfigReady]);
 
   // While the tool call is still streaming/being transformed, `content` can be
   // the raw arguments object (or undefined) rather than the item array — a

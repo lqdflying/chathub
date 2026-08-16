@@ -13,6 +13,13 @@ export interface DallEImageItem {
   size?: DallEImageSize;
   style?: DallEImageStyle;
   /**
+   * Which deterministic attempt `taskId` is (0 = first generation; each
+   * server-confirmed terminal failure advances it by one). Persisted next to
+   * the id so provenance validation can derive the one expected id for this
+   * (user, message, index, attempt) tuple — absent counts as attempt 0.
+   */
+  taskAttempt?: number;
+  /**
    * The async generation task backing this item. Deterministically derived
    * and persisted BEFORE the create request is sent (write-first), so a
    * reload/navigation at any point can resume or adopt the task instead of

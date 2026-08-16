@@ -115,31 +115,32 @@ const deriveDeterministicTaskId = (seed: string): string => {
   const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
-const deriveInitialTaskId = (userScope: string, messageId: string, index: number) =>
-  deriveDeterministicTaskId(`${CHAT_IMAGE_TASK_SEED}:${userScope}:${messageId}:${index}:0`);
-const deriveReplacementTaskId = (failedTaskId: string) =>
-  deriveDeterministicTaskId(`${CHAT_IMAGE_TASK_SEED}:replacement:${failedTaskId}`);
+// Every attempt's id comes straight from the base tuple (scope, message,
+// index, attempt) — the item persists its attempt counter next to the id, so
+// provenance validation is ONE derivation + comparison. No chain walk, no
+// arbitrary chain cap, and Retry is never limited by the validator: attempt N
+// terminally failing simply advances to attempt N+1 (R16-3).
+const deriveTaskId = (userScope: string, messageId: string, index: number, attempt: number) =>
+  deriveDeterministicTaskId(
+    `${CHAT_IMAGE_TASK_SEED}:${userScope}:${messageId}:${index}:${attempt}`,
+  );
 
 // PROVENANCE: a persisted id may only authorize AUTOMATIC work if it provably
-// belongs to (user, message, index) — i.e. it is the derived attempt-0 id or a
-// bounded replacement-chain descendant of it. Restored/imported messages keep
+// belongs to (user, message, index, attempt). Restored/imported messages keep
 // their nested content but get NEW message ids (and their async-task rows are
 // not part of backups), so their stale ids fail this check and must go through
-// explicit Retry instead of billing on view.
-const MAX_REPLACEMENT_CHAIN = 8;
+// explicit Retry instead of billing on view. A missing/garbled attempt counter
+// fails closed the same way.
 const isTaskIdProvenanceValid = (
   userScope: string,
   messageId: string,
   index: number,
   taskId: string,
-): boolean => {
-  let candidate = deriveInitialTaskId(userScope, messageId, index);
-  for (let attempt = 0; attempt <= MAX_REPLACEMENT_CHAIN; attempt += 1) {
-    if (candidate === taskId) return true;
-    candidate = deriveReplacementTaskId(candidate);
-  }
-  return false;
-};
+  attempt: number,
+): boolean =>
+  Number.isInteger(attempt) &&
+  attempt >= 0 &&
+  deriveTaskId(userScope, messageId, index, attempt) === taskId;
 
 // Owner-aware image config hydrates asynchronously after reload; "still
 // initializing" must never be conflated with "initialized and no usable
@@ -310,18 +311,19 @@ export const dalleSlice: StateCreator<
       // the EXACT indices — the layers under `updateImageItem` can silently
       // no-op on navigation/stale ownership, so awaiting alone proves nothing.
       const persistTaskIdsChecked = async (
-        writes: Map<number, { expected?: string; next: string }>,
+        writes: Map<number, { expected?: string; next: string; nextAttempt: number }>,
       ): Promise<{ parsed?: DallEImageItem[]; written: Set<number> }> => {
         const written = new Set<number>();
         if (writes.size === 0) return { written };
         await get().updateImageItem(messageId, (draft) => {
-          for (const [index, { expected, next }] of writes) {
+          for (const [index, { expected, next, nextAttempt }] of writes) {
             const target = draft[index];
             if (!target || target.imageId) continue;
             if (expected === undefined ? Boolean(target.taskId) : target.taskId !== expected) {
               continue;
             }
             target.taskId = next;
+            target.taskAttempt = nextAttempt;
             written.add(index);
           }
         });
@@ -334,7 +336,13 @@ export const dalleSlice: StateCreator<
         }
         if (!Array.isArray(parsed)) return { written: new Set() };
         for (const index of written) {
-          if (parsed[index]?.taskId !== writes.get(index)!.next) written.delete(index);
+          const write = writes.get(index)!;
+          if (
+            parsed[index]?.taskId !== write.next ||
+            parsed[index]?.taskAttempt !== write.nextAttempt
+          ) {
+            written.delete(index);
+          }
         }
         return { parsed, written };
       };
@@ -344,32 +352,41 @@ export const dalleSlice: StateCreator<
       // BEFORE any billable request. Conflicting indices (an id appeared after
       // our snapshot) are ADOPTED, never overwritten; unproven writes create
       // nothing.
-      const allocations = new Map<number, { next: string }>();
+      const allocations = new Map<number, { next: string; nextAttempt: number }>();
       for (const index of ownedIndices) {
         if (!items[index].taskId) {
-          allocations.set(index, { next: deriveInitialTaskId(userScope, messageId, index) });
+          allocations.set(index, {
+            next: deriveTaskId(userScope, messageId, index, 0),
+            nextAttempt: 0,
+          });
         }
       }
       const casResult = await persistTaskIdsChecked(allocations);
-      const effectiveTaskIds = new Map<number, string>();
+      const effectiveTaskIds = new Map<number, { attempt: number; taskId: string }>();
       const freshlyAllocated = new Set<number>();
       let persistenceFailed = false;
       for (const index of ownedIndices) {
         const snapshotId = items[index].taskId;
         if (snapshotId) {
-          effectiveTaskIds.set(index, snapshotId);
+          effectiveTaskIds.set(index, {
+            attempt: items[index].taskAttempt ?? 0,
+            taskId: snapshotId,
+          });
           continue;
         }
         if (casResult.written.has(index)) {
-          effectiveTaskIds.set(index, allocations.get(index)!.next);
+          effectiveTaskIds.set(index, { attempt: 0, taskId: allocations.get(index)!.next });
           freshlyAllocated.add(index);
           continue;
         }
         // not written: either another writer persisted an id meanwhile (adopt
         // it) or the write could not be proven (fail closed)
-        const concurrentId = casResult.parsed?.[index]?.taskId;
-        if (concurrentId) {
-          effectiveTaskIds.set(index, concurrentId);
+        const concurrent = casResult.parsed?.[index];
+        if (concurrent?.taskId) {
+          effectiveTaskIds.set(index, {
+            attempt: concurrent.taskAttempt ?? 0,
+            taskId: concurrent.taskId,
+          });
         } else {
           persistenceFailed = true;
         }
@@ -402,8 +419,9 @@ export const dalleSlice: StateCreator<
             // async-task pattern (same as the Image workspace): create the
             // task, then poll — never hold a request open for the 30–60 s
             // generation, and never let image bytes reach the message content
-            let taskId = effectiveTaskIds.get(index);
-            if (!taskId) return undefined;
+            const assigned = effectiveTaskIds.get(index);
+            if (!assigned) return undefined;
+            let { taskId, attempt } = assigned;
 
             // an id this run did NOT freshly allocate belongs to an existing
             // attempt (previous session, concurrent writer): adopt its result
@@ -414,14 +432,18 @@ export const dalleSlice: StateCreator<
             // must never be submitted; in this EXPLICIT path it is replaced by
             // the derived attempt-0 id for the current message via the same
             // checked write, then created fresh
-            if (!mustCreate && !isTaskIdProvenanceValid(userScope, messageId, index, taskId)) {
-              const derivedId = deriveInitialTaskId(userScope, messageId, index);
+            if (
+              !mustCreate &&
+              !isTaskIdProvenanceValid(userScope, messageId, index, taskId, attempt)
+            ) {
+              const derivedId = deriveTaskId(userScope, messageId, index, 0);
               const replaced = await persistTaskIdsChecked(
-                new Map([[index, { expected: taskId, next: derivedId }]]),
+                new Map([[index, { expected: taskId, next: derivedId, nextAttempt: 0 }]]),
               );
               if (!replaced.written.has(index)) return undefined;
               if (!invocationIsCurrent()) return undefined;
               taskId = derivedId;
+              attempt = 0;
               mustCreate = true;
             }
             if (!mustCreate) {
@@ -455,16 +477,19 @@ export const dalleSlice: StateCreator<
                 // the status request awaited across arbitrary time — re-check
                 // ownership before doing anything billable
                 if (!invocationIsCurrent()) return undefined;
-                // the replacement id is DERIVED from the failed id (both tabs
-                // agree on it) and must pass the same checked write BEFORE
-                // its task is created; the expectation pins the failed id
-                const replacementId = deriveReplacementTaskId(taskId);
+                // the replacement is the NEXT ATTEMPT of the same tuple (both
+                // tabs derive it from the persisted attempt counter) and must
+                // pass the same checked write BEFORE its task is created; the
+                // expectation pins the failed id
+                const nextAttempt = attempt + 1;
+                const replacementId = deriveTaskId(userScope, messageId, index, nextAttempt);
                 const replaced = await persistTaskIdsChecked(
-                  new Map([[index, { expected: taskId, next: replacementId }]]),
+                  new Map([[index, { expected: taskId, next: replacementId, nextAttempt }]]),
                 );
                 if (!replaced.written.has(index)) return undefined;
                 if (!invocationIsCurrent()) return undefined;
                 taskId = replacementId;
+                attempt = nextAttempt;
                 mustCreate = true;
               }
             }
@@ -572,13 +597,19 @@ export const dalleSlice: StateCreator<
             //    may auto-generate; restored/arbitrary ids surface for Retry
             const userScope =
               authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
-            if (!isTaskIdProvenanceValid(userScope, messageId, index, item.taskId)) {
+            if (
+              !isTaskIdProvenanceValid(
+                userScope,
+                messageId,
+                index,
+                item.taskId,
+                item.taskAttempt ?? 0,
+              )
+            ) {
               hasError = true;
-              errorArray[index] = serializePluginError(
-                new Error(
-                  'This image task could not be verified for this conversation (it may come from a restore). Use Retry to generate it again.',
-                ),
-              );
+              // a stable type, localized by the error card ("came from a
+              // restore — use Retry"), never hard-coded English copy
+              errorArray[index] = { errorType: 'ChatImageTaskUnverified' };
               return;
             }
             // 2) owner config readiness: "still initializing" must not become

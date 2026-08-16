@@ -15,6 +15,8 @@ export default {
     images: '图片:',
     noImageModel: '当前没有可用的图像模型，请在图像设置中启用一个后重试。',
     prompt: '提示词',
+    taskUnverified:
+      '无法确认此图像任务属于当前会话（可能来自备份恢复），未自动重新生成。点击重试以重新生成。',
   },
   localFiles: {
     file: '文件',

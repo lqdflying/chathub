@@ -39,7 +39,12 @@ describe('POST /webapi/create-chat-image/[provider]', () => {
 
   const makeRequest = (headers?: Record<string, string>) =>
     new Request('https://chathub.example/webapi/create-chat-image/openaicompatible', {
-      body: JSON.stringify({ model: 'gpt-image-2', params: { prompt: 'a cat' } }),
+      body: JSON.stringify({
+        correlation: { index: 0, messageId: 'message-1' },
+        model: 'gpt-image-2',
+        params: { prompt: 'a cat' },
+        taskId: 'task-1',
+      }),
       headers: { 'content-type': 'application/json', ...headers },
       method: 'POST',
     });
@@ -58,9 +63,11 @@ describe('POST /webapi/create-chat-image/[provider]', () => {
     expect(capturedContexts[0].authorizationHeader).toBe('encoded-payload');
     expect(capturedContexts[0].userId).toBe('account-a');
     expect(createChatImage).toHaveBeenCalledWith({
+      correlation: { index: 0, messageId: 'message-1' },
       model: 'gpt-image-2',
       params: { prompt: 'a cat' },
       provider: 'openaicompatible',
+      taskId: 'task-1',
     });
     expect(createChatImage).toHaveBeenCalledTimes(1);
   });

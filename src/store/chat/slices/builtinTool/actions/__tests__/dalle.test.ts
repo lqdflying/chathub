@@ -122,10 +122,10 @@ const deriveTestTaskId = (seed: string): string => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 const currentScope = () => authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
+const taskIdForAttempt = (index: number, attempt: number, messageId = 'message-id') =>
+  deriveTestTaskId(`chathub-chat-image-task:${currentScope()}:${messageId}:${index}:${attempt}`);
 const initialIdFor = (index: number, messageId = 'message-id') =>
-  deriveTestTaskId(`chathub-chat-image-task:${currentScope()}:${messageId}:${index}:0`);
-const replacementIdFor = (failedTaskId: string) =>
-  deriveTestTaskId(`chathub-chat-image-task:replacement:${failedTaskId}`);
+  taskIdForAttempt(index, 0, messageId);
 
 const guardedError = (httpStatus: number) =>
   new ToolsRPCResponseError({
@@ -592,7 +592,7 @@ describe('chatToolSlice - dalle', () => {
       // whose replacement id was origin-verified before creation
       expect(createTaskMock).toHaveBeenCalledTimes(1);
       const replacementId = (createTaskMock.mock.calls[0][0] as { taskId?: string }).taskId!;
-      expect(replacementId).toBe(replacementIdFor(validId));
+      expect(replacementId).toBe(taskIdForAttempt(0, 1));
       expect(originContent()).toContain(`"taskId":"${replacementId}"`);
       expect(originContent()).toContain('"imageId":"file-new"');
     });
@@ -703,7 +703,7 @@ describe('chatToolSlice - dalle', () => {
       // the successful-but-resultless id is NEVER resubmitted; exactly one
       // deterministic replacement is persisted, created, and adopted
       expect(createdIds).not.toContain(validId);
-      expect(createdIds).toEqual([replacementIdFor(validId)]);
+      expect(createdIds).toEqual([taskIdForAttempt(0, 1)]);
       const [replacementId] = createdIds;
       expect(replacementId).toMatch(/^[\da-f-]{36}$/);
       const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
@@ -905,10 +905,9 @@ describe('chatToolSlice - dalle', () => {
       stubs.restore();
 
       expect(createTaskMock).not.toHaveBeenCalled();
+      // a stable error TYPE (localized by the error card), never English copy
       const errorArg = stubs.pluginStateSpy.mock.calls[0]?.[1] as { error: unknown[] };
-      expect(errorArg.error[0]).toMatchObject({
-        message: expect.stringContaining('could not be verified'),
-      });
+      expect(errorArg.error[0]).toEqual({ errorType: 'ChatImageTaskUnverified' });
     });
 
     it('explicit Retry replaces an unproven id with the derived attempt-0 id (R15-1)', async () => {
@@ -992,6 +991,162 @@ describe('chatToolSlice - dalle', () => {
       }));
       await vi.advanceTimersByTimeAsync(1000);
       await run;
+      stubs.restore();
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('attempt provenance without a retry cap (R16-3)', () => {
+    it('Retry from the attempt-8 descendant advances to exactly attempt 9, never attempt 0', async () => {
+      const attempt8 = taskIdForAttempt(0, 8);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskAttempt: 8, taskId: attempt8 }]));
+      const stubs = installStoreStubs();
+      const createdIds: string[] = [];
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockImplementation(
+        async ({ taskId }) => {
+          createdIds.push(taskId);
+          return { taskId };
+        },
+      );
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === attempt8
+          ? { error: { name: 'ServerError' }, status: 'error' }
+          : { file: { id: `file-${taskId}` }, status: 'success' },
+      );
+
+      await store().retryDallEImages('message-id');
+      stubs.restore();
+
+      // the validator must accept its own attempt-8 product and advance — a
+      // fixed chain cap used to classify attempt 9 as unproven and rewind
+      expect(createdIds).toEqual([taskIdForAttempt(0, 9)]);
+      const parsed = JSON.parse(originContent()) as {
+        taskAttempt?: number;
+        taskId?: string;
+      }[];
+      expect(parsed[0]?.taskId).toBe(taskIdForAttempt(0, 9));
+      expect(parsed[0]?.taskAttempt).toBe(9);
+    });
+
+    it('reconcile accepts attempt-9 provenance and resubmits the SAME id once', async () => {
+      const attempt9 = taskIdForAttempt(0, 9);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskAttempt: 9, taskId: attempt9 }]));
+      const stubs = installStoreStubs();
+      const created = new Set<string>();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => {
+          created.add(taskId);
+          return { taskId };
+        });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        created.has(taskId)
+          ? { file: { id: 'file-9' }, status: 'success' }
+          : { status: 'task_missing' },
+      );
+
+      await store().reconcileDallETasks('message-id');
+      stubs.restore();
+
+      // no restore warning, no rewind — the exact attempt-9 id is completed
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ taskId: attempt9 }));
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+      expect(originContent()).toContain('"imageId":"file-9"');
+    });
+
+    it('a terminal Retry from attempt 9 advances to exactly attempt 10', async () => {
+      const attempt9 = taskIdForAttempt(0, 9);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskAttempt: 9, taskId: attempt9 }]));
+      const stubs = installStoreStubs();
+      const createdIds: string[] = [];
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockImplementation(
+        async ({ taskId }) => {
+          createdIds.push(taskId);
+          return { taskId };
+        },
+      );
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === attempt9
+          ? { error: { name: 'ServerError' }, status: 'error' }
+          : { file: { id: `file-${taskId}` }, status: 'success' },
+      );
+
+      await store().retryDallEImages('message-id');
+      stubs.restore();
+
+      expect(createdIds).toEqual([taskIdForAttempt(0, 10)]);
+      const parsed = JSON.parse(originContent()) as { taskAttempt?: number }[];
+      expect(parsed[0]?.taskAttempt).toBe(10);
+    });
+  });
+
+  describe('late config readiness rerun (R16-2)', () => {
+    it('readiness AFTER the bounded wait recovers via the renderer-triggered second invocation', async () => {
+      vi.useFakeTimers();
+      const validId = initialIdFor(0);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: validId }]));
+      mockImageState.isInit = false;
+      const stubs = installStoreStubs();
+      const created = new Set<string>();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => {
+          created.add(taskId);
+          return { taskId };
+        });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        created.has(taskId)
+          ? { file: { id: 'file-late' }, status: 'success' }
+          : { status: 'task_missing' },
+      );
+
+      const first = store().reconcileDallETasks('message-id');
+      // the bounded wait (30 s) expires with hydration still pending
+      await vi.advanceTimersByTimeAsync(31_000);
+      await first;
+      expect(createTaskMock).not.toHaveBeenCalled();
+      // silent expiry: no false no-model error was persisted
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+
+      // hydration settles later; the renderer's isInit subscription fires a
+      // FRESH reconcile (see Render/index.test.tsx) — no remount, no Retry
+      mockImageState.isInit = true;
+      const second = store().reconcileDallETasks('message-id');
+      await vi.advanceTimersByTimeAsync(6000);
+      await second;
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ taskId: validId }));
+      expect(originContent()).toContain('"imageId":"file-late"');
+    });
+
+    it('an owner transition between expiry and the rerun authorizes nothing', async () => {
+      vi.useFakeTimers();
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: initialIdFor(0) }]));
+      mockImageState.isInit = false;
+      const stubs = installStoreStubs();
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        status: 'task_missing',
+      });
+
+      const first = store().reconcileDallETasks('message-id');
+      await vi.advanceTimersByTimeAsync(31_000);
+      await first;
+
+      // owner transition: conversations invalidated, previous owner's map gone
+      useChatStore.setState((state) => ({
+        conversationClearGeneration: state.conversationClearGeneration + 1,
+        messagesMap: {},
+      }));
+      mockImageState.isInit = true;
+      const second = store().reconcileDallETasks('message-id');
+      await vi.advanceTimersByTimeAsync(2000);
+      await second;
       stubs.restore();
 
       expect(createTaskMock).not.toHaveBeenCalled();
