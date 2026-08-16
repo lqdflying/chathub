@@ -328,9 +328,12 @@ Web Worker (`packages/python-interpreter`); there is no server execution path.
   compatible version", not preinstalled or inherently offline), then a
   Python-side check (`packaging.Requirement` + `importlib.metadata`) drops
   requirements the installed environment already satisfies — only the remainder
-  reaches `micropip.install`. Direct references (`pkg @ https://…`) are never
-  satisfied by a bundled copy or an installed name/version match: `req.url` is
-  treated as unsatisfied and the exact artifact goes to micropip. Ordering is
+  reaches `micropip.install`. Direct references (`pkg @ https://…`) install
+  FIRST — before `loadPackagesFromImports` — via micropip with
+  `reinstall=True` (its default `reinstall=False` would silently keep an
+  already-loaded distribution copy, and the auto-loader would otherwise load
+  one for the matching import); the Python filter additionally treats
+  `req.url` as unsatisfied by definition as defense in depth. Ordering is
   the invariant: micropip must never resolve an unpinned name Pyodide bundles
   (e.g. `jsonschema` → PyPI latest → native `rpds-py>=0.25` with no wasm
   wheel). A "Can't find a pure Python 3 wheel" failure is wrapped in an

@@ -70,13 +70,49 @@ describe('POST /webapi/create-chat-image/[provider]', () => {
       Object.assign(new Error('UNAUTHORIZED'), { errorType: ChatErrorType.Unauthorized }),
     );
 
-    const response = await POST(makeRequest(), {
+    const response = await POST(makeRequest({ [LOBE_CHAT_AUTH_HEADER]: 'encoded-payload' }), {
       params: Promise.resolve({ provider: 'openaicompatible' }),
     } as any);
 
     expect(response.ok).toBe(false);
-    // missing header is forwarded as null — the middleware decides, the route
-    // never fabricates an authorization value
-    expect(capturedContexts[0].authorizationHeader).toBeNull();
+  });
+
+  it('re-encodes the authenticated payload for header-less bypass modes so keyVaults can decode it (R10-4)', async () => {
+    createChatImage.mockResolvedValue({ taskId: 'task-2' });
+
+    // checkAuth's dev/desktop bypass reaches the handler WITHOUT the client
+    // header (the mock supplies only the decoded payload, like the bypass does)
+    const response = await POST(makeRequest(), {
+      params: Promise.resolve({ provider: 'openaicompatible' }),
+    } as any);
+
+    expect(response.status).toBe(200);
+    const forwarded = capturedContexts[0].authorizationHeader;
+    expect(typeof forwarded).toBe('string');
+    // the synthesized header round-trips through the REAL server-side decoder
+    const { getXorPayload } = await import('@lobechat/utils/server');
+    expect(getXorPayload(forwarded)).toMatchObject({ apiKey: 'user-key', userId: 'account-a' });
+  });
+
+  it('forwards the client task id for write-first correlation', async () => {
+    createChatImage.mockResolvedValue({ taskId: 'client-uuid' });
+
+    const request = new Request(
+      'https://chathub.example/webapi/create-chat-image/openaicompatible',
+      {
+        body: JSON.stringify({
+          model: 'gpt-image-2',
+          params: { prompt: 'a cat' },
+          taskId: 'client-uuid',
+        }),
+        headers: { 'content-type': 'application/json', [LOBE_CHAT_AUTH_HEADER]: 'x' },
+        method: 'POST',
+      },
+    );
+    await POST(request, { params: Promise.resolve({ provider: 'openaicompatible' }) } as any);
+
+    expect(createChatImage).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'client-uuid' }),
+    );
   });
 });

@@ -6,6 +6,7 @@ import { checkAuth } from '@/app/(backend)/middleware/auth';
 import { LOBE_CHAT_AUTH_HEADER } from '@/const/auth';
 import { createCallerFactory } from '@/libs/trpc/lambda';
 import { lambdaRouter } from '@/server/routers/lambda';
+import { obfuscatePayloadWithXOR } from '@/utils/client/xor-obfuscation';
 import { createErrorResponse } from '@/utils/errorResponse';
 
 export const runtime = 'nodejs';
@@ -29,11 +30,25 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
   const { provider } = await params;
 
   try {
-    const body = (await req.json()) as { model: string; params: { prompt: string } };
+    const body = (await req.json()) as {
+      model: string;
+      params: { prompt: string };
+      taskId?: string;
+    };
+
+    // Normal requests carry the client's encoded provider header verbatim.
+    // checkAuth's development/desktop bypass modes reach this handler WITHOUT
+    // that header (they authenticate server-side and hand over the decoded
+    // payload) — re-encode the already-authenticated payload so the keyVaults
+    // middleware can decode it like any other request. Never fabricated for
+    // unauthenticated calls: checkAuth rejects those before this handler runs.
+    const authorizationHeader =
+      req.headers.get(LOBE_CHAT_AUTH_HEADER) ??
+      (jwtPayload ? obfuscatePayloadWithXOR(jwtPayload) : null);
 
     const createCaller = createCallerFactory(lambdaRouter);
     const caller = createCaller({
-      authorizationHeader: req.headers.get(LOBE_CHAT_AUTH_HEADER),
+      authorizationHeader,
       jwtPayload,
       nextAuth: undefined,
       userId: jwtPayload?.userId,
@@ -43,6 +58,7 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
       model: body.model,
       params: body.params,
       provider,
+      taskId: body.taskId,
     });
 
     return NextResponse.json(result);

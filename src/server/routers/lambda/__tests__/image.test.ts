@@ -943,10 +943,13 @@ describe('imageRouter', () => {
         model: 'gpt-image-2',
         params: { prompt: 'a rain-washed street at night' },
         provider: 'openaicompatible',
+        taskId: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
       });
 
       expect(result).toEqual({ taskId: 'task-1' });
+      // the client's write-first id is passed through to the (idempotent) insert
       expect(createTask).toHaveBeenCalledWith({
+        id: '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b',
         status: 'pending',
         type: 'image_generation',
       });

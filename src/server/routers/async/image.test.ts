@@ -196,10 +196,7 @@ describe('imageRouter', () => {
       });
 
       // protected ComfyUI result URLs require the runtime's auth headers
-      expect(transformImageForGeneration).toHaveBeenCalledWith(
-        'https://comfy/x.png',
-        authHeaders,
-      );
+      expect(transformImageForGeneration).toHaveBeenCalledWith('https://comfy/x.png', authHeaders);
     });
 
     it('marks the task failed with a categorized error when the provider call rejects', async () => {

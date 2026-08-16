@@ -36,7 +36,7 @@ describe('PythonWorker', () => {
 
   const mockMicropip = {
     set_index_urls: vi.fn(),
-    install: vi.fn(),
+    install: Object.assign(vi.fn(), { callKwargs: vi.fn() }),
   };
 
   beforeEach(() => {
@@ -331,36 +331,32 @@ describe('PythonWorker', () => {
         expect(mockMicropip.install).not.toHaveBeenCalled();
       });
 
-      it('never satisfies a direct URL reference from the bundled distribution (R9-5)', async () => {
-        // the Python filter reports the URL requirement unsatisfied (req.url)
-        mockPyodide.runPythonAsync.mockResolvedValueOnce(
-          '["jsonschema @ https://example.com/custom-jsonschema.whl"]',
-        );
+      it('installs a direct URL reference with reinstall=True BEFORE the import auto-loader (R10-3)', async () => {
+        const directRef = 'jsonschema @ https://example.com/custom-jsonschema.whl';
 
-        await worker.prepareEnvironment('import jsonschema', [
-          'jsonschema @ https://example.com/custom-jsonschema.whl',
-        ]);
+        await worker.prepareEnvironment('import jsonschema', [directRef]);
 
-        // the bundled copy must NOT be loaded for a direct reference, and the
-        // exact requested artifact must reach micropip
+        // micropip.install defaults reinstall=False and Pyodide auto-loads
+        // known imports — so the artifact must install first, with kwargs
+        expect(mockMicropip.install.callKwargs).toHaveBeenCalledWith([directRef], {
+          reinstall: true,
+        });
+        const installOrder = mockMicropip.install.callKwargs.mock.invocationCallOrder[0];
+        const importsOrder = mockPyodide.loadPackagesFromImports.mock.invocationCallOrder[0];
+        expect(installOrder).toBeLessThan(importsOrder);
+        // and the bundled copy is never explicitly loaded for it
         expect(mockPyodide.loadPackage).not.toHaveBeenCalledWith(['jsonschema']);
-        expect(mockMicropip.install).toHaveBeenCalledWith([
-          'jsonschema @ https://example.com/custom-jsonschema.whl',
-        ]);
+        expect(mockMicropip.install).not.toHaveBeenCalled();
       });
 
-      it('sends a direct URL for a non-bundled name to micropip untouched', async () => {
-        mockPyodide.runPythonAsync.mockResolvedValueOnce(
-          '["mylib @ https://example.com/mylib-1.0-py3-none-any.whl"]',
-        );
+      it('installs a direct URL for a non-bundled name the same way', async () => {
+        const directRef = 'mylib @ https://example.com/mylib-1.0-py3-none-any.whl';
 
-        await worker.prepareEnvironment('import mylib', [
-          'mylib @ https://example.com/mylib-1.0-py3-none-any.whl',
-        ]);
+        await worker.prepareEnvironment('import mylib', [directRef]);
 
-        expect(mockMicropip.install).toHaveBeenCalledWith([
-          'mylib @ https://example.com/mylib-1.0-py3-none-any.whl',
-        ]);
+        expect(mockMicropip.install.callKwargs).toHaveBeenCalledWith([directRef], {
+          reinstall: true,
+        });
       });
 
       it('still fails an explicitly incompatible pin, with the compatibility message', async () => {

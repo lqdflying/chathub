@@ -23,7 +23,12 @@ class ImageGenerationService {
    * IMAGE provider's keyVaults (`createHeaderWithAuth(provider)`).
    */
   createChatImageTask = async (
-    { provider, model, params }: { model: string; params: { prompt: string }; provider: string },
+    {
+      provider,
+      model,
+      params,
+      taskId,
+    }: { model: string; params: { prompt: string }; provider: string; taskId?: string },
     options?: FetchOptions,
   ): Promise<{ taskId: string }> => {
     const headers = await createHeaderWithAuth({
@@ -32,7 +37,7 @@ class ImageGenerationService {
     });
 
     const res = await fetch(API_ENDPOINTS.createChatImage(provider), {
-      body: JSON.stringify({ model, params }),
+      body: JSON.stringify({ model, params, taskId }),
       headers,
       method: 'POST',
       signal: options?.signal,
@@ -61,6 +66,14 @@ class ImageGenerationService {
         `Image task creation returned an invalid response (expected { taskId }): ${JSON.stringify(
           data,
         ).slice(0, 200)}`,
+      );
+    }
+    // a client-supplied id must round-trip unchanged — the item already
+    // persisted it, so a server that answered with a different id would leave
+    // the persisted correlation dangling
+    if (taskId && data.taskId !== taskId) {
+      throw new Error(
+        `Image task creation answered with a different task id (sent ${taskId}, got ${data.taskId}).`,
       );
     }
     return { taskId: data.taskId };

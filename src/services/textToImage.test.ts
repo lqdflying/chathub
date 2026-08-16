@@ -53,6 +53,24 @@ describe('imageGenerationService', () => {
       ).rejects.toThrow('invalid response (expected { taskId })');
     });
 
+    it('sends the client task id and rejects a mismatched echo (R10-1 write-first)', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(
+        new Response(JSON.stringify({ taskId: 'different-id' }), { status: 200 }),
+      );
+
+      await expect(
+        imageGenerationService.createChatImageTask({
+          model: 'm',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: 'client-uuid',
+        }),
+      ).rejects.toThrow('answered with a different task id');
+
+      const [, init] = vi.mocked(global.fetch).mock.calls[0];
+      expect(String(init?.body)).toContain('"taskId":"client-uuid"');
+    });
+
     it('surfaces a non-OK error body', async () => {
       vi.mocked(global.fetch).mockResolvedValue(
         new Response(JSON.stringify({ errorType: 'InvalidProviderAPIKey' }), { status: 401 }),

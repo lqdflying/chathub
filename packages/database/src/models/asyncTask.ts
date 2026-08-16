@@ -21,13 +21,17 @@ export class AsyncTaskModel {
     this.db = db;
   }
 
-  create = async (params: Pick<NewAsyncTaskItem, 'type' | 'status'>): Promise<string> => {
+  create = async (params: Pick<NewAsyncTaskItem, 'id' | 'type' | 'status'>): Promise<string> => {
+    // an explicit id makes creation idempotent (write-first client
+    // correlation): re-submitting the same id is a no-op insert, and the
+    // pending-claim step downstream dedups execution
     const data = await this.db
       .insert(asyncTasks)
       .values({ ...params, userId: this.userId })
+      .onConflictDoNothing()
       .returning();
 
-    return data[0].id;
+    return data[0]?.id ?? (params.id as string);
   };
 
   delete = async (id: string) => {

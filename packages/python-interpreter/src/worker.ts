@@ -120,12 +120,20 @@ class PythonWorker {
    * 安装 Python 包
    * @param packages 包名列表
    */
-  async installPackages(packages: string[]) {
+  async installPackages(packages: string[], options?: { replace?: boolean }) {
     await this.pyodide.loadPackage('micropip');
     const micropip = this.pyodide.pyimport('micropip');
     micropip.set_index_urls([this.pypiIndexUrl, 'PYPI']);
     try {
-      await micropip.install(packages);
+      // replace=true → micropip `reinstall=True`: a direct artifact must win
+      // over anything already present (micropip's default reinstall=False
+      // silently keeps an installed copy). callKwargs is the PyProxy kwargs
+      // call; fall back to a plain call when unavailable.
+      if (options?.replace && typeof (micropip.install as any).callKwargs === 'function') {
+        await (micropip.install as any).callKwargs(packages, { reinstall: true });
+      } else {
+        await micropip.install(packages);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // micropip's "Can't find a pure Python 3 wheel" means a (transitive)
@@ -152,9 +160,22 @@ class PythonWorker {
    * version all along.
    */
   async prepareEnvironment(code: string, packages: string[]) {
+    const allRequested = packages.map((p) => p.trim()).filter((p) => p !== '');
+
+    // Direct references (`pkg @ https://…`) install FIRST, with replacement
+    // semantics: Pyodide's import auto-loader would otherwise install the
+    // distribution copy for `import pkg`, and micropip's default
+    // reinstall=False would then silently keep it instead of the requested
+    // artifact. Installing first registers the artifact, so the auto-loader
+    // skips that name.
+    const directReferences = allRequested.filter((req) => req.includes('://'));
+    if (directReferences.length > 0) {
+      await this.installPackages(directReferences, { replace: true });
+    }
+
     await this.pyodide.loadPackagesFromImports(code);
 
-    const requested = packages.map((p) => p.trim()).filter((p) => p !== '');
+    const requested = allRequested.filter((req) => !req.includes('://'));
     if (requested.length === 0) return;
 
     const lockfilePackages: Record<string, unknown> =
@@ -172,10 +193,9 @@ class PythonWorker {
     const bundledToLoad: string[] = [];
     const remaining: string[] = [];
     for (const req of requested) {
-      const isDirectReference = req.includes('://');
-      const bundled = isDirectReference
-        ? undefined
-        : bundledByNormalized.get(normalizePackageName(requirementBareName(req)));
+      // direct references were already installed above; `requested` holds only
+      // ordinary requirements here
+      const bundled = bundledByNormalized.get(normalizePackageName(requirementBareName(req)));
       if (bundled) {
         bundledToLoad.push(bundled);
         if (requirementBareName(req) !== req) remaining.push(req);

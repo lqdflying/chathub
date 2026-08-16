@@ -283,11 +283,16 @@ export const imageRouter = router({
         model: z.string().trim().min(1),
         params: z.object({ prompt: z.string().trim().min(1) }).passthrough(),
         provider: z.string().trim().min(1),
+        // client-generated (write-first) correlation id: the item persists it
+        // BEFORE this request, so the task must be created under exactly this
+        // id; resubmission is idempotent (insert no-ops, claim dedups)
+        taskId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
       const { asyncTaskModel } = ctx;
       const taskId = await asyncTaskModel.create({
+        id: input.taskId,
         status: AsyncTaskStatus.Pending,
         type: AsyncTaskType.ImageGeneration,
       });

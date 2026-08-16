@@ -85,14 +85,27 @@ const sleep = (ms: number) =>
 // double-polling the same item.
 const inFlightTaskKeys = new Set<string>();
 
-// A poll error is only worth retrying when it is transient (mangled transport
-// response or a 5xx). Schema/auth/permanent tRPC failures must surface at once
-// instead of being retried silently for the whole five-minute budget.
+// Per-message write queues for updateImageItem (see that action's comment).
+const imageItemUpdateQueues = new Map<string, Promise<unknown>>();
+
+// A poll error is only worth retrying when it is transient. The HTTP status
+// decides regardless of shape: a guarded (mangled-transport) response STILL
+// carries `details.httpStatus`, and a guarded 400/401/403 is just as permanent
+// as a plain tRPC one. Only 5xx and status-less transport failures retry.
 const isTransientPollError = (error: unknown) => {
-  if (findRPCResponseError(error)) return true;
-  const status = (error as { data?: { httpStatus?: number } })?.data?.httpStatus;
-  return typeof status === 'number' && status >= 500;
+  const guarded = findRPCResponseError(error);
+  const status =
+    guarded?.details.httpStatus ?? (error as { data?: { httpStatus?: number } })?.data?.httpStatus;
+  if (typeof status === 'number') return status >= 500;
+  return Boolean(guarded);
 };
+
+// Marks errors that represent an AUTHORITATIVE terminal task state returned by
+// the server (status error / not_found) — as opposed to lookup/transport
+// failures or local timeouts, which say nothing about the task itself and must
+// never justify creating a replacement (billable) generation.
+const isTerminalTaskStateError = (error: unknown) =>
+  Boolean((error as { taskTerminal?: boolean })?.taskTerminal);
 
 // Wait for the async generation task to settle. The generation itself (which
 // can take 30–60 s) runs server-side — the browser only ever polls small
@@ -124,7 +137,9 @@ const waitForChatImageTask = async (
       const error = result.error;
       throw Object.assign(
         new Error(error?.body?.detail || error?.name || `Image generation ${status}`),
-        { name: error?.name ?? 'ImageGenerationError' },
+        // taskTerminal marks this as an authoritative server-side terminal
+        // state — the only condition that may ever justify a replacement task
+        { name: error?.name ?? 'ImageGenerationError', taskTerminal: true },
       );
     }
   }
@@ -207,25 +222,34 @@ export const dalleSlice: StateCreator<
                 });
                 return undefined;
               }
-            } catch {
-              // the previous task genuinely failed/expired — fall through and
-              // create a fresh one
+            } catch (error) {
+              // ONLY an authoritative terminal task state (server said
+              // error/not_found) justifies a replacement generation. Lookup,
+              // transport, auth and local-timeout failures say nothing about
+              // the task — surface them without creating a duplicate charge.
+              if (!isTerminalTaskStateError(error)) throw error;
               taskId = undefined;
             }
           }
 
-          const created = await imageGenerationService.createChatImageTask({
+          // WRITE-FIRST correlation: generate the task id client-side and
+          // persist it into the item BEFORE any network call. The server
+          // creates the task under this exact id, so navigating away while
+          // the create request is in flight can never orphan a paid task —
+          // the persisted id is already there for the mount reconciler.
+          taskId = crypto.randomUUID();
+          await get().updateImageItem(messageId, (draft) => {
+            if (draft[index]) draft[index].taskId = taskId;
+          });
+
+          // deliberately no invalidation guard between persist and create: the
+          // id is already in the message, so the task MUST exist for the mount
+          // reconciler to adopt — aborting here would leave a dangling id
+          await imageGenerationService.createChatImageTask({
             model,
             params: { ...baseParams, prompt: item.prompt },
             provider,
-          });
-          taskId = created.taskId;
-          if (!invocationIsCurrent()) return undefined;
-
-          // persist the correlation IMMEDIATELY — a reload/navigation must be
-          // able to find and adopt this task instead of orphaning it
-          await get().updateImageItem(messageId, (draft) => {
-            if (draft[index]) draft[index].taskId = taskId;
+            taskId,
           });
           if (!invocationIsCurrent()) return undefined;
 
@@ -346,13 +370,26 @@ export const dalleSlice: StateCreator<
   },
 
   updateImageItem: async (id, updater) => {
-    const message = chatSelectors.getMessageById(id)(get());
-    if (!message) return;
+    // serialize whole-message item writes per message: concurrent items each
+    // read content and write the WHOLE array back, so unserialized writes
+    // (e.g. item 2's taskId vs item 1's imageId) would clobber each other
+    const previous = imageItemUpdateQueues.get(id) ?? Promise.resolve();
+    const task = previous.then(async () => {
+      const message = chatSelectors.getMessageById(id)(get());
+      if (!message) return;
 
-    const data: DallEImageItem[] = JSON.parse(message.content);
+      const data: DallEImageItem[] = JSON.parse(message.content);
 
-    const nextContent = produce(data, updater);
-    await get().internal_updateMessageContent(id, JSON.stringify(nextContent));
+      const nextContent = produce(data, updater);
+      await get().internal_updateMessageContent(id, JSON.stringify(nextContent));
+    });
+    const settled = task.catch(() => {});
+    imageItemUpdateQueues.set(id, settled);
+    try {
+      await task;
+    } finally {
+      if (imageItemUpdateQueues.get(id) === settled) imageItemUpdateQueues.delete(id);
+    }
   },
 
   useFetchDalleImageItem: (id) => {

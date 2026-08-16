@@ -807,19 +807,29 @@ configurable model rather than a hard-coded one.
   segment; it exists so the auth payload carries the IMAGE provider's keyVaults
   via `createHeaderWithAuth(provider)`, and it forwards the RAW encoded auth
   header into the caller context because image procedures run the `keyVaults`
-  middleware, which decodes `ctx.authorizationHeader` itself) →
+  middleware, which decodes `ctx.authorizationHeader` itself; header-less
+  checkAuth bypass modes get the already-authenticated payload re-encoded with
+  `obfuscatePayloadWithXOR`, never fabricated for unauthenticated calls) →
   `lambda image.createChatImage` creates a pending `asyncTask` and dispatches
   `async image.createChatImage`, returning the task id immediately. The client
-  validates the `{ taskId }` contract before polling, then polls
+  validates the `{ taskId }` echo before polling, then polls
   `image.getChatImageResult` (2.5 s interval, 300 s budget, notifications
-  suppressed; transient transport/5xx failures retry, permanent tRPC/4xx errors
-  surface immediately).
-- **Task durability.** The `taskId` is persisted onto the `DallEImageItem` the
-  moment the task is created. If the tab navigates away, reloads, or closes
-  mid-generation, the tool render's mount-time `reconcileDallETasks` adopts a
-  finished task's file, resumes waiting on a pending one, or surfaces its
-  failure — and `retryDallEImages` adopts an existing successful/pending task
-  before ever creating a new billable generation. (Recovery is
+  suppressed). Poll-error classification is status-first regardless of shape:
+  guarded (mangled-transport) or plain errors with a 4xx status surface
+  immediately; only 5xx and status-less transport failures retry within the
+  budget.
+- **Task durability — write-first correlation.** The client GENERATES the task
+  id (`crypto.randomUUID`) and persists it onto the `DallEImageItem` BEFORE
+  the create request is sent; the server creates the task under exactly that
+  id (idempotent insert + pending-claim dedup), so a conversation switch or
+  tab close during the in-flight create can never orphan a paid task. Item
+  writes are serialized per message (a promise queue in `updateImageItem`) so
+  concurrent multi-image updates cannot clobber each other. The tool render's
+  mount-time `reconcileDallETasks` adopts a finished task's file, resumes
+  waiting on a pending one, or surfaces its failure; `retryDallEImages` adopts
+  an existing task first and creates a replacement ONLY after the server
+  reports an authoritative terminal state (`error`/`not_found`) — lookup,
+  transport and local-timeout failures surface without creating. (Recovery is
   view-triggered: a background conversation reconciles when it is next
   opened.)
 - **Server-side image handling.** The async procedure runs
