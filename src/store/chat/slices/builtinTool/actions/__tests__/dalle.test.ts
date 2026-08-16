@@ -37,6 +37,9 @@ describe('chatToolSlice - dalle', () => {
   afterEach(() => {
     mockImageState.isInit = true;
     vi.useRealTimers();
+    vi.restoreAllMocks();
+    // reset the invalidation generation some tests bump mid-run
+    useChatStore.setState({ conversationClearGeneration: 0 });
   });
 
   describe('generateImageFromPrompts', () => {
@@ -183,6 +186,150 @@ describe('chatToolSlice - dalle', () => {
       expect(errorArg.error[0]).toBeUndefined();
       expect(errorArg.error[1]).toEqual({ message: 'upstream 503', name: 'ServerError' });
       expect(result.current.toggleDallEImageLoading).toHaveBeenCalledTimes(4);
+    });
+  });
+
+  describe('task durability (R9-3)', () => {
+    it('persists the taskId at creation so navigation/reload cannot orphan the task', async () => {
+      vi.useFakeTimers();
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () =>
+          ({ content: JSON.stringify([{ prompt: 'p1' }]), id }) as UIChatMessage,
+      );
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockResolvedValue({
+        taskId: 'task-live',
+      });
+      // the task never settles in this tab ("user navigated away / closed it")
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async () => {
+        // invalidate the invocation as soon as the first poll happens
+        useChatStore.setState({ conversationClearGeneration: 999 });
+        return { status: 'processing' };
+      });
+      vi.spyOn(result.current, 'toggleDallEImageLoading');
+      vi.spyOn(result.current, 'updatePluginState').mockResolvedValue(undefined);
+      const updateContent = vi
+        .spyOn(result.current, 'internal_updateMessageContent')
+        .mockResolvedValue({ persistenceAmbiguous: false });
+
+      await act(async () => {
+        const run = result.current.generateImageFromPrompts(
+          [{ prompt: 'p1' }] as DallEImageItem[],
+          messageId,
+        );
+        // first advance fires the poll (which invalidates the invocation);
+        // second advance lets the loop observe the invalidation and exit
+        await vi.advanceTimersByTimeAsync(3000);
+        await vi.advanceTimersByTimeAsync(3000);
+        await run;
+      });
+
+      // the correlation was written BEFORE the poll loop ended
+      const payloads = updateContent.mock.calls.map((c) => String(c[1]));
+      expect(payloads.some((p) => p.includes('"taskId":"task-live"'))).toBe(true);
+    });
+
+    it('reconciles a finished background task on mount without creating a new one', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+      // "after reload": the persisted item carries the taskId but no image yet
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () =>
+          ({
+            content: JSON.stringify([{ prompt: 'p1', taskId: 'task-done' }]),
+            id,
+          }) as UIChatMessage,
+      );
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        file: { id: 'file-9' },
+        status: 'success',
+      });
+      vi.spyOn(result.current, 'toggleDallEImageLoading');
+      const updateContent = vi
+        .spyOn(result.current, 'internal_updateMessageContent')
+        .mockResolvedValue({ persistenceAmbiguous: false });
+
+      await act(async () => {
+        await result.current.reconcileDallETasks(messageId);
+      });
+
+      // adopted the server-side result with ZERO new (billable) generations
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const payloads = updateContent.mock.calls.map((c) => String(c[1]));
+      expect(payloads.some((p) => p.includes('"imageId":"file-9"'))).toBe(true);
+    });
+
+    it('retry adopts an existing successful task instead of re-billing', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () =>
+          ({
+            content: JSON.stringify([{ prompt: 'p1', taskId: 'task-done' }]),
+            id,
+          }) as UIChatMessage,
+      );
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        file: { id: 'file-9' },
+        status: 'success',
+      });
+      vi.spyOn(result.current, 'toggleDallEImageLoading');
+      vi.spyOn(result.current, 'updatePluginState').mockResolvedValue(undefined);
+      const updateContent = vi
+        .spyOn(result.current, 'internal_updateMessageContent')
+        .mockResolvedValue({ persistenceAmbiguous: false });
+
+      await act(async () => {
+        await result.current.retryDallEImages(messageId);
+      });
+
+      expect(createTaskMock).not.toHaveBeenCalled();
+      const payloads = updateContent.mock.calls.map((c) => String(c[1]));
+      expect(payloads.some((p) => p.includes('"imageId":"file-9"'))).toBe(true);
+    });
+  });
+
+  describe('poll error classification (R9-4)', () => {
+    it('throws a permanent tRPC/4xx poll error after a single poll instead of retrying it', async () => {
+      vi.useFakeTimers();
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+      vi.spyOn(chatSelectors, 'getMessageById').mockImplementation(
+        (id) => () =>
+          ({ content: JSON.stringify([{ prompt: 'p1' }]), id }) as UIChatMessage,
+      );
+      vi.spyOn(imageGenerationService, 'createChatImageTask').mockResolvedValue({
+        taskId: 'task-bad',
+      });
+      const pollMock = vi
+        .spyOn(imageGenerationService, 'getChatImageResult')
+        .mockRejectedValue(
+          Object.assign(new Error('BAD_REQUEST'), { data: { httpStatus: 400 } }),
+        );
+      vi.spyOn(result.current, 'toggleDallEImageLoading');
+      const updatePluginState = vi
+        .spyOn(result.current, 'updatePluginState')
+        .mockResolvedValue(undefined);
+      vi.spyOn(result.current, 'internal_updateMessageContent').mockResolvedValue({
+        persistenceAmbiguous: false,
+      });
+
+      await act(async () => {
+        const run = result.current.generateImageFromPrompts(
+          [{ prompt: 'p1' }] as DallEImageItem[],
+          messageId,
+        );
+        await vi.advanceTimersByTimeAsync(3000);
+        await run;
+      });
+
+      // one poll, immediate surfaced error — not five minutes of silent retries
+      expect(pollMock).toHaveBeenCalledTimes(1);
+      const errorArg = updatePluginState.mock.calls[0][1] as { error: unknown[] };
+      expect(errorArg.error[0]).toMatchObject({ message: 'BAD_REQUEST' });
     });
   });
 

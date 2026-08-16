@@ -802,24 +802,39 @@ configurable model rather than a hard-coded one.
 - **Generation — async task + polling (same pattern as the workspace).**
   Generation can take 30–60 s (e.g. 4K `gpt-image-2`), so the chat tool never
   holds a synchronous request open: `imageGenerationService.createChatImageTask`
-  → `POST /webapi/create-image/[provider]` (a thin bridge that exists so the
-  auth payload carries the IMAGE provider's keyVaults via
-  `createHeaderWithAuth(provider)`; the lambda client's default headers resolve
-  the image provider only on `/image`) → `lambda image.createChatImage` creates
-  a pending `asyncTask` and dispatches `async image.createChatImage`, returning
-  the task id immediately. The client polls `image.getChatImageResult` (2.5 s
-  interval, 300 s budget, staleness-checked) until the task settles.
-- **Server-side image handling — no bytes ever reach the browser.** The async
-  procedure runs `agentRuntime.createImage` (same runtime init as the
-  workspace), then `GenerationService.transformImageForGeneration` +
+  → `POST /webapi/create-chat-image/[provider]` (a thin bridge on its own path
+  so the static `/create-image/comfyui` route can never shadow a provider
+  segment; it exists so the auth payload carries the IMAGE provider's keyVaults
+  via `createHeaderWithAuth(provider)`, and it forwards the RAW encoded auth
+  header into the caller context because image procedures run the `keyVaults`
+  middleware, which decodes `ctx.authorizationHeader` itself) →
+  `lambda image.createChatImage` creates a pending `asyncTask` and dispatches
+  `async image.createChatImage`, returning the task id immediately. The client
+  validates the `{ taskId }` contract before polling, then polls
+  `image.getChatImageResult` (2.5 s interval, 300 s budget, notifications
+  suppressed; transient transport/5xx failures retry, permanent tRPC/4xx errors
+  surface immediately).
+- **Task durability.** The `taskId` is persisted onto the `DallEImageItem` the
+  moment the task is created. If the tab navigates away, reloads, or closes
+  mid-generation, the tool render's mount-time `reconcileDallETasks` adopts a
+  finished task's file, resumes waiting on a pending one, or surfaces its
+  failure — and `retryDallEImages` adopts an existing successful/pending task
+  before ever creating a new billable generation. (Recovery is
+  view-triggered: a background conversation reconciles when it is next
+  opened.)
+- **Server-side image handling.** The async procedure runs
+  `agentRuntime.createImage` (same runtime init as the workspace; ComfyUI auth
+  headers are forwarded to the protected result download exactly like the
+  workspace flow), then `GenerationService.transformImageForGeneration` +
   `uploadImageForGeneration`, and creates a **files row** linked to the task
   via `metadata.chatImageTaskId` (`FileModel.findByChatImageTaskId`). The chat
-  message stores only the durable `fileId` — multi-MB base64/`data:` URIs are
-  never written into message content or the store (that was the cause of the
-  live-page crash this design replaced). Provider/task failures are categorized
-  onto the task (`categorizeError`) and surface as the per-item error card.
-  Results settle independently with bounded concurrency; per-image retry
-  regenerates only failed items. The byte-verifying CORS download path
+  message stores only the durable `fileId` — the raw provider/base64 payload
+  never crosses the task/message boundary into content or the store (that was
+  the cause of the live-page crash this design replaced); the browser
+  naturally fetches the persisted image file to display it. Provider/task
+  failures are categorized onto the task (`categorizeError`) and surface as
+  the per-item error card. Results settle independently with bounded
+  concurrency. The byte-verifying CORS download path
   (`getImageFileByUrlWithCORS` + `/webapi/proxy` hardening) remains in the
   upload service for other callers but is no longer part of generation.
 

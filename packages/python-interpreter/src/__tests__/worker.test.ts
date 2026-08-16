@@ -331,6 +331,38 @@ describe('PythonWorker', () => {
         expect(mockMicropip.install).not.toHaveBeenCalled();
       });
 
+      it('never satisfies a direct URL reference from the bundled distribution (R9-5)', async () => {
+        // the Python filter reports the URL requirement unsatisfied (req.url)
+        mockPyodide.runPythonAsync.mockResolvedValueOnce(
+          '["jsonschema @ https://example.com/custom-jsonschema.whl"]',
+        );
+
+        await worker.prepareEnvironment('import jsonschema', [
+          'jsonschema @ https://example.com/custom-jsonschema.whl',
+        ]);
+
+        // the bundled copy must NOT be loaded for a direct reference, and the
+        // exact requested artifact must reach micropip
+        expect(mockPyodide.loadPackage).not.toHaveBeenCalledWith(['jsonschema']);
+        expect(mockMicropip.install).toHaveBeenCalledWith([
+          'jsonschema @ https://example.com/custom-jsonschema.whl',
+        ]);
+      });
+
+      it('sends a direct URL for a non-bundled name to micropip untouched', async () => {
+        mockPyodide.runPythonAsync.mockResolvedValueOnce(
+          '["mylib @ https://example.com/mylib-1.0-py3-none-any.whl"]',
+        );
+
+        await worker.prepareEnvironment('import mylib', [
+          'mylib @ https://example.com/mylib-1.0-py3-none-any.whl',
+        ]);
+
+        expect(mockMicropip.install).toHaveBeenCalledWith([
+          'mylib @ https://example.com/mylib-1.0-py3-none-any.whl',
+        ]);
+      });
+
       it('still fails an explicitly incompatible pin, with the compatibility message', async () => {
         mockPyodide.runPythonAsync.mockResolvedValueOnce('["jsonschema>=4.26"]');
         mockMicropip.install.mockRejectedValueOnce(

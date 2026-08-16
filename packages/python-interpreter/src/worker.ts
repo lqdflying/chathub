@@ -166,11 +166,16 @@ class PythonWorker {
 
     // load the bundled copy for every requested name Pyodide ships — a plain
     // name is fully satisfied by it; a versioned one gets checked against the
-    // bundled version below instead of being resolved from PyPI first
+    // bundled version below instead of being resolved from PyPI first. Direct
+    // references (`pkg @ https://…`) are never satisfied by a bundled copy:
+    // the user asked for a specific artifact, so they go straight to micropip.
     const bundledToLoad: string[] = [];
     const remaining: string[] = [];
     for (const req of requested) {
-      const bundled = bundledByNormalized.get(normalizePackageName(requirementBareName(req)));
+      const isDirectReference = req.includes('://');
+      const bundled = isDirectReference
+        ? undefined
+        : bundledByNormalized.get(normalizePackageName(requirementBareName(req)));
       if (bundled) {
         bundledToLoad.push(bundled);
         if (requirementBareName(req) !== req) remaining.push(req);
@@ -199,6 +204,11 @@ def __chathub_unsatisfied(raw_reqs):
             out.append(raw)
             continue
         if req.marker is not None and not req.marker.evaluate():
+            continue
+        if req.url is not None:
+            # a direct reference names a specific artifact — an installed
+            # name/version match must never silently substitute for it
+            out.append(raw)
             continue
         if req.extras:
             out.append(raw)

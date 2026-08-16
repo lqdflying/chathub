@@ -21,7 +21,7 @@ export const API_ENDPOINTS = {
 
   // image
   images: (provider: string) => `/webapi/text-to-image/${provider}`,
-  createImage: (provider: string) => `/webapi/create-image/${provider}`,
+  createChatImage: (provider: string) => `/webapi/create-chat-image/${provider}`,
 
   // STT
   stt: '/webapi/stt/openai',

@@ -222,8 +222,18 @@ export const imageRouter = router({
           checkAbortSignal(signal);
 
           const { imageUrl, width, height } = response;
-          const { image, thumbnailImage } =
-            await ctx.generationService.transformImageForGeneration(imageUrl);
+
+          // ComfyUI result URLs are auth-protected — forward its headers to the
+          // download, exactly like the workspace flow above does
+          let authHeaders: Record<string, string> | undefined;
+          if (provider === 'comfyui') {
+            authHeaders = agentRuntime.getAuthHeaders();
+          }
+
+          const { image, thumbnailImage } = await ctx.generationService.transformImageForGeneration(
+            imageUrl,
+            authHeaders,
+          );
           checkAbortSignal(signal);
 
           const uploaded = await ctx.generationService.uploadImageForGeneration(

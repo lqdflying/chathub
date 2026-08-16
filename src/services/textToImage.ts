@@ -31,7 +31,7 @@ class ImageGenerationService {
       provider,
     });
 
-    const res = await fetch(API_ENDPOINTS.createImage(provider), {
+    const res = await fetch(API_ENDPOINTS.createChatImage(provider), {
       body: JSON.stringify({ model, params }),
       headers,
       method: 'POST',
@@ -52,15 +52,32 @@ class ImageGenerationService {
       throw parsed ?? new Error(text || `Image generation failed with status ${res.status}`);
     }
 
-    return res.json();
+    // validate the contract BEFORE anyone starts polling with it — a
+    // wrong-shaped 200 (e.g. a route returning an image payload) must fail
+    // here with a clear message, not as five minutes of doomed polls
+    const data = (await res.json()) as { taskId?: unknown };
+    if (typeof data.taskId !== 'string' || data.taskId.length === 0) {
+      throw new Error(
+        `Image task creation returned an invalid response (expected { taskId }): ${JSON.stringify(
+          data,
+        ).slice(0, 200)}`,
+      );
+    }
+    return { taskId: data.taskId };
   };
 
   /**
    * Poll the outcome of a chat image task: status/error, and on success the
-   * durable file the server created (id + dimensions).
+   * durable file the server created (id + dimensions). Polls run with global
+   * error notifications suppressed — the per-item error card is the single
+   * user-facing failure surface, and a failing poll loop must not spam the
+   * global login/fetch UI every 2.5 s.
    */
   getChatImageResult = async (taskId: string): Promise<ChatImageTaskResult> => {
-    return lambdaClient.image.getChatImageResult.query({ taskId }) as Promise<ChatImageTaskResult>;
+    return lambdaClient.image.getChatImageResult.query(
+      { taskId },
+      { context: { showNotification: false } },
+    ) as Promise<ChatImageTaskResult>;
   };
 }
 

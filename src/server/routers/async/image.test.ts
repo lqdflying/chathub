@@ -130,7 +130,10 @@ describe('imageRouter', () => {
       expect(result).toEqual({ success: true });
       // the image bytes are handled entirely server-side: transform → upload →
       // durable files row linked to the task via metadata.chatImageTaskId
-      expect(transformImageForGeneration).toHaveBeenCalledWith('data:image/png;base64,AAAA');
+      expect(transformImageForGeneration).toHaveBeenCalledWith(
+        'data:image/png;base64,AAAA',
+        undefined,
+      );
       expect(uploadImageForGeneration).toHaveBeenCalled();
       expect(createFile).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -140,6 +143,63 @@ describe('imageRouter', () => {
         true,
       );
       expect(updateTask).toHaveBeenCalledWith('task-2', { status: 'success' });
+    });
+
+    it('forwards ComfyUI auth headers to the protected result download (R9-2)', async () => {
+      mockClaimPendingTask.mockResolvedValue(true);
+      const updateTask = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ claimPendingTask: mockClaimPendingTask, update: updateTask }) as never,
+      );
+      const authHeaders = { Authorization: 'Bearer comfy-token' };
+      const createImage = vi
+        .fn()
+        .mockResolvedValue({ height: 1024, imageUrl: 'https://comfy/x.png', width: 1024 });
+      vi.mocked(initModelRuntimeWithUserPayload).mockResolvedValue({
+        createImage,
+        getAuthHeaders: vi.fn(() => authHeaders),
+      } as never);
+      const transformImageForGeneration = vi.fn().mockResolvedValue({
+        image: {
+          extension: 'png',
+          hash: 'h',
+          height: 1024,
+          mime: 'image/png',
+          size: 1,
+          width: 1024,
+        },
+        thumbnailImage: { height: 512, mime: 'image/png', size: 1, width: 512 },
+      });
+      const uploadImageForGeneration = vi
+        .fn()
+        .mockResolvedValue({ imageUrl: 'k/img.png', thumbnailImageUrl: 'k/t.png' });
+      const { GenerationService } = await import('@/server/services/generation');
+      vi.mocked(GenerationService).mockImplementation(
+        () => ({ transformImageForGeneration, uploadImageForGeneration }) as never,
+      );
+      const { FileModel } = await import('@/database/models/file');
+      vi.mocked(FileModel).mockImplementation(
+        () => ({ create: vi.fn().mockResolvedValue({ id: 'f' }) }) as never,
+      );
+
+      const caller = imageRouter.createCaller({
+        jwtPayload: { apiKey: 'test-key' },
+        secret: 'test-internal-secret',
+        userId: 'test-user',
+      });
+
+      await caller.createChatImage({
+        model: 'comfy-model',
+        params: { prompt: 'p' },
+        provider: 'comfyui',
+        taskId: 'task-4',
+      });
+
+      // protected ComfyUI result URLs require the runtime's auth headers
+      expect(transformImageForGeneration).toHaveBeenCalledWith(
+        'https://comfy/x.png',
+        authHeaders,
+      );
     });
 
     it('marks the task failed with a categorized error when the provider call rejects', async () => {

@@ -12,4 +12,11 @@ export interface DallEImageItem {
   quality?: DallEImageQuality;
   size?: DallEImageSize;
   style?: DallEImageStyle;
+  /**
+   * The async generation task backing this item. Persisted the moment the
+   * task is created so a reload/navigation can resume or adopt the finished
+   * result instead of orphaning it (and so Retry never re-bills a generation
+   * that actually succeeded server-side).
+   */
+  taskId?: string;
 }

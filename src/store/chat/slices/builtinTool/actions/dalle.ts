@@ -6,6 +6,7 @@ import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { useClientDataSWR } from '@/libs/swr';
+import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { fileService } from '@/services/file';
 import { imageGenerationService } from '@/services/textToImage';
 import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
@@ -79,6 +80,20 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
+// Tasks currently being polled in this tab, keyed `${messageId}_${index}` —
+// prevents the render-mount reconciler and an active generation loop from
+// double-polling the same item.
+const inFlightTaskKeys = new Set<string>();
+
+// A poll error is only worth retrying when it is transient (mangled transport
+// response or a 5xx). Schema/auth/permanent tRPC failures must surface at once
+// instead of being retried silently for the whole five-minute budget.
+const isTransientPollError = (error: unknown) => {
+  if (findRPCResponseError(error)) return true;
+  const status = (error as { data?: { httpStatus?: number } })?.data?.httpStatus;
+  return typeof status === 'number' && status >= 500;
+};
+
 // Wait for the async generation task to settle. The generation itself (which
 // can take 30–60 s) runs server-side — the browser only ever polls small
 // status payloads, never holds a long request open, and never receives image
@@ -86,18 +101,21 @@ const sleep = (ms: number) =>
 const waitForChatImageTask = async (
   taskId: string,
   isCurrent: () => boolean,
+  options?: { immediate?: boolean },
 ): Promise<{ file?: { height?: number; id: string; width?: number }; ok: boolean }> => {
   const deadline = Date.now() + TASK_POLL_BUDGET;
+  let firstCheck = options?.immediate === true;
   while (Date.now() < deadline) {
-    await sleep(TASK_POLL_INTERVAL);
+    if (!firstCheck) await sleep(TASK_POLL_INTERVAL);
+    firstCheck = false;
     if (!isCurrent()) return { ok: false };
 
     let result;
     try {
       result = await imageGenerationService.getChatImageResult(taskId);
-    } catch {
-      // transient poll failure (network blip) — keep polling until the budget
-      continue;
+    } catch (error) {
+      if (isTransientPollError(error)) continue;
+      throw error;
     }
 
     const status = (result.status ?? '').toLowerCase();
@@ -115,6 +133,11 @@ const waitForChatImageTask = async (
 
 export interface ChatDallEAction {
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<void>;
+  /**
+   * Recover items whose async task outlived this tab: adopt finished results,
+   * resume waiting on pending ones, surface failures. Never creates tasks.
+   */
+  reconcileDallETasks: (id: string) => Promise<void>;
   retryDallEImages: (id: string) => Promise<void>;
   text2image: (id: string, data: DallEImageItem[]) => Promise<void>;
   toggleDallEImageLoading: (key: string, value: boolean) => void;
@@ -156,16 +179,53 @@ export const dalleSlice: StateCreator<
 
         // key loading by index (duplicate prompts would otherwise collide)
         const loadingKey = `${messageId}_${index}`;
+        if (inFlightTaskKeys.has(loadingKey)) return undefined;
+        inFlightTaskKeys.add(loadingKey);
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
           // async-task pattern (same as the Image workspace): create the task,
           // then poll — never hold a request open for the 30–60 s generation,
           // and never let multi-MB image data reach the browser/message content
-          const { taskId } = await imageGenerationService.createChatImageTask({
+          let taskId = item.taskId;
+
+          // an item may already carry a task from a previous session/attempt:
+          // adopt its result (or resume waiting) BEFORE creating a new billable
+          // generation — Retry must never re-bill a task that succeeded
+          if (taskId) {
+            try {
+              const adopted = await waitForChatImageTask(taskId, invocationIsCurrent, {
+                immediate: true,
+              });
+              if (!adopted.ok || !invocationIsCurrent()) return undefined;
+              if (adopted.file) {
+                await get().updateImageItem(messageId, (draft) => {
+                  if (draft[index]) {
+                    draft[index].imageId = adopted.file!.id;
+                    draft[index].previewUrl = undefined;
+                  }
+                });
+                return undefined;
+              }
+            } catch {
+              // the previous task genuinely failed/expired — fall through and
+              // create a fresh one
+              taskId = undefined;
+            }
+          }
+
+          const created = await imageGenerationService.createChatImageTask({
             model,
             params: { ...baseParams, prompt: item.prompt },
             provider,
+          });
+          taskId = created.taskId;
+          if (!invocationIsCurrent()) return undefined;
+
+          // persist the correlation IMMEDIATELY — a reload/navigation must be
+          // able to find and adopt this task instead of orphaning it
+          await get().updateImageItem(messageId, (draft) => {
+            if (draft[index]) draft[index].taskId = taskId;
           });
           if (!invocationIsCurrent()) return undefined;
 
@@ -189,6 +249,7 @@ export const dalleSlice: StateCreator<
           });
           return { error, index };
         } finally {
+          inFlightTaskKeys.delete(loadingKey);
           get().toggleDallEImageLoading(loadingKey, false);
         }
       },
@@ -203,6 +264,61 @@ export const dalleSlice: StateCreator<
     if (failures.length > 0) {
       const errorArray: unknown[] = [];
       for (const f of failures) errorArray[f.index] = serializePluginError(f.error);
+      await get().updatePluginState(messageId, { error: errorArray });
+    }
+  },
+  reconcileDallETasks: async (messageId) => {
+    const invocationGeneration = get().conversationClearGeneration;
+    const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
+
+    const message = chatSelectors.getMessageById(messageId)(get());
+    if (!message) return;
+
+    let items: DallEImageItem[];
+    try {
+      items = JSON.parse(message.content);
+    } catch {
+      return;
+    }
+    if (!Array.isArray(items)) return;
+
+    const errorArray: unknown[] = [];
+    let hasError = false;
+    await pMap(
+      items,
+      async (item, index) => {
+        // only items whose task outlived this tab and never resolved
+        if (!item?.taskId || item.imageId) return;
+        const loadingKey = `${messageId}_${index}`;
+        if (inFlightTaskKeys.has(loadingKey)) return;
+        inFlightTaskKeys.add(loadingKey);
+        get().toggleDallEImageLoading(loadingKey, true);
+
+        try {
+          const { ok, file } = await waitForChatImageTask(item.taskId, invocationIsCurrent, {
+            immediate: true,
+          });
+          if (!ok || !invocationIsCurrent()) return;
+          if (!file) return;
+          await get().updateImageItem(messageId, (draft) => {
+            if (draft[index]) {
+              draft[index].imageId = file.id;
+              draft[index].previewUrl = undefined;
+            }
+          });
+        } catch (error) {
+          if (!invocationIsCurrent()) return;
+          hasError = true;
+          errorArray[index] = serializePluginError(error);
+        } finally {
+          inFlightTaskKeys.delete(loadingKey);
+          get().toggleDallEImageLoading(loadingKey, false);
+        }
+      },
+      { concurrency: 3 },
+    );
+
+    if (hasError && invocationIsCurrent()) {
       await get().updatePluginState(messageId, { error: errorArray });
     }
   },
