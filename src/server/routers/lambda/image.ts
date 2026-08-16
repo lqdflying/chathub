@@ -6,6 +6,7 @@ import { IMAGE_REFERENCE_ERROR_MESSAGES } from '@/const/imageGeneration';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
 import { GenerationModel } from '@/database/models/generation';
+import { MessageModel } from '@/database/models/message';
 import {
   NewGeneration,
   NewGenerationBatch,
@@ -280,6 +281,12 @@ export const imageRouter = router({
   createChatImage: imageProcedure
     .input(
       z.object({
+        // when supplied, the user-owned message must STILL contain exactly
+        // this unresolved taskId at this index — the server-authoritative
+        // guard that a deleted/mutated message cannot authorize billable work
+        correlation: z
+          .object({ index: z.number().int().min(0), messageId: z.string().min(1) })
+          .optional(),
         model: z.string().trim().min(1),
         params: z.object({ prompt: z.string().trim().min(1) }).passthrough(),
         provider: z.string().trim().min(1),
@@ -291,6 +298,32 @@ export const imageRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const { asyncTaskModel } = ctx;
+
+      if (input.correlation && input.taskId) {
+        const messageModel = new MessageModel(ctx.serverDB, ctx.userId);
+        const message = await messageModel.findById(input.correlation.messageId);
+        let correlated = false;
+        if (message?.content) {
+          try {
+            const items = JSON.parse(message.content) as {
+              imageId?: string;
+              taskId?: string;
+            }[];
+            const item = items?.[input.correlation.index];
+            correlated = Boolean(item && item.taskId === input.taskId && !item.imageId);
+          } catch {
+            correlated = false;
+          }
+        }
+        if (!correlated) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'The originating message no longer carries this unresolved image task, so no generation was started.',
+          });
+        }
+      }
+
       const taskId = await asyncTaskModel.create({
         id: input.taskId,
         status: AsyncTaskStatus.Pending,

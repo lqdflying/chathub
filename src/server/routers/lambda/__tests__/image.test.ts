@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
 import { FileModel } from '@/database/models/file';
+import { MessageModel } from '@/database/models/message';
 import { createCallerFactory } from '@/libs/trpc/lambda';
 import { createAsyncCaller } from '@/server/routers/async/caller';
 import {
@@ -25,6 +26,10 @@ vi.mock('@/database/core/db-adaptor', () => ({
 
 vi.mock('@/database/models/asyncTask', () => ({
   AsyncTaskModel: vi.fn(),
+}));
+
+vi.mock('@/database/models/message', () => ({
+  MessageModel: vi.fn(),
 }));
 
 vi.mock('@/database/models/file', () => ({
@@ -997,6 +1002,105 @@ describe('imageRouter', () => {
         'task-2',
         expect.objectContaining({ status: 'error' }),
       );
+    });
+  });
+
+  describe('createChatImage correlation verification (R15-1)', () => {
+    const CORRELATED_TASK_ID = '3f2c8f7e-1c2d-4e5f-9a6b-7c8d9e0f1a2b';
+
+    it('verifies the user-scoped message still carries the unresolved id before inserting', async () => {
+      const createTask = vi.fn().mockResolvedValue(CORRELATED_TASK_ID);
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ create: createTask, updatePendingToError: vi.fn() }) as never,
+      );
+      const dispatchChatImage = vi.fn().mockResolvedValue({ success: true });
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatchChatImage },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+      const findById = vi.fn().mockResolvedValue({
+        content: JSON.stringify([{ prompt: 'p', taskId: CORRELATED_TASK_ID }]),
+      });
+      vi.mocked(MessageModel).mockImplementation(() => ({ findById }) as never);
+
+      const caller = createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never);
+
+      const result = await caller.createChatImage({
+        correlation: { index: 0, messageId: 'message-1' },
+        model: 'gpt-image-2',
+        params: { prompt: 'p' },
+        provider: 'openaicompatible',
+        taskId: CORRELATED_TASK_ID,
+      });
+
+      expect(result).toEqual({ taskId: CORRELATED_TASK_ID });
+      // the lookup is USER-SCOPED — another account's message id cannot authorize
+      expect(vi.mocked(MessageModel)).toHaveBeenCalledWith(expect.anything(), 'account-a');
+      expect(findById).toHaveBeenCalledWith('message-1');
+      expect(createTask).toHaveBeenCalledWith({
+        id: CORRELATED_TASK_ID,
+        status: 'pending',
+        type: 'image_generation',
+      });
+    });
+
+    it('rejects creation when the message is deleted, mutated, resolved, or unparseable', async () => {
+      const createTask = vi.fn();
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ create: createTask, updatePendingToError: vi.fn() }) as never,
+      );
+      const dispatchChatImage = vi.fn();
+      vi.mocked(createAsyncCaller).mockResolvedValue({
+        image: { createChatImage: dispatchChatImage },
+      } as never);
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const attempt = (message: unknown) => {
+        vi.mocked(MessageModel).mockImplementation(
+          () => ({ findById: vi.fn().mockResolvedValue(message) }) as never,
+        );
+        const caller = createCallerFactory(imageRouter)({
+          authorizationHeader: 'test-authorization',
+          userId: 'account-a',
+        } as never);
+        return caller.createChatImage({
+          correlation: { index: 0, messageId: 'message-1' },
+          model: 'gpt-image-2',
+          params: { prompt: 'p' },
+          provider: 'openaicompatible',
+          taskId: CORRELATED_TASK_ID,
+        });
+      };
+
+      // deleted message
+      await expect(attempt(undefined)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+      // id replaced since persistence
+      await expect(
+        attempt({
+          content: JSON.stringify([
+            { prompt: 'p', taskId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' },
+          ]),
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+      // already resolved to an image
+      await expect(
+        attempt({
+          content: JSON.stringify([{ imageId: 'img', prompt: 'p', taskId: CORRELATED_TASK_ID }]),
+        }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+      // content no longer the tool's JSON shape
+      await expect(attempt({ content: 'not-json' })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      });
+
+      // no billable insert and no dispatch on ANY of the rejected paths
+      expect(createTask).not.toHaveBeenCalled();
+      expect(dispatchChatImage).not.toHaveBeenCalled();
     });
   });
 

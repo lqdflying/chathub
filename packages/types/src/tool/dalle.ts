@@ -13,10 +13,11 @@ export interface DallEImageItem {
   size?: DallEImageSize;
   style?: DallEImageStyle;
   /**
-   * The async generation task backing this item. Persisted the moment the
-   * task is created so a reload/navigation can resume or adopt the finished
-   * result instead of orphaning it (and so Retry never re-bills a generation
-   * that actually succeeded server-side).
+   * The async generation task backing this item. Deterministically derived
+   * and persisted BEFORE the create request is sent (write-first), so a
+   * reload/navigation at any point can resume or adopt the task instead of
+   * orphaning it (and so Retry never re-bills a generation that actually
+   * succeeded server-side).
    */
   taskId?: string;
 }

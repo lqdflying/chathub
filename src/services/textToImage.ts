@@ -28,7 +28,14 @@ class ImageGenerationService {
       model,
       params,
       taskId,
-    }: { model: string; params: { prompt: string }; provider: string; taskId?: string },
+      correlation,
+    }: {
+      correlation?: { index: number; messageId: string };
+      model: string;
+      params: { prompt: string };
+      provider: string;
+      taskId?: string;
+    },
     options?: FetchOptions,
   ): Promise<{ taskId: string }> => {
     const headers = await createHeaderWithAuth({
@@ -37,7 +44,7 @@ class ImageGenerationService {
     });
 
     const res = await fetch(API_ENDPOINTS.createChatImage(provider), {
-      body: JSON.stringify({ model, params, taskId }),
+      body: JSON.stringify({ correlation, model, params, taskId }),
       headers,
       method: 'POST',
       signal: options?.signal,

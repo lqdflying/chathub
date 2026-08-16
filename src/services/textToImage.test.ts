@@ -26,16 +26,23 @@ describe('imageGenerationService', () => {
       );
 
       const result = await imageGenerationService.createChatImageTask({
+        correlation: { index: 0, messageId: 'message-1' },
         model: 'gpt-image-2',
         params: { prompt: 'a cat' },
         provider: 'comfyui',
       });
 
       expect(result).toEqual({ taskId: 'task-1' });
-      const [url] = vi.mocked(global.fetch).mock.calls[0];
+      const [url, init] = vi.mocked(global.fetch).mock.calls[0];
       // /create-image/comfyui is a static synchronous route that would shadow
       // a provider segment — the task bridge must live on its own path
       expect(String(url)).toBe('/webapi/create-chat-image/comfyui');
+      // the correlation rides along so the server can verify the message still
+      // carries this unresolved item before inserting billable work (R15-1)
+      expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({
+        correlation: { index: 0, messageId: 'message-1' },
+        model: 'gpt-image-2',
+      });
     });
 
     it('rejects a wrong-shaped 200 before anyone starts polling (R9-2/R9-4)', async () => {

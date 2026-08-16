@@ -851,7 +851,23 @@ configurable model rather than a hard-coded one.
   (the task SUCCEEDED but its correlated file row is gone) is an
   authoritative terminal failure — re-submitting the success id can never be
   re-claimed, so only an explicit Retry advancing to the deterministic
-  replacement id can move past it. Item writes are serialized
+  replacement id can move past it. Because that automatic resubmission is
+  BILLABLE, it runs only behind four gates: provenance — a persisted id may
+  auto-generate only if it is derivable for (user scope, message id, index)
+  as the attempt-0 id or a bounded replacement-chain descendant, so
+  restored/imported messages (new message ids, no task rows in backups)
+  surface a per-item "could not be verified" error and route through explicit
+  Retry, which replaces the unproven id with the derived attempt-0 id and
+  never submits the old one; config readiness — reconcile waits (bounded,
+  invalidation-aware) for the owner-scoped image config to finish hydrating
+  instead of misreading "still initializing" as "no usable model"; current
+  correlation — the message must still exist and still carry that exact
+  unresolved id at that index when the create is sent (deleting a message
+  mid-probe aborts silently); and server-side verification — the create
+  mutation re-checks the same correlation against the user-scoped message row
+  (exact index, exact id, no image yet) and refuses the insert otherwise, so
+  a stale or hostile client cannot re-authorize work the conversation no
+  longer contains. Item writes are serialized
   per message (a promise queue in `updateImageItem`). The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, resumes
   waiting on a pending one, or surfaces its failure; `retryDallEImages`

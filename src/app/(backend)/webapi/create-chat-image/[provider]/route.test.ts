@@ -94,13 +94,14 @@ describe('POST /webapi/create-chat-image/[provider]', () => {
     expect(getXorPayload(forwarded)).toMatchObject({ apiKey: 'user-key', userId: 'account-a' });
   });
 
-  it('forwards the client task id for write-first correlation', async () => {
+  it('forwards the client task id and message correlation for server-side verification', async () => {
     createChatImage.mockResolvedValue({ taskId: 'client-uuid' });
 
     const request = new Request(
       'https://chathub.example/webapi/create-chat-image/openaicompatible',
       {
         body: JSON.stringify({
+          correlation: { index: 2, messageId: 'message-1' },
           model: 'gpt-image-2',
           params: { prompt: 'a cat' },
           taskId: 'client-uuid',
@@ -112,7 +113,10 @@ describe('POST /webapi/create-chat-image/[provider]', () => {
     await POST(request, { params: Promise.resolve({ provider: 'openaicompatible' }) } as any);
 
     expect(createChatImage).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'client-uuid' }),
+      expect.objectContaining({
+        correlation: { index: 2, messageId: 'message-1' },
+        taskId: 'client-uuid',
+      }),
     );
   });
 });

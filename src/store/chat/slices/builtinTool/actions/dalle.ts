@@ -120,6 +120,42 @@ const deriveInitialTaskId = (userScope: string, messageId: string, index: number
 const deriveReplacementTaskId = (failedTaskId: string) =>
   deriveDeterministicTaskId(`${CHAT_IMAGE_TASK_SEED}:replacement:${failedTaskId}`);
 
+// PROVENANCE: a persisted id may only authorize AUTOMATIC work if it provably
+// belongs to (user, message, index) — i.e. it is the derived attempt-0 id or a
+// bounded replacement-chain descendant of it. Restored/imported messages keep
+// their nested content but get NEW message ids (and their async-task rows are
+// not part of backups), so their stale ids fail this check and must go through
+// explicit Retry instead of billing on view.
+const MAX_REPLACEMENT_CHAIN = 8;
+const isTaskIdProvenanceValid = (
+  userScope: string,
+  messageId: string,
+  index: number,
+  taskId: string,
+): boolean => {
+  let candidate = deriveInitialTaskId(userScope, messageId, index);
+  for (let attempt = 0; attempt <= MAX_REPLACEMENT_CHAIN; attempt += 1) {
+    if (candidate === taskId) return true;
+    candidate = deriveReplacementTaskId(candidate);
+  }
+  return false;
+};
+
+// Owner-aware image config hydrates asynchronously after reload; "still
+// initializing" must never be conflated with "initialized and no usable
+// model". Bounded, invalidation-aware wait used by automatic recovery.
+const IMAGE_CONFIG_READY_TIMEOUT = 30_000;
+const IMAGE_CONFIG_READY_INTERVAL = 500;
+const waitForImageConfigReady = async (isCurrent: () => boolean): Promise<boolean> => {
+  const deadline = Date.now() + IMAGE_CONFIG_READY_TIMEOUT;
+  while (Date.now() < deadline) {
+    if (!isCurrent()) return false;
+    if (getImageStoreState().isInit) return true;
+    await sleep(IMAGE_CONFIG_READY_INTERVAL);
+  }
+  return false;
+};
+
 // Per-message write queues for updateImageItem (see that action's comment).
 const imageItemUpdateQueues = new Map<string, Promise<unknown>>();
 
@@ -136,9 +172,10 @@ const isTransientPollError = (error: unknown) => {
 };
 
 // Marks errors that represent an AUTHORITATIVE terminal task state returned by
-// the server (status error / not_found) — as opposed to lookup/transport
-// failures or local timeouts, which say nothing about the task itself and must
-// never justify creating a replacement (billable) generation.
+// the server (status `error`, or `result_missing` for a success whose file is
+// gone) — as opposed to lookup/transport failures or local timeouts, which say
+// nothing about the task itself and must never justify creating a replacement
+// (billable) generation. `task_missing` is NOT terminal.
 const isTerminalTaskStateError = (error: unknown) =>
   Boolean((error as { taskTerminal?: boolean })?.taskTerminal);
 
@@ -208,7 +245,12 @@ export interface ChatDallEAction {
   generateImageFromPrompts: (items: DallEImageItem[], id: string) => Promise<void>;
   /**
    * Recover items whose async task outlived this tab: adopt finished results,
-   * resume waiting on pending ones, surface failures. Never creates tasks.
+   * resume waiting on pending ones, surface failures. For a provenance-valid
+   * persisted id whose task row is missing (`task_missing`), it completes the
+   * already-persisted attempt by idempotently resubmitting the SAME id — a
+   * billable side effect, guarded by provenance, current-correlation re-read,
+   * owner-config readiness, and the server-side correlation check. Unproven
+   * ids never generate automatically; they surface for explicit Retry.
    */
   reconcileDallETasks: (id: string) => Promise<void>;
   retryDallEImages: (id: string) => Promise<void>;
@@ -368,6 +410,20 @@ export const dalleSlice: StateCreator<
             // (or resume waiting) BEFORE creating — Retry must never re-bill
             // a task that succeeded
             let mustCreate = freshlyAllocated.has(index);
+            // an UNPROVEN id (e.g. restored content whose message id changed)
+            // must never be submitted; in this EXPLICIT path it is replaced by
+            // the derived attempt-0 id for the current message via the same
+            // checked write, then created fresh
+            if (!mustCreate && !isTaskIdProvenanceValid(userScope, messageId, index, taskId)) {
+              const derivedId = deriveInitialTaskId(userScope, messageId, index);
+              const replaced = await persistTaskIdsChecked(
+                new Map([[index, { expected: taskId, next: derivedId }]]),
+              );
+              if (!replaced.written.has(index)) return undefined;
+              if (!invocationIsCurrent()) return undefined;
+              taskId = derivedId;
+              mustCreate = true;
+            }
             if (!mustCreate) {
               try {
                 const adopted = await waitForChatImageTask(taskId, invocationIsCurrent, {
@@ -415,6 +471,7 @@ export const dalleSlice: StateCreator<
 
             if (mustCreate) {
               await imageGenerationService.createChatImageTask({
+                correlation: { index, messageId },
                 model,
                 params: { ...baseParams, prompt: item.prompt },
                 provider,
@@ -510,13 +567,47 @@ export const dalleSlice: StateCreator<
           });
           if (!probe.ok || !invocationIsCurrent()) return;
           if (probe.notFound) {
+            // AUTOMATIC resubmission is billable — every gate below must pass.
+            // 1) provenance: only an id derivable for (user, message, index)
+            //    may auto-generate; restored/arbitrary ids surface for Retry
+            const userScope =
+              authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
+            if (!isTaskIdProvenanceValid(userScope, messageId, index, item.taskId)) {
+              hasError = true;
+              errorArray[index] = serializePluginError(
+                new Error(
+                  'This image task could not be verified for this conversation (it may come from a restore). Use Retry to generate it again.',
+                ),
+              );
+              return;
+            }
+            // 2) owner config readiness: "still initializing" must not become
+            //    a false no-model error — wait bounded, retry on next view if
+            //    hydration has not settled
+            if (!(await waitForImageConfigReady(invocationIsCurrent))) return;
             const resolved = resolveImageModel();
             if (!resolved) {
               hasError = true;
               errorArray[index] = { errorType: 'NoImageModelConfigured' };
               return;
             }
+            // 3) current correlation: the message must still exist and still
+            //    carry this exact unresolved id (deletion/mutation guard; the
+            //    server re-verifies the same correlation before insert)
+            const current = chatSelectors.getMessageById(messageId)(get());
+            if (!current) return;
+            let currentItems: DallEImageItem[] | undefined;
+            try {
+              currentItems = JSON.parse(current.content);
+            } catch {
+              return;
+            }
+            const currentItem = currentItems?.[index];
+            if (!currentItem || currentItem.taskId !== item.taskId || currentItem.imageId) {
+              return;
+            }
             await imageGenerationService.createChatImageTask({
+              correlation: { index, messageId },
               model: resolved.model,
               params: { ...resolved.params, prompt: item.prompt },
               provider: resolved.provider,

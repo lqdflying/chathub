@@ -31,6 +31,7 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
 
   try {
     const body = (await req.json()) as {
+      correlation?: { index: number; messageId: string };
       model: string;
       params: { prompt: string };
       taskId?: string;
@@ -55,6 +56,7 @@ export const POST = checkAuth(async (req: Request, { params, jwtPayload }) => {
     } as any);
 
     const result = await caller.image.createChatImage({
+      correlation: body.correlation,
       model: body.model,
       params: body.params,
       provider,
