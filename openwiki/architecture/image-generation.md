@@ -818,18 +818,26 @@ configurable model rather than a hard-coded one.
   guarded (mangled-transport) or plain errors with a 4xx status surface
   immediately; only 5xx and status-less transport failures retry within the
   budget.
-- **Task durability — write-first correlation.** The client GENERATES the task
-  id (`crypto.randomUUID`) and persists it onto the `DallEImageItem` BEFORE
-  the create request is sent; the server creates the task under exactly that
-  id (idempotent insert + pending-claim dedup), so a conversation switch or
-  tab close during the in-flight create can never orphan a paid task. Item
-  writes are serialized per message (a promise queue in `updateImageItem`) so
-  concurrent multi-image updates cannot clobber each other. The tool render's
-  mount-time `reconcileDallETasks` adopts a finished task's file, resumes
-  waiting on a pending one, or surfaces its failure; `retryDallEImages` adopts
-  an existing task first and creates a replacement ONLY after the server
-  reports an authoritative terminal state (`error`/`not_found`) — lookup,
-  transport and local-timeout failures surface without creating. (Recovery is
+- **Task durability — verified write-first correlation.** The client
+  GENERATES the task ids (`crypto.randomUUID`) for every item that needs a
+  generation and persists them in ONE origin-scoped write BEFORE any billable
+  request; it then VERIFIES the ids are actually present in the originating
+  message's persisted content (read from the origin conversation's map key,
+  never the currently-active one — the persistence layers can silently no-op
+  on stale ownership/navigation, so awaiting a write proves nothing by
+  itself). If verification fails, ZERO tasks are created and a per-item error
+  is surfaced. The server creates each task under exactly its pre-verified id
+  (idempotent insert + pending-claim dedup). Replacement tasks follow the
+  same rule: after a terminal status response, invocation ownership is
+  re-checked and the replacement id must pass the same origin-verified write
+  before its task is created. Item writes are serialized per message (a
+  promise queue in `updateImageItem`) so concurrent multi-image updates
+  cannot clobber each other. The tool render's mount-time
+  `reconcileDallETasks` adopts a finished task's file, resumes waiting on a
+  pending one, or surfaces its failure; `retryDallEImages` adopts an existing
+  task first and creates a replacement ONLY after the server reports an
+  authoritative terminal state (`error`/`not_found`) — lookup, transport and
+  local-timeout failures surface without creating. (Recovery is
   view-triggered: a background conversation reconciles when it is next
   opened.)
 - **Server-side image handling.** The async procedure runs

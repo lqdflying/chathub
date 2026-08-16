@@ -12,6 +12,7 @@ import { imageGenerationService } from '@/services/textToImage';
 import { aiProviderSelectors, getAiInfraStoreState } from '@/store/aiInfra';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getImageStoreState } from '@/store/image';
 import {
   getModelAndDefaults,
@@ -169,6 +170,9 @@ export const dalleSlice: StateCreator<
   generateImageFromPrompts: async (items, messageId) => {
     const invocationGeneration = get().conversationClearGeneration;
     const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
+    // the originating conversation's map key, captured while it is active —
+    // write verification below reads THIS key, never the currently-active one
+    const originKey = messageMapKey(get().activeId, get().activeTopicId);
 
     const message = chatSelectors.getMessageById(messageId)(get());
     if (!message) return;
@@ -183,6 +187,46 @@ export const dalleSlice: StateCreator<
       return;
     }
     const { model, provider, params: baseParams } = resolved;
+
+    // POSITIVE-EVIDENCE persistence: write task ids and then verify they are
+    // present in the originating message's persisted content. `updateImageItem`
+    // (and the layers under it) can silently no-op when the conversation was
+    // switched or ownership went stale — awaiting it proves nothing, and a
+    // billable task must NEVER be created on an unproven correlation.
+    const persistTaskIdsVerified = async (allocations: Map<number, string>): Promise<boolean> => {
+      if (allocations.size === 0) return true;
+      await get().updateImageItem(messageId, (draft) => {
+        for (const [index, id] of allocations) {
+          if (draft[index]) draft[index].taskId = id;
+        }
+      });
+      const persisted = get().messagesMap[originKey]?.find((m) => m.id === messageId);
+      if (!persisted) return false;
+      return [...allocations.values()].every((id) => persisted.content.includes(id));
+    };
+
+    // WRITE-FIRST, ALL AT ONCE: allocate ids for every item that needs a new
+    // generation and persist them in ONE origin-verified write BEFORE any
+    // billable request is launched. If the write cannot be proven, no task is
+    // created at all.
+    const allocations = new Map<number, string>();
+    for (const [index, item] of items.entries()) {
+      if (!item.imageId && !item.taskId) allocations.set(index, crypto.randomUUID());
+    }
+    if (!(await persistTaskIdsVerified(allocations))) {
+      if (invocationIsCurrent()) {
+        await get().updatePluginState(messageId, {
+          error: items.map(() =>
+            serializePluginError(
+              new Error(
+                'The generation task could not be saved to this conversation, so nothing was generated or billed. Please retry.',
+              ),
+            ),
+          ),
+        });
+      }
+      return;
+    }
 
     const results = await pMap(
       items,
@@ -202,14 +246,16 @@ export const dalleSlice: StateCreator<
           // async-task pattern (same as the Image workspace): create the task,
           // then poll — never hold a request open for the 30–60 s generation,
           // and never let multi-MB image data reach the browser/message content
-          let taskId = item.taskId;
+          // the id was pre-allocated and origin-verified in the single write
+          // above — an item that had neither an image nor a task always has one
+          let taskId = item.taskId ?? allocations.get(index);
 
           // an item may already carry a task from a previous session/attempt:
           // adopt its result (or resume waiting) BEFORE creating a new billable
           // generation — Retry must never re-bill a task that succeeded
-          if (taskId) {
+          if (item.taskId) {
             try {
-              const adopted = await waitForChatImageTask(taskId, invocationIsCurrent, {
+              const adopted = await waitForChatImageTask(item.taskId, invocationIsCurrent, {
                 immediate: true,
               });
               if (!adopted.ok || !invocationIsCurrent()) return undefined;
@@ -228,23 +274,21 @@ export const dalleSlice: StateCreator<
               // transport, auth and local-timeout failures say nothing about
               // the task — surface them without creating a duplicate charge.
               if (!isTerminalTaskStateError(error)) throw error;
-              taskId = undefined;
+              // the status request awaited across arbitrary time — re-check
+              // ownership before doing anything billable
+              if (!invocationIsCurrent()) return undefined;
+              // the replacement id must be origin-verified BEFORE its task is
+              // created, exactly like the initial allocation
+              const replacementId = crypto.randomUUID();
+              if (!(await persistTaskIdsVerified(new Map([[index, replacementId]])))) {
+                return undefined;
+              }
+              if (!invocationIsCurrent()) return undefined;
+              taskId = replacementId;
             }
           }
+          if (!taskId) return undefined;
 
-          // WRITE-FIRST correlation: generate the task id client-side and
-          // persist it into the item BEFORE any network call. The server
-          // creates the task under this exact id, so navigating away while
-          // the create request is in flight can never orphan a paid task —
-          // the persisted id is already there for the mount reconciler.
-          taskId = crypto.randomUUID();
-          await get().updateImageItem(messageId, (draft) => {
-            if (draft[index]) draft[index].taskId = taskId;
-          });
-
-          // deliberately no invalidation guard between persist and create: the
-          // id is already in the message, so the task MUST exist for the mount
-          // reconciler to adopt — aborting here would leave a dangling id
           await imageGenerationService.createChatImageTask({
             model,
             params: { ...baseParams, prompt: item.prompt },

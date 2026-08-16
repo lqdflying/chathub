@@ -320,25 +320,30 @@ Web Worker (`packages/python-interpreter`); there is no server execution path.
 - **Output bounds** — the worker caps total stdout/stderr and the return value
   before the result crosses Comlink and is persisted, with truncation markers; the
   renderer cap is defense-in-depth.
-- **Bundled-first package preparation** — `prepareEnvironment(code, packages)`
-  (worker) runs BEFORE upload/exec: `loadPackagesFromImports(code)` first, then
-  any requested name that exists in `pyodide.lockfile.packages` loads from the
-  configured Pyodide distribution at its lockfile-compatible version (normally
-  fetched lazily from the CDN index and browser-cacheable — "available at a
-  compatible version", not preinstalled or inherently offline), then a
-  Python-side check (`packaging.Requirement` + `importlib.metadata`) drops
-  requirements the installed environment already satisfies — only the remainder
-  reaches `micropip.install`. Direct references (`pkg @ https://…`) install
-  FIRST — before `loadPackagesFromImports` — via micropip with
-  `reinstall=True` (its default `reinstall=False` would silently keep an
-  already-loaded distribution copy, and the auto-loader would otherwise load
-  one for the matching import); the Python filter additionally treats
-  `req.url` as unsatisfied by definition as defense in depth. Ordering is
-  the invariant: micropip must never resolve an unpinned name Pyodide bundles
-  (e.g. `jsonschema` → PyPI latest → native `rpds-py>=0.25` with no wasm
-  wheel). A "Can't find a pure Python 3 wheel" failure is wrapped in an
-  explicit Pyodide-compatibility error; the tool's systemRole/param description
-  steer the model away from listing or pinning bundled packages.
+- **Package preparation order** — `prepareEnvironment(code, packages)` (worker)
+  runs BEFORE upload/exec, in ONE conditional sequence:
+  1. **Direct references** (`pkg @ https://…`) are partitioned out and
+     installed FIRST via micropip with `reinstall=True` — micropip's default
+     `reinstall=False` would silently keep an already-present copy, and the
+     import auto-loader in step 2 would otherwise install a distribution copy
+     for the matching import name. The Python filter in step 3 additionally
+     treats `req.url` as unsatisfied by definition, as defense in depth.
+  2. `loadPackagesFromImports(code)` loads the code's imports from the
+     configured Pyodide distribution at lockfile-compatible versions (normally
+     fetched lazily from the CDN index and browser-cacheable — "available at a
+     compatible version", not preinstalled or inherently offline).
+  3. Ordinary name/specifier requirements: any requested name present in
+     `pyodide.lockfile.packages` loads from the distribution, then a
+     Python-side check (`packaging.Requirement` + `importlib.metadata`) drops
+     requirements the installed environment already satisfies — only the
+     unsatisfied remainder reaches `micropip.install`.
+     "Bundled-first" applies to step 3's ordinary requirements only. The overall
+     invariant: micropip must never resolve an unpinned name Pyodide bundles
+     (e.g. `jsonschema` → PyPI latest → native `rpds-py>=0.25` with no wasm
+     wheel), and a requested direct artifact must never lose to a distribution
+     copy. A "Can't find a pure Python 3 wheel" failure is wrapped in an explicit
+     Pyodide-compatibility error; the tool's systemRole/param description steer
+     the model away from listing or pinning bundled packages.
 - **Persistence & files** — result `File` objects and blob URLs are not persisted;
   generated files are uploaded and the message keeps a durable `fileId` (blob
   previews are revoked on unmount, cleared on upload failure). Conversation input
