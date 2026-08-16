@@ -1,4 +1,5 @@
 import { produce } from 'immer';
+import { sha256 } from 'js-sha256';
 import { omit } from 'lodash-es';
 import { RuntimeImageGenParams } from 'model-bank';
 import pMap from 'p-map';
@@ -81,10 +82,39 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
-// Tasks currently being polled in this tab, keyed `${messageId}_${index}` —
-// prevents the render-mount reconciler and an active generation loop from
-// double-polling the same item.
-const inFlightTaskKeys = new Set<string>();
+// Tasks currently being polled in this tab, keyed `${messageId}_${index}` and
+// mapped to the OWNING run's token — prevents the render-mount reconciler and
+// an active generation loop from double-polling the same item, and lets a
+// run's function-level cleanup release only keys it still owns (a leaked key
+// would otherwise make reconcile/Retry silently no-op until a full reload).
+const inFlightTaskKeys = new Map<string, symbol>();
+const claimTaskKey = (key: string, token: symbol): boolean => {
+  if (inFlightTaskKeys.has(key)) return false;
+  inFlightTaskKeys.set(key, token);
+  return true;
+};
+const releaseTaskKey = (key: string, token: symbol) => {
+  if (inFlightTaskKeys.get(key) === token) inFlightTaskKeys.delete(key);
+};
+
+// DETERMINISTIC task ids (RFC-4122 v5 shape via SHA-1): every tab derives the
+// SAME id for the same (user, message, item, attempt), so a cross-tab overlap
+// cannot create two different paid tasks — the server's idempotent same-id
+// insert plus the pending-claim dedup collapse duplicate submissions into one
+// task, and both tabs adopt the same result. Replacement attempts chain
+// deterministically from the terminally-failed id for the same reason.
+const CHAT_IMAGE_TASK_SEED = 'chathub-chat-image-task';
+const deriveDeterministicTaskId = (seed: string): string => {
+  const bytes = new Uint8Array(sha256.arrayBuffer(seed)).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+const deriveInitialTaskId = (userScope: string, messageId: string, index: number) =>
+  deriveDeterministicTaskId(`${CHAT_IMAGE_TASK_SEED}:${userScope}:${messageId}:${index}:0`);
+const deriveReplacementTaskId = (failedTaskId: string) =>
+  deriveDeterministicTaskId(`${CHAT_IMAGE_TASK_SEED}:replacement:${failedTaskId}`);
 
 // Per-message write queues for updateImageItem (see that action's comment).
 const imageItemUpdateQueues = new Map<string, Promise<unknown>>();
@@ -115,8 +145,12 @@ const isTerminalTaskStateError = (error: unknown) =>
 const waitForChatImageTask = async (
   taskId: string,
   isCurrent: () => boolean,
-  options?: { immediate?: boolean },
-): Promise<{ file?: { height?: number; id: string; width?: number }; ok: boolean }> => {
+  options?: { adoptProbe?: boolean; immediate?: boolean },
+): Promise<{
+  file?: { height?: number; id: string; width?: number };
+  notFound?: boolean;
+  ok: boolean;
+}> => {
   const deadline = Date.now() + TASK_POLL_BUDGET;
   let firstCheck = options?.immediate === true;
   while (Date.now() < deadline) {
@@ -134,7 +168,15 @@ const waitForChatImageTask = async (
 
     const status = (result.status ?? '').toLowerCase();
     if (status === 'success' && result.file) return { file: result.file, ok: true };
-    if (TERMINAL_TASK_STATUSES.has(status) || status === 'not_found') {
+    // A persisted id whose task row does not exist (yet) is NOT terminal:
+    // with deterministic ids another tab's create may be racing, and a
+    // dangling id is recovered by re-submitting the SAME id (idempotent) —
+    // an adopt probe reports it so the caller can do exactly that.
+    if (status === 'not_found') {
+      if (options?.adoptProbe) return { notFound: true, ok: true };
+      continue;
+    }
+    if (TERMINAL_TASK_STATUSES.has(status)) {
       const error = result.error;
       throw Object.assign(
         new Error(error?.body?.detail || error?.name || `Image generation ${status}`),
@@ -173,235 +215,251 @@ export const dalleSlice: StateCreator<
     // the originating conversation's map key, captured while it is active —
     // write verification below reads THIS key, never the currently-active one
     const originKey = messageMapKey(get().activeId, get().activeTopicId);
+    const userScope = authSelectors.currentUserScope(useUserStore.getState()) ?? 'anonymous';
 
     // EXCLUSIVE OWNERSHIP FIRST (synchronously, before ANY await): claim every
-    // index this run may generate for. Two overlapping invocations sharing a
-    // stale id-less snapshot must never both allocate/write correlation ids —
-    // the loser would overwrite the winner's persisted id with one whose task
-    // is never created, orphaning the paid task. Ownership is per-tab; a
-    // simultaneous retry from ANOTHER tab is out of this guard's reach (see
-    // the openwiki note) and converges through adopt-first + reconciliation.
+    // index this run may generate for, under this run's token. An overlapping
+    // same-tab invocation owns nothing and returns — it must never write ids.
+    // (Cross-tab overlap is converged by the DETERMINISTIC ids instead: both
+    // tabs derive the same id, so the server's idempotent insert + pending
+    // claim yield exactly one paid task.)
+    const runToken = Symbol('dalle-generation-run');
     const ownedIndices: number[] = [];
     for (const [index, item] of items.entries()) {
       if (item.imageId) continue;
-      const key = `${messageId}_${index}`;
-      if (inFlightTaskKeys.has(key)) continue;
-      inFlightTaskKeys.add(key);
-      ownedIndices.push(index);
+      if (claimTaskKey(`${messageId}_${index}`, runToken)) ownedIndices.push(index);
     }
     if (ownedIndices.length === 0) return;
-    const releaseOwned = () => {
-      for (const index of ownedIndices) inFlightTaskKeys.delete(`${messageId}_${index}`);
-    };
 
-    const message = chatSelectors.getMessageById(messageId)(get());
-    if (!message) {
-      releaseOwned();
-      return;
-    }
+    try {
+      const message = chatSelectors.getMessageById(messageId)(get());
+      if (!message) return;
 
-    const resolved = resolveImageModel();
-    if (!resolved) {
-      releaseOwned();
-      // no usable image model is configured — surface a per-item error instead
-      // of silently generating nothing
-      await get().updatePluginState(messageId, {
-        error: items.map(() => ({ errorType: 'NoImageModelConfigured' })),
-      });
-      return;
-    }
-    const { model, provider, params: baseParams } = resolved;
-
-    // CAS-style correlation write with POSITIVE EVIDENCE: each id is written
-    // only where the draft still matches the expectation (no overwrite of an
-    // id another writer persisted meanwhile), and verification re-parses the
-    // originating message's persisted content at the EXACT indices — the
-    // layers under `updateImageItem` can silently no-op on navigation/stale
-    // ownership, so awaiting a write proves nothing by itself.
-    const persistTaskIdsCas = async (
-      writes: Map<number, { expected?: string; next: string }>,
-    ): Promise<{ parsed?: DallEImageItem[]; written: Set<number> }> => {
-      const written = new Set<number>();
-      if (writes.size === 0) return { written };
-      await get().updateImageItem(messageId, (draft) => {
-        for (const [index, { expected, next }] of writes) {
-          const target = draft[index];
-          if (!target || target.imageId) continue;
-          if (expected === undefined ? Boolean(target.taskId) : target.taskId !== expected) {
-            continue;
-          }
-          target.taskId = next;
-          written.add(index);
-        }
-      });
-      const persisted = get().messagesMap[originKey]?.find((m) => m.id === messageId);
-      let parsed: DallEImageItem[] | undefined;
-      try {
-        parsed = persisted ? JSON.parse(persisted.content) : undefined;
-      } catch {
-        parsed = undefined;
-      }
-      if (!Array.isArray(parsed)) return { written: new Set() };
-      for (const index of written) {
-        if (parsed[index]?.taskId !== writes.get(index)!.next) written.delete(index);
-      }
-      return { parsed, written };
-    };
-
-    // WRITE-FIRST, ALL AT ONCE: allocate ids for every OWNED item that needs a
-    // new generation and persist them in one verified write BEFORE any
-    // billable request. Conflicting indices (an id appeared after our
-    // snapshot) are ADOPTED, never overwritten; unproven writes create nothing.
-    const allocations = new Map<number, { next: string }>();
-    for (const index of ownedIndices) {
-      if (!items[index].taskId) allocations.set(index, { next: crypto.randomUUID() });
-    }
-    const casResult = await persistTaskIdsCas(allocations as Map<number, { next: string }>);
-    const effectiveTaskIds = new Map<number, string>();
-    const freshlyAllocated = new Set<number>();
-    let persistenceFailed = false;
-    for (const index of ownedIndices) {
-      const snapshotId = items[index].taskId;
-      if (snapshotId) {
-        effectiveTaskIds.set(index, snapshotId);
-        continue;
-      }
-      if (casResult.written.has(index)) {
-        effectiveTaskIds.set(index, allocations.get(index)!.next);
-        freshlyAllocated.add(index);
-        continue;
-      }
-      // not written: either another writer persisted an id meanwhile (adopt
-      // it) or the write could not be proven (fail closed)
-      const concurrentId = casResult.parsed?.[index]?.taskId;
-      if (concurrentId) {
-        effectiveTaskIds.set(index, concurrentId);
-      } else {
-        persistenceFailed = true;
-      }
-    }
-    if (persistenceFailed) {
-      releaseOwned();
-      if (invocationIsCurrent()) {
+      const resolved = resolveImageModel();
+      if (!resolved) {
+        // no usable image model is configured — surface a per-item error
+        // instead of silently generating nothing
         await get().updatePluginState(messageId, {
-          error: items.map(() =>
-            serializePluginError(
-              new Error(
-                'The generation task could not be saved to this conversation, so nothing was generated or billed. Please retry.',
+          error: items.map(() => ({ errorType: 'NoImageModelConfigured' })),
+        });
+        return;
+      }
+      const { model, provider, params: baseParams } = resolved;
+
+      // Conflict-aware correlation write with POSITIVE EVIDENCE: each id is
+      // written only where the draft still matches the expectation (never
+      // overwriting an id another writer persisted meanwhile), and
+      // verification re-parses the originating message's persisted content at
+      // the EXACT indices — the layers under `updateImageItem` can silently
+      // no-op on navigation/stale ownership, so awaiting alone proves nothing.
+      const persistTaskIdsChecked = async (
+        writes: Map<number, { expected?: string; next: string }>,
+      ): Promise<{ parsed?: DallEImageItem[]; written: Set<number> }> => {
+        const written = new Set<number>();
+        if (writes.size === 0) return { written };
+        await get().updateImageItem(messageId, (draft) => {
+          for (const [index, { expected, next }] of writes) {
+            const target = draft[index];
+            if (!target || target.imageId) continue;
+            if (expected === undefined ? Boolean(target.taskId) : target.taskId !== expected) {
+              continue;
+            }
+            target.taskId = next;
+            written.add(index);
+          }
+        });
+        const persisted = get().messagesMap[originKey]?.find((m) => m.id === messageId);
+        let parsed: DallEImageItem[] | undefined;
+        try {
+          parsed = persisted ? JSON.parse(persisted.content) : undefined;
+        } catch {
+          parsed = undefined;
+        }
+        if (!Array.isArray(parsed)) return { written: new Set() };
+        for (const index of written) {
+          if (parsed[index]?.taskId !== writes.get(index)!.next) written.delete(index);
+        }
+        return { parsed, written };
+      };
+
+      // WRITE-FIRST, ALL AT ONCE: derive the DETERMINISTIC id for every OWNED
+      // item that needs a new generation and persist them in one checked write
+      // BEFORE any billable request. Conflicting indices (an id appeared after
+      // our snapshot) are ADOPTED, never overwritten; unproven writes create
+      // nothing.
+      const allocations = new Map<number, { next: string }>();
+      for (const index of ownedIndices) {
+        if (!items[index].taskId) {
+          allocations.set(index, { next: deriveInitialTaskId(userScope, messageId, index) });
+        }
+      }
+      const casResult = await persistTaskIdsChecked(allocations);
+      const effectiveTaskIds = new Map<number, string>();
+      const freshlyAllocated = new Set<number>();
+      let persistenceFailed = false;
+      for (const index of ownedIndices) {
+        const snapshotId = items[index].taskId;
+        if (snapshotId) {
+          effectiveTaskIds.set(index, snapshotId);
+          continue;
+        }
+        if (casResult.written.has(index)) {
+          effectiveTaskIds.set(index, allocations.get(index)!.next);
+          freshlyAllocated.add(index);
+          continue;
+        }
+        // not written: either another writer persisted an id meanwhile (adopt
+        // it) or the write could not be proven (fail closed)
+        const concurrentId = casResult.parsed?.[index]?.taskId;
+        if (concurrentId) {
+          effectiveTaskIds.set(index, concurrentId);
+        } else {
+          persistenceFailed = true;
+        }
+      }
+      if (persistenceFailed) {
+        if (invocationIsCurrent()) {
+          await get().updatePluginState(messageId, {
+            error: items.map(() =>
+              serializePluginError(
+                new Error(
+                  'The generation task could not be saved to this conversation, so nothing was generated or billed. Please retry.',
+                ),
               ),
             ),
-          ),
-        });
-      }
-      return;
-    }
-
-    const results = await pMap(
-      ownedIndices,
-      async (index) => {
-        const item = items[index];
-        if (!invocationIsCurrent()) return undefined;
-
-        const loadingKey = `${messageId}_${index}`;
-        get().toggleDallEImageLoading(loadingKey, true);
-
-        try {
-          // async-task pattern (same as the Image workspace): create the task,
-          // then poll — never hold a request open for the 30–60 s generation,
-          // and never let multi-MB image data reach the browser/message content
-          let taskId = effectiveTaskIds.get(index);
-          if (!taskId) return undefined;
-
-          // an id this run did NOT freshly allocate belongs to an existing
-          // task (previous session, concurrent writer): adopt its result (or
-          // resume waiting) BEFORE creating a new billable generation — Retry
-          // must never re-bill a task that succeeded
-          if (!freshlyAllocated.has(index)) {
-            try {
-              const adopted = await waitForChatImageTask(taskId, invocationIsCurrent, {
-                immediate: true,
-              });
-              if (!adopted.ok || !invocationIsCurrent()) return undefined;
-              if (adopted.file) {
-                await get().updateImageItem(messageId, (draft) => {
-                  if (draft[index]) {
-                    draft[index].imageId = adopted.file!.id;
-                    draft[index].previewUrl = undefined;
-                  }
-                });
-                return undefined;
-              }
-            } catch (error) {
-              // ONLY an authoritative terminal task state (server said
-              // error/not_found) justifies a replacement generation. Lookup,
-              // transport, auth and local-timeout failures say nothing about
-              // the task — surface them without creating a duplicate charge.
-              if (!isTerminalTaskStateError(error)) throw error;
-              // the status request awaited across arbitrary time — re-check
-              // ownership before doing anything billable
-              if (!invocationIsCurrent()) return undefined;
-              // the replacement id must pass the same CAS + exact-index
-              // verification BEFORE its task is created; the expectation pins
-              // the terminally-failed id so nothing else can be overwritten
-              const replacementId = crypto.randomUUID();
-              const replaced = await persistTaskIdsCas(
-                new Map([[index, { expected: taskId, next: replacementId }]]),
-              );
-              if (!replaced.written.has(index)) return undefined;
-              if (!invocationIsCurrent()) return undefined;
-              taskId = replacementId;
-            }
-          }
-
-          await imageGenerationService.createChatImageTask({
-            model,
-            params: { ...baseParams, prompt: item.prompt },
-            provider,
-            taskId,
           });
-          if (!invocationIsCurrent()) return undefined;
-
-          const { ok, file } = await waitForChatImageTask(taskId, invocationIsCurrent);
-          if (!ok || !invocationIsCurrent()) return undefined;
-          if (!file) throw new Error('The image provider returned an empty result.');
-
-          await get().updateImageItem(messageId, (draft) => {
-            if (draft[index]) {
-              draft[index].imageId = file.id;
-              draft[index].previewUrl = undefined;
-            }
-          });
-          return undefined;
-        } catch (error) {
-          if (!invocationIsCurrent()) return undefined;
-          // clear the (possibly expiring) previewUrl so the UI never shows a
-          // soon-to-be-broken image, and record the failure for this index
-          await get().updateImageItem(messageId, (draft) => {
-            if (draft[index]) draft[index].previewUrl = undefined;
-          });
-          return { error, index };
-        } finally {
-          inFlightTaskKeys.delete(loadingKey);
-          get().toggleDallEImageLoading(loadingKey, false);
         }
-      },
-      { concurrency: 3 },
-    );
+        return;
+      }
 
-    if (!invocationIsCurrent()) return;
+      const results = await pMap(
+        ownedIndices,
+        async (index) => {
+          const item = items[index];
+          if (!invocationIsCurrent()) return undefined;
 
-    // set plugin error ONCE, after all items settle, to avoid the concurrent
-    // read-modify-write race the previous shared-array approach had
-    const failures = results.filter((r): r is { error: unknown; index: number } => r !== undefined);
-    if (failures.length > 0) {
-      const errorArray: unknown[] = [];
-      for (const f of failures) errorArray[f.index] = serializePluginError(f.error);
-      await get().updatePluginState(messageId, { error: errorArray });
+          const loadingKey = `${messageId}_${index}`;
+          get().toggleDallEImageLoading(loadingKey, true);
+
+          try {
+            // async-task pattern (same as the Image workspace): create the
+            // task, then poll — never hold a request open for the 30–60 s
+            // generation, and never let image bytes reach the message content
+            let taskId = effectiveTaskIds.get(index);
+            if (!taskId) return undefined;
+
+            // an id this run did NOT freshly allocate belongs to an existing
+            // attempt (previous session, concurrent writer): adopt its result
+            // (or resume waiting) BEFORE creating — Retry must never re-bill
+            // a task that succeeded
+            let mustCreate = freshlyAllocated.has(index);
+            if (!mustCreate) {
+              try {
+                const adopted = await waitForChatImageTask(taskId, invocationIsCurrent, {
+                  adoptProbe: true,
+                  immediate: true,
+                });
+                if (!adopted.ok || !invocationIsCurrent()) return undefined;
+                if (adopted.file) {
+                  await get().updateImageItem(messageId, (draft) => {
+                    if (draft[index]) {
+                      draft[index].imageId = adopted.file!.id;
+                      draft[index].previewUrl = undefined;
+                    }
+                  });
+                  return undefined;
+                }
+                // not_found: the persisted id's task row does not exist (a
+                // failed earlier create, or another tab's create still in
+                // flight). Deterministic ids make re-submitting the SAME id
+                // safe and idempotent — recover by creating it, never by
+                // replacing it.
+                if (adopted.notFound) mustCreate = true;
+              } catch (error) {
+                // ONLY an authoritative terminal task state (server said
+                // "error") justifies a replacement. Lookup, transport, auth
+                // and local-timeout failures say nothing about the task —
+                // surface them without creating a duplicate charge.
+                if (!isTerminalTaskStateError(error)) throw error;
+                // the status request awaited across arbitrary time — re-check
+                // ownership before doing anything billable
+                if (!invocationIsCurrent()) return undefined;
+                // the replacement id is DERIVED from the failed id (both tabs
+                // agree on it) and must pass the same checked write BEFORE
+                // its task is created; the expectation pins the failed id
+                const replacementId = deriveReplacementTaskId(taskId);
+                const replaced = await persistTaskIdsChecked(
+                  new Map([[index, { expected: taskId, next: replacementId }]]),
+                );
+                if (!replaced.written.has(index)) return undefined;
+                if (!invocationIsCurrent()) return undefined;
+                taskId = replacementId;
+                mustCreate = true;
+              }
+            }
+
+            if (mustCreate) {
+              await imageGenerationService.createChatImageTask({
+                model,
+                params: { ...baseParams, prompt: item.prompt },
+                provider,
+                taskId,
+              });
+              if (!invocationIsCurrent()) return undefined;
+            }
+
+            const { ok, file } = await waitForChatImageTask(taskId, invocationIsCurrent);
+            if (!ok || !invocationIsCurrent()) return undefined;
+            if (!file) throw new Error('The image provider returned an empty result.');
+
+            await get().updateImageItem(messageId, (draft) => {
+              if (draft[index]) {
+                draft[index].imageId = file.id;
+                draft[index].previewUrl = undefined;
+              }
+            });
+            return undefined;
+          } catch (error) {
+            if (!invocationIsCurrent()) return undefined;
+            // clear the (possibly expiring) previewUrl so the UI never shows
+            // a soon-to-be-broken image, and record the failure for this index
+            await get().updateImageItem(messageId, (draft) => {
+              if (draft[index]) draft[index].previewUrl = undefined;
+            });
+            return { error, index };
+          } finally {
+            releaseTaskKey(loadingKey, runToken);
+            get().toggleDallEImageLoading(loadingKey, false);
+          }
+        },
+        { concurrency: 3 },
+      );
+
+      if (!invocationIsCurrent()) return;
+
+      // set plugin error ONCE, after all items settle, to avoid the concurrent
+      // read-modify-write race the previous shared-array approach had
+      const failures = results.filter(
+        (r): r is { error: unknown; index: number } => r !== undefined,
+      );
+      if (failures.length > 0) {
+        const errorArray: unknown[] = [];
+        for (const f of failures) errorArray[f.index] = serializePluginError(f.error);
+        await get().updatePluginState(messageId, { error: errorArray });
+      }
+    } finally {
+      // function-level cleanup: release every key STILL owned by this run
+      // (token-checked, so an index a later invocation legitimately reclaimed
+      // after its per-item release is never stolen). Without this, a stale
+      // return or a thrown persistence/config failure would leak the claim
+      // and make reconcile/Retry silently no-op until a full reload.
+      for (const index of ownedIndices) releaseTaskKey(`${messageId}_${index}`, runToken);
     }
   },
   reconcileDallETasks: async (messageId) => {
     const invocationGeneration = get().conversationClearGeneration;
     const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
+    const reconcileToken = Symbol('dalle-reconcile-run');
 
     const message = chatSelectors.getMessageById(messageId)(get());
     if (!message) return;
@@ -422,8 +480,7 @@ export const dalleSlice: StateCreator<
         // only items whose task outlived this tab and never resolved
         if (!item?.taskId || item.imageId) return;
         const loadingKey = `${messageId}_${index}`;
-        if (inFlightTaskKeys.has(loadingKey)) return;
-        inFlightTaskKeys.add(loadingKey);
+        if (!claimTaskKey(loadingKey, reconcileToken)) return;
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
@@ -443,7 +500,7 @@ export const dalleSlice: StateCreator<
           hasError = true;
           errorArray[index] = serializePluginError(error);
         } finally {
-          inFlightTaskKeys.delete(loadingKey);
+          releaseTaskKey(loadingKey, reconcileToken);
           get().toggleDallEImageLoading(loadingKey, false);
         }
       },

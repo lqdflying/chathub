@@ -818,36 +818,41 @@ configurable model rather than a hard-coded one.
   guarded (mangled-transport) or plain errors with a 4xx status surface
   immediately; only 5xx and status-less transport failures retry within the
   budget.
-- **Task durability — ownership, then verified write-first correlation.** A
-  generation run claims EXCLUSIVE per-item ownership (`inFlightTaskKeys`,
-  `${messageId}_${index}`) synchronously, BEFORE any await, allocation, or
-  correlation write — two overlapping invocations sharing a stale id-less
-  snapshot must never both write ids, because the loser would replace the
-  winner's persisted id with one whose task is never created (orphaning the
-  paid task). The losing invocation simply owns nothing and returns. The
-  owner then GENERATES ids (`crypto.randomUUID`) for its items and persists
-  them in ONE CAS-style write: inside the serialized update, an id is written
-  only where the draft still has no `taskId`/`imageId` (an id that appeared
-  after the snapshot is ADOPTED, never overwritten; replacements pin the
-  exact terminally-failed id as their compare value). After the write, the
-  ids are checked at their EXACT indices in the originating message's
-  persisted content, read from the origin conversation's map key — this is an
-  origin-map verification after a successful write (the write path itself
-  awaited the server call; the layers can silently no-op on stale
-  ownership/navigation, so awaiting alone proves nothing). Unproven ids →
-  ZERO tasks created, per-item error. The server creates each task under
-  exactly its pre-verified id (idempotent insert + pending-claim dedup).
-  Ownership is per-tab (module-local): a simultaneous retry from another tab
-  is outside this guard and converges through adopt-first + reconciliation,
-  not through the single-flight guarantee. Item writes are serialized per
-  message (a promise queue in `updateImageItem`). The tool render's
+- **Task durability — deterministic ids, ownership, verified write-first
+  correlation.** Task ids are DETERMINISTIC (sha256-derived, RFC-4122-shaped,
+  seeded by user scope + message id + item index for attempt 0; a replacement
+  id is derived from the terminally-failed id): any tab computes the SAME id
+  for the same attempt, so a cross-tab overlap cannot create two different
+  paid tasks — the server's idempotent same-id insert plus the pending-claim
+  dedup collapse duplicate submissions into ONE task, and every tab adopts
+  the same result. Within a tab, a generation run additionally claims
+  exclusive per-item ownership (`inFlightTaskKeys`, a key→run-token map)
+  synchronously BEFORE any await, allocation, or write; an overlapping
+  same-tab invocation owns nothing and returns. Ownership release is
+  guaranteed by a function-level `try/finally` that releases only keys still
+  owned by this run's token (so an index a later invocation legitimately
+  reclaimed is never stolen) — a stale return or thrown persistence/config
+  failure can no longer leak a claim and dead-lock reconcile/Retry until
+  reload. Correlation writes are a conflict-aware serialized draft update
+  (NOT a persistence-level CAS): a fresh id is written only where the draft
+  still has no `taskId`/`imageId`, a concurrently-appeared id is ADOPTED, and
+  replacements pin the exact terminally-failed id as their compare value.
+  After the awaited write, the ids are checked at their EXACT indices in the
+  originating message's persisted content, read from the origin
+  conversation's map key — an origin-map verification after a successful
+  write (the layers can silently no-op on stale ownership/navigation, so
+  awaiting alone proves nothing). Unproven ids → ZERO tasks created,
+  per-item error. `not_found` on a persisted id is NOT terminal: another
+  tab's create may be racing, and a dangling id is recovered by re-submitting
+  the SAME id (idempotent), never by replacing it. Item writes are serialized
+  per message (a promise queue in `updateImageItem`). The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, resumes
   waiting on a pending one, or surfaces its failure; `retryDallEImages`
   adopts an existing task first and creates a replacement ONLY after the
-  server reports an authoritative terminal state (`error`/`not_found`) with
-  ownership re-checked after that await — lookup, transport and local-timeout
-  failures surface without creating. (Recovery is view-triggered: a
-  background conversation reconciles when it is next opened.)
+  server reports an authoritative terminal `error` state with ownership
+  re-checked after that await — lookup, transport and local-timeout failures
+  surface without creating. (Recovery is view-triggered: a background
+  conversation reconciles when it is next opened.)
 - **Server-side image handling.** The async procedure runs
   `agentRuntime.createImage` (same runtime init as the workspace; ComfyUI auth
   headers are forwarded to the protected result download exactly like the

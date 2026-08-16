@@ -55,6 +55,8 @@ const seedToolMessage = (content: string, messageId = 'message-id') => {
 // no-writes otherwise (the real chain's stale/ownership early-returns).
 const installStoreStubs = (options?: {
   persistGate?: Promise<void>;
+  persistRejectOnce?: { done?: boolean };
+  persistServerGate?: Promise<void>;
   pluginStateGate?: Promise<void>;
 }) => {
   const original = {
@@ -64,6 +66,10 @@ const installStoreStubs = (options?: {
   };
   const persistImpl = vi.fn(async (id: string, content: string) => {
     if (options?.persistGate) await options.persistGate;
+    if (options?.persistRejectOnce && !options.persistRejectOnce.done) {
+      options.persistRejectOnce.done = true;
+      throw new Error('persistence write failed');
+    }
     const state = useChatStore.getState();
     const activeKey = messageMapKey(state.activeId, state.activeTopicId);
     const list = state.messagesMap[activeKey];
@@ -75,6 +81,10 @@ const installStoreStubs = (options?: {
         [activeKey]: list.map((m) => (m.id === id ? { ...m, content } : m)),
       },
     });
+    // the REAL ordering: the optimistic map update above has already happened
+    // when the server write is still pending — hold here to model navigation
+    // during that in-flight server request
+    if (options?.persistServerGate) await options.persistServerGate;
     return { persistenceAmbiguous: false };
   });
   const toggleSpy = vi.fn();
@@ -588,6 +598,242 @@ describe('chatToolSlice - dalle', () => {
       expect(pollMock).toHaveBeenCalledTimes(1);
       const errorArg = stubs.pluginStateSpy.mock.calls[0][1] as { error: unknown[] };
       expect(errorArg.error[0]).toMatchObject({ message: 'BAD_REQUEST' });
+    });
+  });
+
+  describe('ownership lifecycle (R13-2)', () => {
+    it('navigation during the in-flight server write releases ownership so reconcile polls the persisted id', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      // real ordering: optimistic map write first, server await held
+      let releaseServer!: () => void;
+      const persistServerGate = new Promise<void>((resolve) => {
+        releaseServer = resolve;
+      });
+      const stubs = installStoreStubs({ persistServerGate });
+      const createTaskMock = vi.spyOn(imageGenerationService, 'createChatImageTask');
+      const pollMock = vi
+        .spyOn(imageGenerationService, 'getChatImageResult')
+        .mockResolvedValue({ file: { id: 'file-x' }, status: 'success' });
+
+      const run = store().generateImageFromPrompts(
+        [{ prompt: 'p1' }] as DallEImageItem[],
+        'message-id',
+      );
+      // the optimistic write has landed; navigate while the server request is
+      // still pending, then let it complete
+      await vi.waitFor(() => expect(originContent()).toContain('taskId'));
+      useChatStore.setState((s) => ({
+        activeId: 'other-session',
+        conversationClearGeneration: s.conversationClearGeneration + 1,
+      }));
+      releaseServer();
+      await run;
+      stubs.restore();
+
+      const persistedId = (JSON.parse(originContent()) as { taskId?: string }[])[0]?.taskId!;
+      expect(persistedId).toBeTruthy();
+      expect(createTaskMock).not.toHaveBeenCalled();
+
+      // reopen: the leaked-key bug made this a silent no-op until reload
+      useChatStore.setState({ activeId: ORIGIN_SESSION });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-id');
+      stubs2.restore();
+
+      expect(pollMock).toHaveBeenCalledWith(persistedId);
+      expect(originContent()).toContain('"imageId":"file-x"');
+    });
+
+    it('a rejected initial persistence does not lock Retry out', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      const rejectOnce = { done: false };
+      const stubs = installStoreStubs({ persistRejectOnce: rejectOnce });
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockResolvedValue({
+        file: { id: 'file-y' },
+        status: 'success',
+      });
+
+      // first run: the persistence write throws — the run must release its
+      // claims on the way out
+      await expect(
+        store().generateImageFromPrompts([{ prompt: 'p1' }] as DallEImageItem[], 'message-id'),
+      ).rejects.toThrow('persistence write failed');
+      expect(createTaskMock).not.toHaveBeenCalled();
+
+      // retry with persistence healthy again: must NOT be locked out
+      await store().retryDallEImages('message-id');
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(originContent()).toContain('"imageId":"file-y"');
+    });
+
+    it('an item queued behind the concurrency limit during invalidation can retry afterwards', async () => {
+      vi.useFakeTimers();
+      seedToolMessage(
+        JSON.stringify([{ prompt: 'p1' }, { prompt: 'p2' }, { prompt: 'p3' }, { prompt: 'p4' }]),
+      );
+      const stubs = installStoreStubs();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => ({ taskId: taskId! }));
+      // polls never settle; the run only ends via invalidation
+      const pollMock = vi
+        .spyOn(imageGenerationService, 'getChatImageResult')
+        .mockImplementation(() => new Promise(() => {}) as any);
+
+      const run = store().generateImageFromPrompts(
+        [
+          { prompt: 'p1' },
+          { prompt: 'p2' },
+          { prompt: 'p3' },
+          { prompt: 'p4' },
+        ] as DallEImageItem[],
+        'message-id',
+      );
+      // first three items create and start polling; the fourth waits behind
+      // the concurrency-3 limit
+      await vi.waitFor(() => expect(createTaskMock).toHaveBeenCalledTimes(3));
+      useChatStore.setState((s) => ({
+        conversationClearGeneration: s.conversationClearGeneration + 1,
+      }));
+      // the polls observe the invalidation on their next tick
+      await vi.advanceTimersByTimeAsync(3000);
+      await run;
+      stubs.restore();
+      vi.useRealTimers();
+
+      // the fourth item's claim must have been released: a fresh Retry can
+      // generate for it (its deterministic id was already persisted, so the
+      // adopt-probe path recreates the same id after not_found)
+      pollMock.mockResolvedValue({ status: 'not_found' } as any);
+      const stubs2 = installStoreStubs();
+      const retried = store().retryDallEImages('message-id');
+      await vi.waitFor(() => expect(createTaskMock.mock.calls.length).toBeGreaterThanOrEqual(4));
+      useChatStore.setState((s) => ({
+        conversationClearGeneration: s.conversationClearGeneration + 1,
+      }));
+      await retried;
+      stubs2.restore();
+
+      const fourthIds = createTaskMock.mock.calls.map((c) => (c[0] as { taskId?: string }).taskId);
+      expect(fourthIds.length).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  describe('cross-tab convergence (R13-1)', () => {
+    it('two isolated tabs sharing one persistence boundary converge on ONE paid task', async () => {
+      vi.useFakeTimers();
+      // shared last-write-wins persistence + idempotent task server, exactly
+      // the production contracts the reviewer inspected
+      const sharedContent = { value: JSON.stringify([{ prompt: 'p1' }]) };
+      const createdIds: string[] = [];
+      const taskServer = new Map<string, { file?: { id: string }; status: string }>();
+      const sharedService = {
+        createChatImageTask: async ({ taskId }: { taskId?: string }) => {
+          if (!taskServer.has(taskId!)) {
+            // idempotent same-id insert: only the FIRST create starts a task
+            taskServer.set(taskId!, { status: 'processing' });
+            createdIds.push(taskId!);
+            setTimeout(() => {
+              taskServer.set(taskId!, { file: { id: `file-${taskId}` }, status: 'success' });
+            }, 100);
+          }
+          return { taskId: taskId! };
+        },
+        getChatImageResult: async (taskId: string) =>
+          taskServer.get(taskId) ?? { status: 'not_found' },
+      };
+
+      const makeTab = async () => {
+        vi.resetModules();
+        vi.doMock('@/services/textToImage', () => ({ imageGenerationService: sharedService }));
+        vi.doMock('@/store/image', () => ({ getImageStoreState: () => mockImageState }));
+        vi.doMock('@/store/image/slices/generationConfig/modelConfig', () => ({
+          getModelAndDefaults: () => ({ defaultValues: {} }),
+          isImageModelConfigUsable: () => true,
+        }));
+        vi.doMock('@/store/aiInfra', () => ({
+          aiProviderSelectors: { enabledImageModelList: () => [] },
+          getAiInfraStoreState: () => ({}),
+        }));
+        vi.doMock('@/store/user', () => ({ useUserStore: { getState: () => ({}) } }));
+        vi.doMock('@/store/user/selectors', () => ({
+          authSelectors: { currentUserScope: () => 'user-a' },
+        }));
+        vi.doMock('@/services/file', () => ({ fileService: { getFile: vi.fn() } }));
+        vi.doMock('@/libs/swr', () => ({ useClientDataSWR: vi.fn() }));
+        vi.doMock('@/store/chat/selectors', () => ({
+          chatSelectors: {
+            getMessageById: (id: string) => (s: any) =>
+              s.messagesMap[messageMapKey(s.activeId, s.activeTopicId)]?.find(
+                (m: any) => m.id === id,
+              ),
+          },
+        }));
+        const { dalleSlice } = await import('../dalle');
+
+        let state: any;
+        const set = (partial: any) => {
+          state = { ...state, ...(typeof partial === 'function' ? partial(state) : partial) };
+        };
+        const get = () => state;
+        const syncFromShared = () => {
+          state.messagesMap = {
+            [originKey()]: [
+              { content: sharedContent.value, id: 'message-id', meta: {}, role: 'system' },
+            ],
+          };
+        };
+        state = {
+          activeId: ORIGIN_SESSION,
+          activeTopicId: undefined,
+          conversationClearGeneration: 0,
+          dalleImageLoading: {},
+          internal_updateMessageContent: async (_id: string, content: string) => {
+            // unversioned whole-content last-write-wins, like the real model
+            sharedContent.value = content;
+            syncFromShared();
+            return { persistenceAmbiguous: false };
+          },
+          messagesMap: {},
+          toggleDallEImageLoading: () => {},
+          updatePluginState: async () => undefined,
+        };
+        Object.assign(state, dalleSlice(set as any, get as any));
+        syncFromShared();
+        return { get, syncFromShared };
+      };
+
+      const tabA = await makeTab();
+      const tabB = await makeTab();
+
+      const runs = Promise.all([
+        tabA.get().generateImageFromPrompts([{ prompt: 'p1' }], 'message-id'),
+        tabB.get().generateImageFromPrompts([{ prompt: 'p1' }], 'message-id'),
+      ]);
+      await vi.advanceTimersByTimeAsync(6000);
+      await runs;
+
+      // both tabs derived the SAME deterministic id: exactly ONE paid task
+      // exists, the shared message holds that exact id, and both adopted its
+      // file — no orphaned second generation
+      expect(new Set(createdIds).size).toBe(1);
+      expect(taskServer.size).toBe(1);
+      const [onlyId] = createdIds;
+      expect(sharedContent.value).toContain(`"imageId":"file-${onlyId}"`);
+      vi.doUnmock('@/services/textToImage');
+      vi.doUnmock('@/store/image');
+      vi.doUnmock('@/store/image/slices/generationConfig/modelConfig');
+      vi.doUnmock('@/store/aiInfra');
+      vi.doUnmock('@/store/user');
+      vi.doUnmock('@/store/user/selectors');
+      vi.doUnmock('@/services/file');
+      vi.doUnmock('@/libs/swr');
+      vi.doUnmock('@/store/chat/selectors');
     });
   });
 
