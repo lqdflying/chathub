@@ -103,8 +103,9 @@ const releaseTaskKey = (key: string, token: symbol) => {
 // so a cross-tab overlap
 // cannot create two different paid tasks — the server's idempotent same-id
 // insert plus the pending-claim dedup collapse duplicate submissions into one
-// task, and both tabs adopt the same result. Replacement attempts chain
-// deterministically from the terminally-failed id for the same reason.
+// task, and both tabs adopt the same result. A replacement is simply the
+// NEXT ATTEMPT of the same tuple — the attempt counter persisted on the item
+// tells every tab which attempt is current, so they stay converged.
 const CHAT_IMAGE_TASK_SEED = 'chathub-chat-image-task';
 const deriveDeterministicTaskId = (seed: string): string => {
   const bytes = new Uint8Array(sha256.arrayBuffer(seed)).slice(0, 16);
@@ -154,7 +155,13 @@ const waitForImageConfigReady = async (isCurrent: () => boolean): Promise<boolea
     if (getImageStoreState().isInit) return true;
     await sleep(IMAGE_CONFIG_READY_INTERVAL);
   }
-  return false;
+  // FINAL check once the last sleep crosses the deadline: a readiness flip
+  // INSIDE that closing interval fired the renderer's isInit effect while
+  // this run still owned the item key (so that invocation returned without
+  // doing anything) — the owner must consume the flip itself. Between this
+  // synchronous check and the key release there is no await, so a flip AFTER
+  // it can only be observed by the effect once the key is free (R17-1).
+  return isCurrent() && getImageStoreState().isInit;
 };
 
 // Per-message write queues for updateImageItem (see that action's comment).
@@ -613,8 +620,10 @@ export const dalleSlice: StateCreator<
               return;
             }
             // 2) owner config readiness: "still initializing" must not become
-            //    a false no-model error — wait bounded, retry on next view if
-            //    hydration has not settled
+            //    a false no-model error — bounded wait with a final readiness
+            //    check at the deadline; if it truly expires unready, the
+            //    renderer's isInit subscription re-runs reconciliation when
+            //    hydration settles (no new view or remount needed)
             if (!(await waitForImageConfigReady(invocationIsCurrent))) return;
             const resolved = resolveImageModel();
             if (!resolved) {

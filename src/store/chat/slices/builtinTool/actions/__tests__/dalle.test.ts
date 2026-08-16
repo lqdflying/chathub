@@ -1124,6 +1124,49 @@ describe('chatToolSlice - dalle', () => {
       expect(originContent()).toContain('"imageId":"file-late"');
     });
 
+    it('a readiness flip inside the FINAL poll interval is consumed by the owning run (R17-1)', async () => {
+      vi.useFakeTimers();
+      const validId = initialIdFor(0);
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: validId }]));
+      mockImageState.isInit = false;
+      const stubs = installStoreStubs();
+      const created = new Set<string>();
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => {
+          created.add(taskId);
+          return { taskId };
+        });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        created.has(taskId)
+          ? { file: { id: 'file-final' }, status: 'success' }
+          : { status: 'task_missing' },
+      );
+
+      const first = store().reconcileDallETasks('message-id');
+      // the last IN-window readiness check runs at 29.5 s and starts the
+      // final 500 ms sleep
+      await vi.advanceTimersByTimeAsync(29_600);
+      // readiness flips INSIDE that closing interval; the renderer effect
+      // fires a second invocation which finds the key still owned and returns
+      mockImageState.isInit = true;
+      const second = store().reconcileDallETasks('message-id');
+      await second;
+      expect(createTaskMock).not.toHaveBeenCalled();
+
+      // the owner crosses the deadline, re-checks readiness ONCE more, and
+      // completes the recovery itself — no third transition, no remount, no
+      // explicit Retry exists to save it otherwise
+      await vi.advanceTimersByTimeAsync(6000);
+      await first;
+      stubs.restore();
+
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ taskId: validId }));
+      expect(originContent()).toContain('"imageId":"file-final"');
+      expect(stubs.pluginStateSpy).not.toHaveBeenCalled();
+    });
+
     it('an owner transition between expiry and the rerun authorizes nothing', async () => {
       vi.useFakeTimers();
       seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: initialIdFor(0) }]));

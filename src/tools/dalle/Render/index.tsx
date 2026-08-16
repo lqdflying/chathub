@@ -21,8 +21,11 @@ const DallE = memo<BuiltinRenderProps<DallEImageItem[]>>(({ content, messageId }
   // on mount, adopt finished results / resume pending ones for this message.
   // Also rerun when the owner's image config finishes hydrating — recovery
   // needs a resolved model, and hydration can settle after the bounded wait
-  // inside reconcile has already expired (in-flight waiters hold the per-item
-  // ownership keys, so an extra invocation converges instead of duplicating).
+  // inside reconcile has already expired. While a waiter still owns the
+  // per-item key this rerun returns without doing anything; that is safe
+  // because the waiter itself re-checks readiness once more at its deadline
+  // (so a flip inside the final interval is consumed by the owner), and a
+  // flip after the key is released is picked up by this effect.
   useEffect(() => {
     reconcileDallETasks(messageId);
   }, [messageId, reconcileDallETasks, isImageConfigReady]);
