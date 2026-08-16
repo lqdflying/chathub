@@ -53,7 +53,10 @@ const seedToolMessage = (content: string, messageId = 'message-id') => {
 // stand-in models the REAL behavior: it writes ONLY when the message is
 // addressable through the currently-active conversation, and silently
 // no-writes otherwise (the real chain's stale/ownership early-returns).
-const installStoreStubs = (options?: { persistGate?: Promise<void> }) => {
+const installStoreStubs = (options?: {
+  persistGate?: Promise<void>;
+  pluginStateGate?: Promise<void>;
+}) => {
   const original = {
     internal_updateMessageContent: useChatStore.getState().internal_updateMessageContent,
     toggleDallEImageLoading: useChatStore.getState().toggleDallEImageLoading,
@@ -75,7 +78,10 @@ const installStoreStubs = (options?: { persistGate?: Promise<void> }) => {
     return { persistenceAmbiguous: false };
   });
   const toggleSpy = vi.fn();
-  const pluginStateSpy = vi.fn(async () => undefined);
+  const pluginStateSpy = vi.fn(async () => {
+    if (options?.pluginStateGate) await options.pluginStateGate;
+    return undefined;
+  });
   useChatStore.setState({
     internal_updateMessageContent: persistImpl as any,
     toggleDallEImageLoading: toggleSpy as any,
@@ -267,6 +273,69 @@ describe('chatToolSlice - dalle', () => {
       await store().reconcileDallETasks('message-id');
       stubs2.restore();
       expect(createTaskMock).not.toHaveBeenCalled();
+    });
+
+    it('two overlapping retries with identical snapshots produce ONE create and ONE persisted id (R12-1)', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1' }]));
+      // gate the error-clear await inside retryDallEImages so BOTH retries
+      // capture the same id-less snapshot before either generates
+      let releasePluginState!: () => void;
+      const pluginStateGate = new Promise<void>((resolve) => {
+        releasePluginState = resolve;
+      });
+      const stubs = installStoreStubs({ pluginStateGate });
+
+      let resolveCreate!: () => void;
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(
+          ({ taskId }) =>
+            new Promise((resolve) => {
+              resolveCreate = () => resolve({ taskId: taskId! });
+            }),
+        );
+      const pollMock = vi
+        .spyOn(imageGenerationService, 'getChatImageResult')
+        .mockImplementation(async (taskId) => ({
+          file: { id: `file-of-${taskId}` },
+          status: 'success',
+        }));
+
+      const retryA = store().retryDallEImages('message-id');
+      const retryB = store().retryDallEImages('message-id');
+      releasePluginState();
+
+      // exactly ONE invocation owns the item: one create, and the origin
+      // message's persisted id equals exactly the created id
+      await vi.waitFor(() => expect(createTaskMock).toHaveBeenCalledTimes(1));
+      const createdTaskId = (createTaskMock.mock.calls[0][0] as { taskId?: string }).taskId!;
+      const parsed = JSON.parse(originContent()) as { taskId?: string }[];
+      expect(parsed[0]?.taskId).toBe(createdTaskId);
+
+      // the loser settles without overwriting or creating
+      await retryB;
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect((JSON.parse(originContent()) as { taskId?: string }[])[0]?.taskId).toBe(createdTaskId);
+
+      // switch away before the winner's create resolves…
+      useChatStore.setState((s) => ({
+        activeId: 'other-session',
+        conversationClearGeneration: s.conversationClearGeneration + 1,
+      }));
+      resolveCreate();
+      await retryA;
+      stubs.restore();
+
+      // …reopen and reconcile: the exact created id is queried and adopted,
+      // with the create count still one
+      useChatStore.setState({ activeId: ORIGIN_SESSION });
+      const stubs2 = installStoreStubs();
+      await store().reconcileDallETasks('message-id');
+      stubs2.restore();
+
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(pollMock).toHaveBeenCalledWith(createdTaskId);
+      expect(originContent()).toContain(`"imageId":"file-of-${createdTaskId}"`);
     });
 
     it('a deferred existing-task terminal response after a switch creates ZERO replacements (R11-1)', async () => {

@@ -174,11 +174,35 @@ export const dalleSlice: StateCreator<
     // write verification below reads THIS key, never the currently-active one
     const originKey = messageMapKey(get().activeId, get().activeTopicId);
 
+    // EXCLUSIVE OWNERSHIP FIRST (synchronously, before ANY await): claim every
+    // index this run may generate for. Two overlapping invocations sharing a
+    // stale id-less snapshot must never both allocate/write correlation ids —
+    // the loser would overwrite the winner's persisted id with one whose task
+    // is never created, orphaning the paid task. Ownership is per-tab; a
+    // simultaneous retry from ANOTHER tab is out of this guard's reach (see
+    // the openwiki note) and converges through adopt-first + reconciliation.
+    const ownedIndices: number[] = [];
+    for (const [index, item] of items.entries()) {
+      if (item.imageId) continue;
+      const key = `${messageId}_${index}`;
+      if (inFlightTaskKeys.has(key)) continue;
+      inFlightTaskKeys.add(key);
+      ownedIndices.push(index);
+    }
+    if (ownedIndices.length === 0) return;
+    const releaseOwned = () => {
+      for (const index of ownedIndices) inFlightTaskKeys.delete(`${messageId}_${index}`);
+    };
+
     const message = chatSelectors.getMessageById(messageId)(get());
-    if (!message) return;
+    if (!message) {
+      releaseOwned();
+      return;
+    }
 
     const resolved = resolveImageModel();
     if (!resolved) {
+      releaseOwned();
       // no usable image model is configured — surface a per-item error instead
       // of silently generating nothing
       await get().updatePluginState(messageId, {
@@ -188,32 +212,76 @@ export const dalleSlice: StateCreator<
     }
     const { model, provider, params: baseParams } = resolved;
 
-    // POSITIVE-EVIDENCE persistence: write task ids and then verify they are
-    // present in the originating message's persisted content. `updateImageItem`
-    // (and the layers under it) can silently no-op when the conversation was
-    // switched or ownership went stale — awaiting it proves nothing, and a
-    // billable task must NEVER be created on an unproven correlation.
-    const persistTaskIdsVerified = async (allocations: Map<number, string>): Promise<boolean> => {
-      if (allocations.size === 0) return true;
+    // CAS-style correlation write with POSITIVE EVIDENCE: each id is written
+    // only where the draft still matches the expectation (no overwrite of an
+    // id another writer persisted meanwhile), and verification re-parses the
+    // originating message's persisted content at the EXACT indices — the
+    // layers under `updateImageItem` can silently no-op on navigation/stale
+    // ownership, so awaiting a write proves nothing by itself.
+    const persistTaskIdsCas = async (
+      writes: Map<number, { expected?: string; next: string }>,
+    ): Promise<{ parsed?: DallEImageItem[]; written: Set<number> }> => {
+      const written = new Set<number>();
+      if (writes.size === 0) return { written };
       await get().updateImageItem(messageId, (draft) => {
-        for (const [index, id] of allocations) {
-          if (draft[index]) draft[index].taskId = id;
+        for (const [index, { expected, next }] of writes) {
+          const target = draft[index];
+          if (!target || target.imageId) continue;
+          if (expected === undefined ? Boolean(target.taskId) : target.taskId !== expected) {
+            continue;
+          }
+          target.taskId = next;
+          written.add(index);
         }
       });
       const persisted = get().messagesMap[originKey]?.find((m) => m.id === messageId);
-      if (!persisted) return false;
-      return [...allocations.values()].every((id) => persisted.content.includes(id));
+      let parsed: DallEImageItem[] | undefined;
+      try {
+        parsed = persisted ? JSON.parse(persisted.content) : undefined;
+      } catch {
+        parsed = undefined;
+      }
+      if (!Array.isArray(parsed)) return { written: new Set() };
+      for (const index of written) {
+        if (parsed[index]?.taskId !== writes.get(index)!.next) written.delete(index);
+      }
+      return { parsed, written };
     };
 
-    // WRITE-FIRST, ALL AT ONCE: allocate ids for every item that needs a new
-    // generation and persist them in ONE origin-verified write BEFORE any
-    // billable request is launched. If the write cannot be proven, no task is
-    // created at all.
-    const allocations = new Map<number, string>();
-    for (const [index, item] of items.entries()) {
-      if (!item.imageId && !item.taskId) allocations.set(index, crypto.randomUUID());
+    // WRITE-FIRST, ALL AT ONCE: allocate ids for every OWNED item that needs a
+    // new generation and persist them in one verified write BEFORE any
+    // billable request. Conflicting indices (an id appeared after our
+    // snapshot) are ADOPTED, never overwritten; unproven writes create nothing.
+    const allocations = new Map<number, { next: string }>();
+    for (const index of ownedIndices) {
+      if (!items[index].taskId) allocations.set(index, { next: crypto.randomUUID() });
     }
-    if (!(await persistTaskIdsVerified(allocations))) {
+    const casResult = await persistTaskIdsCas(allocations as Map<number, { next: string }>);
+    const effectiveTaskIds = new Map<number, string>();
+    const freshlyAllocated = new Set<number>();
+    let persistenceFailed = false;
+    for (const index of ownedIndices) {
+      const snapshotId = items[index].taskId;
+      if (snapshotId) {
+        effectiveTaskIds.set(index, snapshotId);
+        continue;
+      }
+      if (casResult.written.has(index)) {
+        effectiveTaskIds.set(index, allocations.get(index)!.next);
+        freshlyAllocated.add(index);
+        continue;
+      }
+      // not written: either another writer persisted an id meanwhile (adopt
+      // it) or the write could not be proven (fail closed)
+      const concurrentId = casResult.parsed?.[index]?.taskId;
+      if (concurrentId) {
+        effectiveTaskIds.set(index, concurrentId);
+      } else {
+        persistenceFailed = true;
+      }
+    }
+    if (persistenceFailed) {
+      releaseOwned();
       if (invocationIsCurrent()) {
         await get().updatePluginState(messageId, {
           error: items.map(() =>
@@ -229,33 +297,28 @@ export const dalleSlice: StateCreator<
     }
 
     const results = await pMap(
-      items,
-      async (item, index) => {
+      ownedIndices,
+      async (index) => {
+        const item = items[index];
         if (!invocationIsCurrent()) return undefined;
-        // skip items that already have an uploaded image (e.g. on retry) so a
-        // partial failure never re-generates and re-bills the successful ones
-        if (item.imageId) return undefined;
 
-        // key loading by index (duplicate prompts would otherwise collide)
         const loadingKey = `${messageId}_${index}`;
-        if (inFlightTaskKeys.has(loadingKey)) return undefined;
-        inFlightTaskKeys.add(loadingKey);
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
           // async-task pattern (same as the Image workspace): create the task,
           // then poll — never hold a request open for the 30–60 s generation,
           // and never let multi-MB image data reach the browser/message content
-          // the id was pre-allocated and origin-verified in the single write
-          // above — an item that had neither an image nor a task always has one
-          let taskId = item.taskId ?? allocations.get(index);
+          let taskId = effectiveTaskIds.get(index);
+          if (!taskId) return undefined;
 
-          // an item may already carry a task from a previous session/attempt:
-          // adopt its result (or resume waiting) BEFORE creating a new billable
-          // generation — Retry must never re-bill a task that succeeded
-          if (item.taskId) {
+          // an id this run did NOT freshly allocate belongs to an existing
+          // task (previous session, concurrent writer): adopt its result (or
+          // resume waiting) BEFORE creating a new billable generation — Retry
+          // must never re-bill a task that succeeded
+          if (!freshlyAllocated.has(index)) {
             try {
-              const adopted = await waitForChatImageTask(item.taskId, invocationIsCurrent, {
+              const adopted = await waitForChatImageTask(taskId, invocationIsCurrent, {
                 immediate: true,
               });
               if (!adopted.ok || !invocationIsCurrent()) return undefined;
@@ -277,17 +340,18 @@ export const dalleSlice: StateCreator<
               // the status request awaited across arbitrary time — re-check
               // ownership before doing anything billable
               if (!invocationIsCurrent()) return undefined;
-              // the replacement id must be origin-verified BEFORE its task is
-              // created, exactly like the initial allocation
+              // the replacement id must pass the same CAS + exact-index
+              // verification BEFORE its task is created; the expectation pins
+              // the terminally-failed id so nothing else can be overwritten
               const replacementId = crypto.randomUUID();
-              if (!(await persistTaskIdsVerified(new Map([[index, replacementId]])))) {
-                return undefined;
-              }
+              const replaced = await persistTaskIdsCas(
+                new Map([[index, { expected: taskId, next: replacementId }]]),
+              );
+              if (!replaced.written.has(index)) return undefined;
               if (!invocationIsCurrent()) return undefined;
               taskId = replacementId;
             }
           }
-          if (!taskId) return undefined;
 
           await imageGenerationService.createChatImageTask({
             model,

@@ -818,28 +818,36 @@ configurable model rather than a hard-coded one.
   guarded (mangled-transport) or plain errors with a 4xx status surface
   immediately; only 5xx and status-less transport failures retry within the
   budget.
-- **Task durability — verified write-first correlation.** The client
-  GENERATES the task ids (`crypto.randomUUID`) for every item that needs a
-  generation and persists them in ONE origin-scoped write BEFORE any billable
-  request; it then VERIFIES the ids are actually present in the originating
-  message's persisted content (read from the origin conversation's map key,
-  never the currently-active one — the persistence layers can silently no-op
-  on stale ownership/navigation, so awaiting a write proves nothing by
-  itself). If verification fails, ZERO tasks are created and a per-item error
-  is surfaced. The server creates each task under exactly its pre-verified id
-  (idempotent insert + pending-claim dedup). Replacement tasks follow the
-  same rule: after a terminal status response, invocation ownership is
-  re-checked and the replacement id must pass the same origin-verified write
-  before its task is created. Item writes are serialized per message (a
-  promise queue in `updateImageItem`) so concurrent multi-image updates
-  cannot clobber each other. The tool render's mount-time
-  `reconcileDallETasks` adopts a finished task's file, resumes waiting on a
-  pending one, or surfaces its failure; `retryDallEImages` adopts an existing
-  task first and creates a replacement ONLY after the server reports an
-  authoritative terminal state (`error`/`not_found`) — lookup, transport and
-  local-timeout failures surface without creating. (Recovery is
-  view-triggered: a background conversation reconciles when it is next
-  opened.)
+- **Task durability — ownership, then verified write-first correlation.** A
+  generation run claims EXCLUSIVE per-item ownership (`inFlightTaskKeys`,
+  `${messageId}_${index}`) synchronously, BEFORE any await, allocation, or
+  correlation write — two overlapping invocations sharing a stale id-less
+  snapshot must never both write ids, because the loser would replace the
+  winner's persisted id with one whose task is never created (orphaning the
+  paid task). The losing invocation simply owns nothing and returns. The
+  owner then GENERATES ids (`crypto.randomUUID`) for its items and persists
+  them in ONE CAS-style write: inside the serialized update, an id is written
+  only where the draft still has no `taskId`/`imageId` (an id that appeared
+  after the snapshot is ADOPTED, never overwritten; replacements pin the
+  exact terminally-failed id as their compare value). After the write, the
+  ids are checked at their EXACT indices in the originating message's
+  persisted content, read from the origin conversation's map key — this is an
+  origin-map verification after a successful write (the write path itself
+  awaited the server call; the layers can silently no-op on stale
+  ownership/navigation, so awaiting alone proves nothing). Unproven ids →
+  ZERO tasks created, per-item error. The server creates each task under
+  exactly its pre-verified id (idempotent insert + pending-claim dedup).
+  Ownership is per-tab (module-local): a simultaneous retry from another tab
+  is outside this guard and converges through adopt-first + reconciliation,
+  not through the single-flight guarantee. Item writes are serialized per
+  message (a promise queue in `updateImageItem`). The tool render's
+  mount-time `reconcileDallETasks` adopts a finished task's file, resumes
+  waiting on a pending one, or surfaces its failure; `retryDallEImages`
+  adopts an existing task first and creates a replacement ONLY after the
+  server reports an authoritative terminal state (`error`/`not_found`) with
+  ownership re-checked after that await — lookup, transport and local-timeout
+  failures surface without creating. (Recovery is view-triggered: a
+  background conversation reconciles when it is next opened.)
 - **Server-side image handling.** The async procedure runs
   `agentRuntime.createImage` (same runtime init as the workspace; ComfyUI auth
   headers are forwarded to the protected result download exactly like the
