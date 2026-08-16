@@ -183,7 +183,7 @@ optimistic messages that omit those fields.
 
 Every server-routed MCP invocation also carries a unique `invocationId`, including manual re-invocations. If the browser loses the `mcp.callTool` response after the server commits the tool message, it reads the matching recovery record immediately and, if the result is still pending or that read fails transiently, retries once after an abortable 500 ms delay. Both reads contain the tool-message ID and invocation ID. The server returns the result only when the stored pending invocation matches and has reached `persisted`; an older invocation can never recover or overwrite a newer attempt. The captured invocation signal is checked before recovery and error persistence, so browser aborts (including browsers that surface cancellation as `TypeError: Load failed`) do not become MCP gateway errors. This follows the [AbortSignal contract](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal), where `aborted` records the operation's cancellation state.
 
-Assistant tool calls are executed only after their final message write is confirmed. If both bounded finalization attempts receive an unusable gateway response, the UI keeps the streamed assistant state, reports the diagnostic failure, and stops before invoking external tools. This prevents side effects from running when the database may not contain the assistant's tool-call state; the user can retry the request explicitly.
+Assistant tool calls are executed only after their final message write is confirmed. The finalization update is attempted up to three times with a 400 ms backoff between attempts. If every attempt receives an unusable gateway response, the client then reads the message back from the server by its ID (`message.getMessageById` → `MessageModel.findById`, scoped by id + user only — deliberately not a conversation-list query, whose NULL `groupId` filter and 1,000-row oldest-first page would miss group messages and long topics) and compares the persisted content plus every intended tool-call ID. A confirmed match means only the responses were lost: the tool call proceeds normally. The verification read itself carries the finalization diagnostic ID and `showNotification: false` context — it travels on the isolated (non-batched) link and must never trigger the global 401-login or generic fetch-error UI; the dedicated persistence warning is the single user-facing failure path. Anything else stays fail-closed — the UI keeps the streamed assistant state, reports the classified diagnostic failure (`bodyKind`/HTTP status), and stops before invoking external tools; an HTML 401/403 classification produces a specific warning that a proxy/WAF or access layer likely answered the save request (the classification is evidence of interception, not proof of where execution stopped). This prevents side effects from running when the database may not contain the assistant's tool-call state; the user can retry the request explicitly.
 
 Parallel MCP calls use one abort controller per tool-message ID. Finishing one call removes only its own controller and loading ID; retry/rewind cancellation aborts the entire controller registry. This prevents one Tavily call completing from replacing or disabling cancellation for sibling `search`, `extract`, or `map` calls.
 
@@ -304,3 +304,51 @@ For built-in Tools Hub features, also check:
 - `src/server/routers/`
 - `src/app/[variants]/(main)/tools/`
 - `src/app/(backend)/webapi/tools/`
+
+## Code Interpreter runtime
+
+The `lobe-code-interpreter` builtin runs Python **client-side** via Pyodide in a
+Web Worker (`packages/python-interpreter`); there is no server execution path.
+
+- **Lifecycle** — `src/services/python.ts` owns a single worker. Runs are
+  **serialized** onto it (a promise-chain queue) so concurrent tool calls can't
+  race the shared Pyodide global. Each run is raced against a 60s timeout; on
+  timeout or an infrastructure error the worker is **terminated** and dropped so
+  the next run recreates a fresh one (a runaway `while True` can't poison later
+  runs). `createPythonWorker()` returns `{ RemoteInterpreter, worker }` so the
+  service controls that lifecycle.
+- **Output bounds** — the worker caps total stdout/stderr and the return value
+  before the result crosses Comlink and is persisted, with truncation markers; the
+  renderer cap is defense-in-depth.
+- **Package preparation order** — `prepareEnvironment(code, packages)` (worker)
+  runs BEFORE upload/exec, in ONE conditional sequence:
+  1. **Direct references** (`pkg @ https://…`) are partitioned out and
+     installed FIRST via micropip with `reinstall=True` — micropip's default
+     `reinstall=False` would silently keep an already-present copy, and the
+     import auto-loader in step 2 would otherwise install a distribution copy
+     for the matching import name. The Python filter in step 3 additionally
+     treats `req.url` as unsatisfied by definition, as defense in depth.
+  2. `loadPackagesFromImports(code)` loads the code's imports from the
+     configured Pyodide distribution at lockfile-compatible versions (normally
+     fetched lazily from the CDN index and browser-cacheable — "available at a
+     compatible version", not preinstalled or inherently offline).
+  3. Ordinary name/specifier requirements: any requested name present in
+     `pyodide.lockfile.packages` loads from the distribution, then a
+     Python-side check (`packaging.Requirement` + `importlib.metadata`) drops
+     requirements the installed environment already satisfies — only the
+     unsatisfied remainder reaches `micropip.install`.
+     "Bundled-first" applies to step 3's ordinary requirements only. The overall
+     invariant: micropip must never resolve an unpinned name Pyodide bundles
+     (e.g. `jsonschema` → PyPI latest → native `rpds-py>=0.25` with no wasm
+     wheel), and a requested direct artifact must never lose to a distribution
+     copy. A "Can't find a pure Python 3 wheel" failure is wrapped in an explicit
+     Pyodide-compatibility error; the tool's systemRole/param description steer
+     the model away from listing or pinning bundled packages.
+- **Persistence & files** — result `File` objects and blob URLs are not persisted;
+  generated files are uploaded and the message keeps a durable `fileId` (blob
+  previews are revoked on unmount, cleared on upload failure). Conversation input
+  files loaded into the sandbox are fetched per file (a stale id or non-OK
+  response is skipped, not fatal) and written under `/mnt/data` by a sanitized
+  basename (no path traversal). The runtime is `sandbox="allow-scripts"` only
+  (opaque origin); a storage shim keeps CDN-loaded libraries from crashing on
+  `localStorage` access.

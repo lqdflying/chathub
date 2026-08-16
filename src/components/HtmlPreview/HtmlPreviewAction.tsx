@@ -1,7 +1,9 @@
 import { ActionIcon } from '@lobehub/ui';
 import { Eye } from 'lucide-react';
-import { memo, useState } from 'react';
+import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+
+import { useWorkspaceModal } from '@/hooks/useWorkspaceModal';
 
 import HtmlPreviewDrawer from './PreviewDrawer';
 
@@ -12,7 +14,12 @@ interface HtmlPreviewActionProps {
 
 const HtmlPreviewAction = memo<HtmlPreviewActionProps>(({ content, size }) => {
   const { t } = useTranslation('components');
-  const [open, setOpen] = useState(false);
+  // useWorkspaceModal drives the drawer's open state AND force-closes it on
+  // mobile when `showMobileWorkspace` goes false. The phone Back pops exactly
+  // the entry that set that query param, so Back both dismisses the drawer and
+  // returns to the chat list — no custom history wiring needed. The safe-area
+  // inset in PreviewDrawer keeps the ✕ reachable as the primary close.
+  const [open, setOpen] = useWorkspaceModal();
 
   return (
     <>

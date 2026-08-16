@@ -1,6 +1,8 @@
 export default {
   assistantToolCallPersistence: {
     description: '助手的工具调用尚未确认保存，因此未执行外部工具。请重试当前请求。',
+    interceptedDescription:
+      '保存请求收到 HTML {{status}} 响应而非 JSON，未执行外部工具。这通常（但不一定）表示代理/WAF 或访问层拦截了请求，也可能来自源站的认证中间件。请结合服务端与边缘日志确认来源后重试。',
     title: '工具调用尚未保存',
   },
   clerkAuth: {

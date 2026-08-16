@@ -44,6 +44,25 @@ export class ServerService implements IMessageService {
     return version;
   };
 
+  getMessageById: IMessageService['getMessageById'] = async (id, options) => {
+    // callers on the finalization path pass showNotification: false and the
+    // shared diagnostic id — the read must not trigger the global login/fetch
+    // error UI, and the diagnostic context routes it through the isolated
+    // (non-batched) link so it cannot share a batch with unrelated queries
+    return lambdaClient.message.getMessageById.query(
+      { id },
+      options
+        ? {
+            context: {
+              [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: options.diagnosticId,
+              diagnosticOperation: options.diagnosticOperation,
+              showNotification: options.showNotification,
+            },
+          }
+        : undefined,
+    ) as ReturnType<IMessageService['getMessageById']>;
+  };
+
   getMessages: IMessageService['getMessages'] = async (sessionId, topicId, groupId) => {
     const data = await lambdaClient.message.getMessages.query({
       groupId,

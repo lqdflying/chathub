@@ -14,7 +14,8 @@ export const CodeInterpreterManifest: BuiltinToolManifest = {
             type: 'string',
           },
           packages: {
-            description: 'The packages to install before running the code.',
+            description:
+              'Extra PyPI packages to install before running the code. Pyodide already bundles ~340 packages (numpy, pandas, matplotlib, scipy, scikit-learn, jsonschema, pillow, sympy, …) — bundled packages load automatically from imports and MUST NOT be listed with version pins. Only list packages that are not bundled, and avoid version pins unless strictly required (pinned versions often have no WebAssembly build).',
             items: {
               type: 'string',
             },
@@ -58,7 +59,11 @@ If you are generating files:
   - ods --> odfpy
   - odt --> odfpy
   - odp --> odfpy
-- None of the above packages are installed by default. You MUST include them in the packages parameter to install them EVERY TIME.
+- The file-format packages above are NOT bundled with Pyodide. You MUST include the ones you use in the packages parameter EVERY TIME — without version pins.
+
+About packages in general:
+- Pyodide bundles ~340 packages (numpy, pandas, matplotlib, scipy, scikit-learn, jsonschema, pillow, sympy, …). They load automatically from your imports — do NOT list them in packages, and NEVER pin their versions (a newer PyPI version may have no WebAssembly-compatible build and the run will fail before executing).
+- Only list non-bundled pure-Python packages, and avoid version pins unless strictly required.
 - If you are generating a pdf
   - You MUST prioritize generating text content using reportlab.platypus rather than canvas
   - If you are generating text in Chinese, you MUST use STSong. To use the font, you must call pdfmetrics.registerFont(TTFont('STSong', 'STSong.ttf')) and apply the style to all text elements

@@ -8,11 +8,13 @@
   "agentDefaultMessageWithoutEdit": "你好，我是 **{{name}}**，有什么我可以帮忙的吗？",
   "agents": "助手",
   "artifact": {
+    "drawing": "绘制中",
     "generating": "生成中",
     "inThread": "子话题中无法查看，请切换到主对话区打开",
     "thinking": "思考中",
     "thought": "思考过程",
-    "unknownTitle": "未命名作品"
+    "unknownTitle": "未命名作品",
+    "viewInPortal": "在工作区打开"
   },
   "availableAgents": "可用助手",
   "backToBottom": "跳转至当前",

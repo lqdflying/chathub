@@ -17,14 +17,21 @@ interface UploadFileToS3Options {
   signal?: AbortSignal;
 }
 
+// The presign API rejects filenames over 255 chars (zod, lambda/edge upload
+// routers). Names can come from unbounded sources — image prompts, files a
+// Python program creates in the interpreter sandbox — so clamp the stem and
+// keep the extension instead of letting the whole upload fail.
+const MAX_UPLOAD_FILENAME_CHARS = 255;
+const clampFileName = (name: string) => {
+  if (name.length <= MAX_UPLOAD_FILENAME_CHARS) return name;
+  const ext = /\.[^./\\]{1,31}$/.exec(name)?.[0] ?? '';
+  return `${name.slice(0, MAX_UPLOAD_FILENAME_CHARS - ext.length)}${ext}`;
+};
+
 class UploadService {
   uploadFileToS3 = async (
     file: File,
-    {
-      onProgress,
-      directory,
-      signal,
-    }: UploadFileToS3Options,
+    { onProgress, directory, signal }: UploadFileToS3Options,
   ): Promise<{ data: FileMetadata; success: boolean }> => {
     signal?.throwIfAborted();
 
@@ -176,12 +183,42 @@ class UploadService {
    * @param filename
    * @param fileType
    */
-  getImageFileByUrlWithCORS = async (url: string, filename: string, fileType = 'image/png') => {
+  getImageFileByUrlWithCORS = async (url: string, filename: string, fileType?: string) => {
     const headers = await createHeaderWithAuth();
     const res = await fetch(API_ENDPOINTS.proxy, { body: url, headers, method: 'POST' });
+
+    // A non-OK proxy response returns error HTML/JSON bytes; without this guard
+    // they'd be wrapped as an image and uploaded as a corrupt file.
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(`Failed to fetch image (${res.status}): ${detail.slice(0, 200)}`);
+    }
+
     const data = await res.arrayBuffer();
 
-    return new File([data], filename, { lastModified: Date.now(), type: fileType });
+    // Classify by the ACTUAL bytes, never a spoofable/absent content-type: a
+    // provider/CDN error page (or a malicious remote) can send an `image/*`
+    // header over an HTML/JSON body, and that must not be persisted as an image.
+    // `file-type` is already a dependency (see store/file upload action).
+    const { fileTypeFromBuffer } = await import('file-type');
+    const detected = await fileTypeFromBuffer(new Uint8Array(data));
+    if (!detected || !detected.mime.startsWith('image/')) {
+      throw new Error(
+        `Proxied response is not a supported image (detected: ${detected?.mime ?? 'unknown'})`,
+      );
+    }
+
+    // an explicit caller type may only confirm the verified bytes — it can never
+    // bypass verification, so a mismatch is rejected
+    if (fileType && fileType !== detected.mime) {
+      throw new Error(
+        `Requested image type ${fileType} does not match the fetched bytes (${detected.mime})`,
+      );
+    }
+
+    // derive both MIME and extension from the verified result
+    const finalName = `${filename.replace(/\.[^./\\]+$/, '')}.${detected.ext}`;
+    return new File([data], finalName, { lastModified: Date.now(), type: detected.mime });
   };
 
   private getSignedUploadUrl = async (
@@ -189,7 +226,10 @@ class UploadService {
     options: { directory?: 'ragEval'; signal?: AbortSignal } = {},
   ): Promise<{ metadata: FileMetadata; preSignUrl: string }> => {
     return lambdaClient.upload.createS3PreSignedUrl.mutate(
-      { filename: file.name, purpose: options.directory === 'ragEval' ? 'ragEval' : 'file' },
+      {
+        filename: clampFileName(file.name),
+        purpose: options.directory === 'ragEval' ? 'ragEval' : 'file',
+      },
       { signal: options.signal },
     );
   };

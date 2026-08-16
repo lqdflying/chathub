@@ -1,8 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
 import { Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { fileService } from '@/services/file';
 import { pythonService } from '@/services/python';
 import { useChatStore } from '@/store/chat';
+import { chatSelectors } from '@/store/chat/selectors';
+import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 
 const createDeferred = <Result>() => {
   let resolve!: (value: Result) => void;
@@ -19,8 +22,15 @@ vi.mock('@/services/python', () => ({
   },
 }));
 
+vi.mock('@/services/file', () => ({
+  fileService: {
+    getFile: vi.fn(),
+  },
+}));
+
 vi.mock('@/store/chat/selectors', () => ({
   chatSelectors: {
+    getMessageByToolCallId: vi.fn(() => () => undefined),
     mainDisplayChats: vi.fn().mockReturnValue([]),
   },
 }));
@@ -49,13 +59,16 @@ describe('code interpreter actions', () => {
       });
     });
 
+    // a plain serialized object, NOT the Error instance — an Error's message is
+    // non-enumerable and would be dropped by the jsonb persistence
+    const serializedError = { message: 'Python execution failed', name: 'Error' };
     expect(executionResult).toEqual({
-      data: executionError,
+      data: serializedError,
       outcome: 'failed',
       shouldContinue: false,
     });
     expect(result.current.updatePluginState).toHaveBeenCalledWith('tool-message', {
-      error: executionError,
+      error: serializedError,
     });
     expect(result.current.codeInterpreterExecuting['tool-message']).toBe(false);
   });
@@ -82,6 +95,68 @@ describe('code interpreter actions', () => {
       JSON.stringify(response),
     );
     expect(result.current.codeInterpreterExecuting['tool-message']).toBe(false);
+  });
+
+  it('loads later interpreter files even when an earlier file id is stale (finding D/7)', async () => {
+    const priorContent = JSON.stringify({
+      files: [
+        { fileId: 'stale', filename: 'a.txt' },
+        { fileId: 'good', filename: 'b.txt' },
+      ],
+    });
+    (chatSelectors.mainDisplayChats as Mock).mockReturnValueOnce([
+      { tools: [{ id: 'call-1', identifier: CodeInterpreterIdentifier }] },
+    ]);
+    (chatSelectors.getMessageByToolCallId as Mock).mockReturnValueOnce(() => ({
+      content: priorContent,
+    }));
+    (fileService.getFile as Mock)
+      .mockRejectedValueOnce(new Error('deleted'))
+      .mockResolvedValueOnce({ url: 'https://files/b' });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ blob: () => Promise.resolve(new Blob(['b'])), ok: true }) as any;
+    (pythonService.runPython as Mock).mockResolvedValue({ stdout: 'ok' });
+
+    const { result } = renderHook(() => useChatStore());
+    await act(async () => {
+      await result.current.python('tool-message', { code: 'print(1)' });
+    });
+
+    const filesArg = (pythonService.runPython as Mock).mock.calls[0][2] as File[];
+    expect(filesArg.map((f) => f.name)).toEqual(['b.txt']);
+  });
+
+  it('skips a non-OK interpreter file fetch without dropping later inputs (finding D/7)', async () => {
+    const priorContent = JSON.stringify({
+      files: [
+        { fileId: 'a', filename: 'a.txt' },
+        { fileId: 'b', filename: 'b.txt' },
+      ],
+    });
+    (chatSelectors.mainDisplayChats as Mock).mockReturnValueOnce([
+      { tools: [{ id: 'call-1', identifier: CodeInterpreterIdentifier }] },
+    ]);
+    (chatSelectors.getMessageByToolCallId as Mock).mockReturnValueOnce(() => ({
+      content: priorContent,
+    }));
+    (fileService.getFile as Mock)
+      .mockResolvedValueOnce({ url: 'https://files/a' })
+      .mockResolvedValueOnce({ url: 'https://files/b' });
+    // first url 404s, second is ok
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce({ blob: () => Promise.resolve(new Blob(['b'])), ok: true }) as any;
+    (pythonService.runPython as Mock).mockResolvedValue({ stdout: 'ok' });
+
+    const { result } = renderHook(() => useChatStore());
+    await act(async () => {
+      await result.current.python('tool-message', { code: 'print(1)' });
+    });
+
+    const filesArg = (pythonService.runPython as Mock).mock.calls[0][2] as File[];
+    expect(filesArg.map((f) => f.name)).toEqual(['b.txt']);
   });
 
   it('drops a Python result that completes after conversation history is cleared', async () => {

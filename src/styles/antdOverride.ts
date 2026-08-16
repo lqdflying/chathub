@@ -21,4 +21,21 @@ export default ({ token }: { prefixCls: string; token: Theme }) => css`
     background: ${rgba(token.colorBgLayout, 0.5)} !important;
     backdrop-filter: blur(2px);
   }
+
+  /*
+   * antd image-preview lightbox (used by the mermaid click-to-zoom). @lobehub/ui
+   * hardcodes the preview mask to an opaque container color and opens at the
+   * image's intrinsic size, so the backdrop looks like a flat panel and small
+   * diagrams show tiny. Restore a translucent scrim and let the (vector) image
+   * scale toward the viewport. Global to all antd previews — the scrim is
+   * desirable everywhere; the size cap only enlarges, never distorts.
+   */
+  .${token.prefixCls}-image-preview-mask {
+    background: ${rgba(token.colorBgLayout, 0.5)} !important;
+  }
+
+  .${token.prefixCls}-image-preview-img {
+    max-width: 90vw;
+    max-height: 90vh;
+  }
 `;

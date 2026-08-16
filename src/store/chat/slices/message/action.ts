@@ -38,6 +38,7 @@ import { sessionSelectors } from '@/store/session/selectors';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
+import { sleep } from '@/utils/sleep';
 import { Action, setNamespace } from '@/utils/storeDebug';
 
 import type { ChatStoreState } from '../../initialState';
@@ -48,6 +49,12 @@ import { MessageDispatch, messagesReducer } from './reducer';
 const n = setNamespace('m');
 
 const SWR_USE_FETCH_MESSAGES = 'SWR_USE_FETCH_MESSAGES';
+
+// assistant-finalization persistence: the server diagnostics schema accepts
+// attempts 1..3, and a short pause between tries lets transient gateway
+// failures clear instead of burning both retries in the same instant
+const FINALIZE_MAX_ATTEMPTS = 3;
+const FINALIZE_RETRY_BACKOFF_MS = 400;
 const conversationCacheKeys = new Set([
   SWR_USE_FETCH_MESSAGES,
   'SWR_USE_FETCH_TOPIC',
@@ -178,7 +185,10 @@ export interface ChatMessageAction {
       traceId?: string;
       conversationContext?: ConversationContext;
     },
-  ) => Promise<{ persistenceAmbiguous: boolean }>;
+  ) => Promise<{
+    failure?: { bodyKind: string; httpStatus?: number };
+    persistenceAmbiguous: boolean;
+  }>;
   /**
    * update the message error with optimistic update
    */
@@ -777,7 +787,34 @@ export const chatMessage: StateCreator<
     if (extra?.persistenceRecovery === 'assistant_finalization') {
       const diagnosticId = extra.diagnosticId || `td_${nanoid(20)}`;
 
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
+      // The write may have been applied while only the RESPONSE was lost or
+      // mangled (gateway/proxy interception) — read the message straight from
+      // the server (NOT the store: the optimistic dispatch above already wrote
+      // `update` into the in-memory map, and for a background conversation a
+      // refresh won't overwrite it) and check whether this update actually
+      // landed. The read MUST be scoped by id only: a conversation-list query
+      // silently misses group messages (its groupId filter defaults to NULL)
+      // and anything past its 1,000-row oldest-first page.
+      const verifyFinalizationLanded = async (): Promise<boolean> => {
+        try {
+          // suppress the global 401-login / fetch-error UI (the dedicated
+          // persistence warning is the single user-facing failure path) and
+          // keep the read on the isolated diagnostic link
+          const persisted = await messageService.getMessageById(id, {
+            diagnosticId,
+            diagnosticOperation: 'finalize_assistant_message',
+            showNotification: false,
+          });
+          if (!persisted) return false;
+          const persistedToolIds = new Set((persisted.tools ?? []).map((tool) => tool.id));
+          const toolsLanded = (update.tools ?? []).every((tool) => persistedToolIds.has(tool.id));
+          return persisted.content === content && toolsLanded;
+        } catch {
+          return false;
+        }
+      };
+
+      for (let attempt = 1; attempt <= FINALIZE_MAX_ATTEMPTS; attempt += 1) {
         if (!isCurrentRequest()) return { persistenceAmbiguous: false };
 
         try {
@@ -800,7 +837,24 @@ export const chatMessage: StateCreator<
           });
 
           if (!isCurrentRequest()) return { persistenceAmbiguous: false };
-          if (attempt < 2) continue;
+          if (attempt < FINALIZE_MAX_ATTEMPTS) {
+            // brief backoff — transient gateway hiccups usually clear
+            await sleep(FINALIZE_RETRY_BACKOFF_MS);
+            if (!isCurrentRequest()) return { persistenceAmbiguous: false };
+            continue;
+          }
+          if (await verifyFinalizationLanded()) {
+            if (!isCurrentRequest()) return { persistenceAmbiguous: false };
+            if (!extra.skipRefresh) {
+              try {
+                await refreshMessages(conversationContext);
+              } catch {
+                // The confirmed write and optimistic payload remain authoritative.
+              }
+            }
+            return { persistenceAmbiguous: false };
+          }
+          if (!isCurrentRequest()) return { persistenceAmbiguous: false };
           if (!extra.skipRefresh) {
             try {
               await refreshMessages(conversationContext);
@@ -810,7 +864,13 @@ export const chatMessage: StateCreator<
           }
           if (!isCurrentRequest()) return { persistenceAmbiguous: false };
           internal_dispatchMessage({ id, type: 'updateMessage', value: update }, dispatchContext);
-          return { persistenceAmbiguous: true };
+          return {
+            failure: {
+              bodyKind: responseError.details.bodyKind,
+              httpStatus: responseError.details.httpStatus,
+            },
+            persistenceAmbiguous: true,
+          };
         }
       }
 
@@ -1100,6 +1160,9 @@ export const chatMessage: StateCreator<
         messageLoadingIds: [],
         messageInToolsCallingIds: [],
         messageInToolsCallingIdsAbortController: undefined,
+        // clear RAG loading too, or an id orphaned mid-retrieval leaves the
+        // avatar spinner stuck across topic switches (clearMessage clears it)
+        messageRAGLoadingIds: [],
         pluginApiAbortControllers: {},
         pluginApiLoadingIds: [],
         reasoningLoadingIds: [],

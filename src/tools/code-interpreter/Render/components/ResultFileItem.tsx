@@ -2,7 +2,7 @@ import { CodeInterpreterFileItem } from '@lobechat/types';
 import { Icon, Image, MaterialFileTypeIcon, Text, Tooltip } from '@lobehub/ui';
 import { createStyles } from 'antd-style';
 import { Download } from 'lucide-react';
-import React, { memo } from 'react';
+import React, { memo, useEffect } from 'react';
 
 import { fileService } from '@/services/file';
 import { useChatStore } from '@/store/chat';
@@ -65,11 +65,18 @@ const ResultImage = memo<CodeInterpreterFileItem>(({ filename, previewUrl, fileI
   const imageUrl = data?.url ?? previewUrl;
   const baseName = basename(data?.filename ?? filename);
 
+  // revoke the local blob URL on unmount (or when it changes) — NOT on load,
+  // which would break any re-render/remount; never touch a server URL
+  useEffect(() => {
+    if (!previewUrl?.startsWith('blob:')) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
   if (imageUrl) {
     return (
       <div className={styles.container}>
         <Tooltip title={baseName}>
-          <Image alt={baseName} onLoad={() => URL.revokeObjectURL(imageUrl)} src={imageUrl} />
+          <Image alt={baseName} src={imageUrl} />
         </Tooltip>
       </div>
     );

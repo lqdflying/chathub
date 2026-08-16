@@ -203,6 +203,77 @@ describe('chatRAG actions', () => {
       ]);
     });
 
+    it('a stale request does not clear a newer request that reused the id after invalidation', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'rag-msg';
+
+      vi.spyOn(chatSelectors, 'getMessageById').mockReturnValue(
+        () => ({ id: messageId, ragQuery: 'q' }) as UIChatMessage,
+      );
+      vi.spyOn(agentSelectors, 'currentKnowledgeIds').mockReturnValue({
+        fileIds: [],
+        knowledgeBaseIds: [],
+      });
+      vi.spyOn(chatSelectors, 'currentUserFiles').mockReturnValue([]);
+
+      const searchResult = {
+        chunks: [],
+        queryId: 'q',
+        retrieval: {
+          candidateCount: 0,
+          candidateLimit: 24,
+          eligibleCount: 0,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 0,
+          selectedScores: [],
+          strategy: 'cosine',
+        },
+        scope: { directFileCount: 0, expandedFileCount: 0, knowledgeBaseCount: 0 },
+      };
+      let resolveA!: (v: unknown) => void;
+      let resolveB!: (v: unknown) => void;
+      (ragService.semanticSearchForChat as Mock)
+        .mockImplementationOnce(() => new Promise((r) => (resolveA = r)))
+        .mockImplementationOnce(() => new Promise((r) => (resolveB = r)));
+
+      const flush = () => act(async () => await new Promise((r) => setTimeout(r, 0)));
+
+      // A starts and parks at the (deferred) semantic search
+      let aDone!: Promise<unknown>;
+      act(() => {
+        aDone = result.current.internal_retrieveChunks(messageId, 'query', []);
+      });
+      await flush();
+      expect(useChatStore.getState().messageRAGLoadingIds).toContain(messageId);
+
+      // invalidation clears the flag and bumps the generation
+      act(() => result.current.internal_invalidateConversation());
+      expect(useChatStore.getState().messageRAGLoadingIds).toEqual([]);
+
+      // B reuses the same id under the new generation and parks
+      let bDone!: Promise<unknown>;
+      act(() => {
+        bDone = result.current.internal_retrieveChunks(messageId, 'query', []);
+      });
+      await flush();
+      expect(useChatStore.getState().messageRAGLoadingIds).toContain(messageId);
+
+      // resolving the stale A must NOT clear B's live flag
+      await act(async () => {
+        resolveA(searchResult);
+        await aDone;
+      });
+      expect(useChatStore.getState().messageRAGLoadingIds).toContain(messageId);
+
+      // resolving B clears its own flag
+      await act(async () => {
+        resolveB(searchResult);
+        await bDone;
+      });
+      expect(useChatStore.getState().messageRAGLoadingIds).toEqual([]);
+    });
+
     it('stops before query rewriting when the RAG provider is unavailable', async () => {
       const { result } = renderHook(() => useChatStore());
       vi.spyOn(chatSelectors, 'getMessageById').mockReturnValue(

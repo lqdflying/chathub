@@ -7,6 +7,7 @@ import { memo, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { useServerConfigStore } from '@/store/serverConfig';
 
 const useStyles = createStyles(({ css }) => ({
   container: css`
@@ -28,6 +29,7 @@ interface HtmlPreviewDrawerProps {
 const HtmlPreviewDrawer = memo<HtmlPreviewDrawerProps>(({ content, open, onClose }) => {
   const { styles } = useStyles();
   const { t } = useTranslation('components');
+  const mobile = useServerConfigStore((s) => s.isMobile);
   const [mode, setMode] = useState<'preview' | 'code'>('preview');
 
   const htmlContent = content;
@@ -52,8 +54,14 @@ const HtmlPreviewDrawer = memo<HtmlPreviewDrawerProps>(({ content, open, onClose
   }, [content, extractTitle, sanitizeFileName]);
 
   const Title = (
-    <Flexbox align={'center'} horizontal justify={'space-between'} style={{ width: '100%' }}>
-      {t('HtmlPreview.title')}
+    <Flexbox
+      align={'center'}
+      gap={8}
+      horizontal
+      justify={'space-between'}
+      style={{ width: '100%' }}
+    >
+      {!mobile && t('HtmlPreview.title')}
       <Segmented
         onChange={(v) => setMode(v as 'preview' | 'code')}
         options={[
@@ -84,7 +92,7 @@ const HtmlPreviewDrawer = memo<HtmlPreviewDrawerProps>(({ content, open, onClose
         onClick={onDownload}
         variant={'filled'}
       >
-        {t('HtmlPreview.actions.download')}
+        {!mobile && t('HtmlPreview.actions.download')}
       </Button>
     </Flexbox>
   );
@@ -92,7 +100,10 @@ const HtmlPreviewDrawer = memo<HtmlPreviewDrawerProps>(({ content, open, onClose
   return (
     <Drawer
       destroyOnHidden
-      height={'100vh'}
+      // on mobile, shrink by the top safe-area so the header (close X) drops
+      // below the status bar/notch instead of rendering behind it (matches the
+      // @lobehub/ui Modal fullscreen idiom); env() is 0 on non-notch devices
+      height={mobile ? 'calc(100dvh - env(safe-area-inset-top))' : '100dvh'}
       onClose={onClose}
       open={open}
       placement="bottom"
@@ -106,7 +117,8 @@ const HtmlPreviewDrawer = memo<HtmlPreviewDrawerProps>(({ content, open, onClose
         <Block className={styles.container}>
           <iframe
             className={styles.iframe}
-            sandbox="allow-scripts allow-same-origin"
+            referrerPolicy={'no-referrer'}
+            sandbox="allow-scripts"
             srcDoc={content}
             title={t('HtmlPreview.iframeTitle')}
           />

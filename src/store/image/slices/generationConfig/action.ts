@@ -40,11 +40,12 @@ export interface GenerationConfigAction {
 
   setImageNum: (imageNum: number) => void;
 
+  /** returns false when the batch's model/provider is no longer usable */
   reuseSettings: (
     model: string,
     provider: string,
     settings: Partial<RuntimeImageGenParams>,
-  ) => void;
+  ) => boolean;
   reuseSeed: (seed: number) => void;
 
   setWidth(width: number): void;
@@ -434,6 +435,9 @@ export const createGenerationConfigSlice: StateCreator<
   },
 
   reuseSettings: (model: string, provider: string, settings: Partial<RuntimeImageGenParams>) => {
+    // the batch's model/provider may have been removed or disabled since the
+    // batch ran — getModelAndDefaults would throw and crash the workspace
+    if (!isImageModelConfigUsable(model, provider)) return false;
     const { defaultValues, parametersSchema } = getModelAndDefaults(model, provider);
     const parameters = { ...defaultValues, ...settings };
     set(
@@ -450,6 +454,7 @@ export const createGenerationConfigSlice: StateCreator<
 
     const { imageNum } = get();
     saveImagePreferences(model, provider, imageNum, parameters, parametersSchema);
+    return true;
   },
 
   reuseSeed: (seed: number) => {
@@ -652,9 +657,16 @@ export const createGenerationConfigSlice: StateCreator<
     const rememberedEnabledModel = rememberedImageModel
       ? getEnabledImageModel(rememberedImageModel.model, rememberedImageModel.provider)
       : undefined;
-    const rememberedModelDefaultSize = rememberedEnabledModel
-      ? extractDefaultValues(rememberedEnabledModel.parameters).size
-      : undefined;
+    // guarded: this runs in the globally-mounted hydration effect — a
+    // schema-less enabled model would otherwise throw and blank every route
+    let rememberedModelDefaultSize: string | undefined;
+    try {
+      rememberedModelDefaultSize = rememberedEnabledModel
+        ? extractDefaultValues(rememberedEnabledModel.parameters).size
+        : undefined;
+    } catch {
+      rememberedModelDefaultSize = undefined;
+    }
     const expectedRememberedImageSize =
       lastSelectedImageSize === null
         ? rememberedEnabledModel?.parameters.size

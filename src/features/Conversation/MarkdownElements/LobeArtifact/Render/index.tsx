@@ -1,137 +1,47 @@
-import { Icon } from '@lobehub/ui';
-import { App } from 'antd';
-import { createStyles } from 'antd-style';
-import { Loader2 } from 'lucide-react';
-import { memo, useContext, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Center, Flexbox } from 'react-layout-kit';
+import { ArtifactType } from '@lobechat/types';
+import { memo, useEffect, useRef } from 'react';
 
 import { useChatStore } from '@/store/chat';
-import { chatPortalSelectors, chatSelectors } from '@/store/chat/selectors';
-import { dotLoading } from '@/styles/loading';
+import { chatSelectors } from '@/store/chat/selectors';
+import { useServerConfigStore } from '@/store/serverConfig';
 
-import { InPortalThreadContext } from '../../../context/InPortalThreadContext';
-import { MarkdownElementProps } from '../../type';
-import ArtifactIcon from './Icon';
+import Card, { ArtifactProps } from './Card';
+import InlineSVG from './InlineSVG';
 
-const useStyles = createStyles(({ css, token, isDarkMode }) => ({
-  avatar: css`
-    border-inline-end: 1px solid ${token.colorSplit};
-    background: ${token.colorFillQuaternary};
-  `,
-  container: css`
-    cursor: pointer;
-
-    margin-block-start: 12px;
-    border: 1px solid ${token.colorBorder};
-    border-radius: 8px;
-
-    color: ${token.colorText};
-
-    box-shadow: ${isDarkMode ? token.boxShadowSecondary : token.boxShadowTertiary};
-
-    &:hover {
-      background: ${token.colorFillQuaternary};
-    }
-  `,
-  desc: css`
-    font-size: 12px;
-    color: ${token.colorTextTertiary};
-  `,
-  title: css`
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 1;
-
-    text-overflow: ellipsis;
-  `,
-}));
-
-interface ArtifactProps extends MarkdownElementProps {
-  identifier: string;
-  language?: string;
-  title: string;
-  type: string;
-}
-
-const Render = memo<ArtifactProps>(({ identifier, title, type, language, children, id }) => {
-  const { t } = useTranslation('chat');
-  const { styles, cx } = useStyles();
+const Render = memo<ArtifactProps>((props) => {
+  const { identifier, title, type, language, children, id } = props;
 
   const hasChildren = !!children;
-  const str = ((children as string) || '').toString?.();
+  // SVG artifacts render inline in the bubble; every other type keeps the card
+  // + side-portal behavior
+  const isSVGArtifact = type === ArtifactType.SVG;
+  const isMobile = useServerConfigStore((s) => s.isMobile);
 
-  const inThread = useContext(InPortalThreadContext);
-  const { message } = App.useApp();
-  const [isGenerating, isArtifactTagClosed, openArtifact, closeArtifact] = useChatStore((s) => {
-    return [
-      chatSelectors.isMessageGenerating(id)(s),
-      chatPortalSelectors.isArtifactTagClosed(id)(s),
-      s.openArtifact,
-      s.closeArtifact,
-    ];
+  const [isGenerating, openArtifact] = useChatStore((s) => {
+    return [chatSelectors.isMessageGenerating(id)(s), s.openArtifact];
   });
 
-  const openArtifactUI = () => {
-    openArtifact({ id, identifier, language, title, type });
-  };
-
+  // Open the portal once when a non-SVG artifact starts streaming. The previous
+  // effect had the streaming body in its deps and re-opened on every chunk,
+  // which on mobile re-covered the screen each tick and fought a user trying to
+  // dismiss it. Now: open at most once per generation, and never auto-open on
+  // mobile (the inline Card is shown; the user opens the portal manually). The
+  // portal reads live content via chatPortalSelectors.artifactCode(id), so it
+  // keeps updating without re-calling openArtifact.
+  const openedRef = useRef(false);
   useEffect(() => {
-    if (!hasChildren || !isGenerating) return;
+    if (!isGenerating) {
+      openedRef.current = false;
+      return;
+    }
+    if (isSVGArtifact || !hasChildren || isMobile || openedRef.current) return;
+    openedRef.current = true;
+    openArtifact({ id, identifier, language, title, type });
+  }, [isSVGArtifact, isGenerating, hasChildren, isMobile, identifier, title, type, id, language]);
 
-    openArtifactUI();
-  }, [isGenerating, hasChildren, str, identifier, title, type, id, language]);
+  if (isSVGArtifact && hasChildren) return <InlineSVG {...props} />;
 
-  return (
-    <Flexbox
-      className={styles.container}
-      gap={16}
-      onClick={() => {
-        const currentArtifactMessageId = chatPortalSelectors.artifactMessageId(
-          useChatStore.getState(),
-        );
-        if (currentArtifactMessageId === id) {
-          closeArtifact();
-        } else {
-          if (inThread) {
-            message.info(t('artifact.inThread'));
-            return;
-          }
-          openArtifactUI();
-        }
-      }}
-      width={'100%'}
-    >
-      <Flexbox align={'center'} flex={1} horizontal>
-        <Center className={styles.avatar} height={64} horizontal width={64}>
-          <ArtifactIcon type={type} />
-        </Center>
-        <Flexbox gap={4} paddingBlock={8} paddingInline={12}>
-          {!title && isGenerating ? (
-            <Flexbox className={cx(dotLoading)} horizontal>
-              {t('artifact.generating')}
-            </Flexbox>
-          ) : (
-            <Flexbox className={cx(styles.title)}>{title || t('artifact.unknownTitle')}</Flexbox>
-          )}
-          {hasChildren && (
-            <Flexbox className={styles.desc} horizontal>
-              {identifier} ·{' '}
-              <Flexbox gap={2} horizontal>
-                {!isArtifactTagClosed && (
-                  <div>
-                    <Icon icon={Loader2} spin />
-                  </div>
-                )}
-                {str?.length}
-              </Flexbox>
-            </Flexbox>
-          )}
-        </Flexbox>
-      </Flexbox>
-    </Flexbox>
-  );
+  return <Card {...props} />;
 });
 
 export default Render;

@@ -103,9 +103,11 @@ hardcoded initial value.
 
 `useFetchAiImageConfig` continues to wait for three prerequisites owned by the
 active canonical scope: browser system status, user state, and provider runtime
-state. `ImageWorkspace` remains the single owner of that initializer; the
-desktop panel and mobile drawer only render the resulting loading, failure, or
-settled state.
+state. It is now mounted globally in `StoreInitialization` so the config hydrates
+for every session — the built-in chat Image tool depends on this (see _Chat Image
+tool_ below). The initializer is idempotent (it no-ops once `isInit` is set), so
+the additional `ImageWorkspace` mount is harmless; the desktop panel and mobile
+drawer only render the resulting loading, failure, or settled state.
 
 User-state and provider-runtime request failures are stored as category-only
 records tagged with the requested scope. User hydration can report
@@ -781,6 +783,123 @@ configured `DATABASE_TEST_URL` and cover source/account filtering, age cutoffs,
 active-task skips, row-lock rechecks, and durable-original preservation.
 Legacy ComfyUI transformer tests use test-local model schemas so removed
 provider exports are not restored.
+
+## Chat Image tool (provider resolution + generation)
+
+The built-in chat **Image** tool (`lobe-image-designer`) shares the workspace's
+configurable model rather than a hard-coded one.
+
+- **Preference resolution** — `resolveImageModel()`
+  (`src/store/chat/slices/builtinTool/actions/dalle.ts`) reads the image store's
+  `generationConfig` (`provider`/`model`/`parameters`). It only trusts the store
+  once `isInit` is true, so it never bills the hard-coded initial default
+  (`openai`/`gpt-image-1`); the owner-aware hydration (`useFetchAiImageConfig`) is
+  mounted globally in `StoreInitialization` so the config is populated even when
+  the user never opened `/image`. If the stored model isn't enabled it falls back
+  to the first usable `enabledImageModelList` entry; if none, it surfaces a
+  no-model error. Per-generation fields (`prompt`, `imageUrl`, `imageUrls`) are
+  stripped so the tool is always text-only.
+- **Generation — async task + polling (same pattern as the workspace).**
+  Generation can take 30–60 s (e.g. 4K `gpt-image-2`), so the chat tool never
+  holds a synchronous request open: `imageGenerationService.createChatImageTask`
+  → `POST /webapi/create-chat-image/[provider]` (a thin bridge on its own path
+  so the static `/create-image/comfyui` route can never shadow a provider
+  segment; it exists so the auth payload carries the IMAGE provider's keyVaults
+  via `createHeaderWithAuth(provider)`, and it forwards the RAW encoded auth
+  header into the caller context because image procedures run the `keyVaults`
+  middleware, which decodes `ctx.authorizationHeader` itself; header-less
+  checkAuth bypass modes get the already-authenticated payload re-encoded with
+  `obfuscatePayloadWithXOR`, never fabricated for unauthenticated calls) →
+  `lambda image.createChatImage` creates a pending `asyncTask` and dispatches
+  `async image.createChatImage`, returning the task id immediately. The client
+  validates the `{ taskId }` echo before polling, then polls
+  `image.getChatImageResult` (2.5 s interval, 300 s budget, notifications
+  suppressed). Poll-error classification is status-first regardless of shape:
+  guarded (mangled-transport) or plain errors with a 4xx status surface
+  immediately; only 5xx and status-less transport failures retry within the
+  budget.
+- **Task durability — deterministic ids, ownership, verified write-first
+  correlation.** Task ids are DETERMINISTIC (sha256-derived, RFC-4122-shaped,
+  seeded by user scope + message id + item index + attempt counter; the
+  counter is persisted on the item next to the id, and a server-confirmed
+  terminal failure advances to the NEXT attempt of the same tuple): any tab
+  computes the SAME id for the same attempt, so a cross-tab overlap cannot
+  create two different paid tasks — the server's idempotent same-id insert plus the pending-claim
+  dedup collapse duplicate submissions into ONE task, and every tab adopts
+  the same result. Within a tab, a generation run additionally claims
+  exclusive per-item ownership (`inFlightTaskKeys`, a key→run-token map)
+  synchronously BEFORE any await, allocation, or write; an overlapping
+  same-tab invocation owns nothing and returns. Ownership release is
+  guaranteed by a function-level `try/finally` that releases only keys still
+  owned by this run's token (so an index a later invocation legitimately
+  reclaimed is never stolen) — a stale return or thrown persistence/config
+  failure can no longer leak a claim and dead-lock reconcile/Retry until
+  reload. Correlation writes are a conflict-aware serialized draft update
+  (NOT a persistence-level CAS): a fresh id is written only where the draft
+  still has no `taskId`/`imageId`, a concurrently-appeared id is ADOPTED, and
+  replacements pin the exact terminally-failed id as their compare value.
+  After the awaited write, the ids are checked at their EXACT indices in the
+  originating message's persisted content, read from the origin
+  conversation's map key — an origin-map verification after a successful
+  write (the layers can silently no-op on stale ownership/navigation, so
+  awaiting alone proves nothing). Unproven ids → ZERO tasks created,
+  per-item error. The result endpoint distinguishes two missing states:
+  `task_missing` (no task row — the write-first id was persisted but its
+  create never ran, or another tab's create is racing) is NOT terminal and is
+  recovered by idempotently re-submitting the SAME id — mount reconciliation
+  does this automatically via its adopt probe, so a pre-create persisted id
+  never holds its ownership key through a doomed poll budget; `result_missing`
+  (the task SUCCEEDED but its correlated file row is gone) is an
+  authoritative terminal failure — re-submitting the success id can never be
+  re-claimed, so only an explicit Retry advancing to the deterministic
+  replacement id can move past it. Because that automatic resubmission is
+  BILLABLE, it runs only behind four gates: provenance — a persisted id may
+  auto-generate only if it derives exactly from (user scope, message id,
+  index, persisted attempt): one derivation, no chain walk and no chain cap,
+  so the validator never rejects an id this action legitimately created and
+  Retry is not limited to any attempt count. Restored/imported messages (new
+  message ids, no task rows in backups) fail the check, surface a per-item
+  localized "could not be verified" notice (a stable error type rendered
+  through the tool locale, never hard-coded English), and route through
+  explicit Retry, which replaces the unproven id with the derived attempt-0
+  id and never submits the old one; config readiness — reconcile waits
+  (bounded, invalidation-aware) for the owner-scoped image config to finish
+  hydrating instead of misreading "still initializing" as "no usable model",
+  and the tool render subscribes to that readiness, re-running reconciliation
+  when hydration settles — even after the bounded wait expired — so recovery
+  needs no remount and no manual Retry; current correlation — the message
+  must still exist and still carry that exact unresolved id at that index
+  when the create is sent (deleting a message mid-probe aborts silently); and
+  server-side verification — the create contract REQUIRES the correlation
+  (message id + index) and the task id, and the mutation verifies and inserts
+  in ONE transaction with the message row read FOR SHARE, linearized against
+  message deletion — neither an omitted field nor a delete/create race can
+  insert work the conversation no longer contains. Item writes are serialized
+  per message (a promise queue in `updateImageItem`). The tool render's
+  mount-time `reconcileDallETasks` adopts a finished task's file, resumes
+  waiting on a pending one, or surfaces its failure; `retryDallEImages`
+  adopts an existing task first and creates a replacement ONLY after the
+  server reports an authoritative terminal `error` state with ownership
+  re-checked after that await — lookup, transport and local-timeout failures
+  surface without creating. (Recovery is view-triggered: a background
+  conversation reconciles when it is next opened.)
+- **Server-side image handling.** The async procedure runs
+  `agentRuntime.createImage` (same runtime init as the workspace; ComfyUI auth
+  headers are forwarded to the protected result download exactly like the
+  workspace flow), then `GenerationService.transformImageForGeneration` +
+  `uploadImageForGeneration`, and creates a **files row** linked to the task
+  via `metadata.chatImageTaskId` (`FileModel.findByChatImageTaskId`). The chat
+  message stores only the durable `fileId` — the raw provider/base64 payload
+  never crosses the task/message boundary into content or the store (that was
+  the cause of the live-page crash this design replaced); the browser
+  naturally fetches the persisted image file to display it. Provider/task
+  failures are categorized onto the task (`categorizeError`) and surface as
+  the per-item error card. Results settle independently with bounded
+  concurrency. The byte-verifying CORS download path
+  (`getImageFileByUrlWithCORS` + `/webapi/proxy` hardening) remains in the
+  upload service for other callers but is no longer part of generation.
+
+## Testing
 
 Run the targeted image Vitest suites, the ComfyUI service tests when transformer
 fixtures change, and `bun run type-check`. Follow the repository constraints in

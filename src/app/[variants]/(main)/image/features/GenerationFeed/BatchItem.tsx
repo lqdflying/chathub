@@ -106,11 +106,12 @@ export const GenerationBatchItem = memo<GenerationBatchItemProps>(({ batch }) =>
   };
 
   const handleReuseSettings = () => {
-    reuseSettings(
+    const applied = reuseSettings(
       batch.model,
       batch.provider,
       omit(batch.config as RuntimeImageGenParams, ['seed']),
     );
+    if (!applied) message.error(t('generation.actions.reuseSettingsUnavailable'));
   };
 
   const handleRegenerate = async () => {

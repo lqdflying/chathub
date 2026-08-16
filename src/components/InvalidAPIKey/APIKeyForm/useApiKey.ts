@@ -11,7 +11,10 @@ export const useApiKey = (provider: string) => {
   const data = useAiInfraStore(aiProviderSelectors.providerConfigById(provider), isEqual);
 
   return {
-    apiKey: data?.keyVaults.apiKey,
+    // both need the full optional chain: this renders inside the failed-batch
+    // error card, where the provider's keyVaults may not be hydrated at all —
+    // a throw here takes down the whole (main) segment
+    apiKey: data?.keyVaults?.apiKey,
     baseURL: data?.keyVaults?.baseURL,
     setConfig: async (id: string, params: Record<string, string>) => {
       const next = { ...data?.keyVaults, ...params };

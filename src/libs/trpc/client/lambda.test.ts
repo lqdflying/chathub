@@ -10,6 +10,19 @@ import { createLambdaClient } from './lambda';
 import { TOOLS_DIAGNOSTIC_CONTEXT_KEY } from './tools';
 import { findRPCResponseError } from './toolsResponse';
 
+// lightweight module-scope spies — the error link imports these lazily, and
+// pulling the real UI trees into the test costs seconds and times it out
+const { loginRedirectSpy, fetchErrorSpy } = vi.hoisted(() => ({
+  fetchErrorSpy: vi.fn(),
+  loginRedirectSpy: vi.fn(),
+}));
+vi.mock('@/components/Error/loginRequiredNotification', () => ({
+  loginRequired: { redirect: loginRedirectSpy },
+}));
+vi.mock('@/components/Error/fetchErrorNotification', () => ({
+  fetchErrorNotification: { error: fetchErrorSpy },
+}));
+
 const trpcResult = (value: unknown) => ({ result: { data: { json: value } } });
 
 describe('lambda tRPC client links', () => {
@@ -174,4 +187,62 @@ describe('lambda tRPC client links', () => {
     expect(JSON.stringify(error)).not.toContain('<!DOCTYPE');
     expect(JSON.stringify(error)).not.toContain('Unexpected token');
   });
+
+  it.each([401, 403])(
+    'suppresses the global login/fetch UI for an HTML %i when showNotification is false',
+    async (status) => {
+      loginRedirectSpy.mockClear();
+      fetchErrorSpy.mockClear();
+      const urls: string[] = [];
+      const diagnosticIds: string[] = [];
+      const diagnosticOperations: string[] = [];
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        urls.push(input.toString());
+        diagnosticIds.push(new Headers(init?.headers).get(CHATHUB_TOOLS_DIAGNOSTIC_HEADER) || '');
+        diagnosticOperations.push(
+          new Headers(init?.headers).get(CHATHUB_RPC_DIAGNOSTIC_OPERATION_HEADER) || '',
+        );
+        return new Response('<!DOCTYPE html><html><body>gateway page</body></html>', {
+          headers: { 'content-type': 'text/html' },
+          status,
+        });
+      }) as typeof fetch;
+
+      const client = createLambdaClient({
+        fetch: fetchMock,
+        getAuthHeaders: async () => ({}),
+      });
+
+      // the finalization read-back path: suppressed notifications + isolated link
+      const error = await client.message.getMessageById
+        .query(
+          { id: 'message-id' },
+          {
+            context: {
+              diagnosticOperation: 'finalize_assistant_message',
+              [TOOLS_DIAGNOSTIC_CONTEXT_KEY]: 'td_1234567890abcdef',
+              showNotification: false,
+            },
+          },
+        )
+        .catch((cause) => cause);
+
+      // the read is DIRECTLY non-batched and carries the shared diagnostic
+      // metadata — this is what keeps it off any shared batch request
+      expect(urls).toHaveLength(1);
+      expect(urls[0]).toContain('/trpc/lambda/message.getMessageById');
+      expect(urls[0]).not.toContain('batch=1');
+      expect(diagnosticIds).toEqual(['td_1234567890abcdef']);
+      expect(diagnosticOperations).toEqual(['finalize_assistant_message']);
+
+      // the caller still receives the classified failure (fail-closed), but no
+      // global login modal or generic fetch notification ever fires
+      expect(findRPCResponseError(error)?.details).toMatchObject({
+        bodyKind: 'html',
+        httpStatus: status,
+      });
+      expect(loginRedirectSpy).not.toHaveBeenCalled();
+      expect(fetchErrorSpy).not.toHaveBeenCalled();
+    },
+  );
 });

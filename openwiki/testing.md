@@ -27,6 +27,29 @@ High-signal tests are colocated with the runtime and service code. For example:
 - `src/services/chat/contextEngineering.test.ts`
 - `src/server/sitemap.test.ts`
 
+## Vitest DOM environments
+
+The default DOM environment is `happy-dom` (root `vitest.config.mts` and most
+package configs). Per-file overrides use a docblock, e.g.
+`/** @vitest-environment node */` (~115 files) or
+`packages/utils/src/client/imageDimensions.test.ts` pinning `happy-dom`.
+
+**DOMPurify-dependent suites must run under `jsdom`** via
+`/** @vitest-environment jsdom */` — the pattern used by
+`packages/utils/src/client/sanitize.test.ts`. DOMPurify does not support
+happy-dom (its README warns the combination "will likely lead to XSS"): under
+happy-dom attribute filtering silently no-ops, removing a node drops its
+following siblings, and bare `<svg…` input parses to empty
+(capricorn86/happy-dom#1629, #1810 — open, no fixed release). Assertions about
+attribute stripping made under happy-dom are vacuous; use jsdom for any new
+sanitization test. `jsdom` is declared in the root `package.json`
+devDependencies because the root `vitest run` sweep (no `include` filter) also
+executes package tests and must resolve the docblock environment.
+
+Do not switch whole packages to jsdom: `packages/utils` image tests
+(`compressImage`, `imageToBase64`, `imageDimensions`) rely on happy-dom plus
+`vitest-canvas-mock` from `packages/utils/tests/setup.ts`.
+
 ## What to verify when changing major areas
 
 ### Provider/runtime changes

@@ -14,7 +14,6 @@ import {
   TraceNameMap,
   UIChatMessage,
 } from '@lobechat/types';
-import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
@@ -47,6 +46,7 @@ import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { Action, setNamespace } from '@/utils/storeDebug';
 
 import { chatSelectors, topicSelectors } from '../../../selectors';
+import { notifyToolCallPersistenceFailure } from './persistenceNotification';
 
 const n = setNamespace('ai');
 
@@ -183,6 +183,7 @@ export interface AIGenerateAction {
     isFunctionCall: boolean;
     content: string;
     persistenceAmbiguous?: boolean;
+    persistenceFailure?: { bodyKind: string; httpStatus?: number };
     traceId?: string;
   }>;
   /**
@@ -618,17 +619,13 @@ export const generateAIChat: StateCreator<
         get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
       }
     }
-    const { isFunctionCall, persistenceAmbiguous } = fetchResult;
+    const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
     if (!isCurrentConversation()) return;
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
       if (persistenceAmbiguous) {
-        const { notification } = await import('@/components/AntdStaticMethods');
-        notification.warning({
-          description: t('assistantToolCallPersistence.description', { ns: 'error' }),
-          message: t('assistantToolCallPersistence.title', { ns: 'error' }),
-        });
+        await notifyToolCallPersistenceFailure(persistenceFailure);
         return;
       }
 
@@ -718,6 +715,7 @@ export const generateAIChat: StateCreator<
 
     let isFunctionCall = false;
     let persistenceAmbiguous = false;
+    let persistenceFailure: { bodyKind: string; httpStatus?: number } | undefined;
     let msgTraceId: string | undefined;
     let output = '';
     let thinking = '';
@@ -902,6 +900,7 @@ export const generateAIChat: StateCreator<
           });
           if (!isCurrentConversation()) return;
           persistenceAmbiguous = finalization.persistenceAmbiguous;
+          persistenceFailure = finalization.failure;
         },
         onMessageHandle: async (chunk) => {
           if (!isCurrentConversation()) return;
@@ -1040,7 +1039,13 @@ export const generateAIChat: StateCreator<
       }
     }
 
-    return { isFunctionCall, persistenceAmbiguous, traceId: msgTraceId, content: output };
+    return {
+      isFunctionCall,
+      persistenceAmbiguous,
+      persistenceFailure,
+      traceId: msgTraceId,
+      content: output,
+    };
   },
 
   internal_resendMessage: async (

@@ -17,15 +17,12 @@ import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { CreateTopicParams } from '@/services/topic/type';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
-import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -449,14 +446,11 @@ export const chatTopic: StateCreator<
           if (!isCurrentTopicRequest()) return;
 
           updateOwnedTitle(text);
-          await enqueueTitleSummaryPersistence(
-            `${requestedScope}:topic:${topicId}`,
-            async () => {
-              if (!isCurrentTopicRequest()) return;
+          await enqueueTitleSummaryPersistence(`${requestedScope}:topic:${topicId}`, async () => {
+            if (!isCurrentTopicRequest()) return;
 
-              await topicService.updateTopic(topicId, { title: text });
-            },
-          );
+            await topicService.updateTopic(topicId, { title: text });
+          });
           if (isCurrentTopicRequest()) didResolveTitle = true;
         },
         onMessageHandle: (chunk) => {
@@ -779,8 +773,7 @@ export const chatTopic: StateCreator<
   },
   refreshTopic: async (context) => {
     const accountMutationSnapshot =
-      context?.accountMutationSnapshot ??
-      captureAccountMutationSnapshot(useUserStore.getState());
+      context?.accountMutationSnapshot ?? captureAccountMutationSnapshot(useUserStore.getState());
     if (!accountMutationSnapshot) return;
     const containerId = context?.containerId ?? get().activeId;
     if (!containerId) return;

@@ -22,6 +22,7 @@ import {
   ne,
   notExists,
   or,
+  sql,
   sum,
 } from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
@@ -426,6 +427,21 @@ export class FileModel {
     const database = trx || this.db;
     return database.query.files.findFirst({
       where: and(eq(files.id, id), eq(files.userId, this.userId)),
+    });
+  };
+
+  /**
+   * Find the file produced by an in-chat image-generation async task. The task
+   * table has no result column, so the async procedure links the created file
+   * back to its task through `metadata.chatImageTaskId` (the same jsonb
+   * metadata channel the workspace generation flow already uses).
+   */
+  findByChatImageTaskId = async (taskId: string) => {
+    return this.db.query.files.findFirst({
+      where: and(
+        eq(files.userId, this.userId),
+        sql`${files.metadata}->>'chatImageTaskId' = ${taskId}`,
+      ),
     });
   };
 

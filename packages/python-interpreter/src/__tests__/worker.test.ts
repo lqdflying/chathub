@@ -21,11 +21,22 @@ describe('PythonWorker', () => {
     setStderr: vi.fn(),
     runPythonAsync: vi.fn(),
     loadedPackages: {},
+    // bundled-package map used by prepareEnvironment (subset of the real lock)
+    lockfile: {
+      packages: {
+        'jsonschema': { version: '4.23.0' },
+        'numpy': { version: '2.0.2' },
+        'rpds-py': { version: '0.23.1' },
+      },
+    },
+    globals: {
+      set: vi.fn(),
+    },
   };
 
   const mockMicropip = {
     set_index_urls: vi.fn(),
-    install: vi.fn(),
+    install: Object.assign(vi.fn(), { callKwargs: vi.fn() }),
   };
 
   beforeEach(() => {
@@ -139,10 +150,22 @@ describe('PythonWorker', () => {
       expect(worker.uploadedFiles).toContain(mockFile);
     });
 
-    it('should upload files with absolute path as-is', async () => {
+    it('sanitizes an absolute-path filename into /mnt/data (no traversal)', async () => {
       const absFile = new File([Uint8Array.from([1, 2])], '/abs.txt');
       await worker.uploadFiles([absFile]);
-      expect(mockPyodide.FS.writeFile).toHaveBeenCalledWith('/abs.txt', expect.any(Uint8Array));
+      expect(mockPyodide.FS.writeFile).toHaveBeenCalledWith(
+        '/mnt/data/abs.txt',
+        expect.any(Uint8Array),
+      );
+    });
+
+    it('strips parent-dir traversal from filenames', async () => {
+      const evilFile = new File([Uint8Array.from([1])], '../../etc/passwd');
+      await worker.uploadFiles([evilFile]);
+      expect(mockPyodide.FS.writeFile).toHaveBeenCalledWith(
+        '/mnt/data/passwd',
+        expect.any(Uint8Array),
+      );
     });
 
     it('should download new files from filesystem', async () => {
@@ -211,6 +234,40 @@ describe('PythonWorker', () => {
       });
     });
 
+    it('bounds the output record count and the size of a late exception (finding C / R3-2)', async () => {
+      const MAX_RESULT_CHARS = 100_000;
+      const hugeMessage = 'x'.repeat(500_000);
+      mockPyodide.runPythonAsync.mockImplementation(async () => {
+        const stdout = mockPyodide.setStdout.mock.calls.at(-1)?.[0].batched as (o: string) => void;
+        // blank prints emit '' (0 chars) — the record-count budget must still cap
+        for (let i = 0; i < 3000; i++) stdout('');
+        // a Python `raise Exception('x' * 500000)`: the terminal record is exempt
+        // from the record/char budget so it stays visible, but its OWN message
+        // must still be bounded before it crosses Comlink and is persisted
+        throw new Error(hugeMessage);
+      });
+
+      const result = await worker.runPython('...');
+
+      // record count is bounded well below the flood, with exactly one marker
+      expect(result.output.length).toBeLessThan(2100);
+      expect(
+        result.output.filter(
+          (o: any) => typeof o.data === 'string' && o.data.includes('[output truncated]'),
+        ),
+      ).toHaveLength(1);
+      // the exception is still visible even though ordinary output hit the cap…
+      const terminal = result.output.at(-1);
+      expect(terminal?.type).toBe('stderr');
+      expect(terminal?.data.startsWith('x')).toBe(true);
+      expect(terminal?.data).toContain('[error truncated]');
+      // …but it is truncated, and NO returned record exceeds the declared bound
+      for (const record of result.output as { data: string }[]) {
+        expect(record.data.length).toBeLessThanOrEqual(MAX_RESULT_CHARS + 32);
+      }
+      expect(result.success).toBe(false);
+    });
+
     it('should install packages using micropip', async () => {
       const packages = ['numpy', 'pandas'];
 
@@ -219,6 +276,99 @@ describe('PythonWorker', () => {
       expect(mockPyodide.loadPackage).toHaveBeenCalledWith('micropip');
       expect(mockMicropip.set_index_urls).toHaveBeenCalledWith([worker.pypiIndexUrl, 'PYPI']);
       expect(mockMicropip.install).toHaveBeenCalledWith(packages);
+    });
+
+    it('wraps the missing-wasm-wheel micropip error in a compatibility message', async () => {
+      mockMicropip.install.mockRejectedValueOnce(
+        new Error("Can't find a pure Python 3 wheel for: 'rpds-py>=0.25.0'"),
+      );
+
+      await expect(worker.installPackages(['jsonschema>=4.26'])).rejects.toThrow(
+        /No Pyodide\/WebAssembly-compatible build exists for: jsonschema>=4\.26[\S\s]*Can't find a pure Python 3 wheel/,
+      );
+    });
+
+    describe('prepareEnvironment (bundled-first package preparation)', () => {
+      it('loads a bundled unversioned request via loadPackage and never micropip (jsonschema case)', async () => {
+        await worker.prepareEnvironment('import jsonschema\nprint(1)', ['jsonschema']);
+
+        expect(mockPyodide.loadPackagesFromImports).toHaveBeenCalledWith(
+          'import jsonschema\nprint(1)',
+        );
+        expect(mockPyodide.loadPackage).toHaveBeenCalledWith(['jsonschema']);
+        expect(mockMicropip.install).not.toHaveBeenCalled();
+      });
+
+      it('with no requested packages only loads the code imports', async () => {
+        await worker.prepareEnvironment('import jsonschema', []);
+
+        expect(mockPyodide.loadPackagesFromImports).toHaveBeenCalledWith('import jsonschema');
+        expect(mockPyodide.loadPackage).not.toHaveBeenCalled();
+        expect(mockMicropip.install).not.toHaveBeenCalled();
+      });
+
+      it('sends a non-bundled requirement to micropip AFTER the bundled import load', async () => {
+        // the Python satisfaction filter reports it unsatisfied
+        mockPyodide.runPythonAsync.mockResolvedValueOnce('["python-docx"]');
+
+        await worker.prepareEnvironment('import docx', ['python-docx']);
+
+        expect(mockMicropip.install).toHaveBeenCalledWith(['python-docx']);
+        // ordering is the whole point: bundled/import loading must precede micropip
+        const importsOrder = mockPyodide.loadPackagesFromImports.mock.invocationCallOrder[0];
+        const micropipOrder = mockMicropip.install.mock.invocationCallOrder[0];
+        expect(importsOrder).toBeLessThan(micropipOrder);
+      });
+
+      it('drops a versioned requirement the bundled version already satisfies', async () => {
+        mockPyodide.runPythonAsync.mockResolvedValueOnce('[]');
+
+        await worker.prepareEnvironment('import jsonschema', ['jsonschema>=4.20']);
+
+        // bundled copy loaded so the check runs against 4.23.0, then satisfied
+        expect(mockPyodide.loadPackage).toHaveBeenCalledWith(['jsonschema']);
+        expect(mockPyodide.loadPackage).toHaveBeenCalledWith('packaging');
+        expect(mockMicropip.install).not.toHaveBeenCalled();
+      });
+
+      it('installs a direct URL reference with reinstall=True BEFORE the import auto-loader (R10-3)', async () => {
+        const directRef = 'jsonschema @ https://example.com/custom-jsonschema.whl';
+
+        await worker.prepareEnvironment('import jsonschema', [directRef]);
+
+        // micropip.install defaults reinstall=False and Pyodide auto-loads
+        // known imports — so the artifact must install first, with kwargs
+        expect(mockMicropip.install.callKwargs).toHaveBeenCalledWith([directRef], {
+          reinstall: true,
+        });
+        const installOrder = mockMicropip.install.callKwargs.mock.invocationCallOrder[0];
+        const importsOrder = mockPyodide.loadPackagesFromImports.mock.invocationCallOrder[0];
+        expect(installOrder).toBeLessThan(importsOrder);
+        // and the bundled copy is never explicitly loaded for it
+        expect(mockPyodide.loadPackage).not.toHaveBeenCalledWith(['jsonschema']);
+        expect(mockMicropip.install).not.toHaveBeenCalled();
+      });
+
+      it('installs a direct URL for a non-bundled name the same way', async () => {
+        const directRef = 'mylib @ https://example.com/mylib-1.0-py3-none-any.whl';
+
+        await worker.prepareEnvironment('import mylib', [directRef]);
+
+        expect(mockMicropip.install.callKwargs).toHaveBeenCalledWith([directRef], {
+          reinstall: true,
+        });
+      });
+
+      it('still fails an explicitly incompatible pin, with the compatibility message', async () => {
+        mockPyodide.runPythonAsync.mockResolvedValueOnce('["jsonschema>=4.26"]');
+        mockMicropip.install.mockRejectedValueOnce(
+          new Error("Can't find a pure Python 3 wheel for: 'rpds-py>=0.25.0'"),
+        );
+
+        await expect(
+          worker.prepareEnvironment('import jsonschema', ['jsonschema>=4.26']),
+        ).rejects.toThrow(/No Pyodide\/WebAssembly-compatible build exists/);
+      });
     });
 
     it('should patch matplotlib when loaded', async () => {

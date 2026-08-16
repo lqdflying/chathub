@@ -16,16 +16,6 @@ const ImagePreview = memo<ImagePreviewProps>(({ imageId, previewUrl, prompt }) =
   const { t } = useTranslation('tool');
 
   return imageId ? (
-    // <Flexbox className={styles.action}>
-    //   <ActionIconGroup
-    //     items={[{ icon: LucideEdit, key: 'edit', label: t('edit', { ns: 'common' }) }]}
-    //     onActionClick={(e) => {
-    //       if (e.key === 'edit') {
-    //         setEdit(true);
-    //       }
-    //     }}
-    //   />
-    // </Flexbox>
     <ImageFileItem id={imageId} />
   ) : (
     previewUrl && (

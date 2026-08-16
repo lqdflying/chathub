@@ -1,8 +1,10 @@
 import { TRPCError } from '@trpc/server';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 
 import { IMAGE_REFERENCE_ERROR_MESSAGES } from '@/const/imageGeneration';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
+import { FileModel } from '@/database/models/file';
 import { GenerationModel } from '@/database/models/generation';
 import {
   NewGeneration,
@@ -11,6 +13,7 @@ import {
   generationBatches,
   generationTopics,
   generations,
+  messages,
 } from '@/database/schemas';
 import { appEnv } from '@/envs/app';
 import {
@@ -269,6 +272,131 @@ const imageProcedure = authedProcedure
   });
 
 export const imageRouter = router({
+  /**
+   * In-chat Image tool: create one async generation task and dispatch it. The
+   * chat tool must never hold a synchronous request open for the whole
+   * generation (30–60 s through proxies) — it polls getChatImageResult
+   * instead, exactly like the workspace polls its generations.
+   */
+  createChatImage: imageProcedure
+    .input(
+      z.object({
+        // MANDATORY: the user-owned message must STILL contain exactly this
+        // unresolved taskId at this index — the server-authoritative guard
+        // that a deleted/mutated message (or a stale/hostile client omitting
+        // the fields) cannot authorize billable work
+        correlation: z.object({ index: z.number().int().min(0), messageId: z.string().min(1) }),
+        model: z.string().trim().min(1),
+        params: z.object({ prompt: z.string().trim().min(1) }).passthrough(),
+        provider: z.string().trim().min(1),
+        // client-generated (write-first) correlation id: the item persists it
+        // BEFORE this request, so the task must be created under exactly this
+        // id; resubmission is idempotent (insert no-ops, claim dedups)
+        taskId: z.string().uuid(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { asyncTaskModel } = ctx;
+
+      // Verification and the billable insert run in ONE transaction, with the
+      // message row read FOR SHARE — this linearizes against message deletion
+      // (its own transaction): if the deletion commits first the read sees
+      // nothing and we refuse; while we hold the lock the deletion waits, so
+      // a task can never be inserted for a message that no longer exists.
+      const taskId = await ctx.serverDB.transaction(async (tx) => {
+        const [ownedMessage] = await tx
+          .select({ content: messages.content })
+          .from(messages)
+          .where(and(eq(messages.id, input.correlation.messageId), eq(messages.userId, ctx.userId)))
+          .limit(1)
+          .for('share');
+
+        let correlated = false;
+        if (ownedMessage?.content) {
+          try {
+            const items = JSON.parse(ownedMessage.content) as {
+              imageId?: string;
+              taskId?: string;
+            }[];
+            const item = items?.[input.correlation.index];
+            correlated = Boolean(item && item.taskId === input.taskId && !item.imageId);
+          } catch {
+            correlated = false;
+          }
+        }
+        if (!correlated) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'The originating message no longer carries this unresolved image task, so no generation was started.',
+          });
+        }
+
+        const inserted = await tx
+          .insert(asyncTasks)
+          .values({
+            id: input.taskId,
+            status: AsyncTaskStatus.Pending,
+            type: AsyncTaskType.ImageGeneration,
+            userId: ctx.userId,
+          })
+          .onConflictDoNothing()
+          .returning();
+        return inserted[0]?.id ?? input.taskId;
+      });
+
+      try {
+        const asyncCaller = await createAsyncCaller({
+          jwtPayload: ctx.jwtPayload,
+          userId: ctx.userId,
+        });
+        asyncCaller.image
+          .createChatImage({
+            model: input.model,
+            params: input.params as { prompt: string },
+            provider: input.provider,
+            taskId,
+          })
+          .catch(async (error) => {
+            await asyncTaskModel
+              .updatePendingToError(taskId, {
+                error: new AsyncTaskError(
+                  AsyncTaskErrorType.TaskTriggerError,
+                  IMAGE_TRIGGER_ERROR_MESSAGE,
+                ),
+                status: AsyncTaskStatus.Error,
+              })
+              .catch(() => {});
+            logImageDebugSafe('dispatch_settled', {
+              ...describeImageDebugError(error),
+              failurePhase: 'dispatch',
+              outcome: 'failed',
+              phase: 'chat_dispatch',
+              taskHash: fingerprintImageDebugValue('async-task-id', taskId),
+            });
+          });
+      } catch (error) {
+        await asyncTaskModel
+          .updatePendingToError(taskId, {
+            error: new AsyncTaskError(
+              AsyncTaskErrorType.TaskTriggerError,
+              IMAGE_TRIGGER_ERROR_MESSAGE,
+            ),
+            status: AsyncTaskStatus.Error,
+          })
+          .catch(() => {});
+        logImageDebugSafe('dispatch_settled', {
+          ...describeImageDebugError(error),
+          failurePhase: 'caller_initialization',
+          outcome: 'failed',
+          phase: 'chat_dispatch',
+          taskHash: fingerprintImageDebugValue('async-task-id', taskId),
+        });
+      }
+
+      return { taskId };
+    }),
+
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {
     const execute = async () => {
       const { userId, serverDB, asyncTaskModel, fileService, generationModel } = ctx;
@@ -588,6 +716,45 @@ export const imageRouter = router({
       execute,
     );
   }),
+
+  /**
+   * Poll result for createChatImage: task status/error plus, on success, the
+   * files row the async procedure created (linked via metadata.chatImageTaskId).
+   */
+  getChatImageResult: imageProcedure
+    .input(z.object({ taskId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const task = await ctx.asyncTaskModel.findById(input.taskId);
+      // NO task row: the id was persisted write-first but its create never
+      // ran (navigation/tab close) — recoverable by idempotently submitting
+      // the SAME id. Must be distinguishable from result_missing below.
+      if (!task) return { status: 'task_missing' as const };
+
+      if (task.status !== AsyncTaskStatus.Success) {
+        return {
+          error: task.error as { body?: { detail?: string }; name?: string } | null,
+          status: task.status as string,
+        };
+      }
+
+      const fileModel = new FileModel(ctx.serverDB, ctx.userId);
+      const file = await fileModel.findByChatImageTaskId(input.taskId);
+      // the task SUCCEEDED but its correlated file row is gone — an
+      // authoritative failure of this attempt: resubmitting the same id can
+      // never work (the success row cannot be re-claimed), only an explicit
+      // Retry advancing to the deterministic replacement id can.
+      if (!file) return { status: 'result_missing' as const };
+
+      const metadata = (file.metadata ?? {}) as { height?: number; width?: number };
+      return {
+        file: {
+          height: metadata.height,
+          id: file.id,
+          width: metadata.width,
+        },
+        status: AsyncTaskStatus.Success as string,
+      };
+    }),
 });
 
 export type ImageRouter = typeof imageRouter;

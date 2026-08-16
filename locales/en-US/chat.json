@@ -8,11 +8,13 @@
   "agentDefaultMessageWithoutEdit": "Hello, I am **{{name}}**. How can I assist you today?",
   "agents": "Assistants",
   "artifact": {
+    "drawing": "Drawing",
     "generating": "Generating",
     "inThread": "Cannot view in subtopic, please switch to the main conversation area to open",
     "thinking": "Thinking",
     "thought": "Thought",
-    "unknownTitle": "Untitled Work"
+    "unknownTitle": "Untitled Work",
+    "viewInPortal": "Open in workspace"
   },
   "availableAgents": "Available assistants",
   "backToBottom": "Back to bottom",

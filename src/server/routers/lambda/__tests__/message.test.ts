@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { MessageModel } from '@/database/models/message';
 import { FileService } from '@/server/services/file';
 
+import { messageRouter } from '../message';
+
 vi.mock('@/database/models/message', () => ({
   MessageModel: vi.fn(),
 }));
@@ -13,6 +15,10 @@ vi.mock('@/server/services/file', () => ({
 }));
 
 vi.mock('@/database/server', () => ({
+  getServerDB: vi.fn(),
+}));
+
+vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: vi.fn(),
 }));
 
@@ -64,6 +70,34 @@ describe('messageRouter', () => {
 
     expect(mockBatchCreate).toHaveBeenCalledWith(input);
     expect(result.rowCount).toBe(2);
+  });
+
+  it('getMessageById procedure reads a single message scoped by id via the user-scoped model', async () => {
+    // a GROUP message (non-null groupId): findById must return it — unlike
+    // query(), which filters groupId to NULL and pages at 1,000 rows
+    const groupMessage = {
+      content: 'final content',
+      groupId: 'group-1',
+      id: 'msg-1',
+      tools: [{ id: 'call_1' }],
+    };
+    const mockFindById = vi.fn().mockResolvedValue(groupMessage);
+    const modelConstructor = vi
+      .mocked(MessageModel)
+      .mockImplementation(() => ({ findById: mockFindById }) as any);
+    vi.mocked(FileService).mockImplementation(() => ({}) as any);
+
+    // invoke the ACTUAL router procedure (middleware + input schema included),
+    // not the mocked model directly
+    const caller = messageRouter.createCaller({
+      clerkAuth: { userId: 'user1' },
+      userId: 'user1',
+    } as never);
+    const result = await caller.getMessageById({ id: 'msg-1' });
+
+    expect(modelConstructor).toHaveBeenCalledWith(expect.anything(), 'user1');
+    expect(mockFindById).toHaveBeenCalledWith('msg-1');
+    expect(result).toEqual(groupMessage);
   });
 
   it('should handle count', async () => {

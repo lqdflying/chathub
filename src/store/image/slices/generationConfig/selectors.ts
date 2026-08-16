@@ -11,7 +11,9 @@ const parametersSchema = (s: GenerationConfigState) => s.parametersSchema;
 const isSupportedParam = (paramName: RuntimeImageGenParamsKeys) => {
   return (s: GenerationConfigState) => {
     const _parametersSchema = parametersSchema(s);
-    return Boolean(paramName in _parametersSchema);
+    // schema can be transiently absent (model removed/not yet resolved); a bare
+    // `in` on undefined would throw during render
+    return Boolean(_parametersSchema && paramName in _parametersSchema);
   };
 };
 

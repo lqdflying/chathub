@@ -1,3 +1,4 @@
+import { ArtifactType } from '@lobechat/types';
 import { Markdown, Mermaid } from '@lobehub/ui';
 import dynamic from 'next/dynamic';
 import { memo } from 'react';
@@ -13,7 +14,7 @@ const Renderer = memo<{ content: string; type?: string }>(({ content, type }) =>
       return <ReactRenderer code={content} />;
     }
 
-    case 'image/svg+xml': {
+    case ArtifactType.SVG: {
       return <SVGRender content={content} />;
     }
 

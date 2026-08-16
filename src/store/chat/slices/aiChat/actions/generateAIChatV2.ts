@@ -51,6 +51,7 @@ import { setNamespace } from '@/utils/storeDebug';
 
 import { chatSelectors, topicSelectors } from '../../../selectors';
 import { messageMapKey } from '../../../utils/messageMapKey';
+import { notifyToolCallPersistenceFailure } from './persistenceNotification';
 
 const n = setNamespace('ai');
 
@@ -911,17 +912,13 @@ export const generateAIChatV2: StateCreator<
         get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
       }
     }
-    const { isFunctionCall, persistenceAmbiguous } = fetchResult;
+    const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
     if (!isCurrentConversation()) return;
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
       if (persistenceAmbiguous) {
-        const { notification } = await import('@/components/AntdStaticMethods');
-        notification.warning({
-          description: t('assistantToolCallPersistence.description', { ns: 'error' }),
-          message: t('assistantToolCallPersistence.title', { ns: 'error' }),
-        });
+        await notifyToolCallPersistenceFailure(persistenceFailure);
         return;
       }
 

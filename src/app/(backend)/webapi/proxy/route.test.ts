@@ -58,5 +58,61 @@ describe('POST /webapi/proxy', () => {
 
     expect(ssrfSafeFetch).toHaveBeenCalledWith('https://images.example/image.png');
     await expect(response.text()).resolves.toBe('image-data');
+    // the upstream content-type must survive so the caller can validate the MIME
+    expect(response.headers.get('content-type')).toBe('image/png');
+  });
+
+  it('forwards a non-OK upstream status, body and headers (so the corrupt-image guard fires)', async () => {
+    vi.mocked(resolveWebApiAuthFromHeader).mockResolvedValue({
+      authResult: { method: 'nextAuth', userId: 'account-a' },
+      payload: {},
+    });
+    vi.mocked(ssrfSafeFetch).mockResolvedValue(
+      new Response('Not Found', {
+        headers: { 'content-type': 'text/plain' },
+        status: 404,
+        statusText: 'Not Found',
+      }),
+    );
+    const request = new Request('https://chathub.example/webapi/proxy', {
+      body: 'https://images.example/missing.png',
+      method: 'POST',
+    });
+
+    const response = await POST(request);
+
+    // previously this returned 200 with dropped headers, so res.ok was true and
+    // the error page was uploaded as an image
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).toBe('text/plain');
+    await expect(response.text()).resolves.toBe('Not Found');
+  });
+
+  it('does not reflect upstream Set-Cookie / policy headers onto the ChatHub origin (finding A)', async () => {
+    vi.mocked(resolveWebApiAuthFromHeader).mockResolvedValue({
+      authResult: { method: 'nextAuth', userId: 'account-a' },
+      payload: {},
+    });
+    vi.mocked(ssrfSafeFetch).mockResolvedValue(
+      new Response('image-data', {
+        headers: {
+          'content-security-policy': "default-src 'none'",
+          'content-type': 'image/png',
+          'set-cookie': 'session=attacker; Path=/; HttpOnly',
+        },
+      }),
+    );
+    const request = new Request('https://chathub.example/webapi/proxy', {
+      body: 'https://images.example/image.png',
+      method: 'POST',
+    });
+
+    const response = await POST(request);
+
+    // only the content-type is forwarded; untrusted headers are dropped
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(response.headers.get('set-cookie')).toBeNull();
+    expect(response.headers.get('content-security-policy')).toBeNull();
+    await expect(response.text()).resolves.toBe('image-data');
   });
 });

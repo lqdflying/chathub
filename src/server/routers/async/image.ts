@@ -1,5 +1,5 @@
 import { AgentRuntimeErrorType } from '@lobechat/model-runtime';
-import { AsyncTaskError, AsyncTaskErrorType, AsyncTaskStatus } from '@lobechat/types';
+import { AsyncTaskError, AsyncTaskErrorType, AsyncTaskStatus, FileSource } from '@lobechat/types';
 import { RuntimeImageGenParams } from 'model-bank';
 import { z } from 'zod';
 
@@ -181,6 +181,113 @@ const categorizeError = (
 };
 
 export const imageRouter = router({
+  /**
+   * In-chat Image tool generation. Same provider runtime + server-side
+   * download/upload as the workspace flow above, but the result is a plain
+   * files row (linked to the task via `metadata.chatImageTaskId`) instead of
+   * a generation/batch asset — chat keeps inline message storage.
+   */
+  createChatImage: imageProcedure
+    .input(
+      z.object({
+        model: z.string(),
+        params: z.object({ prompt: z.string() }).passthrough(),
+        provider: z.string(),
+        taskId: z.string(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { taskId, provider, model, params } = input;
+
+      const taskClaimed = await ctx.asyncTaskModel.claimPendingTask(taskId);
+      if (!taskClaimed) return;
+
+      const abortController = new AbortController();
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      try {
+        const run = async (signal: AbortSignal) => {
+          const agentRuntime = await initModelRuntimeWithUserPayload(provider, ctx.jwtPayload);
+          checkAbortSignal(signal);
+
+          // ModelRuntime.createImage resolves to undefined when the provider's
+          // delegate has no image support — surface that as a clear task error
+          const response = await agentRuntime.createImage!({
+            model,
+            params: params as unknown as RuntimeImageGenParams,
+          });
+          if (!response) {
+            throw new Error(`Provider "${provider}" does not support image creation.`);
+          }
+          checkAbortSignal(signal);
+
+          const { imageUrl, width, height } = response;
+
+          // ComfyUI result URLs are auth-protected — forward its headers to the
+          // download, exactly like the workspace flow above does
+          let authHeaders: Record<string, string> | undefined;
+          if (provider === 'comfyui') {
+            authHeaders = agentRuntime.getAuthHeaders();
+          }
+
+          const { image, thumbnailImage } = await ctx.generationService.transformImageForGeneration(
+            imageUrl,
+            authHeaders,
+          );
+          checkAbortSignal(signal);
+
+          const uploaded = await ctx.generationService.uploadImageForGeneration(
+            image,
+            thumbnailImage,
+          );
+          checkAbortSignal(signal);
+
+          await ctx.fileModel.create(
+            {
+              fileHash: image.hash,
+              fileType: image.mime,
+              metadata: {
+                chatImageTaskId: taskId,
+                height: height ?? image.height,
+                path: uploaded.imageUrl,
+                width: width ?? image.width,
+              },
+              name: `${params.prompt.slice(0, FILENAME_MAX_LENGTH)}.${image.extension}`,
+              size: image.size,
+              source: FileSource.ImageGeneration,
+              url: uploaded.imageUrl,
+            },
+            true,
+          );
+
+          await ctx.asyncTaskModel.update(taskId, { status: AsyncTaskStatus.Success });
+          return { success: true };
+        };
+
+        timeoutId = setTimeout(() => abortController.abort(), ASYNC_TASK_TIMEOUT);
+        const result = await run(abortController.signal);
+        clearTimeout(timeoutId);
+        timeoutId = null;
+        return result;
+      } catch (error: any) {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+
+        const { errorType, errorMessage } = categorizeError(error, abortController.signal.aborted);
+        await ctx.asyncTaskModel.update(taskId, {
+          error: new AsyncTaskError(errorType, errorMessage),
+          status: AsyncTaskStatus.Error,
+        });
+
+        return {
+          message: `Chat image generation ${taskId} failed: ${errorMessage}`,
+          success: false,
+        };
+      }
+    }),
+
   createImage: imageProcedure.input(createImageInputSchema).mutation(async ({ input, ctx }) => {
     const { taskId, generationId, provider, model, params } = input;
     const taskFields = createTaskDebugFields({ generationId, model, provider, taskId });

@@ -3,16 +3,20 @@ export default {
     error: '执行错误',
     executing: '执行中...',
     files: '文件：',
+    noOutput: '执行完成，没有输出。',
     output: '输出：',
     returnValue: '返回值：',
   },
   dalle: {
     autoGenerate: '自动生成',
-    downloading: 'DallE3 生成的图片链接有效期仅1小时，正在缓存图片到本地...',
+    downloading: '生成的图片链接可能会过期，正在缓存图片到本地...',
     generate: '生成',
     generating: '生成中...',
     images: '图片:',
+    noImageModel: '当前没有可用的图像模型，请在图像设置中启用一个后重试。',
     prompt: '提示词',
+    taskUnverified:
+      '无法确认此图像任务属于当前会话（可能来自备份恢复），未自动重新生成。点击重试以重新生成。',
   },
   localFiles: {
     file: '文件',

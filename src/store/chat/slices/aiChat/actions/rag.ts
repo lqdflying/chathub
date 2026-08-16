@@ -175,6 +175,11 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
         scope: result.scope ?? emptyScopeStats(),
       };
     } finally {
+      // Only clear the flag if this is still the current request. The orphan
+      // case (invalidated mid-retrieval) is now handled by
+      // internal_invalidateConversation clearing messageRAGLoadingIds; keeping
+      // the guard here prevents a stale request A from clearing the loading flag
+      // of a newer request B that reused the same message id after invalidation.
       if (isCurrentRequest()) get().internal_toggleMessageRAGLoading(false, id);
     }
   },
