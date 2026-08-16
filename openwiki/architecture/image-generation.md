@@ -842,9 +842,16 @@ configurable model rather than a hard-coded one.
   conversation's map key — an origin-map verification after a successful
   write (the layers can silently no-op on stale ownership/navigation, so
   awaiting alone proves nothing). Unproven ids → ZERO tasks created,
-  per-item error. `not_found` on a persisted id is NOT terminal: another
-  tab's create may be racing, and a dangling id is recovered by re-submitting
-  the SAME id (idempotent), never by replacing it. Item writes are serialized
+  per-item error. The result endpoint distinguishes two missing states:
+  `task_missing` (no task row — the write-first id was persisted but its
+  create never ran, or another tab's create is racing) is NOT terminal and is
+  recovered by idempotently re-submitting the SAME id — mount reconciliation
+  does this automatically via its adopt probe, so a pre-create persisted id
+  never holds its ownership key through a doomed poll budget; `result_missing`
+  (the task SUCCEEDED but its correlated file row is gone) is an
+  authoritative terminal failure — re-submitting the success id can never be
+  re-claimed, so only an explicit Retry advancing to the deterministic
+  replacement id can move past it. Item writes are serialized
   per message (a promise queue in `updateImageItem`). The tool render's
   mount-time `reconcileDallETasks` adopts a finished task's file, resumes
   waiting on a pending one, or surfaces its failure; `retryDallEImages`

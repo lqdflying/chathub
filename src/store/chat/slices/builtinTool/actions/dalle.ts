@@ -97,8 +97,10 @@ const releaseTaskKey = (key: string, token: symbol) => {
   if (inFlightTaskKeys.get(key) === token) inFlightTaskKeys.delete(key);
 };
 
-// DETERMINISTIC task ids (RFC-4122 v5 shape via SHA-1): every tab derives the
-// SAME id for the same (user, message, item, attempt), so a cross-tab overlap
+// DETERMINISTIC task ids — SHA-256-derived, RFC-4122-shaped (the version-5
+// nibble is set only for UUID-schema compatibility; this is NOT SHA-1 UUIDv5).
+// Every tab derives the SAME id for the same (user, message, item, attempt),
+// so a cross-tab overlap
 // cannot create two different paid tasks — the server's idempotent same-id
 // insert plus the pending-claim dedup collapse duplicate submissions into one
 // task, and both tabs adopt the same result. Replacement attempts chain
@@ -106,8 +108,10 @@ const releaseTaskKey = (key: string, token: symbol) => {
 const CHAT_IMAGE_TASK_SEED = 'chathub-chat-image-task';
 const deriveDeterministicTaskId = (seed: string): string => {
   const bytes = new Uint8Array(sha256.arrayBuffer(seed)).slice(0, 16);
-  bytes[6] = (bytes[6] & 0x0f) | 0x50;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  // decimal to stay neutral in the prettier/unicorn hex-casing conflict:
+  // 15/80 = version-5 nibble, 63/128 = RFC-4122 variant
+  bytes[6] = (bytes[6] & 15) | 80;
+  bytes[8] = (bytes[8] & 63) | 128;
   const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
@@ -168,13 +172,24 @@ const waitForChatImageTask = async (
 
     const status = (result.status ?? '').toLowerCase();
     if (status === 'success' && result.file) return { file: result.file, ok: true };
-    // A persisted id whose task row does not exist (yet) is NOT terminal:
-    // with deterministic ids another tab's create may be racing, and a
-    // dangling id is recovered by re-submitting the SAME id (idempotent) —
-    // an adopt probe reports it so the caller can do exactly that.
-    if (status === 'not_found') {
+    // A persisted id whose TASK ROW does not exist is not terminal: with
+    // deterministic ids another tab's create may be racing, and a dangling id
+    // is recovered by re-submitting the SAME id (idempotent). An adopt probe
+    // reports it so the caller can do exactly that; the post-create polling
+    // wait treats it as transient insert visibility. ('not_found' is the
+    // legacy conflated status, kept for compatibility.)
+    if (status === 'task_missing' || status === 'not_found') {
       if (options?.adoptProbe) return { notFound: true, ok: true };
       continue;
+    }
+    // The task SUCCEEDED but its result file is gone — an authoritative
+    // failure of this attempt: only the deterministic replacement id can
+    // advance it (re-submitting the success id can never be re-claimed).
+    if (status === 'result_missing') {
+      throw Object.assign(
+        new Error('The generated image result is no longer available for this task.'),
+        { name: 'ImageResultMissing', taskTerminal: true },
+      );
     }
     if (TERMINAL_TASK_STATUSES.has(status)) {
       const error = result.error;
@@ -484,9 +499,37 @@ export const dalleSlice: StateCreator<
         get().toggleDallEImageLoading(loadingKey, true);
 
         try {
-          const { ok, file } = await waitForChatImageTask(item.taskId, invocationIsCurrent, {
+          // adopt probe first: a persisted id whose task row is MISSING must
+          // not be polled for the whole budget (that would hold this key and
+          // silently dead-lock Retry) — it is recovered by idempotently
+          // submitting the SAME deterministic id, completing the intended
+          // (already persisted) attempt.
+          const probe = await waitForChatImageTask(item.taskId, invocationIsCurrent, {
+            adoptProbe: true,
             immediate: true,
           });
+          if (!probe.ok || !invocationIsCurrent()) return;
+          if (probe.notFound) {
+            const resolved = resolveImageModel();
+            if (!resolved) {
+              hasError = true;
+              errorArray[index] = { errorType: 'NoImageModelConfigured' };
+              return;
+            }
+            await imageGenerationService.createChatImageTask({
+              model: resolved.model,
+              params: { ...resolved.params, prompt: item.prompt },
+              provider: resolved.provider,
+              taskId: item.taskId,
+            });
+            if (!invocationIsCurrent()) return;
+          }
+
+          const { ok, file } = probe.file
+            ? { file: probe.file, ok: true }
+            : await waitForChatImageTask(item.taskId, invocationIsCurrent, {
+                immediate: probe.notFound !== true,
+              });
           if (!ok || !invocationIsCurrent()) return;
           if (!file) return;
           await get().updateImageItem(messageId, (draft) => {

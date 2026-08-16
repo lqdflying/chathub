@@ -1023,6 +1023,38 @@ describe('imageRouter', () => {
       expect(result).toEqual({ error: { name: 'ServerError' }, status: 'error' });
     });
 
+    it('distinguishes a missing task row from a missing result (R14-1)', async () => {
+      // no task row at all → task_missing (recoverable by same-id resubmit)
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById: vi.fn().mockResolvedValue(undefined) }) as never,
+      );
+      vi.mocked(getServerDB).mockResolvedValue({} as never);
+      vi.mocked(FileService).mockImplementation(() => ({}) as never);
+
+      const caller = createCallerFactory(imageRouter)({
+        authorizationHeader: 'test-authorization',
+        userId: 'account-a',
+      } as never);
+
+      await expect(caller.getChatImageResult({ taskId: 'task-none' })).resolves.toEqual({
+        status: 'task_missing',
+      });
+
+      // success row but the correlated file is gone → result_missing (an
+      // authoritative failure only a replacement id can advance)
+      vi.mocked(AsyncTaskModel).mockImplementation(
+        () => ({ findById: vi.fn().mockResolvedValue({ status: 'success' }) }) as never,
+      );
+      const { FileModel } = await import('@/database/models/file');
+      vi.mocked(FileModel).mockImplementation(
+        () => ({ findByChatImageTaskId: vi.fn().mockResolvedValue(undefined) }) as never,
+      );
+
+      await expect(caller.getChatImageResult({ taskId: 'task-lost' })).resolves.toEqual({
+        status: 'result_missing',
+      });
+    });
+
     it('returns the linked file (via metadata.chatImageTaskId) on success', async () => {
       vi.mocked(AsyncTaskModel).mockImplementation(
         () => ({ findById: vi.fn().mockResolvedValue({ status: 'success' }) }) as never,

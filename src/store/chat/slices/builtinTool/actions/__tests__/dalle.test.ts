@@ -634,14 +634,58 @@ describe('chatToolSlice - dalle', () => {
       expect(persistedId).toBeTruthy();
       expect(createTaskMock).not.toHaveBeenCalled();
 
-      // reopen: the leaked-key bug made this a silent no-op until reload
+      // reopen with the PRODUCTION contract: the task row does not exist
+      // (task_missing) until the same id is idempotently resubmitted — the
+      // old behavior polled not_found for the whole budget and locked Retry
+      const created = new Set<string>();
+      createTaskMock.mockImplementation(async ({ taskId }) => {
+        created.add(taskId!);
+        return { taskId: taskId! };
+      });
+      pollMock.mockImplementation(async (taskId) =>
+        created.has(taskId)
+          ? { file: { id: 'file-x' }, status: 'success' }
+          : { status: 'task_missing' },
+      );
       useChatStore.setState({ activeId: ORIGIN_SESSION });
       const stubs2 = installStoreStubs();
       await store().reconcileDallETasks('message-id');
       stubs2.restore();
 
-      expect(pollMock).toHaveBeenCalledWith(persistedId);
+      // reconcile submitted the EXACT persisted id once and adopted its file
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(createTaskMock).toHaveBeenCalledWith(expect.objectContaining({ taskId: persistedId }));
       expect(originContent()).toContain('"imageId":"file-x"');
+    });
+
+    it('a success task whose result file is gone advances to the deterministic replacement on Retry (R14-1)', async () => {
+      seedToolMessage(JSON.stringify([{ prompt: 'p1', taskId: 'task-old' }]));
+      const stubs = installStoreStubs();
+      const createdIds: string[] = [];
+      const createTaskMock = vi
+        .spyOn(imageGenerationService, 'createChatImageTask')
+        .mockImplementation(async ({ taskId }) => {
+          createdIds.push(taskId!);
+          return { taskId: taskId! };
+        });
+      vi.spyOn(imageGenerationService, 'getChatImageResult').mockImplementation(async (taskId) =>
+        taskId === 'task-old'
+          ? { status: 'result_missing' }
+          : { file: { id: `file-${taskId}` }, status: 'success' },
+      );
+
+      await store().retryDallEImages('message-id');
+      stubs.restore();
+
+      // the successful-but-resultless id is NEVER resubmitted; exactly one
+      // deterministic replacement is persisted, created, and adopted
+      expect(createdIds).not.toContain('task-old');
+      expect(createdIds).toHaveLength(1);
+      const [replacementId] = createdIds;
+      expect(replacementId).toMatch(/^[\da-f-]{36}$/);
+      const parsed = JSON.parse(originContent()) as { imageId?: string; taskId?: string }[];
+      expect(parsed[0]?.taskId).toBe(replacementId);
+      expect(parsed[0]?.imageId).toBe(`file-${replacementId}`);
     });
 
     it('a rejected initial persistence does not lock Retry out', async () => {
@@ -706,21 +750,53 @@ describe('chatToolSlice - dalle', () => {
       stubs.restore();
       vi.useRealTimers();
 
-      // the fourth item's claim must have been released: a fresh Retry can
-      // generate for it (its deterministic id was already persisted, so the
-      // adopt-probe path recreates the same id after not_found)
-      pollMock.mockResolvedValue({ status: 'not_found' } as any);
+      // the fourth item's claim must have been released. Make items 0-2
+      // ineligible so ONLY item 4 can act, then prove the retry submits item
+      // 4's EXACT persisted deterministic id (task_missing → same-id
+      // resubmission) — an aggregate call count would pass even with the leak
+      const contentNow = JSON.parse(originContent()) as {
+        imageId?: string;
+        taskId?: string;
+      }[];
+      const fourthPersistedId = contentNow[3]?.taskId!;
+      expect(fourthPersistedId).toBeTruthy();
+      useChatStore.setState((state) => {
+        const map = { ...state.messagesMap };
+        map[originKey()] = map[originKey()].map((m) =>
+          m.id === 'message-id'
+            ? {
+                ...m,
+                content: JSON.stringify(
+                  contentNow.map((item, i) => (i < 3 ? { ...item, imageId: `done-${i}` } : item)),
+                ),
+              }
+            : m,
+        );
+        return { messagesMap: map };
+      });
+
+      createTaskMock.mockClear();
+      const created = new Set<string>();
+      createTaskMock.mockImplementation(async ({ taskId }) => {
+        created.add(taskId!);
+        return { taskId: taskId! };
+      });
+      pollMock.mockImplementation(
+        async (taskId) =>
+          (created.has(taskId)
+            ? { file: { id: `file-${taskId}` }, status: 'success' }
+            : { status: 'task_missing' }) as any,
+      );
       const stubs2 = installStoreStubs();
-      const retried = store().retryDallEImages('message-id');
-      await vi.waitFor(() => expect(createTaskMock.mock.calls.length).toBeGreaterThanOrEqual(4));
-      useChatStore.setState((s) => ({
-        conversationClearGeneration: s.conversationClearGeneration + 1,
-      }));
-      await retried;
+      await store().retryDallEImages('message-id');
       stubs2.restore();
 
-      const fourthIds = createTaskMock.mock.calls.map((c) => (c[0] as { taskId?: string }).taskId);
-      expect(fourthIds.length).toBeGreaterThanOrEqual(4);
+      expect(createTaskMock).toHaveBeenCalledTimes(1);
+      expect(createTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ taskId: fourthPersistedId }),
+      );
+      const finalParsed = JSON.parse(originContent()) as { imageId?: string }[];
+      expect(finalParsed[3]?.imageId).toBe(`file-${fourthPersistedId}`);
     });
   });
 
