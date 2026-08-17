@@ -73,18 +73,19 @@ export const stopConversationGenerationWorker = async () => {
   }
 };
 
+const handleConversationGenerationSignal = (signal: 'SIGINT' | 'SIGTERM') => {
+  void stopConversationGenerationWorker().catch((error) => {
+    console.error(`[conversation-generation] failed to stop worker after ${signal}`, error);
+  });
+};
+
 export const registerConversationGenerationShutdown = () => {
   const globalState = globalThis as GlobalWithConversationWorker;
   if (globalState.__chathubConversationGenerationSignalsRegistered) return;
   globalState.__chathubConversationGenerationSignalsRegistered = true;
 
-  const shutdown = (signal: NodeJS.Signals) => {
-    void stopConversationGenerationWorker().catch((error) => {
-      console.error(`[conversation-generation] failed to stop worker after ${signal}`, error);
-    });
-  };
-  process.once('SIGINT', () => shutdown('SIGINT'));
-  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => handleConversationGenerationSignal('SIGINT'));
+  process.once('SIGTERM', () => handleConversationGenerationSignal('SIGTERM'));
 };
 
 export const startConversationGenerationSweeper = () => {

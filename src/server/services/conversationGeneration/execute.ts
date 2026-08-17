@@ -18,7 +18,10 @@ import type {
 } from '@lobechat/types';
 import { isActiveConversationGenerationStatus } from '@lobechat/types';
 import type { LobeChatDatabase } from '@lobechat/database';
-import { ConversationWriteRejectedError } from '@/server/services/conversationWriteLock';
+import {
+  ConversationWriteRejectedError,
+  getConversationVersion,
+} from '@/server/services/conversationWriteLock';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 
 import { AgentModel } from '@/database/models/agent';
@@ -29,7 +32,6 @@ import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { ChunkModel } from '@/database/models/chunk';
 import { AiChatService } from '@/server/services/aiChat';
-import { getConversationVersion } from '@/server/services/conversationWriteLock';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import {
   RagEmbeddingService,
