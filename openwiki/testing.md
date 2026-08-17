@@ -99,17 +99,30 @@ in a derived similarity sort can prevent HNSW index use.
 ### Durable conversation generation
 
 Cover the feature-flag mapping, lane builder, fetch-on-client credential
-refusal, cancel-before-claim, SSE protocol consumer, and the client subscribe
-path that skips `internal_execAgentRuntime` when `operationId` is returned.
+refusal, compare-and-set claim/retry/finalize transitions, stale-operation
+recovery, transactional enqueue/idempotency, graceful worker shutdown, SSE
+cursor reset/trailing frames, and lane-aware client attach/detach/cancel rules.
+Tool/workflow coverage must include step replay, serialized Memory updates, MCP
+error persistence, browser capability fallback, guarded compaction metadata,
+localized title gating, supervisor child outcomes, and the continuation limit.
 High-signal suites:
 
 - `src/config/featureFlags/schema.test.ts`
 - `packages/types/src/conversationGeneration.test.ts`
 - `src/server/services/conversationGeneration/credentials.test.ts`
 - `src/server/services/conversationGeneration/execute.test.ts`
+- `src/server/services/conversationGeneration/service.test.ts`
 - `src/server/services/conversationGeneration/stream.test.ts`
+- `src/server/services/conversationGeneration/tools.test.ts`
+- `src/server/services/conversationGeneration/compaction.test.ts`
+- `src/server/services/conversationGeneration/worker.test.ts`
+- `src/services/__tests__/conversationGeneration.test.ts`
+- `src/helpers/__tests__/durableConversationGeneration.test.ts`
+- `src/hooks/useConversationGenerationSync.test.tsx`
 - `src/store/chat/slices/aiChat/actions/__tests__/generateAIChatV2.test.ts`
 - `src/store/chat/slices/aiChat/actions/__tests__/conversationGeneration.test.ts`
+- `src/store/chat/slices/aiChat/actions/memory.test.ts`
+- `scripts/migrateServerDB/ensureConversationGenerationOperations.test.ts`
 
 Do not add model tests that top-level-await `getTestDB()` unless
 `DATABASE_TEST_URL` is guaranteed.

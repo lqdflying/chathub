@@ -1,8 +1,9 @@
 # Durable Conversation Generation
 
 ChatHub runs topic/session generation on the server so closing a tab, losing
-SSE, or restarting a container does not cancel in-flight work. Only an explicit
-Stop request cancels generation.
+SSE, navigating elsewhere, or restarting a container does not cancel in-flight
+work. Explicit Stop and destructive history actions such as retry, rewind,
+delete, and clear cancel the matching work.
 
 The GitHub Wiki clone (`wiki/`) was unavailable in the session that landed this
 design, so user-facing workflow notes also live in the root README.
@@ -33,14 +34,17 @@ lifecycle (image/file jobs) and are not a conversation lane.
 
 ## Tables
 
-Migration `0054_add_conversation_generation.sql` plus
+Migrations `0054_add_conversation_generation.sql` through
+`0056_harden_conversation_generation_indexes.sql`, plus
 `scripts/migrateServerDB/ensureConversationGenerationOperations.cjs`:
 
 - `conversation_generation_operations` — one row per lane job (`cgo` ids)
-- `conversation_generation_steps` — optional idempotent tool/step records (`cgs` ids)
+- `conversation_generation_steps` — idempotent tool/step records (`cgs` ids),
+  unique by operation and deterministic tool-call input hash
 - `conversation_generation_events` — append-only SSE payload (`bigserial` ids)
 
-Lanes are unique while status is `pending`, `processing`, or `cancelling`:
+Lanes are unique only while status is `pending` or `processing`. A
+`cancelling` predecessor therefore cannot block its replacement:
 
 - session: `{userId}:session:{sessionId|inbox}:{topicId|none}:{threadId|main}`
 - group: `{userId}:group:{groupId}:{topicId|none}:{threadId|main}`
@@ -75,11 +79,21 @@ browser `internal_execAgentRuntime` path still runs.
 
 `src/instrumentation.ts` starts a periodic sweeper in the Node runtime regardless
 of whether Graphile Worker boots successfully. The sweeper requeues pending
-operations with a null `workerJobId` and marks stale `processing` rows as
-`interrupted` after a heartbeat timeout.
+operations with a null `workerJobId`. A stale `processing` attempt is atomically
+returned to `pending` and re-enqueued while retry budget remains, then finalized
+as `failed` after the last attempt. Stale `cancelling` rows become `cancelled`.
 
 Graphile Worker itself is started in a separate try/catch. A boot failure is
-logged and does not crash Next.js.
+logged and does not crash Next.js. ChatHub owns signal handling because the
+runner uses `noHandleSignals`: `SIGTERM`/`SIGINT` clear the sweeper and await
+`Runner.stop()`. The Docker launcher forwards those signals to the Next.js child
+and propagates its exit status.
+
+Each worker attempt claims `pending → processing` with compare-and-set guards.
+Retryable failures return the row to `pending` and are rethrown so Graphile
+applies backoff. Heartbeats cover the whole operation, and checkpoint/final
+writes require the same attempt and lane generation. A terminal row is never
+rewritten by a late worker.
 
 ## Lane replacement
 
@@ -100,7 +114,10 @@ per-user event cursor across topic switches. If SSE ends or fails, it polls
 `conversationGeneration.listEvents`.
 
 Events are applied only when the attached operation still matches the active
-session/topic and `conversationClearGeneration`.
+session/topic/thread, operation kind, lane generation, user scope, and
+`conversationClearGeneration`. Navigation detaches local UI state without
+cancelling server work. Explicit Stop, retry/rewind, delete, and clear perform
+scoped server cancellation.
 
 Stop still goes through `stopGenerateMessage` / group supervisor stop →
 `cancelAndDetachDurableOps` → `conversationGeneration.cancel`. Durable
@@ -109,26 +126,56 @@ generating UI uses `internal_markDurableGenerating` so it does not install
 
 Useful env vars:
 
-| Variable | Effect |
-| --- | --- |
+| Variable                          | Effect                             |
+| --------------------------------- | ---------------------------------- |
 | `CONVERSATION_WORKER_CONCURRENCY` | Graphile concurrency (default `4`) |
-| `DISABLE_CONVERSATION_WORKER=1` | Skip worker start (tests/build) |
+| `DISABLE_CONVERSATION_WORKER=1`   | Skip worker start (tests/build)    |
 
 ## Workflows on the engine
 
-| Kind | Trigger |
-| --- | --- |
-| `chat` / `continue` / `regenerate` | send, tool continuation, retry |
-| `group_supervisor` | group orchestrator decision, then sequential `group_agent` turns |
-| `topic_title` | topic auto-rename |
-| `memory_compaction` | background compaction (not pre-send) |
-| `translation` | message translate |
-| `tts` | metadata-only stub; browser TTS persist remains client-side |
-| `rag` | retrieval is injected into chat turns via `config.ragQuery` |
+| Kind                               | Trigger                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| `chat` / `continue` / `regenerate` | send, tool continuation, retry                                         |
+| `group_supervisor`                 | provider-neutral structured decision, then guarded `group_agent` turns |
+| `topic_title`                      | localized explicit rename for a new/untitled topic                     |
+| `memory_compaction`                | planned background compaction (not pre-send)                           |
+| `translation`                      | message translate                                                      |
+| `tts`                              | metadata-only stub; browser TTS persist remains client-side            |
+| `rag`                              | retrieval is injected into chat turns via `config.ragQuery`            |
 
-Tool turns (builtin web browsing, MCP HTTP, memory, skills, DALL·E queue
-ack) run inside the worker. Pre-send compaction stays on the client because it
+Tool calls use `conversation_generation_steps` before side effects. A retry
+replays the completed result for the same operation/tool-call identity instead
+of invoking it again. Fixed-memory read/modify/write and step completion share
+one transaction with a row lock. HTTP MCP results—including handled remote
+errors—are persisted to the tool message and its recovery state.
+
+The worker currently supports builtin web browsing, fixed Memory, activated
+skills, and HTTP MCP. Image generation, code interpreter, non-HTTP MCP, and
+unknown plugin runtimes are capability-gated before durable enqueue, so the
+existing browser runtime handles the whole conversation rather than receiving a
+fake server success. Pre-send compaction also stays on the client because it
 must finish before the user message is committed.
+
+Background compaction is different: the client runs the normal eligibility and
+prefix planner, then stores a non-secret plan snapshot with candidate message
+IDs, prior summary/cursor, fingerprint, watermarks, and expected conversation
+version. The worker batches that exact prefix and atomically verifies/persists
+the summary, cursor, archives, and bounded debug log. An edit, delete, clear, or
+other invalidation makes the operation `interrupted` instead of committing a
+stale summary.
+
+The tool continuation budget is checked before creating another assistant
+placeholder. A nested group-agent turn returns an explicit outcome; failed,
+cancelled, or interrupted children cannot be overwritten by supervisor success.
+
+## Startup schema repair
+
+`ensureConversationGenerationOperations.cjs` runs after Drizzle migrations on
+container startup. It inspects the active-lane index predicate and replaces the
+legacy 0054 definition if it still includes `cancelling`. It also deduplicates
+legacy step hashes (preferring succeeded/latest rows) before adding the unique
+tool-step replay index. `CREATE INDEX IF NOT EXISTS` alone is deliberately not
+used as a definition check.
 
 ## Tests and operations
 
@@ -138,6 +185,7 @@ High-signal suites:
 - `src/store/chat/slices/aiChat/actions/__tests__/generateAIChatV2.test.ts`
 - `src/store/chat/slices/aiChat/actions/__tests__/conversationGeneration.test.ts`
 - `src/server/services/conversationGeneration/*.test.ts`
+- `scripts/migrateServerDB/ensureConversationGenerationOperations.test.ts`
 - `packages/types/src/conversationGeneration.test.ts`
 
 Model tests that top-level-await `getTestDB()` are not required for this

@@ -392,6 +392,13 @@
       "when": 1786828800000,
       "tag": "0055_conversation_generation_lane_generation",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1787003400000,
+      "tag": "0056_harden_conversation_generation_indexes",
+      "breakpoints": true
     }
   ],
   "version": "6"

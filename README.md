@@ -156,7 +156,7 @@ ChatHub's built-in Moonshot route is `https://api.moonshot.cn/v1`. The global Ki
 - **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction)
 - **Knowledge Base vector RAG** — Dedicated external embeddings, pgvector HNSW search, document-only ingestion, and explicit provider readiness. [Details →](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG)
 - **MCP OAuth** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side. [Details →](https://github.com/lqdflying/chathub/wiki/MCP-OAuth)
-- **Background conversation generation** — Chat replies, tool turns, group supervisor decisions, topic titles, translation, and background memory compaction continue on the server after you close the tab. Only **Stop** cancels. Requires a server-reachable provider API key (`FEATURE_FLAGS=-durable_conversation_generation` to disable).
+- **Background conversation generation** — Chat replies, server-capable tool turns (web browsing, fixed Memory, HTTP MCP), group supervisor decisions, topic titles, translation, and guarded background memory compaction continue after you close the tab or navigate elsewhere. **Stop** and destructive history actions cancel matching work. Image generation, code interpreter, non-HTTP MCP, and unsupported plugins intentionally use the connected browser runtime instead of a fake server result. Requires a server-reachable provider API key (`FEATURE_FLAGS=-durable_conversation_generation` to disable).
 
 ---
 

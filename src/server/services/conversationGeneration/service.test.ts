@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ConversationGenerationService,
+  sweepPendingConversationGenerationJobs,
   sweepStaleConversationGenerationOperations,
 } from './service';
 
@@ -10,13 +11,17 @@ const modelMocks = vi.hoisted(() => ({
   create: vi.fn(),
   finalizeActive: vi.fn(),
   findActiveByLane: vi.fn(),
+  findById: vi.fn(),
   findByIdempotencyKey: vi.fn(),
   findMaxLaneGeneration: vi.fn(),
   insertEvent: vi.fn(),
+  latestEventId: vi.fn(),
+  listEventsAfter: vi.fn(),
+  listPendingWithoutJob: vi.fn(),
   listStaleCancelling: vi.fn(),
   listStaleProcessing: vi.fn(),
-  requeueStaleProcessing: vi.fn(),
   requestCancel: vi.fn(),
+  requeueStaleProcessing: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -32,13 +37,17 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     create = modelMocks.create;
     finalizeActive = modelMocks.finalizeActive;
     findActiveByLane = modelMocks.findActiveByLane;
+    findById = modelMocks.findById;
     findByIdempotencyKey = modelMocks.findByIdempotencyKey;
     findMaxLaneGeneration = modelMocks.findMaxLaneGeneration;
     insertEvent = modelMocks.insertEvent;
+    latestEventId = modelMocks.latestEventId;
+    listEventsAfter = modelMocks.listEventsAfter;
+    listPendingWithoutJob = modelMocks.listPendingWithoutJob;
     listStaleCancelling = modelMocks.listStaleCancelling;
     listStaleProcessing = modelMocks.listStaleProcessing;
-    requeueStaleProcessing = modelMocks.requeueStaleProcessing;
     requestCancel = modelMocks.requestCancel;
+    requeueStaleProcessing = modelMocks.requeueStaleProcessing;
     update = modelMocks.update;
   },
 }));
@@ -72,6 +81,7 @@ describe('sweepStaleConversationGenerationOperations', () => {
     modelMocks.findActiveByLane.mockResolvedValue(undefined);
     modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
     modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
+    modelMocks.listPendingWithoutJob.mockResolvedValue([]);
     toolMocks.findUnsupportedConversationTool.mockResolvedValue(undefined);
   });
 
@@ -179,6 +189,7 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     modelMocks.findActiveByLane.mockResolvedValue(undefined);
     modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
     modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
+    modelMocks.listPendingWithoutJob.mockResolvedValue([]);
     modelMocks.update.mockImplementation(async (id, value) => ({ id, ...value }));
   });
 
@@ -253,5 +264,108 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
 
     expect(modelMocks.update).toHaveBeenCalledWith('operation-new', { workerJobId: '42' });
     expect(result).toMatchObject({ id: 'operation-new', workerJobId: '42' });
+  });
+
+  it('cancels and advances the lane generation when replacement is requested', async () => {
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '43' }]) };
+    modelMocks.findActiveByLane.mockResolvedValue({
+      id: 'operation-active',
+      laneGeneration: 4,
+      status: 'processing',
+    });
+    modelMocks.create.mockImplementation(async (value) => ({
+      ...value,
+      attempt: 0,
+      id: 'operation-replacement',
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    }));
+
+    const result = await new ConversationGenerationService(
+      db as any,
+      'user-1',
+    ).enqueueInTransaction(db as any, { ...input, replaceActive: true });
+
+    expect(modelMocks.requestCancel).toHaveBeenCalledWith('operation-active');
+    expect(modelMocks.create).toHaveBeenCalledWith(expect.objectContaining({ laneGeneration: 5 }));
+    expect(result).toMatchObject({ id: 'operation-replacement', workerJobId: '43' });
+  });
+
+  it('rejects reuse of an idempotency key for a different request', async () => {
+    modelMocks.findByIdempotencyKey.mockResolvedValue({
+      config: { model: 'different-model', provider: 'provider-1' },
+      id: 'operation-existing',
+      kind: 'topic_title',
+      lane: 'user-1:session:session-1:topic-1:main',
+    });
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').enqueueInTransaction({} as any, input),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(modelMocks.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('ConversationGenerationService cancellation and event cursors', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+  });
+
+  it('finalizes a pending cancellation immediately and emits done', async () => {
+    const pending = {
+      attempt: 0,
+      id: 'operation-pending',
+      laneGeneration: 2,
+      revision: 0,
+      status: 'pending',
+    };
+    modelMocks.findById.mockResolvedValue(pending);
+    modelMocks.requestCancel.mockResolvedValue({ ...pending, status: 'cancelling' });
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...pending,
+      revision: 1,
+      status: 'cancelled',
+    });
+
+    const result = await new ConversationGenerationService({} as any, 'user-1').cancel(pending.id);
+
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(pending.id, 'cancelled', undefined, {
+      attempt: 0,
+      laneGeneration: 2,
+    });
+    expect(modelMocks.insertEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'done' }));
+    expect(result).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('resets an event cursor that is ahead of the retained stream', async () => {
+    modelMocks.latestEventId.mockResolvedValue(10);
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').listEvents(11),
+    ).resolves.toEqual({ cursor: 0, events: [], reset: true });
+    expect(modelMocks.listEventsAfter).not.toHaveBeenCalled();
+  });
+});
+
+describe('sweepPendingConversationGenerationJobs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.update.mockResolvedValue({ id: 'operation-pending' });
+  });
+
+  it('re-enqueues pending operations that lost their worker job id', async () => {
+    modelMocks.listPendingWithoutJob.mockResolvedValue([
+      { id: 'operation-pending', userId: 'user-1' },
+    ]);
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '44' }]) };
+
+    await sweepPendingConversationGenerationJobs(db as any);
+
+    expect(db.execute).toHaveBeenCalledOnce();
+    expect(modelMocks.update).toHaveBeenCalledWith('operation-pending', {
+      workerJobId: '44',
+    });
   });
 });
