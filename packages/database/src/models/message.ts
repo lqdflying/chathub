@@ -5,6 +5,7 @@ import {
   ChatToolPayload,
   ChatTranslate,
   ChatVideoItem,
+  ConversationGenerationError,
   CreateMessageParams,
   CreateMessageResult,
   DBMessageItem,
@@ -815,7 +816,7 @@ export class MessageModel {
     return { content: item.content };
   };
 
-  updatePluginError = async (id: string, error: Record<string, unknown> | null) => {
+  updatePluginError = async (id: string, error: ConversationGenerationError | null) => {
     return this.db
       .update(messagePlugins)
       .set({ error })

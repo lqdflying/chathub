@@ -83,9 +83,9 @@ const enqueueGraphileJobWithRecovery = async (
       return String(job.id);
     } catch (fallbackError) {
       console.warn('[conversation-generation] failed to enqueue Graphile job', {
-        operationId: payload.operationId,
         enqueueError: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        operationId: payload.operationId,
       });
       return undefined;
     }

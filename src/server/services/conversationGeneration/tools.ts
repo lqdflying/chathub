@@ -144,52 +144,60 @@ const invokeMemoryTool = async ({
   let content: Record<string, unknown>;
   let nextDocument: string | undefined;
 
-  if (payload.apiName === MemoryApiName.saveMemory) {
-    const value = typeof args.content === 'string' ? args.content.trim() : '';
-    if (!value) {
-      content = { error: 'saveMemory requires non-empty content' };
-    } else {
-      const outcome = appendFixedMemoryEntry(agent.fixedMemory, value);
-      nextDocument = outcome.doc;
-      content = { content: value, index: outcome.index, saved: true };
-    }
-  } else if (payload.apiName === MemoryApiName.updateMemory) {
-    const index = Number(args.index);
-    const match = typeof args.match === 'string' ? args.match.trim() : '';
-    const value = typeof args.content === 'string' ? args.content.trim() : '';
-    if (!Number.isInteger(index) || !match || !value) {
-      content = { error: 'updateMemory requires index, match, and content' };
-    } else {
-      const outcome = updateFixedMemoryEntry(agent.fixedMemory, index, match, value);
-      if ('error' in outcome) {
-        content = {
-          currentEntries: formatFixedMemoryEntries(outcome.entries),
-          error: outcome.error,
-        };
+  switch (payload.apiName) {
+    case MemoryApiName.saveMemory: {
+      const value = typeof args.content === 'string' ? args.content.trim() : '';
+      if (!value) {
+        content = { error: 'saveMemory requires non-empty content' };
       } else {
+        const outcome = appendFixedMemoryEntry(agent.fixedMemory, value);
         nextDocument = outcome.doc;
-        content = { content: outcome.entry.content, index, updated: true };
+        content = { content: value, index: outcome.index, saved: true };
       }
+      break;
     }
-  } else if (payload.apiName === MemoryApiName.deleteMemory) {
-    const index = Number(args.index);
-    const match = typeof args.match === 'string' ? args.match.trim() : '';
-    if (!Number.isInteger(index) || !match) {
-      content = { error: 'deleteMemory requires index and match' };
-    } else {
-      const outcome = deleteFixedMemoryEntry(agent.fixedMemory, index, match);
-      if ('error' in outcome) {
-        content = {
-          currentEntries: formatFixedMemoryEntries(outcome.entries),
-          error: outcome.error,
-        };
+    case MemoryApiName.updateMemory: {
+      const index = Number(args.index);
+      const match = typeof args.match === 'string' ? args.match.trim() : '';
+      const value = typeof args.content === 'string' ? args.content.trim() : '';
+      if (!Number.isInteger(index) || !match || !value) {
+        content = { error: 'updateMemory requires index, match, and content' };
       } else {
-        nextDocument = outcome.doc;
-        content = { deleted: true, index, renumbered: true };
+        const outcome = updateFixedMemoryEntry(agent.fixedMemory, index, match, value);
+        if ('error' in outcome) {
+          content = {
+            currentEntries: formatFixedMemoryEntries(outcome.entries),
+            error: outcome.error,
+          };
+        } else {
+          nextDocument = outcome.doc;
+          content = { content: outcome.entry.content, index, updated: true };
+        }
       }
+      break;
     }
-  } else {
-    content = { error: `Unknown memory operation "${payload.apiName}".` };
+    case MemoryApiName.deleteMemory: {
+      const index = Number(args.index);
+      const match = typeof args.match === 'string' ? args.match.trim() : '';
+      if (!Number.isInteger(index) || !match) {
+        content = { error: 'deleteMemory requires index and match' };
+      } else {
+        const outcome = deleteFixedMemoryEntry(agent.fixedMemory, index, match);
+        if ('error' in outcome) {
+          content = {
+            currentEntries: formatFixedMemoryEntries(outcome.entries),
+            error: outcome.error,
+          };
+        } else {
+          nextDocument = outcome.doc;
+          content = { deleted: true, index, renumbered: true };
+        }
+      }
+      break;
+    }
+    default: {
+      content = { error: `Unknown memory operation "${payload.apiName}".` };
+    }
   }
 
   if (nextDocument !== undefined) {

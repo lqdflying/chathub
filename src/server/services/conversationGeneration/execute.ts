@@ -461,7 +461,7 @@ const executeChat = async (
     let remainingTurns = CONVERSATION_GENERATION_MAX_TOOL_TURNS;
     let currentPayload = built.payload;
 
-    while (true) {
+    for (;;) {
       const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
       if (stopReason) {
         if (!options?.skipFinalize) await finalizeIfStopped(model, operation, stopReason);
@@ -888,7 +888,7 @@ const executeCompaction = async (
       const latestFingerprint = createCompactionFingerprint({
         cursorId: metadata.historySummaryLastMessageId,
         messages: latestCandidates,
-        summary: topic.historySummary,
+        summary: topic.historySummary || undefined,
       });
       if (
         latestCandidates.length !== compaction.candidateMessageIds.length ||

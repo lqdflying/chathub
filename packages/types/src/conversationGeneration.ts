@@ -116,6 +116,7 @@ export interface ConversationGenerationOperation {
   cancelRequestedAt?: Date | string | null;
   config: ConversationGenerationConfigSnapshot;
   conversationVersion?: number | null;
+  createdAt?: Date | string;
   error?: ConversationGenerationError | ChatMessageError | null;
   finishedAt?: Date | string | null;
   groupId?: string | null;
@@ -133,11 +134,10 @@ export interface ConversationGenerationOperation {
   status: ConversationGenerationStatus;
   threadId?: string | null;
   topicId?: string | null;
+  updatedAt?: Date | string;
   userId: string;
   userMessageId?: string | null;
   workerJobId?: string | null;
-  createdAt?: Date | string;
-  updatedAt?: Date | string;
 }
 
 export interface ConversationGenerationEvent {
