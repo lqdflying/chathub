@@ -9,7 +9,7 @@ const runtimeState = vi.hoisted(() => ({
   getAiProviderRuntimeState: vi.fn(),
 }));
 const llmConfig = vi.hoisted(() => ({
-  get: vi.fn(),
+  get: vi.fn(() => ({})),
 }));
 
 vi.mock('@/server/globalConfig', () => ({
