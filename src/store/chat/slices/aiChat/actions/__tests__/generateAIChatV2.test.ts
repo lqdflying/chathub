@@ -444,6 +444,7 @@ describe('generateAIChatV2 actions', () => {
                 model: DEFAULT_MODEL,
                 provider: DEFAULT_PROVIDER,
               }),
+              idempotencyKey: expect.stringMatching(/^chat-send:/),
             }),
           }),
           expect.anything(),

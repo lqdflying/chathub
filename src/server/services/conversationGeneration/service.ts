@@ -36,31 +36,55 @@ const getWorkerUtils = async () => {
   return workerUtilsPromise;
 };
 
-const enqueueGraphileJob = async (
+interface EnqueueGraphileJobOptions {
+  jobKey?: string;
+}
+
+const readGraphileJobId = (result: unknown, fallback: string) => {
+  const rows = Array.isArray(result)
+    ? result
+    : (result as { rows?: Array<{ workerJobId?: string }> } | undefined)?.rows;
+  return rows?.[0]?.workerJobId ? String(rows[0].workerJobId) : fallback;
+};
+
+const enqueueGraphileJobInDatabase = async (
   database: LobeChatDatabase | Transaction,
   payload: { operationId: string; userId: string },
+  options: EnqueueGraphileJobOptions = {},
 ) => {
+  const jobKey = options.jobKey ?? payload.operationId;
+  const result = await database.execute(sql`
+    SELECT (graphile_worker.add_job(
+      ${CONVERSATION_GENERATION_TASK},
+      ${JSON.stringify(payload)}::json,
+      job_key := ${jobKey},
+      max_attempts := ${CONVERSATION_GENERATION_MAX_ATTEMPTS}
+    )).id::text AS "workerJobId"
+  `);
+  return readGraphileJobId(result, jobKey);
+};
+
+const enqueueGraphileJobWithRecovery = async (
+  database: LobeChatDatabase,
+  payload: { operationId: string; userId: string },
+  options: EnqueueGraphileJobOptions = {},
+) => {
+  const jobKey = options.jobKey ?? payload.operationId;
   try {
-    await database.execute(sql`
-      SELECT graphile_worker.add_job(
-        ${CONVERSATION_GENERATION_TASK},
-        ${JSON.stringify(payload)}::json,
-        job_key := ${payload.operationId},
-        max_attempts := ${CONVERSATION_GENERATION_MAX_ATTEMPTS}
-      )
-    `);
-    return payload.operationId;
-  } catch {
+    return await enqueueGraphileJobInDatabase(database, payload, options);
+  } catch (enqueueError) {
     try {
       const utils = await getWorkerUtils();
       const job = await utils.addJob(CONVERSATION_GENERATION_TASK, payload, {
-        jobKey: payload.operationId,
+        jobKey,
         maxAttempts: CONVERSATION_GENERATION_MAX_ATTEMPTS,
       });
       return String(job.id);
     } catch (fallbackError) {
       console.warn('[conversation-generation] failed to enqueue Graphile job', {
         operationId: payload.operationId,
+        enqueueError:
+          enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
       return undefined;
@@ -83,13 +107,6 @@ export class ConversationGenerationService {
       userId: this.userId,
     });
 
-    if (parsed.idempotencyKey) {
-      const existing = await new ConversationGenerationModel(this.db, this.userId).findByIdempotencyKey(
-        parsed.idempotencyKey,
-      );
-      if (existing) return existing;
-    }
-
     return withConversationWriteLockOrThrow(
       this.db,
       this.userId,
@@ -111,6 +128,24 @@ export class ConversationGenerationService {
       userId: this.userId,
     });
     const model = new ConversationGenerationModel(transaction, this.userId);
+    if (parsed.idempotencyKey) {
+      const existing = await model.findByIdempotencyKey(parsed.idempotencyKey);
+      if (existing) {
+        if (
+          existing.kind !== parsed.kind ||
+          existing.lane !== lane ||
+          existing.config.model !== parsed.config.model ||
+          existing.config.provider !== parsed.config.provider
+        ) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'Generation idempotency key was already used for another request.',
+          });
+        }
+        return existing;
+      }
+    }
+
     const messageModel = new MessageModel(transaction, this.userId);
     const active = await model.findActiveByLane(lane);
     if (active && !parsed.replaceActive) {
@@ -164,15 +199,14 @@ export class ConversationGenerationService {
       userMessageId: parsed.userMessageId,
     });
 
-    const workerJobId = await enqueueGraphileJob(transaction, {
+    const workerJobId = await enqueueGraphileJobInDatabase(transaction, {
       operationId: operation.id,
       userId: this.userId,
     });
-    if (workerJobId) {
-      await model.update(operation.id, { workerJobId });
-    }
+    const queued = await model.update(operation.id, { workerJobId });
+    if (!queued) throw new Error('Conversation generation could not record its worker job.');
 
-    return { ...operation, assistantMessageId, workerJobId };
+    return { ...queued, assistantMessageId, workerJobId };
   };
 
   cancel = async (operationId: string) => {
@@ -245,7 +279,7 @@ export class ConversationGenerationService {
 export const sweepPendingConversationGenerationJobs = async (db: LobeChatDatabase) => {
   const pending = await new ConversationGenerationModel(db, 'system').listPendingWithoutJob();
   for (const operation of pending) {
-    const workerJobId = await enqueueGraphileJob(db, {
+    const workerJobId = await enqueueGraphileJobWithRecovery(db, {
       operationId: operation.id,
       userId: operation.userId,
     });
@@ -303,10 +337,14 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
       type: 'status',
     });
 
-    const workerJobId = await enqueueGraphileJob(db, {
-      operationId: operation.id,
-      userId: operation.userId,
-    });
+    const workerJobId = await enqueueGraphileJobWithRecovery(
+      db,
+      {
+        operationId: operation.id,
+        userId: operation.userId,
+      },
+      { jobKey: `${operation.id}:recovery:${pending.revision}` },
+    );
     if (workerJobId) {
       await model.update(operation.id, { workerJobId });
     }
@@ -330,6 +368,6 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
   }
 };
 
-export const enqueueConversationGenerationJob = enqueueGraphileJob;
+export const enqueueConversationGenerationJob = enqueueGraphileJobWithRecovery;
 
 export const isActiveOperation = isActiveConversationGenerationStatus;

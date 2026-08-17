@@ -1,18 +1,29 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { AiChatService } from '@/server/services/aiChat';
+import { isDurableConversationGenerationEnabled } from '@/server/services/conversationGeneration/featureFlag';
 
 import { aiChatRouter } from '../aiChat';
+
+const durableMocks = vi.hoisted(() => ({
+  enqueueInTransaction: vi.fn(),
+  findByIdempotencyKey: vi.fn(),
+}));
 
 vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: vi.fn(),
 }));
 vi.mock('@/database/models/message');
 vi.mock('@/database/models/topic');
+vi.mock('@/database/models/conversationGeneration', () => ({
+  ConversationGenerationModel: class {
+    findByIdempotencyKey = durableMocks.findByIdempotencyKey;
+  },
+}));
 vi.mock('@/database/utils/idGenerator', () => ({
   idGenerator: vi.fn(() => 'msg_1234567890ABCD'),
 }));
@@ -28,7 +39,7 @@ vi.mock('@/server/services/conversationGeneration/credentials', () => ({
 }));
 vi.mock('@/server/services/conversationGeneration/service', () => ({
   ConversationGenerationService: class {
-    enqueueInTransaction = vi.fn();
+    enqueueInTransaction = durableMocks.enqueueInTransaction;
   },
 }));
 vi.mock('@/utils/server', () => ({
@@ -39,7 +50,7 @@ vi.mock('@/server/modules/ModelRuntime', () => ({
 }));
 
 describe('aiChatRouter', () => {
-  const mockUser = [{ version: 'version-1' }];
+  const mockUser = [{ version: 7 }];
   const mockTransaction = {
     select: () => ({
       from: () => ({
@@ -67,6 +78,12 @@ describe('aiChatRouter', () => {
   };
 
   vi.mocked(getServerDB).mockResolvedValue(mockCtx.serverDB as any);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    durableMocks.findByIdempotencyKey.mockResolvedValue(undefined);
+    vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(false);
+  });
 
   it('should create a topic and user message while reserving the assistant id', async () => {
     const mockCreateTopic = vi.fn().mockResolvedValue({ id: 't1' });
@@ -164,6 +181,83 @@ describe('aiChatRouter', () => {
     });
 
     expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an existing durable send from the write lock without duplicate messages', async () => {
+    vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
+    durableMocks.findByIdempotencyKey.mockResolvedValue({
+      assistantMessageId: 'msg_existing0001',
+      config: { model: 'gpt-4o', provider: 'openai' },
+      id: 'operation-existing',
+      kind: 'chat',
+      sessionId: 's1',
+      threadId: null,
+      topicId: 't1',
+      userMessageId: 'message-user-existing',
+    });
+    const mockCreateMessage = vi.fn();
+    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics: [] });
+    vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    const result = await caller.sendMessageInServer({
+      expectedConversationVersion: 7,
+      generation: {
+        config: { model: 'gpt-4o', provider: 'openai' },
+        idempotencyKey: 'chat-send-existing',
+      },
+      newUserMessage: { content: 'hi' },
+      sessionId: 's1',
+      topicId: 't1',
+    });
+
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+    expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      assistantMessageId: 'msg_existing0001',
+      operationId: 'operation-existing',
+      userMessageId: 'message-user-existing',
+    });
+  });
+
+  it('enqueues a new durable send with replacement and conversation-version guards', async () => {
+    vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
+    const mockCreateMessage = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'message-user-new' })
+      .mockResolvedValueOnce({ id: 'msg_1234567890ABCD' });
+    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics: [] });
+    durableMocks.enqueueInTransaction.mockResolvedValue({
+      assistantMessageId: 'msg_1234567890ABCD',
+      id: 'operation-new',
+      userMessageId: 'message-user-new',
+    });
+    vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    const result = await caller.sendMessageInServer({
+      expectedConversationVersion: 7,
+      generation: {
+        config: { model: 'gpt-4o', provider: 'openai' },
+        idempotencyKey: 'chat-send-new-key',
+      },
+      newUserMessage: { content: 'hi' },
+      sessionId: 's1',
+      topicId: 't1',
+    });
+
+    expect(durableMocks.enqueueInTransaction).toHaveBeenCalledWith(
+      mockTransaction,
+      expect.objectContaining({
+        conversationVersion: 7,
+        expectedConversationVersion: 7,
+        idempotencyKey: 'chat-send-new-key',
+        replaceActive: true,
+      }),
+    );
+    expect(result.operationId).toBe('operation-new');
   });
 
   it('creates the reserved assistant placeholder after validating its parent context', async () => {

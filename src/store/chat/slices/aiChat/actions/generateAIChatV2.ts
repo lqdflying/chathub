@@ -258,6 +258,7 @@ export const generateAIChatV2: StateCreator<
               ragQuery: get().internal_shouldUseRAG() ? message : undefined,
               systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
             },
+            idempotencyKey: `chat-send:${tempId}`,
           }
         : undefined;
     try {

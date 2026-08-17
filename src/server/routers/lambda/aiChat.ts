@@ -10,6 +10,7 @@ import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 
 import { LOADING_FLAT } from '@/const/message';
+import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { idGenerator } from '@/database/utils/idGenerator';
@@ -258,6 +259,42 @@ export const aiChatRouter = router({
         async (transaction) => {
           const messageModel = new MessageModel(transaction, ctx.userId);
           const topicModel = new TopicModel(transaction, ctx.userId);
+          if (durableGeneration?.idempotencyKey) {
+            const existing = await new ConversationGenerationModel(
+              transaction,
+              ctx.userId,
+            ).findByIdempotencyKey(durableGeneration.idempotencyKey);
+            if (existing) {
+              const matchesRequest =
+                existing.kind === 'chat' &&
+                (existing.sessionId ?? undefined) === input.sessionId &&
+                (existing.threadId ?? undefined) === input.threadId &&
+                (!input.topicId || existing.topicId === input.topicId) &&
+                existing.config.model === durableGeneration.config.model &&
+                existing.config.provider === durableGeneration.config.provider;
+              if (!matchesRequest) {
+                throw new TRPCError({
+                  code: 'CONFLICT',
+                  message: 'Generation idempotency key was already used for another request.',
+                });
+              }
+              if (!existing.assistantMessageId || !existing.userMessageId) {
+                throw new TRPCError({
+                  code: 'INTERNAL_SERVER_ERROR',
+                  message: 'Existing generation operation is missing its persisted messages.',
+                });
+              }
+
+              return {
+                assistantMessageId: existing.assistantMessageId,
+                isCreateNewTopic: Boolean(input.newTopic),
+                operationId: existing.id,
+                topicId: existing.topicId ?? input.topicId,
+                userMessageId: existing.userMessageId,
+              };
+            }
+          }
+
           let topicId = input.topicId!;
           let isCreateNewTopic = false;
 
@@ -311,10 +348,12 @@ export const aiChatRouter = router({
                 ...durableGeneration.config,
                 title: topicId ? { topicId } : durableGeneration.config.title,
               },
+              conversationVersion: input.expectedConversationVersion,
               expectedConversationVersion: input.expectedConversationVersion,
               idempotencyKey: durableGeneration.idempotencyKey,
               kind: 'chat',
               parentMessageId: userMessageItem.id,
+              replaceActive: true,
               sessionId: input.sessionId,
               threadId: input.threadId,
               topicId,
