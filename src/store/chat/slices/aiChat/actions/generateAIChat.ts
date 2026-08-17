@@ -362,8 +362,13 @@ export const generateAIChat: StateCreator<
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
           generation: conversationContext.generation,
+          kind: operation.kind,
+          lane: operation.lane,
+          laneGeneration: operation.laneGeneration,
           operationId: operation.id,
+          revision: operation.revision,
           sessionId: conversationContext.sessionId,
+          threadId: operation.threadId || undefined,
           topicId: conversationContext.topicId ?? undefined,
           userScope: accountMutationSnapshot.scope,
         });
@@ -1160,6 +1165,7 @@ export const generateAIChat: StateCreator<
       get().cancelAndDetachDurableOps({
         groupId: isGroupChat ? groupId : undefined,
         sessionId: activeId,
+        threadId: requestedThreadId,
         topicId: activeTopicId,
       });
       get().internal_toggleChatLoading(false, undefined, n('retryMessage/cancelChatLoading'));
@@ -1335,8 +1341,13 @@ export const generateAIChat: StateCreator<
           get().attachConversationGeneration({
             assistantMessageId: operation.assistantMessageId || undefined,
             generation: requestedGeneration,
+            kind: operation.kind,
+            lane: operation.lane,
+            laneGeneration: operation.laneGeneration,
             operationId: operation.id,
+            revision: operation.revision,
             sessionId: activeId,
+            threadId: operation.threadId || undefined,
             topicId: activeTopicId,
             userScope: accountMutationSnapshot.scope,
           });

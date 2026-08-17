@@ -133,6 +133,15 @@ export interface ConversationGenerationEvent {
   userId: string;
 }
 
+export interface ConversationGenerationResetEvent {
+  reset: true;
+  type: 'reset';
+}
+
+export type ConversationGenerationStreamEvent =
+  | ConversationGenerationEvent
+  | ConversationGenerationResetEvent;
+
 export interface ConversationGenerationEnqueueInput {
   agentId?: string;
   assistantMessageId?: string;

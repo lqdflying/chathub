@@ -8,6 +8,7 @@ import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@/co
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
+import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { useAgentStore } from '@/store/agent';
@@ -112,6 +113,12 @@ beforeEach(() => {
 
   // Setup default spies that most tests need
   spyOnMessageService();
+  vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValue({
+    status: 'processing',
+  } as any);
+  vi.spyOn(conversationGenerationService, 'getOperationByIdempotencyKey').mockResolvedValue(
+    undefined,
+  );
 
   // Setup common mock methods that most V2 tests need
   act(() => {
@@ -463,6 +470,94 @@ describe('generateAIChatV2 actions', () => {
             topicId: TEST_IDS.TOPIC_ID,
           }),
         );
+      });
+
+      it('falls back to the browser runtime when no durable operation can be reconciled', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        const syncActive = vi.fn(async () => {});
+        useChatStore.setState({ syncActiveConversationGenerations: syncActive });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(syncActive).toHaveBeenCalled();
+        expect(aiChatService.createAssistantMessageInServer).toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+      });
+
+      it('reconciles a terminal operation that completed before attachment', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        vi.mocked(conversationGenerationService.getOperation).mockResolvedValueOnce({
+          id: 'cgo_fast',
+          status: 'succeeded',
+        } as any);
+        (aiChatService.sendMessageInServer as Mock).mockResolvedValueOnce({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: false,
+          messages: [],
+          operationId: 'cgo_fast',
+          topicId: TEST_IDS.TOPIC_ID,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(
+          useChatStore.getState().serverGenerationOperations[
+            messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+          ],
+        ).toBeUndefined();
+        expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
+      });
+
+      it('recovers an ambiguously failed send by its stable idempotency key', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        (aiChatService.sendMessageInServer as Mock).mockRejectedValueOnce(
+          new Error('network disconnected'),
+        );
+        vi.mocked(
+          conversationGenerationService.getOperationByIdempotencyKey,
+        ).mockResolvedValueOnce({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          id: 'cgo_recovered',
+          kind: 'chat',
+          lane: 'lane-recovered',
+          laneGeneration: 1,
+          sessionId: TEST_IDS.SESSION_ID,
+          status: 'processing',
+          topicId: TEST_IDS.TOPIC_ID,
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        } as any);
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(
+          conversationGenerationService.getOperationByIdempotencyKey,
+        ).toHaveBeenCalledWith(expect.stringMatching(/^chat-send:/));
+        expect(
+          useChatStore.getState().serverGenerationOperations[
+            messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+          ].cgo_recovered,
+        ).toMatchObject({ lane: 'lane-recovered', operationId: 'cgo_recovered' });
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
 
       it('persists deduplicated activated skill metadata on the server user message', async () => {

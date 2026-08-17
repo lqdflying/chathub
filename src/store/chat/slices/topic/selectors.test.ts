@@ -67,6 +67,8 @@ describe('topicSelectors', () => {
           [messageMapKey('test', 'topic1')]: {
             'generation-operation-one': {
               generation: 2,
+              kind: 'chat',
+              lane: 'lane-one',
               operationId: 'generation-operation-one',
               sessionId: 'test',
               topicId: 'topic1',
@@ -74,6 +76,8 @@ describe('topicSelectors', () => {
             },
             'generation-operation-two': {
               generation: 2,
+              kind: 'chat',
+              lane: 'lane-two',
               operationId: 'generation-operation-two',
               sessionId: 'test',
               topicId: 'topic1',
@@ -94,6 +98,8 @@ describe('topicSelectors', () => {
           [messageMapKey('another', 'topic1')]: {
             'generation-operation': {
               generation: 2,
+              kind: 'chat',
+              lane: 'lane-another',
               operationId: 'generation-operation',
               sessionId: 'another',
               topicId: 'topic1',

@@ -5,6 +5,7 @@ import { mutate } from 'swr';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
+import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -85,6 +86,7 @@ afterEach(() => {
 describe('chatMessage actions', () => {
   describe('internal_invalidateConversation', () => {
     it('clears every invalidated conversation operation and preserves other conversations', () => {
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel');
       useChatStore.setState({
         activeId: 'session-id',
         activeTopicId: 'topic-id',
@@ -92,6 +94,8 @@ describe('chatMessage actions', () => {
           [messageMapKey('other-session', 'other-topic')]: {
             'other-operation': {
               generation: 1,
+              kind: 'chat',
+              lane: 'lane-other',
               operationId: 'other-operation',
               sessionId: 'other-session',
               topicId: 'other-topic',
@@ -101,6 +105,8 @@ describe('chatMessage actions', () => {
           [messageMapKey('session-id', 'topic-id')]: {
             'current-operation-one': {
               generation: 1,
+              kind: 'chat',
+              lane: 'lane-current-one',
               operationId: 'current-operation-one',
               sessionId: 'session-id',
               topicId: 'topic-id',
@@ -108,6 +114,8 @@ describe('chatMessage actions', () => {
             },
             'current-operation-two': {
               generation: 1,
+              kind: 'chat',
+              lane: 'lane-current-two',
               operationId: 'current-operation-two',
               sessionId: 'session-id',
               topicId: 'topic-id',
@@ -126,6 +134,8 @@ describe('chatMessage actions', () => {
         [messageMapKey('other-session', 'other-topic')]: {
           'other-operation': {
             generation: 1,
+            kind: 'chat',
+            lane: 'lane-other',
             operationId: 'other-operation',
             sessionId: 'other-session',
             topicId: 'other-topic',
@@ -133,6 +143,7 @@ describe('chatMessage actions', () => {
           },
         },
       });
+      expect(cancel).not.toHaveBeenCalled();
     });
 
     it('clears the RAG loading ids so a stuck avatar spinner cannot survive a switch', () => {
@@ -564,6 +575,8 @@ describe('chatMessage actions', () => {
           [messageMapKey('session-id', 'topic-id')]: {
             'generation-operation': {
               generation: 1,
+              kind: 'chat',
+              lane: 'lane-generation',
               operationId: 'generation-operation',
               sessionId: 'session-id',
               topicId: 'topic-id',

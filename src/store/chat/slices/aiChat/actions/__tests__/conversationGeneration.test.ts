@@ -35,6 +35,8 @@ describe('conversationGeneration store actions', () => {
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
         generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
         operationId: 'cgo_one',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
@@ -56,6 +58,8 @@ describe('conversationGeneration store actions', () => {
       result.current.attachConversationGeneration({
         assistantMessageId: 'assistant-1',
         generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
         operationId: 'cgo_one',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
@@ -89,6 +93,8 @@ describe('conversationGeneration store actions', () => {
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
         generation: 0,
         groupId: 'group-1',
+        kind: 'group_supervisor',
+        lane: 'lane-group',
         operationId: 'cgo_one',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
@@ -122,6 +128,8 @@ describe('conversationGeneration store actions', () => {
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
         generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
         operationId: 'cgo_one',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
@@ -142,6 +150,36 @@ describe('conversationGeneration store actions', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  it('ignores replayed events at or below the attached revision', () => {
+    const dispatch = vi.fn();
+    const { result } = renderHook(() => useChatStore());
+    act(() => {
+      useChatStore.setState({ internal_dispatchMessage: dispatch });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_replayed',
+        revision: 4,
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 3,
+        operationId: 'cgo_replayed',
+        payload: { content: 'old content' },
+        revision: 4,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it('detaches operations after stop', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());
@@ -149,6 +187,8 @@ describe('conversationGeneration store actions', () => {
     act(() => {
       result.current.attachConversationGeneration({
         generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
         operationId: 'cgo_active',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
@@ -172,6 +212,8 @@ describe('conversationGeneration store actions', () => {
     act(() => {
       result.current.attachConversationGeneration({
         generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
         operationId: 'cgo_active',
         sessionId: TEST_IDS.SESSION_ID,
         topicId: TEST_IDS.TOPIC_ID,
@@ -179,6 +221,8 @@ describe('conversationGeneration store actions', () => {
       });
       result.current.attachConversationGeneration({
         generation: 0,
+        kind: 'chat',
+        lane: 'lane-other',
         operationId: 'cgo_other',
         sessionId: 'other-session',
         topicId: TEST_IDS.TOPIC_ID,
@@ -189,5 +233,142 @@ describe('conversationGeneration store actions', () => {
 
     expect(cancel).toHaveBeenCalledWith('cgo_active');
     expect(cancel).not.toHaveBeenCalledWith('cgo_other');
+  });
+
+  it('ignores snapshots attached to a hidden thread', () => {
+    const dispatch = vi.fn();
+    const { result } = renderHook(() => useChatStore());
+    act(() => {
+      useChatStore.setState({ activeThreadId: undefined, internal_dispatchMessage: dispatch });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-thread',
+        operationId: 'cgo_thread',
+        sessionId: TEST_IDS.SESSION_ID,
+        threadId: 'thread-1',
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 4,
+        operationId: 'cgo_thread',
+        payload: { content: 'hidden update' },
+        revision: 1,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('stops only the exact active thread lane', () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const { result } = renderHook(() => useChatStore());
+    act(() => {
+      useChatStore.setState({ activeThreadId: 'thread-1' });
+      result.current.attachConversationGeneration({
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_main',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.attachConversationGeneration({
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-thread',
+        operationId: 'cgo_thread',
+        sessionId: TEST_IDS.SESSION_ID,
+        threadId: 'thread-1',
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.stopDurableConversationGeneration({ threadId: 'thread-1' });
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_thread');
+    expect(cancel).not.toHaveBeenCalledWith('cgo_main');
+  });
+
+  it('uses operation kind to stop a supervisor without cancelling group agents', () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const { result } = renderHook(() => useChatStore());
+    act(() => {
+      result.current.attachConversationGeneration({
+        generation: 0,
+        groupId: 'group-1',
+        kind: 'group_supervisor',
+        lane: 'lane-supervisor',
+        operationId: 'cgo_supervisor',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.attachConversationGeneration({
+        generation: 0,
+        groupId: 'group-1',
+        kind: 'group_agent',
+        lane: 'lane-agent',
+        operationId: 'cgo_agent',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.stopDurableConversationGeneration({ kind: 'group_supervisor' });
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_supervisor');
+    expect(cancel).not.toHaveBeenCalledWith('cgo_agent');
+  });
+
+  it('syncs only the active thread and preserves server lane metadata', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        assistantMessageId: 'assistant-thread',
+        id: 'cgo_thread',
+        kind: 'chat',
+        lane: 'lane-thread',
+        laneGeneration: 4,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        threadId: 'thread-1',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+      {
+        id: 'cgo_hidden',
+        kind: 'chat',
+        lane: 'lane-hidden',
+        laneGeneration: 2,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        threadId: 'thread-2',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+    act(() => {
+      useChatStore.setState({ activeThreadId: 'thread-1' });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    const operations =
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ];
+    expect(operations.cgo_thread).toMatchObject({
+      kind: 'chat',
+      lane: 'lane-thread',
+      laneGeneration: 4,
+      threadId: 'thread-1',
+    });
+    expect(operations.cgo_hidden).toBeUndefined();
   });
 });

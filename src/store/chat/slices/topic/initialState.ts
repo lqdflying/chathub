@@ -1,3 +1,5 @@
+import type { ConversationGenerationKind } from '@lobechat/types';
+
 import { ChatTopic } from '@/types/topic';
 
 import type { TitleSummaryOperation } from '../../types';
@@ -6,8 +8,13 @@ export interface ServerGenerationOperation {
   assistantMessageId?: string;
   generation: number;
   groupId?: string;
+  kind: ConversationGenerationKind;
+  lane: string;
+  laneGeneration?: number;
   operationId: string;
+  revision?: number;
   sessionId: string;
+  threadId?: string;
   topicId?: string;
   userScope: string;
 }

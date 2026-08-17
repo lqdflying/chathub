@@ -257,6 +257,12 @@ export class ConversationGenerationService {
     return operation;
   };
 
+  getOperationByIdempotencyKey = async (idempotencyKey: string) => {
+    return new ConversationGenerationModel(this.db, this.userId).findByIdempotencyKey(
+      idempotencyKey,
+    );
+  };
+
   listActive = async () => {
     return new ConversationGenerationModel(this.db, this.userId).listActiveByUser();
   };

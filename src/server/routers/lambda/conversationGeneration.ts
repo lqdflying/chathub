@@ -43,6 +43,13 @@ export const conversationGenerationRouter = router({
       return ctx.conversationGenerationService.getOperation(input.operationId);
     }),
 
+  getOperationByIdempotencyKey: conversationGenerationProcedure
+    .input(z.object({ idempotencyKey: z.string().min(8).max(180) }))
+    .query(async ({ ctx, input }) => {
+      await assertEnabled(ctx.userId);
+      return ctx.conversationGenerationService.getOperationByIdempotencyKey(input.idempotencyKey);
+    }),
+
   listActive: conversationGenerationProcedure.query(async ({ ctx }) => {
     await assertEnabled(ctx.userId);
     return ctx.conversationGenerationService.listActive();

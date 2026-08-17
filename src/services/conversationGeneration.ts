@@ -2,6 +2,7 @@ import type {
   ConversationGenerationEnqueueInput,
   ConversationGenerationEvent,
   ConversationGenerationOperation,
+  ConversationGenerationStreamEvent,
 } from '@lobechat/types';
 import { isActiveConversationGenerationStatus as isActiveStatus } from '@lobechat/types';
 import { TRPCClientError } from '@trpc/client';
@@ -34,12 +35,17 @@ const matchesEnqueueInput = (
   input: ConversationGenerationEnqueueInput,
 ) => {
   if (input.groupId) {
-    return operation.groupId === input.groupId && operation.topicId === (input.topicId ?? null);
+    return (
+      operation.groupId === input.groupId &&
+      operation.topicId === (input.topicId ?? null) &&
+      (operation.threadId ?? null) === (input.threadId ?? null)
+    );
   }
 
   return (
     operation.sessionId === (input.sessionId ?? null) &&
     operation.topicId === (input.topicId ?? null) &&
+    (operation.threadId ?? null) === (input.threadId ?? null) &&
     operation.groupId == null
   );
 };
@@ -62,6 +68,12 @@ class ConversationGenerationClient {
     return lambdaClient.conversationGeneration.getOperation.query({ operationId });
   };
 
+  getOperationByIdempotencyKey = async (idempotencyKey: string) => {
+    return lambdaClient.conversationGeneration.getOperationByIdempotencyKey.query({
+      idempotencyKey,
+    });
+  };
+
   listActive = async () => {
     return lambdaClient.conversationGeneration.listActive.query();
   };
@@ -76,7 +88,7 @@ class ConversationGenerationClient {
     signal,
   }: {
     cursor?: number;
-    onEvent: (event: ConversationGenerationEvent | { reset: true; type: 'reset' }) => void;
+    onEvent: (event: ConversationGenerationStreamEvent) => void;
     signal?: AbortSignal;
   }) => {
     const headers = new Headers(await createHeaderWithAuth());
@@ -96,6 +108,21 @@ class ConversationGenerationClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    const deliver = (complete: string) => {
+      for (const ev of parseSseBlocks(complete)) {
+        if (!ev.data) continue;
+        try {
+          const data = JSON.parse(ev.data);
+          if (ev.event === 'reset' || data?.reset) {
+            onEvent({ reset: true, type: 'reset' });
+            continue;
+          }
+          onEvent(data as ConversationGenerationEvent);
+        } catch {
+          // ignore malformed frames
+        }
+      }
+    };
     try {
       // eslint-disable-next-line no-constant-condition
       while (true) {
@@ -107,20 +134,10 @@ class ConversationGenerationClient {
         if (lastBreak < 0) continue;
         const complete = buffer.slice(0, lastBreak + 2);
         buffer = buffer.slice(lastBreak + 2);
-        for (const ev of parseSseBlocks(complete)) {
-          if (!ev.data) continue;
-          try {
-            const data = JSON.parse(ev.data);
-            if (ev.event === 'reset' || data?.reset) {
-              onEvent({ reset: true, type: 'reset' });
-              continue;
-            }
-            onEvent(data as ConversationGenerationEvent);
-          } catch {
-            // ignore malformed frames
-          }
-        }
+        deliver(complete);
       }
+      buffer += decoder.decode();
+      if (buffer.trim()) deliver(buffer);
     } finally {
       reader.releaseLock();
     }

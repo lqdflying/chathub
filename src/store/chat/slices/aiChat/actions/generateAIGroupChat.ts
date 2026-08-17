@@ -570,8 +570,13 @@ export const chatAiGroupChat: StateCreator<
           get().attachConversationGeneration({
             generation: conversationClearGeneration,
             groupId,
+            kind: operation.kind,
+            lane: operation.lane,
+            laneGeneration: operation.laneGeneration,
             operationId: operation.id,
+            revision: operation.revision,
             sessionId: requestedSessionId,
+            threadId: operation.threadId || undefined,
             topicId: currentTopicId ?? undefined,
             userScope: accountMutationSnapshot.scope,
           });
@@ -922,8 +927,13 @@ export const chatAiGroupChat: StateCreator<
               assistantMessageId: assistantId,
               generation: conversationClearGeneration,
               groupId,
+              kind: operation.kind,
+              lane: operation.lane,
+              laneGeneration: operation.laneGeneration,
               operationId: operation.id,
+              revision: operation.revision,
               sessionId: requestedSessionId,
+              threadId: operation.threadId || undefined,
               topicId: activeTopicId,
               userScope: accountMutationSnapshot.scope,
             });

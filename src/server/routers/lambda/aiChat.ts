@@ -1,6 +1,7 @@
 import {
   AiCreateAssistantMessageSchema,
   AiSendMessageServerSchema,
+  ConversationGenerationOperation,
   ContextExportRequestContextSchema,
   CreateAssistantMessageServerResponse,
   SendMessageServerResponse,
@@ -288,6 +289,7 @@ export const aiChatRouter = router({
               return {
                 assistantMessageId: existing.assistantMessageId,
                 isCreateNewTopic: Boolean(input.newTopic),
+                operation: existing,
                 operationId: existing.id,
                 topicId: existing.topicId ?? input.topicId,
                 userMessageId: existing.userMessageId,
@@ -326,6 +328,7 @@ export const aiChatRouter = router({
           const assistantMessageId = idGenerator('messages', 14);
           log('reserved assistant message id: %s', assistantMessageId);
 
+          let generationOperation: ConversationGenerationOperation | undefined;
           let operationId: string | undefined;
           if (durableGeneration) {
             await messageModel.create(
@@ -359,12 +362,14 @@ export const aiChatRouter = router({
               topicId,
               userMessageId: userMessageItem.id,
             });
+            generationOperation = operation;
             operationId = operation.id;
           }
 
           return {
             assistantMessageId,
             isCreateNewTopic,
+            operation: generationOperation,
             operationId,
             topicId,
             userMessageId: userMessageItem.id,
@@ -390,6 +395,7 @@ export const aiChatRouter = router({
         assistantMessageId: writeResult.assistantMessageId,
         isCreateNewTopic: writeResult.isCreateNewTopic,
         messages,
+        operation: writeResult.operation,
         operationId: writeResult.operationId,
         topicId: writeResult.topicId,
         topics,

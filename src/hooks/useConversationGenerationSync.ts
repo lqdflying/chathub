@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect } from 'react';
+import type { ConversationGenerationStreamEvent } from '@lobechat/types';
+import { useEffect, useRef } from 'react';
 
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -16,11 +17,17 @@ export const useConversationGenerationSync = () => {
   const topicId = useChatStore((s) => s.activeTopicId);
   const applyEvent = useChatStore((s) => s.applyConversationGenerationEvent);
   const syncActive = useChatStore((s) => s.syncActiveConversationGenerations);
+  const previousUserId = useRef(userId);
+
+  useEffect(() => {
+    if (previousUserId.current !== userId && userId) cursorByUser.delete(userId);
+    previousUserId.current = userId;
+  }, [userId]);
 
   useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled()) return;
     void syncActive().catch(console.error);
-  }, [sessionId, syncActive, topicId]);
+  }, [sessionId, syncActive, topicId, userId]);
 
   useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled() || !userId) return;
@@ -35,12 +42,12 @@ export const useConversationGenerationSync = () => {
       cursorByUser.set(userId, nextCursor);
     };
 
-    const handleEvent = (event: any) => {
-      if (event?.type === 'reset' || event?.reset) {
+    const handleEvent = (event: ConversationGenerationStreamEvent) => {
+      if (event.type === 'reset') {
         persistCursor(0);
         return;
       }
-      if (typeof event?.id === 'number') persistCursor(event.id);
+      if (typeof event.id === 'number') persistCursor(event.id);
       applyEvent(event);
     };
 

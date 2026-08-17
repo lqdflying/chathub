@@ -329,7 +329,7 @@ export const useSendGroupMessage = () => {
     }
 
     if (isSupervisorLoading) {
-      store.stopDurableConversationGeneration();
+      store.stopDurableConversationGeneration({ kind: 'group_supervisor' });
       store.internal_cancelSupervisorDecision(store.activeId);
       return;
     }

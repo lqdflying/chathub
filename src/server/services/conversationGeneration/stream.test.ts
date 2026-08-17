@@ -53,4 +53,15 @@ describe('consumeProtocolResponse', () => {
       type: 'ProviderError',
     });
   });
+
+  it('flushes a complete final protocol block without a trailing blank line', async () => {
+    const onText = vi.fn();
+    const result = await consumeProtocolResponse(
+      sseResponse(['event: text\ndata: "final chunk"']),
+      { onText },
+    );
+
+    expect(result.content).toBe('final chunk');
+    expect(onText).toHaveBeenCalledWith('final chunk', 'final chunk');
+  });
 });

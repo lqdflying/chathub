@@ -94,8 +94,13 @@ export const chatTranslate: StateCreator<
         get().attachConversationGeneration({
           assistantMessageId: id,
           generation: requestedGeneration,
+          kind: operation.kind,
+          lane: operation.lane,
+          laneGeneration: operation.laneGeneration,
           operationId: operation.id,
+          revision: operation.revision,
           sessionId: requestedSessionId,
+          threadId: operation.threadId || undefined,
           topicId: requestedTopicId ?? undefined,
           userScope: accountMutationSnapshot.scope,
         });

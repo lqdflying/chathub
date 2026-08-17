@@ -5,6 +5,10 @@ import {
   tryEnqueueConversationGeneration,
 } from '../conversationGeneration';
 
+vi.mock('@/services/_auth', () => ({
+  createHeaderWithAuth: vi.fn(async () => ({})),
+}));
+
 describe('tryEnqueueConversationGeneration', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -75,5 +79,32 @@ describe('tryEnqueueConversationGeneration', () => {
         kind: 'chat',
       }),
     ).rejects.toThrow(/provider API key on the server/);
+  });
+});
+
+describe('conversationGenerationService.subscribe', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('delivers a final reset frame without a trailing SSE delimiter', async () => {
+    const encoder = new TextEncoder();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode('event: reset\ndata: {"reset":true}'));
+            controller.close();
+          },
+        });
+        return new Response(body, { status: 200 });
+      }),
+    );
+    const onEvent = vi.fn();
+
+    await conversationGenerationService.subscribe({ onEvent });
+
+    expect(onEvent).toHaveBeenCalledWith({ reset: true, type: 'reset' });
   });
 });

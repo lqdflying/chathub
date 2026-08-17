@@ -243,7 +243,7 @@ export interface ChatMessageAction {
    * Update active session type
    */
   internal_updateActiveSessionType: (sessionType?: 'agent' | 'group') => void;
-  /** Invalidates and cancels producers owned by the current conversation. */
+  /** Invalidates local producers and detaches durable work owned by the current conversation. */
   internal_invalidateConversation: () => void;
   /**
    * Update active session ID with cleanup of pending operations
@@ -285,6 +285,11 @@ export const chatMessage: StateCreator<
       ids = ids.concat(toolMessageIds);
     }
 
+    get().cancelAndDetachDurableOps({
+      sessionId: requestedSessionId,
+      threadId: message.threadId,
+      topicId: requestedTopicId,
+    });
     await get().internal_invalidateMemoryCompaction(ids).catch(console.error);
     get().internal_dispatchMessage({ type: 'deleteMessages', ids });
     await messageService.removeMessages(ids);
@@ -329,6 +334,12 @@ export const chatMessage: StateCreator<
       get().activeId === activeId &&
       get().activeTopicId === activeTopicId;
 
+    get().cancelAndDetachDurableOps({
+      allThreads: true,
+      sessionId: activeId,
+      topicId: activeTopicId,
+    });
+
     // Check if this is a group session - use activeSessionType if available, otherwise check session store
     let isGroupSession = activeSessionType === 'group';
     if (activeSessionType === undefined) {
@@ -364,6 +375,8 @@ export const chatMessage: StateCreator<
   clearAllTopicsHistory: async () => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     if (!accountMutationSnapshot) return;
+
+    get().cancelAndDetachDurableOps({ allConversations: true, allThreads: true });
 
     const {
       chatLoadingIdsAbortController,
@@ -1145,7 +1158,8 @@ export const chatMessage: StateCreator<
 
     get().internal_cancelAllSupervisorDecisions();
     useToolStore.setState({ builtinToolLoading: {} });
-    get().cancelAndDetachDurableOps({
+    get().detachDurableOps({
+      allThreads: true,
       sessionId: get().activeId,
       topicId: get().activeTopicId,
     });

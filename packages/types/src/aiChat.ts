@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ConversationGenerationConfigSchema,
   ConversationGenerationConfigSnapshot,
+  ConversationGenerationOperation,
 } from './conversationGeneration';
 import { UIChatMessage } from './message';
 import { OpenAIChatMessage } from './openai/chat';
@@ -90,6 +91,8 @@ export interface SendMessageServerResponse {
   messages: UIChatMessage[];
   /** Present when durable server-side generation was enqueued. */
   operationId?: string;
+  /** Operation metadata used to attach the exact durable lane without another request. */
+  operation?: ConversationGenerationOperation;
   topicId: string;
   topics?: ChatTopic[];
   userMessageId: string;

@@ -54,6 +54,65 @@ export const consumeProtocolResponse = async (
   let grounding: unknown;
   let error: ProtocolStreamResult['error'];
 
+  const consumeEvents = async (complete: string) => {
+    for (const ev of parseSseBlocks(complete)) {
+      if (!ev.data) continue;
+      let data: any;
+      try {
+        data = JSON.parse(ev.data);
+      } catch {
+        continue;
+      }
+
+      switch (ev.event) {
+        case 'text': {
+          if (!data) break;
+          content += data;
+          await handlers.onText?.(data, content);
+          break;
+        }
+        case 'reasoning': {
+          if (!data) break;
+          thinking += data;
+          await handlers.onReasoning?.(data, { content: thinking });
+          break;
+        }
+        case 'reasoning_signature': {
+          thinkingSignatures.push(data);
+          break;
+        }
+        case 'flagged_reasoning_signature': {
+          redactedSignatures.push(data);
+          break;
+        }
+        case 'tool_calls': {
+          toolCalls = parseToolCalls(toolCalls || [], data);
+          await handlers.onToolCalls?.(toolCalls);
+          break;
+        }
+        case 'usage': {
+          usage = data;
+          break;
+        }
+        case 'grounding': {
+          grounding = data;
+          break;
+        }
+        case 'error': {
+          error = {
+            body: data,
+            message: data?.message || 'Model stream error',
+            type: data?.type || 'StreamChunkError',
+          };
+          break;
+        }
+        default: {
+          break;
+        }
+      }
+    }
+  };
+
   try {
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -65,64 +124,10 @@ export const consumeProtocolResponse = async (
       if (lastBreak < 0) continue;
       const complete = buffer.slice(0, lastBreak + 2);
       buffer = buffer.slice(lastBreak + 2);
-
-      for (const ev of parseSseBlocks(complete)) {
-        if (!ev.data) continue;
-        let data: any;
-        try {
-          data = JSON.parse(ev.data);
-        } catch {
-          continue;
-        }
-
-        switch (ev.event) {
-          case 'text': {
-            if (!data) break;
-            content += data;
-            await handlers.onText?.(data, content);
-            break;
-          }
-          case 'reasoning': {
-            if (!data) break;
-            thinking += data;
-            await handlers.onReasoning?.(data, { content: thinking });
-            break;
-          }
-          case 'reasoning_signature': {
-            thinkingSignatures.push(data);
-            break;
-          }
-          case 'flagged_reasoning_signature': {
-            redactedSignatures.push(data);
-            break;
-          }
-          case 'tool_calls': {
-            toolCalls = parseToolCalls(toolCalls || [], data);
-            await handlers.onToolCalls?.(toolCalls);
-            break;
-          }
-          case 'usage': {
-            usage = data;
-            break;
-          }
-          case 'grounding': {
-            grounding = data;
-            break;
-          }
-          case 'error': {
-            error = {
-              body: data,
-              message: data?.message || 'Model stream error',
-              type: data?.type || 'StreamChunkError',
-            };
-            break;
-          }
-          default: {
-            break;
-          }
-        }
-      }
+      await consumeEvents(complete);
     }
+    buffer += decoder.decode();
+    if (buffer.trim()) await consumeEvents(buffer);
   } finally {
     reader.releaseLock();
   }

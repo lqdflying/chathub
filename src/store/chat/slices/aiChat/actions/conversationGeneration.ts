@@ -1,4 +1,9 @@
-import type { ConversationGenerationEvent, ConversationGenerationOperation } from '@lobechat/types';
+import {
+  isActiveConversationGenerationStatus,
+  type ConversationGenerationEvent,
+  type ConversationGenerationKind,
+  type ConversationGenerationOperation,
+} from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -14,16 +19,26 @@ const n = setNamespace('durableGeneration');
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
-  cancelAndDetachDurableOps: (options?: {
-    groupId?: string;
-    sessionId?: string;
-    threadId?: string | null;
-    topicId?: string | null;
-  }) => void;
+  cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => void;
+  detachDurableOps: (options?: ConversationGenerationScope) => void;
   detachConversationGeneration: (operationId: string, conversationKey?: string) => void;
   internal_markDurableGenerating: (id: string, loading: boolean) => void;
-  stopDurableConversationGeneration: (options?: { threadId?: string | null }) => void;
+  reconcileConversationGeneration: (
+    operationId: string,
+  ) => Promise<ConversationGenerationOperation | undefined>;
+  stopDurableConversationGeneration: (options?: ConversationGenerationScope) => void;
   syncActiveConversationGenerations: () => Promise<void>;
+}
+
+interface ConversationGenerationScope {
+  allConversations?: boolean;
+  allThreads?: boolean;
+  groupId?: string;
+  kind?: ConversationGenerationKind | ConversationGenerationKind[];
+  operationId?: string;
+  sessionId?: string;
+  threadId?: string | null;
+  topicId?: string | null;
 }
 
 const conversationKeyFor = (sessionId?: string | null, topicId?: string | null) =>
@@ -45,6 +60,34 @@ const shouldApplyAttachedOperation = (
   if (attached.generation !== state.conversationClearGeneration) return false;
   if (attached.sessionId !== state.activeId) return false;
   if ((attached.topicId ?? null) !== (state.activeTopicId ?? null)) return false;
+  if ((attached.threadId ?? null) !== (state.activeThreadId ?? null)) return false;
+  return true;
+};
+
+const matchesOperationScope = (
+  operation: ServerGenerationOperation,
+  options: ConversationGenerationScope | undefined,
+  state: ChatStore,
+) => {
+  if (options?.operationId && operation.operationId !== options.operationId) return false;
+  if (!options?.allConversations) {
+    if (operation.sessionId !== (options?.sessionId ?? state.activeId)) return false;
+    if ((operation.topicId ?? null) !== (options?.topicId ?? state.activeTopicId ?? null)) {
+      return false;
+    }
+  }
+  if (options?.groupId && operation.groupId !== options.groupId) return false;
+  if (options?.kind) {
+    const kinds = Array.isArray(options.kind) ? options.kind : [options.kind];
+    if (!kinds.includes(operation.kind)) return false;
+  }
+  if (!options?.allThreads) {
+    const threadId =
+      options && Object.hasOwn(options, 'threadId')
+        ? options.threadId
+        : state.activeThreadId;
+    if ((operation.threadId ?? null) !== (threadId ?? null)) return false;
+  }
   return true;
 };
 
@@ -58,6 +101,28 @@ export const conversationGeneration: StateCreator<
     const state = get();
     const attached = findAttachedOperation(state.serverGenerationOperations, event.operationId);
     if (!shouldApplyAttachedOperation(attached, state)) return;
+    if (attached?.revision !== undefined && event.revision <= attached.revision) return;
+
+    set(
+      (current) => ({
+        serverGenerationOperations: Object.fromEntries(
+          Object.entries(current.serverGenerationOperations).map(([key, operations]) => [
+            key,
+            operations[event.operationId]
+              ? {
+                  ...operations,
+                  [event.operationId]: {
+                    ...operations[event.operationId],
+                    revision: event.revision,
+                  },
+                }
+              : operations,
+          ]),
+        ),
+      }),
+      false,
+      n('applyRevision', { operationId: event.operationId, revision: event.revision }),
+    );
 
     const dispatchContext = attached
       ? { sessionId: attached.sessionId, topicId: attached.topicId }
@@ -147,12 +212,24 @@ export const conversationGeneration: StateCreator<
 
   attachConversationGeneration: (operation) => {
     const key = conversationKeyFor(operation.sessionId, operation.topicId);
+    const replaced = Object.values(get().serverGenerationOperations[key] || {}).filter(
+      (item) => item.operationId !== operation.operationId && item.lane === operation.lane,
+    );
+    for (const item of replaced) {
+      if (item.assistantMessageId) {
+        get().internal_markDurableGenerating(item.assistantMessageId, false);
+      }
+    }
     set(
       (state) => ({
         serverGenerationOperations: {
           ...state.serverGenerationOperations,
           [key]: {
-            ...state.serverGenerationOperations[key],
+            ...Object.fromEntries(
+              Object.entries(state.serverGenerationOperations[key] || {}).filter(
+                ([, item]) => item.lane !== operation.lane,
+              ),
+            ),
             [operation.operationId]: operation,
           },
         },
@@ -195,17 +272,11 @@ export const conversationGeneration: StateCreator<
     );
   },
 
-  cancelAndDetachDurableOps: (options) => {
-    const { activeId, activeTopicId, activeThreadId, serverGenerationOperations } = get();
-    if ((options?.threadId ?? null) !== (activeThreadId ?? null)) return;
-
-    const sessionId = options?.sessionId ?? activeId;
-    const topicId = options?.topicId ?? activeTopicId;
-    const key = conversationKeyFor(sessionId, topicId);
-    const operations = Object.values(serverGenerationOperations[key] || {}).filter((operation) => {
-      if (options?.groupId && operation.groupId !== options.groupId) return false;
-      return true;
-    });
+  detachDurableOps: (options) => {
+    const state = get();
+    const operations = Object.values(state.serverGenerationOperations)
+      .flatMap((items) => Object.values(items))
+      .filter((operation) => matchesOperationScope(operation, options, state));
 
     for (const operation of operations) {
       if (operation.assistantMessageId) {
@@ -214,9 +285,38 @@ export const conversationGeneration: StateCreator<
       if (operation.groupId) {
         get().internal_toggleSupervisorLoading(false, operation.groupId);
       }
-      void conversationGenerationService.cancel(operation.operationId).catch(console.error);
-      get().detachConversationGeneration(operation.operationId, key);
+      get().detachConversationGeneration(operation.operationId);
     }
+  },
+
+  cancelAndDetachDurableOps: (options) => {
+    const state = get();
+    const operations = Object.values(state.serverGenerationOperations)
+      .flatMap((items) => Object.values(items))
+      .filter((operation) => matchesOperationScope(operation, options, state));
+
+    for (const operation of operations) {
+      void conversationGenerationService.cancel(operation.operationId).catch(console.error);
+    }
+    get().detachDurableOps(options);
+  },
+
+  reconcileConversationGeneration: async (operationId) => {
+    const operation = (await conversationGenerationService.getOperation(
+      operationId,
+    )) as ConversationGenerationOperation;
+    const attached = findAttachedOperation(get().serverGenerationOperations, operationId);
+    if (isActiveConversationGenerationStatus(operation.status)) return operation;
+
+    if (attached?.assistantMessageId) {
+      get().internal_markDurableGenerating(attached.assistantMessageId, false);
+    }
+    if (attached?.groupId) {
+      get().internal_toggleSupervisorLoading(false, attached.groupId);
+    }
+    get().detachConversationGeneration(operationId);
+    await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+    return operation;
   },
 
   stopDurableConversationGeneration: (options) => {
@@ -227,22 +327,46 @@ export const conversationGeneration: StateCreator<
     const operations = (await conversationGenerationService.listActive()) as Array<
       ConversationGenerationOperation & { assistantMessageId?: string | null }
     >;
-    const { activeId, activeTopicId, conversationClearGeneration } = get();
+    const { activeId, activeThreadId, activeTopicId, conversationClearGeneration } = get();
+    const activeOperationIds = new Set<string>();
     for (const operation of operations) {
       if (
         (operation.sessionId || activeId) === activeId &&
-        (operation.topicId ?? null) === (activeTopicId ?? null)
+        (operation.topicId ?? null) === (activeTopicId ?? null) &&
+        (operation.threadId ?? null) === (activeThreadId ?? null)
       ) {
+        activeOperationIds.add(operation.id);
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
           generation: conversationClearGeneration,
           groupId: operation.groupId || undefined,
+          kind: operation.kind,
+          lane: operation.lane,
+          laneGeneration: operation.laneGeneration,
           operationId: operation.id,
+          revision: operation.revision,
           sessionId: operation.sessionId || activeId,
+          threadId: operation.threadId || undefined,
           topicId: operation.topicId || undefined,
           userScope: 'current',
         });
       }
+    }
+
+    const attachedForCurrentLane = Object.values(
+      get().serverGenerationOperations[conversationKeyFor(activeId, activeTopicId)] || {},
+    ).filter((operation) => (operation.threadId ?? null) === (activeThreadId ?? null));
+    let detachedTerminal = false;
+    for (const operation of attachedForCurrentLane) {
+      if (activeOperationIds.has(operation.operationId)) continue;
+      detachedTerminal = true;
+      if (operation.assistantMessageId) {
+        get().internal_markDurableGenerating(operation.assistantMessageId, false);
+      }
+      get().detachConversationGeneration(operation.operationId);
+    }
+    if (detachedTerminal) {
+      await Promise.all([get().refreshMessages(), get().refreshTopic()]);
     }
   },
 });

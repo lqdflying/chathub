@@ -6,6 +6,7 @@ import {
   ChatImageItem,
   ChatTopic,
   ChatVideoItem,
+  buildConversationGenerationLane,
   ContextExportRequestContext,
   type KnowledgeBaseClientPreparationFailurePhase,
   MessageSemanticSearchChunk,
@@ -24,6 +25,7 @@ import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
+import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
@@ -239,6 +241,8 @@ export const generateAIChatV2: StateCreator<
     );
 
     let data: SendMessageServerResponse | undefined;
+    let sendFailure: unknown;
+    let recoveryChecked = false;
     let operationWasCurrent = false;
     const { model, provider } = agentSelectors.currentAgentConfig(getAgentStoreState());
     const generation =
@@ -311,16 +315,48 @@ export const generateAIChatV2: StateCreator<
           }),
         );
       }
-    } catch (e) {
-      if (e instanceof TRPCClientError) {
-        const isAbort = e.message.includes('aborted') || e.name === 'AbortError';
-        // Check if error is due to cancellation
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isAbort = errorMessage.includes('aborted') || (error as Error)?.name === 'AbortError';
+
+      if (!isAbort && generation?.idempotencyKey) {
+        try {
+          const recovered =
+            await conversationGenerationService.getOperationByIdempotencyKey(
+              generation.idempotencyKey,
+            );
+          recoveryChecked = true;
+          if (
+            recovered?.assistantMessageId &&
+            recovered.userMessageId &&
+            isCurrentConversation()
+          ) {
+            data = {
+              assistantMessageId: recovered.assistantMessageId,
+              isCreateNewTopic: shouldCreateNewTopic,
+              messages: [],
+              operation: recovered,
+              operationId: recovered.id,
+              topicId: recovered.topicId || activeTopicId || '',
+              userMessageId: recovered.userMessageId,
+            };
+            await get().refreshMessages();
+          }
+        } catch {
+          // The reconciliation request is itself ambiguous; retain the optimistic row.
+        }
+      }
+
+      if (!data) {
+        sendFailure = error;
         const currentOperation = get().mainSendMessageOperations[operationKey];
         const isCurrentOperation =
           isCurrentConversation() && currentOperation?.abortController === abortController;
 
         if (!isAbort && isCurrentOperation) {
-          get().internal_updateSendMessageOperation(operationKey, { inputSendErrorMsg: e.message });
+          get().internal_updateSendMessageOperation(operationKey, {
+            inputSendErrorMsg: errorMessage,
+          });
           get().mainInputEditor?.setJSONState(jsonState);
         }
       }
@@ -345,6 +381,19 @@ export const generateAIChatV2: StateCreator<
       }
     }
 
+    if (
+      sendFailure &&
+      !data &&
+      operationWasCurrent &&
+      isCurrentConversation() &&
+      (recoveryChecked || sendFailure instanceof TRPCClientError)
+    ) {
+      get().internal_dispatchMessage(
+        { id: tempId, type: 'deleteMessage' },
+        { sessionId: activeId, topicId: activeTopicId },
+      );
+    }
+
     // remove temporally message
     if (data?.isCreateNewTopic && operationWasCurrent && isCurrentConversation()) {
       get().internal_dispatchMessage(
@@ -363,14 +412,29 @@ export const generateAIChatV2: StateCreator<
     getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
 
     if (data.operationId) {
+      const durableOperation = data.operation;
       get().attachConversationGeneration({
-        assistantMessageId: data.assistantMessageId,
+        assistantMessageId:
+          durableOperation?.assistantMessageId || data.assistantMessageId,
         generation: conversationContext.generation,
+        kind: durableOperation?.kind || 'chat',
+        lane:
+          durableOperation?.lane ||
+          buildConversationGenerationLane({
+            sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
+            threadId: activeThreadId,
+            topicId: data.topicId,
+            userId: requestedScope,
+          }),
+        laneGeneration: durableOperation?.laneGeneration,
         operationId: data.operationId,
+        revision: durableOperation?.revision,
         sessionId: conversationContext.sessionId,
+        threadId: durableOperation?.threadId || activeThreadId,
         topicId: data.topicId,
         userScope: requestedScope,
       });
+      await get().reconcileConversationGeneration(data.operationId).catch(console.error);
       const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
       await getAgentStoreState().addFilesToAgent(userFiles, false);
       return;
@@ -384,7 +448,6 @@ export const generateAIChatV2: StateCreator<
         await getAgentStoreState().addFilesToAgent(userFiles, false);
         return;
       }
-      return;
     }
 
     // The current server only returns persisted user history here. Keep filtering the
@@ -406,8 +469,11 @@ export const generateAIChatV2: StateCreator<
               ...state.serverGenerationOperations[generationOperationKey],
               [generationOperationId]: {
                 generation: conversationContext.generation,
+                kind: 'chat',
+                lane: `browser:${generationOperationId}`,
                 operationId: generationOperationId,
                 sessionId: conversationContext.sessionId,
+                threadId: activeThreadId,
                 topicId: data.topicId!,
                 userScope: requestedScope,
               },

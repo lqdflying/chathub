@@ -313,8 +313,13 @@ async function runCompactionFromStore(
     if (operation) {
       get().attachConversationGeneration({
         generation: requestedGeneration,
+        kind: operation.kind,
+        lane: operation.lane,
+        laneGeneration: operation.laneGeneration,
         operationId: operation.id,
+        revision: operation.revision,
         sessionId: requestedSessionId,
+        threadId: operation.threadId || undefined,
         topicId: requestedTopicId,
         userScope: accountMutationSnapshot.scope,
       });
