@@ -99,15 +99,53 @@ ${protocol} ${ip} ${port} ${user} ${pass}
 };
 
 // Function to execute a script with child process spawn
-const runScript = (scriptPath, useProxy = false) => {
+const runScript = (
+  scriptPath,
+  useProxy = false,
+  { forwardSignals = false, parentProcess = process, spawnImpl = spawn } = {},
+) => {
   const command = useProxy
     ? ['/bin/proxychains', '-q', '/bin/node', scriptPath]
     : ['/bin/node', scriptPath];
   return new Promise((resolve, reject) => {
-    const process = spawn(command.shift(), command, { stdio: 'inherit' });
-    process.on('close', (code) =>
-      code === 0 ? resolve() : reject(new Error(`🔴 Process exited with code ${code}`)),
-    );
+    const child = spawnImpl(command.shift(), command, { stdio: 'inherit' });
+    const signalHandlers = new Map();
+
+    const cleanup = () => {
+      for (const [signal, handler] of signalHandlers) {
+        parentProcess.off(signal, handler);
+      }
+      signalHandlers.clear();
+    };
+
+    if (forwardSignals) {
+      for (const signal of ['SIGINT', 'SIGTERM']) {
+        const handler = () => {
+          if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+        };
+        signalHandlers.set(signal, handler);
+        parentProcess.on(signal, handler);
+      }
+    }
+
+    child.once('error', (error) => {
+      cleanup();
+      reject(error);
+    });
+    child.once('close', (code, signal) => {
+      cleanup();
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      const error = new Error(
+        signal ? `🔴 Process exited after ${signal}` : `🔴 Process exited with code ${code}`,
+      );
+      error.exitCode =
+        code ?? (signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 1);
+      reject(error);
+    });
   });
 };
 
@@ -117,9 +155,9 @@ const runServer = async () => {
 
   if (PROXY_URL) {
     await runProxyChainsConfGenerator(PROXY_URL);
-    return runScript(SERVER_SCRIPT_PATH, true);
+    return runScript(SERVER_SCRIPT_PATH, true, { forwardSignals: true });
   }
-  return runScript(SERVER_SCRIPT_PATH);
+  return runScript(SERVER_SCRIPT_PATH, false, { forwardSignals: true });
 };
 
 // Validate that at least one authentication method is configured.
@@ -165,7 +203,7 @@ const checkAuthConfig = () => {
 };
 
 // Main execution block
-(async () => {
+const main = async () => {
   console.log('🌐 DNS Server:', dns.getServers());
   console.log('-------------------------------------');
 
@@ -195,4 +233,16 @@ const checkAuthConfig = () => {
 
   // Run the server in either database or non-database mode
   await runServer();
-})();
+};
+
+if (require.main === module) {
+  void main().catch((error) => {
+    console.error(error);
+    process.exitCode = error?.exitCode || 1;
+  });
+}
+
+module.exports = {
+  main,
+  runScript,
+};

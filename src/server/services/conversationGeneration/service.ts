@@ -16,6 +16,7 @@ import { withConversationWriteLockOrThrow } from '@/server/services/conversation
 
 import {
   CONVERSATION_GENERATION_EVENT_PAGE_SIZE,
+  CONVERSATION_GENERATION_MAX_ATTEMPTS,
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
   CONVERSATION_GENERATION_TASK,
 } from './constants';
@@ -45,7 +46,7 @@ const enqueueGraphileJob = async (
         ${CONVERSATION_GENERATION_TASK},
         ${JSON.stringify(payload)}::json,
         job_key := ${payload.operationId},
-        max_attempts := 8
+        max_attempts := ${CONVERSATION_GENERATION_MAX_ATTEMPTS}
       )
     `);
     return payload.operationId;
@@ -54,7 +55,7 @@ const enqueueGraphileJob = async (
       const utils = await getWorkerUtils();
       const job = await utils.addJob(CONVERSATION_GENERATION_TASK, payload, {
         jobKey: payload.operationId,
-        maxAttempts: 8,
+        maxAttempts: CONVERSATION_GENERATION_MAX_ATTEMPTS,
       });
       return String(job.id);
     } catch (fallbackError) {
@@ -176,10 +177,32 @@ export class ConversationGenerationService {
 
   cancel = async (operationId: string) => {
     const model = new ConversationGenerationModel(this.db, this.userId);
-    const operation = await model.requestCancel(operationId);
-    if (!operation) {
+    const current = await model.findById(operationId);
+    if (!current) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Generation operation was not found.' });
     }
+    if (!isActiveConversationGenerationStatus(current.status)) return current;
+
+    const operation = await model.requestCancel(operationId);
+    if (!operation) {
+      return (await model.findById(operationId)) || current;
+    }
+
+    if (current.status === 'pending') {
+      const cancelled = await model.finalizeActive(operationId, 'cancelled', undefined, {
+        attempt: current.attempt,
+        laneGeneration: current.laneGeneration,
+      });
+      if (!cancelled) return (await model.findById(operationId)) || operation;
+      await model.insertEvent({
+        operationId,
+        payload: { status: 'cancelled' },
+        revision: cancelled.revision,
+        type: 'done',
+      });
+      return cancelled;
+    }
+
     const revision = await model.bumpRevision(operationId);
     await model.insertEvent({
       operationId,
@@ -236,29 +259,72 @@ export const sweepPendingConversationGenerationJobs = async (db: LobeChatDatabas
 
 export const sweepStaleConversationGenerationOperations = async (db: LobeChatDatabase) => {
   const heartbeatBefore = new Date(Date.now() - CONVERSATION_GENERATION_STALE_PROCESSING_MS);
-  const stale = await new ConversationGenerationModel(db, 'system').listStaleProcessing(
+  const systemModel = new ConversationGenerationModel(db, 'system');
+  const staleProcessing = await systemModel.listStaleProcessing(
     heartbeatBefore,
   );
 
-  for (const operation of stale) {
+  for (const operation of staleProcessing) {
     const model = new ConversationGenerationModel(db, operation.userId);
-    const updated = await model.update(operation.id, {
-      error: {
-        message: 'Generation stopped responding and was marked interrupted.',
+    if (operation.attempt >= CONVERSATION_GENERATION_MAX_ATTEMPTS) {
+      const error = {
+        message: 'Generation stopped responding on its final retry attempt.',
         type: 'StaleProcessing',
-      },
-      finishedAt: new Date(),
-      phase: 'finalizing',
-      status: 'interrupted',
-    });
-    const revision = await model.bumpRevision(operation.id);
+      };
+      const failed = await model.finalizeActive(operation.id, 'failed', error, {
+        attempt: operation.attempt,
+        laneGeneration: operation.laneGeneration,
+      });
+      if (failed) {
+        await model.insertEvent({
+          operationId: operation.id,
+          payload: { error, status: 'failed' },
+          revision: failed.revision,
+          type: 'error',
+        });
+      }
+      continue;
+    }
+
+    const error = {
+      message: 'Generation stopped responding and was queued for retry.',
+      type: 'StaleProcessing',
+    };
+    const pending = await model.requeueStaleProcessing(operation.id, heartbeatBefore, error);
+    if (!pending) continue;
+
     await model.insertEvent({
       operationId: operation.id,
       payload: {
-        error: updated?.error,
-        status: 'interrupted',
+        error,
+        status: 'pending',
       },
-      revision: revision?.revision ?? operation.revision + 1,
+      revision: pending.revision,
+      type: 'status',
+    });
+
+    const workerJobId = await enqueueGraphileJob(db, {
+      operationId: operation.id,
+      userId: operation.userId,
+    });
+    if (workerJobId) {
+      await model.update(operation.id, { workerJobId });
+    }
+  }
+
+  const staleCancelling = await systemModel.listStaleCancelling(heartbeatBefore);
+  for (const operation of staleCancelling) {
+    const model = new ConversationGenerationModel(db, operation.userId);
+    const cancelled = await model.finalizeActive(operation.id, 'cancelled', undefined, {
+      attempt: operation.attempt,
+      laneGeneration: operation.laneGeneration,
+    });
+    if (!cancelled) continue;
+
+    await model.insertEvent({
+      operationId: operation.id,
+      payload: { status: 'cancelled' },
+      revision: cancelled.revision,
       type: 'done',
     });
   }

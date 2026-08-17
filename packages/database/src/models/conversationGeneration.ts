@@ -142,6 +142,18 @@ export class ConversationGenerationModel {
     });
   };
 
+  listStaleCancelling = async (heartbeatBefore: Date) => {
+    return this.db.query.conversationGenerationOperations.findMany({
+      where: and(
+        eq(conversationGenerationOperations.status, 'cancelling'),
+        or(
+          isNull(conversationGenerationOperations.heartbeatAt),
+          lt(conversationGenerationOperations.heartbeatAt, heartbeatBefore),
+        ),
+      ),
+    });
+  };
+
   listPendingWithoutJob = async () => {
     return this.db.query.conversationGenerationOperations.findMany({
       where: and(
@@ -173,6 +185,121 @@ export class ConversationGenerationModel {
     return item;
   };
 
+  touchHeartbeat = async (id: string, attempt?: number) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        heartbeatAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          eq(conversationGenerationOperations.status, 'processing'),
+          attempt === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.attempt, attempt),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  markForRetry = async (id: string, error: ConversationGenerationError, attempt: number) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        error,
+        heartbeatAt: null,
+        phase: 'queued',
+        revision: sql`${conversationGenerationOperations.revision} + 1`,
+        status: 'pending',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          eq(conversationGenerationOperations.status, 'processing'),
+          eq(conversationGenerationOperations.attempt, attempt),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  requeueStaleProcessing = async (
+    id: string,
+    heartbeatBefore: Date,
+    error: ConversationGenerationError,
+  ) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        error,
+        heartbeatAt: null,
+        phase: 'queued',
+        revision: sql`${conversationGenerationOperations.revision} + 1`,
+        status: 'pending',
+        updatedAt: new Date(),
+        workerJobId: null,
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          eq(conversationGenerationOperations.status, 'processing'),
+          or(
+            isNull(conversationGenerationOperations.heartbeatAt),
+            lt(conversationGenerationOperations.heartbeatAt, heartbeatBefore),
+          ),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  finalizeActive = async (
+    id: string,
+    status: Extract<
+      ConversationGenerationStatus,
+      'succeeded' | 'cancelled' | 'failed' | 'interrupted'
+    >,
+    error?: ConversationGenerationError,
+    guard?: { attempt?: number; laneGeneration?: number },
+  ) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        error: error ?? null,
+        finishedAt: new Date(),
+        phase: 'finalizing',
+        revision: sql`${conversationGenerationOperations.revision} + 1`,
+        status,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+          guard?.attempt === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.attempt, guard.attempt),
+          guard?.laneGeneration === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.laneGeneration, guard.laneGeneration),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
   update = async (
     id: string,
     value: Partial<{
@@ -191,6 +318,7 @@ export class ConversationGenerationModel {
       userMessageId: string | null;
       workerJobId: string | null;
     }>,
+    guard?: { attempt?: number; laneGeneration?: number },
   ) => {
     const [item] = await this.db
       .update(conversationGenerationOperations)
@@ -199,6 +327,13 @@ export class ConversationGenerationModel {
         and(
           eq(conversationGenerationOperations.id, id),
           eq(conversationGenerationOperations.userId, this.userId),
+          inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+          guard?.attempt === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.attempt, guard.attempt),
+          guard?.laneGeneration === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.laneGeneration, guard.laneGeneration),
         ),
       )
       .returning();
@@ -206,7 +341,10 @@ export class ConversationGenerationModel {
     return item;
   };
 
-  bumpRevision = async (id: string) => {
+  bumpRevision = async (
+    id: string,
+    guard?: { attempt?: number; laneGeneration?: number },
+  ) => {
     const [item] = await this.db
       .update(conversationGenerationOperations)
       .set({
@@ -218,6 +356,13 @@ export class ConversationGenerationModel {
         and(
           eq(conversationGenerationOperations.id, id),
           eq(conversationGenerationOperations.userId, this.userId),
+          inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+          guard?.attempt === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.attempt, guard.attempt),
+          guard?.laneGeneration === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.laneGeneration, guard.laneGeneration),
         ),
       )
       .returning();
@@ -237,6 +382,7 @@ export class ConversationGenerationModel {
         and(
           eq(conversationGenerationOperations.id, id),
           eq(conversationGenerationOperations.userId, this.userId),
+          inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
         ),
       )
       .returning();

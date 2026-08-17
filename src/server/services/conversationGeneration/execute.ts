@@ -16,6 +16,7 @@ import type {
   ConversationGenerationOperation,
   UIChatMessage,
 } from '@lobechat/types';
+import { isActiveConversationGenerationStatus } from '@lobechat/types';
 import type { LobeChatDatabase } from '@lobechat/database';
 import { ConversationWriteRejectedError } from '@/server/services/conversationWriteLock';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
@@ -38,6 +39,8 @@ import {
 import {
   CONVERSATION_GENERATION_CHECKPOINT_CHARS,
   CONVERSATION_GENERATION_CHECKPOINT_MS,
+  CONVERSATION_GENERATION_HEARTBEAT_MS,
+  CONVERSATION_GENERATION_MAX_ATTEMPTS,
 } from './constants';
 import {
   loadConversationRuntimeState,
@@ -67,9 +70,9 @@ export const executeConversationGeneration = async ({
   const model = new ConversationGenerationModel(db, userId);
   const operation = await model.findById(operationId);
   if (!operation) return;
-  if (['succeeded', 'cancelled', 'failed'].includes(operation.status)) return;
+  if (!isActiveConversationGenerationStatus(operation.status)) return;
 
-  if (operation.cancelRequestedAt) {
+  if (operation.status === 'cancelling' || operation.cancelRequestedAt) {
     await finalize(model, operation, 'cancelled');
     return;
   }
@@ -87,6 +90,16 @@ export const executeConversationGeneration = async ({
     await finalizeIfStopped(model, claimed, 'superseded');
     return;
   }
+
+  const heartbeatTimer = setInterval(() => {
+    void model.touchHeartbeat(claimed.id, claimed.attempt).catch((error) => {
+      console.warn('[conversation-generation] heartbeat failed', {
+        error: error instanceof Error ? error.message : String(error),
+        operationId: claimed.id,
+      });
+    });
+  }, CONVERSATION_GENERATION_HEARTBEAT_MS);
+  heartbeatTimer.unref?.();
 
   try {
     switch (claimed.kind) {
@@ -119,7 +132,39 @@ export const executeConversationGeneration = async ({
       }
     }
   } catch (error) {
-    await finalize(model, claimed, 'failed', toError(error));
+    const stopReason = await shouldStopGeneration(db, model, claimed);
+    if (stopReason) {
+      await finalizeIfStopped(model, claimed, stopReason);
+      if (stopReason === 'retrying') throw error;
+      return;
+    }
+
+    const normalizedError = toError(error);
+    if (error instanceof ConversationWriteRejectedError) {
+      await finalize(model, claimed, 'interrupted', normalizedError);
+      return;
+    }
+
+    if (claimed.attempt < CONVERSATION_GENERATION_MAX_ATTEMPTS) {
+      const pending = await model.markForRetry(claimed.id, normalizedError, claimed.attempt);
+      if (pending) {
+        await model.insertEvent({
+          operationId: claimed.id,
+          payload: {
+            attempt: claimed.attempt,
+            error: normalizedError,
+            status: 'pending',
+          },
+          revision: pending.revision,
+          type: 'status',
+        });
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+    }
+
+    await finalize(model, claimed, 'failed', normalizedError);
+  } finally {
+    clearInterval(heartbeatTimer);
   }
 };
 
@@ -129,8 +174,12 @@ const emit = async (
   type: 'status' | 'snapshot' | 'delta' | 'error' | 'done',
   payload: Record<string, unknown>,
 ) => {
-  const bumped = await model.bumpRevision(operation.id);
-  const revision = bumped?.revision ?? operation.revision + 1;
+  const bumped = await model.bumpRevision(operation.id, {
+    attempt: operation.attempt,
+    laneGeneration: operation.laneGeneration,
+  });
+  if (!bumped) return;
+  const revision = bumped.revision;
   await model.insertEvent({
     operationId: operation.id,
     payload,
@@ -140,36 +189,68 @@ const emit = async (
   return revision;
 };
 
+const updateOperation = async (
+  model: ConversationGenerationModel,
+  operation: ConversationGenerationOperation,
+  value: Parameters<ConversationGenerationModel['update']>[1],
+) => {
+  const updated = await model.update(operation.id, value, {
+    attempt: operation.attempt,
+    laneGeneration: operation.laneGeneration,
+  });
+  if (!updated) throw new Error('Conversation generation attempt no longer owns the operation.');
+  return updated;
+};
+
 const finalize = async (
   model: ConversationGenerationModel,
   operation: ConversationGenerationOperation,
   status: 'succeeded' | 'cancelled' | 'failed' | 'interrupted',
   error?: ConversationGenerationError,
 ) => {
-  const updated = await model.update(operation.id, {
-    error: error ?? null,
-    finishedAt: new Date(),
-    phase: 'finalizing',
-    status,
+  const updated = await model.finalizeActive(operation.id, status, error, {
+    attempt: operation.attempt,
+    laneGeneration: operation.laneGeneration,
   });
-  await emit(model, { ...operation, ...updated }, status === 'failed' ? 'error' : 'done', {
-    error,
-    status,
+  if (!updated) return false;
+  await model.insertEvent({
+    operationId: operation.id,
+    payload: {
+      error,
+      status,
+    },
+    revision: updated.revision,
+    type: status === 'failed' ? 'error' : 'done',
   });
+  return true;
 };
 
-const isCancelled = async (model: ConversationGenerationModel, operationId: string) => {
-  const current = await model.findById(operationId);
-  return Boolean(current?.cancelRequestedAt);
-};
+type ConversationGenerationStopReason =
+  | 'cancelled'
+  | 'conversation_cleared'
+  | 'retrying'
+  | 'superseded'
+  | 'terminal';
 
 const shouldStopGeneration = async (
+  db: LobeChatDatabase,
   model: ConversationGenerationModel,
   operation: ConversationGenerationOperation,
   signal?: AbortSignal,
-): Promise<'cancelled' | 'superseded' | null> => {
-  if (signal?.aborted) return 'cancelled';
-  if (await isCancelled(model, operation.id)) return 'cancelled';
+): Promise<ConversationGenerationStopReason | null> => {
+  const current = await model.findById(operation.id);
+  if (!current || !isActiveConversationGenerationStatus(current.status)) return 'terminal';
+  if (current.attempt !== operation.attempt) return 'retrying';
+  if (current.status === 'cancelling' || current.cancelRequestedAt) return 'cancelled';
+  if (current.status !== 'processing') return 'retrying';
+
+  if (
+    operation.conversationVersion !== undefined &&
+    operation.conversationVersion !== null
+  ) {
+    const currentVersion = await getConversationVersion(db, operation.userId);
+    if (currentVersion !== operation.conversationVersion) return 'conversation_cleared';
+  }
   if (
     await model.isSupersededByLaneGeneration({
       id: operation.id,
@@ -179,14 +260,23 @@ const shouldStopGeneration = async (
   ) {
     return 'superseded';
   }
+  if (signal?.aborted) return 'cancelled';
   return null;
 };
 
 const finalizeIfStopped = async (
   model: ConversationGenerationModel,
   operation: ConversationGenerationOperation,
-  reason: 'cancelled' | 'superseded',
+  reason: ConversationGenerationStopReason,
 ) => {
+  if (reason === 'terminal' || reason === 'retrying') return;
+  if (reason === 'conversation_cleared') {
+    await finalize(model, operation, 'interrupted', {
+      message: 'Conversation history was cleared before generation finished.',
+      type: 'ConversationCleared',
+    });
+    return;
+  }
   await finalize(
     model,
     operation,
@@ -230,7 +320,7 @@ const executeChat = async (
     return;
   }
 
-  await model.update(operation.id, { phase: 'model' });
+  await updateOperation(model, operation, { phase: 'model' });
   await emit(model, operation, 'status', { phase: 'model', status: 'processing' });
 
   const { messages } = await aiChat.getMessagesAndTopics({
@@ -263,7 +353,7 @@ const executeChat = async (
     workingMessages = filterMessagesForAgent(workingMessages, operation.agentId);
   }
   if (operation.config.ragQuery) {
-    await model.update(operation.id, { phase: 'retrieving' });
+    await updateOperation(model, operation, { phase: 'retrieving' });
     workingMessages = await injectRag(db, operation, workingMessages, agent);
   }
 
@@ -307,6 +397,11 @@ const executeChat = async (
     ) {
       return;
     }
+    const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
+    if (stopReason) {
+      abortController.abort(stopReason);
+      throw new Error(`Conversation generation stopped: ${stopReason}`);
+    }
     lastFlush = Date.now();
     lastChars = content.length;
     await messageModel.update(assistantId, {
@@ -321,16 +416,31 @@ const executeChat = async (
     });
   };
 
-  const cancelWatcher = setInterval(async () => {
-    if (await isCancelled(model, operation.id)) abortController.abort();
+  const cancelWatcher = setInterval(() => {
+    void shouldStopGeneration(db, model, operation, abortController.signal)
+      .then((stopReason) => {
+        if (stopReason) abortController.abort(stopReason);
+      })
+      .catch((error) => {
+        console.warn('[conversation-generation] stop watcher failed', {
+          error: error instanceof Error ? error.message : String(error),
+          operationId: operation.id,
+        });
+      });
   }, 500);
+  cancelWatcher.unref?.();
 
   try {
     let remainingTurns = MAX_TOOL_TURNS;
     let currentPayload = built.payload;
 
     while (remainingTurns >= 0) {
-      const stopReason = await shouldStopGeneration(model, operation, abortController.signal);
+      const stopReason = await shouldStopGeneration(
+        db,
+        model,
+        operation,
+        abortController.signal,
+      );
       if (stopReason) {
         await finalizeIfStopped(model, operation, stopReason);
         return;
@@ -353,6 +463,7 @@ const executeChat = async (
       });
 
       const postStreamStopReason = await shouldStopGeneration(
+        db,
         model,
         operation,
         abortController.signal,
@@ -378,7 +489,7 @@ const executeChat = async (
 
       if (!result.toolCalls?.length) break;
 
-      await model.update(operation.id, { phase: 'tools' });
+      await updateOperation(model, operation, { phase: 'tools' });
       const tools = result.toolCalls.map((item) => ({
         apiName: item.function?.name?.split('____')[1] || item.function?.name,
         arguments: item.function?.arguments,
@@ -394,7 +505,12 @@ const executeChat = async (
 
       const assistantMessage = (await messageModel.findById(assistantId)) as UIChatMessage;
       for (const tool of tools) {
-        const toolStopReason = await shouldStopGeneration(model, operation, abortController.signal);
+        const toolStopReason = await shouldStopGeneration(
+          db,
+          model,
+          operation,
+          abortController.signal,
+        );
         if (toolStopReason) {
           await finalizeIfStopped(model, operation, toolStopReason);
           return;
@@ -441,7 +557,7 @@ const executeChat = async (
         topicId: operation.topicId ?? undefined,
       });
       assistantId = nextAssistant.id;
-      await model.update(operation.id, { assistantMessageId: assistantId });
+      await updateOperation(model, operation, { assistantMessageId: assistantId });
       await emit(model, operation, 'snapshot', {
         assistantMessageId: assistantId,
         content: '',
@@ -485,7 +601,12 @@ const executeChat = async (
       await executeTitle(db, operation, { skipFinalize: true });
     }
 
-    const finalStopReason = await shouldStopGeneration(model, operation, abortController.signal);
+    const finalStopReason = await shouldStopGeneration(
+      db,
+      model,
+      operation,
+      abortController.signal,
+    );
     if (finalStopReason) {
       await finalizeIfStopped(model, operation, finalStopReason);
       return;
@@ -566,7 +687,7 @@ const executeTitle = async (
     if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
     return;
   }
-  await model.update(operation.id, { phase: 'title' });
+  await updateOperation(model, operation, { phase: 'title' });
   const aiChat = new AiChatService(db, operation.userId);
   const { messages } = await aiChat.getMessagesAndTopics({
     groupId: operation.groupId ?? undefined,
@@ -595,7 +716,7 @@ const executeTranslation = async (
     });
     return;
   }
-  await model.update(operation.id, { phase: 'translating' });
+  await updateOperation(model, operation, { phase: 'translating' });
   const messageModel = new MessageModel(db, operation.userId);
   const message = await messageModel.findById(translation.messageId);
   if (!message?.content) {
@@ -635,7 +756,7 @@ const executeTts = async (db: LobeChatDatabase, operation: ConversationGeneratio
     });
     return;
   }
-  await model.update(operation.id, { phase: 'synthesizing' });
+  await updateOperation(model, operation, { phase: 'synthesizing' });
   const messageModel = new MessageModel(db, operation.userId);
   await messageModel.updateTTS(tts.messageId, {
     contentMd5: tts.messageId,
@@ -654,7 +775,7 @@ const executeCompaction = async (
     await finalize(model, operation, 'succeeded');
     return;
   }
-  await model.update(operation.id, { phase: 'compacting' });
+  await updateOperation(model, operation, { phase: 'compacting' });
   const aiChat = new AiChatService(db, operation.userId);
   const { messages } = await aiChat.getMessagesAndTopics({
     groupId: operation.groupId ?? undefined,
@@ -675,7 +796,7 @@ const executeCompaction = async (
 
 const executeRag = async (db: LobeChatDatabase, operation: ConversationGenerationOperation) => {
   const model = new ConversationGenerationModel(db, operation.userId);
-  await model.update(operation.id, { phase: 'retrieving' });
+  await updateOperation(model, operation, { phase: 'retrieving' });
   await emit(model, operation, 'status', { phase: 'retrieving' });
   await finalize(model, operation, 'succeeded');
 };
@@ -733,7 +854,7 @@ const executeSupervisor = async (
     systemPrompt: group?.config?.systemPrompt,
   });
 
-  await model.update(operation.id, { phase: 'model' });
+  await updateOperation(model, operation, { phase: 'model' });
   const runtimePayload = await resolveConversationRuntimePayload({
     db,
     provider: operation.config.provider,
@@ -776,7 +897,7 @@ const executeSupervisor = async (
   const generalInstruction = await loadGeneralInstruction(db, operation.userId);
 
   for (const decision of decisions) {
-    const stopReason = await shouldStopGeneration(model, operation);
+    const stopReason = await shouldStopGeneration(db, model, operation);
     if (stopReason) {
       await finalizeIfStopped(model, operation, stopReason);
       return;

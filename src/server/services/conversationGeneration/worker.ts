@@ -13,6 +13,8 @@ import {
 } from './service';
 
 type GlobalWithConversationWorker = typeof globalThis & {
+  __chathubConversationGenerationShutdown?: Promise<void>;
+  __chathubConversationGenerationSignalsRegistered?: boolean;
   __chathubConversationGenerationSweeper?: ReturnType<typeof setInterval>;
   __chathubConversationGenerationWorker?: Promise<Runner | undefined>;
 };
@@ -47,9 +49,48 @@ const runConversationGenerationSweep = async () => {
   await sweepStaleConversationGenerationOperations(db);
 };
 
+export const stopConversationGenerationWorker = async () => {
+  const globalState = globalThis as GlobalWithConversationWorker;
+  if (globalState.__chathubConversationGenerationShutdown) {
+    return globalState.__chathubConversationGenerationShutdown;
+  }
+
+  globalState.__chathubConversationGenerationShutdown = (async () => {
+    if (globalState.__chathubConversationGenerationSweeper) {
+      clearInterval(globalState.__chathubConversationGenerationSweeper);
+      globalState.__chathubConversationGenerationSweeper = undefined;
+    }
+
+    const runner = await globalState.__chathubConversationGenerationWorker?.catch(() => undefined);
+    if (runner) await runner.stop();
+    globalState.__chathubConversationGenerationWorker = undefined;
+  })();
+
+  try {
+    await globalState.__chathubConversationGenerationShutdown;
+  } finally {
+    globalState.__chathubConversationGenerationShutdown = undefined;
+  }
+};
+
+export const registerConversationGenerationShutdown = () => {
+  const globalState = globalThis as GlobalWithConversationWorker;
+  if (globalState.__chathubConversationGenerationSignalsRegistered) return;
+  globalState.__chathubConversationGenerationSignalsRegistered = true;
+
+  const shutdown = (signal: NodeJS.Signals) => {
+    void stopConversationGenerationWorker().catch((error) => {
+      console.error(`[conversation-generation] failed to stop worker after ${signal}`, error);
+    });
+  };
+  process.once('SIGINT', () => shutdown('SIGINT'));
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+};
+
 export const startConversationGenerationSweeper = () => {
   if (!shouldStartConversationGenerationWorker()) return;
 
+  registerConversationGenerationShutdown();
   const globalState = globalThis as GlobalWithConversationWorker;
   if (globalState.__chathubConversationGenerationSweeper) return;
 
@@ -69,6 +110,7 @@ export const startConversationGenerationSweeper = () => {
 export const startConversationGenerationWorker = async (): Promise<Runner | undefined> => {
   if (!shouldStartConversationGenerationWorker()) return;
 
+  registerConversationGenerationShutdown();
   const globalState = globalThis as GlobalWithConversationWorker;
   if (globalState.__chathubConversationGenerationWorker) {
     return globalState.__chathubConversationGenerationWorker;

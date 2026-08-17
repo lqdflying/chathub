@@ -4,9 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const modelMocks = vi.hoisted(() => ({
   bumpRevision: vi.fn(),
   claimForProcessing: vi.fn(),
+  finalizeActive: vi.fn(),
   findById: vi.fn(),
   insertEvent: vi.fn(),
   isSupersededByLaneGeneration: vi.fn(),
+  markForRetry: vi.fn(),
+  touchHeartbeat: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -14,9 +17,12 @@ vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
     bumpRevision = modelMocks.bumpRevision;
     claimForProcessing = modelMocks.claimForProcessing;
+    finalizeActive = modelMocks.finalizeActive;
     findById = modelMocks.findById;
     insertEvent = modelMocks.insertEvent;
     isSupersededByLaneGeneration = modelMocks.isSupersededByLaneGeneration;
+    markForRetry = modelMocks.markForRetry;
+    touchHeartbeat = modelMocks.touchHeartbeat;
     update = modelMocks.update;
   },
 }));
@@ -52,8 +58,10 @@ describe('executeConversationGeneration', () => {
     vi.clearAllMocks();
     modelMocks.update.mockResolvedValue({ revision: 1, status: 'cancelled' });
     modelMocks.bumpRevision.mockResolvedValue({ revision: 1, status: 'cancelled' });
+    modelMocks.finalizeActive.mockResolvedValue({ revision: 1, status: 'cancelled' });
     modelMocks.insertEvent.mockResolvedValue({ id: 1 });
     modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
+    modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
   });
 
   it('finalizes cancelled operations before claiming a worker slot', async () => {
@@ -72,9 +80,11 @@ describe('executeConversationGeneration', () => {
     });
 
     expect(modelMocks.claimForProcessing).not.toHaveBeenCalled();
-    expect(modelMocks.update).toHaveBeenCalledWith(
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
       'cgo_cancelled',
-      expect.objectContaining({ status: 'cancelled' }),
+      'cancelled',
+      undefined,
+      expect.objectContaining({ attempt: undefined }),
     );
     expect(modelMocks.insertEvent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -98,7 +108,7 @@ describe('executeConversationGeneration', () => {
     });
 
     expect(modelMocks.claimForProcessing).not.toHaveBeenCalled();
-    expect(modelMocks.update).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
   });
 
   it('finalizes superseded operations without executing', async () => {
@@ -126,9 +136,97 @@ describe('executeConversationGeneration', () => {
       userId: 'user-1',
     });
 
-    expect(modelMocks.update).toHaveBeenCalledWith(
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
       'cgo_old',
-      expect.objectContaining({ status: 'cancelled' }),
+      'cancelled',
+      expect.objectContaining({ type: 'Superseded' }),
+      expect.objectContaining({ attempt: undefined, laneGeneration: 1 }),
+    );
+  });
+
+  it('returns retryable failures to pending and rethrows for Graphile backoff', async () => {
+    const pending = {
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
+      id: 'cgo_retry',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    const processing = { ...pending, attempt: 1, status: 'processing' };
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing);
+    modelMocks.claimForProcessing.mockResolvedValue(processing);
+    modelMocks.markForRetry.mockResolvedValue({
+      ...processing,
+      revision: 2,
+      status: 'pending',
+    });
+
+    await expect(
+      executeConversationGeneration({
+        db: {} as any,
+        operationId: pending.id,
+        userId: pending.userId,
+      }),
+    ).rejects.toThrow();
+
+    expect(modelMocks.markForRetry).toHaveBeenCalledWith(
+      pending.id,
+      expect.objectContaining({ type: 'GenerationError' }),
+      1,
+    );
+    expect(modelMocks.insertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: pending.id,
+        payload: expect.objectContaining({ status: 'pending' }),
+        revision: 2,
+        type: 'status',
+      }),
+    );
+  });
+
+  it('finalizes a failure after the configured final attempt', async () => {
+    const pending = {
+      attempt: 7,
+      config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
+      id: 'cgo_final_attempt',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    const processing = { ...pending, attempt: 8, status: 'processing' };
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing);
+    modelMocks.claimForProcessing.mockResolvedValue(processing);
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...processing,
+      revision: 2,
+      status: 'failed',
+    });
+
+    await executeConversationGeneration({
+      db: {} as any,
+      operationId: pending.id,
+      userId: pending.userId,
+    });
+
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      pending.id,
+      'failed',
+      expect.objectContaining({ type: 'GenerationError' }),
+      { attempt: 8, laneGeneration: 1 },
     );
   });
 });
