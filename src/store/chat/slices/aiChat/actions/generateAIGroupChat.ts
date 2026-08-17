@@ -17,7 +17,9 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
@@ -546,6 +548,36 @@ export const chatAiGroupChat: StateCreator<
         return;
       }
 
+      if (
+        isClientDurableConversationGenerationEnabled() &&
+        groupConfig.orchestratorModel &&
+        groupConfig.orchestratorProvider
+      ) {
+        const operation = await tryEnqueueConversationGeneration({
+          config: {
+            model: groupConfig.orchestratorModel,
+            provider: groupConfig.orchestratorProvider,
+          },
+          groupId,
+          kind: 'group_supervisor',
+          replaceActive: true,
+          sessionId: requestedSessionId,
+          topicId: currentTopicId ?? undefined,
+        });
+        if (operation) {
+          get().attachConversationGeneration({
+            generation: conversationClearGeneration,
+            groupId,
+            operationId: operation.id,
+            sessionId: requestedSessionId,
+            topicId: currentTopicId ?? undefined,
+            userScope: accountMutationSnapshot.scope,
+          });
+          internal_toggleSupervisorLoading(true, groupId);
+          return;
+        }
+      }
+
       // Create AbortController for this supervisor decision
       const abortController = new AbortController();
 
@@ -830,7 +862,10 @@ export const chatAiGroupChat: StateCreator<
         ];
 
         const generalInstruction = userGeneralSettingsSelectors.generalInstruction(userStoreState);
-        const baseSystemRole = composeSystemRole(generalInstruction, agentData.systemRole);
+        const baseSystemRole = composeSystemRole(
+          generalInstruction,
+          agentData.systemRole || undefined,
+        );
         const members: GroupMemberInfo[] = agentTitleMap as GroupMemberInfo[];
         const groupChatSystemPrompt = buildGroupChatSystemPrompt({
           groupMembers: members,
@@ -860,6 +895,37 @@ export const chatAiGroupChat: StateCreator<
           expectedConversationVersion: resolvedConversationVersion,
         });
         if (!isCurrentConversation()) return;
+
+        if (assistantId && isClientDurableConversationGenerationEnabled()) {
+          const operation = await tryEnqueueConversationGeneration({
+            agentId,
+            assistantMessageId: assistantId,
+            config: {
+              groupId,
+              model: agentModel,
+              provider: agentProvider,
+              systemRole: groupChatSystemPrompt,
+              targetId,
+            },
+            groupId,
+            kind: 'group_agent',
+            replaceActive: true,
+            sessionId: requestedSessionId,
+            topicId: activeTopicId,
+          });
+          if (operation) {
+            get().attachConversationGeneration({
+              assistantMessageId: assistantId,
+              generation: conversationClearGeneration,
+              groupId,
+              operationId: operation.id,
+              sessionId: requestedSessionId,
+              topicId: activeTopicId,
+              userScope: accountMutationSnapshot.scope,
+            });
+            return;
+          }
+        }
 
         const systemMessage: UIChatMessage = {
           id: 'group-system',

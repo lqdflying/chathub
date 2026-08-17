@@ -64,6 +64,10 @@ describe('FeatureFlagsSchema', () => {
   it('enables skills by default', () => {
     expect(DEFAULT_FEATURE_FLAGS.skills).toBe(true);
   });
+
+  it('enables durable conversation generation by default', () => {
+    expect(DEFAULT_FEATURE_FLAGS.durable_conversation_generation).toBe(true);
+  });
 });
 
 describe('evaluateFeatureFlag', () => {
@@ -130,6 +134,7 @@ describe('mapFeatureFlagsEnvToState', () => {
       cloud_promotion: true,
       commercial_hide_github: false,
       commercial_hide_docs: true,
+      durable_conversation_generation: true,
     };
 
     const mappedState = mapFeatureFlagsEnvToState(config);
@@ -157,6 +162,7 @@ describe('mapFeatureFlagsEnvToState', () => {
       showCloudPromotion: true,
       hideGitHub: false,
       hideDocs: true,
+      enableDurableConversationGeneration: true,
     });
   });
 

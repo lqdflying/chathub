@@ -18,6 +18,9 @@ import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { AiChatService } from '@/server/services/aiChat';
+import { resolveConversationRuntimePayload } from '@/server/services/conversationGeneration/credentials';
+import { isDurableConversationGenerationEnabled } from '@/server/services/conversationGeneration/featureFlag';
+import { ConversationGenerationService } from '@/server/services/conversationGeneration/service';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 import { FileService } from '@/server/services/file';
 import {
@@ -238,6 +241,17 @@ export const aiChatRouter = router({
       log('sendMessageInServer called for sessionId: %s', input.sessionId);
       log('topicId: %s, newTopic: %O', input.topicId, input.newTopic);
 
+      const durableEnabled = await isDurableConversationGenerationEnabled(ctx.userId);
+      const durableGeneration = durableEnabled ? input.generation : undefined;
+      if (durableGeneration) {
+        await resolveConversationRuntimePayload({
+          db: ctx.serverDB,
+          fetchOnClient: durableGeneration.config.fetchOnClient,
+          provider: durableGeneration.config.provider,
+          userId: ctx.userId,
+        });
+      }
+
       const writeResult = await withConversationWriteLockOrThrow(
         ctx.serverDB,
         ctx.userId,
@@ -275,9 +289,44 @@ export const aiChatRouter = router({
           const assistantMessageId = idGenerator('messages', 14);
           log('reserved assistant message id: %s', assistantMessageId);
 
+          let operationId: string | undefined;
+          if (durableGeneration) {
+            await messageModel.create(
+              {
+                content: LOADING_FLAT,
+                fromModel: durableGeneration.config.model,
+                fromProvider: durableGeneration.config.provider,
+                parentId: userMessageItem.id,
+                role: 'assistant',
+                sessionId: input.sessionId!,
+                threadId: input.threadId,
+                topicId,
+              },
+              assistantMessageId,
+            );
+            const generationService = new ConversationGenerationService(ctx.serverDB, ctx.userId);
+            const operation = await generationService.enqueueInTransaction(transaction, {
+              assistantMessageId,
+              config: {
+                ...durableGeneration.config,
+                title: topicId ? { topicId } : durableGeneration.config.title,
+              },
+              expectedConversationVersion: input.expectedConversationVersion,
+              idempotencyKey: durableGeneration.idempotencyKey,
+              kind: 'chat',
+              parentMessageId: userMessageItem.id,
+              sessionId: input.sessionId,
+              threadId: input.threadId,
+              topicId,
+              userMessageId: userMessageItem.id,
+            });
+            operationId = operation.id;
+          }
+
           return {
             assistantMessageId,
             isCreateNewTopic,
+            operationId,
             topicId,
             userMessageId: userMessageItem.id,
           };
@@ -302,6 +351,7 @@ export const aiChatRouter = router({
         assistantMessageId: writeResult.assistantMessageId,
         isCreateNewTopic: writeResult.isCreateNewTopic,
         messages,
+        operationId: writeResult.operationId,
         topicId: writeResult.topicId,
         topics,
         userMessageId: writeResult.userMessageId,

@@ -21,6 +21,7 @@ import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
@@ -240,10 +241,30 @@ export const generateAIChatV2: StateCreator<
     let data: SendMessageServerResponse | undefined;
     let operationWasCurrent = false;
     const { model, provider } = agentSelectors.currentAgentConfig(getAgentStoreState());
+    const generation =
+      isClientDurableConversationGenerationEnabled() && model && provider
+        ? {
+            config: {
+              activatedSkillIds,
+              chatConfig: agentChatConfigSelectors.currentChatConfig(getAgentStoreState()),
+              fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(provider)(
+                getAiInfraStoreState(),
+              ),
+              historySummary: topicSelectors.currentActiveTopicSummary(get())?.content,
+              isWelcomeQuestion,
+              model,
+              plugins: agentSelectors.currentAgentConfig(getAgentStoreState()).plugins,
+              provider,
+              ragQuery: get().internal_shouldUseRAG() ? message : undefined,
+              systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
+            },
+          }
+        : undefined;
     try {
       data = await aiChatService.sendMessageInServer(
         {
           expectedConversationVersion,
+          ...(generation ? { generation } : {}),
           newUserMessage: {
             content: message,
             files: fileIdList,
@@ -339,6 +360,20 @@ export const generateAIChatV2: StateCreator<
 
     //  update assistant update to make it rerank
     getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
+
+    if (data.operationId) {
+      get().attachConversationGeneration({
+        assistantMessageId: data.assistantMessageId,
+        generation: conversationContext.generation,
+        operationId: data.operationId,
+        sessionId: conversationContext.sessionId,
+        topicId: data.topicId,
+        userScope: requestedScope,
+      });
+      const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
+      await getAgentStoreState().addFilesToAgent(userFiles, false);
+      return;
+    }
 
     // The current server only returns persisted user history here. Keep filtering the
     // reserved ID for compatibility with an older server during rolling deployments.
@@ -827,7 +862,7 @@ export const generateAIChatV2: StateCreator<
           trace: {
             traceId: params.traceId,
             sessionId: conversationContext.sessionId,
-            topicId: conversationContext.topicId,
+            topicId: conversationContext.topicId ?? undefined,
             traceName: TraceNameMap.SearchIntentRecognition,
           },
           abortController,

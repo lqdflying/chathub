@@ -20,6 +20,7 @@ export class AiChatService {
 
   async getMessagesAndTopics(params: {
     current?: number;
+    groupId?: string;
     includeTopic?: boolean;
     pageSize?: number;
     sessionId?: string;

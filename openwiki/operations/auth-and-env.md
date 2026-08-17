@@ -375,6 +375,21 @@ at 16 KiB. Unknown switch values are treated as off with a warning that does not
 echo the value. Recreate the container after changing this variable, then find a
 workflow by its UI error ID with `grep 'kb_<id>'` in the application logs.
 
+## Durable conversation generation
+
+Background chat generation is on by default
+(`durable_conversation_generation` → `enableDurableConversationGeneration`).
+Closing the browser does not stop an in-flight reply; only **Stop** does.
+
+```env
+FEATURE_FLAGS=-durable_conversation_generation
+CONVERSATION_WORKER_CONCURRENCY=4
+# DISABLE_CONVERSATION_WORKER=1
+```
+
+Jobs are stored in PostgreSQL through Graphile Worker. Details:
+[Durable conversation generation](../architecture/durable-conversation-generation.md).
+
 ## Change guidance
 
 If you add or rename environment variables, update all of these places together:

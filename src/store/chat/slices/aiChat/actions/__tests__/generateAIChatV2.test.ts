@@ -5,12 +5,14 @@ import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_AGENT_CHAT_CONFIG, DEFAULT_MODEL, DEFAULT_PROVIDER } from '@/const/settings';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { useAgentStore } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
+import { aiProviderSelectors } from '@/store/aiInfra';
 import { aiChatSelectors } from '@/store/chat/selectors';
 import { useSessionStore } from '@/store/session';
 import { getSkillSelectionKey, useSkillStore } from '@/store/skill';
@@ -35,6 +37,10 @@ vi.mock('@/utils/tokenizer', () => ({
 
 vi.mock('@/utils/tokenizer/estimated', () => ({
   estimatedEncodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
+}));
+
+vi.mock('@/helpers/durableConversationGeneration', () => ({
+  isClientDurableConversationGenerationEnabled: vi.fn(() => false),
 }));
 
 // Mock aiChatService for V2 server flow
@@ -400,6 +406,62 @@ describe('generateAIChatV2 actions', () => {
           expect.any(AbortController),
         );
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+      });
+
+      it('attaches a durable server operation and skips the browser runtime', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        (aiChatService.sendMessageInServer as Mock).mockResolvedValueOnce({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: false,
+          messages: [
+            {
+              content: TEST_CONTENT.USER_MESSAGE,
+              id: TEST_IDS.USER_MESSAGE_ID,
+              role: 'user',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: TEST_IDS.TOPIC_ID,
+            },
+          ],
+          operationId: 'cgo_durable_operation',
+          topicId: TEST_IDS.TOPIC_ID,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            generation: expect.objectContaining({
+              config: expect.objectContaining({
+                model: DEFAULT_MODEL,
+                provider: DEFAULT_PROVIDER,
+              }),
+            }),
+          }),
+          expect.anything(),
+        );
+        expect(aiChatService.createAssistantMessageInServer).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+        expect(
+          useChatStore.getState().serverGenerationOperations[
+            messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+          ]['cgo_durable_operation'],
+        ).toEqual(
+          expect.objectContaining({
+            assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+            operationId: 'cgo_durable_operation',
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+          }),
+        );
       });
 
       it('persists deduplicated activated skill metadata on the server user message', async () => {

@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+import {
+  ConversationGenerationConfigSchema,
+  ConversationGenerationConfigSnapshot,
+} from './conversationGeneration';
 import { UIChatMessage } from './message';
 import { OpenAIChatMessage } from './openai/chat';
 import { LobeUniformTool, LobeUniformToolSchema } from './tool';
@@ -14,6 +18,10 @@ export interface SendNewMessage {
 
 export interface SendMessageServerParams {
   expectedConversationVersion?: number;
+  generation?: {
+    config: ConversationGenerationConfigSnapshot;
+    idempotencyKey?: string;
+  };
   newTopic?: {
     title?: string;
     topicMessageIds?: string[];
@@ -27,6 +35,12 @@ export interface SendMessageServerParams {
 
 export const AiSendMessageServerSchema = z.object({
   expectedConversationVersion: z.number().optional(),
+  generation: z
+    .object({
+      config: ConversationGenerationConfigSchema,
+      idempotencyKey: z.string().min(8).max(180).optional(),
+    })
+    .optional(),
   newTopic: z
     .object({
       title: z.string().optional(),
@@ -74,6 +88,8 @@ export interface SendMessageServerResponse {
   assistantMessageId: string;
   isCreateNewTopic: boolean;
   messages: UIChatMessage[];
+  /** Present when durable server-side generation was enqueued. */
+  operationId?: string;
   topicId: string;
   topics?: ChatTopic[];
   userMessageId: string;

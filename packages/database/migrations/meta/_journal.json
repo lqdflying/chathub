@@ -378,6 +378,13 @@
       "when": 1785830400000,
       "tag": "0053_add_rag_embedding_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1786742400000,
+      "tag": "0054_add_conversation_generation",
+      "breakpoints": true
     }
   ],
   "version": "6"

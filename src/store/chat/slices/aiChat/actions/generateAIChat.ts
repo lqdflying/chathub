@@ -1,6 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
-import { LOADING_FLAT, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
+import { LOADING_FLAT, MESSAGE_CANCEL_FLAT, INBOX_SESSION_ID } from '@lobechat/const';
 import { knowledgeBaseQAPrompts } from '@lobechat/prompts';
 import {
   ChatImageItem,
@@ -21,7 +21,9 @@ import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { chatService } from '@/services/chat';
+import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
@@ -288,6 +290,8 @@ export const generateAIChat: StateCreator<
       preSendCompaction.abortController.abort(MESSAGE_CANCEL_FLAT);
     }
 
+    get().stopDurableConversationGeneration(options);
+
     const { chatLoadingIdsAbortController, internal_toggleChatLoading } = get();
 
     if (!chatLoadingIdsAbortController) return;
@@ -326,6 +330,46 @@ export const generateAIChat: StateCreator<
 
     const agentStoreState = getAgentStoreState();
     const { model, provider } = agentSelectors.currentAgentConfig(agentStoreState);
+
+    if (isClientDurableConversationGenerationEnabled() && model && provider) {
+      const operation = await tryEnqueueConversationGeneration({
+        config: {
+          chatConfig: agentChatConfigSelectors.currentChatConfig(agentStoreState),
+          fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(provider)(
+            getAiInfraStoreState(),
+          ),
+          historySummary: topicSelectors.currentActiveTopicSummary(get())?.content,
+          model,
+          plugins: agentSelectors.currentAgentConfig(agentStoreState).plugins,
+          provider,
+          ragQuery: params?.ragQuery,
+          systemRole: agentSelectors.currentAgentSystemRole(agentStoreState),
+        },
+        kind: params?.isToolContinuation ? 'continue' : 'chat',
+        parentMessageId: userMessageId,
+        replaceActive: true,
+        sessionId:
+          conversationContext.sessionId === INBOX_SESSION_ID
+            ? undefined
+            : conversationContext.sessionId,
+        threadId: params?.threadId,
+        topicId: conversationContext.topicId ?? undefined,
+        userMessageId,
+      });
+      if (operation) {
+        get().attachConversationGeneration({
+          assistantMessageId: operation.assistantMessageId || undefined,
+          generation: conversationContext.generation,
+          operationId: operation.id,
+          sessionId: conversationContext.sessionId,
+          topicId: conversationContext.topicId ?? undefined,
+          userScope: accountMutationSnapshot.scope,
+        });
+        if (!isCurrentConversation()) return;
+        await refreshMessages();
+        return;
+      }
+    }
 
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;
@@ -458,7 +502,7 @@ export const generateAIChat: StateCreator<
 
       parentId: userMessageId,
       sessionId: conversationContext.sessionId,
-      topicId: conversationContext.topicId,
+      topicId: conversationContext.topicId ?? undefined,
       threadId: params?.threadId,
       fileChunks,
       ragQueryId,
@@ -535,7 +579,7 @@ export const generateAIChat: StateCreator<
           trace: {
             traceId: params?.traceId,
             sessionId: conversationContext.sessionId,
-            topicId: conversationContext.topicId,
+            topicId: conversationContext.topicId ?? undefined,
             traceName: TraceNameMap.SearchIntentRecognition,
           },
           abortController,
@@ -821,7 +865,7 @@ export const generateAIChat: StateCreator<
         trace: {
           traceId: params?.traceId,
           sessionId: conversationContext.sessionId,
-          topicId: conversationContext.topicId,
+          topicId: conversationContext.topicId ?? undefined,
           traceName: TraceNameMap.Conversation,
         },
         isWelcomeQuestion: params?.isWelcomeQuestion,
@@ -853,7 +897,7 @@ export const generateAIChat: StateCreator<
           { traceId, observationId, toolCalls, reasoning, grounding, usage, speed },
         ) => {
           if (!isCurrentConversation()) return;
-          msgTraceId = traceId;
+          msgTraceId = traceId ?? undefined;
 
           // 等待所有图片上传完成
           let finalImages: ChatImageItem[] = [];
@@ -895,7 +939,7 @@ export const generateAIChat: StateCreator<
             observationId: observationId ?? undefined,
             provider,
             persistenceRecovery: 'assistant_finalization',
-            traceId,
+            traceId: traceId ?? undefined,
             conversationContext,
           });
           if (!isCurrentConversation()) return;
@@ -1251,6 +1295,47 @@ export const generateAIChat: StateCreator<
 
       const threadId =
         anchor.message.threadId ?? (tailMessages.length === 0 ? requestedThreadId : undefined);
+
+      const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
+      if (
+        isClientDurableConversationGenerationEnabled() &&
+        agentConfig.model &&
+        agentConfig.provider
+      ) {
+        const operation = await tryEnqueueConversationGeneration({
+          config: {
+            chatConfig: agentChatConfigSelectors.currentChatConfig(getAgentStoreState()),
+            fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(agentConfig.provider)(
+              getAiInfraStoreState(),
+            ),
+            model: agentConfig.model,
+            plugins: agentConfig.plugins,
+            provider: agentConfig.provider,
+            ragQuery: get().internal_shouldUseRAG() ? anchor.message.content : undefined,
+            systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
+          },
+          kind: 'regenerate',
+          parentMessageId: anchor.message.id,
+          replaceActive: true,
+          sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
+          threadId,
+          topicId: activeTopicId,
+          userMessageId: anchor.message.id,
+        });
+        if (operation) {
+          get().attachConversationGeneration({
+            assistantMessageId: operation.assistantMessageId || undefined,
+            generation: requestedGeneration,
+            operationId: operation.id,
+            sessionId: activeId,
+            topicId: activeTopicId,
+            userScope: accountMutationSnapshot.scope,
+          });
+          await get().refreshMessages();
+          return;
+        }
+      }
+
       await get().internal_coreProcessMessage(contextMessages, anchor.message.id, {
         expectedConversationVersion,
         traceId,

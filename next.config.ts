@@ -20,6 +20,8 @@ const standaloneConfig: NextConfig = {
       '.next/static/**/*',
       'node_modules/.pnpm/pdfjs-dist@*/node_modules/@napi-rs/canvas/**/*',
       'node_modules/@napi-rs/canvas-*/**/*',
+      'node_modules/graphile-worker/**/*',
+      'node_modules/.pnpm/graphile-worker@*/**/*',
     ],
   },
 };
@@ -283,7 +285,7 @@ const nextConfig: NextConfig = {
   ],
 
   // when external packages in dev mode with turbopack, this config will lead to bundle error
-  serverExternalPackages: ['pdfkit'],
+  serverExternalPackages: ['pdfkit', 'graphile-worker'],
   transpilePackages: ['pdfjs-dist', 'mermaid'],
 
   typescript: {

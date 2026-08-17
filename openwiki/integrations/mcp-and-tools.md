@@ -352,3 +352,8 @@ Web Worker (`packages/python-interpreter`); there is no server execution path.
   basename (no path traversal). The runtime is `sandbox="allow-scripts"` only
   (opaque origin); a storage shim keeps CDN-loaded libraries from crashing on
   `localStorage` access.
+
+MCP HTTP tools invoked during durable conversation generation run inside
+Graphile Worker via `src/server/services/conversationGeneration/tools.ts`,
+including OAuth token injection. See
+[Durable conversation generation](../architecture/durable-conversation-generation.md).

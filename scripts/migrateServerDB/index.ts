@@ -16,6 +16,9 @@ const { CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL } =
   require('./ensureChatGroupMembershipOwnership.cjs') as {
     CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL: string;
   };
+const { CONVERSATION_GENERATION_SQL } = require('./ensureConversationGenerationOperations.cjs') as {
+  CONVERSATION_GENERATION_SQL: string;
+};
 
 // Read the `.env` file if it exists, or a file specified by the
 // dotenv_config_path parameter that's passed to Node.js
@@ -34,6 +37,7 @@ const runMigrations = async () => {
 
   await serverDB.execute(sql.raw(AGENT_ASSISTANT_MEMORY_SQL));
   await serverDB.execute(sql.raw(CHAT_GROUP_MEMBERSHIP_OWNERSHIP_SQL));
+  await serverDB.execute(sql.raw(CONVERSATION_GENERATION_SQL));
 
   console.log('✅ database migration pass.');
   // eslint-disable-next-line unicorn/no-process-exit

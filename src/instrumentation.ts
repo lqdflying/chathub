@@ -9,5 +9,13 @@ export async function register() {
     if (process.env.ENABLE_TELEMETRY) {
       await import('./instrumentation.node');
     }
+
+    const { startConversationGenerationWorker } =
+      await import('./server/services/conversationGeneration/worker');
+    try {
+      await startConversationGenerationWorker();
+    } catch (error) {
+      console.error('[conversation-generation] failed to bootstrap worker', error);
+    }
   }
 }

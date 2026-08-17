@@ -5,6 +5,8 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { supportLocales } from '@/locales/resources';
 import { chatService } from '@/services/chat';
+import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { messageService } from '@/services/message';
 import {
   captureAccountMutationSnapshot,
@@ -71,6 +73,34 @@ export const chatTranslate: StateCreator<
     // create translate extra
     await updateMessageTranslate(id, { content: '', from: '', to: targetLang });
     if (!isCurrentRequest()) return;
+
+    if (
+      isClientDurableConversationGenerationEnabled() &&
+      translationSetting.model &&
+      translationSetting.provider
+    ) {
+      const operation = await tryEnqueueConversationGeneration({
+        config: {
+          model: translationSetting.model,
+          provider: translationSetting.provider,
+          translation: { messageId: id, to: targetLang },
+        },
+        kind: 'translation',
+        sessionId: requestedSessionId,
+        topicId: requestedTopicId ?? undefined,
+      });
+      if (operation) {
+        get().attachConversationGeneration({
+          assistantMessageId: id,
+          generation: requestedGeneration,
+          operationId: operation.id,
+          sessionId: requestedSessionId,
+          topicId: requestedTopicId ?? undefined,
+          userScope: accountMutationSnapshot.scope,
+        });
+        return;
+      }
+    }
 
     internal_toggleChatLoading(true, id, n('translateMessage(start)', { id }));
 

@@ -20,6 +20,17 @@ vi.mock('@/server/services/aiChat');
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn(),
 }));
+vi.mock('@/server/services/conversationGeneration/featureFlag', () => ({
+  isDurableConversationGenerationEnabled: vi.fn(async () => false),
+}));
+vi.mock('@/server/services/conversationGeneration/credentials', () => ({
+  resolveConversationRuntimePayload: vi.fn(),
+}));
+vi.mock('@/server/services/conversationGeneration/service', () => ({
+  ConversationGenerationService: class {
+    enqueueInTransaction = vi.fn();
+  },
+}));
 vi.mock('@/utils/server', () => ({
   getXorPayload: vi.fn(),
 }));

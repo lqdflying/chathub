@@ -96,6 +96,24 @@ PostgreSQL instance with pgvector. Verify that nearest-neighbor SQL orders by
 the raw cosine-distance operator in ascending order; wrapping that expression
 in a derived similarity sort can prevent HNSW index use.
 
+### Durable conversation generation
+
+Cover the feature-flag mapping, lane builder, fetch-on-client credential
+refusal, cancel-before-claim, SSE protocol consumer, and the client subscribe
+path that skips `internal_execAgentRuntime` when `operationId` is returned.
+High-signal suites:
+
+- `src/config/featureFlags/schema.test.ts`
+- `packages/types/src/conversationGeneration.test.ts`
+- `src/server/services/conversationGeneration/credentials.test.ts`
+- `src/server/services/conversationGeneration/execute.test.ts`
+- `src/server/services/conversationGeneration/stream.test.ts`
+- `src/store/chat/slices/aiChat/actions/__tests__/generateAIChatV2.test.ts`
+- `src/store/chat/slices/aiChat/actions/__tests__/conversationGeneration.test.ts`
+
+Do not add model tests that top-level-await `getTestDB()` unless
+`DATABASE_TEST_URL` is guaranteed.
+
 ## Change checklist for future agents
 
 Before finishing a change, verify:

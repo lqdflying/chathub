@@ -143,7 +143,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     && mkdir -p /deps \
     && cd /deps \
     && pnpm init \
-    && pnpm add pg drizzle-orm
+    && pnpm add pg drizzle-orm graphile-worker@0.17.3
 
 # ── Layer 3: source + build ───────────────────────────────────────────────────
 # Copy full source (overrides stub package.json files with real ones + src/ trees).
@@ -192,12 +192,14 @@ COPY --from=builder /app/scripts/migrateServerDB/ensureMcpOAuthTokens.cjs /app/e
 COPY --from=builder /app/scripts/migrateServerDB/ensurePicbedImages.cjs /app/ensurePicbedImages.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureSkillsStorage.cjs /app/ensureSkillsStorage.cjs
 COPY --from=builder /app/scripts/migrateServerDB/ensureTopicLastActivity.cjs /app/ensureTopicLastActivity.cjs
+COPY --from=builder /app/scripts/migrateServerDB/ensureConversationGenerationOperations.cjs /app/ensureConversationGenerationOperations.cjs
 COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 
 # copy dependencies
 COPY --from=builder /deps/node_modules/.pnpm /app/node_modules/.pnpm
 COPY --from=builder /deps/node_modules/pg /app/node_modules/pg
 COPY --from=builder /deps/node_modules/drizzle-orm /app/node_modules/drizzle-orm
+COPY --from=builder /deps/node_modules/graphile-worker /app/node_modules/graphile-worker
 
 # Copy server launcher
 COPY --from=builder /app/scripts/serverLauncher/startServer.js /app/startServer.js

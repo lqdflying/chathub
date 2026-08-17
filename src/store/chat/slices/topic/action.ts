@@ -14,6 +14,8 @@ import { message } from '@/components/AntdStaticMethods';
 import { LOADING_FLAT } from '@/const/message';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
+import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { CreateTopicParams } from '@/services/topic/type';
@@ -431,6 +433,30 @@ export const chatTopic: StateCreator<
 
     // Get current agent for topic
     const topicConfig = systemAgentSelectors.topic(useUserStore.getState());
+
+    if (isClientDurableConversationGenerationEnabled() && topicConfig.model && topicConfig.provider) {
+      const operation = await tryEnqueueConversationGeneration({
+        config: {
+          model: topicConfig.model,
+          provider: topicConfig.provider,
+          title: { topicId },
+        },
+        kind: 'topic_title',
+        sessionId: requestedContainerId,
+        topicId,
+      });
+      if (operation) {
+        get().attachConversationGeneration({
+          generation: requestedGeneration,
+          operationId: operation.id,
+          sessionId: requestedContainerId,
+          topicId,
+          userScope: requestedScope,
+        });
+        finishOwnedOperation(false);
+        return;
+      }
+    }
 
     // Automatically summarize the topic title
     try {

@@ -171,6 +171,11 @@ Knowledge Base embedding providers are intentionally outside the model-runtime
 provider fallback chain. See [Knowledge Base and Vector RAG](knowledge-base-rag.md)
 before changing file ingestion, vector storage, or semantic retrieval.
 
+Topic and session generation now run as a PostgreSQL-backed durable worker
+rather than a browser-orchestrated stream. See
+[Durable conversation generation](durable-conversation-generation.md) before
+changing send/stop, tool continuation, or Graphile Worker bootstrap.
+
 ## Key source references
 
 - `README.md`

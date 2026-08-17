@@ -5,6 +5,7 @@ import React, { memo, useCallback } from 'react';
 import { SkeletonList, VirtualizedList } from '@/features/Conversation';
 import WideScreenContainer from '@/features/Conversation/components/WideScreenContainer';
 import { useFetchMessages } from '@/hooks/useFetchMessages';
+import { useConversationGenerationSync } from '@/hooks/useConversationGenerationSync';
 import { useChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
 
@@ -19,6 +20,7 @@ const Content = memo<ListProps>(({ mobile }) => {
   const [isCurrentChatLoaded] = useChatStore((s) => [chatSelectors.isCurrentChatLoaded(s)]);
 
   useFetchMessages();
+  useConversationGenerationSync();
   const data = useChatStore(chatSelectors.mainDisplayChatIDs);
 
   const itemContent = useCallback(

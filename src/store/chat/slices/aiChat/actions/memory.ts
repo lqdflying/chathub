@@ -19,6 +19,8 @@ import {
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
+import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { topicService } from '@/services/topic';
 import {
   AccountMutationSnapshot,
@@ -290,6 +292,35 @@ async function runCompactionFromStore(
   // pre-send runs may process fewer batches than eligible; the cursor and stats below must
   // only cover what was actually summarized, or the skipped batches are lost forever
   const truncatedForPreSend = processedBatches.length < batches.length;
+
+  if (
+    isClientDurableConversationGenerationEnabled() &&
+    !abortController &&
+    chatModel &&
+    chatProvider
+  ) {
+    const operation = await tryEnqueueConversationGeneration({
+      config: {
+        historySummary: pending.previousSummary,
+        model: chatModel,
+        provider: chatProvider,
+      },
+      kind: 'memory_compaction',
+      sessionId: requestedSessionId,
+      topicId: requestedTopicId,
+    });
+    if (operation) {
+      get().attachConversationGeneration({
+        generation: requestedGeneration,
+        operationId: operation.id,
+        sessionId: requestedSessionId,
+        topicId: requestedTopicId,
+        userScope: accountMutationSnapshot.scope,
+      });
+      return compactionResult('ineligible', { reason: 'durable_enqueued' });
+    }
+  }
+
   for (const batch of processedBatches) {
     if (abortController?.signal.aborted) {
       return compactionResult('ineligible', { reason: 'aborted' });

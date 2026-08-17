@@ -11,6 +11,9 @@ const { ensureMcpOAuthTokensTable } = require('./ensureMcpOAuthTokens.cjs');
 const { ensurePicbedImagesTable } = require('./ensurePicbedImages.cjs');
 const { ensureSkillsStorage } = require('./ensureSkillsStorage.cjs');
 const { ensureTopicLastActivityColumn } = require('./ensureTopicLastActivity.cjs');
+const {
+  ensureConversationGenerationOperations,
+} = require('./ensureConversationGenerationOperations.cjs');
 
 // SAFETY NET: Every new Drizzle migration that adds a table or column MUST also
 // add a corresponding ensure* call here. This protects against journal drift —
@@ -42,6 +45,7 @@ const runMigrations = async () => {
   await ensureSkillsStorage(client);
   await ensureMessageOrderColumn(client);
   await ensureTopicLastActivityColumn(client);
+  await ensureConversationGenerationOperations(client);
 
   console.log('✅ database migration pass.');
   console.log('-------------------------------------');

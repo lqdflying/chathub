@@ -233,3 +233,6 @@ For changes tied to the OpenAI SDK upgrade path, pay special attention to error-
 - `packages/model-runtime/src/core/contextBuilders/anthropic.ts`
 - `packages/model-runtime/src/utils/handleOpenAIError.ts`
 - `src/server/modules/ModelRuntime/index.ts`
+
+Durable chat generation reuses this runtime from Graphile Worker. See
+[Durable conversation generation](durable-conversation-generation.md).

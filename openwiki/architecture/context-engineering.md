@@ -344,3 +344,8 @@ Useful test locations include:
 - `packages/context-engine/src/pipeline.ts`
 - `packages/context-engine/src/processors/`
 - `packages/context-engine/src/providers/`
+
+The durable worker builds the same pipeline in
+`src/server/services/conversationGeneration/payload.ts` so background
+generation matches the browser request shape. See
+[Durable conversation generation](durable-conversation-generation.md).

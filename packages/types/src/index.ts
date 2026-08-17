@@ -6,6 +6,7 @@ export * from './asyncTask';
 export * from './auth';
 export * from './chatGroup';
 export * from './chunk';
+export * from './conversationGeneration';
 export * from './contextExport';
 export * from './discover';
 export * from './eval';

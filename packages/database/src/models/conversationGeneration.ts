@@ -1,0 +1,308 @@
+import {
+  ConversationGenerationConfigSnapshot,
+  ConversationGenerationError,
+  ConversationGenerationEventType,
+  ConversationGenerationKind,
+  ConversationGenerationPhase,
+  ConversationGenerationStatus,
+  isActiveConversationGenerationStatus,
+} from '@lobechat/types';
+import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+
+import {
+  conversationGenerationEvents,
+  conversationGenerationOperations,
+  conversationGenerationSteps,
+} from '../schemas';
+import { LobeChatDatabase, Transaction } from '../type';
+import { idGenerator } from '../utils/idGenerator';
+
+const ACTIVE_STATUSES: ConversationGenerationStatus[] = ['pending', 'processing', 'cancelling'];
+
+export interface CreateConversationGenerationOperationParams {
+  agentId?: string | null;
+  assistantMessageId?: string | null;
+  config: ConversationGenerationConfigSnapshot;
+  conversationVersion?: number | null;
+  groupId?: string | null;
+  idempotencyKey?: string | null;
+  kind: ConversationGenerationKind;
+  lane: string;
+  parentMessageId?: string | null;
+  sessionId?: string | null;
+  threadId?: string | null;
+  topicId?: string | null;
+  userMessageId?: string | null;
+}
+
+export class ConversationGenerationModel {
+  private userId: string;
+  private db: LobeChatDatabase | Transaction;
+
+  constructor(db: LobeChatDatabase | Transaction, userId: string) {
+    this.userId = userId;
+    this.db = db;
+  }
+
+  create = async (params: CreateConversationGenerationOperationParams, id?: string) => {
+    const operationId = id ?? idGenerator('conversationGenerationOperations');
+    const [item] = await this.db
+      .insert(conversationGenerationOperations)
+      .values({
+        ...params,
+        id: operationId,
+        status: 'pending',
+        userId: this.userId,
+      })
+      .returning();
+
+    return item;
+  };
+
+  findById = async (id: string) => {
+    return this.db.query.conversationGenerationOperations.findFirst({
+      where: and(
+        eq(conversationGenerationOperations.id, id),
+        eq(conversationGenerationOperations.userId, this.userId),
+      ),
+    });
+  };
+
+  findByIdempotencyKey = async (idempotencyKey: string) => {
+    return this.db.query.conversationGenerationOperations.findFirst({
+      where: and(
+        eq(conversationGenerationOperations.userId, this.userId),
+        eq(conversationGenerationOperations.idempotencyKey, idempotencyKey),
+      ),
+    });
+  };
+
+  findActiveByLane = async (lane: string) => {
+    return this.db.query.conversationGenerationOperations.findFirst({
+      where: and(
+        eq(conversationGenerationOperations.userId, this.userId),
+        eq(conversationGenerationOperations.lane, lane),
+        inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+      ),
+    });
+  };
+
+  listActiveByUser = async () => {
+    return this.db.query.conversationGenerationOperations.findMany({
+      orderBy: [desc(conversationGenerationOperations.createdAt)],
+      where: and(
+        eq(conversationGenerationOperations.userId, this.userId),
+        inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+      ),
+    });
+  };
+
+  listPendingWithoutJob = async () => {
+    return this.db.query.conversationGenerationOperations.findMany({
+      where: and(
+        eq(conversationGenerationOperations.status, 'pending'),
+        isNull(conversationGenerationOperations.workerJobId),
+      ),
+    });
+  };
+
+  claimForProcessing = async (id: string) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        attempt: sql`${conversationGenerationOperations.attempt} + 1`,
+        heartbeatAt: new Date(),
+        startedAt: sql`coalesce(${conversationGenerationOperations.startedAt}, now())`,
+        status: 'processing',
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          inArray(conversationGenerationOperations.status, ['pending', 'processing']),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  update = async (
+    id: string,
+    value: Partial<{
+      assistantMessageId: string | null;
+      attempt: number;
+      cancelRequestedAt: Date | null;
+      conversationVersion: number | null;
+      error: ConversationGenerationError | null;
+      finishedAt: Date | null;
+      heartbeatAt: Date | null;
+      parentMessageId: string | null;
+      phase: ConversationGenerationPhase | null;
+      revision: number;
+      startedAt: Date | null;
+      status: ConversationGenerationStatus;
+      userMessageId: string | null;
+      workerJobId: string | null;
+    }>,
+  ) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({ ...value, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  bumpRevision = async (id: string) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        heartbeatAt: new Date(),
+        revision: sql`${conversationGenerationOperations.revision} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  requestCancel = async (id: string) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        cancelRequestedAt: new Date(),
+        status: sql`case when ${conversationGenerationOperations.status} in ('pending', 'processing') then 'cancelling' else ${conversationGenerationOperations.status} end`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  insertEvent = async (params: {
+    operationId: string;
+    payload?: Record<string, unknown>;
+    revision: number;
+    type: ConversationGenerationEventType;
+  }) => {
+    const [item] = await this.db
+      .insert(conversationGenerationEvents)
+      .values({
+        operationId: params.operationId,
+        payload: params.payload ?? {},
+        revision: params.revision,
+        type: params.type,
+        userId: this.userId,
+      })
+      .returning();
+
+    return item;
+  };
+
+  listEventsAfter = async (cursor: number, limit = 200) => {
+    return this.db
+      .select()
+      .from(conversationGenerationEvents)
+      .where(
+        and(
+          eq(conversationGenerationEvents.userId, this.userId),
+          gt(conversationGenerationEvents.id, cursor),
+        ),
+      )
+      .orderBy(conversationGenerationEvents.id)
+      .limit(limit);
+  };
+
+  latestEventId = async () => {
+    const [row] = await this.db
+      .select({ id: conversationGenerationEvents.id })
+      .from(conversationGenerationEvents)
+      .where(eq(conversationGenerationEvents.userId, this.userId))
+      .orderBy(desc(conversationGenerationEvents.id))
+      .limit(1);
+
+    return row?.id ?? 0;
+  };
+
+  createStep = async (params: {
+    attempt?: number;
+    inputHash?: string | null;
+    kind: string;
+    operationId: string;
+    result?: Record<string, unknown> | null;
+    status: string;
+  }) => {
+    const [item] = await this.db
+      .insert(conversationGenerationSteps)
+      .values({
+        attempt: params.attempt ?? 0,
+        id: idGenerator('conversationGenerationSteps'),
+        inputHash: params.inputHash,
+        kind: params.kind,
+        operationId: params.operationId,
+        result: params.result,
+        startedAt: new Date(),
+        status: params.status,
+        userId: this.userId,
+      })
+      .returning();
+
+    return item;
+  };
+
+  findCompletedStepByHash = async (operationId: string, inputHash: string) => {
+    return this.db.query.conversationGenerationSteps.findFirst({
+      where: and(
+        eq(conversationGenerationSteps.operationId, operationId),
+        eq(conversationGenerationSteps.userId, this.userId),
+        eq(conversationGenerationSteps.inputHash, inputHash),
+        eq(conversationGenerationSteps.status, 'succeeded'),
+      ),
+    });
+  };
+
+  updateStep = async (
+    id: string,
+    value: Partial<{
+      error: ConversationGenerationError | null;
+      finishedAt: Date | null;
+      result: Record<string, unknown> | null;
+      status: string;
+    }>,
+  ) => {
+    const [item] = await this.db
+      .update(conversationGenerationSteps)
+      .set({ ...value, updatedAt: new Date() })
+      .where(
+        and(
+          eq(conversationGenerationSteps.id, id),
+          eq(conversationGenerationSteps.userId, this.userId),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+}
+
+export const isActiveGenerationStatus = isActiveConversationGenerationStatus;
