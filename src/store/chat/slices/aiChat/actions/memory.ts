@@ -306,6 +306,7 @@ async function runCompactionFromStore(
         provider: chatProvider,
       },
       kind: 'memory_compaction',
+      replaceActive: true,
       sessionId: requestedSessionId,
       topicId: requestedTopicId,
     });

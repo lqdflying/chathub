@@ -6,6 +6,7 @@ const modelMocks = vi.hoisted(() => ({
   claimForProcessing: vi.fn(),
   findById: vi.fn(),
   insertEvent: vi.fn(),
+  isSupersededByLaneGeneration: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     claimForProcessing = modelMocks.claimForProcessing;
     findById = modelMocks.findById;
     insertEvent = modelMocks.insertEvent;
+    isSupersededByLaneGeneration = modelMocks.isSupersededByLaneGeneration;
     update = modelMocks.update;
   },
 }));
@@ -51,6 +53,7 @@ describe('executeConversationGeneration', () => {
     modelMocks.update.mockResolvedValue({ revision: 1, status: 'cancelled' });
     modelMocks.bumpRevision.mockResolvedValue({ revision: 1, status: 'cancelled' });
     modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+    modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
   });
 
   it('finalizes cancelled operations before claiming a worker slot', async () => {
@@ -96,5 +99,36 @@ describe('executeConversationGeneration', () => {
 
     expect(modelMocks.claimForProcessing).not.toHaveBeenCalled();
     expect(modelMocks.update).not.toHaveBeenCalled();
+  });
+
+  it('finalizes superseded operations without executing', async () => {
+    modelMocks.findById.mockResolvedValue({
+      id: 'cgo_old',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    });
+    modelMocks.claimForProcessing.mockResolvedValue({
+      id: 'cgo_old',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'processing',
+      userId: 'user-1',
+    });
+    modelMocks.isSupersededByLaneGeneration.mockResolvedValue(true);
+
+    await executeConversationGeneration({
+      db: {} as any,
+      operationId: 'cgo_old',
+      userId: 'user-1',
+    });
+
+    expect(modelMocks.update).toHaveBeenCalledWith(
+      'cgo_old',
+      expect.objectContaining({ status: 'cancelled' }),
+    );
   });
 });

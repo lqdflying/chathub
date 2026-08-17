@@ -1145,6 +1145,10 @@ export const chatMessage: StateCreator<
 
     get().internal_cancelAllSupervisorDecisions();
     useToolStore.setState({ builtinToolLoading: {} });
+    get().cancelAndDetachDurableOps({
+      sessionId: get().activeId,
+      topicId: get().activeTopicId,
+    });
     const invalidatedGenerationOperationKey = messageMapKey(get().activeId, get().activeTopicId);
     set(
       (state) => ({

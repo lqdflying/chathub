@@ -114,6 +114,57 @@ describe('conversationGeneration store actions', () => {
     expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
   });
 
+  it('ignores snapshots after the conversation generation was invalidated', () => {
+    const { result } = renderHook(() => useChatStore());
+    const dispatch = vi.fn();
+    act(() => {
+      useChatStore.setState({ internal_dispatchMessage: dispatch });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        operationId: 'cgo_one',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      useChatStore.setState({ conversationClearGeneration: 1 });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 3,
+        operationId: 'cgo_one',
+        payload: { content: 'stale' },
+        revision: 4,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('detaches operations after stop', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const { result } = renderHook(() => useChatStore());
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        generation: 0,
+        operationId: 'cgo_active',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.stopDurableConversationGeneration();
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_active');
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ],
+    ).toBeUndefined();
+  });
+
   it('sends cancel only for operations in the active conversation', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());

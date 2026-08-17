@@ -62,11 +62,14 @@ export const GET = async (req: NextRequest) => {
         }
       };
 
+      let inFlight = false;
       const timer = setInterval(async () => {
         if (closed || req.signal.aborted) {
           close();
           return;
         }
+        if (inFlight) return;
+        inFlight = true;
         try {
           const page = await service.listEvents(cursor);
           if (page.reset) {
@@ -93,6 +96,8 @@ export const GET = async (req: NextRequest) => {
             },
             type: 'error',
           });
+        } finally {
+          inFlight = false;
         }
       }, 750);
 

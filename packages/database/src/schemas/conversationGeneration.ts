@@ -55,6 +55,7 @@ export const conversationGenerationOperations = pgTable(
 
     revision: integer('revision').notNull().default(0),
     attempt: integer('attempt').notNull().default(0),
+    laneGeneration: integer('lane_generation').notNull().default(1),
     conversationVersion: integer('conversation_version'),
     workerJobId: text('worker_job_id'),
 
@@ -68,7 +69,13 @@ export const conversationGenerationOperations = pgTable(
   (t) => [
     uniqueIndex('conversation_generation_operations_lane_active_uniq')
       .on(t.lane)
-      .where(sql`${t.status} in ('pending', 'processing', 'cancelling')`),
+      .where(sql`${t.status} in ('pending', 'processing')`),
+    index('conversation_generation_operations_pending_no_job_idx')
+      .on(t.status)
+      .where(sql`${t.status} = 'pending' and ${t.workerJobId} is null`),
+    index('conversation_generation_operations_stale_processing_idx')
+      .on(t.status, t.heartbeatAt)
+      .where(sql`${t.status} = 'processing'`),
     uniqueIndex('conversation_generation_operations_idempotency_uniq')
       .on(t.userId, t.idempotencyKey)
       .where(sql`${t.idempotencyKey} is not null`),

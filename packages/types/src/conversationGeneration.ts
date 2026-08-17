@@ -107,6 +107,7 @@ export interface ConversationGenerationOperation {
   idempotencyKey?: string | null;
   kind: ConversationGenerationKind;
   lane: string;
+  laneGeneration: number;
   parentMessageId?: string | null;
   phase?: ConversationGenerationPhase | null;
   revision: number;

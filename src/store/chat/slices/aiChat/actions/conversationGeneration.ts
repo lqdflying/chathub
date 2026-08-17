@@ -14,6 +14,12 @@ const n = setNamespace('durableGeneration');
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
+  cancelAndDetachDurableOps: (options?: {
+    groupId?: string;
+    sessionId?: string;
+    threadId?: string | null;
+    topicId?: string | null;
+  }) => void;
   detachConversationGeneration: (operationId: string, conversationKey?: string) => void;
   internal_markDurableGenerating: (id: string, loading: boolean) => void;
   stopDurableConversationGeneration: (options?: { threadId?: string | null }) => void;
@@ -23,6 +29,25 @@ export interface ConversationGenerationAction {
 const conversationKeyFor = (sessionId?: string | null, topicId?: string | null) =>
   messageMapKey(sessionId || '', topicId);
 
+const findAttachedOperation = (
+  serverGenerationOperations: ChatStore['serverGenerationOperations'],
+  operationId: string,
+) =>
+  Object.values(serverGenerationOperations)
+    .flatMap((ops) => Object.values(ops))
+    .find((item) => item.operationId === operationId);
+
+const shouldApplyAttachedOperation = (
+  attached: ServerGenerationOperation | undefined,
+  state: ChatStore,
+) => {
+  if (!attached) return false;
+  if (attached.generation !== state.conversationClearGeneration) return false;
+  if (attached.sessionId !== state.activeId) return false;
+  if ((attached.topicId ?? null) !== (state.activeTopicId ?? null)) return false;
+  return true;
+};
+
 export const conversationGeneration: StateCreator<
   ChatStore,
   [['zustand/devtools', never]],
@@ -30,25 +55,30 @@ export const conversationGeneration: StateCreator<
   ConversationGenerationAction
 > = (set, get) => ({
   applyConversationGenerationEvent: (event) => {
+    const state = get();
+    const attached = findAttachedOperation(state.serverGenerationOperations, event.operationId);
+    if (!shouldApplyAttachedOperation(attached, state)) return;
+
+    const dispatchContext = attached
+      ? { sessionId: attached.sessionId, topicId: attached.topicId }
+      : undefined;
     const payload = event.payload || {};
-    let assistantMessageId = Object.values(get().serverGenerationOperations)
-      .flatMap((ops) => Object.values(ops))
-      .find((item) => item.operationId === event.operationId)?.assistantMessageId;
+    let assistantMessageId = attached?.assistantMessageId;
 
     if (event.type === 'snapshot') {
       if (payload.assistantMessageId && payload.assistantMessageId !== assistantMessageId) {
         if (assistantMessageId) get().internal_markDurableGenerating(assistantMessageId, false);
         get().internal_markDurableGenerating(payload.assistantMessageId as string, true);
         set(
-          (state) => {
-            const serverGenerationOperations = { ...state.serverGenerationOperations };
+          (current) => {
+            const serverGenerationOperations = { ...current.serverGenerationOperations };
             for (const [key, ops] of Object.entries(serverGenerationOperations)) {
-              const current = ops[event.operationId];
-              if (!current) continue;
+              const currentOp = ops[event.operationId];
+              if (!currentOp) continue;
               serverGenerationOperations[key] = {
                 ...ops,
                 [event.operationId]: {
-                  ...current,
+                  ...currentOp,
                   assistantMessageId: payload.assistantMessageId as string,
                 },
               };
@@ -61,22 +91,25 @@ export const conversationGeneration: StateCreator<
         assistantMessageId = payload.assistantMessageId as string;
       }
       if (assistantMessageId && (payload.content !== undefined || payload.reasoning)) {
-        get().internal_dispatchMessage({
-          id: assistantMessageId,
-          type: 'updateMessage',
-          value: {
-            ...(payload.content !== undefined ? { content: payload.content as string } : {}),
-            ...(payload.reasoning ? { reasoning: payload.reasoning as any } : {}),
+        get().internal_dispatchMessage(
+          {
+            id: assistantMessageId,
+            type: 'updateMessage',
+            value: {
+              ...(payload.content !== undefined ? { content: payload.content as string } : {}),
+              ...(payload.reasoning ? { reasoning: payload.reasoning as any } : {}),
+            },
           },
-        });
+          dispatchContext,
+        );
       }
       if (payload.title && payload.topicId) {
         const topicId = payload.topicId as string;
         const title = payload.title as string;
         set(
-          (state) => ({
+          (current) => ({
             topicMaps: Object.fromEntries(
-              Object.entries(state.topicMaps).map(([containerId, topics]) => [
+              Object.entries(current.topicMaps).map(([containerId, topics]) => [
                 containerId,
                 topics.map((topic) => (topic.id === topicId ? { ...topic, title } : topic)),
               ]),
@@ -87,12 +120,15 @@ export const conversationGeneration: StateCreator<
         );
       }
       if (payload.translate && payload.messageId) {
-        get().internal_dispatchMessage({
-          id: payload.messageId as string,
-          key: 'translate',
-          type: 'updateMessageExtra',
-          value: payload.translate,
-        });
+        get().internal_dispatchMessage(
+          {
+            id: payload.messageId as string,
+            key: 'translate',
+            type: 'updateMessageExtra',
+            value: payload.translate,
+          },
+          dispatchContext,
+        );
       }
     }
 
@@ -100,9 +136,6 @@ export const conversationGeneration: StateCreator<
       if (assistantMessageId) {
         get().internal_markDurableGenerating(assistantMessageId, false);
       }
-      const attached = Object.values(get().serverGenerationOperations)
-        .flatMap((ops) => Object.values(ops))
-        .find((item) => item.operationId === event.operationId);
       if (attached?.groupId) {
         get().internal_toggleSupervisorLoading(false, attached.groupId);
       }
@@ -162,17 +195,32 @@ export const conversationGeneration: StateCreator<
     );
   },
 
-  stopDurableConversationGeneration: (options) => {
+  cancelAndDetachDurableOps: (options) => {
     const { activeId, activeTopicId, activeThreadId, serverGenerationOperations } = get();
     if ((options?.threadId ?? null) !== (activeThreadId ?? null)) return;
-    const key = conversationKeyFor(activeId, activeTopicId);
-    const operations = Object.values(serverGenerationOperations[key] || {});
+
+    const sessionId = options?.sessionId ?? activeId;
+    const topicId = options?.topicId ?? activeTopicId;
+    const key = conversationKeyFor(sessionId, topicId);
+    const operations = Object.values(serverGenerationOperations[key] || {}).filter((operation) => {
+      if (options?.groupId && operation.groupId !== options.groupId) return false;
+      return true;
+    });
+
     for (const operation of operations) {
       if (operation.assistantMessageId) {
         get().internal_markDurableGenerating(operation.assistantMessageId, false);
       }
+      if (operation.groupId) {
+        get().internal_toggleSupervisorLoading(false, operation.groupId);
+      }
       void conversationGenerationService.cancel(operation.operationId).catch(console.error);
+      get().detachConversationGeneration(operation.operationId, key);
     }
+  },
+
+  stopDurableConversationGeneration: (options) => {
+    get().cancelAndDetachDurableOps(options);
   },
 
   syncActiveConversationGenerations: async () => {

@@ -3,6 +3,7 @@ import type {
   ConversationGenerationEvent,
   ConversationGenerationOperation,
 } from '@lobechat/types';
+import { isActiveConversationGenerationStatus as isActiveStatus } from '@lobechat/types';
 import { TRPCClientError } from '@trpc/client';
 
 import { CHATHUB_ACCOUNT_SCOPE_HEADER } from '@/const/auth';
@@ -26,6 +27,21 @@ const parseSseBlocks = (chunk: string) => {
     if (parsed.event || parsed.data) events.push(parsed);
   }
   return events;
+};
+
+const matchesEnqueueInput = (
+  operation: ConversationGenerationOperation,
+  input: ConversationGenerationEnqueueInput,
+) => {
+  if (input.groupId) {
+    return operation.groupId === input.groupId && operation.topicId === (input.topicId ?? null);
+  }
+
+  return (
+    operation.sessionId === (input.sessionId ?? null) &&
+    operation.topicId === (input.topicId ?? null) &&
+    operation.groupId == null
+  );
 };
 
 class ConversationGenerationClient {
@@ -125,6 +141,16 @@ const isFatalEnqueueError = (error: unknown) => {
   );
 };
 
+const recoverActiveOperation = async (input: ConversationGenerationEnqueueInput) => {
+  const active = (await conversationGenerationService.listActive()) as ConversationGenerationOperation[];
+  return active.find(
+    (operation) =>
+      isActiveStatus(operation.status) &&
+      operation.kind === input.kind &&
+      matchesEnqueueInput(operation, input),
+  );
+};
+
 export const tryEnqueueConversationGeneration = async (
   input: ConversationGenerationEnqueueInput,
 ): Promise<ConversationGenerationOperation | undefined> => {
@@ -132,6 +158,6 @@ export const tryEnqueueConversationGeneration = async (
     return (await conversationGenerationService.enqueue(input)) as ConversationGenerationOperation;
   } catch (error) {
     if (isFatalEnqueueError(error)) throw error;
-    return undefined;
+    return recoverActiveOperation(input);
   }
 };

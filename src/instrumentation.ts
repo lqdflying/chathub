@@ -10,8 +10,9 @@ export async function register() {
       await import('./instrumentation.node');
     }
 
-    const { startConversationGenerationWorker } =
+    const { startConversationGenerationSweeper, startConversationGenerationWorker } =
       await import('./server/services/conversationGeneration/worker');
+    startConversationGenerationSweeper();
     try {
       await startConversationGenerationWorker();
     } catch (error) {

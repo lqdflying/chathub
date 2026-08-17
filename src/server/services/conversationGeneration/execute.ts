@@ -77,6 +77,17 @@ export const executeConversationGeneration = async ({
   const claimed = await model.claimForProcessing(operationId);
   if (!claimed) return;
 
+  if (
+    await model.isSupersededByLaneGeneration({
+      id: claimed.id,
+      lane: claimed.lane,
+      laneGeneration: claimed.laneGeneration ?? 1,
+    })
+  ) {
+    await finalizeIfStopped(model, claimed, 'superseded');
+    return;
+  }
+
   try {
     switch (claimed.kind) {
       case 'topic_title': {
@@ -150,6 +161,43 @@ const finalize = async (
 const isCancelled = async (model: ConversationGenerationModel, operationId: string) => {
   const current = await model.findById(operationId);
   return Boolean(current?.cancelRequestedAt);
+};
+
+const shouldStopGeneration = async (
+  model: ConversationGenerationModel,
+  operation: ConversationGenerationOperation,
+  signal?: AbortSignal,
+): Promise<'cancelled' | 'superseded' | null> => {
+  if (signal?.aborted) return 'cancelled';
+  if (await isCancelled(model, operation.id)) return 'cancelled';
+  if (
+    await model.isSupersededByLaneGeneration({
+      id: operation.id,
+      lane: operation.lane,
+      laneGeneration: operation.laneGeneration ?? 1,
+    })
+  ) {
+    return 'superseded';
+  }
+  return null;
+};
+
+const finalizeIfStopped = async (
+  model: ConversationGenerationModel,
+  operation: ConversationGenerationOperation,
+  reason: 'cancelled' | 'superseded',
+) => {
+  await finalize(
+    model,
+    operation,
+    'cancelled',
+    reason === 'superseded'
+      ? {
+          message: 'Generation was replaced by a newer request.',
+          type: 'Superseded',
+        }
+      : undefined,
+  );
 };
 
 const loadGeneralInstruction = async (db: LobeChatDatabase, userId: string) => {
@@ -282,8 +330,9 @@ const executeChat = async (
     let currentPayload = built.payload;
 
     while (remainingTurns >= 0) {
-      if (await isCancelled(model, operation.id)) {
-        await finalize(model, operation, 'cancelled');
+      const stopReason = await shouldStopGeneration(model, operation, abortController.signal);
+      if (stopReason) {
+        await finalizeIfStopped(model, operation, stopReason);
         return;
       }
 
@@ -302,6 +351,16 @@ const executeChat = async (
         },
         signal: abortController.signal,
       });
+
+      const postStreamStopReason = await shouldStopGeneration(
+        model,
+        operation,
+        abortController.signal,
+      );
+      if (postStreamStopReason) {
+        await finalizeIfStopped(model, operation, postStreamStopReason);
+        return;
+      }
 
       if (result.error) {
         await messageModel.update(assistantId, {
@@ -335,6 +394,12 @@ const executeChat = async (
 
       const assistantMessage = (await messageModel.findById(assistantId)) as UIChatMessage;
       for (const tool of tools) {
+        const toolStopReason = await shouldStopGeneration(model, operation, abortController.signal);
+        if (toolStopReason) {
+          await finalizeIfStopped(model, operation, toolStopReason);
+          return;
+        }
+
         const invocation = await invokeConversationTool({
           assistantMessage: { ...assistantMessage, tools } as UIChatMessage,
           db,
@@ -418,6 +483,12 @@ const executeChat = async (
 
     if (operation.config.title?.topicId || operation.topicId) {
       await executeTitle(db, operation, { skipFinalize: true });
+    }
+
+    const finalStopReason = await shouldStopGeneration(model, operation, abortController.signal);
+    if (finalStopReason) {
+      await finalizeIfStopped(model, operation, finalStopReason);
+      return;
     }
 
     if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
@@ -705,8 +776,9 @@ const executeSupervisor = async (
   const generalInstruction = await loadGeneralInstruction(db, operation.userId);
 
   for (const decision of decisions) {
-    if (await isCancelled(model, operation.id)) {
-      await finalize(model, operation, 'cancelled');
+    const stopReason = await shouldStopGeneration(model, operation);
+    if (stopReason) {
+      await finalizeIfStopped(model, operation, stopReason);
       return;
     }
     const agent = availableAgents.find((item) => item.id === decision.id);

@@ -1155,6 +1155,11 @@ export const generateAIChat: StateCreator<
       }
       state.reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
       state.searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      get().cancelAndDetachDurableOps({
+        groupId: isGroupChat ? groupId : undefined,
+        sessionId: activeId,
+        topicId: activeTopicId,
+      });
       get().internal_toggleChatLoading(false, undefined, n('retryMessage/cancelChatLoading'));
       get().internal_toggleMessageInToolsCalling(false, undefined, n('retryMessage/cancelTools'));
       get().internal_togglePluginApiCalling(false, undefined, n('retryMessage/cancelPlugin'));

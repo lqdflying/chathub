@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS "conversation_generation_operations" (
   "error" jsonb,
   "revision" integer DEFAULT 0 NOT NULL,
   "attempt" integer DEFAULT 0 NOT NULL,
+  "lane_generation" integer DEFAULT 1 NOT NULL,
   "conversation_version" integer,
   "worker_job_id" text,
   "heartbeat_at" timestamp with time zone,
@@ -101,9 +102,24 @@ EXCEPTION
   WHEN duplicate_object THEN null;
 END $$;
 
+DO $$ BEGIN
+  ALTER TABLE "conversation_generation_operations"
+    ADD COLUMN IF NOT EXISTS "lane_generation" integer DEFAULT 1 NOT NULL;
+EXCEPTION
+  WHEN duplicate_column THEN null;
+END $$;
+
 CREATE UNIQUE INDEX IF NOT EXISTS "conversation_generation_operations_lane_active_uniq"
   ON "conversation_generation_operations" USING btree ("lane")
-  WHERE "status" in ('pending', 'processing', 'cancelling');
+  WHERE "status" in ('pending', 'processing');
+
+CREATE INDEX IF NOT EXISTS "conversation_generation_operations_pending_no_job_idx"
+  ON "conversation_generation_operations" USING btree ("status")
+  WHERE "status" = 'pending' AND "worker_job_id" IS NULL;
+
+CREATE INDEX IF NOT EXISTS "conversation_generation_operations_stale_processing_idx"
+  ON "conversation_generation_operations" USING btree ("status", "heartbeat_at")
+  WHERE "status" = 'processing';
 
 CREATE UNIQUE INDEX IF NOT EXISTS "conversation_generation_operations_idempotency_uniq"
   ON "conversation_generation_operations" USING btree ("user_id","idempotency_key")

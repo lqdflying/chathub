@@ -7,9 +7,13 @@ import {
   CONVERSATION_GENERATION_TASK,
 } from './constants';
 import { executeConversationGeneration } from './execute';
-import { sweepPendingConversationGenerationJobs } from './service';
+import {
+  sweepPendingConversationGenerationJobs,
+  sweepStaleConversationGenerationOperations,
+} from './service';
 
 type GlobalWithConversationWorker = typeof globalThis & {
+  __chathubConversationGenerationSweeper?: ReturnType<typeof setInterval>;
   __chathubConversationGenerationWorker?: Promise<Runner | undefined>;
 };
 
@@ -18,7 +22,7 @@ const parseConcurrency = () => {
   return Number.isFinite(value) && value > 0 ? value : 4;
 };
 
-const shouldStartConversationGenerationWorker = () => {
+export const shouldStartConversationGenerationWorker = () => {
   if (!process.env.DATABASE_URL) return false;
   if (process.env.NODE_ENV === 'test') return false;
   if (process.env.DISABLE_CONVERSATION_WORKER === '1') return false;
@@ -37,9 +41,29 @@ const handleConversationGenerationJob: Task = async (payload) => {
   await executeConversationGeneration({ db, operationId, userId });
 };
 
-const handleSweepJob = async () => {
+const runConversationGenerationSweep = async () => {
   const db = await getServerDB();
   await sweepPendingConversationGenerationJobs(db);
+  await sweepStaleConversationGenerationOperations(db);
+};
+
+export const startConversationGenerationSweeper = () => {
+  if (!shouldStartConversationGenerationWorker()) return;
+
+  const globalState = globalThis as GlobalWithConversationWorker;
+  if (globalState.__chathubConversationGenerationSweeper) return;
+
+  const sweepTimer = setInterval(() => {
+    void runConversationGenerationSweep().catch((error) => {
+      console.error('[conversation-generation] periodic sweep failed', error);
+    });
+  }, CONVERSATION_GENERATION_SWEEP_INTERVAL_MS);
+  sweepTimer.unref?.();
+  globalState.__chathubConversationGenerationSweeper = sweepTimer;
+
+  void runConversationGenerationSweep().catch((error) => {
+    console.error('[conversation-generation] initial sweep failed', error);
+  });
 };
 
 export const startConversationGenerationWorker = async (): Promise<Runner | undefined> => {
@@ -52,7 +76,7 @@ export const startConversationGenerationWorker = async (): Promise<Runner | unde
 
   globalState.__chathubConversationGenerationWorker = (async () => {
     try {
-      const runner = await run({
+      return await run({
         concurrency: parseConcurrency(),
         connectionString: process.env.DATABASE_URL,
         noHandleSignals: true,
@@ -61,19 +85,6 @@ export const startConversationGenerationWorker = async (): Promise<Runner | unde
           [CONVERSATION_GENERATION_TASK]: handleConversationGenerationJob,
         },
       });
-
-      const sweepTimer = setInterval(() => {
-        void handleSweepJob().catch((error) => {
-          console.error('[conversation-generation] pending job sweep failed', error);
-        });
-      }, CONVERSATION_GENERATION_SWEEP_INTERVAL_MS);
-      sweepTimer.unref?.();
-
-      void handleSweepJob().catch((error) => {
-        console.error('[conversation-generation] initial pending job sweep failed', error);
-      });
-
-      return runner;
     } catch (error) {
       console.error('[conversation-generation] worker failed to start', error);
       globalState.__chathubConversationGenerationWorker = undefined;

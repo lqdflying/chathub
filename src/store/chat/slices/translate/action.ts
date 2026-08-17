@@ -86,6 +86,7 @@ export const chatTranslate: StateCreator<
           translation: { messageId: id, to: targetLang },
         },
         kind: 'translation',
+        replaceActive: true,
         sessionId: requestedSessionId,
         topicId: requestedTopicId ?? undefined,
       });

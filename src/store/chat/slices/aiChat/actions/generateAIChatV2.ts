@@ -375,6 +375,17 @@ export const generateAIChatV2: StateCreator<
       return;
     }
 
+    if (isClientDurableConversationGenerationEnabled() && model && provider) {
+      await get().syncActiveConversationGenerations();
+      const durableKey = messageMapKey(conversationContext.sessionId, data.topicId);
+      if (Object.keys(get().serverGenerationOperations[durableKey] || {}).length > 0) {
+        const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
+        await getAgentStoreState().addFilesToAgent(userFiles, false);
+        return;
+      }
+      return;
+    }
+
     // The current server only returns persisted user history here. Keep filtering the
     // reserved ID for compatibility with an older server during rolling deployments.
     const baseMessages = data.messages.filter((item) => item.id !== data.assistantMessageId);

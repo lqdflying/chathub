@@ -14,7 +14,11 @@ import { MessageModel } from '@/database/models/message';
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 
-import { CONVERSATION_GENERATION_EVENT_PAGE_SIZE, CONVERSATION_GENERATION_TASK } from './constants';
+import {
+  CONVERSATION_GENERATION_EVENT_PAGE_SIZE,
+  CONVERSATION_GENERATION_STALE_PROCESSING_MS,
+  CONVERSATION_GENERATION_TASK,
+} from './constants';
 import { resolveConversationRuntimePayload } from './credentials';
 
 let workerUtilsPromise: Promise<Awaited<ReturnType<typeof makeWorkerUtils>>> | undefined;
@@ -53,7 +57,11 @@ const enqueueGraphileJob = async (
         maxAttempts: 8,
       });
       return String(job.id);
-    } catch {
+    } catch (fallbackError) {
+      console.warn('[conversation-generation] failed to enqueue Graphile job', {
+        operationId: payload.operationId,
+        error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+      });
       return undefined;
     }
   }
@@ -112,11 +120,12 @@ export class ConversationGenerationService {
     }
     if (active && parsed.replaceActive) {
       await model.requestCancel(active.id);
-      await model.update(active.id, {
-        finishedAt: new Date(),
-        status: 'cancelled',
-      });
     }
+
+    const laneGeneration =
+      active && parsed.replaceActive
+        ? (active.laneGeneration ?? 1) + 1
+        : (await model.findMaxLaneGeneration(lane)) + 1;
 
     let assistantMessageId = parsed.assistantMessageId;
     if (
@@ -146,6 +155,7 @@ export class ConversationGenerationService {
       idempotencyKey: parsed.idempotencyKey,
       kind: parsed.kind,
       lane,
+      laneGeneration,
       parentMessageId: parsed.parentMessageId,
       sessionId: parsed.sessionId,
       threadId: parsed.threadId,
@@ -221,6 +231,36 @@ export const sweepPendingConversationGenerationJobs = async (db: LobeChatDatabas
         workerJobId,
       });
     }
+  }
+};
+
+export const sweepStaleConversationGenerationOperations = async (db: LobeChatDatabase) => {
+  const heartbeatBefore = new Date(Date.now() - CONVERSATION_GENERATION_STALE_PROCESSING_MS);
+  const stale = await new ConversationGenerationModel(db, 'system').listStaleProcessing(
+    heartbeatBefore,
+  );
+
+  for (const operation of stale) {
+    const model = new ConversationGenerationModel(db, operation.userId);
+    const updated = await model.update(operation.id, {
+      error: {
+        message: 'Generation stopped responding and was marked interrupted.',
+        type: 'StaleProcessing',
+      },
+      finishedAt: new Date(),
+      phase: 'finalizing',
+      status: 'interrupted',
+    });
+    const revision = await model.bumpRevision(operation.id);
+    await model.insertEvent({
+      operationId: operation.id,
+      payload: {
+        error: updated?.error,
+        status: 'interrupted',
+      },
+      revision: revision?.revision ?? operation.revision + 1,
+      type: 'done',
+    });
   }
 };
 

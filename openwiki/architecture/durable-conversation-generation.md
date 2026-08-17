@@ -73,9 +73,39 @@ browser `internal_execAgentRuntime` path still runs.
 
 ## Worker bootstrap
 
-`src/instrumentation.ts` starts Graphile Worker in the Node runtime. A boot
-failure is logged and does not crash Next.js. Pending operations with a null
-`workerJobId` are requeued by a periodic sweeper.
+`src/instrumentation.ts` starts a periodic sweeper in the Node runtime regardless
+of whether Graphile Worker boots successfully. The sweeper requeues pending
+operations with a null `workerJobId` and marks stale `processing` rows as
+`interrupted` after a heartbeat timeout.
+
+Graphile Worker itself is started in a separate try/catch. A boot failure is
+logged and does not crash Next.js.
+
+## Lane replacement
+
+Each operation stores a monotonic `laneGeneration` token per conversation lane.
+`replaceActive` requests cancellation on the prior operation and enqueues a new
+one with a higher token. Workers checkpointing an older token stop without
+writing further snapshots.
+
+The active-lane unique index covers only `pending` and `processing`, so a
+`cancelling` operation no longer blocks the replacement enqueue.
+
+## Client sync
+
+`useConversationGenerationSync` (ChatList `Content.tsx`) opens
+`GET /webapi/conversation-generation/stream` with auth headers. Native
+`EventSource` is not used because it cannot send those headers. The hook keeps a
+per-user event cursor across topic switches. If SSE ends or fails, it polls
+`conversationGeneration.listEvents`.
+
+Events are applied only when the attached operation still matches the active
+session/topic and `conversationClearGeneration`.
+
+Stop still goes through `stopGenerateMessage` / group supervisor stop →
+`cancelAndDetachDurableOps` → `conversationGeneration.cancel`. Durable
+generating UI uses `internal_markDurableGenerating` so it does not install
+`beforeunload`.
 
 Useful env vars:
 
@@ -83,17 +113,6 @@ Useful env vars:
 | --- | --- |
 | `CONVERSATION_WORKER_CONCURRENCY` | Graphile concurrency (default `4`) |
 | `DISABLE_CONVERSATION_WORKER=1` | Skip worker start (tests/build) |
-
-## Client sync
-
-`useConversationGenerationSync` (ChatList `Content.tsx`) opens
-`GET /webapi/conversation-generation/stream` with auth headers. Native
-`EventSource` is not used because it cannot send those headers. If SSE fails,
-the hook polls `conversationGeneration.listEvents`.
-
-Stop still goes through `stopGenerateMessage` → `stopDurableConversationGeneration`
-→ `conversationGeneration.cancel`. Durable generating UI uses
-`internal_markDurableGenerating` so it does not install `beforeunload`.
 
 ## Workflows on the engine
 

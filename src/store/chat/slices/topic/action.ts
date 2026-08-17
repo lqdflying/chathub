@@ -442,6 +442,7 @@ export const chatTopic: StateCreator<
           title: { topicId },
         },
         kind: 'topic_title',
+        replaceActive: true,
         sessionId: requestedContainerId,
         topicId,
       });

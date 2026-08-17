@@ -321,9 +321,16 @@ export const useSendGroupMessage = () => {
     const store = getChatStoreState();
     const isAgentGenerating = chatSelectors.isAIGenerating(store);
     const isCreating = chatSelectors.isCreatingMessage(store);
+    const isSupervisorLoading = chatSelectors.isSupervisorLoading(store.activeId)(store);
 
     if (isAgentGenerating) {
       stopGenerateMessage();
+      return;
+    }
+
+    if (isSupervisorLoading) {
+      store.stopDurableConversationGeneration();
+      store.internal_cancelSupervisorDecision(store.activeId);
       return;
     }
 

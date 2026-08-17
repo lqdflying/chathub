@@ -7,7 +7,7 @@ import {
   ConversationGenerationStatus,
   isActiveConversationGenerationStatus,
 } from '@lobechat/types';
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, lt, max, or, sql } from 'drizzle-orm';
 
 import {
   conversationGenerationEvents,
@@ -28,6 +28,7 @@ export interface CreateConversationGenerationOperationParams {
   idempotencyKey?: string | null;
   kind: ConversationGenerationKind;
   lane: string;
+  laneGeneration?: number;
   parentMessageId?: string | null;
   sessionId?: string | null;
   threadId?: string | null;
@@ -51,6 +52,7 @@ export class ConversationGenerationModel {
       .values({
         ...params,
         id: operationId,
+        laneGeneration: params.laneGeneration ?? 1,
         status: 'pending',
         userId: this.userId,
       })
@@ -97,6 +99,49 @@ export class ConversationGenerationModel {
     });
   };
 
+  findMaxLaneGeneration = async (lane: string) => {
+    const [row] = await this.db
+      .select({ laneGeneration: max(conversationGenerationOperations.laneGeneration) })
+      .from(conversationGenerationOperations)
+      .where(
+        and(
+          eq(conversationGenerationOperations.userId, this.userId),
+          eq(conversationGenerationOperations.lane, lane),
+        ),
+      );
+
+    return row?.laneGeneration ?? 0;
+  };
+
+  isSupersededByLaneGeneration = async (params: {
+    id: string;
+    lane: string;
+    laneGeneration: number;
+  }) => {
+    const newer = await this.db.query.conversationGenerationOperations.findFirst({
+      where: and(
+        eq(conversationGenerationOperations.userId, this.userId),
+        eq(conversationGenerationOperations.lane, params.lane),
+        gt(conversationGenerationOperations.laneGeneration, params.laneGeneration),
+        inArray(conversationGenerationOperations.status, ['pending', 'processing']),
+      ),
+    });
+
+    return Boolean(newer && newer.id !== params.id);
+  };
+
+  listStaleProcessing = async (heartbeatBefore: Date) => {
+    return this.db.query.conversationGenerationOperations.findMany({
+      where: and(
+        eq(conversationGenerationOperations.status, 'processing'),
+        or(
+          isNull(conversationGenerationOperations.heartbeatAt),
+          lt(conversationGenerationOperations.heartbeatAt, heartbeatBefore),
+        ),
+      ),
+    });
+  };
+
   listPendingWithoutJob = async () => {
     return this.db.query.conversationGenerationOperations.findMany({
       where: and(
@@ -120,7 +165,7 @@ export class ConversationGenerationModel {
         and(
           eq(conversationGenerationOperations.id, id),
           eq(conversationGenerationOperations.userId, this.userId),
-          inArray(conversationGenerationOperations.status, ['pending', 'processing']),
+          eq(conversationGenerationOperations.status, 'pending'),
         ),
       )
       .returning();
