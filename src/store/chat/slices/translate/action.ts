@@ -14,6 +14,7 @@ import {
 } from '@/store/accountMutation';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
+import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
 import { merge } from '@/utils/merge';
@@ -81,6 +82,7 @@ export const chatTranslate: StateCreator<
     ) {
       const operation = await tryEnqueueConversationGeneration({
         config: {
+          locale: globalHelpers.getCurrentLanguage(),
           model: translationSetting.model,
           provider: translationSetting.provider,
           translation: { messageId: id, to: targetLang },

@@ -17,35 +17,34 @@ import {
   ToolSystemRoleProvider,
 } from '@lobechat/context-engine';
 import { INBOX_GUIDE_SYSTEMROLE, INBOX_SESSION_ID } from '@lobechat/const';
-import { REASONING_BUDGET_TOKEN_ADAPTIVE, supportsAnthropicAdaptiveThinking } from '@lobechat/model-runtime';
 import { agentMemoryPrompt, historySummaryPrompt, pluginPrompts } from '@lobechat/prompts';
 import type {
   ConversationGenerationConfigSnapshot,
-  LobeAgentChatConfig,
   OpenAIChatMessage,
   UIChatMessage,
 } from '@lobechat/types';
-import { MAX_ACTIVE_SKILLS, resolveGPT5ReasoningEffort } from '@lobechat/types';
+import { MAX_ACTIVE_SKILLS } from '@lobechat/types';
 import type { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
-import { ModelProvider } from 'model-bank';
 
 import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
 import { inboxSessionId } from '@/database/utils/idGenerator';
+import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
+import {
+  buildModelExtendParams,
+  resolveModelSearchConfig,
+} from '@/services/chat/requestShaping';
 import { trimMinimaxChatContext } from '@/services/chat/trimMinimaxContext';
 import { FileService } from '@/server/services/file';
 import { builtinTools } from '@/tools';
 import { MemoryManifest } from '@/tools/memory';
+import { SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import type { LobeChatDatabase } from '@lobechat/database';
 
 import type { ConversationRuntimeState } from './credentials';
 import { createServerPlaceholderGenerators } from './placeholders';
-
-const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
-const isAnthropicRuntimeProvider = (provider?: string) =>
-  provider === ModelProvider.Anthropic || provider === ModelProvider.AnthropicCompatible;
 
 const WEBAPI_FILES_PREFIX = '/webapi/files/';
 
@@ -77,87 +76,6 @@ const resolveProxyImageUrls = async (
       return { ...message, imageList: resolvedImageList } as UIChatMessage;
     }),
   );
-};
-
-const buildExtendParams = ({
-  chatConfig,
-  model,
-  modelExtendParams,
-  provider,
-}: {
-  chatConfig?: Partial<LobeAgentChatConfig>;
-  model: string;
-  modelExtendParams?: string[];
-  provider: string;
-}) => {
-  const extendParams: Record<string, any> = {};
-  if (!chatConfig || !modelExtendParams?.length) return extendParams;
-
-  if (modelExtendParams.includes('enableReasoning')) {
-    if (chatConfig.enableReasoning) {
-      if (
-        isAnthropicRuntimeProvider(provider) &&
-        chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
-        supportsAnthropicAdaptiveThinking(model)
-      ) {
-        extendParams.thinking = {
-          effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort || '')
-            ? chatConfig.reasoningEffort
-            : 'high',
-          type: 'adaptive',
-        };
-      } else {
-        extendParams.thinking = {
-          budget_tokens: chatConfig.reasoningBudgetToken || 1024,
-          type: 'enabled',
-          ...(model === 'kimi-k2.6' && chatConfig.moonshotPreservedReasoning
-            ? { keep: 'all' as const }
-            : {}),
-          ...(provider === 'zhipu' && chatConfig.zhipuPreservedThinking
-            ? { clear_thinking: false as const }
-            : {}),
-        };
-      }
-    } else {
-      extendParams.thinking = { budget_tokens: 0, type: 'disabled' };
-    }
-  }
-
-  if (modelExtendParams.includes('disableContextCaching') && chatConfig.disableContextCaching) {
-    extendParams.enabledContextCaching = false;
-  }
-
-  if (modelExtendParams.includes('gpt5ReasoningEffort')) {
-    const { effort, effortValues } = resolveGPT5ReasoningEffort(
-      model,
-      chatConfig.gpt5ReasoningEffort,
-    );
-    if (chatConfig.gpt5ReasoningEffort || effortValues[0] === 'high') {
-      extendParams.reasoning_effort = effort;
-    }
-  }
-
-  if (modelExtendParams.includes('textVerbosity') && chatConfig.textVerbosity) {
-    extendParams.verbosity = chatConfig.textVerbosity;
-  }
-
-  if (modelExtendParams.includes('thinking') && chatConfig.thinking) {
-    extendParams.thinking = { type: chatConfig.thinking };
-  }
-
-  if (modelExtendParams.includes('thinkingBudget') && chatConfig.thinkingBudget) {
-    extendParams.thinkingBudget = chatConfig.thinkingBudget;
-  }
-
-  if (modelExtendParams.includes('urlContext') && chatConfig.urlContext) {
-    extendParams.urlContext = chatConfig.urlContext;
-  }
-
-  if (modelExtendParams.includes('minimaxReasoningSplit')) {
-    extendParams.reasoning_split = chatConfig.minimaxReasoningSplit !== false;
-  }
-
-  return extendParams;
 };
 
 export const buildConversationChatPayload = async ({
@@ -199,6 +117,14 @@ export const buildConversationChatPayload = async ({
   const modelCard = runtimeState.enabledAiModels?.find(
     (item) => item.id === model && item.providerId === provider,
   );
+  const providerRuntime = runtimeState.runtimeConfig?.[provider];
+  const searchConfig = resolveModelSearchConfig({
+    modelSearchImpl: modelCard?.settings?.searchImpl,
+    provider,
+    providerHasBuiltinSearch: Boolean(providerRuntime?.settings?.searchMode),
+    searchMode: chatConfig?.searchMode,
+    useModelBuiltinSearch: chatConfig?.useModelBuiltinSearch,
+  });
   const canUseFC = modelCard?.abilities?.functionCall !== false;
   const canUseVision = Boolean(modelCard?.abilities?.vision);
   const canUseVideo = Boolean(modelCard?.abilities?.video);
@@ -208,13 +134,19 @@ export const buildConversationChatPayload = async ({
     .filter(Boolean) as LobeChatPluginManifest[];
   const builtinManifests = builtinTools.map((tool) => tool.manifest as LobeChatPluginManifest);
   const defaultToolIds = [
-    WebBrowsingManifest.identifier,
+    ...(searchConfig.useApplicationBuiltinSearchTool ? [WebBrowsingManifest.identifier] : []),
     ...(config.enableMemoryTool ? [MemoryManifest.identifier] : []),
   ];
   const toolsEngine = new ToolsEngine({
     defaultToolIds,
-    enableChecker: ({ pluginId }) =>
-      pluginIds.includes(pluginId) || defaultToolIds.includes(pluginId),
+    enableChecker: ({ pluginId }) => {
+      if (pluginId === SkillLoaderManifest.identifier) return false;
+      if (pluginId === WebBrowsingManifest.identifier) {
+        return searchConfig.useApplicationBuiltinSearchTool;
+      }
+      if (pluginId === MemoryManifest.identifier) return Boolean(config.enableMemoryTool);
+      return pluginIds.includes(pluginId);
+    },
     functionCallChecker: () => canUseFC,
     manifestSchemas: [...pluginManifests, ...builtinManifests],
   });
@@ -226,7 +158,11 @@ export const buildConversationChatPayload = async ({
   const manifests = [...pluginManifests, ...builtinManifests];
   const toolNameResolver = new ToolNameResolver();
   const fileService = new FileService(db, userId);
-  const resolvedMessages = await resolveProxyImageUrls(messages, fileService);
+  const messagesAfterSummary = getMessagesAfterHistorySummaryCursor(
+    messages,
+    config.historySummaryLastMessageId,
+  );
+  const resolvedMessages = await resolveProxyImageUrls(messagesAfterSummary, fileService);
   const systemRole = composeSystemRole(generalInstruction, config.systemRole);
   const pipeline = new ContextEngine({
     pipeline: [
@@ -235,7 +171,10 @@ export const buildConversationChatPayload = async ({
         historyCount: chatConfig?.historyCount,
       }),
       new SystemRoleInjector({ existingSystemRolePolicy: 'prepend', systemRole }),
-      new AgentMemoryProvider({ ...agentMemory, formatAgentMemory: agentMemoryPrompt }),
+      new AgentMemoryProvider({
+        ...(chatConfig?.enableAssistantMemory === false ? {} : agentMemory),
+        formatAgentMemory: agentMemoryPrompt,
+      }),
       new SkillInstructionsProvider({
         activated: skillRecords.map((skill) => ({
           description: skill!.description,
@@ -277,7 +216,7 @@ export const buildConversationChatPayload = async ({
       new InputTemplateProcessor({ inputTemplate: chatConfig?.inputTemplate }),
       new PlaceholderVariablesProcessor({
         provider,
-        variableGenerators: createServerPlaceholderGenerators(profile),
+        variableGenerators: createServerPlaceholderGenerators(profile, config.locale),
       }),
       new MessageContentProcessor({
         fileContext: { enabled: true, includeFileUrl: true },
@@ -300,12 +239,17 @@ export const buildConversationChatPayload = async ({
   const processed = await pipeline.process({ messages: resolvedMessages });
   let oaiMessages = processed.messages as OpenAIChatMessage[];
   if (provider === 'minimax') {
-    oaiMessages = await trimMinimaxChatContext(oaiMessages, tools, model);
+    oaiMessages = await trimMinimaxChatContext(
+      oaiMessages,
+      tools,
+      model,
+      config.agentParams?.max_tokens as number | undefined,
+    );
   }
 
   const extendParams = {
     ...(config.agentParams || {}),
-    ...buildExtendParams({
+    ...buildModelExtendParams({
       chatConfig,
       model,
       modelExtendParams: modelCard?.settings?.extendParams,
@@ -319,6 +263,7 @@ export const buildConversationChatPayload = async ({
     model,
     payload: {
       ...extendParams,
+      enabledSearch: searchConfig.enabledSearch && searchConfig.useModelSearch ? true : undefined,
       messages: oaiMessages,
       model,
       provider,

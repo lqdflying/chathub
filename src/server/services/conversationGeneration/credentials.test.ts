@@ -8,6 +8,9 @@ import { resolveConversationRuntimePayload } from './credentials';
 const runtimeState = vi.hoisted(() => ({
   getAiProviderRuntimeState: vi.fn(),
 }));
+const llmConfig = vi.hoisted(() => ({
+  get: vi.fn(),
+}));
 
 vi.mock('@/server/globalConfig', () => ({
   getServerGlobalConfig: vi.fn(async () => ({ aiProvider: {} })),
@@ -26,7 +29,7 @@ vi.mock('@/database/models/user', () => ({
 }));
 
 vi.mock('@/envs/llm', () => ({
-  getLLMConfig: vi.fn(() => ({})),
+  getLLMConfig: llmConfig.get,
 }));
 
 vi.mock('@/server/modules/KeyVaultsEncrypt', () => ({
@@ -42,6 +45,7 @@ describe('resolveConversationRuntimePayload', () => {
 
   beforeEach(() => {
     delete process.env.OPENAI_API_KEY;
+    llmConfig.get.mockReturnValue({});
     vi.mocked(UserModel.getUserApiKeys).mockResolvedValue({});
   });
 
@@ -86,6 +90,52 @@ describe('resolveConversationRuntimePayload', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         apiKey: 'sk-test',
+        runtimeProvider: 'openai',
+        userId: 'user-1',
+      }),
+    );
+  });
+
+  it('does not let an OpenAI environment key satisfy a built-in non-OpenAI provider', async () => {
+    llmConfig.get.mockReturnValue({ OPENAI_API_KEY: 'sk-openai-only' });
+    runtimeState.getAiProviderRuntimeState.mockResolvedValue({
+      runtimeConfig: {
+        anthropic: { fetchOnClient: false, keyVaults: {} },
+      },
+    });
+
+    await expect(
+      resolveConversationRuntimePayload({
+        db: {} as any,
+        provider: 'anthropic',
+        userId: 'user-1',
+      }),
+    ).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'No server-reachable credentials were found for provider "anthropic".',
+    } satisfies Partial<TRPCError>);
+  });
+
+  it('allows a custom OpenAI-runtime provider to use the OpenAI environment key', async () => {
+    llmConfig.get.mockReturnValue({ OPENAI_API_KEY: 'sk-openai-runtime' });
+    runtimeState.getAiProviderRuntimeState.mockResolvedValue({
+      runtimeConfig: {
+        gateway: {
+          fetchOnClient: false,
+          keyVaults: {},
+          settings: { sdkType: 'openai' },
+        },
+      },
+    });
+
+    await expect(
+      resolveConversationRuntimePayload({
+        db: {} as any,
+        provider: 'gateway',
+        userId: 'user-1',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
         runtimeProvider: 'openai',
         userId: 'user-1',
       }),

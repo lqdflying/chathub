@@ -8,10 +8,8 @@ import {
 import {
   AgentRuntimeError,
   ChatCompletionErrorPayload,
-  REASONING_BUDGET_TOKEN_ADAPTIVE,
   createContextExportCaptureBridge,
   prependContextSnapshotToResponse,
-  supportsAnthropicAdaptiveThinking,
 } from '@lobechat/model-runtime';
 import {
   ChatErrorType,
@@ -20,7 +18,6 @@ import {
   TracePayload,
   TraceTagMap,
   UIChatMessage,
-  resolveGPT5ReasoningEffort,
 } from '@lobechat/types';
 import { PluginRequestPayload, createHeadersWithPluginSettings } from '@lobehub/chat-plugin-sdk';
 import { merge } from 'lodash-es';
@@ -56,13 +53,9 @@ import { composeSystemRole } from './composeSystemRole';
 import { contextEngineering } from './contextEngineering';
 import { contextExportRedactions, sanitizeContextExportValue } from './contextExport';
 import { findDeploymentName, isEnableFetchOnClient, resolveRuntimeProvider } from './helper';
+import { buildModelExtendParams } from './requestShaping';
 import { trimMinimaxChatContext } from './trimMinimaxContext';
 import { FetchOptions } from './types';
-
-/** Valid Anthropic `reasoningEffort` values — used to guard against boolean/other pollution. */
-const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high']);
-const isAnthropicRuntimeProvider = (provider?: string) =>
-  provider === ModelProvider.Anthropic || provider === ModelProvider.AnthropicCompatible;
 
 const openAICompatStoreValue = (store?: 'default' | 'false' | 'true') => {
   if (store === 'true') return true;
@@ -275,165 +268,17 @@ class ChatService {
 
     // ============  3. process extend params   ============ //
 
-    let extendParams: Record<string, any> = {};
     const aiInfraStoreState = getAiInfraStoreState();
-
-    const isModelHasExtendParams = aiModelSelectors.isModelHasExtendParams(
+    const modelExtendParams = aiModelSelectors.modelExtendParams(
       payload.model,
       payload.provider!,
     )(aiInfraStoreState);
-
-    // model
-    if (isModelHasExtendParams) {
-      const modelExtendParams = aiModelSelectors.modelExtendParams(
-        payload.model,
-        payload.provider!,
-      )(aiInfraStoreState);
-      // if model has extended params, then we need to check if the model can use reasoning
-
-      if (modelExtendParams!.includes('enableReasoning')) {
-        if (chatConfig.enableReasoning) {
-          if (
-            isAnthropicRuntimeProvider(payload.provider) &&
-            chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
-            supportsAnthropicAdaptiveThinking(payload.model)
-          ) {
-            extendParams.thinking = {
-              effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort)
-                ? chatConfig.reasoningEffort
-                : 'high',
-              type: 'adaptive',
-            };
-          } else {
-            extendParams.thinking = {
-              budget_tokens: chatConfig.reasoningBudgetToken || 1024,
-              type: 'enabled',
-              ...(payload.model === 'kimi-k2.6' && chatConfig.moonshotPreservedReasoning
-                ? { keep: 'all' as const }
-                : {}),
-              // Zhipu GLM Preserved Thinking: when true, replay historical reasoning_content
-              // unmodified (thinking.clear_thinking=false). The runtime translates this to
-              // the gateway-safe wire form ({clear_thinking:false} with no `type`) and
-              // strips budget_tokens before sending to Zhipu.
-              ...(payload.provider === 'zhipu' && chatConfig.zhipuPreservedThinking
-                ? { clear_thinking: false as const }
-                : {}),
-            };
-          }
-        } else {
-          extendParams.thinking = {
-            budget_tokens: 0,
-            type: 'disabled',
-          };
-        }
-      } else if (payload.provider === 'zhipu' && modelExtendParams!.includes('zhipuPreservedThinking')) {
-        // GLM-4.7 forced-thinking + Preserved Thinking. No `enableReasoning` toggle
-        // (thinking forced by Zhipu), but `clear_thinking` is a documented GLM-4.5+
-        // capability orthogonal to forced thinking — it controls cross-turn replay,
-        // not current-turn thinking. Emit thinking={type:enabled, clear_thinking:false}
-        // only when the user enables Preserved Thinking; the runtime translates to the
-        // gateway-safe {clear_thinking:false} form and strips budget_tokens. When off,
-        // send nothing (thinking stays on by default, history stripped).
-        if (chatConfig.zhipuPreservedThinking) {
-          extendParams.thinking = {
-            budget_tokens: 0,
-            clear_thinking: false as const,
-            type: 'enabled',
-          };
-        }
-      } else if (modelExtendParams!.includes('reasoningBudgetToken')) {
-        if (
-          isAnthropicRuntimeProvider(payload.provider) &&
-          chatConfig.reasoningBudgetToken === REASONING_BUDGET_TOKEN_ADAPTIVE &&
-          supportsAnthropicAdaptiveThinking(payload.model)
-        ) {
-          extendParams.thinking = {
-            effort: VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort)
-              ? chatConfig.reasoningEffort
-              : 'high',
-            type: 'adaptive',
-          };
-        } else {
-          extendParams.thinking = {
-            budget_tokens: chatConfig.reasoningBudgetToken || 1024,
-            type: 'enabled',
-          };
-        }
-      }
-
-      if (
-        modelExtendParams!.includes('disableContextCaching') &&
-        chatConfig.disableContextCaching
-      ) {
-        extendParams.enabledContextCaching = false;
-      }
-
-      if (
-        modelExtendParams!.includes('reasoningEffort') &&
-        (chatConfig.reasoningEffort || chatConfig.enableReasoningEffort)
-      ) {
-        // DeepSeek only accepts 'high' or 'max' (low/medium map to high, xhigh maps to max)
-        // and only when deep thinking is actually enabled
-        if (payload.provider === 'deepseek') {
-          if (chatConfig.enableReasoning) {
-            extendParams.reasoning_effort = 'max';
-          }
-        } else {
-          extendParams.reasoning_effort = VALID_REASONING_EFFORTS.has(chatConfig.reasoningEffort)
-            ? chatConfig.reasoningEffort
-            : undefined;
-        }
-      }
-
-      if (modelExtendParams!.includes('gpt5ReasoningEffort')) {
-        const { effort, effortValues } = resolveGPT5ReasoningEffort(
-          payload.model,
-          chatConfig.gpt5ReasoningEffort,
-        );
-        const hasConfiguredEffort = !!chatConfig.gpt5ReasoningEffort;
-        const requiresExplicitHighFloor = effortValues[0] === 'high';
-
-        if (hasConfiguredEffort || requiresExplicitHighFloor) {
-          extendParams.reasoning_effort = effort;
-        }
-      }
-
-      if (modelExtendParams!.includes('textVerbosity') && chatConfig.textVerbosity) {
-        extendParams.verbosity = chatConfig.textVerbosity;
-      }
-
-      if (modelExtendParams!.includes('thinking') && chatConfig.thinking) {
-        extendParams.thinking = { type: chatConfig.thinking };
-      }
-
-      if (
-        modelExtendParams!.includes('thinkingBudget') &&
-        chatConfig.thinkingBudget !== undefined
-      ) {
-        extendParams.thinkingBudget = chatConfig.thinkingBudget;
-      }
-
-      if (modelExtendParams!.includes('urlContext') && chatConfig.urlContext) {
-        extendParams.urlContext = chatConfig.urlContext;
-      }
-
-      if (modelExtendParams!.includes('minimaxReasoningSplit')) {
-        extendParams.reasoning_split = chatConfig.minimaxReasoningSplit !== false;
-      }
-
-      // Zhipu GLM-5.2 only: reasoning_effort. UI 'skip' maps to API 'none' (NOT the
-      // documented-equivalent 'minimal' — some LiteLLM → vLLM GLM gateways reject
-      // 'minimal' with HTTP 400; 'none' is probe-verified). Only sent when thinking
-      // is enabled; the runtime drops it otherwise.
-      if (
-        modelExtendParams!.includes('zhipuReasoningEffort') &&
-        chatConfig.enableReasoning &&
-        chatConfig.zhipuReasoningEffort
-      ) {
-        extendParams.reasoning_effort =
-          chatConfig.zhipuReasoningEffort === 'skip' ? 'none' : chatConfig.zhipuReasoningEffort;
-      }
-    }
+    const extendParams = buildModelExtendParams({
+      chatConfig,
+      model: payload.model,
+      modelExtendParams,
+      provider: payload.provider!,
+    });
 
     return this.getChatCompletion(
       {

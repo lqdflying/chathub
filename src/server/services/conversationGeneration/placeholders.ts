@@ -5,14 +5,14 @@ export const createServerPlaceholderGenerators = (profile?: {
   fullName?: string | null;
   nickname?: string | null;
   username?: string | null;
-}) => ({
+}, locale?: string) => ({
   date: () => new Date().toLocaleDateString(),
   datetime: () => new Date().toLocaleString(),
   day: () => new Date().getDate().toString().padStart(2, '0'),
   email: () => profile?.email ?? '',
   hour: () => new Date().getHours().toString().padStart(2, '0'),
   iso: () => new Date().toISOString(),
-  locale: () => Intl.DateTimeFormat().resolvedOptions().locale,
+  locale: () => locale || Intl.DateTimeFormat().resolvedOptions().locale,
   minute: () => new Date().getMinutes().toString().padStart(2, '0'),
   month: () => (new Date().getMonth() + 1).toString().padStart(2, '0'),
   nickname: () => profile?.nickname ?? profile?.fullName ?? '',

@@ -437,6 +437,7 @@ export const chatTopic: StateCreator<
     if (isClientDurableConversationGenerationEnabled() && topicConfig.model && topicConfig.provider) {
       const operation = await tryEnqueueConversationGeneration({
         config: {
+          locale: globalHelpers.getCurrentLanguage(),
           model: topicConfig.model,
           provider: topicConfig.provider,
           title: { topicId },

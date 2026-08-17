@@ -31,6 +31,7 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selector
 import { getAgentStoreState } from '@/store/agent/store';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import type { ChatStore } from '@/store/chat/store';
+import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
 import { encodeAsync } from '@/utils/tokenizer';
@@ -302,6 +303,7 @@ async function runCompactionFromStore(
     const operation = await tryEnqueueConversationGeneration({
       config: {
         historySummary: pending.previousSummary,
+        locale: globalHelpers.getCurrentLanguage(),
         model: chatModel,
         provider: chatProvider,
       },

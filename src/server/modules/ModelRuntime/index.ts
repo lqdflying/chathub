@@ -8,6 +8,8 @@ import apiKeyManager from './apiKeyManager';
 
 export * from './trace';
 
+const BUILTIN_MODEL_PROVIDERS = new Set<string>(Object.values(ModelProvider));
+
 /**
  * Retrieves the options object from environment and apikeymanager
  * based on the provider and payload.
@@ -16,7 +18,10 @@ export * from './trace';
  * @param payload - The JWT payload.
  * @returns The options object.
  */
-const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) => {
+export const getModelRuntimeParamsFromPayload = (
+  provider: string,
+  payload: ClientSecretPayload,
+) => {
   const llmConfig = getLLMConfig() as Record<string, any>;
 
   switch (provider) {
@@ -48,14 +53,9 @@ const getParamsFromPayload = (provider: string, payload: ClientSecretPayload) =>
 
     default: {
       const originalUpper = provider.toUpperCase();
-      let keyUpper = originalUpper;
-
-      // Some custom provider ids have no `*_API_KEY` in env schema — fall back to OpenAI key material.
-      // Proxy URL must stay tied to the **requested** provider; otherwise e.g. Anthropic would inherit
-      // `OPENAI_PROXY_URL` / OpenAI-compatible gateways (404 on `/v1/messages`).
-      if (!(`${keyUpper}_API_KEY` in llmConfig)) {
-        keyUpper = ModelProvider.OpenAI.toUpperCase();
-      }
+      const keyUpper = BUILTIN_MODEL_PROVIDERS.has(provider)
+        ? originalUpper
+        : ModelProvider.OpenAI.toUpperCase();
 
       const apiKey = apiKeyManager.pick(payload?.apiKey || llmConfig[`${keyUpper}_API_KEY`]);
       const baseURL =
@@ -83,7 +83,7 @@ export const initModelRuntimeWithUserPayload = (
   const runtimeProvider = payload.runtimeProvider ?? provider;
 
   return ModelRuntime.initializeWithProvider(runtimeProvider, {
-    ...getParamsFromPayload(runtimeProvider, payload),
+    ...getModelRuntimeParamsFromPayload(runtimeProvider, payload),
     ...params,
   });
 };

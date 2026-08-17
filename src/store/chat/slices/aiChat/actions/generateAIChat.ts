@@ -19,9 +19,12 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
+import {
+  buildDurableConversationConfig,
+  isClientDurableConversationGenerationEnabled,
+} from '@/helpers/durableConversationGeneration';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
-import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { chatService } from '@/services/chat';
 import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
@@ -43,6 +46,7 @@ import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
+import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { WebBrowsingManifest } from '@/tools/web-browsing';
 import { Action, setNamespace } from '@/utils/storeDebug';
@@ -329,22 +333,55 @@ export const generateAIChat: StateCreator<
     const messages = [...originalMessages];
 
     const agentStoreState = getAgentStoreState();
-    const { model, provider } = agentSelectors.currentAgentConfig(agentStoreState);
+    const agentConfig = agentSelectors.currentAgentConfig(agentStoreState);
+    const chatConfig = agentChatConfigSelectors.currentChatConfig(agentStoreState);
+    const { model, provider } = agentConfig;
+    const activeTopic = conversationContext.topicId
+      ? topicSelectors.getTopicById(conversationContext.topicId)(get())
+      : undefined;
+    const isRegularTopicRequest =
+      !!conversationContext.topicId &&
+      get().activeSessionType !== 'group' &&
+      !params?.threadId &&
+      !params?.inPortalThread &&
+      !params?.groupId &&
+      !params?.agentId &&
+      !messages.some(({ groupId }) => !!groupId);
+    const enableHistoryCompaction =
+      isRegularTopicRequest &&
+      !!chatConfig.enableHistoryCount &&
+      !!chatConfig.enableCompressHistory;
+    const historySummary = buildHistorySummaryForRequest({
+      archives: activeTopic?.metadata?.memoryArchives,
+      enableCompressHistory: enableHistoryCompaction,
+      enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+      topicSummary: activeTopic?.historySummary,
+    });
 
     if (isClientDurableConversationGenerationEnabled() && model && provider) {
       const operation = await tryEnqueueConversationGeneration({
-        config: {
-          chatConfig: agentChatConfigSelectors.currentChatConfig(agentStoreState),
+        config: buildDurableConversationConfig({
+          activatedSkillIds: params?.activatedSkillIds,
+          agentConfig: { ...agentConfig, model, provider },
+          chatConfig,
+          enableMemoryTool:
+            chatConfig.enableAssistantMemory !== false &&
+            get().activeSessionType !== 'group' &&
+            !params?.groupId &&
+            !params?.agentId &&
+            !messages.some(({ groupId }) => !!groupId),
           fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(provider)(
             getAiInfraStoreState(),
           ),
-          historySummary: topicSelectors.currentActiveTopicSummary(get())?.content,
-          model,
-          plugins: agentSelectors.currentAgentConfig(agentStoreState).plugins,
-          provider,
+          historySummary,
+          historySummaryLastMessageId: enableHistoryCompaction
+            ? activeTopic?.metadata?.historySummaryLastMessageId
+            : undefined,
+          isWelcomeQuestion: params?.isWelcomeQuestion,
+          locale: globalHelpers.getCurrentLanguage(),
           ragQuery: params?.ragQuery,
           systemRole: agentSelectors.currentAgentSystemRole(agentStoreState),
-        },
+        }),
         conversationVersion: expectedConversationVersion,
         expectedConversationVersion,
         kind: params?.isToolContinuation ? 'continue' : 'chat',
@@ -1310,23 +1347,47 @@ export const generateAIChat: StateCreator<
         anchor.message.threadId ?? (tailMessages.length === 0 ? requestedThreadId : undefined);
 
       const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
+      const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
+      const activeTopic = activeTopicId
+        ? topicSelectors.getTopicById(activeTopicId)(get())
+        : undefined;
+      const enableHistoryCompaction =
+        !!activeTopicId &&
+        get().activeSessionType !== 'group' &&
+        !threadId &&
+        !!chatConfig.enableHistoryCount &&
+        !!chatConfig.enableCompressHistory;
       if (
         isClientDurableConversationGenerationEnabled() &&
         agentConfig.model &&
         agentConfig.provider
       ) {
         const operation = await tryEnqueueConversationGeneration({
-          config: {
-            chatConfig: agentChatConfigSelectors.currentChatConfig(getAgentStoreState()),
+          config: buildDurableConversationConfig({
+            agentConfig: {
+              ...agentConfig,
+              model: agentConfig.model,
+              provider: agentConfig.provider,
+            },
+            chatConfig,
+            enableMemoryTool:
+              chatConfig.enableAssistantMemory !== false && get().activeSessionType !== 'group',
             fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(agentConfig.provider)(
               getAiInfraStoreState(),
             ),
-            model: agentConfig.model,
-            plugins: agentConfig.plugins,
-            provider: agentConfig.provider,
+            historySummary: buildHistorySummaryForRequest({
+              archives: activeTopic?.metadata?.memoryArchives,
+              enableCompressHistory: enableHistoryCompaction,
+              enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+              topicSummary: activeTopic?.historySummary,
+            }),
+            historySummaryLastMessageId: enableHistoryCompaction
+              ? activeTopic?.metadata?.historySummaryLastMessageId
+              : undefined,
+            locale: globalHelpers.getCurrentLanguage(),
             ragQuery: get().internal_shouldUseRAG() ? anchor.message.content : undefined,
             systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
-          },
+          }),
           conversationVersion: expectedConversationVersion,
           expectedConversationVersion,
           kind: 'regenerate',

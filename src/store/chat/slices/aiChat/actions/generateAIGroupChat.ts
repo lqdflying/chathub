@@ -17,13 +17,17 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
-import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
+import {
+  buildDurableConversationConfig,
+  isClientDurableConversationGenerationEnabled,
+} from '@/helpers/durableConversationGeneration';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
@@ -555,6 +559,7 @@ export const chatAiGroupChat: StateCreator<
       ) {
         const operation = await tryEnqueueConversationGeneration({
           config: {
+            locale: globalHelpers.getCurrentLanguage(),
             model: groupConfig.orchestratorModel,
             provider: groupConfig.orchestratorProvider,
           },
@@ -908,10 +913,21 @@ export const chatAiGroupChat: StateCreator<
             agentId,
             assistantMessageId: assistantId,
             config: {
+              ...buildDurableConversationConfig({
+                agentConfig: {
+                  chatConfig: agentData.chatConfig,
+                  model: agentModel,
+                  params: agentData.params as Record<string, unknown> | undefined,
+                  plugins: agentData.plugins,
+                  provider: agentProvider,
+                  systemRole: groupChatSystemPrompt,
+                },
+                chatConfig: agentData.chatConfig || undefined,
+                enableMemoryTool: false,
+                locale: globalHelpers.getCurrentLanguage(),
+                systemRole: groupChatSystemPrompt,
+              }),
               groupId,
-              model: agentModel,
-              provider: agentProvider,
-              systemRole: groupChatSystemPrompt,
               targetId,
             },
             conversationVersion: resolvedConversationVersion,

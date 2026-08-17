@@ -22,7 +22,11 @@ import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
-import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
+import {
+  buildDurableConversationConfig,
+  isClientDurableConversationGenerationEnabled,
+} from '@/helpers/durableConversationGeneration';
+import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -45,6 +49,7 @@ import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialStat
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { getFileStoreState } from '@/store/file/store';
+import { globalHelpers } from '@/store/global/helpers';
 import { getSessionStoreState } from '@/store/session';
 import { getSkillSelectionKey, getSkillStoreState } from '@/store/skill';
 import { useUserStore } from '@/store/user';
@@ -134,8 +139,14 @@ export const generateAIChatV2: StateCreator<
     onlyAddUserMessage,
   }) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    const { activeTopicId, activeId, activeThreadId, internal_execAgentRuntime, mainInputEditor } =
-      get();
+    const {
+      activeTopicId,
+      activeId,
+      activeSessionType,
+      activeThreadId,
+      internal_execAgentRuntime,
+      mainInputEditor,
+    } = get();
     if (!accountMutationSnapshot || !activeId) return;
     const requestedScope = accountMutationSnapshot.scope;
     let conversationContext: ConversationContext = {
@@ -244,24 +255,42 @@ export const generateAIChatV2: StateCreator<
     let sendFailure: unknown;
     let recoveryChecked = false;
     let operationWasCurrent = false;
-    const { model, provider } = agentSelectors.currentAgentConfig(getAgentStoreState());
+    const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
+    const { model, provider } = agentConfig;
+    const activeTopic = activeTopicId ? topicSelectors.getTopicById(activeTopicId)(get()) : undefined;
+    const enableHistoryCompaction =
+      !!activeTopicId &&
+      activeSessionType !== 'group' &&
+      !activeThreadId &&
+      !!chatConfig.enableHistoryCount &&
+      !!chatConfig.enableCompressHistory;
+    const historySummary = buildHistorySummaryForRequest({
+      archives: activeTopic?.metadata?.memoryArchives,
+      enableCompressHistory: enableHistoryCompaction,
+      enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+      topicSummary: activeTopic?.historySummary,
+    });
     const generation =
       isClientDurableConversationGenerationEnabled() && model && provider
         ? {
-            config: {
+            config: buildDurableConversationConfig({
               activatedSkillIds,
-              chatConfig: agentChatConfigSelectors.currentChatConfig(getAgentStoreState()),
+              agentConfig: { ...agentConfig, model, provider },
+              chatConfig,
+              enableMemoryTool:
+                chatConfig.enableAssistantMemory !== false && activeSessionType !== 'group',
               fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(provider)(
                 getAiInfraStoreState(),
               ),
-              historySummary: topicSelectors.currentActiveTopicSummary(get())?.content,
+              historySummary,
+              historySummaryLastMessageId: enableHistoryCompaction
+                ? activeTopic?.metadata?.historySummaryLastMessageId
+                : undefined,
               isWelcomeQuestion,
-              model,
-              plugins: agentSelectors.currentAgentConfig(getAgentStoreState()).plugins,
-              provider,
+              locale: globalHelpers.getCurrentLanguage(),
               ragQuery: get().internal_shouldUseRAG() ? message : undefined,
               systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
-            },
+            }),
             idempotencyKey: `chat-send:${tempId}`,
           }
         : undefined;

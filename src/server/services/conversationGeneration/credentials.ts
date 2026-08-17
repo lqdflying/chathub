@@ -4,9 +4,9 @@ import { TRPCError } from '@trpc/server';
 
 import { UserModel } from '@/database/models/user';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
-import { getLLMConfig } from '@/envs/llm';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { getModelRuntimeParamsFromPayload } from '@/server/modules/ModelRuntime';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { ProviderConfig } from '@/types/user/settings';
 
@@ -40,17 +40,6 @@ const providerPayloadFromVault = (provider: string, vault: Record<string, any> =
   }
 };
 
-const envHasProviderKey = (provider: string) => {
-  const llmConfig = getLLMConfig() as Record<string, any>;
-  const upper = provider.toUpperCase();
-  return Boolean(
-    llmConfig[`${upper}_API_KEY`] ||
-      llmConfig.OPENAI_API_KEY ||
-      process.env[`${upper}_API_KEY`] ||
-      process.env.OPENAI_API_KEY,
-  );
-};
-
 export const resolveConversationRuntimePayload = async ({
   db,
   fetchOnClient,
@@ -73,8 +62,9 @@ export const resolveConversationRuntimePayload = async ({
   );
   const providerRuntime = runtimeState.runtimeConfig?.[provider];
   const isBuiltin = Object.values(ModelProvider).includes(provider as ModelProvider);
-  const runtimeProvider =
-    (isBuiltin ? provider : providerRuntime?.settings?.sdkType) || provider || 'openai';
+  const runtimeProvider = isBuiltin
+    ? provider
+    : providerRuntime?.settings?.sdkType || ModelProvider.OpenAI;
 
   let userVaults: Record<string, any> = {};
   try {
@@ -94,7 +84,10 @@ export const resolveConversationRuntimePayload = async ({
     ...providerPayloadFromVault(runtimeProvider, vault),
   } as ClientSecretPayload;
 
-  const hasCredential = Boolean(payload.apiKey || payload.baseURL || envHasProviderKey(provider));
+  const runtimeParams = getModelRuntimeParamsFromPayload(runtimeProvider, payload);
+  const hasCredential = Boolean(
+    payload.apiKey || payload.baseURL || runtimeParams.apiKey || runtimeParams.baseURL,
+  );
   if ((fetchOnClient || providerRuntime?.fetchOnClient) && !hasCredential) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',

@@ -1,4 +1,7 @@
-import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import {
+  type ModelSearchConfig,
+  resolveModelSearchConfig,
+} from '@/services/chat/requestShaping';
 import { getAgentStoreState } from '@/store/agent';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { getAiInfraStoreState } from '@/store/aiInfra';
@@ -7,18 +10,7 @@ import { aiModelSelectors, aiProviderSelectors } from '@/store/aiInfra/selectors
 /**
  * Search configuration result
  */
-export interface SearchConfig {
-  /** Whether search is enabled in chat config */
-  enabledSearch: boolean;
-  /** Whether model has builtin search capability */
-  isModelHasBuiltinSearch: boolean;
-  /** Whether provider has builtin search capability */
-  isProviderHasBuiltinSearch: boolean;
-  /** Whether to use application's builtin search tool */
-  useApplicationBuiltinSearchTool: boolean;
-  /** Whether to use model's builtin search */
-  useModelSearch: boolean;
-}
+export type SearchConfig = ModelSearchConfig;
 
 /**
  * Get search configuration for given model and provider
@@ -27,35 +19,18 @@ export interface SearchConfig {
 export const getSearchConfig = (model: string, provider: string): SearchConfig => {
   const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
   const aiInfraStoreState = getAiInfraStoreState();
-
-  const enabledSearch = chatConfig.searchMode !== 'off';
   const isProviderHasBuiltinSearch =
     aiProviderSelectors.isProviderHasBuiltinSearch(provider)(aiInfraStoreState);
-  const isModelHasBuiltinSearch = aiModelSelectors.isModelHasBuiltinSearch(
+  const modelSearchImpl = aiModelSelectors.modelBuiltinSearchImpl(
     model,
     provider,
   )(aiInfraStoreState);
-  const isModelBuiltinSearchInternal = aiModelSelectors.isModelBuiltinSearchInternal(
-    model,
-    provider!,
-  )(aiInfraStoreState);
 
-  // Some provider APIs expose search-like metadata, but ChatHub should use its own web-browsing tools.
-  const modelNativeSearchDisabled = isModelNativeSearchDisabledProvider(provider);
-
-  const useModelSearch = modelNativeSearchDisabled
-    ? false
-    : (((isProviderHasBuiltinSearch || isModelHasBuiltinSearch) && chatConfig.useModelBuiltinSearch) ||
-        isModelBuiltinSearchInternal ||
-        false);
-
-  const useApplicationBuiltinSearchTool = enabledSearch && !useModelSearch;
-
-  return {
-    enabledSearch,
-    isModelHasBuiltinSearch,
-    isProviderHasBuiltinSearch,
-    useApplicationBuiltinSearchTool,
-    useModelSearch,
-  };
+  return resolveModelSearchConfig({
+    modelSearchImpl,
+    provider,
+    providerHasBuiltinSearch: isProviderHasBuiltinSearch,
+    searchMode: chatConfig.searchMode,
+    useModelBuiltinSearch: chatConfig.useModelBuiltinSearch,
+  });
 };

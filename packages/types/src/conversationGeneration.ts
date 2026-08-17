@@ -73,7 +73,9 @@ export interface ConversationGenerationConfigSnapshot {
   fetchOnClient?: boolean;
   groupId?: string;
   historySummary?: string;
+  historySummaryLastMessageId?: string;
   isWelcomeQuestion?: boolean;
+  locale?: string;
   model: string;
   plugins?: string[];
   provider: string;
@@ -168,7 +170,9 @@ export const ConversationGenerationConfigSchema = z.object({
   fetchOnClient: z.boolean().optional(),
   groupId: z.string().optional(),
   historySummary: z.string().optional(),
+  historySummaryLastMessageId: z.string().optional(),
   isWelcomeQuestion: z.boolean().optional(),
+  locale: z.string().optional(),
   model: z.string().min(1),
   plugins: z.array(z.string()).optional(),
   provider: z.string().min(1),
