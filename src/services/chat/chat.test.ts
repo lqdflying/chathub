@@ -1113,9 +1113,8 @@ describe('ChatService', () => {
           useModelBuiltinSearch: true,
         } as any);
 
-        // Mock AI infra store state - model has built-in search
-        vi.spyOn(aiModelSelectors, 'isModelHasBuiltinSearch').mockReturnValueOnce(() => true);
-        vi.spyOn(aiModelSelectors, 'isModelHasExtendParams').mockReturnValueOnce(() => false);
+        // Mock AI infra store state - model uses a request parameter for built-in search
+        vi.spyOn(aiModelSelectors, 'modelBuiltinSearchImpl').mockReturnValueOnce(() => 'params');
 
         // Mock createChatToolsEngine to return tools with web browsing
         const mockToolsEngine = {

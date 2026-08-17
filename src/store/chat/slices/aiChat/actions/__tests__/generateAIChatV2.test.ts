@@ -40,7 +40,8 @@ vi.mock('@/utils/tokenizer/estimated', () => ({
   estimatedEncodeAsync: vi.fn(async (text: string) => Math.ceil(text.length / 4)),
 }));
 
-vi.mock('@/helpers/durableConversationGeneration', () => ({
+vi.mock('@/helpers/durableConversationGeneration', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/helpers/durableConversationGeneration')>()),
   isClientDurableConversationGenerationEnabled: vi.fn(() => false),
 }));
 

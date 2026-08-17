@@ -1348,9 +1348,6 @@ export const generateAIChat: StateCreator<
 
       const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
       const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
-      const activeTopic = activeTopicId
-        ? topicSelectors.getTopicById(activeTopicId)(get())
-        : undefined;
       const enableHistoryCompaction =
         !!activeTopicId &&
         get().activeSessionType !== 'group' &&
