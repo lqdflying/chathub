@@ -197,9 +197,7 @@ export class ConversationGenerationModel {
           eq(conversationGenerationOperations.id, id),
           eq(conversationGenerationOperations.userId, this.userId),
           eq(conversationGenerationOperations.status, 'processing'),
-          attempt === undefined
-            ? undefined
-            : eq(conversationGenerationOperations.attempt, attempt),
+          attempt === undefined ? undefined : eq(conversationGenerationOperations.attempt, attempt),
         ),
       )
       .returning();
@@ -341,10 +339,7 @@ export class ConversationGenerationModel {
     return item;
   };
 
-  bumpRevision = async (
-    id: string,
-    guard?: { attempt?: number; laneGeneration?: number },
-  ) => {
+  bumpRevision = async (id: string, guard?: { attempt?: number; laneGeneration?: number }) => {
     const [item] = await this.db
       .update(conversationGenerationOperations)
       .set({
@@ -433,6 +428,42 @@ export class ConversationGenerationModel {
       .limit(1);
 
     return row?.id ?? 0;
+  };
+
+  claimStep = async (params: {
+    attempt: number;
+    inputHash: string;
+    kind: string;
+    operationId: string;
+  }) => {
+    const now = new Date();
+    const [item] = await this.db
+      .insert(conversationGenerationSteps)
+      .values({
+        attempt: params.attempt,
+        id: idGenerator('conversationGenerationSteps'),
+        inputHash: params.inputHash,
+        kind: params.kind,
+        operationId: params.operationId,
+        startedAt: now,
+        status: 'processing',
+        userId: this.userId,
+      })
+      .onConflictDoUpdate({
+        set: {
+          attempt: params.attempt,
+          error: null,
+          finishedAt: null,
+          result: null,
+          startedAt: now,
+          status: 'processing',
+          updatedAt: now,
+        },
+        target: [conversationGenerationSteps.operationId, conversationGenerationSteps.inputHash],
+      })
+      .returning();
+
+    return item;
   };
 
   createStep = async (params: {

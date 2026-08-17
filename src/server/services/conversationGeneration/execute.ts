@@ -1,5 +1,5 @@
 import { LOADING_FLAT } from '@lobechat/const';
-import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
+import type { LobeChatDatabase } from '@lobechat/database';
 import {
   buildGroupChatSystemPrompt,
   chainLangDetect,
@@ -12,47 +12,61 @@ import {
 } from '@lobechat/prompts';
 import type {
   ChatToolPayload,
+  ChatTopicMetadata,
   ConversationGenerationError,
   ConversationGenerationOperation,
   UIChatMessage,
 } from '@lobechat/types';
 import { isActiveConversationGenerationStatus } from '@lobechat/types';
-import type { LobeChatDatabase } from '@lobechat/database';
-import {
-  ConversationWriteRejectedError,
-  getConversationVersion,
-} from '@/server/services/conversationWriteLock';
-import { composeSystemRole } from '@/services/chat/composeSystemRole';
 
 import { AgentModel } from '@/database/models/agent';
 import { ChatGroupModel } from '@/database/models/chatGroup';
+import { ChunkModel } from '@/database/models/chunk';
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
-import { ChunkModel } from '@/database/models/chunk';
-import { AiChatService } from '@/server/services/aiChat';
-import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import {
-  RagEmbeddingService,
-  resolveRagEmbeddingConfig,
-} from '@/server/services/rag/embedding';
+  CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+  createCompactionFingerprint,
+  splitCompactionBatches,
+} from '@/helpers/contextCompaction';
+import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
+import { AiChatService } from '@/server/services/aiChat';
+import {
+  ConversationWriteRejectedError,
+  getConversationVersion,
+  withConversationWriteLockOrThrow,
+} from '@/server/services/conversationWriteLock';
+import { RagEmbeddingService, resolveRagEmbeddingConfig } from '@/server/services/rag/embedding';
+import { composeSystemRole } from '@/services/chat/composeSystemRole';
 
+import { buildConversationCompactionMetadata } from './compaction';
 import {
   CONVERSATION_GENERATION_CHECKPOINT_CHARS,
   CONVERSATION_GENERATION_CHECKPOINT_MS,
   CONVERSATION_GENERATION_HEARTBEAT_MS,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
+  CONVERSATION_GENERATION_MAX_TOOL_TURNS,
 } from './constants';
-import {
-  loadConversationRuntimeState,
-  resolveConversationRuntimePayload,
-} from './credentials';
+import { loadConversationRuntimeState, resolveConversationRuntimePayload } from './credentials';
 import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
-import { invokeConversationTool } from './tools';
+import { executeConversationToolStep } from './tools';
 
-const MAX_TOOL_TURNS = 8;
+export const shouldCreateToolContinuation = (remainingTurns: number, shouldContinue: boolean) =>
+  shouldContinue && remainingTurns > 0;
+
+export const shouldGenerateConversationTitle = ({
+  force,
+  isWelcomeQuestion,
+  title,
+}: {
+  force?: boolean;
+  isWelcomeQuestion?: boolean;
+  title?: string | null;
+}) => !isWelcomeQuestion && (Boolean(force) || !title?.trim());
 
 const toError = (error: unknown): ConversationGenerationError => ({
   body: error instanceof Error ? { name: error.name } : error,
@@ -228,11 +242,22 @@ const finalize = async (
 };
 
 type ConversationGenerationStopReason =
-  | 'cancelled'
-  | 'conversation_cleared'
-  | 'retrying'
-  | 'superseded'
-  | 'terminal';
+  'cancelled' | 'conversation_cleared' | 'retrying' | 'superseded' | 'terminal';
+
+export type ConversationExecutionOutcome = {
+  error?: ConversationGenerationError;
+  status: 'succeeded' | 'cancelled' | 'failed' | 'interrupted';
+};
+
+export const getSupervisorTerminalOutcome = (outcome: ConversationExecutionOutcome) =>
+  outcome.status === 'succeeded' ? undefined : outcome;
+
+const outcomeFromStopReason = (
+  reason: ConversationGenerationStopReason,
+): ConversationExecutionOutcome => {
+  if (reason === 'cancelled' || reason === 'superseded') return { status: 'cancelled' };
+  return { status: 'interrupted' };
+};
 
 const shouldStopGeneration = async (
   db: LobeChatDatabase,
@@ -246,10 +271,7 @@ const shouldStopGeneration = async (
   if (current.status === 'cancelling' || current.cancelRequestedAt) return 'cancelled';
   if (current.status !== 'processing') return 'retrying';
 
-  if (
-    operation.conversationVersion !== undefined &&
-    operation.conversationVersion !== null
-  ) {
+  if (operation.conversationVersion !== undefined && operation.conversationVersion !== null) {
     const currentVersion = await getConversationVersion(db, operation.userId);
     if (currentVersion !== operation.conversationVersion) return 'conversation_cleared';
   }
@@ -294,7 +316,9 @@ const finalizeIfStopped = async (
 
 const loadGeneralInstruction = async (db: LobeChatDatabase, userId: string) => {
   try {
-    const state = await new UserModel(db, userId).getUserState(KeyVaultsGateKeeper.getUserKeyVaults);
+    const state = await new UserModel(db, userId).getUserState(
+      KeyVaultsGateKeeper.getUserKeyVaults,
+    );
     return (state.settings?.general as { systemRole?: string } | undefined)?.systemRole;
   } catch {
     return undefined;
@@ -305,7 +329,7 @@ const executeChat = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
   options?: { skipFinalize?: boolean },
-) => {
+): Promise<ConversationExecutionOutcome> => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const messageModel = new MessageModel(db, operation.userId);
   const aiChat = new AiChatService(db, operation.userId);
@@ -315,11 +339,12 @@ const executeChat = async (
     operation.conversationVersion !== null &&
     version !== operation.conversationVersion
   ) {
-    await finalize(model, operation, 'interrupted', {
+    const error = {
       message: 'Conversation history was cleared before generation finished.',
       type: 'ConversationCleared',
-    });
-    return;
+    };
+    if (!options?.skipFinalize) await finalize(model, operation, 'interrupted', error);
+    return { error, status: 'interrupted' };
   }
 
   await updateOperation(model, operation, { phase: 'model' });
@@ -433,19 +458,14 @@ const executeChat = async (
   cancelWatcher.unref?.();
 
   try {
-    let remainingTurns = MAX_TOOL_TURNS;
+    let remainingTurns = CONVERSATION_GENERATION_MAX_TOOL_TURNS;
     let currentPayload = built.payload;
 
-    while (remainingTurns >= 0) {
-      const stopReason = await shouldStopGeneration(
-        db,
-        model,
-        operation,
-        abortController.signal,
-      );
+    while (true) {
+      const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
       if (stopReason) {
-        await finalizeIfStopped(model, operation, stopReason);
-        return;
+        if (!options?.skipFinalize) await finalizeIfStopped(model, operation, stopReason);
+        return outcomeFromStopReason(stopReason);
       }
 
       const response = await runtime.chat(currentPayload as any, {
@@ -471,8 +491,10 @@ const executeChat = async (
         abortController.signal,
       );
       if (postStreamStopReason) {
-        await finalizeIfStopped(model, operation, postStreamStopReason);
-        return;
+        if (!options?.skipFinalize) {
+          await finalizeIfStopped(model, operation, postStreamStopReason);
+        }
+        return outcomeFromStopReason(postStreamStopReason);
       }
 
       if (result.error) {
@@ -481,8 +503,8 @@ const executeChat = async (
           error: result.error as any,
           reasoning: result.reasoning ?? undefined,
         });
-        await finalize(model, operation, 'failed', result.error);
-        return;
+        if (!options?.skipFinalize) await finalize(model, operation, 'failed', result.error);
+        return { error: result.error, status: 'failed' };
       }
 
       content = result.content;
@@ -506,6 +528,7 @@ const executeChat = async (
       });
 
       const assistantMessage = (await messageModel.findById(assistantId)) as UIChatMessage;
+      let shouldContinue = true;
       for (const tool of tools) {
         const toolStopReason = await shouldStopGeneration(
           db,
@@ -514,13 +537,15 @@ const executeChat = async (
           abortController.signal,
         );
         if (toolStopReason) {
-          await finalizeIfStopped(model, operation, toolStopReason);
-          return;
+          if (!options?.skipFinalize) await finalizeIfStopped(model, operation, toolStopReason);
+          return outcomeFromStopReason(toolStopReason);
         }
 
-        const invocation = await invokeConversationTool({
+        const invocation = await executeConversationToolStep({
           assistantMessage: { ...assistantMessage, tools } as UIChatMessage,
+          attempt: operation.attempt,
           db,
+          operationId: operation.id,
           payload: tool,
           userId: operation.userId,
         });
@@ -528,6 +553,7 @@ const executeChat = async (
           await messageModel.create({
             content: invocation.content,
             groupId: operation.groupId ?? undefined,
+            metadata: invocation.metadata,
             parentId: assistantId,
             plugin: tool,
             role: 'tool',
@@ -537,14 +563,11 @@ const executeChat = async (
             topicId: operation.topicId ?? undefined,
           });
         }
-        if (!invocation.success) {
-          await finalize(model, operation, 'failed', {
-            message: invocation.content,
-            type: 'ToolExecutionError',
-          });
-          return;
-        }
+        shouldContinue = shouldContinue && invocation.shouldContinue;
       }
+
+      if (!shouldCreateToolContinuation(remainingTurns, shouldContinue)) break;
+      remainingTurns -= 1;
 
       const nextAssistant = await messageModel.create({
         agentId: operation.agentId ?? undefined,
@@ -571,10 +594,13 @@ const executeChat = async (
         sessionId: operation.sessionId ?? undefined,
         topicId: operation.topicId ?? undefined,
       });
+      const continuedAgent = operation.sessionId
+        ? await new AgentModel(db, operation.userId).findBySessionId(operation.sessionId)
+        : agent;
       const continued = await buildConversationChatPayload({
         agentMemory: {
-          dynamicMemory: agent?.assistantMemory || undefined,
-          fixedMemory: agent?.fixedMemory || undefined,
+          dynamicMemory: continuedAgent?.assistantMemory || undefined,
+          fixedMemory: continuedAgent?.fixedMemory || undefined,
         },
         config: {
           ...operation.config,
@@ -589,7 +615,6 @@ const executeChat = async (
         userId: operation.userId,
       });
       currentPayload = continued.payload;
-      remainingTurns -= 1;
       content = '';
       reasoning = undefined;
     }
@@ -599,7 +624,7 @@ const executeChat = async (
       await messageModel.update(assistantId, { content: content || '' });
     }
 
-    if (operation.config.title?.topicId || operation.topicId) {
+    if (operation.config.title?.topicId) {
       await executeTitle(db, operation, { skipFinalize: true });
     }
 
@@ -610,11 +635,12 @@ const executeChat = async (
       abortController.signal,
     );
     if (finalStopReason) {
-      await finalizeIfStopped(model, operation, finalStopReason);
-      return;
+      if (!options?.skipFinalize) await finalizeIfStopped(model, operation, finalStopReason);
+      return outcomeFromStopReason(finalStopReason);
     }
 
     if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
+    return { status: 'succeeded' };
   } finally {
     clearInterval(cancelWatcher);
   }
@@ -684,8 +710,22 @@ const executeTitle = async (
   options?: { skipFinalize?: boolean },
 ) => {
   const model = new ConversationGenerationModel(db, operation.userId);
-  const topicId = operation.config.title?.topicId || operation.topicId;
+  const topicId =
+    operation.config.title?.topicId ||
+    (operation.kind === 'topic_title' ? operation.topicId : undefined);
   if (!topicId) {
+    if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
+    return;
+  }
+  const topicModel = new TopicModel(db, operation.userId);
+  const topic = await topicModel.findById(topicId);
+  if (
+    !shouldGenerateConversationTitle({
+      force: operation.config.title?.force,
+      isWelcomeQuestion: operation.config.isWelcomeQuestion,
+      title: topic?.title,
+    })
+  ) {
     if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
     return;
   }
@@ -696,10 +736,10 @@ const executeTitle = async (
     sessionId: operation.sessionId ?? undefined,
     topicId,
   });
-  const payload = chainSummaryTitle(messages, 'en-US');
+  const payload = chainSummaryTitle(messages, operation.config.locale || 'en-US');
   const title = await runSimpleCompletion(db, operation, payload);
   if (title) {
-    await new TopicModel(db, operation.userId).update(topicId, { title: title.slice(0, 120) });
+    await topicModel.update(topicId, { title: title.slice(0, 120) });
     await emit(model, operation, 'snapshot', { title, topicId });
   }
   if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
@@ -773,26 +813,127 @@ const executeCompaction = async (
   operation: ConversationGenerationOperation,
 ) => {
   const model = new ConversationGenerationModel(db, operation.userId);
-  if (!operation.topicId) {
-    await finalize(model, operation, 'succeeded');
+  const compaction = operation.config.compaction;
+  if (!operation.topicId || operation.groupId || operation.threadId || !compaction) {
+    await finalize(model, operation, 'interrupted', {
+      message:
+        'Background compaction requires a planned regular-topic snapshot; the client must re-plan it.',
+      type: 'CompactionInvalidated',
+    });
     return;
   }
   await updateOperation(model, operation, { phase: 'compacting' });
   const aiChat = new AiChatService(db, operation.userId);
   const { messages } = await aiChat.getMessagesAndTopics({
-    groupId: operation.groupId ?? undefined,
     sessionId: operation.sessionId ?? undefined,
     topicId: operation.topicId,
   });
-  const topic = await new TopicModel(db, operation.userId).findById(operation.topicId);
-  const payload = chainSummaryHistory(messages, topic?.historySummary || undefined);
-  const summary = await runSimpleCompletion(db, operation, payload);
-  if (summary) {
-    await new TopicModel(db, operation.userId).update(operation.topicId, {
-      historySummary: summary,
+  const messagesById = new Map(messages.map((message) => [message.id, message]));
+  const candidateMessages = compaction.candidateMessageIds
+    .map((id) => messagesById.get(id))
+    .filter(Boolean) as UIChatMessage[];
+  const initialFingerprint = createCompactionFingerprint({
+    cursorId: compaction.expectedCursorId,
+    messages: candidateMessages,
+    summary: compaction.expectedHistorySummary,
+  });
+  if (
+    candidateMessages.length !== compaction.candidateMessageIds.length ||
+    initialFingerprint !== compaction.expectedFingerprint
+  ) {
+    await finalize(model, operation, 'interrupted', {
+      message: 'Compaction input changed before summarization started.',
+      type: 'CompactionInvalidated',
     });
-    await emit(model, operation, 'snapshot', { historySummary: summary, topicId: operation.topicId });
+    return;
   }
+
+  let historySummary = operation.config.historySummary || '';
+  for (const batch of splitCompactionBatches(candidateMessages)) {
+    historySummary = await runSimpleCompletion(db, operation, {
+      ...chainSummaryHistory(batch, historySummary || undefined),
+      max_tokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+      stream: false,
+    });
+    if (!historySummary) {
+      throw new Error('Memory compaction returned an empty summary.');
+    }
+  }
+
+  const compactedThroughMessageId = candidateMessages.at(-1)!.id;
+  const persisted = await withConversationWriteLockOrThrow(
+    db,
+    operation.userId,
+    async (transaction) => {
+      const topicModel = new TopicModel(transaction, operation.userId);
+      const topic = await topicModel.findById(operation.topicId!);
+      const metadata = (topic?.metadata || {}) as ChatTopicMetadata;
+      if (
+        !topic ||
+        (topic.historySummary || '') !== compaction.expectedHistorySummary ||
+        (metadata.historySummaryLastMessageId || undefined) !== compaction.expectedCursorId
+      ) {
+        return false;
+      }
+
+      const latestMessages = await new MessageModel(transaction, operation.userId).query({
+        pageSize: 9999,
+        sessionId: operation.sessionId,
+        topicId: operation.topicId,
+      });
+      const latestById = new Map(latestMessages.map((message) => [message.id, message]));
+      const latestCandidates = compaction.candidateMessageIds
+        .map((id) => latestById.get(id))
+        .filter(Boolean) as UIChatMessage[];
+      const latestFingerprint = createCompactionFingerprint({
+        cursorId: metadata.historySummaryLastMessageId,
+        messages: latestCandidates,
+        summary: topic.historySummary,
+      });
+      if (
+        latestCandidates.length !== compaction.candidateMessageIds.length ||
+        latestFingerprint !== compaction.expectedFingerprint
+      ) {
+        return false;
+      }
+
+      const status =
+        compaction.trigger === 'token_threshold' && compaction.targetReachable === false
+          ? 'target_unreachable'
+          : 'compacted';
+      const nextMetadata = buildConversationCompactionMetadata({
+        compactedThroughMessageId,
+        currentMetadata: metadata,
+        messageCountIncluded: candidateMessages.length,
+        model: operation.config.model,
+        plan: compaction,
+        provider: operation.config.provider,
+        status,
+        summary: historySummary,
+      });
+      await topicModel.update(operation.topicId!, {
+        historySummary,
+        metadata: nextMetadata,
+      });
+      return { metadata: nextMetadata, status };
+    },
+    operation.conversationVersion ?? undefined,
+  );
+  if (!persisted) {
+    await finalize(model, operation, 'interrupted', {
+      message: 'Compaction input was invalidated before the summary could be persisted.',
+      type: 'CompactionInvalidated',
+    });
+    return;
+  }
+
+  await emit(model, operation, 'snapshot', {
+    historySummary,
+    historySummaryLastMessageId: compactedThroughMessageId,
+    metadata: persisted.metadata,
+    status: persisted.status,
+    topicId: operation.topicId,
+  });
   await finalize(model, operation, 'succeeded');
 };
 
@@ -810,6 +951,48 @@ const parseJsonObject = (value?: string) => {
   } catch {
     return {};
   }
+};
+
+const normalizeSupervisorToolCalls = (
+  value: unknown,
+): Array<{ arguments: Record<string, unknown>; name: string }> => {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return [];
+    }
+  }
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    !Array.isArray(parsed) &&
+    Array.isArray((parsed as { tool_calls?: unknown[] }).tool_calls)
+  ) {
+    parsed = (parsed as { tool_calls: unknown[] }).tool_calls;
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const name =
+      typeof record.name === 'string'
+        ? record.name
+        : typeof record.tool_name === 'string'
+          ? record.tool_name
+          : undefined;
+    if (!name) return [];
+    const rawArguments = record.arguments ?? record.parameter;
+    const arguments_ =
+      typeof rawArguments === 'string'
+        ? parseJsonObject(rawArguments)
+        : rawArguments && typeof rawArguments === 'object'
+          ? (rawArguments as Record<string, unknown>)
+          : {};
+    return [{ arguments: arguments_, name }];
+  });
 };
 
 const executeSupervisor = async (
@@ -863,28 +1046,35 @@ const executeSupervisor = async (
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
-  const response = await runtime.chat({
+  const supervisorResponse = await runtime.generateObject({
     ...payload,
     model: operation.config.model,
-    stream: true,
   } as any);
-  const result = await consumeProtocolResponse(response);
-  if (result.error) {
-    await finalize(model, operation, 'failed', result.error);
-    return;
-  }
 
   const decisions: Array<{ id: string; instruction?: string; target?: string }> = [];
-  for (const call of result.toolCalls || []) {
-    const name = call.function?.name;
-    const args = parseJsonObject(call.function?.arguments);
+  for (const call of normalizeSupervisorToolCalls(supervisorResponse)) {
+    const name = call.name;
+    const args = call.arguments;
     if (name === 'trigger_agent' || name === 'trigger_agent_dm') {
       const id = typeof args.id === 'string' ? args.id : undefined;
-      if (!id) continue;
+      if (!id || !availableAgents.some((agent) => agent.id === id)) continue;
+      const requestedTarget =
+        typeof args.target === 'string'
+          ? args.target
+          : name === 'trigger_agent_dm'
+            ? 'user'
+            : undefined;
+      const target =
+        group?.config?.allowDM === false ||
+        (requestedTarget &&
+          requestedTarget !== 'user' &&
+          !availableAgents.some((agent) => agent.id === requestedTarget))
+          ? undefined
+          : requestedTarget;
       decisions.push({
         id,
         instruction: typeof args.instruction === 'string' ? args.instruction : undefined,
-        target: name === 'trigger_agent_dm' ? 'user' : undefined,
+        target,
       });
     }
   }
@@ -936,7 +1126,7 @@ const executeSupervisor = async (
       agentId: agent.id,
       assistantMessageId: created.id,
     });
-    await executeChat(
+    const outcome = await executeChat(
       db,
       {
         ...operation,
@@ -954,7 +1144,27 @@ const executeSupervisor = async (
       },
       { skipFinalize: true },
     );
+    const terminalOutcome = getSupervisorTerminalOutcome(outcome);
+    if (terminalOutcome) {
+      if (terminalOutcome.status === 'failed') {
+        await finalize(
+          model,
+          operation,
+          'failed',
+          terminalOutcome.error || {
+            message: `Group agent "${agent.id}" failed.`,
+            type: 'GroupAgentError',
+          },
+        );
+      } else {
+        await finalize(model, operation, terminalOutcome.status);
+      }
+      return;
+    }
   }
 
-  await finalize(model, operation, 'succeeded');
+  const current = await model.findById(operation.id);
+  if (current && isActiveConversationGenerationStatus(current.status)) {
+    await finalize(model, operation, 'succeeded');
+  }
 };

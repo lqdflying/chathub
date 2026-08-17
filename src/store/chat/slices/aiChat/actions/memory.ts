@@ -10,17 +10,19 @@ import { StateCreator } from 'zustand/vanilla';
 
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+  createCompactionFingerprint,
   getContextCompactionWatermarks,
   getSettledCompactionPrefixes,
   resolvePendingCompactionHistory,
   selectDefaultCompactionPrefix,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
 import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
-import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
+import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import {
   AccountMutationSnapshot,
@@ -300,13 +302,32 @@ async function runCompactionFromStore(
     chatModel &&
     chatProvider
   ) {
+    const expectedConversationVersion = await messageService.getConversationVersion();
     const operation = await tryEnqueueConversationGeneration({
       config: {
+        compaction: {
+          candidateMessageIds: candidateMessages.map(({ id }) => id),
+          enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+          estimatedTokensBefore: beforeEstimate.totalToken,
+          expectedCursorId: topic.metadata?.historySummaryLastMessageId,
+          expectedFingerprint: createCompactionFingerprint({
+            cursorId: topic.metadata?.historySummaryLastMessageId,
+            messages: candidateMessages,
+            summary: topic.historySummary,
+          }),
+          expectedHistorySummary: topic.historySummary ?? '',
+          highWatermark: high,
+          lowWatermark: low,
+          targetReachable,
+          trigger,
+        },
         historySummary: pending.previousSummary,
         locale: globalHelpers.getCurrentLanguage(),
         model: chatModel,
         provider: chatProvider,
       },
+      conversationVersion: expectedConversationVersion,
+      expectedConversationVersion,
       kind: 'memory_compaction',
       replaceActive: true,
       sessionId: requestedSessionId,

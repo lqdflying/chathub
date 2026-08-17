@@ -12,10 +12,10 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { message } from '@/components/AntdStaticMethods';
 import { LOADING_FLAT } from '@/const/message';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
 import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
-import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { CreateTopicParams } from '@/services/topic/type';
@@ -434,13 +434,17 @@ export const chatTopic: StateCreator<
     // Get current agent for topic
     const topicConfig = systemAgentSelectors.topic(useUserStore.getState());
 
-    if (isClientDurableConversationGenerationEnabled() && topicConfig.model && topicConfig.provider) {
+    if (
+      isClientDurableConversationGenerationEnabled() &&
+      topicConfig.model &&
+      topicConfig.provider
+    ) {
       const operation = await tryEnqueueConversationGeneration({
         config: {
           locale: globalHelpers.getCurrentLanguage(),
           model: topicConfig.model,
           provider: topicConfig.provider,
-          title: { topicId },
+          title: { force: true, topicId },
         },
         kind: 'topic_title',
         replaceActive: true,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import type { LobeAgentChatConfig } from './agent';
 import type { ChatMessageError } from './message';
+import type { MemoryCompactionTrigger } from './topic';
 
 export const ConversationGenerationKinds = [
   'chat',
@@ -64,11 +65,25 @@ export type ConversationGenerationEventType = (typeof ConversationGenerationEven
  * Non-secret request snapshot persisted with the operation. Credentials are
  * resolved from encrypted user/provider vaults at execution time.
  */
+export interface ConversationGenerationCompactionSnapshot {
+  candidateMessageIds: string[];
+  enableUserMemoryArchive?: boolean;
+  estimatedTokensBefore?: number;
+  expectedCursorId?: string;
+  expectedFingerprint: string;
+  expectedHistorySummary: string;
+  highWatermark?: number;
+  lowWatermark?: number;
+  targetReachable?: boolean;
+  trigger: MemoryCompactionTrigger;
+}
+
 export interface ConversationGenerationConfigSnapshot {
   activatedSkillIds?: string[];
   agentId?: string;
   agentParams?: Record<string, unknown>;
   chatConfig?: Partial<LobeAgentChatConfig>;
+  compaction?: ConversationGenerationCompactionSnapshot;
   enableMemoryTool?: boolean;
   fetchOnClient?: boolean;
   groupId?: string;
@@ -83,7 +98,7 @@ export interface ConversationGenerationConfigSnapshot {
   rewindFromMessageId?: string;
   systemRole?: string;
   targetId?: string;
-  title?: { topicId: string };
+  title?: { force?: boolean; topicId: string };
   translation?: { from?: string; messageId: string; to: string };
   tts?: { messageId: string; voice?: string };
 }
@@ -141,8 +156,7 @@ export interface ConversationGenerationResetEvent {
 }
 
 export type ConversationGenerationStreamEvent =
-  | ConversationGenerationEvent
-  | ConversationGenerationResetEvent;
+  ConversationGenerationEvent | ConversationGenerationResetEvent;
 
 export interface ConversationGenerationEnqueueInput {
   agentId?: string;
@@ -166,6 +180,20 @@ export const ConversationGenerationConfigSchema = z.object({
   agentId: z.string().optional(),
   agentParams: z.record(z.string(), z.unknown()).optional(),
   chatConfig: z.record(z.string(), z.unknown()).optional(),
+  compaction: z
+    .object({
+      candidateMessageIds: z.array(z.string()).min(1),
+      enableUserMemoryArchive: z.boolean().optional(),
+      estimatedTokensBefore: z.number().optional(),
+      expectedCursorId: z.string().optional(),
+      expectedFingerprint: z.string().min(1),
+      expectedHistorySummary: z.string(),
+      highWatermark: z.number().optional(),
+      lowWatermark: z.number().optional(),
+      targetReachable: z.boolean().optional(),
+      trigger: z.enum(['manual', 'message_count', 'scheduled', 'token_threshold']),
+    })
+    .optional(),
   enableMemoryTool: z.boolean().optional(),
   fetchOnClient: z.boolean().optional(),
   groupId: z.string().optional(),
@@ -180,7 +208,7 @@ export const ConversationGenerationConfigSchema = z.object({
   rewindFromMessageId: z.string().optional(),
   systemRole: z.string().optional(),
   targetId: z.string().optional(),
-  title: z.object({ topicId: z.string() }).optional(),
+  title: z.object({ force: z.boolean().optional(), topicId: z.string() }).optional(),
   translation: z
     .object({
       from: z.string().optional(),
@@ -229,4 +257,7 @@ export const buildConversationGenerationLane = (params: {
 
 export const isActiveConversationGenerationStatus = (
   status: ConversationGenerationStatus | string,
-) => ConversationGenerationActiveStatuses.includes(status as (typeof ConversationGenerationActiveStatuses)[number]);
+) =>
+  ConversationGenerationActiveStatuses.includes(
+    status as (typeof ConversationGenerationActiveStatuses)[number],
+  );

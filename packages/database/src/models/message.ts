@@ -29,8 +29,8 @@ import {
   embeddings,
   fileChunks,
   files,
-  messagePlugins,
   messageGroups,
+  messagePlugins,
   messageQueries,
   messageQueryChunks,
   messageTTS,
@@ -43,10 +43,7 @@ import {
 import { LobeChatDatabase, Transaction } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { idGenerator } from '../utils/idGenerator';
-import {
-  removeMessageOrder,
-  sortMessagesParentFirst,
-} from '../utils/sortMessagesParentFirst';
+import { removeMessageOrder, sortMessagesParentFirst } from '../utils/sortMessagesParentFirst';
 
 type MessageWithInternalOrder = DBMessageItem & { messageOrder?: bigint };
 
@@ -289,6 +286,33 @@ export class MessageModel {
     return message ? removeMessageOrder(message) : undefined;
   };
 
+  findToolMessageByCall = async (parentId: string, toolCallId: string) => {
+    const [item] = await this.db
+      .select({
+        content: messages.content,
+        id: messages.id,
+      })
+      .from(messages)
+      .innerJoin(
+        messagePlugins,
+        and(
+          eq(messagePlugins.id, messages.id),
+          eq(messagePlugins.userId, this.userId),
+          eq(messagePlugins.toolCallId, toolCallId),
+        ),
+      )
+      .where(
+        and(
+          eq(messages.parentId, parentId),
+          eq(messages.userId, this.userId),
+          eq(messages.role, 'tool'),
+        ),
+      )
+      .limit(1);
+
+    return item;
+  };
+
   findMessageQueriesById = async (messageId: string) => {
     const result = await this.db
       .select({
@@ -301,9 +325,7 @@ export class MessageModel {
         userQuery: messageQueries.userQuery,
       })
       .from(messageQueries)
-      .where(
-        and(eq(messageQueries.messageId, messageId), eq(messageQueries.userId, this.userId)),
-      )
+      .where(and(eq(messageQueries.messageId, messageId), eq(messageQueries.userId, this.userId)))
       .leftJoin(
         embeddings,
         and(eq(embeddings.id, messageQueries.embeddingsId), eq(embeddings.userId, this.userId)),
@@ -648,9 +670,7 @@ export class MessageModel {
       if (current.embeddingsId && current.embeddingsId !== params.embeddingsId) {
         await trx
           .delete(embeddings)
-          .where(
-            and(eq(embeddings.id, current.embeddingsId), eq(embeddings.userId, this.userId)),
-          );
+          .where(and(eq(embeddings.id, current.embeddingsId), eq(embeddings.userId, this.userId)));
       }
 
       return updated;
@@ -769,6 +789,37 @@ export class MessageModel {
     }
 
     return { content: item.content };
+  };
+
+  recoverPersistedMCPResult = async (id: string): Promise<{ content: string } | undefined> => {
+    const [item] = await this.db
+      .select({
+        content: messages.content,
+        state: messagePlugins.state,
+      })
+      .from(messages)
+      .innerJoin(
+        messagePlugins,
+        and(eq(messagePlugins.id, messages.id), eq(messagePlugins.userId, this.userId)),
+      )
+      .where(and(eq(messages.id, id), eq(messages.userId, this.userId)))
+      .limit(1);
+    const recoveryState = (item?.state as Record<string, unknown> | null)?.[
+      MCP_RESULT_RECOVERY_STATE_KEY
+    ] as MCPResultRecoveryState | undefined;
+
+    if (recoveryState?.status !== 'persisted' || typeof item?.content !== 'string') {
+      return undefined;
+    }
+
+    return { content: item.content };
+  };
+
+  updatePluginError = async (id: string, error: Record<string, unknown> | null) => {
+    return this.db
+      .update(messagePlugins)
+      .set({ error })
+      .where(and(eq(messagePlugins.id, id), eq(messagePlugins.userId, this.userId)));
   };
 
   updateMetadata = async (id: string, metadata: Record<string, any>) => {
@@ -1026,7 +1077,9 @@ export class MessageModel {
   };
 
   deleteAllTopicsHistory = async () => {
-    return this.db.transaction((transaction) => this.deleteAllTopicsHistoryInTransaction(transaction));
+    return this.db.transaction((transaction) =>
+      this.deleteAllTopicsHistoryInTransaction(transaction),
+    );
   };
 
   deleteAllTopicsHistoryInTransaction = async (transaction: Transaction) => {

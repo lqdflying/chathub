@@ -178,6 +178,7 @@ export const createCompactionFingerprint = ({
     cursorId ?? '',
     summary?.length ?? 0,
     ...messages.map(
-      ({ content, id, role, updatedAt }) => `${id}:${role}:${updatedAt}:${content.length}`,
+      ({ content, id, role, updatedAt }) =>
+        `${id}:${role}:${updatedAt ? new Date(updatedAt).toISOString() : ''}:${content.length}`,
     ),
   ].join('|');

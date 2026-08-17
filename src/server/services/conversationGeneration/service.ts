@@ -1,17 +1,17 @@
+import { LOADING_FLAT } from '@lobechat/const';
+import type { LobeChatDatabase, Transaction } from '@lobechat/database';
 import {
-  buildConversationGenerationLane,
   ConversationGenerationEnqueueInput,
   ConversationGenerationEnqueueSchema,
+  buildConversationGenerationLane,
   isActiveConversationGenerationStatus,
 } from '@lobechat/types';
-import { LOADING_FLAT } from '@lobechat/const';
-import { sql } from 'drizzle-orm';
 import { TRPCError } from '@trpc/server';
-import type { LobeChatDatabase, Transaction } from '@lobechat/database';
+import { sql } from 'drizzle-orm';
 import { makeWorkerUtils } from 'graphile-worker';
 
-import { MessageModel } from '@/database/models/message';
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
+import { MessageModel } from '@/database/models/message';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 
 import {
@@ -21,6 +21,7 @@ import {
   CONVERSATION_GENERATION_TASK,
 } from './constants';
 import { resolveConversationRuntimePayload } from './credentials';
+import { findUnsupportedConversationTool } from './tools';
 
 let workerUtilsPromise: Promise<Awaited<ReturnType<typeof makeWorkerUtils>>> | undefined;
 
@@ -83,8 +84,7 @@ const enqueueGraphileJobWithRecovery = async (
     } catch (fallbackError) {
       console.warn('[conversation-generation] failed to enqueue Graphile job', {
         operationId: payload.operationId,
-        enqueueError:
-          enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+        enqueueError: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
       return undefined;
@@ -100,6 +100,17 @@ export class ConversationGenerationService {
 
   enqueue = async (input: ConversationGenerationEnqueueInput) => {
     const parsed = ConversationGenerationEnqueueSchema.parse(input);
+    const unsupportedTool = await findUnsupportedConversationTool({
+      config: parsed.config,
+      db: this.db,
+      userId: this.userId,
+    });
+    if (unsupportedTool) {
+      throw new TRPCError({
+        code: 'UNPROCESSABLE_CONTENT',
+        message: `Durable generation deferred to the browser for "${unsupportedTool.identifier}": ${unsupportedTool.reason}`,
+      });
+    }
     await resolveConversationRuntimePayload({
       db: this.db,
       fetchOnClient: parsed.config.fetchOnClient,
@@ -300,9 +311,7 @@ export const sweepPendingConversationGenerationJobs = async (db: LobeChatDatabas
 export const sweepStaleConversationGenerationOperations = async (db: LobeChatDatabase) => {
   const heartbeatBefore = new Date(Date.now() - CONVERSATION_GENERATION_STALE_PROCESSING_MS);
   const systemModel = new ConversationGenerationModel(db, 'system');
-  const staleProcessing = await systemModel.listStaleProcessing(
-    heartbeatBefore,
-  );
+  const staleProcessing = await systemModel.listStaleProcessing(heartbeatBefore);
 
   for (const operation of staleProcessing) {
     const model = new ConversationGenerationModel(db, operation.userId);

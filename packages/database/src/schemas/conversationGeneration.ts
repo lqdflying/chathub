@@ -1,15 +1,4 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix */
-import { sql } from 'drizzle-orm';
-import {
-  bigint,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  uniqueIndex,
-} from 'drizzle-orm/pg-core';
-
 import type {
   ConversationGenerationConfigSnapshot,
   ConversationGenerationError,
@@ -18,6 +7,8 @@ import type {
   ConversationGenerationPhase,
   ConversationGenerationStatus,
 } from '@lobechat/types';
+import { sql } from 'drizzle-orm';
+import { bigint, index, integer, jsonb, pgTable, text, uniqueIndex } from 'drizzle-orm/pg-core';
 
 import { idGenerator } from '../utils/idGenerator';
 import { timestamps, timestamptz, varchar255 } from './_helpers';
@@ -112,7 +103,7 @@ export const conversationGenerationSteps = pgTable(
   },
   (t) => [
     index('conversation_generation_steps_operation_idx').on(t.operationId, t.createdAt),
-    index('conversation_generation_steps_input_hash_idx').on(t.operationId, t.inputHash),
+    uniqueIndex('conversation_generation_steps_input_hash_uniq').on(t.operationId, t.inputHash),
   ],
 );
 

@@ -4,12 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
+import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
+
+const durableMocks = vi.hoisted(() => ({ enabled: false }));
 
 vi.mock('@/helpers/estimateContextUsageAsync', () => ({
   estimateContextUsageAsync: vi.fn(),
@@ -19,6 +23,15 @@ vi.mock('@/helpers/modelContextWindowTokens', () => ({
 }));
 vi.mock('@/services/chat', () => ({
   chatService: { fetchPresetTaskResult: vi.fn() },
+}));
+vi.mock('@/helpers/durableConversationGeneration', () => ({
+  isClientDurableConversationGenerationEnabled: vi.fn(() => durableMocks.enabled),
+}));
+vi.mock('@/services/conversationGeneration', () => ({
+  tryEnqueueConversationGeneration: vi.fn(),
+}));
+vi.mock('@/services/message', () => ({
+  messageService: { getConversationVersion: vi.fn() },
 }));
 vi.mock('@/services/topic', () => ({
   topicService: { updateTopic: vi.fn() },
@@ -71,6 +84,8 @@ const setConversation = (overrides: Record<string, unknown> = {}) => {
 describe('chat memory actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    durableMocks.enabled = false;
+    vi.mocked(messageService.getConversationVersion).mockResolvedValue(7);
     useUserStore.setState({ ownershipInvalidationGeneration: 0 });
     vi.spyOn(agentChatConfigSelectors, 'currentChatConfig').mockReturnValue({
       contextCompactThreshold: 0.8,
@@ -138,6 +153,46 @@ describe('chat memory actions', () => {
         metadata: expect.objectContaining({ historySummaryLastMessageId: 'a2' }),
       }),
     );
+  });
+
+  it('enqueues the planned compaction snapshot with version and invalidation guards', async () => {
+    durableMocks.enabled = true;
+    vi.mocked(tryEnqueueConversationGeneration).mockResolvedValue({
+      attempt: 0,
+      config: { model: 'summary-model', provider: 'summary-provider' },
+      id: 'operation-1',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: TOPIC_ID,
+      userId: 'user-1',
+    });
+    const attach = vi
+      .spyOn(useChatStore.getState(), 'attachConversationGeneration')
+      .mockImplementation(vi.fn());
+
+    const result = await useChatStore.getState().triggerManualMemoryCompaction();
+
+    expect(result).toEqual({ reason: 'durable_enqueued', status: 'ineligible' });
+    expect(tryEnqueueConversationGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          compaction: expect.objectContaining({
+            candidateMessageIds: ['u1', 'a1', 'u2', 'a2'],
+            expectedFingerprint: expect.any(String),
+            expectedHistorySummary: '',
+            trigger: 'manual',
+          }),
+        }),
+        conversationVersion: 7,
+        expectedConversationVersion: 7,
+        kind: 'memory_compaction',
+      }),
+    );
+    expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
+    expect(topicService.updateTopic).not.toHaveBeenCalled();
   });
 
   it('does not compact below the configured high watermark', async () => {
@@ -388,13 +443,11 @@ describe('chat memory actions', () => {
   });
 
   it('reports a mid-request abort as ineligible, not failed', async () => {
-    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(
-      async ({ abortController }) => {
-        // a user Stop lands while the summarize request is in flight; errorHandle then
-        // resolves without calling onFinish or onError
-        abortController?.abort();
-      },
-    );
+    vi.mocked(chatService.fetchPresetTaskResult).mockImplementation(async ({ abortController }) => {
+      // a user Stop lands while the summarize request is in flight; errorHandle then
+      // resolves without calling onFinish or onError
+      abortController?.abort();
+    });
 
     const result = await useChatStore
       .getState()
@@ -411,9 +464,7 @@ describe('chat memory actions', () => {
       controller.abort();
     });
 
-    const result = await useChatStore
-      .getState()
-      .triggerTokenThresholdMemoryCompaction(controller);
+    const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction(controller);
 
     expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
     expect(topicService.updateTopic).not.toHaveBeenCalled();
@@ -446,9 +497,7 @@ describe('chat memory actions', () => {
     });
     vi.mocked(topicService.updateTopic).mockResolvedValue(undefined);
 
-    const result = await useChatStore
-      .getState()
-      .triggerTokenThresholdMemoryCompaction(controller);
+    const result = await useChatStore.getState().triggerTokenThresholdMemoryCompaction(controller);
 
     expect(result).toEqual({ reason: 'aborted', status: 'ineligible' });
     expect(topicService.updateTopic).toHaveBeenCalledTimes(2);

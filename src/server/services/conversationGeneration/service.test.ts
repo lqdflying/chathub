@@ -1,6 +1,11 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  ConversationGenerationService,
+  sweepStaleConversationGenerationOperations,
+} from './service';
+
 const modelMocks = vi.hoisted(() => ({
   create: vi.fn(),
   finalizeActive: vi.fn(),
@@ -17,6 +22,9 @@ const modelMocks = vi.hoisted(() => ({
 
 const graphileMocks = vi.hoisted(() => ({
   makeWorkerUtils: vi.fn(),
+}));
+const toolMocks = vi.hoisted(() => ({
+  findUnsupportedConversationTool: vi.fn(),
 }));
 
 vi.mock('@/database/models/conversationGeneration', () => ({
@@ -46,15 +54,13 @@ vi.mock('@/server/services/conversationWriteLock', () => ({
 vi.mock('./credentials', () => ({
   resolveConversationRuntimePayload: vi.fn(),
 }));
+vi.mock('./tools', () => ({
+  findUnsupportedConversationTool: toolMocks.findUnsupportedConversationTool,
+}));
 
 vi.mock('graphile-worker', () => ({
   makeWorkerUtils: graphileMocks.makeWorkerUtils,
 }));
-
-import {
-  ConversationGenerationService,
-  sweepStaleConversationGenerationOperations,
-} from './service';
 
 describe('sweepStaleConversationGenerationOperations', () => {
   beforeEach(() => {
@@ -66,6 +72,7 @@ describe('sweepStaleConversationGenerationOperations', () => {
     modelMocks.findActiveByLane.mockResolvedValue(undefined);
     modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
     modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
+    toolMocks.findUnsupportedConversationTool.mockResolvedValue(undefined);
   });
 
   it('atomically returns stale processing attempts to pending and re-enqueues them', async () => {
@@ -123,12 +130,10 @@ describe('sweepStaleConversationGenerationOperations', () => {
 
     await sweepStaleConversationGenerationOperations(db as any);
 
-    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
-      operation.id,
-      'cancelled',
-      undefined,
-      { attempt: 1, laneGeneration: 1 },
-    );
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(operation.id, 'cancelled', undefined, {
+      attempt: 1,
+      laneGeneration: 1,
+    });
     expect(modelMocks.insertEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         operationId: operation.id,
@@ -221,10 +226,7 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     });
 
     await expect(
-      new ConversationGenerationService(db as any, 'user-1').enqueueInTransaction(
-        db as any,
-        input,
-      ),
+      new ConversationGenerationService(db as any, 'user-1').enqueueInTransaction(db as any, input),
     ).rejects.toThrow('transaction aborted');
 
     expect(graphileMocks.makeWorkerUtils).not.toHaveBeenCalled();

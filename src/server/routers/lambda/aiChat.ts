@@ -1,8 +1,8 @@
 import {
   AiCreateAssistantMessageSchema,
   AiSendMessageServerSchema,
-  ConversationGenerationOperation,
   ContextExportRequestContextSchema,
+  ConversationGenerationOperation,
   CreateAssistantMessageServerResponse,
   SendMessageServerResponse,
   StructureOutputSchema,
@@ -23,12 +23,10 @@ import { AiChatService } from '@/server/services/aiChat';
 import { resolveConversationRuntimePayload } from '@/server/services/conversationGeneration/credentials';
 import { isDurableConversationGenerationEnabled } from '@/server/services/conversationGeneration/featureFlag';
 import { ConversationGenerationService } from '@/server/services/conversationGeneration/service';
+import { findUnsupportedConversationTool } from '@/server/services/conversationGeneration/tools';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 import { FileService } from '@/server/services/file';
-import {
-  contextExportRedactions,
-  sanitizeContextExportValue,
-} from '@/services/chat/contextExport';
+import { contextExportRedactions, sanitizeContextExportValue } from '@/services/chat/contextExport';
 import { getXorPayload } from '@/utils/server';
 
 const log = debug('lobe-lambda-router:ai-chat');
@@ -244,7 +242,15 @@ export const aiChatRouter = router({
       log('topicId: %s, newTopic: %O', input.topicId, input.newTopic);
 
       const durableEnabled = await isDurableConversationGenerationEnabled(ctx.userId);
-      const durableGeneration = durableEnabled ? input.generation : undefined;
+      const requestedDurableGeneration = durableEnabled ? input.generation : undefined;
+      const unsupportedTool = requestedDurableGeneration
+        ? await findUnsupportedConversationTool({
+            config: requestedDurableGeneration.config,
+            db: ctx.serverDB,
+            userId: ctx.userId,
+          })
+        : undefined;
+      const durableGeneration = unsupportedTool ? undefined : requestedDurableGeneration;
       if (durableGeneration) {
         await resolveConversationRuntimePayload({
           db: ctx.serverDB,
@@ -312,6 +318,17 @@ export const aiChatRouter = router({
             log('new topic created with id: %s', topicId);
           }
 
+          const currentTopic =
+            durableGeneration && topicId && !isCreateNewTopic
+              ? await topicModel.findById(topicId)
+              : undefined;
+          const shouldGenerateTitle =
+            Boolean(durableGeneration && topicId && !durableGeneration.config.isWelcomeQuestion) &&
+            (isCreateNewTopic || !currentTopic?.title?.trim());
+          const titleConfig = shouldGenerateTitle
+            ? { force: isCreateNewTopic, topicId }
+            : undefined;
+
           log('creating user message with content length: %d', input.newUserMessage.content.length);
           const userMessageItem = await messageModel.create({
             content: input.newUserMessage.content,
@@ -349,7 +366,7 @@ export const aiChatRouter = router({
               assistantMessageId,
               config: {
                 ...durableGeneration.config,
-                title: topicId ? { topicId } : durableGeneration.config.title,
+                title: titleConfig,
               },
               conversationVersion: input.expectedConversationVersion,
               expectedConversationVersion: input.expectedConversationVersion,

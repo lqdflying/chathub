@@ -1,6 +1,13 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  executeConversationGeneration,
+  getSupervisorTerminalOutcome,
+  shouldCreateToolContinuation,
+  shouldGenerateConversationTitle,
+} from './execute';
+
 const modelMocks = vi.hoisted(() => ({
   bumpRevision: vi.fn(),
   claimForProcessing: vi.fn(),
@@ -48,10 +55,40 @@ vi.mock('./stream', () => ({
   consumeProtocolResponse: vi.fn(),
 }));
 vi.mock('./tools', () => ({
-  invokeConversationTool: vi.fn(),
+  executeConversationToolStep: vi.fn(),
 }));
 
-import { executeConversationGeneration } from './execute';
+describe('conversation generation workflow guards', () => {
+  it('stops before creating a placeholder when the tool-turn budget is exhausted', () => {
+    expect(shouldCreateToolContinuation(0, true)).toBe(false);
+    expect(shouldCreateToolContinuation(1, true)).toBe(true);
+    expect(shouldCreateToolContinuation(8, false)).toBe(false);
+  });
+
+  it('only generates titles for explicit, welcome-safe new or untitled topics', () => {
+    expect(shouldGenerateConversationTitle({ title: '' })).toBe(true);
+    expect(shouldGenerateConversationTitle({ title: 'Existing title' })).toBe(false);
+    expect(
+      shouldGenerateConversationTitle({ force: true, title: 'Temporary new-topic title' }),
+    ).toBe(true);
+    expect(
+      shouldGenerateConversationTitle({ force: true, isWelcomeQuestion: true, title: '' }),
+    ).toBe(false);
+  });
+
+  it('propagates a nested group-agent terminal outcome instead of reporting supervisor success', () => {
+    expect(
+      getSupervisorTerminalOutcome({
+        error: { message: 'agent failed', type: 'GroupAgentError' },
+        status: 'failed',
+      }),
+    ).toMatchObject({ status: 'failed' });
+    expect(getSupervisorTerminalOutcome({ status: 'cancelled' })).toMatchObject({
+      status: 'cancelled',
+    });
+    expect(getSupervisorTerminalOutcome({ status: 'succeeded' })).toBeUndefined();
+  });
+});
 
 describe('executeConversationGeneration', () => {
   beforeEach(() => {
@@ -158,9 +195,7 @@ describe('executeConversationGeneration', () => {
       userId: 'user-1',
     };
     const processing = { ...pending, attempt: 1, status: 'processing' };
-    modelMocks.findById
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce(processing);
+    modelMocks.findById.mockResolvedValueOnce(pending).mockResolvedValueOnce(processing);
     modelMocks.claimForProcessing.mockResolvedValue(processing);
     modelMocks.markForRetry.mockResolvedValue({
       ...processing,
@@ -205,9 +240,7 @@ describe('executeConversationGeneration', () => {
       userId: 'user-1',
     };
     const processing = { ...pending, attempt: 8, status: 'processing' };
-    modelMocks.findById
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce(processing);
+    modelMocks.findById.mockResolvedValueOnce(pending).mockResolvedValueOnce(processing);
     modelMocks.claimForProcessing.mockResolvedValue(processing);
     modelMocks.finalizeActive.mockResolvedValue({
       ...processing,

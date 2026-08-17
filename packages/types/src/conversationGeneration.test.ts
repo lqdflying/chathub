@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ConversationGenerationConfigSchema,
   buildConversationGenerationLane,
   isActiveConversationGenerationStatus,
 } from './conversationGeneration';
@@ -34,6 +35,30 @@ describe('buildConversationGenerationLane', () => {
         userId: 'user-1',
       }),
     ).toBe('user-1:group:group-1:topic-1:main');
+  });
+});
+
+describe('ConversationGenerationConfigSchema', () => {
+  it('accepts durable title intent and a guarded compaction plan', () => {
+    expect(
+      ConversationGenerationConfigSchema.parse({
+        compaction: {
+          candidateMessageIds: ['message-1', 'message-2'],
+          expectedFingerprint: 'fingerprint',
+          expectedHistorySummary: 'existing summary',
+          trigger: 'scheduled',
+        },
+        model: 'summary-model',
+        provider: 'summary-provider',
+        title: { force: true, topicId: 'topic-1' },
+      }),
+    ).toMatchObject({
+      compaction: {
+        candidateMessageIds: ['message-1', 'message-2'],
+        trigger: 'scheduled',
+      },
+      title: { force: true, topicId: 'topic-1' },
+    });
   });
 });
 

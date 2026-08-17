@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getServerDB } from '@/database/core/db-adaptor';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
-import { getServerDB } from '@/database/core/db-adaptor';
 import { AiChatService } from '@/server/services/aiChat';
 import { isDurableConversationGenerationEnabled } from '@/server/services/conversationGeneration/featureFlag';
 
@@ -12,6 +12,7 @@ import { aiChatRouter } from '../aiChat';
 const durableMocks = vi.hoisted(() => ({
   enqueueInTransaction: vi.fn(),
   findByIdempotencyKey: vi.fn(),
+  findUnsupportedConversationTool: vi.fn(),
 }));
 
 vi.mock('@/database/core/db-adaptor', () => ({
@@ -41,6 +42,9 @@ vi.mock('@/server/services/conversationGeneration/service', () => ({
   ConversationGenerationService: class {
     enqueueInTransaction = durableMocks.enqueueInTransaction;
   },
+}));
+vi.mock('@/server/services/conversationGeneration/tools', () => ({
+  findUnsupportedConversationTool: durableMocks.findUnsupportedConversationTool,
 }));
 vi.mock('@/utils/server', () => ({
   getXorPayload: vi.fn(),
@@ -82,6 +86,7 @@ describe('aiChatRouter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     durableMocks.findByIdempotencyKey.mockResolvedValue(undefined);
+    durableMocks.findUnsupportedConversationTool.mockResolvedValue(undefined);
     vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(false);
   });
 
@@ -234,6 +239,9 @@ describe('aiChatRouter', () => {
       userMessageId: 'message-user-new',
     });
     vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(TopicModel).mockImplementation(
+      () => ({ findById: vi.fn().mockResolvedValue({ id: 't1', title: 'Named topic' }) }) as any,
+    );
     vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
 
     const caller = aiChatRouter.createCaller(mockCtx as any);
@@ -255,9 +263,42 @@ describe('aiChatRouter', () => {
         expectedConversationVersion: 7,
         idempotencyKey: 'chat-send-new-key',
         replaceActive: true,
+        config: expect.objectContaining({ title: undefined }),
       }),
     );
     expect(result.operationId).toBe('operation-new');
+  });
+
+  it('falls back to browser generation before creating a durable placeholder for unsupported tools', async () => {
+    vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
+    durableMocks.findUnsupportedConversationTool.mockResolvedValue({
+      identifier: 'lobe-image-designer',
+      reason: 'browser runtime required',
+    });
+    const mockCreateMessage = vi.fn().mockResolvedValueOnce({ id: 'message-user-new' });
+    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics: [] });
+    vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    const result = await caller.sendMessageInServer({
+      expectedConversationVersion: 7,
+      generation: {
+        config: {
+          model: 'gpt-4o',
+          plugins: ['lobe-image-designer'],
+          provider: 'openai',
+        },
+        idempotencyKey: 'chat-send-image-key',
+      },
+      newUserMessage: { content: 'draw a cat' },
+      sessionId: 's1',
+      topicId: 't1',
+    });
+
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+    expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(result.operationId).toBeUndefined();
   });
 
   it('creates the reserved assistant placeholder after validating its parent context', async () => {
