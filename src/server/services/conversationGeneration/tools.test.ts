@@ -22,6 +22,7 @@ const messageMocks = vi.hoisted(() => ({
   recoverPersistedMCPResult: vi.fn(),
   update: vi.fn(),
   updatePluginError: vi.fn(),
+  updatePluginState: vi.fn(),
 }));
 const searchMocks = vi.hoisted(() => ({
   crawlMultiPages: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock('@/database/models/message', () => ({
     recoverPersistedMCPResult = messageMocks.recoverPersistedMCPResult;
     update = messageMocks.update;
     updatePluginError = messageMocks.updatePluginError;
+    updatePluginState = messageMocks.updatePluginState;
   },
 }));
 vi.mock('@/database/models/plugin', () => ({
@@ -342,12 +344,23 @@ describe('executeConversationToolStep', () => {
     );
   });
 
-  it('uses a unique MCP invocation id per attempt', async () => {
+  it('reuses a stable MCP invocation id across attempts so a pending fence can be stolen', async () => {
     pluginMocks.findById.mockResolvedValue({
       customParams: { mcp: { type: 'http', url: 'https://mcp.example.test' } },
     });
     mcpMocks.callTool.mockResolvedValue({ content: 'ok' });
+    messageMocks.findToolMessageByCall.mockResolvedValue({ id: 'tool-message-1' });
+    messageMocks.beginMCPResultInvocation.mockResolvedValue(true);
+    messageMocks.persistMCPResult.mockResolvedValue(true);
 
+    await executeConversationToolStep({
+      assistantMessage,
+      attempt: 1,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload(),
+      userId: 'user-1',
+    });
     await executeConversationToolStep({
       assistantMessage,
       attempt: 4,
@@ -357,9 +370,13 @@ describe('executeConversationToolStep', () => {
       userId: 'user-1',
     });
 
+    const firstId = messageMocks.beginMCPResultInvocation.mock.calls[0][1];
+    expect(firstId).toMatch(/^mi_[a-f0-9]+$/);
+    expect(messageMocks.beginMCPResultInvocation.mock.calls[1][1]).toBe(firstId);
     expect(messageMocks.beginMCPResultInvocation).toHaveBeenCalledWith(
       'tool-message-1',
-      expect.stringMatching(/_4_/),
+      firstId,
+      expect.objectContaining({ stalePendingMs: 90_000 }),
     );
   });
 

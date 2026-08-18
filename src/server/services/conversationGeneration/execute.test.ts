@@ -36,7 +36,13 @@ vi.mock('@/database/models/conversationGeneration', () => ({
 
 vi.mock('@/database/models/agent', () => ({ AgentModel: class {} }));
 vi.mock('@/database/models/chatGroup', () => ({ ChatGroupModel: class {} }));
-vi.mock('@/database/models/message', () => ({ MessageModel: class {} }));
+vi.mock('@/database/models/message', () => ({
+  MessageModel: class {
+    findById = vi.fn().mockResolvedValue(undefined);
+    update = vi.fn();
+  },
+}));
+vi.mock('@/database/models/thread', () => ({ ThreadModel: class { findById = vi.fn(); } }));
 vi.mock('@/database/models/topic', () => ({ TopicModel: class {} }));
 vi.mock('@/database/models/user', () => ({ UserModel: { findById: vi.fn() } }));
 vi.mock('@/database/models/chunk', () => ({ ChunkModel: class {} }));
@@ -292,5 +298,24 @@ describe('executeConversationGeneration', () => {
       expect.objectContaining({ type: 'GenerationError' }),
       { attempt: 8, laneGeneration: 1 },
     );
+  });
+
+  it('rethrows when claim misses a stale processing row', async () => {
+    const stale = {
+      heartbeatAt: new Date('2020-01-01T00:00:00.000Z'),
+      id: 'cgo_stale',
+      status: 'processing',
+      userId: 'user-1',
+    };
+    modelMocks.findById.mockResolvedValue(stale);
+    modelMocks.claimForProcessing.mockResolvedValue(undefined);
+
+    await expect(
+      executeConversationGeneration({
+        db: {} as any,
+        operationId: stale.id,
+        userId: stale.userId,
+      }),
+    ).rejects.toThrow('Stale conversation generation is still marked processing.');
   });
 });

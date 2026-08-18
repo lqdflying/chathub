@@ -111,6 +111,7 @@ export const resetTestEnvironment = () => {
       conversationClearGeneration: 0,
       messageRetryingIds: [],
       messagesMap: {},
+      portalThreadId: undefined,
       reasoningLoadingIds: [],
       searchWorkflowLoadingIds: [],
       serverGenerationOperations: {},

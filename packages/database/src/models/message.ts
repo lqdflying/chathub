@@ -52,6 +52,7 @@ const MCP_RESULT_RECOVERY_STATE_KEY = 'chathubMcpResultRecovery';
 
 interface MCPResultRecoveryState {
   invocationId: string;
+  startedAt?: number;
   status: 'pending' | 'persisted';
 }
 
@@ -705,9 +706,16 @@ export class MessageModel {
     });
   };
 
-  beginMCPResultInvocation = async (id: string, invocationId: string): Promise<boolean> => {
+  beginMCPResultInvocation = async (
+    id: string,
+    invocationId: string,
+    options?: { stalePendingMs?: number },
+  ): Promise<boolean> => {
+    const now = Date.now();
+    const cutoff = now - (options?.stalePendingMs ?? 90_000);
     const recoveryState: MCPResultRecoveryState = {
       invocationId,
+      startedAt: now,
       status: 'pending',
     };
     const result = await this.db
@@ -722,6 +730,11 @@ export class MessageModel {
           or(
             sql`coalesce(${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'status', '') is distinct from 'pending'`,
             sql`${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'invocationId' = ${invocationId}`,
+            sql`(
+              ${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'status' = 'pending'
+              AND (${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'startedAt') is not null
+              AND (${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'startedAt')::bigint < ${cutoff}
+            )`,
           ),
         ),
       )

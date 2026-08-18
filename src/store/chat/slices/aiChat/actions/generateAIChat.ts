@@ -160,7 +160,7 @@ export interface AIGenerateAction {
   /**
    * Interrupts the ongoing ai message generation process
    */
-  stopGenerateMessage: (options?: { threadId?: string | null }) => void;
+  stopGenerateMessage: (options?: { threadId?: string | null }) => Promise<void>;
 
   // =========  ↓ Internal Method ↓  ========== //
   // ========================================== //
@@ -282,7 +282,7 @@ export const generateAIChat: StateCreator<
       onlyAddUserMessage,
     });
   },
-  stopGenerateMessage: (options) => {
+  stopGenerateMessage: async (options) => {
     // abort only a pre-send compaction registered for the CURRENT conversation AND the same
     // thread context that started it. A Stop from another session/topic uses a different key;
     // a Stop from a thread portal (threadId set) shares the conversation key but must not kill
@@ -294,7 +294,7 @@ export const generateAIChat: StateCreator<
       preSendCompaction.abortController.abort(MESSAGE_CANCEL_FLAT);
     }
 
-    get().stopDurableConversationGeneration(options);
+    await get().stopDurableConversationGeneration(options);
 
     const { chatLoadingIdsAbortController, internal_toggleChatLoading } = get();
 

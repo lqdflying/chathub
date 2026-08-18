@@ -81,6 +81,7 @@ describe('conversationGeneration store actions', () => {
       useChatStore.getState().serverGenerationOperations[key]['cgo_one'].assistantMessageId,
     ).toBe('assistant-2');
     expect(useChatStore.getState().chatLoadingIds).toEqual(['assistant-2']);
+    expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
   });
 
   it('clears supervisor loading and detaches on done', () => {
@@ -481,5 +482,82 @@ describe('conversationGeneration store actions', () => {
       ].cgo_portal,
     ).toMatchObject({ threadId: 'thread-1' });
     expect(toggleSupervisor).toHaveBeenCalledWith(true, 'group-1');
+  });
+
+  it('does not detach a send that started after stop collected its targets', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(conversationGenerationService, 'cancel').mockImplementation(async (id) => {
+      if (id === 'cgo_old') await gate;
+      return {} as any;
+    });
+    const { result } = renderHook(() => useChatStore());
+
+    await act(async () => {
+      result.current.attachConversationGeneration({
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-old',
+        operationId: 'cgo_old',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    let stopPromise: Promise<void> = Promise.resolve();
+    await act(async () => {
+      stopPromise = result.current.cancelAndDetachDurableOps();
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-new',
+        operationId: 'cgo_new',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      release();
+      await stopPromise;
+    });
+
+    const ops =
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ];
+    expect(ops['cgo_new']?.operationId).toBe('cgo_new');
+    expect(ops['cgo_old']).toBeUndefined();
+  });
+
+  it('does not cancel a topic title when Stop uses the default chat family', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const { result } = renderHook(() => useChatStore());
+    await act(async () => {
+      result.current.attachConversationGeneration({
+        generation: 0,
+        kind: 'topic_title',
+        lane: 'lane-title',
+        operationId: 'cgo_title',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.attachConversationGeneration({
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-chat',
+        operationId: 'cgo_chat',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      await result.current.stopDurableConversationGeneration();
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_chat');
+    expect(cancel).not.toHaveBeenCalledWith('cgo_title');
   });
 });

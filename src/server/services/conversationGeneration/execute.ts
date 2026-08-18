@@ -49,10 +49,12 @@ import {
   CONVERSATION_GENERATION_HEARTBEAT_MS,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
   CONVERSATION_GENERATION_MAX_TOOL_TURNS,
+  CONVERSATION_GENERATION_STALE_PROCESSING_MS,
 } from './constants';
 import { loadConversationRuntimeState, resolveConversationRuntimePayload } from './credentials';
 import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
+import { loadConversationThreadMessages } from './threadScope';
 import { executeConversationToolStep } from './tools';
 
 export const shouldCreateToolContinuation = (remainingTurns: number, shouldContinue: boolean) =>
@@ -102,6 +104,13 @@ export const executeConversationGeneration = async ({
       isActiveConversationGenerationStatus(current.status)
     ) {
       await finalize(model, current, 'cancelled');
+      return;
+    }
+    if (current?.status === 'processing') {
+      const heartbeatAt = current.heartbeatAt ? new Date(current.heartbeatAt).getTime() : 0;
+      if (!heartbeatAt || Date.now() - heartbeatAt >= CONVERSATION_GENERATION_STALE_PROCESSING_MS) {
+        throw new Error('Stale conversation generation is still marked processing.');
+      }
     }
     return;
   }
@@ -113,7 +122,7 @@ export const executeConversationGeneration = async ({
       laneGeneration: claimed.laneGeneration ?? 1,
     })
   ) {
-    await finalizeIfStopped(model, claimed, 'superseded');
+    await finalizeIfStopped(model, claimed, 'superseded', db);
     return;
   }
 
@@ -131,6 +140,9 @@ export const executeConversationGeneration = async ({
           error: error instanceof Error ? error.message : String(error),
           operationId: claimed.id,
         });
+        if (!runAbortController.signal.aborted) {
+          runAbortController.abort('heartbeat_lost');
+        }
       });
   }, CONVERSATION_GENERATION_HEARTBEAT_MS);
   heartbeatTimer.unref?.();
@@ -138,19 +150,19 @@ export const executeConversationGeneration = async ({
   try {
     switch (claimed.kind) {
       case 'topic_title': {
-        await executeTitle(db, claimed);
+        await executeTitle(db, claimed, { runSignal: runAbortController.signal });
         break;
       }
       case 'translation': {
-        await executeTranslation(db, claimed);
+        await executeTranslation(db, claimed, { runSignal: runAbortController.signal });
         break;
       }
       case 'tts': {
-        await executeTts(db, claimed);
+        await executeTts(db, claimed, { runSignal: runAbortController.signal });
         break;
       }
       case 'memory_compaction': {
-        await executeCompaction(db, claimed);
+        await executeCompaction(db, claimed, { runSignal: runAbortController.signal });
         break;
       }
       case 'rag': {
@@ -173,7 +185,7 @@ export const executeConversationGeneration = async ({
       runAbortController.signal,
     );
     if (stopReason) {
-      await finalizeIfStopped(model, claimed, stopReason);
+      await finalizeIfStopped(model, claimed, stopReason, db);
       if (stopReason === 'retrying') throw error;
       return;
     }
@@ -181,6 +193,7 @@ export const executeConversationGeneration = async ({
     const normalizedError = toError(error);
     if (error instanceof ConversationWriteRejectedError) {
       await finalize(model, claimed, 'interrupted', normalizedError);
+      await clearAssistantPlaceholder(db, claimed, normalizedError);
       return;
     }
 
@@ -202,6 +215,7 @@ export const executeConversationGeneration = async ({
     }
 
     await finalize(model, claimed, 'failed', normalizedError);
+    await clearAssistantPlaceholder(db, claimed, normalizedError);
   } finally {
     clearInterval(heartbeatTimer);
   }
@@ -307,14 +321,43 @@ const shouldStopGeneration = async (
   ) {
     return 'superseded';
   }
-  if (signal?.aborted) return 'cancelled';
+  if (signal?.aborted) {
+    const reason = signal.reason;
+    if (reason === 'heartbeat_lost' || reason === 'retrying') return 'retrying';
+    if (
+      reason === 'cancelled' ||
+      reason === 'conversation_cleared' ||
+      reason === 'superseded' ||
+      reason === 'terminal'
+    ) {
+      return reason;
+    }
+    return 'cancelled';
+  }
   return null;
+};
+
+const clearAssistantPlaceholder = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  error?: ConversationGenerationError,
+) => {
+  if (!operation.assistantMessageId) return;
+  const messageModel = new MessageModel(db, operation.userId);
+  const current = await messageModel.findById(operation.assistantMessageId);
+  if (!current) return;
+  if (current.content !== LOADING_FLAT && !error) return;
+  await messageModel.update(operation.assistantMessageId, {
+    ...(current.content === LOADING_FLAT ? { content: '' } : {}),
+    ...(error ? { error: error as any } : {}),
+  });
 };
 
 const finalizeIfStopped = async (
   model: ConversationGenerationModel,
   operation: ConversationGenerationOperation,
   reason: ConversationGenerationStopReason,
+  db?: LobeChatDatabase,
 ) => {
   if (reason === 'terminal' || reason === 'retrying') return;
   if (reason === 'conversation_cleared') {
@@ -322,19 +365,49 @@ const finalizeIfStopped = async (
       message: 'Conversation history was cleared before generation finished.',
       type: 'ConversationCleared',
     });
+    if (db) {
+      await clearAssistantPlaceholder(db, operation, {
+        message: 'Conversation history was cleared before generation finished.',
+        type: 'ConversationCleared',
+      });
+    }
     return;
   }
-  await finalize(
-    model,
-    operation,
-    'cancelled',
+  const error =
     reason === 'superseded'
       ? {
           message: 'Generation was replaced by a newer request.',
           type: 'Superseded',
         }
-      : undefined,
-  );
+      : undefined;
+  await finalize(model, operation, 'cancelled', error);
+  if (db) await clearAssistantPlaceholder(db, operation, error);
+};
+
+const finalizeUnlessStopped = async (
+  db: LobeChatDatabase,
+  model: ConversationGenerationModel,
+  operation: ConversationGenerationOperation,
+  signal?: AbortSignal,
+  skipFinalize?: boolean,
+) => {
+  const stopReason = await shouldStopGeneration(db, model, operation, signal);
+  if (stopReason) {
+    if (!skipFinalize) await finalizeIfStopped(model, operation, stopReason, db);
+    return stopReason;
+  }
+  if (!skipFinalize) await finalize(model, operation, 'succeeded');
+  return null;
+};
+
+const loadScopedMessages = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  params: { groupId?: string; sessionId?: string; topicId?: string },
+) => {
+  const aiChat = new AiChatService(db, operation.userId);
+  const { messages } = await aiChat.getMessagesAndTopics(params);
+  return loadConversationThreadMessages(db, operation.userId, messages, operation.threadId);
 };
 
 const loadGeneralInstruction = async (db: LobeChatDatabase, userId: string) => {
@@ -355,7 +428,6 @@ const executeChat = async (
 ): Promise<ConversationExecutionOutcome> => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const messageModel = new MessageModel(db, operation.userId);
-  const aiChat = new AiChatService(db, operation.userId);
   const version = await getConversationVersion(db, operation.userId);
   if (
     operation.conversationVersion !== undefined &&
@@ -373,7 +445,7 @@ const executeChat = async (
   await updateOperation(model, operation, { phase: 'model' });
   await emit(model, operation, 'status', { phase: 'model', status: 'processing' });
 
-  const { messages } = await aiChat.getMessagesAndTopics({
+  const messages = await loadScopedMessages(db, operation, {
     groupId: operation.groupId ?? undefined,
     sessionId: operation.sessionId ?? undefined,
     topicId: operation.topicId ?? undefined,
@@ -395,6 +467,7 @@ const executeChat = async (
     userId: operation.userId,
   });
   const generalInstruction = await loadGeneralInstruction(db, operation.userId);
+  let activatedSkillIds = [...(operation.config.activatedSkillIds || [])];
 
   let workingMessages = messages.filter(
     (item) => item.id !== assistantId || item.content !== LOADING_FLAT,
@@ -414,6 +487,7 @@ const executeChat = async (
     },
     config: {
       ...operation.config,
+      activatedSkillIds,
       plugins: operation.config.plugins || agent?.plugins || undefined,
       systemRole: operation.config.systemRole || agent?.systemRole || undefined,
     },
@@ -496,7 +570,7 @@ const executeChat = async (
     for (;;) {
       const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
       if (stopReason) {
-        if (!options?.skipFinalize) await finalizeIfStopped(model, operation, stopReason);
+        if (!options?.skipFinalize) await finalizeIfStopped(model, operation, stopReason, db);
         return outcomeFromStopReason(stopReason);
       }
 
@@ -524,7 +598,7 @@ const executeChat = async (
       );
       if (postStreamStopReason) {
         if (!options?.skipFinalize) {
-          await finalizeIfStopped(model, operation, postStreamStopReason);
+          await finalizeIfStopped(model, operation, postStreamStopReason, db);
         }
         return outcomeFromStopReason(postStreamStopReason);
       }
@@ -542,10 +616,22 @@ const executeChat = async (
       content = result.content;
       reasoning = result.reasoning;
       await flush(true);
+      if (result.grounding || result.usage) {
+        await messageModel.update(assistantId, {
+          content,
+          reasoning: reasoning ?? undefined,
+          ...(result.grounding ? { search: result.grounding as any } : {}),
+          ...(result.usage ? { metadata: { usage: result.usage } } : {}),
+        });
+      }
 
       if (!result.toolCalls?.length) break;
 
       await updateOperation(model, operation, { phase: 'tools' });
+      await emit(model, operation, 'snapshot', {
+        assistantMessageId: assistantId,
+        phase: 'tools',
+      });
       const tools = result.toolCalls.map((item) => ({
         apiName: item.function?.name?.split('____')[1] || item.function?.name,
         arguments: item.function?.arguments,
@@ -569,7 +655,7 @@ const executeChat = async (
           abortController.signal,
         );
         if (toolStopReason) {
-          if (!options?.skipFinalize) await finalizeIfStopped(model, operation, toolStopReason);
+          if (!options?.skipFinalize) await finalizeIfStopped(model, operation, toolStopReason, db);
           return outcomeFromStopReason(toolStopReason);
         }
 
@@ -599,6 +685,11 @@ const executeChat = async (
           }
         }
         shouldContinue = shouldContinue && invocation.shouldContinue;
+        const activated = (invocation.metadata?.skills as { activated?: string[] } | undefined)
+          ?.activated;
+        if (Array.isArray(activated)) {
+          activatedSkillIds = [...new Set([...activatedSkillIds, ...activated])];
+        }
       }
 
       if (!shouldCreateToolContinuation(remainingTurns, shouldContinue)) break;
@@ -624,7 +715,7 @@ const executeChat = async (
         phase: 'model',
       });
 
-      const { messages: latest } = await aiChat.getMessagesAndTopics({
+      const latest = await loadScopedMessages(db, operation, {
         groupId: operation.groupId ?? undefined,
         sessionId: operation.sessionId ?? undefined,
         topicId: operation.topicId ?? undefined,
@@ -639,6 +730,7 @@ const executeChat = async (
         },
         config: {
           ...operation.config,
+          activatedSkillIds,
           plugins: operation.config.plugins || agent?.plugins || undefined,
           systemRole: operation.config.systemRole || agent?.systemRole || undefined,
         },
@@ -660,7 +752,18 @@ const executeChat = async (
     }
 
     if (operation.config.title?.topicId) {
-      await executeTitle(db, operation, { skipFinalize: true });
+      const titleStopReason = await shouldStopGeneration(
+        db,
+        model,
+        operation,
+        abortController.signal,
+      );
+      if (!titleStopReason) {
+        await executeTitle(db, operation, {
+          runSignal: abortController.signal,
+          skipFinalize: true,
+        });
+      }
     }
 
     const finalStopReason = await shouldStopGeneration(
@@ -670,7 +773,7 @@ const executeChat = async (
       abortController.signal,
     );
     if (finalStopReason) {
-      if (!options?.skipFinalize) await finalizeIfStopped(model, operation, finalStopReason);
+      if (!options?.skipFinalize) await finalizeIfStopped(model, operation, finalStopReason, db);
       return outcomeFromStopReason(finalStopReason);
     }
 
@@ -722,6 +825,7 @@ const runSimpleCompletion = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
   payload: Record<string, unknown>,
+  signal?: AbortSignal,
 ) => {
   const runtimePayload = await resolveConversationRuntimePayload({
     db,
@@ -729,11 +833,14 @@ const runSimpleCompletion = async (
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
-  const response = await runtime.chat({
-    ...payload,
-    model: operation.config.model,
-    stream: true,
-  } as any);
+  const response = await runtime.chat(
+    {
+      ...payload,
+      model: operation.config.model,
+      stream: true,
+    } as any,
+    signal ? { signal } : undefined,
+  );
   const result = await consumeProtocolResponse(response);
   if (result.error) throw new Error(result.error.message);
   return result.content.trim();
@@ -742,14 +849,14 @@ const runSimpleCompletion = async (
 const executeTitle = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
-  options?: { skipFinalize?: boolean },
+  options?: { runSignal?: AbortSignal; skipFinalize?: boolean },
 ) => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const topicId =
     operation.config.title?.topicId ||
     (operation.kind === 'topic_title' ? operation.topicId : undefined);
   if (!topicId) {
-    if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
+    await finalizeUnlessStopped(db, model, operation, options?.runSignal, options?.skipFinalize);
     return;
   }
   const topicModel = new TopicModel(db, operation.userId);
@@ -761,28 +868,38 @@ const executeTitle = async (
       title: topic?.title,
     })
   ) {
-    if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
+    await finalizeUnlessStopped(db, model, operation, options?.runSignal, options?.skipFinalize);
+    return;
+  }
+  const stopBefore = await shouldStopGeneration(db, model, operation, options?.runSignal);
+  if (stopBefore) {
+    if (!options?.skipFinalize) await finalizeIfStopped(model, operation, stopBefore, db);
     return;
   }
   await updateOperation(model, operation, { phase: 'title' });
-  const aiChat = new AiChatService(db, operation.userId);
-  const { messages } = await aiChat.getMessagesAndTopics({
+  const messages = await loadScopedMessages(db, operation, {
     groupId: operation.groupId ?? undefined,
     sessionId: operation.sessionId ?? undefined,
     topicId,
   });
   const payload = chainSummaryTitle(messages, operation.config.locale || 'en-US');
-  const title = await runSimpleCompletion(db, operation, payload);
+  const title = await runSimpleCompletion(db, operation, payload, options?.runSignal);
+  const stopAfter = await shouldStopGeneration(db, model, operation, options?.runSignal);
+  if (stopAfter) {
+    if (!options?.skipFinalize) await finalizeIfStopped(model, operation, stopAfter, db);
+    return;
+  }
   if (title) {
     await topicModel.update(topicId, { title: title.slice(0, 120) });
     await emit(model, operation, 'snapshot', { title, topicId });
   }
-  if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
+  await finalizeUnlessStopped(db, model, operation, options?.runSignal, options?.skipFinalize);
 };
 
 const executeTranslation = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
+  options?: { runSignal?: AbortSignal },
 ) => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const translation = operation.config.translation;
@@ -805,12 +922,18 @@ const executeTranslation = async (
   }
   const from =
     translation.from ||
-    (await runSimpleCompletion(db, operation, chainLangDetect(message.content)));
+    (await runSimpleCompletion(db, operation, chainLangDetect(message.content), options?.runSignal));
   const content = await runSimpleCompletion(
     db,
     operation,
     chainTranslate(message.content, translation.to),
+    options?.runSignal,
   );
+  const stopReason = await shouldStopGeneration(db, model, operation, options?.runSignal);
+  if (stopReason) {
+    await finalizeIfStopped(model, operation, stopReason, db);
+    return;
+  }
   await messageModel.updateTranslate(translation.messageId, {
     content,
     from,
@@ -820,10 +943,14 @@ const executeTranslation = async (
     messageId: translation.messageId,
     translate: { content, from, to: translation.to },
   });
-  await finalize(model, operation, 'succeeded');
+  await finalizeUnlessStopped(db, model, operation, options?.runSignal);
 };
 
-const executeTts = async (db: LobeChatDatabase, operation: ConversationGenerationOperation) => {
+const executeTts = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  options?: { runSignal?: AbortSignal },
+) => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const tts = operation.config.tts;
   if (!tts) {
@@ -840,12 +967,13 @@ const executeTts = async (db: LobeChatDatabase, operation: ConversationGeneratio
     voice: tts.voice,
   });
   await emit(model, operation, 'snapshot', { messageId: tts.messageId, tts });
-  await finalize(model, operation, 'succeeded');
+  await finalizeUnlessStopped(db, model, operation, options?.runSignal);
 };
 
 const executeCompaction = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
+  options?: { runSignal?: AbortSignal },
 ) => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const compaction = operation.config.compaction;
@@ -885,11 +1013,16 @@ const executeCompaction = async (
 
   let historySummary = operation.config.historySummary || '';
   for (const batch of splitCompactionBatches(candidateMessages)) {
-    historySummary = await runSimpleCompletion(db, operation, {
-      ...chainSummaryHistory(batch, historySummary || undefined),
-      max_tokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
-      stream: false,
-    });
+    historySummary = await runSimpleCompletion(
+      db,
+      operation,
+      {
+        ...chainSummaryHistory(batch, historySummary || undefined),
+        max_tokens: CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
+        stream: false,
+      },
+      options?.runSignal,
+    );
     if (!historySummary) {
       throw new Error('Memory compaction returned an empty summary.');
     }
@@ -969,7 +1102,7 @@ const executeCompaction = async (
     status: persisted.status,
     topicId: operation.topicId,
   });
-  await finalize(model, operation, 'succeeded');
+  await finalizeUnlessStopped(db, model, operation, options?.runSignal);
 };
 
 const executeRag = async (db: LobeChatDatabase, operation: ConversationGenerationOperation) => {
@@ -1060,8 +1193,7 @@ const executeSupervisor = async (
     title?: string | null;
   }>;
 
-  const aiChat = new AiChatService(db, operation.userId);
-  const { messages } = await aiChat.getMessagesAndTopics({
+  const messages = await loadScopedMessages(db, operation, {
     groupId,
     topicId: operation.topicId ?? undefined,
   });
@@ -1076,16 +1208,24 @@ const executeSupervisor = async (
   });
 
   await updateOperation(model, operation, { phase: 'model' });
+  const stopBefore = await shouldStopGeneration(db, model, operation, options?.runSignal);
+  if (stopBefore) {
+    await finalizeIfStopped(model, operation, stopBefore, db);
+    return;
+  }
   const runtimePayload = await resolveConversationRuntimePayload({
     db,
     provider: operation.config.provider,
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
-  const supervisorResponse = await runtime.generateObject({
-    ...payload,
-    model: operation.config.model,
-  } as any);
+  const supervisorResponse = await runtime.generateObject(
+    {
+      ...payload,
+      model: operation.config.model,
+    } as any,
+    options?.runSignal ? { signal: options.runSignal } : undefined,
+  );
 
   const decisions: Array<{ id: string; instruction?: string; target?: string }> = [];
   for (const call of normalizeSupervisorToolCalls(supervisorResponse)) {
@@ -1116,7 +1256,7 @@ const executeSupervisor = async (
   }
 
   if (decisions.length === 0) {
-    await finalize(model, operation, 'succeeded');
+    await finalizeUnlessStopped(db, model, operation, options?.runSignal);
     return;
   }
 
@@ -1127,7 +1267,7 @@ const executeSupervisor = async (
   for (const decision of decisions) {
     const stopReason = await shouldStopGeneration(db, model, operation, options?.runSignal);
     if (stopReason) {
-      await finalizeIfStopped(model, operation, stopReason);
+      await finalizeIfStopped(model, operation, stopReason, db);
       return;
     }
     const agent = availableAgents.find((item) => item.id === decision.id);

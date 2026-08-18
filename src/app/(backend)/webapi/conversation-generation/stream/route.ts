@@ -63,7 +63,7 @@ export const GET = async (req: NextRequest) => {
       };
 
       let inFlight = false;
-      const timer = setInterval(async () => {
+      const poll = async () => {
         if (closed || req.signal.aborted) {
           close();
           return;
@@ -108,7 +108,11 @@ export const GET = async (req: NextRequest) => {
         } finally {
           inFlight = false;
         }
+      };
+      const timer = setInterval(() => {
+        void poll();
       }, 750);
+      void poll();
 
       req.signal.addEventListener('abort', close);
     },

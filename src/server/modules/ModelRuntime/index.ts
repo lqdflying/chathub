@@ -62,8 +62,23 @@ export const getModelRuntimeParamsFromPayload = (
         payload?.baseURL ||
         llmConfig[`${originalUpper}_PROXY_URL`] ||
         process.env[`${originalUpper}_PROXY_URL`];
+      const accessKeyId =
+        payload?.awsAccessKeyId || (payload as { accessKeyId?: string }).accessKeyId;
+      const accessKeySecret =
+        payload?.awsSecretAccessKey || (payload as { accessKeySecret?: string }).accessKeySecret;
+      const region = payload?.awsRegion || (payload as { region?: string }).region;
+      const sessionToken =
+        payload?.awsSessionToken || (payload as { sessionToken?: string }).sessionToken;
 
-      return baseURL ? { apiKey, baseURL } : { apiKey };
+      return {
+        ...(baseURL ? { apiKey, baseURL } : { apiKey }),
+        ...(accessKeyId || accessKeySecret || region
+          ? { accessKeyId, accessKeySecret, region, sessionToken }
+          : {}),
+        ...(payload?.cloudflareBaseURLOrAccountID
+          ? { baseURLOrAccountID: payload.cloudflareBaseURLOrAccountID }
+          : {}),
+      };
     }
   }
 };

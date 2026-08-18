@@ -262,6 +262,13 @@ export const getConversationGenerationLaneFamily = (
   kind: ConversationGenerationKind = 'chat',
 ) => ConversationGenerationLaneFamilies[kind];
 
+export const ConversationGenerationChatFamilyKinds = ConversationGenerationKinds.filter(
+  (kind) => ConversationGenerationLaneFamilies[kind] === 'chat',
+) as ConversationGenerationKind[];
+
+export const isConversationGenerationChatFamilyKind = (kind: ConversationGenerationKind) =>
+  ConversationGenerationLaneFamilies[kind] === 'chat';
+
 export const buildConversationGenerationLane = (params: {
   groupId?: string | null;
   kind?: ConversationGenerationKind;

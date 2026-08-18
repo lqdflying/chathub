@@ -4,7 +4,6 @@ import type {
   ConversationGenerationOperation,
   ConversationGenerationStreamEvent,
 } from '@lobechat/types';
-import { isActiveConversationGenerationStatus as isActiveStatus } from '@lobechat/types';
 import { TRPCClientError } from '@trpc/client';
 
 import { CHATHUB_ACCOUNT_SCOPE_HEADER } from '@/const/auth';
@@ -28,26 +27,6 @@ const parseSseBlocks = (chunk: string) => {
     if (parsed.event || parsed.data) events.push(parsed);
   }
   return events;
-};
-
-const matchesEnqueueInput = (
-  operation: ConversationGenerationOperation,
-  input: ConversationGenerationEnqueueInput,
-) => {
-  if (input.groupId) {
-    return (
-      operation.groupId === input.groupId &&
-      operation.topicId === (input.topicId ?? null) &&
-      (operation.threadId ?? null) === (input.threadId ?? null)
-    );
-  }
-
-  return (
-    operation.sessionId === (input.sessionId ?? null) &&
-    operation.topicId === (input.topicId ?? null) &&
-    (operation.threadId ?? null) === (input.threadId ?? null) &&
-    operation.groupId == null
-  );
 };
 
 class ConversationGenerationClient {
@@ -146,26 +125,36 @@ class ConversationGenerationClient {
 
 export const conversationGenerationService = new ConversationGenerationClient();
 
-const isFatalEnqueueError = (error: unknown) => {
+const isNonRecoverableEnqueueError = (error: unknown) => {
   if (error instanceof TRPCClientError) {
     const code = (error.data as { code?: string } | undefined)?.code;
-    if (code === 'PRECONDITION_FAILED') return true;
+    if (
+      code === 'PRECONDITION_FAILED' ||
+      code === 'UNPROCESSABLE_CONTENT' ||
+      code === 'FORBIDDEN' ||
+      code === 'UNAUTHORIZED'
+    ) {
+      return true;
+    }
   }
   const message = error instanceof Error ? error.message : String(error);
   return (
     message.includes('Durable background generation requires a provider API key') ||
-    message.includes('No server-reachable credentials were found')
+    message.includes('No server-reachable credentials were found') ||
+    message.includes('Durable generation deferred to the browser') ||
+    message.includes('Durable conversation generation is disabled')
   );
 };
 
-const recoverActiveOperation = async (input: ConversationGenerationEnqueueInput) => {
-  const active = (await conversationGenerationService.listActive()) as ConversationGenerationOperation[];
-  return active.find(
-    (operation) =>
-      isActiveStatus(operation.status) &&
-      operation.kind === input.kind &&
-      matchesEnqueueInput(operation, input),
-  );
+const recoverByIdempotencyKey = async (input: ConversationGenerationEnqueueInput) => {
+  if (!input.idempotencyKey) return;
+  try {
+    return (await conversationGenerationService.getOperationByIdempotencyKey(
+      input.idempotencyKey,
+    )) as ConversationGenerationOperation | undefined;
+  } catch {
+    return;
+  }
 };
 
 export const tryEnqueueConversationGeneration = async (
@@ -174,7 +163,7 @@ export const tryEnqueueConversationGeneration = async (
   try {
     return (await conversationGenerationService.enqueue(input)) as ConversationGenerationOperation;
   } catch (error) {
-    if (isFatalEnqueueError(error)) throw error;
-    return recoverActiveOperation(input);
+    if (isNonRecoverableEnqueueError(error)) return undefined;
+    return recoverByIdempotencyKey(input);
   }
 };

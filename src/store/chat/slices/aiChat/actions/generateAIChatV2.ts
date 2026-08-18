@@ -8,6 +8,7 @@ import {
   ChatVideoItem,
   buildConversationGenerationLane,
   ContextExportRequestContext,
+  isConversationGenerationChatFamilyKind,
   type KnowledgeBaseClientPreparationFailurePhase,
   MessageSemanticSearchChunk,
   SendMessageParams,
@@ -271,7 +272,10 @@ export const generateAIChatV2: StateCreator<
       topicSummary: activeTopic?.historySummary,
     });
     const generation =
-      isClientDurableConversationGenerationEnabled() && model && provider
+      isClientDurableConversationGenerationEnabled() &&
+      model &&
+      provider &&
+      get().contextExportCaptureStatus !== 'armed'
         ? {
             config: buildDurableConversationConfig({
               activatedSkillIds,
@@ -481,7 +485,6 @@ export const generateAIChatV2: StateCreator<
         topicId: data.topicId,
         userScope: requestedScope,
       });
-      summaryTitle().catch(console.error);
       await get().reconcileConversationGeneration(data.operationId).catch(console.error);
       const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
       await getAgentStoreState().addFilesToAgent(userFiles, false);
@@ -491,7 +494,8 @@ export const generateAIChatV2: StateCreator<
     if (isClientDurableConversationGenerationEnabled() && model && provider) {
       await get().syncActiveConversationGenerations();
       const durableKey = messageMapKey(conversationContext.sessionId, data.topicId);
-      if (Object.keys(get().serverGenerationOperations[durableKey] || {}).length > 0) {
+      const attached = Object.values(get().serverGenerationOperations[durableKey] || {});
+      if (attached.some((operation) => isConversationGenerationChatFamilyKind(operation.kind))) {
         const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
         await getAgentStoreState().addFilesToAgent(userFiles, false);
         return;

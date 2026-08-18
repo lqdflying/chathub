@@ -1,4 +1,5 @@
 import { ConversationGenerationEnqueueSchema } from '@lobechat/types';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 import { authedProcedure, router } from '@/libs/trpc/lambda';
@@ -17,7 +18,10 @@ const conversationGenerationProcedure = authedProcedure.use(serverDatabase).use(
 
 const assertEnabled = async (userId: string) => {
   if (!(await isDurableConversationGenerationEnabled(userId))) {
-    throw new Error('Durable conversation generation is disabled.');
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'Durable conversation generation is disabled.',
+    });
   }
 };
 

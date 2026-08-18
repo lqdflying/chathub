@@ -290,7 +290,10 @@ export class ConversationGenerationModel {
         and(
           eq(conversationGenerationOperations.id, id),
           eq(conversationGenerationOperations.userId, this.userId),
-          inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+          inArray(
+            conversationGenerationOperations.status,
+            status === 'cancelled' ? ACTIVE_STATUSES : BLOCKING_STATUSES,
+          ),
           guard?.attempt === undefined
             ? undefined
             : eq(conversationGenerationOperations.attempt, guard.attempt),
@@ -465,7 +468,7 @@ export class ConversationGenerationModel {
           status: 'processing',
           updatedAt: now,
         },
-        setWhere: sql`${conversationGenerationSteps.status} is distinct from 'succeeded'`,
+        setWhere: sql`${conversationGenerationSteps.status} is distinct from 'succeeded' AND (${conversationGenerationSteps.status} is distinct from 'processing' OR ${conversationGenerationSteps.startedAt} < now() - interval '90 seconds')`,
         target: [conversationGenerationSteps.operationId, conversationGenerationSteps.inputHash],
       })
       .returning();

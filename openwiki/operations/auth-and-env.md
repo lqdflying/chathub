@@ -387,7 +387,10 @@ CONVERSATION_WORKER_CONCURRENCY=4
 # DISABLE_CONVERSATION_WORKER=1
 ```
 
-Jobs are stored in PostgreSQL through Graphile Worker. Details:
+Jobs are stored in PostgreSQL through Graphile Worker. Missing server
+credentials fall back to the connected-tab runtime after the user message is
+saved. JSON account backup does not include `conversation_generation_*` or
+`graphile_worker`. Details:
 [Durable conversation generation](../architecture/durable-conversation-generation.md).
 
 ## Change guidance

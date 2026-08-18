@@ -68,9 +68,39 @@ describe('ConversationGenerationModel compare-and-set guards', () => {
     expect(onConflictDoUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         set: expect.objectContaining({ status: 'processing' }),
-        setWhere: sql`${conversationGenerationSteps.status} is distinct from 'succeeded'`,
+        setWhere: sql`${conversationGenerationSteps.status} is distinct from 'succeeded' AND (${conversationGenerationSteps.status} is distinct from 'processing' OR ${conversationGenerationSteps.startedAt} < now() - interval '90 seconds')`,
       }),
     );
     expect(findFirst).toHaveBeenCalled();
+  });
+
+  it('does not finalize cancelling operations as succeeded', async () => {
+    const { db, returning, where } = createUpdateDb();
+    returning.mockResolvedValue([]);
+    const model = new ConversationGenerationModel(db as any, 'user-1');
+
+    await expect(model.finalizeActive('cgo_cancelling', 'succeeded')).resolves.toBeUndefined();
+
+    const texts: string[] = [];
+    const seen = new WeakSet<object>();
+    const walk = (node: unknown) => {
+      if (node == null) return;
+      if (typeof node === 'string') {
+        texts.push(node);
+        return;
+      }
+      if (typeof node !== 'object') return;
+      if (seen.has(node)) return;
+      seen.add(node);
+      if (Array.isArray(node)) {
+        for (const item of node) walk(item);
+        return;
+      }
+      for (const value of Object.values(node)) walk(value);
+    };
+    walk(where.mock.calls[0]?.[0]);
+
+    expect(texts).toEqual(expect.arrayContaining(['pending', 'processing']));
+    expect(texts).not.toContain('cancelling');
   });
 });

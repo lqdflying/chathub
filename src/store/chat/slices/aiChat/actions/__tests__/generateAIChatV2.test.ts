@@ -474,7 +474,7 @@ describe('generateAIChatV2 actions', () => {
         );
       });
 
-      it('still auto-titles a new topic after durable send', async () => {
+      it('lets the server generate the topic title after a durable send', async () => {
         vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
         vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
           () => () => false,
@@ -512,10 +512,7 @@ describe('generateAIChatV2 actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(summaryTopicTitle).toHaveBeenCalledWith(
-          TEST_IDS.NEW_TOPIC_ID,
-          expect.any(Array),
-        );
+        expect(summaryTopicTitle).not.toHaveBeenCalled();
         expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
 
@@ -534,6 +531,50 @@ describe('generateAIChatV2 actions', () => {
 
         expect(syncActive).toHaveBeenCalled();
         expect(aiChatService.createAssistantMessageInServer).toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+      });
+
+      it('does not skip the browser runtime when only a title job is attached', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        const syncActive = vi.fn(async () => {
+          useChatStore.getState().attachConversationGeneration({
+            generation: 0,
+            kind: 'topic_title',
+            lane: 'lane-title',
+            operationId: 'cgo_title',
+            sessionId: TEST_IDS.SESSION_ID,
+            topicId: TEST_IDS.TOPIC_ID,
+            userScope: 'current',
+          });
+        });
+        useChatStore.setState({ syncActiveConversationGenerations: syncActive });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+      });
+
+      it('omits durable enqueue when Context Export is armed', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        act(() => {
+          useChatStore.setState({ contextExportCaptureStatus: 'armed' });
+        });
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect((aiChatService.sendMessageInServer as Mock).mock.calls[0][0].generation).toBeUndefined();
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 

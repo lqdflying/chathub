@@ -250,14 +250,19 @@ export const aiChatRouter = router({
             userId: ctx.userId,
           })
         : undefined;
-      const durableGeneration = unsupportedTool ? undefined : requestedDurableGeneration;
+      let durableGeneration = unsupportedTool ? undefined : requestedDurableGeneration;
       if (durableGeneration) {
-        await resolveConversationRuntimePayload({
-          db: ctx.serverDB,
-          fetchOnClient: durableGeneration.config.fetchOnClient,
-          provider: durableGeneration.config.provider,
-          userId: ctx.userId,
-        });
+        try {
+          await resolveConversationRuntimePayload({
+            db: ctx.serverDB,
+            fetchOnClient: durableGeneration.config.fetchOnClient,
+            provider: durableGeneration.config.provider,
+            userId: ctx.userId,
+          });
+        } catch (error) {
+          if (!(error instanceof TRPCError) || error.code !== 'PRECONDITION_FAILED') throw error;
+          durableGeneration = undefined;
+        }
       }
 
       const writeResult = await withConversationWriteLockOrThrow(

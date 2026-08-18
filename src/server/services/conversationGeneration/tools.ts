@@ -5,7 +5,6 @@ import type {
   ConversationGenerationError,
   UIChatMessage,
 } from '@lobechat/types';
-import { nanoid } from '@lobechat/utils';
 import { and, eq } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
 
@@ -124,6 +123,9 @@ const persistConversationToolMessage = async ({
         content: result.content,
         metadata: result.metadata,
       });
+      if (result.state && typeof result.state === 'object') {
+        await messageModel.updatePluginState(existing.id, result.state as Record<string, any>);
+      }
     }
     return existing.id;
   }
@@ -134,6 +136,10 @@ const persistConversationToolMessage = async ({
     metadata: result.metadata,
     parentId: assistantMessage.id,
     plugin: payload,
+    pluginState:
+      result.state && typeof result.state === 'object'
+        ? (result.state as Record<string, any>)
+        : undefined,
     role: 'tool',
     sessionId: assistantMessage.sessionId ?? assistantMessage.groupId ?? '',
     threadId: assistantMessage.threadId,
@@ -348,7 +354,7 @@ export const invokeConversationTool = async ({
     { auth?: any; headers?: Record<string, string>; type?: string; url?: string } | undefined;
 
   if (mcp?.type === 'http' && mcp.url) {
-    const invocationId = `mi_${inputHash.slice(0, 12)}_${attempt}_${nanoid(8)}`;
+    const invocationId = `mi_${inputHash}`;
     const existingToolMessage = await messageModel.findToolMessageByCall(
       assistantMessage.id,
       payload.id,
@@ -377,7 +383,9 @@ export const invokeConversationTool = async ({
       };
     }
 
-    const began = await messageModel.beginMCPResultInvocation(toolMessage.id, invocationId);
+    const began = await messageModel.beginMCPResultInvocation(toolMessage.id, invocationId, {
+      stalePendingMs: 90_000,
+    });
     if (!began) {
       const raced = await messageModel.recoverPersistedMCPResult(toolMessage.id);
       if (raced) {

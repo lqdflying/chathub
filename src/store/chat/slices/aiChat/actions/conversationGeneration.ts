@@ -1,4 +1,5 @@
 import {
+  ConversationGenerationChatFamilyKinds,
   isActiveConversationGenerationStatus,
   type ConversationGenerationEvent,
   type ConversationGenerationKind,
@@ -167,6 +168,13 @@ export const conversationGeneration: StateCreator<
         );
         assistantMessageId = payload.assistantMessageId as string;
       }
+      const shouldRefreshMessages =
+        Boolean(payload.assistantMessageId) ||
+        payload.phase === 'tools' ||
+        Boolean(payload.tools);
+      if (shouldRefreshMessages) {
+        void get().refreshMessages();
+      }
       if (assistantMessageId && (payload.content !== undefined || payload.reasoning)) {
         get().internal_dispatchMessage(
           {
@@ -310,7 +318,15 @@ export const conversationGeneration: StateCreator<
     await Promise.allSettled(
       operations.map((operation) => conversationGenerationService.cancel(operation.operationId)),
     );
-    get().detachDurableOps(options);
+    for (const operation of operations) {
+      if (operation.assistantMessageId) {
+        get().internal_markDurableGenerating(operation.assistantMessageId, false);
+      }
+      if (operation.groupId) {
+        get().internal_toggleSupervisorLoading(false, operation.groupId);
+      }
+      get().detachConversationGeneration(operation.operationId);
+    }
   },
 
   reconcileConversationGeneration: async (operationId) => {
@@ -331,7 +347,11 @@ export const conversationGeneration: StateCreator<
     return operation;
   },
 
-  stopDurableConversationGeneration: (options) => get().cancelAndDetachDurableOps(options),
+  stopDurableConversationGeneration: (options) =>
+    get().cancelAndDetachDurableOps({
+      ...options,
+      kind: options?.kind ?? ConversationGenerationChatFamilyKinds,
+    }),
 
   syncActiveConversationGenerations: async () => {
     const operations = (await conversationGenerationService.listActive()) as Array<

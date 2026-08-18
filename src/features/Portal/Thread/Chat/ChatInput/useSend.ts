@@ -20,7 +20,7 @@ export const useSendThreadMessage = () => {
   const portalThreadId = useChatStore((s) => s.portalThreadId);
   // scope the Stop to this thread so it can't abort the main conversation's pre-send compaction
   const stop = useCallback(
-    () => stopGenerate({ threadId: portalThreadId ?? null }),
+    () => void stopGenerate({ threadId: portalThreadId ?? null }),
     [stopGenerate, portalThreadId],
   );
   const [sendMessage, updateInputMessage] = useChatStore((s) => [

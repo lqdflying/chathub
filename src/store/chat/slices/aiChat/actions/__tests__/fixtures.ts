@@ -62,6 +62,7 @@ export const createMockStoreState = (overrides = {}) => ({
   chatLoadingIds: [],
   chatLoadingIdsAbortController: undefined,
   messagesMap: {},
+  portalThreadId: undefined,
   toolCallingStreamIds: {},
   ...overrides,
 });

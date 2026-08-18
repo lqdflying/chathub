@@ -301,6 +301,40 @@ describe('aiChatRouter', () => {
     expect(result.operationId).toBeUndefined();
   });
 
+  it('falls back to browser generation when server credentials are missing', async () => {
+    const { TRPCError } = await import('@trpc/server');
+    const { resolveConversationRuntimePayload } = await import(
+      '@/server/services/conversationGeneration/credentials'
+    );
+    vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
+    vi.mocked(resolveConversationRuntimePayload).mockRejectedValueOnce(
+      new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'No server-reachable credentials were found for provider "openai".',
+      }),
+    );
+    const mockCreateMessage = vi.fn().mockResolvedValueOnce({ id: 'message-user-new' });
+    const mockGet = vi.fn().mockResolvedValue({ messages: [], topics: [] });
+    vi.mocked(MessageModel).mockImplementation(() => ({ create: mockCreateMessage }) as any);
+    vi.mocked(AiChatService).mockImplementation(() => ({ getMessagesAndTopics: mockGet }) as any);
+
+    const caller = aiChatRouter.createCaller(mockCtx as any);
+    const result = await caller.sendMessageInServer({
+      expectedConversationVersion: 7,
+      generation: {
+        config: { fetchOnClient: true, model: 'gpt-4o', provider: 'openai' },
+        idempotencyKey: 'chat-send-browser-key',
+      },
+      newUserMessage: { content: 'hi' },
+      sessionId: 's1',
+      topicId: 't1',
+    });
+
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1);
+    expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(result.operationId).toBeUndefined();
+  });
+
   it('creates the reserved assistant placeholder after validating its parent context', async () => {
     const parentMessage = {
       id: 'm-user',

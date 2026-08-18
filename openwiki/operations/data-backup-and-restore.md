@@ -110,6 +110,9 @@ and is deliberately removed rather than guessed.
 - Vault plaintext is never added to a backup or error response.
 - Auth, OAuth, RBAC, API keys, files, binary objects, RAG data, and derived
   caches are outside this contract.
+- `conversation_generation_*` tables and Graphile’s `graphile_worker` schema
+  are also excluded from JSON backup. Restored chats do not resume in-flight
+  replies. A PostgreSQL volume backup includes those tables.
 
 ## Moving from a retired local edition
 

@@ -15,6 +15,14 @@ import { FETCH_ON_CLIENT_ERROR } from './constants';
 const firstKey = (value?: string) => value?.split(',')[0]?.trim() || undefined;
 
 const providerPayloadFromVault = (provider: string, vault: Record<string, any> = {}) => {
+  const awsAccessKeyId = vault.accessKeyId || vault.awsAccessKeyId;
+  const awsSecretAccessKey = vault.secretAccessKey || vault.awsSecretAccessKey;
+  const awsRegion = vault.region || vault.awsRegion;
+  const awsSessionToken = vault.sessionToken || vault.awsSessionToken;
+  const apiKey =
+    firstKey(vault.apiKey) ||
+    (awsSecretAccessKey && awsAccessKeyId ? `${awsSecretAccessKey}${awsAccessKeyId}` : undefined);
+
   switch (provider) {
     case ModelProvider.Azure: {
       return {
@@ -33,12 +41,37 @@ const providerPayloadFromVault = (provider: string, vault: Record<string, any> =
     }
     default: {
       return {
-        apiKey: firstKey(vault.apiKey),
-        baseURL: vault.baseURL,
+        accessKeyId: awsAccessKeyId,
+        accessKeySecret: awsSecretAccessKey,
+        apiKey,
+        authType: vault.authType || vault.authMode,
+        awsAccessKeyId,
+        awsRegion,
+        awsSecretAccessKey,
+        awsSessionToken,
+        baseURL: vault.baseURL || vault.endpoint,
+        cloudflareBaseURLOrAccountID: vault.cloudflareBaseURLOrAccountID || vault.baseURLOrAccountID,
+        customHeaders: vault.customHeaders,
+        password: vault.password,
+        region: awsRegion,
+        sessionToken: awsSessionToken,
+        username: vault.username,
+        vertexAIRegion: vault.vertexAIRegion,
       };
     }
   }
 };
+
+const payloadHasUserCredential = (payload: ClientSecretPayload) =>
+  Boolean(
+    payload.apiKey ||
+      payload.baseURL ||
+      payload.awsAccessKeyId ||
+      payload.awsSecretAccessKey ||
+      (payload as { accessKeyId?: string }).accessKeyId ||
+      payload.username ||
+      payload.cloudflareBaseURLOrAccountID,
+  );
 
 export const resolveConversationRuntimePayload = async ({
   db,
@@ -85,9 +118,7 @@ export const resolveConversationRuntimePayload = async ({
   } as ClientSecretPayload;
 
   const runtimeParams = getModelRuntimeParamsFromPayload(runtimeProvider, payload);
-  const hasCredential = Boolean(
-    payload.apiKey || payload.baseURL || runtimeParams.apiKey || runtimeParams.baseURL,
-  );
+  const hasCredential = payloadHasUserCredential(payload) || Boolean(runtimeParams.apiKey || runtimeParams.baseURL);
   if ((fetchOnClient || providerRuntime?.fetchOnClient) && !hasCredential) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',

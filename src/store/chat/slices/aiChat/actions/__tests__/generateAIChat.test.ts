@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@/const/message';
+import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
@@ -30,6 +31,58 @@ vi.mock('zustand/traditional', async (importOriginal) => await importOriginal())
 vi.mock('@/components/AntdStaticMethods', () => ({
   notification: { warning: vi.fn() },
 }));
+vi.mock('@/helpers/durableConversationGeneration', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/helpers/durableConversationGeneration')>()),
+  isClientDurableConversationGenerationEnabled: vi.fn(() => false),
+}));
+vi.mock('@/services/aiChat', () => ({
+  aiChatService: {
+    createAssistantMessageInServer: vi.fn(async (params: any) => {
+      const topicId = params.topicId ?? TEST_IDS.TOPIC_ID;
+      return {
+        messages: [
+          {
+            content: TEST_CONTENT.USER_MESSAGE,
+            id: params.parentId,
+            role: 'user',
+            sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
+            topicId,
+          } as any,
+          {
+            content: LOADING_FLAT,
+            id: params.assistantMessageId,
+            parentId: params.parentId,
+            role: 'assistant',
+            sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
+            topicId,
+          } as any,
+        ],
+      };
+    }),
+    sendMessageInServer: vi.fn(async (params: any) => {
+      const userId = TEST_IDS.USER_MESSAGE_ID;
+      const assistantId = TEST_IDS.ASSISTANT_MESSAGE_ID;
+      const topicId =
+        params.topicId ?? (params.newTopic ? TEST_IDS.NEW_TOPIC_ID : TEST_IDS.TOPIC_ID);
+      return {
+        assistantMessageId: assistantId,
+        isCreateNewTopic: Boolean(params.newTopic),
+        messages: [
+          {
+            content: params.newUserMessage?.content ?? '',
+            id: userId,
+            role: 'user',
+            sessionId: params.sessionId ?? TEST_IDS.SESSION_ID,
+            topicId,
+          } as any,
+        ],
+        topicId,
+        topics: [],
+        userMessageId: userId,
+      } as any;
+    }),
+  },
+}));
 
 const realCoreProcessMessage = useChatStore.getState().internal_coreProcessMessage;
 const realProcessAgentMessage = useChatStore.getState().internal_processAgentMessage;
@@ -54,6 +107,7 @@ beforeEach(() => {
     useSessionStore.setState({ triggerSessionUpdate: vi.fn() });
     useChatStore.setState({
       internal_coreProcessMessage: vi.fn(),
+      internal_execAgentRuntime: vi.fn(),
       internal_fetchMessages: vi.fn(),
       refreshMessages: vi.fn(() => Promise.resolve()),
       refreshThreads: vi.fn(),
@@ -83,7 +137,7 @@ describe('chatMessage actions', () => {
         });
 
         expect(messageService.createMessage).not.toHaveBeenCalled();
-        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
 
       it('should not send when message is empty and no files are provided', async () => {
@@ -130,7 +184,7 @@ describe('chatMessage actions', () => {
         });
 
         expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
       it('should skip AI processing when the compaction is aborted by stopGenerateMessage', async () => {
@@ -149,7 +203,7 @@ describe('chatMessage actions', () => {
         });
 
         expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
-        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
         expect(result.current.isCreatingMessage).toBe(false);
       });
 
@@ -191,7 +245,7 @@ describe('chatMessage actions', () => {
         });
 
         expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
       it("a thread-scoped stop does not abort the main conversation's compaction", async () => {
@@ -211,7 +265,7 @@ describe('chatMessage actions', () => {
         });
 
         expect(compactionSpy).toHaveBeenCalledWith(expect.any(AbortController));
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
     });
 
@@ -223,18 +277,21 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(messageService.createMessage).toHaveBeenCalledWith(
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           {
-            content: TEST_CONTENT.USER_MESSAGE,
-            files: undefined,
-            role: 'user',
+            expectedConversationVersion: 7,
+            newTopic: undefined,
+            newUserMessage: {
+              content: TEST_CONTENT.USER_MESSAGE,
+              files: undefined,
+            },
             sessionId: TEST_IDS.SESSION_ID,
             threadId: undefined,
             topicId: TEST_IDS.TOPIC_ID,
           },
-          { expectedConversationVersion: 7 },
+          expect.anything(),
         );
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
       it('persists deduplicated activated skill metadata on the user message', async () => {
@@ -247,11 +304,13 @@ describe('chatMessage actions', () => {
           });
         });
 
-        expect(messageService.createMessage).toHaveBeenCalledWith(
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
           expect.objectContaining({
-            metadata: { skills: { activated: ['reviewer'] } },
+            newUserMessage: expect.objectContaining({
+              metadata: { skills: { activated: ['reviewer'] } },
+            }),
           }),
-          { expectedConversationVersion: 7 },
+          expect.anything(),
         );
       });
 
@@ -263,16 +322,14 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ files, message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(messageService.createMessage).toHaveBeenCalledWith(
-          {
-            content: TEST_CONTENT.USER_MESSAGE,
-            files: [TEST_IDS.FILE_ID],
-            role: 'user',
-            sessionId: TEST_IDS.SESSION_ID,
-            threadId: undefined,
-            topicId: TEST_IDS.TOPIC_ID,
-          },
-          { expectedConversationVersion: 7 },
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            newUserMessage: {
+              content: TEST_CONTENT.USER_MESSAGE,
+              files: [TEST_IDS.FILE_ID],
+            },
+          }),
+          expect.anything(),
         );
       });
 
@@ -284,16 +341,14 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ files, message: TEST_CONTENT.EMPTY });
         });
 
-        expect(messageService.createMessage).toHaveBeenCalledWith(
-          {
-            content: TEST_CONTENT.EMPTY,
-            files: [TEST_IDS.FILE_ID],
-            role: 'user',
-            sessionId: TEST_IDS.SESSION_ID,
-            threadId: undefined,
-            topicId: TEST_IDS.TOPIC_ID,
-          },
-          { expectedConversationVersion: 7 },
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            newUserMessage: {
+              content: TEST_CONTENT.EMPTY,
+              files: [TEST_IDS.FILE_ID],
+            },
+          }),
+          expect.anything(),
         );
       });
 
@@ -308,12 +363,12 @@ describe('chatMessage actions', () => {
         });
 
         expect(messageService.createMessage).toHaveBeenCalled();
-        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
 
       it('should handle message creation errors gracefully', async () => {
         const { result } = renderHook(() => useChatStore());
-        vi.spyOn(messageService, 'createMessage').mockRejectedValue(
+        vi.mocked(aiChatService.sendMessageInServer).mockRejectedValueOnce(
           new Error('create message error'),
         );
 
@@ -325,12 +380,12 @@ describe('chatMessage actions', () => {
           }
         });
 
-        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
 
       it('keeps context export armed when message creation fails', async () => {
         const { result } = renderHook(() => useChatStore());
-        vi.spyOn(messageService, 'createMessage').mockRejectedValue(
+        vi.mocked(aiChatService.sendMessageInServer).mockRejectedValueOnce(
           new Error('create message error'),
         );
 
@@ -353,7 +408,6 @@ describe('chatMessage actions', () => {
       it('should create topic when threshold is reached and feature is enabled', async () => {
         const { result } = renderHook(() => useChatStore());
 
-        const createTopicMock = vi.fn(() => Promise.resolve(TEST_IDS.NEW_TOPIC_ID));
         const switchTopicMock = vi.fn(async (topicId: string) => {
           useChatStore.setState({ activeTopicId: topicId });
         });
@@ -373,7 +427,6 @@ describe('chatMessage actions', () => {
 
           useChatStore.setState({
             activeTopicId: undefined,
-            createTopic: createTopicMock,
             messagesMap: {
               [messageMapKey(TEST_IDS.SESSION_ID)]: createMockMessages(TOPIC_THRESHOLD),
             },
@@ -386,7 +439,14 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(createTopicMock).toHaveBeenCalled();
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            newTopic: expect.objectContaining({
+              topicMessageIds: expect.any(Array),
+            }),
+          }),
+          expect.anything(),
+        );
         expect(switchTopicMock).toHaveBeenCalledWith(TEST_IDS.NEW_TOPIC_ID, true);
         expect(useSkillStore.getState().selectedSkillIdsByConversation).toEqual({
           [targetSelectionKey]: ['reviewer'],
@@ -394,11 +454,11 @@ describe('chatMessage actions', () => {
       });
 
       it('does not continue auto-topic creation after ownership invalidates', async () => {
-        let resolveTopicCreation!: (topicId: string) => void;
-        const topicCreationPromise = new Promise<string>((resolve) => {
-          resolveTopicCreation = resolve;
+        let resolveServerSend!: (response: any) => void;
+        const serverSendPromise = new Promise<any>((resolve) => {
+          resolveServerSend = resolve;
         });
-        const createTopicMock = vi.fn(() => topicCreationPromise);
+        vi.mocked(aiChatService.sendMessageInServer).mockReturnValueOnce(serverSendPromise);
         const switchTopicMock = vi.fn();
 
         act(() => {
@@ -410,7 +470,6 @@ describe('chatMessage actions', () => {
           });
           useChatStore.setState({
             activeTopicId: undefined,
-            createTopic: createTopicMock,
             messagesMap: {
               [messageMapKey(TEST_IDS.SESSION_ID)]: createMockMessages(TOPIC_THRESHOLD),
             },
@@ -422,16 +481,22 @@ describe('chatMessage actions', () => {
           .getState()
           .sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         await vi.waitFor(() => {
-          expect(createTopicMock).toHaveBeenCalled();
+          expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
         });
 
         act(() => {
           useUserStore.setState({ ownershipInvalidationGeneration: 1 });
         });
-        resolveTopicCreation(TEST_IDS.NEW_TOPIC_ID);
+        resolveServerSend({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: true,
+          messages: [],
+          topicId: TEST_IDS.NEW_TOPIC_ID,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
         await sendPromise;
 
-        expect(messageService.createMessage).not.toHaveBeenCalled();
         expect(switchTopicMock).not.toHaveBeenCalled();
       });
     });
@@ -445,9 +510,7 @@ describe('chatMessage actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.RAG_QUERY });
         });
 
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalledWith(
-          expect.any(Array),
-          expect.any(String),
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalledWith(
           expect.objectContaining({
             ragQuery: TEST_CONTENT.RAG_QUERY,
           }),
@@ -464,9 +527,7 @@ describe('chatMessage actions', () => {
         });
 
         expect(retrieveChunksSpy).not.toHaveBeenCalled();
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalledWith(
-          expect.any(Array),
-          expect.any(String),
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalledWith(
           expect.not.objectContaining({
             ragQuery: expect.anything(),
           }),
@@ -485,9 +546,7 @@ describe('chatMessage actions', () => {
           });
         });
 
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalledWith(
-          expect.anything(),
-          expect.anything(),
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalledWith(
           expect.objectContaining({
             expectedConversationVersion: 7,
             isWelcomeQuestion: true,
@@ -505,7 +564,7 @@ describe('chatMessage actions', () => {
           });
         });
 
-        expect(result.current.internal_coreProcessMessage).not.toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
       });
     });
 
@@ -539,7 +598,12 @@ describe('chatMessage actions', () => {
 
         expect(createTmpMessageSpy).toHaveBeenCalled();
         expect(toggleMessageLoadingSpy).toHaveBeenCalledWith(true, 'temp-id');
-        expect(createTopicMock).toHaveBeenCalled();
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalledWith(
+          expect.objectContaining({
+            newTopic: expect.objectContaining({ topicMessageIds: expect.any(Array) }),
+          }),
+          expect.anything(),
+        );
       });
 
       it('should call summaryTopicTitle after processing when new topic created', async () => {
@@ -582,18 +646,21 @@ describe('chatMessage actions', () => {
         });
 
         const { result } = renderHook(() => useChatStore());
-        vi.spyOn(result.current, 'createTopic').mockResolvedValue(undefined);
         vi.spyOn(result.current, 'internal_createTmpMessage').mockReturnValue('temp-id');
         const toggleLoadingSpy = vi.spyOn(result.current, 'internal_toggleMessageLoading');
         const updateTopicLoadingSpy = vi.spyOn(result.current, 'internal_updateTopicLoading');
+        vi.spyOn(result.current, 'switchTopic').mockImplementation(async (topicId) => {
+          useChatStore.setState({ activeTopicId: topicId });
+        });
 
         await act(async () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        // Should still call the AI processing even if topic creation fails
-        expect(result.current.internal_coreProcessMessage).toHaveBeenCalled();
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
         expect(updateTopicLoadingSpy).not.toHaveBeenCalled();
+        expect(toggleLoadingSpy).toHaveBeenCalled();
       });
     });
   });
@@ -940,7 +1007,7 @@ describe('chatMessage actions', () => {
   });
 
   describe('stopGenerateMessage', () => {
-    it('should abort generation and clear loading state when controller exists', () => {
+    it('should abort generation and clear loading state when controller exists', async () => {
       const abortController = new AbortController();
 
       act(() => {
@@ -950,26 +1017,31 @@ describe('chatMessage actions', () => {
       const { result } = renderHook(() => useChatStore());
       const toggleLoadingSpy = vi.spyOn(result.current, 'internal_toggleChatLoading');
 
-      act(() => {
-        result.current.stopGenerateMessage();
+      await act(async () => {
+        await result.current.stopGenerateMessage();
       });
 
       expect(abortController.signal.aborted).toBe(true);
       expect(toggleLoadingSpy).toHaveBeenCalledWith(false, undefined, expect.any(String));
     });
 
-    it('should do nothing when abort controller is not set', () => {
+    it('awaits durable cancel even when no abort controller is set', async () => {
+      const stopDurable = vi.fn(async () => {});
       act(() => {
-        useChatStore.setState({ chatLoadingIdsAbortController: undefined });
+        useChatStore.setState({
+          chatLoadingIdsAbortController: undefined,
+          stopDurableConversationGeneration: stopDurable,
+        });
       });
 
       const { result } = renderHook(() => useChatStore());
       const toggleLoadingSpy = vi.spyOn(result.current, 'internal_toggleChatLoading');
 
-      act(() => {
-        result.current.stopGenerateMessage();
+      await act(async () => {
+        await result.current.stopGenerateMessage();
       });
 
+      expect(stopDurable).toHaveBeenCalled();
       expect(toggleLoadingSpy).not.toHaveBeenCalled();
     });
   });

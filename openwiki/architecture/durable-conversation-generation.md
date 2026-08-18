@@ -5,8 +5,8 @@ SSE, navigating elsewhere, or restarting a container does not cancel in-flight
 work. Explicit Stop and destructive history actions such as retry, rewind,
 delete, and clear cancel the matching work.
 
-The GitHub Wiki clone (`wiki/`) was unavailable in the session that landed this
-design, so user-facing workflow notes also live in the root README.
+User-facing workflow notes live in the GitHub Wiki:
+[Background Conversation Generation](https://github.com/lqdflying/chathub/wiki/Background-Conversation-Generation).
 
 ## Runtime flow
 
@@ -76,8 +76,23 @@ the assistant placeholder, and enqueues a Graphile job in the same write lock.
 The response includes `operationId`. If `operationId` is absent, the existing
 browser `internal_execAgentRuntime` path still runs.
 
-`fetchOnClient` providers without a server-reachable API key fail enqueue with
-`PRECONDITION_FAILED`. That is not a silent fallback to the browser runtime.
+`fetchOnClient` providers without a server-reachable API key, unsupported
+browser-only tools (`UNPROCESSABLE_CONTENT`), and a disabled flag all drop
+durable enqueue. The user message is still saved and the connected-tab runtime
+runs. `tryEnqueue` recovers a lane only by `idempotencyKey`; it must not attach
+a previous chat job after a credential or capability miss.
+
+Context Export arms a one-shot browser capture. While that capture is armed,
+the send skips durable enqueue so the existing preview still records the
+request.
+
+The worker filters history the same way the UI does: main-topic messages have
+no `threadId`; a portal thread uses the source-message prefix plus that
+thread. Compaction still refuses `threadId`.
+
+Stop awaits cancel, detaches only the collected operation ids, and defaults to
+chat-family kinds so title/translate/compaction keep running. `finalizeActive`
+does not rewrite `cancelling` to `succeeded` or `failed`.
 
 ## Worker bootstrap
 
@@ -194,6 +209,7 @@ High-signal suites:
 - `src/store/chat/slices/aiChat/actions/__tests__/generateAIChatV2.test.ts`
 - `src/store/chat/slices/aiChat/actions/__tests__/conversationGeneration.test.ts`
 - `src/server/services/conversationGeneration/*.test.ts`
+- `src/services/__tests__/conversationGenerationEnqueue.test.ts`
 - `scripts/migrateServerDB/ensureConversationGenerationOperations.test.ts`
 - `src/hooks/useConversationGenerationSync.test.tsx`
 - `packages/database/src/models/__tests__/conversationGeneration.cas.test.ts`

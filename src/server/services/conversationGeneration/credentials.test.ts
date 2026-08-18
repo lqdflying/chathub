@@ -141,4 +141,35 @@ describe('resolveConversationRuntimePayload', () => {
       }),
     );
   });
+
+  it('maps user AWS vault fields when the provider stores access keys instead of apiKey', async () => {
+    runtimeState.getAiProviderRuntimeState.mockResolvedValue({
+      runtimeConfig: {
+        bedrock: { fetchOnClient: false, keyVaults: {} },
+      },
+    });
+    vi.mocked(UserModel.getUserApiKeys).mockResolvedValue({
+      bedrock: {
+        accessKeyId: 'AKIAEXAMPLE',
+        region: 'us-east-1',
+        secretAccessKey: 'secret-example',
+      },
+    } as any);
+
+    await expect(
+      resolveConversationRuntimePayload({
+        db: {} as any,
+        provider: 'bedrock',
+        userId: 'user-1',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        accessKeyId: 'AKIAEXAMPLE',
+        awsAccessKeyId: 'AKIAEXAMPLE',
+        awsRegion: 'us-east-1',
+        awsSecretAccessKey: 'secret-example',
+        userId: 'user-1',
+      }),
+    );
+  });
 });

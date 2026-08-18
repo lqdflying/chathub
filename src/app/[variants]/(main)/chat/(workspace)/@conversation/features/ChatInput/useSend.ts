@@ -147,7 +147,7 @@ export const useSend = () => {
 
     // stopGenerateMessage also aborts a running pre-send compaction for this conversation
     if (generating || aiChatSelectors.isCurrentPreSendCompacting(store)) {
-      stopGenerateMessage();
+      void stopGenerateMessage();
       return;
     }
 
@@ -324,7 +324,7 @@ export const useSendGroupMessage = () => {
     const isSupervisorLoading = chatSelectors.isSupervisorLoading(store.activeId)(store);
 
     if (isAgentGenerating) {
-      stopGenerateMessage();
+      void stopGenerateMessage();
       return;
     }
 
