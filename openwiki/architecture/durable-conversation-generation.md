@@ -47,11 +47,25 @@ Lanes are unique only while status is `pending` or `processing`. A
 `cancelling` predecessor therefore cannot block its replacement:
 
 - session: `{userId}:session:{sessionId|inbox}:{topicId|none}:{threadId|main}:{family}`
-- group: `{userId}:group:{groupId}:{topicId|none}:{threadId|main}:{family}`
+- group chat/continue/regenerate: `{userId}:group:{groupId}:{topicId|none}:{threadId|main}:{family}`
+- group supervisor: `{...}:{family}:supervisor`
+- group agent: `{...}:{family}:agent:{agentId}:{targetId|default}`
 
-`family` groups replaceable work: `chat` covers `chat` / `continue` / `regenerate` /
+`family` groups Stop scope: `chat` covers `chat` / `continue` / `regenerate` /
 `group_supervisor` / `group_agent`. Title, translation, compaction, TTS, and RAG
-each have their own family so they cannot cancel an in-flight reply.
+each have their own family so they cannot cancel an in-flight reply. Supervisor
+and member work stay in the chat family for Stop, but they no longer share a
+replacement lane: parallel group members must not cancel one another.
+
+Enqueue callers pass a stable `idempotencyKey` (send, continue, regenerate,
+supervisor, member, title, translation, compaction). After a committed request
+whose response is lost, recovery uses that key only — never an arbitrary active
+lane.
+
+A retry inspects the owned assistant before calling the model: tool-bearing rows
+resume tool execution / continuation, completed text skips a new model call, and
+the owned assistant is never sent back as history. Standalone portal threads
+send only the source message plus that thread’s children.
 
 Job payload is `{ operationId, userId }` only. Credentials are resolved from
 encrypted user/provider vaults at execution time.
@@ -87,7 +101,8 @@ the send skips durable enqueue so the existing preview still records the
 request.
 
 The worker filters history the same way the UI does: main-topic messages have
-no `threadId`; a portal thread uses the source-message prefix plus that
+no `threadId`; a continuation portal thread uses the source-message prefix plus
+that thread; a standalone portal thread uses only the source message plus that
 thread. Compaction still refuses `threadId`.
 
 Stop awaits cancel, detaches only the collected operation ids, and defaults to

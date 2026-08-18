@@ -126,10 +126,21 @@ export const consumeProtocolResponse = async (
       buffer = buffer.slice(lastBreak + 2);
       await consumeEvents(complete);
     }
-    buffer += decoder.decode();
-    if (buffer.trim()) await consumeEvents(buffer);
+    if (!handlers.signal?.aborted) {
+      buffer += decoder.decode();
+      if (buffer.trim()) await consumeEvents(buffer);
+    }
   } finally {
-    reader.releaseLock();
+    try {
+      await reader.cancel();
+    } catch {
+      // already closed
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      // cancel() may already release the lock
+    }
   }
 
   const reasoning: ModelReasoning | undefined = thinking

@@ -2,8 +2,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  excludeOwnedAssistantMessages,
   executeConversationGeneration,
   getSupervisorTerminalOutcome,
+  resolveChatResumeAction,
   shouldCreateToolContinuation,
   shouldGenerateConversationTitle,
 } from './execute';
@@ -93,6 +95,27 @@ describe('conversation generation workflow guards', () => {
       status: 'cancelled',
     });
     expect(getSupervisorTerminalOutcome({ status: 'succeeded' })).toBeUndefined();
+    expect(getSupervisorTerminalOutcome({ status: 'retrying' })).toBeUndefined();
+  });
+
+  it('excludes the owned assistant from model history', () => {
+    expect(
+      excludeOwnedAssistantMessages(
+        [
+          { content: 'hi', id: 'user-1', role: 'user' },
+          { content: '...', id: 'assistant-1', role: 'assistant' },
+        ] as any,
+        'assistant-1',
+      ).map((item) => item.id),
+    ).toEqual(['user-1']);
+  });
+
+  it('resumes a tool-bearing assistant instead of calling the model on that row', () => {
+    expect(resolveChatResumeAction({ content: 'done', tools: [{ id: 'call-1' }] })).toBe(
+      'continue-tools',
+    );
+    expect(resolveChatResumeAction({ content: 'final answer', tools: [] })).toBe('complete');
+    expect(resolveChatResumeAction({ content: '...' })).toBe('generate');
   });
 });
 

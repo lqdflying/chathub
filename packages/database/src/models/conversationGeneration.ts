@@ -19,6 +19,7 @@ import { idGenerator } from '../utils/idGenerator';
 
 const ACTIVE_STATUSES: ConversationGenerationStatus[] = ['pending', 'processing', 'cancelling'];
 const BLOCKING_STATUSES: ConversationGenerationStatus[] = ['pending', 'processing'];
+const PROCESSING_STATUS: ConversationGenerationStatus[] = ['processing'];
 
 export interface CreateConversationGenerationOperationParams {
   agentId?: string | null;
@@ -292,7 +293,7 @@ export class ConversationGenerationModel {
           eq(conversationGenerationOperations.userId, this.userId),
           inArray(
             conversationGenerationOperations.status,
-            status === 'cancelled' ? ACTIVE_STATUSES : BLOCKING_STATUSES,
+            status === 'cancelled' ? ACTIVE_STATUSES : PROCESSING_STATUS,
           ),
           guard?.attempt === undefined
             ? undefined

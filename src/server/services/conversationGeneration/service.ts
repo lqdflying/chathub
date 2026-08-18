@@ -132,9 +132,11 @@ export class ConversationGenerationService {
   ) => {
     const parsed = ConversationGenerationEnqueueSchema.parse(input);
     const lane = buildConversationGenerationLane({
+      agentId: parsed.agentId,
       groupId: parsed.groupId,
       kind: parsed.kind,
       sessionId: parsed.sessionId,
+      targetId: parsed.config.targetId,
       threadId: parsed.threadId,
       topicId: parsed.topicId,
       userId: this.userId,

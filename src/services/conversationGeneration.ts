@@ -4,6 +4,7 @@ import type {
   ConversationGenerationOperation,
   ConversationGenerationStreamEvent,
 } from '@lobechat/types';
+import { isActiveConversationGenerationStatus } from '@lobechat/types';
 import { TRPCClientError } from '@trpc/client';
 
 import { CHATHUB_ACCOUNT_SCOPE_HEADER } from '@/const/auth';
@@ -165,5 +166,35 @@ export const tryEnqueueConversationGeneration = async (
   } catch (error) {
     if (isNonRecoverableEnqueueError(error)) return undefined;
     return recoverByIdempotencyKey(input);
+  }
+};
+
+export const waitForConversationGeneration = async (
+  operationId: string,
+  options?: { intervalMs?: number; signal?: AbortSignal; timeoutMs?: number },
+) => {
+  const intervalMs = options?.intervalMs ?? 400;
+  const timeoutMs = options?.timeoutMs ?? 15 * 60 * 1000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (options?.signal?.aborted) return;
+    try {
+      const operation = await conversationGenerationService.getOperation(operationId);
+      if (!operation || !isActiveConversationGenerationStatus(operation.status)) {
+        return operation;
+      }
+    } catch {
+      // Keep waiting through transient poll errors.
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, intervalMs);
+    });
+  }
+
+  try {
+    return await conversationGenerationService.getOperation(operationId);
+  } catch {
+    return;
   }
 };

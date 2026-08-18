@@ -8,6 +8,7 @@ import {
 } from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
+import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   createCompactionFingerprint,
@@ -328,6 +329,15 @@ async function runCompactionFromStore(
       },
       conversationVersion: expectedConversationVersion,
       expectedConversationVersion,
+      idempotencyKey: conversationGenerationIdempotencyKey(
+        'compaction',
+        requestedTopicId,
+        createCompactionFingerprint({
+          cursorId: topic.metadata?.historySummaryLastMessageId,
+          messages: candidateMessages,
+          summary: topic.historySummary,
+        }),
+      ),
       kind: 'memory_compaction',
       replaceActive: true,
       sessionId: requestedSessionId,

@@ -211,6 +211,9 @@ describe('thread action', () => {
       });
 
       const togglePortalSpy = vi.spyOn(result.current, 'togglePortal');
+      const syncSpy = vi
+        .spyOn(result.current, 'syncActiveConversationGenerations')
+        .mockRejectedValue(new Error('offline'));
 
       act(() => {
         result.current.closeThreadPortal();
@@ -220,6 +223,7 @@ describe('thread action', () => {
       expect(result.current.threadStartMessageId).toBeUndefined();
       expect(result.current.startToForkThread).toBeUndefined();
       expect(togglePortalSpy).toHaveBeenCalledWith(false);
+      expect(syncSpy).toHaveBeenCalled();
     });
   });
 

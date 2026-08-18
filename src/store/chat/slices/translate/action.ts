@@ -6,6 +6,7 @@ import { StateCreator } from 'zustand/vanilla';
 import { supportLocales } from '@/locales/resources';
 import { chatService } from '@/services/chat';
 import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { messageService } from '@/services/message';
 import {
@@ -88,6 +89,7 @@ export const chatTranslate: StateCreator<
           translation: { messageId: id, to: targetLang },
         },
         kind: 'translation',
+        idempotencyKey: conversationGenerationIdempotencyKey('translation', id, targetLang),
         replaceActive: true,
         sessionId: requestedSessionId,
         topicId: requestedTopicId ?? undefined,

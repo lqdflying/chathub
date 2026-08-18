@@ -151,7 +151,7 @@ export const chatThreadMessage: StateCreator<
       'closeThreadPortal',
     );
     get().togglePortal(false);
-    void get().syncActiveConversationGenerations();
+    void get().syncActiveConversationGenerations().catch(() => undefined);
   },
   sendThreadMessage: async ({ message }) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());

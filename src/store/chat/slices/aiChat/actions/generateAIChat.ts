@@ -19,6 +19,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
+import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
@@ -384,6 +385,10 @@ export const generateAIChat: StateCreator<
         }),
         conversationVersion: expectedConversationVersion,
         expectedConversationVersion,
+        idempotencyKey: conversationGenerationIdempotencyKey(
+          params?.isToolContinuation ? 'continue' : 'chat',
+          userMessageId,
+        ),
         kind: params?.isToolContinuation ? 'continue' : 'chat',
         parentMessageId: userMessageId,
         replaceActive: true,
@@ -1387,6 +1392,7 @@ export const generateAIChat: StateCreator<
           }),
           conversationVersion: expectedConversationVersion,
           expectedConversationVersion,
+          idempotencyKey: conversationGenerationIdempotencyKey('regenerate', anchor.message.id),
           kind: 'regenerate',
           parentMessageId: anchor.message.id,
           replaceActive: true,

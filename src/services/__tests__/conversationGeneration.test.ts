@@ -31,7 +31,7 @@ describe('tryEnqueueConversationGeneration', () => {
     vi.spyOn(conversationGenerationService, 'enqueue').mockRejectedValue(
       new Error('Durable conversation generation is disabled.'),
     );
-    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    const listActive = vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
 
     await expect(
       tryEnqueueConversationGeneration({
@@ -39,13 +39,14 @@ describe('tryEnqueueConversationGeneration', () => {
         kind: 'chat',
       }),
     ).resolves.toBeUndefined();
+    expect(listActive).not.toHaveBeenCalled();
   });
 
-  it('recovers an active operation when enqueue fails transiently', async () => {
+  it('does not recover an arbitrary active lane after a transport failure', async () => {
     vi.spyOn(conversationGenerationService, 'enqueue').mockRejectedValue(
       new Error('network error'),
     );
-    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+    const listActive = vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
       {
         groupId: null,
         id: 'cgo_active',
@@ -63,10 +64,11 @@ describe('tryEnqueueConversationGeneration', () => {
         sessionId: 'session-1',
         topicId: 'topic-1',
       }),
-    ).resolves.toEqual(expect.objectContaining({ id: 'cgo_active' }));
+    ).resolves.toBeUndefined();
+    expect(listActive).not.toHaveBeenCalled();
   });
 
-  it('does not fall back when the provider has no server-reachable credentials', async () => {
+  it('falls back when the provider has no server-reachable credentials', async () => {
     vi.spyOn(conversationGenerationService, 'enqueue').mockRejectedValue(
       new Error(
         'This model is configured to run in the browser and no server-reachable API credentials were found. Durable background generation requires a provider API key on the server.',
@@ -78,7 +80,7 @@ describe('tryEnqueueConversationGeneration', () => {
         config: { model: 'gpt-5-mini', fetchOnClient: true, provider: 'openai' },
         kind: 'chat',
       }),
-    ).rejects.toThrow(/provider API key on the server/);
+    ).resolves.toBeUndefined();
   });
 });
 

@@ -270,19 +270,30 @@ export const isConversationGenerationChatFamilyKind = (kind: ConversationGenerat
   ConversationGenerationLaneFamilies[kind] === 'chat';
 
 export const buildConversationGenerationLane = (params: {
+  agentId?: string | null;
   groupId?: string | null;
   kind?: ConversationGenerationKind;
   sessionId?: string | null;
+  targetId?: string | null;
   threadId?: string | null;
   topicId?: string | null;
   userId: string;
 }) => {
   const family = getConversationGenerationLaneFamily(params.kind);
-  if (params.groupId) {
-    return `${params.userId}:group:${params.groupId}:${params.topicId ?? 'none'}:${params.threadId ?? 'main'}:${family}`;
+  const scope = params.groupId
+    ? `group:${params.groupId}`
+    : `session:${params.sessionId ?? 'inbox'}`;
+  const base = `${params.userId}:${scope}:${params.topicId ?? 'none'}:${params.threadId ?? 'main'}:${family}`;
+
+  if (params.kind === 'group_supervisor') {
+    return `${base}:supervisor`;
   }
 
-  return `${params.userId}:session:${params.sessionId ?? 'inbox'}:${params.topicId ?? 'none'}:${params.threadId ?? 'main'}:${family}`;
+  if (params.kind === 'group_agent') {
+    return `${base}:agent:${params.agentId || 'unknown'}:${params.targetId || 'default'}`;
+  }
+
+  return base;
 };
 
 export const isActiveConversationGenerationStatus = (

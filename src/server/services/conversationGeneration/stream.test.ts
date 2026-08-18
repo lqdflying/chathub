@@ -64,4 +64,23 @@ describe('consumeProtocolResponse', () => {
     expect(result.content).toBe('final chunk');
     expect(onText).toHaveBeenCalledWith('final chunk', 'final chunk');
   });
+
+  it('does not consume an unterminated frame after abort', async () => {
+    const onText = vi.fn();
+    const abort = new AbortController();
+    const result = await consumeProtocolResponse(
+      sseResponse(['event: text\ndata: "hello"\n\nevent: text\ndata: "ignored']),
+      {
+        onText: async (delta, content) => {
+          onText(delta, content);
+          abort.abort();
+        },
+        signal: abort.signal,
+      },
+    );
+
+    expect(onText).toHaveBeenCalledTimes(1);
+    expect(onText).toHaveBeenCalledWith('hello', 'hello');
+    expect(result.content).toBe('hello');
+  });
 });

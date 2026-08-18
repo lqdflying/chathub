@@ -13,6 +13,27 @@ const createUpdateDb = () => {
   return { db: { update }, returning, set, where };
 };
 
+const collectStrings = (node: unknown) => {
+  const texts: string[] = [];
+  const seen = new WeakSet<object>();
+  const walk = (value: unknown) => {
+    if (value == null) return;
+    if (typeof value === 'string') {
+      texts.push(value);
+      return;
+    }
+    if (typeof value !== 'object' || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    for (const nested of Object.values(value)) walk(nested);
+  };
+  walk(node);
+  return texts;
+};
+
 describe('ConversationGenerationModel compare-and-set guards', () => {
   it('clears workerJobId when a processing attempt is returned to pending', async () => {
     const { db, returning, set } = createUpdateDb();
@@ -81,26 +102,20 @@ describe('ConversationGenerationModel compare-and-set guards', () => {
 
     await expect(model.finalizeActive('cgo_cancelling', 'succeeded')).resolves.toBeUndefined();
 
-    const texts: string[] = [];
-    const seen = new WeakSet<object>();
-    const walk = (node: unknown) => {
-      if (node == null) return;
-      if (typeof node === 'string') {
-        texts.push(node);
-        return;
-      }
-      if (typeof node !== 'object') return;
-      if (seen.has(node)) return;
-      seen.add(node);
-      if (Array.isArray(node)) {
-        for (const item of node) walk(item);
-        return;
-      }
-      for (const value of Object.values(node)) walk(value);
-    };
-    walk(where.mock.calls[0]?.[0]);
+    const texts = collectStrings(where.mock.calls[0]?.[0]);
+    expect(texts).toEqual(expect.arrayContaining(['processing']));
+    expect(texts).not.toContain('cancelling');
+  });
 
-    expect(texts).toEqual(expect.arrayContaining(['pending', 'processing']));
+  it('does not finalize pending recovery rows as interrupted', async () => {
+    const { db, returning, where } = createUpdateDb();
+    returning.mockResolvedValue([]);
+    const model = new ConversationGenerationModel(db as any, 'user-1');
+
+    await expect(model.finalizeActive('cgo_pending', 'interrupted')).resolves.toBeUndefined();
+
+    const texts = collectStrings(where.mock.calls[0]?.[0]);
+    expect(texts).toEqual(expect.arrayContaining(['processing']));
     expect(texts).not.toContain('cancelling');
   });
 });

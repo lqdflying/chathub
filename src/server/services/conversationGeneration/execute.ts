@@ -31,6 +31,12 @@ import {
   createCompactionFingerprint,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
+import {
+  applySupervisorToolCalls,
+  formatSupervisorTodoContent,
+  parseSupervisorTodosFromMessages,
+  shouldAvoidSupervisorDecision,
+} from '@/helpers/supervisorTodos';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { AiChatService } from '@/server/services/aiChat';
@@ -48,6 +54,7 @@ import {
   CONVERSATION_GENERATION_CHECKPOINT_MS,
   CONVERSATION_GENERATION_HEARTBEAT_MS,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
+  CONVERSATION_GENERATION_MAX_SUPERVISOR_ROUNDS,
   CONVERSATION_GENERATION_MAX_TOOL_TURNS,
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
 } from './constants';
@@ -59,6 +66,20 @@ import { executeConversationToolStep } from './tools';
 
 export const shouldCreateToolContinuation = (remainingTurns: number, shouldContinue: boolean) =>
   shouldContinue && remainingTurns > 0;
+
+export const excludeOwnedAssistantMessages = (
+  messages: UIChatMessage[],
+  assistantId?: string | null,
+) => (assistantId ? messages.filter((item) => item.id !== assistantId) : messages);
+
+export const resolveChatResumeAction = (
+  assistant?: { content?: string | null; tools?: unknown[] | null } | null,
+): 'generate' | 'continue-tools' | 'complete' => {
+  if (!assistant) return 'generate';
+  if (Array.isArray(assistant.tools) && assistant.tools.length > 0) return 'continue-tools';
+  if (assistant.content && assistant.content !== LOADING_FLAT) return 'complete';
+  return 'generate';
+};
 
 export const shouldGenerateConversationTitle = ({
   force,
@@ -283,16 +304,17 @@ type ConversationGenerationStopReason =
 
 export type ConversationExecutionOutcome = {
   error?: ConversationGenerationError;
-  status: 'succeeded' | 'cancelled' | 'failed' | 'interrupted';
+  status: 'succeeded' | 'cancelled' | 'failed' | 'interrupted' | 'retrying';
 };
 
 export const getSupervisorTerminalOutcome = (outcome: ConversationExecutionOutcome) =>
-  outcome.status === 'succeeded' ? undefined : outcome;
+  outcome.status === 'succeeded' || outcome.status === 'retrying' ? undefined : outcome;
 
 const outcomeFromStopReason = (
   reason: ConversationGenerationStopReason,
 ): ConversationExecutionOutcome => {
   if (reason === 'cancelled' || reason === 'superseded') return { status: 'cancelled' };
+  if (reason === 'retrying' || reason === 'terminal') return { status: 'retrying' };
   return { status: 'interrupted' };
 };
 
@@ -342,12 +364,17 @@ const clearAssistantPlaceholder = async (
   operation: ConversationGenerationOperation,
   error?: ConversationGenerationError,
 ) => {
-  if (!operation.assistantMessageId) return;
+  const latestOperation = await new ConversationGenerationModel(db, operation.userId).findById(
+    operation.id,
+  );
+  const assistantMessageId =
+    latestOperation?.assistantMessageId ?? operation.assistantMessageId ?? undefined;
+  if (!assistantMessageId) return;
   const messageModel = new MessageModel(db, operation.userId);
-  const current = await messageModel.findById(operation.assistantMessageId);
+  const current = await messageModel.findById(assistantMessageId);
   if (!current) return;
   if (current.content !== LOADING_FLAT && !error) return;
-  await messageModel.update(operation.assistantMessageId, {
+  await messageModel.update(assistantMessageId, {
     ...(current.content === LOADING_FLAT ? { content: '' } : {}),
     ...(error ? { error: error as any } : {}),
   });
@@ -469,9 +496,7 @@ const executeChat = async (
   const generalInstruction = await loadGeneralInstruction(db, operation.userId);
   let activatedSkillIds = [...(operation.config.activatedSkillIds || [])];
 
-  let workingMessages = messages.filter(
-    (item) => item.id !== assistantId || item.content !== LOADING_FLAT,
-  );
+  let workingMessages = excludeOwnedAssistantMessages(messages, assistantId);
   if (operation.agentId) {
     workingMessages = filterMessagesForAgent(workingMessages, operation.agentId);
   }
@@ -574,78 +599,91 @@ const executeChat = async (
         return outcomeFromStopReason(stopReason);
       }
 
-      const response = await runtime.chat(currentPayload as any, {
-        signal: abortController.signal,
-        user: operation.userId,
-      });
-      const result = await consumeProtocolResponse(response, {
-        onReasoning: async (_delta, next) => {
-          reasoning = next;
-          await flush();
-        },
-        onText: async (_delta, next) => {
-          content = next;
-          await flush();
-        },
-        signal: abortController.signal,
-      });
+      const currentAssistant = (await messageModel.findById(assistantId)) as UIChatMessage | undefined;
+      const resumeAction = resolveChatResumeAction(currentAssistant);
+      if (resumeAction === 'complete') break;
 
-      const postStreamStopReason = await shouldStopGeneration(
-        db,
-        model,
-        operation,
-        abortController.signal,
-      );
-      if (postStreamStopReason) {
-        if (!options?.skipFinalize) {
-          await finalizeIfStopped(model, operation, postStreamStopReason, db);
-        }
-        return outcomeFromStopReason(postStreamStopReason);
-      }
+      let tools: ChatToolPayload[] = Array.isArray(currentAssistant?.tools)
+        ? (currentAssistant.tools as ChatToolPayload[])
+        : [];
 
-      if (result.error) {
-        await messageModel.update(assistantId, {
-          content: result.content || content,
-          error: result.error as any,
-          reasoning: result.reasoning ?? undefined,
+      if (resumeAction === 'generate') {
+        const response = await runtime.chat(currentPayload as any, {
+          signal: abortController.signal,
+          user: operation.userId,
         });
-        if (!options?.skipFinalize) await finalize(model, operation, 'failed', result.error);
-        return { error: result.error, status: 'failed' };
-      }
+        const result = await consumeProtocolResponse(response, {
+          onReasoning: async (_delta, next) => {
+            reasoning = next;
+            await flush();
+          },
+          onText: async (_delta, next) => {
+            content = next;
+            await flush();
+          },
+          signal: abortController.signal,
+        });
 
-      content = result.content;
-      reasoning = result.reasoning;
-      await flush(true);
-      if (result.grounding || result.usage) {
+        const postStreamStopReason = await shouldStopGeneration(
+          db,
+          model,
+          operation,
+          abortController.signal,
+        );
+        if (postStreamStopReason) {
+          if (!options?.skipFinalize) {
+            await finalizeIfStopped(model, operation, postStreamStopReason, db);
+          }
+          return outcomeFromStopReason(postStreamStopReason);
+        }
+
+        if (result.error) {
+          await messageModel.update(assistantId, {
+            content: result.content || content,
+            error: result.error as any,
+            reasoning: result.reasoning ?? undefined,
+          });
+          if (!options?.skipFinalize) await finalize(model, operation, 'failed', result.error);
+          return { error: result.error, status: 'failed' };
+        }
+
+        content = result.content;
+        reasoning = result.reasoning;
+        await flush(true);
+        if (result.grounding || result.usage) {
+          await messageModel.update(assistantId, {
+            content,
+            reasoning: reasoning ?? undefined,
+            ...(result.grounding ? { search: result.grounding as any } : {}),
+            ...(result.usage ? { metadata: { usage: result.usage } } : {}),
+          });
+        }
+
+        if (!result.toolCalls?.length) break;
+
+        tools = result.toolCalls.map((item) => ({
+          apiName: item.function?.name?.split('____')[1] || item.function?.name,
+          arguments: item.function?.arguments,
+          id: item.id,
+          identifier: item.function?.name?.split('____')[0] || item.function?.name,
+          type: 'default',
+        })) as ChatToolPayload[];
         await messageModel.update(assistantId, {
           content,
           reasoning: reasoning ?? undefined,
-          ...(result.grounding ? { search: result.grounding as any } : {}),
-          ...(result.usage ? { metadata: { usage: result.usage } } : {}),
+          tools,
         });
       }
 
-      if (!result.toolCalls?.length) break;
+      if (!tools.length) break;
 
       await updateOperation(model, operation, { phase: 'tools' });
       await emit(model, operation, 'snapshot', {
         assistantMessageId: assistantId,
         phase: 'tools',
       });
-      const tools = result.toolCalls.map((item) => ({
-        apiName: item.function?.name?.split('____')[1] || item.function?.name,
-        arguments: item.function?.arguments,
-        id: item.id,
-        identifier: item.function?.name?.split('____')[0] || item.function?.name,
-        type: 'default',
-      })) as ChatToolPayload[];
-      await messageModel.update(assistantId, {
-        content,
-        reasoning: reasoning ?? undefined,
-        tools,
-      });
 
-      const assistantMessage = (await messageModel.findById(assistantId)) as UIChatMessage;
+      const assistantMessage = ((await messageModel.findById(assistantId)) || currentAssistant) as UIChatMessage;
       let shouldContinue = true;
       for (const tool of tools) {
         const toolStopReason = await shouldStopGeneration(
@@ -736,7 +774,7 @@ const executeChat = async (
         },
         db,
         generalInstruction,
-        messages: latest,
+        messages: excludeOwnedAssistantMessages(latest, assistantId),
         runtimeState,
         sessionId: operation.sessionId,
         userId: operation.userId,
@@ -1193,100 +1231,53 @@ const executeSupervisor = async (
     title?: string | null;
   }>;
 
-  const messages = await loadScopedMessages(db, operation, {
-    groupId,
-    topicId: operation.topicId ?? undefined,
-  });
-  const payload = contextSupervisorMakeDecision({
-    allowDM: group?.config?.allowDM,
-    availableAgents: availableAgents
-      .filter((agent) => agent.id)
-      .map((agent) => ({ id: agent.id as string, title: agent.title })),
-    messages,
-    scene: group?.config?.scene,
-    systemPrompt: group?.config?.systemPrompt,
-  });
-
-  await updateOperation(model, operation, { phase: 'model' });
-  const stopBefore = await shouldStopGeneration(db, model, operation, options?.runSignal);
-  if (stopBefore) {
-    await finalizeIfStopped(model, operation, stopBefore, db);
-    return;
-  }
+  const messageModel = new MessageModel(db, operation.userId);
+  const user = await UserModel.findById(db, operation.userId);
+  const generalInstruction = await loadGeneralInstruction(db, operation.userId);
+  const memberOrder = new Map(members.map((member) => [member.agentId, member.order ?? 0]));
+  const availableAgentIds = availableAgents
+    .filter((agent) => agent.id)
+    .map((agent) => agent.id as string);
+  const userName = user?.fullName || user?.username || 'User';
   const runtimePayload = await resolveConversationRuntimePayload({
     db,
     provider: operation.config.provider,
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
-  const supervisorResponse = await runtime.generateObject(
-    {
-      ...payload,
-      model: operation.config.model,
-    } as any,
-    options?.runSignal ? { signal: options.runSignal } : undefined,
-  );
 
-  const decisions: Array<{ id: string; instruction?: string; target?: string }> = [];
-  for (const call of normalizeSupervisorToolCalls(supervisorResponse)) {
-    const name = call.name;
-    const args = call.arguments;
-    if (name === 'trigger_agent' || name === 'trigger_agent_dm') {
-      const id = typeof args.id === 'string' ? args.id : undefined;
-      if (!id || !availableAgents.some((agent) => agent.id === id)) continue;
-      const requestedTarget =
-        typeof args.target === 'string'
-          ? args.target
-          : name === 'trigger_agent_dm'
-            ? 'user'
-            : undefined;
-      const target =
-        group?.config?.allowDM === false ||
-        (requestedTarget &&
-          requestedTarget !== 'user' &&
-          !availableAgents.some((agent) => agent.id === requestedTarget))
-          ? undefined
-          : requestedTarget;
-      decisions.push({
-        id,
-        instruction: typeof args.instruction === 'string' ? args.instruction : undefined,
-        target,
-      });
-    }
-  }
+  const persistTodos = async (todos: ReturnType<typeof parseSupervisorTodosFromMessages>) => {
+    await messageModel.create({
+      content: formatSupervisorTodoContent(todos),
+      fromModel: group?.config?.orchestratorModel || operation.config.model,
+      fromProvider: group?.config?.orchestratorProvider || operation.config.provider,
+      groupId,
+      role: 'supervisor',
+      sessionId: operation.sessionId ?? groupId,
+      topicId: operation.topicId ?? undefined,
+    });
+    await emit(model, operation, 'snapshot', { phase: 'tools', todos });
+  };
 
-  if (decisions.length === 0) {
-    await finalizeUnlessStopped(db, model, operation, options?.runSignal);
-    return;
-  }
-
-  const messageModel = new MessageModel(db, operation.userId);
-  const user = await UserModel.findById(db, operation.userId);
-  const generalInstruction = await loadGeneralInstruction(db, operation.userId);
-
-  for (const decision of decisions) {
-    const stopReason = await shouldStopGeneration(db, model, operation, options?.runSignal);
-    if (stopReason) {
-      await finalizeIfStopped(model, operation, stopReason, db);
-      return;
-    }
+  const runAgentDecision = async (
+    decision: { id: string; instruction?: string; target?: string },
+    history: UIChatMessage[],
+  ) => {
     const agent = availableAgents.find((item) => item.id === decision.id);
-    if (!agent?.id) continue;
-
+    if (!agent?.id) return { status: 'succeeded' } as ConversationExecutionOutcome;
     const groupChatSystemPrompt = buildGroupChatSystemPrompt({
       agentId: agent.id,
       baseSystemRole: composeSystemRole(generalInstruction, agent.systemRole || undefined) || '',
       groupMembers: [
-        { id: 'user', title: user?.fullName || user?.username || 'User' },
+        { id: 'user', title: userName },
         ...availableAgents
           .filter((item) => item.id)
           .map((item) => ({ id: item.id as string, title: item.title || item.id || '' })),
       ],
       instruction: decision.instruction,
-      messages,
+      messages: history,
       targetId: decision.target,
     });
-
     const created = await messageModel.create({
       agentId: agent.id,
       content: LOADING_FLAT,
@@ -1302,7 +1293,7 @@ const executeSupervisor = async (
       agentId: agent.id,
       assistantMessageId: created.id,
     });
-    const outcome = await executeChat(
+    return executeChat(
       db,
       {
         ...operation,
@@ -1320,27 +1311,122 @@ const executeSupervisor = async (
       },
       { runSignal: options?.runSignal, skipFinalize: true },
     );
+  };
+
+  const applyChildOutcome = async (
+    outcome: ConversationExecutionOutcome,
+    agentId?: string,
+  ): Promise<boolean> => {
+    if (outcome.status === 'retrying') {
+      throw new Error('Conversation generation attempt lost ownership');
+    }
     const terminalOutcome = getSupervisorTerminalOutcome(outcome);
-    if (terminalOutcome) {
-      if (terminalOutcome.status === 'failed') {
-        await finalize(
-          model,
-          operation,
-          'failed',
-          terminalOutcome.error || {
-            message: `Group agent "${agent.id}" failed.`,
-            type: 'GroupAgentError',
-          },
-        );
-      } else {
-        await finalize(model, operation, terminalOutcome.status);
-      }
+    if (!terminalOutcome) return false;
+    if (terminalOutcome.status === 'failed') {
+      await finalize(
+        model,
+        operation,
+        'failed',
+        terminalOutcome.error || {
+          message: agentId ? `Group agent "${agentId}" failed.` : 'Group agent failed.',
+          type: 'GroupAgentError',
+        },
+      );
+    } else {
+      await finalize(model, operation, terminalOutcome.status);
+    }
+    return true;
+  };
+
+  for (let round = 0; round < CONVERSATION_GENERATION_MAX_SUPERVISOR_ROUNDS; round += 1) {
+    const stopBefore = await shouldStopGeneration(db, model, operation, options?.runSignal);
+    if (stopBefore) {
+      await finalizeIfStopped(model, operation, stopBefore, db);
       return;
+    }
+
+    const messages = await loadScopedMessages(db, operation, {
+      groupId,
+      topicId: operation.topicId ?? undefined,
+    });
+    if (round > 0 && shouldAvoidSupervisorDecision(messages, group?.config?.maxResponseInRow, false)) {
+      break;
+    }
+
+    const todos = parseSupervisorTodosFromMessages(messages);
+    const payload = contextSupervisorMakeDecision({
+      allowDM: group?.config?.allowDM,
+      availableAgents: availableAgents
+        .filter((agent) => agent.id)
+        .map((agent) => ({ id: agent.id as string, title: agent.title })),
+      messages,
+      scene: group?.config?.scene,
+      systemPrompt: group?.config?.systemPrompt,
+      todoList: todos,
+      userName,
+    });
+
+    await updateOperation(model, operation, { phase: 'model' });
+    const supervisorResponse = await runtime.generateObject(
+      {
+        ...payload,
+        model: operation.config.model,
+      } as any,
+      options?.runSignal ? { signal: options.runSignal } : undefined,
+    );
+
+    const applied = applySupervisorToolCalls({
+      allowDM: group?.config?.allowDM,
+      availableAgentIds,
+      previousTodos: todos,
+      scene: group?.config?.scene,
+      toolCalls: normalizeSupervisorToolCalls(supervisorResponse),
+    });
+    if (applied.todoUpdated) await persistTodos(applied.todos);
+
+    const decisions =
+      group?.config?.responseOrder === 'sequential'
+        ? [...applied.decisions].sort(
+            (left, right) => (memberOrder.get(left.id) ?? 0) - (memberOrder.get(right.id) ?? 0),
+          )
+        : applied.decisions;
+
+    if (decisions.length === 0) {
+      await finalizeUnlessStopped(db, model, operation, options?.runSignal);
+      return;
+    }
+
+    const latestForAgents = await loadScopedMessages(db, operation, {
+      groupId,
+      topicId: operation.topicId ?? undefined,
+    });
+
+    if (group?.config?.responseOrder === 'sequential') {
+      for (const decision of decisions) {
+        const stopReason = await shouldStopGeneration(db, model, operation, options?.runSignal);
+        if (stopReason) {
+          await finalizeIfStopped(model, operation, stopReason, db);
+          return;
+        }
+        const history = await loadScopedMessages(db, operation, {
+          groupId,
+          topicId: operation.topicId ?? undefined,
+        });
+        const outcome = await runAgentDecision(decision, history);
+        if (await applyChildOutcome(outcome, decision.id)) return;
+      }
+    } else {
+      const outcomes = await Promise.all(
+        decisions.map((decision) => runAgentDecision(decision, latestForAgents)),
+      );
+      for (const [index, outcome] of outcomes.entries()) {
+        if (await applyChildOutcome(outcome, decisions[index]?.id)) return;
+      }
     }
   }
 
   const current = await model.findById(operation.id);
   if (current && isActiveConversationGenerationStatus(current.status)) {
-    await finalize(model, operation, 'succeeded');
+    await finalizeUnlessStopped(db, model, operation, options?.runSignal);
   }
 };

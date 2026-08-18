@@ -1,12 +1,13 @@
 import { TRPCClientError } from '@trpc/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { conversationGenerationService, tryEnqueueConversationGeneration } from '../conversationGeneration';
+import { conversationGenerationService, tryEnqueueConversationGeneration, waitForConversationGeneration } from '../conversationGeneration';
 
 vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: {
     conversationGeneration: {
       enqueue: { mutate: vi.fn() },
+      getOperation: { query: vi.fn() },
       getOperationByIdempotencyKey: { query: vi.fn() },
       listActive: { query: vi.fn() },
     },
@@ -57,5 +58,17 @@ describe('tryEnqueueConversationGeneration', () => {
     ).resolves.toEqual(recovered);
     expect(byKey).toHaveBeenCalledWith('chat-send:temp');
     expect(listActive).not.toHaveBeenCalled();
+  });
+});
+
+describe('waitForConversationGeneration', () => {
+  it('returns once the operation is no longer active', async () => {
+    vi.spyOn(conversationGenerationService, 'getOperation')
+      .mockResolvedValueOnce({ id: 'cgo_wait', status: 'processing' } as any)
+      .mockResolvedValueOnce({ id: 'cgo_wait', status: 'succeeded' } as any);
+
+    await expect(waitForConversationGeneration('cgo_wait', { intervalMs: 1 })).resolves.toEqual(
+      expect.objectContaining({ id: 'cgo_wait', status: 'succeeded' }),
+    );
   });
 });

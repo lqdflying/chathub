@@ -59,6 +59,16 @@ describe('filterMessagesForConversationThread', () => {
       }).map((item) => item.id),
     ).toEqual(['thread-a-1', 'thread-a-2']);
   });
+
+  it('uses only the source message plus thread children for standalone threads', () => {
+    expect(
+      filterMessagesForConversationThread(messages, {
+        id: 'thread-a',
+        sourceMessageId: 'main-2',
+        type: 'standalone',
+      }).map((item) => item.id),
+    ).toEqual(['main-2', 'thread-a-1', 'thread-a-2']);
+  });
 });
 
 describe('loadConversationThreadMessages', () => {

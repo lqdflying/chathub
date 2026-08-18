@@ -38,9 +38,40 @@ describe('buildConversationGenerationLane', () => {
     ).toBe('user-1:group:group-1:topic-1:main:chat');
   });
 
+  it('isolates the supervisor from each group member', () => {
+    expect(
+      buildConversationGenerationLane({
+        groupId: 'group-1',
+        kind: 'group_supervisor',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).toBe('user-1:group:group-1:topic-1:main:chat:supervisor');
+    expect(
+      buildConversationGenerationLane({
+        agentId: 'agent-a',
+        groupId: 'group-1',
+        kind: 'group_agent',
+        targetId: 'user',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).toBe('user-1:group:group-1:topic-1:main:chat:agent:agent-a:user');
+    expect(
+      buildConversationGenerationLane({
+        agentId: 'agent-b',
+        groupId: 'group-1',
+        kind: 'group_agent',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).toBe('user-1:group:group-1:topic-1:main:chat:agent:agent-b:default');
+  });
+
   it('keeps chat retries on one family and isolates title and translation', () => {
     expect(getConversationGenerationLaneFamily('regenerate')).toBe('chat');
     expect(getConversationGenerationLaneFamily('group_supervisor')).toBe('chat');
+    expect(getConversationGenerationLaneFamily('group_agent')).toBe('chat');
     expect(
       buildConversationGenerationLane({
         kind: 'topic_title',

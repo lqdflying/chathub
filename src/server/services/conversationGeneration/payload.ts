@@ -28,7 +28,6 @@ import type { LobeChatPluginManifest } from '@lobehub/chat-plugin-sdk';
 
 import { PluginModel } from '@/database/models/plugin';
 import { SkillModel } from '@/database/models/skill';
-import { inboxSessionId } from '@/database/utils/idGenerator';
 import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
@@ -44,6 +43,7 @@ import { WebBrowsingManifest } from '@/tools/web-browsing';
 import type { LobeChatDatabase } from '@lobechat/database';
 
 import type { ConversationRuntimeState } from './credentials';
+import { resolveConversationInboxSessionId } from './inboxSession';
 import { createServerPlaceholderGenerators } from './placeholders';
 
 const WEBAPI_FILES_PREFIX = '/webapi/files/';
@@ -187,7 +187,7 @@ export const buildConversationChatPayload = async ({
         inboxGuideSystemRole: INBOX_GUIDE_SYSTEMROLE,
         inboxSessionId: INBOX_SESSION_ID,
         isWelcomeQuestion: config.isWelcomeQuestion,
-        sessionId: sessionId ?? inboxSessionId(userId),
+        sessionId: resolveConversationInboxSessionId(sessionId),
       }),
       new ToolSystemRoleProvider({
         getToolSystemRoles: (toolIds: string[]) => {

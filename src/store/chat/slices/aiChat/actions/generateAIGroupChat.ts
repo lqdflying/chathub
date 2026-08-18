@@ -17,12 +17,17 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
+import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
 } from '@/helpers/durableConversationGeneration';
+import { formatSupervisorTodoContent } from '@/helpers/supervisorTodos';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
-import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import {
+  tryEnqueueConversationGeneration,
+  waitForConversationGeneration,
+} from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
@@ -70,15 +75,6 @@ const getDebounceThreshold = (responseSpeed?: 'slow' | 'medium' | 'fast'): numbe
       return 5000;
     }
   }
-};
-
-const formatSupervisorTodoContent = (todos: SupervisorTodoItem[]): string => {
-  // Pass todo data as JSON string for dedicated UI processing
-  return JSON.stringify({
-    type: 'supervisor_todo',
-    todos: todos || [],
-    timestamp: Date.now(),
-  });
 };
 
 /**
@@ -265,7 +261,7 @@ export interface ChatGroupChatAction {
     expectedConversationVersion?: number,
     contextExportCaptureId?: string,
     isToolContinuation?: boolean,
-  ) => Promise<void>;
+  ) => Promise<string | undefined>;
 
   /**
    * Sets the active group
@@ -566,6 +562,12 @@ export const chatAiGroupChat: StateCreator<
           conversationVersion: resolvedConversationVersion,
           expectedConversationVersion: resolvedConversationVersion,
           groupId,
+          idempotencyKey: conversationGenerationIdempotencyKey(
+            'group-supervisor',
+            groupId,
+            currentTopicId,
+            resolvedConversationVersion,
+          ),
           kind: 'group_supervisor',
           replaceActive: true,
           sessionId: requestedSessionId,
@@ -747,7 +749,7 @@ export const chatAiGroupChat: StateCreator<
               if (!isCurrentConversation()) return;
             }
 
-            await internal_processAgentMessage(
+            const operationId = await internal_processAgentMessage(
               groupId,
               decision.id,
               decision.target,
@@ -756,20 +758,28 @@ export const chatAiGroupChat: StateCreator<
               contextExportCaptureId,
             );
             if (!isCurrentConversation()) return;
+            if (operationId) await waitForConversationGeneration(operationId);
           }
         } else {
           // Process agents in parallel for natural response order
-          const responsePromises = sortedDecisions.map((decision) =>
-            internal_processAgentMessage(
-              groupId,
-              decision.id,
-              decision.target,
-              decision.instruction,
-              resolvedConversationVersion,
-              contextExportCaptureId,
+          const operationIds = await Promise.all(
+            sortedDecisions.map((decision) =>
+              internal_processAgentMessage(
+                groupId,
+                decision.id,
+                decision.target,
+                decision.instruction,
+                resolvedConversationVersion,
+                contextExportCaptureId,
+              ),
             ),
           );
-          await Promise.all(responsePromises);
+          if (!isCurrentConversation()) return;
+          await Promise.all(
+            operationIds
+              .filter((operationId): operationId is string => Boolean(operationId))
+              .map((operationId) => waitForConversationGeneration(operationId)),
+          );
           if (!isCurrentConversation()) return;
         }
 
@@ -933,6 +943,7 @@ export const chatAiGroupChat: StateCreator<
             conversationVersion: resolvedConversationVersion,
             expectedConversationVersion: resolvedConversationVersion,
             groupId,
+            idempotencyKey: conversationGenerationIdempotencyKey('group-agent', assistantId),
             kind: 'group_agent',
             replaceActive: true,
             sessionId: requestedSessionId,
@@ -953,7 +964,7 @@ export const chatAiGroupChat: StateCreator<
               topicId: activeTopicId,
               userScope: accountMutationSnapshot.scope,
             });
-            return;
+            return operation.id;
           }
         }
 
