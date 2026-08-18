@@ -26,6 +26,7 @@ import { ModelProvider } from 'model-bank';
 import { enableAuth } from '@/const/auth';
 import { DEFAULT_AGENT_CONFIG } from '@/const/settings';
 import { getSearchConfig } from '@/helpers/getSearchConfig';
+import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { createChatToolsEngine, createToolsEngine } from '@/helpers/toolEngineering';
 import { skillService } from '@/services/skill';
 import { getAgentStoreState } from '@/store/agent';
@@ -263,6 +264,7 @@ class ChatService {
         tools,
         payload.model,
         payload.max_tokens,
+        getModelContextWindowTokens(payload.model, 'minimax'),
       );
     }
 
@@ -582,6 +584,7 @@ class ChatService {
           tools,
           params.model!,
           params.max_tokens,
+          getModelContextWindowTokens(params.model!, 'minimax'),
         );
       }
 

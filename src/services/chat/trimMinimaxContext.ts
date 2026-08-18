@@ -1,7 +1,6 @@
 import type { OpenAIChatMessage } from '@lobechat/types';
 import { minimax as minimaxModels } from 'model-bank';
 
-import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { encodeAsync } from '@/utils/tokenizer';
 
 /** Extra reserved tokens for JSON overhead / MiniMax counting vs our estimate. */
@@ -12,6 +11,11 @@ const SAFETY_MARGIN = 4096;
  * request (messages + tools + typical completion) exceeds their window. Their total
  * budget is ~`contextWindow`; completion can require up to `max_output` tokens, so the
  * effective prompt budget is roughly `contextWindow - max_output` (see model card).
+ *
+ * Do not import the client AI-infra store here. This helper is used by the Graphile
+ * worker / `instrumentation` graph; Next.js fails `next build` if a server module
+ * imports files that use React client hooks
+ * (https://nextjs.org/docs/messages/react-client-hook-in-server-component).
  */
 const estimateRequestTokens = async (
   messages: OpenAIChatMessage[],
@@ -25,9 +29,10 @@ export async function trimMinimaxChatContext(
   tools: unknown[] | undefined,
   model: string,
   maxTokensRequest?: number,
+  contextWindowTokens?: number,
 ): Promise<OpenAIChatMessage[]> {
-  const contextWindow = getModelContextWindowTokens(model, 'minimax') || 204_800;
   const modelRow = minimaxModels.find((m) => m.id === model);
+  const contextWindow = contextWindowTokens || modelRow?.contextWindowTokens || 204_800;
   const modelMaxOut = modelRow?.maxOutput ?? 65_536;
   const completionReserve =
     maxTokensRequest !== undefined && maxTokensRequest > 0

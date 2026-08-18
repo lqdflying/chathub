@@ -73,7 +73,12 @@ answer). The owned assistant is never sent back as history. Standalone portal
 threads send only the source message plus that thread’s children.
 
 Job payload is `{ operationId, userId }` only. Credentials are resolved from
-encrypted user/provider vaults at execution time.
+the encrypted user vault plus env at execute time. MiniMax context trimming in
+that worker uses model-bank window sizes (or an explicit override). It must not
+import the client AI-infra Zustand store: that graph uses React hooks, and
+Next.js fails `next build` when a server entry such as `instrumentation` pulls
+it in
+([react-client-hook-in-server-component](https://nextjs.org/docs/messages/react-client-hook-in-server-component)).
 
 ## Feature flag
 
