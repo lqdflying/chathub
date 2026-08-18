@@ -35,7 +35,7 @@ lifecycle (image/file jobs) and are not a conversation lane.
 ## Tables
 
 Migrations `0054_add_conversation_generation.sql` through
-`0056_harden_conversation_generation_indexes.sql`, plus
+`0057_conversation_generation_placeholder_cleanup.sql`, plus
 `scripts/migrateServerDB/ensureConversationGenerationOperations.cjs`:
 
 - `conversation_generation_operations` — one row per lane job (`cgo` ids)
@@ -212,18 +212,23 @@ stale summary.
 The tool continuation budget is checked before creating another assistant
 placeholder. Creating that placeholder and recording its id happen in one
 database transaction (Drizzle nested transactions use PostgreSQL savepoints).
-A retry that finds a persisted assistant id with no row recreates the loading
-placeholder and refuses to finalize success if the row is still missing. A
-nested group-agent turn returns an explicit outcome; failed, cancelled, or
-interrupted children cannot be overwritten by supervisor success. Stop, pending
-cancel, stale finalization, and a failed round clear leftover loading
-placeholders in the same transaction as the terminal status change. A sweeper
-also revisits recently finished operations so a crash between those writes
-cannot leave permanent `LOADING_FLAT` rows. Successful sibling replies keep
-their content and are not annotated with another member’s error; round-level
-failure lives on the operation. After a tool continuation, cancel, clear, and
-failure annotate or clear the newest assistant, not the completed tool-call
-row. Parallel member turns settle before the parent is finalized.
+Supervisor child ids are appended with a single JSONB `UPDATE`
+(`jsonb_exists` / `jsonb_set` / `jsonb_build_array`) so PostgreSQL’s row lock
+and READ COMMITTED re-evaluation keep parallel member continuations from
+dropping a committed sibling. A retry that finds a persisted assistant id with
+no row recreates the loading placeholder and refuses to finalize success if the
+row is still missing. A nested group-agent turn returns an explicit outcome;
+failed, cancelled, or interrupted children cannot be overwritten by supervisor
+success. Stop, pending cancel, stale finalization, and a failed round clear
+leftover loading placeholders in the same transaction as the terminal status
+change, then set `placeholdersCleanedAt`. A sweeper keyset-pages unmarked
+terminal rows (`finished_at`, `id`, partial index) until none remain so a crash
+between those writes cannot leave permanent `LOADING_FLAT` rows. Successful
+sibling replies keep their content and are not annotated with another member’s
+error; round-level failure lives on the operation. After a tool continuation,
+cancel, clear, and failure annotate or clear the newest assistant, not the
+completed tool-call row. Parallel member turns settle before the parent is
+finalized.
 
 ## Startup schema repair
 
@@ -231,8 +236,9 @@ row. Parallel member turns settle before the parent is finalized.
 container startup. It inspects the active-lane index predicate and replaces the
 legacy 0054 definition if it still includes `cancelling`. It also deduplicates
 legacy step hashes (preferring succeeded/latest rows) before adding the unique
-tool-step replay index. `CREATE INDEX IF NOT EXISTS` alone is deliberately not
-used as a definition check.
+tool-step replay index, and adds `placeholders_cleaned_at` plus the partial
+cleanup index for unmarked terminal jobs. `CREATE INDEX IF NOT EXISTS` alone is
+deliberately not used as a definition check.
 
 ## Tests and operations
 

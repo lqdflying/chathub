@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@lobechat/const';
 
+import { CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE } from './constants';
 import {
   ConversationGenerationService,
   sweepPendingConversationGenerationJobs,
@@ -20,9 +21,10 @@ const modelMocks = vi.hoisted(() => ({
   latestEventId: vi.fn(),
   listEventsAfter: vi.fn(),
   listPendingWithoutJob: vi.fn(),
-  listRecentlyFinished: vi.fn(),
   listStaleCancelling: vi.fn(),
   listStaleProcessing: vi.fn(),
+  listUncleanedFinished: vi.fn(),
+  markPlaceholdersCleaned: vi.fn(),
   requestCancel: vi.fn(),
   requeueStaleProcessing: vi.fn(),
   update: vi.fn(),
@@ -53,9 +55,10 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     latestEventId = modelMocks.latestEventId;
     listEventsAfter = modelMocks.listEventsAfter;
     listPendingWithoutJob = modelMocks.listPendingWithoutJob;
-    listRecentlyFinished = modelMocks.listRecentlyFinished;
     listStaleCancelling = modelMocks.listStaleCancelling;
     listStaleProcessing = modelMocks.listStaleProcessing;
+    listUncleanedFinished = modelMocks.listUncleanedFinished;
+    markPlaceholdersCleaned = modelMocks.markPlaceholdersCleaned;
     requestCancel = modelMocks.requestCancel;
     requeueStaleProcessing = modelMocks.requeueStaleProcessing;
     update = modelMocks.update;
@@ -96,7 +99,8 @@ describe('sweepStaleConversationGenerationOperations', () => {
     modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
     modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
     modelMocks.listPendingWithoutJob.mockResolvedValue([]);
-    modelMocks.listRecentlyFinished.mockResolvedValue([]);
+    modelMocks.listUncleanedFinished.mockResolvedValue([]);
+    modelMocks.markPlaceholdersCleaned.mockResolvedValue({});
     toolMocks.findUnsupportedConversationTool.mockResolvedValue(undefined);
   });
 
@@ -258,14 +262,14 @@ describe('sweepStaleConversationGenerationOperations', () => {
     expect(modelMocks.requeueStaleProcessing).not.toHaveBeenCalled();
   });
 
-  it('clears leftover loading rows on recently finished operations after a crash', async () => {
+  it('clears leftover loading rows on unmarked finished operations after a crash', async () => {
     const pendingCancelChild = { content: LOADING_FLAT, id: 'child-pending-crash' };
     const staleFailChild = { content: LOADING_FLAT, id: 'child-stale-crash' };
     const rows: Record<string, { content: string; id: string }> = {
       [pendingCancelChild.id]: pendingCancelChild,
       [staleFailChild.id]: staleFailChild,
     };
-    modelMocks.listRecentlyFinished.mockResolvedValue([
+    modelMocks.listUncleanedFinished.mockResolvedValueOnce([
       {
         assistantMessageId: null,
         config: {
@@ -301,6 +305,82 @@ describe('sweepStaleConversationGenerationOperations', () => {
     expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
     expect(pendingCancelChild.content).toBe('');
     expect(staleFailChild.content).toBe('');
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith(
+      'operation-pending-cancel-crash',
+    );
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith('operation-stale-fail-crash');
+  });
+
+  it('pages through unmarked terminal jobs so the oldest leftover is still cleared', async () => {
+    const leftover = { content: LOADING_FLAT, id: 'oldest-child' };
+    const oldestFinishedAt = new Date('2026-01-01T00:00:00.000Z');
+    const tiedFinishedAt = new Date('2026-06-01T00:00:00.000Z');
+    const newestFinishedAt = new Date('2026-08-01T00:00:00.000Z');
+    const oldest = {
+      assistantMessageId: null,
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        supervisorChildMessageIds: [leftover.id],
+      },
+      finishedAt: oldestFinishedAt,
+      id: 'operation-oldest',
+      status: 'failed',
+      userId: 'user-1',
+    };
+    const tied = Array.from({ length: 2 }, (_, index) => ({
+      assistantMessageId: null,
+      config: { model: 'test-model', provider: 'test-provider' },
+      finishedAt: tiedFinishedAt,
+      id: `operation-tied-${index}`,
+      status: 'succeeded',
+      userId: 'user-1',
+    }));
+    const newer = Array.from({ length: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE - 1 }, (_, index) => ({
+      assistantMessageId: null,
+      config: { model: 'test-model', provider: 'test-provider' },
+      finishedAt: new Date(newestFinishedAt.getTime() + index),
+      id: `operation-new-${String(index).padStart(3, '0')}`,
+      status: 'succeeded',
+      userId: 'user-1',
+    }));
+    const all = [oldest, ...tied, ...newer].sort((left, right) => {
+      const time = left.finishedAt.getTime() - right.finishedAt.getTime();
+      if (time !== 0) return time;
+      return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+    });
+    expect(all).toHaveLength(CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE + 2);
+
+    modelMocks.listUncleanedFinished.mockImplementation(async ({ after, limit = 100 } = {}) => {
+      const start = after
+        ? all.findIndex(
+            (row) =>
+              row.finishedAt.getTime() > after.finishedAt.getTime() ||
+              (row.finishedAt.getTime() === after.finishedAt.getTime() && row.id > after.id),
+          )
+        : 0;
+      const from = start < 0 ? all.length : start;
+      return all.slice(from, from + limit);
+    });
+    modelMocks.findById.mockImplementation(async (id) => all.find((row) => row.id === id));
+    messageMocks.findById.mockImplementation(async (id) => (id === leftover.id ? leftover : undefined));
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === leftover.id) Object.assign(leftover, value);
+    });
+
+    await sweepStaleConversationGenerationOperations({ execute: vi.fn() } as any);
+
+    expect(modelMocks.listUncleanedFinished.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(modelMocks.listUncleanedFinished.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ after: undefined, limit: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE }),
+    );
+    expect(modelMocks.listUncleanedFinished.mock.calls[1]?.[0]?.after).toEqual({
+      finishedAt: all[CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE - 1]?.finishedAt,
+      id: all[CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE - 1]?.id,
+    });
+    expect(leftover.content).toBe('');
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith('operation-oldest');
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledTimes(all.length);
   });
 });
 

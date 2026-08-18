@@ -17,6 +17,7 @@ import { consumeProtocolResponse } from './stream';
 import { executeConversationToolStep } from './tools';
 
 const modelMocks = vi.hoisted(() => ({
+  appendSupervisorChildMessageId: vi.fn(),
   bumpRevision: vi.fn(),
   claimForProcessing: vi.fn(),
   finalizeActive: vi.fn(),
@@ -24,6 +25,7 @@ const modelMocks = vi.hoisted(() => ({
   insertEvent: vi.fn(),
   isSupersededByLaneGeneration: vi.fn(),
   markForRetry: vi.fn(),
+  markPlaceholdersCleaned: vi.fn(),
   touchHeartbeat: vi.fn(),
   update: vi.fn(),
 }));
@@ -57,6 +59,7 @@ const runtimeMocks = vi.hoisted(() => ({
 
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
+    appendSupervisorChildMessageId = modelMocks.appendSupervisorChildMessageId;
     bumpRevision = modelMocks.bumpRevision;
     claimForProcessing = modelMocks.claimForProcessing;
     finalizeActive = modelMocks.finalizeActive;
@@ -64,6 +67,7 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     insertEvent = modelMocks.insertEvent;
     isSupersededByLaneGeneration = modelMocks.isSupersededByLaneGeneration;
     markForRetry = modelMocks.markForRetry;
+    markPlaceholdersCleaned = modelMocks.markPlaceholdersCleaned;
     touchHeartbeat = modelMocks.touchHeartbeat;
     update = modelMocks.update;
   },
@@ -641,6 +645,12 @@ describe('executeConversationGeneration supervisor children', () => {
       if (value.config) row.config = value.config;
       return { ...row, revision: 2, status: row.status === 'pending' ? 'processing' : row.status };
     });
+    modelMocks.appendSupervisorChildMessageId.mockImplementation(async (_id, childId) => {
+      const config = row.config as { supervisorChildMessageIds?: string[] };
+      const ids = [...new Set([...(config.supervisorChildMessageIds || []), childId])];
+      row.config = { ...config, supervisorChildMessageIds: ids };
+      return { ...row };
+    });
     modelMocks.bumpRevision.mockResolvedValue({ ...row, revision: 3, status: 'processing' });
     modelMocks.finalizeActive.mockImplementation(async (id, status, error) => ({
       error,
@@ -848,12 +858,16 @@ describe('executeConversationGeneration supervisor children', () => {
   it('creates the child placeholder before assigning the persisted child id', async () => {
     const order: string[] = [];
     modelMocks.update.mockImplementation(async (_id, value) => {
-      if (value.config?.supervisorChildMessageIds?.length) {
-        order.push(`persist:${value.config.supervisorChildMessageIds.join(',')}`);
-      }
       Object.assign(row, value);
       if (value.config) row.config = value.config;
       return { ...row, revision: 2, status: 'processing' };
+    });
+    modelMocks.appendSupervisorChildMessageId.mockImplementation(async (_id, childId) => {
+      order.push(`persist:${childId}`);
+      const config = row.config as { supervisorChildMessageIds?: string[] };
+      const ids = [...new Set([...(config.supervisorChildMessageIds || []), childId])];
+      row.config = { ...config, supervisorChildMessageIds: ids };
+      return { ...row };
     });
     messageMocks.create.mockImplementation(async (params, id) => {
       order.push(`create:${id}`);
@@ -871,12 +885,10 @@ describe('executeConversationGeneration supervisor children', () => {
 
   it('clears a child row when id persistence fails after insert', async () => {
     modelMocks.update.mockImplementation(async (_id, value) => {
-      if (value.config?.supervisorChildMessageIds?.length) {
-        throw new Error('config persist failed');
-      }
       Object.assign(row, value);
       return { ...row, revision: 2, status: 'processing' };
     });
+    modelMocks.appendSupervisorChildMessageId.mockRejectedValue(new Error('config persist failed'));
 
     await expect(runOperation(row, { preserveUpdate: true })).rejects.toThrow(
       'config persist failed',

@@ -119,24 +119,66 @@ describe('ConversationGenerationModel compare-and-set guards', () => {
     expect(texts).not.toContain('cancelling');
   });
 
-  it('lists recently finished operations by finishedAt without scoping to the caller', async () => {
-    const findMany = vi.fn().mockResolvedValue([]);
-    const db = {
-      query: { conversationGenerationOperations: { findMany } },
-    };
-    const model = new ConversationGenerationModel(db as any, 'system');
-    const finishedAfter = new Date('2026-08-17T00:00:00.000Z');
+  it('appends supervisor child ids with a jsonb set expression instead of replacing config', async () => {
+    const { db, returning, set, where } = createUpdateDb();
+    returning.mockResolvedValue([
+      { config: { supervisorChildMessageIds: ['child-1'] }, id: 'cgo-1' },
+    ]);
+    const model = new ConversationGenerationModel(db as any, 'user-1');
 
-    await model.listRecentlyFinished(finishedAfter, 50);
+    await model.appendSupervisorChildMessageId('cgo-1', 'child-1', {
+      attempt: 1,
+      laneGeneration: 1,
+    });
 
-    expect(findMany).toHaveBeenCalledWith(
+    const setTexts = collectStrings(set.mock.calls[0]?.[0]);
+    expect(setTexts.join('\n')).toContain('jsonb_set');
+    expect(setTexts.join('\n')).toContain('jsonb_build_array');
+    expect(setTexts.join('\n')).toContain('jsonb_exists');
+    expect(setTexts.join('\n')).toContain('supervisorChildMessageIds');
+    const whereTexts = collectStrings(where.mock.calls[0]?.[0]);
+    expect(whereTexts).toEqual(expect.arrayContaining(['pending', 'processing', 'cancelling']));
+  });
+
+  it('marks placeholder cleanup without rewriting active rows', async () => {
+    const { db, returning, set, where } = createUpdateDb();
+    returning.mockResolvedValue([{ id: 'cgo-1' }]);
+    const model = new ConversationGenerationModel(db as any, 'user-1');
+
+    await model.markPlaceholdersCleaned('cgo-1');
+
+    expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
-        limit: 50,
+        placeholdersCleanedAt: expect.any(Date),
       }),
     );
-    const texts = collectStrings(findMany.mock.calls[0]?.[0]);
-    expect(texts).toEqual(
+    const whereTexts = collectStrings(where.mock.calls[0]?.[0]);
+    expect(whereTexts).toEqual(
       expect.arrayContaining(['cancelled', 'failed', 'interrupted', 'succeeded']),
     );
+    expect(whereTexts).not.toEqual(expect.arrayContaining(['pending', 'processing']));
+  });
+
+  it('lists unmarked finished operations oldest-first with a finishedAt/id keyset', async () => {
+    const limit = vi.fn().mockResolvedValue([]);
+    const orderBy = vi.fn(() => ({ limit }));
+    const where = vi.fn(() => ({ orderBy }));
+    const from = vi.fn(() => ({ where }));
+    const select = vi.fn(() => ({ from }));
+    const model = new ConversationGenerationModel({ select } as any, 'system');
+    const after = { finishedAt: new Date('2026-08-01T00:00:00.000Z'), id: 'cgo_99' };
+
+    await model.listUncleanedFinished({ after, limit: 50 });
+
+    expect(select).toHaveBeenCalled();
+    expect(limit).toHaveBeenCalledWith(50);
+    const whereTexts = collectStrings(where.mock.calls[0]?.[0]);
+    expect(whereTexts).toEqual(
+      expect.arrayContaining(['cancelled', 'failed', 'interrupted', 'succeeded']),
+    );
+    expect(whereTexts.join('\n')).toContain('cgo_99');
+    const orderTexts = collectStrings(orderBy.mock.calls[0]?.[0]);
+    expect(orderTexts.join('\n')).toContain('finished_at');
+    expect(orderTexts.join('\n')).toContain('id');
   });
 });

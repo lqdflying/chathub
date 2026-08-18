@@ -129,6 +129,7 @@ export interface ConversationGenerationOperation {
   laneGeneration: number;
   parentMessageId?: string | null;
   phase?: ConversationGenerationPhase | null;
+  placeholdersCleanedAt?: Date | string | null;
   revision: number;
   sessionId?: string | null;
   startedAt?: Date | string | null;

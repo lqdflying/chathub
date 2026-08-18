@@ -7,7 +7,7 @@ import {
   ConversationGenerationStatus,
   isActiveConversationGenerationStatus,
 } from '@lobechat/types';
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 
 import {
   conversationGenerationEvents,
@@ -20,6 +20,17 @@ import { idGenerator } from '../utils/idGenerator';
 const ACTIVE_STATUSES: ConversationGenerationStatus[] = ['pending', 'processing', 'cancelling'];
 const BLOCKING_STATUSES: ConversationGenerationStatus[] = ['pending', 'processing'];
 const PROCESSING_STATUS: ConversationGenerationStatus[] = ['processing'];
+const TERMINAL_STATUSES: ConversationGenerationStatus[] = [
+  'cancelled',
+  'failed',
+  'interrupted',
+  'succeeded',
+];
+
+export interface ConversationGenerationCleanupCursor {
+  finishedAt: Date;
+  id: string;
+}
 
 export interface CreateConversationGenerationOperationParams {
   agentId?: string | null;
@@ -160,21 +171,39 @@ export class ConversationGenerationModel {
     });
   };
 
-  listRecentlyFinished = async (finishedAfter: Date, limit = 100) => {
-    return this.db.query.conversationGenerationOperations.findMany({
-      limit,
-      orderBy: [desc(conversationGenerationOperations.finishedAt)],
-      where: and(
-        inArray(conversationGenerationOperations.status, [
-          'cancelled',
-          'failed',
-          'interrupted',
-          'succeeded',
-        ]),
-        isNotNull(conversationGenerationOperations.finishedAt),
-        gt(conversationGenerationOperations.finishedAt, finishedAfter),
-      ),
-    });
+  listUncleanedFinished = async ({
+    after,
+    limit = 100,
+  }: {
+    after?: ConversationGenerationCleanupCursor;
+    limit?: number;
+  } = {}) => {
+    const keyset = after
+      ? or(
+          gt(conversationGenerationOperations.finishedAt, after.finishedAt),
+          and(
+            eq(conversationGenerationOperations.finishedAt, after.finishedAt),
+            gt(conversationGenerationOperations.id, after.id),
+          ),
+        )
+      : undefined;
+
+    return this.db
+      .select()
+      .from(conversationGenerationOperations)
+      .where(
+        and(
+          isNull(conversationGenerationOperations.placeholdersCleanedAt),
+          isNotNull(conversationGenerationOperations.finishedAt),
+          inArray(conversationGenerationOperations.status, TERMINAL_STATUSES),
+          keyset,
+        ),
+      )
+      .orderBy(
+        asc(conversationGenerationOperations.finishedAt),
+        asc(conversationGenerationOperations.id),
+      )
+      .limit(limit);
   };
 
   listPendingWithoutJob = async () => {
@@ -360,6 +389,75 @@ export class ConversationGenerationModel {
           guard?.laneGeneration === undefined
             ? undefined
             : eq(conversationGenerationOperations.laneGeneration, guard.laneGeneration),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  /**
+   * Append a supervisor child message id with a single JSONB UPDATE.
+   * PostgreSQL takes a row lock for the JSON update and, under READ COMMITTED,
+   * re-evaluates the SET expression against the latest row after waiting, so
+   * concurrent appends cannot drop a committed sibling id.
+   */
+  appendSupervisorChildMessageId = async (
+    id: string,
+    childMessageId: string,
+    guard?: { attempt?: number; laneGeneration?: number },
+  ) => {
+    const childIdsSql = sql`CASE
+      WHEN jsonb_typeof(${conversationGenerationOperations.config}->'supervisorChildMessageIds') = 'array'
+      THEN ${conversationGenerationOperations.config}->'supervisorChildMessageIds'
+      ELSE '[]'::jsonb
+    END`;
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        config: sql`CASE
+          WHEN jsonb_exists(${childIdsSql}, ${childMessageId})
+          THEN ${conversationGenerationOperations.config}
+          ELSE jsonb_set(
+            ${conversationGenerationOperations.config},
+            '{supervisorChildMessageIds}',
+            ${childIdsSql} || jsonb_build_array(${childMessageId})
+          )
+        END`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+          guard?.attempt === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.attempt, guard.attempt),
+          guard?.laneGeneration === undefined
+            ? undefined
+            : eq(conversationGenerationOperations.laneGeneration, guard.laneGeneration),
+        ),
+      )
+      .returning();
+
+    return item;
+  };
+
+  markPlaceholdersCleaned = async (id: string) => {
+    const [item] = await this.db
+      .update(conversationGenerationOperations)
+      .set({
+        placeholdersCleanedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(conversationGenerationOperations.id, id),
+          eq(conversationGenerationOperations.userId, this.userId),
+          isNull(conversationGenerationOperations.placeholdersCleanedAt),
+          isNotNull(conversationGenerationOperations.finishedAt),
+          inArray(conversationGenerationOperations.status, TERMINAL_STATUSES),
         ),
       )
       .returning();

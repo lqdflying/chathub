@@ -53,6 +53,7 @@ export const conversationGenerationOperations = pgTable(
     heartbeatAt: timestamptz('heartbeat_at'),
     startedAt: timestamptz('started_at'),
     finishedAt: timestamptz('finished_at'),
+    placeholdersCleanedAt: timestamptz('placeholders_cleaned_at'),
     cancelRequestedAt: timestamptz('cancel_requested_at'),
 
     ...timestamps,
@@ -72,6 +73,11 @@ export const conversationGenerationOperations = pgTable(
       .where(sql`${t.idempotencyKey} is not null`),
     index('conversation_generation_operations_user_created_idx').on(t.userId, t.createdAt),
     index('conversation_generation_operations_user_status_idx').on(t.userId, t.status),
+    index('conversation_generation_operations_placeholder_cleanup_idx')
+      .on(t.finishedAt, t.id)
+      .where(
+        sql`${t.placeholdersCleanedAt} is null and ${t.finishedAt} is not null and ${t.status} in ('cancelled', 'failed', 'interrupted', 'succeeded')`,
+      ),
   ],
 );
 

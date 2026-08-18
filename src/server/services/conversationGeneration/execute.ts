@@ -1377,26 +1377,34 @@ const executeSupervisor = async (
 
   const childMessageIds = [...(operation.config.supervisorChildMessageIds || [])];
   let persistChain = Promise.resolve();
-  const persistChildIds = () => {
+  const appendChildId = (id: string) => {
     persistChain = persistChain.then(async () => {
-      operation.config = {
-        ...operation.config,
-        supervisorChildMessageIds: [...childMessageIds],
-      };
-      await updateOperation(model, operation, { config: operation.config });
+      const updated = await model.appendSupervisorChildMessageId(operation.id, id, {
+        attempt: operation.attempt,
+        laneGeneration: operation.laneGeneration,
+      });
+      if (!updated) {
+        throw new Error('Conversation generation attempt no longer owns the operation.');
+      }
+      operation.config = updated.config;
     });
     return persistChain;
   };
   const trackChild = async (id: string) => {
     if (childMessageIds.includes(id)) return;
     childMessageIds.push(id);
-    await persistChildIds();
+    await appendChildId(id);
   };
 
   await clearUnfinishedPlaceholders(db, operation.userId, childMessageIds);
   if (childMessageIds.length > 0) {
     childMessageIds.length = 0;
-    await persistChildIds();
+    await updateOperation(model, operation, {
+      config: {
+        ...operation.config,
+        supervisorChildMessageIds: [],
+      },
+    });
   }
 
   const createChildAssistant = async (decision: {

@@ -1,6 +1,6 @@
 /**
  * Idempotent repair for durable conversation generation tables.
- * Safe to run after every migration (matches migrations 0054 through 0056).
+ * Safe to run after every migration (matches migrations 0054 through 0057).
  */
 const CONVERSATION_GENERATION_SQL = `
 CREATE TABLE IF NOT EXISTS "conversation_generation_operations" (
@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS "conversation_generation_operations" (
   "heartbeat_at" timestamp with time zone,
   "started_at" timestamp with time zone,
   "finished_at" timestamp with time zone,
+  "placeholders_cleaned_at" timestamp with time zone,
   "cancel_requested_at" timestamp with time zone,
   "accessed_at" timestamp with time zone DEFAULT now() NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -110,6 +111,13 @@ EXCEPTION
 END $$;
 
 DO $$ BEGIN
+  ALTER TABLE "conversation_generation_operations"
+    ADD COLUMN IF NOT EXISTS "placeholders_cleaned_at" timestamp with time zone;
+EXCEPTION
+  WHEN duplicate_column THEN null;
+END $$;
+
+DO $$ BEGIN
   IF to_regclass('public.conversation_generation_operations_lane_active_uniq') IS NOT NULL
     AND NOT EXISTS (
       SELECT 1
@@ -179,6 +187,12 @@ CREATE INDEX IF NOT EXISTS "conversation_generation_operations_user_created_idx"
 
 CREATE INDEX IF NOT EXISTS "conversation_generation_operations_user_status_idx"
   ON "conversation_generation_operations" USING btree ("user_id","status");
+
+CREATE INDEX IF NOT EXISTS "conversation_generation_operations_placeholder_cleanup_idx"
+  ON "conversation_generation_operations" USING btree ("finished_at","id")
+  WHERE "placeholders_cleaned_at" IS NULL
+    AND "finished_at" IS NOT NULL
+    AND "status" IN ('cancelled', 'failed', 'interrupted', 'succeeded');
 
 CREATE INDEX IF NOT EXISTS "conversation_generation_steps_operation_idx"
   ON "conversation_generation_steps" USING btree ("operation_id","created_at");

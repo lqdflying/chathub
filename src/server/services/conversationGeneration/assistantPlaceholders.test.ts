@@ -22,9 +22,11 @@ const messageMocks = vi.hoisted(() => ({
 }));
 
 const modelMocks = vi.hoisted(() => ({
+  appendSupervisorChildMessageId: vi.fn(),
   finalizeActive: vi.fn(),
   findById: vi.fn(),
   insertEvent: vi.fn(),
+  markPlaceholdersCleaned: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -38,9 +40,11 @@ vi.mock('@/database/models/message', () => ({
 
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
+    appendSupervisorChildMessageId = modelMocks.appendSupervisorChildMessageId;
     finalizeActive = modelMocks.finalizeActive;
     findById = modelMocks.findById;
     insertEvent = modelMocks.insertEvent;
+    markPlaceholdersCleaned = modelMocks.markPlaceholdersCleaned;
     update = modelMocks.update;
   },
 }));
@@ -136,6 +140,20 @@ describe('conversation generation crash recovery helpers', () => {
     vi.clearAllMocks();
     modelMocks.findById.mockResolvedValue({ ...operation });
     modelMocks.update.mockResolvedValue({ ...operation, revision: 2 });
+    modelMocks.appendSupervisorChildMessageId.mockImplementation(async (_id, childId) => ({
+      ...operation,
+      config: {
+        ...operation.config,
+        supervisorChildMessageIds: [
+          ...new Set([...(operation.config.supervisorChildMessageIds || []), childId]),
+        ],
+      },
+      revision: 2,
+    }));
+    modelMocks.markPlaceholdersCleaned.mockResolvedValue({
+      ...operation,
+      placeholdersCleanedAt: new Date(),
+    });
     modelMocks.finalizeActive.mockResolvedValue({
       ...operation,
       revision: 3,
@@ -238,15 +256,7 @@ describe('conversation generation crash recovery helpers', () => {
     expect(created.content).toBe('');
   });
 
-  it('merges supervisor child ids onto the persisted parent config', async () => {
-    modelMocks.findById.mockResolvedValue({
-      ...operation,
-      config: {
-        model: 'supervisor-model',
-        provider: 'p',
-        supervisorChildMessageIds: ['child-1'],
-      },
-    });
+  it('appends supervisor child ids through the atomic JSONB writer', async () => {
     const childCopy = {
       ...operation,
       config: {
@@ -264,17 +274,83 @@ describe('conversation generation crash recovery helpers', () => {
       params: { content: LOADING_FLAT, role: 'assistant', sessionId: 'session-1' } as any,
     });
 
-    expect(modelMocks.update).toHaveBeenCalledWith(
-      'cgo-1',
-      {
-        config: {
-          model: 'supervisor-model',
-          provider: 'p',
-          supervisorChildMessageIds: ['child-1', 'child-2'],
-        },
+    expect(modelMocks.appendSupervisorChildMessageId).toHaveBeenCalledWith('cgo-1', 'child-2', {
+      attempt: 1,
+      laneGeneration: 1,
+    });
+    expect(modelMocks.update).not.toHaveBeenCalled();
+    expect(childCopy.config.supervisorChildMessageIds).toEqual(['child-2']);
+  });
+
+  it('keeps both concurrent supervisor child ids and clears both loading rows', async () => {
+    const store = {
+      ...operation,
+      config: {
+        model: 'supervisor-model',
+        provider: 'p',
+        supervisorChildMessageIds: [] as string[],
       },
-      { attempt: 1, laneGeneration: 1 },
+    };
+    const rows: Record<string, { content: string; id: string }> = {};
+    let entered = 0;
+    let releaseReaders: () => void = () => {};
+    const bothEntered = new Promise<void>((resolve) => {
+      releaseReaders = resolve;
+    });
+    let applyChain = Promise.resolve();
+    modelMocks.appendSupervisorChildMessageId.mockImplementation(async (_id, childId) => {
+      entered += 1;
+      if (entered === 2) releaseReaders();
+      await bothEntered;
+      const run = applyChain.then(async () => {
+        const next = [...new Set([...(store.config.supervisorChildMessageIds || []), childId])];
+        store.config = { ...store.config, supervisorChildMessageIds: next };
+        return { ...store, config: { ...store.config } };
+      });
+      applyChain = run.then(() => undefined);
+      return run;
+    });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      rows[id] = { content: params.content, id };
+      return rows[id];
+    });
+    messageMocks.findById.mockImplementation(async (id) => rows[id] ?? store);
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (rows[id]) Object.assign(rows[id], value);
+    });
+    modelMocks.findById.mockImplementation(async () => ({
+      ...store,
+      config: { ...store.config },
+    }));
+
+    await Promise.all([
+      createAssistantMessageAndAssign({
+        assignment: 'supervisorChild',
+        db: {} as any,
+        id: 'child-a',
+        operation: { ...operation, config: { ...operation.config } },
+        params: { content: LOADING_FLAT, role: 'assistant', sessionId: 'session-1' } as any,
+      }),
+      createAssistantMessageAndAssign({
+        assignment: 'supervisorChild',
+        db: {} as any,
+        id: 'child-b',
+        operation: { ...operation, config: { ...operation.config } },
+        params: { content: LOADING_FLAT, role: 'assistant', sessionId: 'session-1' } as any,
+      }),
+    ]);
+
+    expect(store.config.supervisorChildMessageIds).toEqual(
+      expect.arrayContaining(['child-a', 'child-b']),
     );
+    expect(store.config.supervisorChildMessageIds).toHaveLength(2);
+    expect(rows['child-a']?.content).toBe(LOADING_FLAT);
+    expect(rows['child-b']?.content).toBe(LOADING_FLAT);
+
+    await clearOperationPlaceholders({} as any, store as any);
+
+    expect(rows['child-a']?.content).toBe('');
+    expect(rows['child-b']?.content).toBe('');
   });
 
   it('finalizes, emits, and clears loading rows inside one transaction', async () => {
@@ -325,6 +401,7 @@ describe('conversation generation crash recovery helpers', () => {
     );
     expect(loading.content).toBe('');
     expect(child.content).toBe('');
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith('cgo-1');
   });
 
   it('resolves the latest persisted assistant id', async () => {

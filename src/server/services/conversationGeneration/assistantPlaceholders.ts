@@ -146,32 +146,14 @@ export const createAssistantMessageAndAssign = async ({
       return;
     }
 
-    const current = await model.findById(operation.id);
-    if (!current) {
-      throw new Error('Conversation generation attempt no longer owns the operation.');
-    }
-    const previousChildIds = current.config.supervisorChildMessageIds;
-    const childIds = [...new Set([...(previousChildIds || []), id])];
-    const updated = await model.update(
-      operation.id,
-      {
-        config: {
-          ...current.config,
-          supervisorChildMessageIds: childIds,
-        },
-      },
-      {
-        attempt: operation.attempt,
-        laneGeneration: operation.laneGeneration,
-      },
-    );
+    const updated = await model.appendSupervisorChildMessageId(operation.id, id, {
+      attempt: operation.attempt,
+      laneGeneration: operation.laneGeneration,
+    });
     if (!updated) {
       throw new Error('Conversation generation attempt no longer owns the operation.');
     }
-    operation.config = {
-      ...operation.config,
-      supervisorChildMessageIds: childIds,
-    };
+    operation.config = updated.config;
   };
 
   return withConversationDbTransaction(db, async (trx) => {
@@ -225,6 +207,7 @@ export const finalizeOperationWithCleanup = async ({
     if (error && annotateMessageId) {
       await annotateAssistantError(trx, operation.userId, annotateMessageId, error);
     }
+    await model.markPlaceholdersCleaned(operation.id);
     return updated;
   });
 };

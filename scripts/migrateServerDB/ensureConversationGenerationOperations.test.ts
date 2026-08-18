@@ -63,6 +63,34 @@ describe('ensureConversationGenerationOperations', () => {
     );
   });
 
+  it('adds the placeholder cleanup column and partial index for unmarked terminal jobs', () => {
+    const migration = readFileSync(
+      resolve(
+        process.cwd(),
+        'packages/database/migrations/0057_conversation_generation_placeholder_cleanup.sql',
+      ),
+      'utf8',
+    );
+    const journal = readFileSync(
+      resolve(process.cwd(), 'packages/database/migrations/meta/_journal.json'),
+      'utf8',
+    );
+
+    expect(journal).toContain('0057_conversation_generation_placeholder_cleanup');
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "placeholders_cleaned_at"');
+    expect(migration).toContain(
+      'CREATE INDEX IF NOT EXISTS "conversation_generation_operations_placeholder_cleanup_idx"',
+    );
+    expect(migration).toContain('WHERE "placeholders_cleaned_at" IS NULL');
+    expect(CONVERSATION_GENERATION_SQL).toContain('"placeholders_cleaned_at" timestamp with time zone');
+    expect(CONVERSATION_GENERATION_SQL).toContain(
+      'CREATE INDEX IF NOT EXISTS "conversation_generation_operations_placeholder_cleanup_idx"',
+    );
+    expect(CONVERSATION_GENERATION_SQL).toContain(
+      `AND "status" IN ('cancelled', 'failed', 'interrupted', 'succeeded')`,
+    );
+  });
+
   it('runs the complete repair as one database request', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
 

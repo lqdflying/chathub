@@ -16,11 +16,11 @@ import { withConversationWriteLockOrThrow } from '@/server/services/conversation
 
 import { clearOperationPlaceholders, finalizeOperationWithCleanup } from './assistantPlaceholders';
 import {
+  CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
   CONVERSATION_GENERATION_EVENT_PAGE_SIZE,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
   CONVERSATION_GENERATION_TASK,
-  CONVERSATION_GENERATION_TERMINAL_CLEANUP_MS,
 } from './constants';
 import { resolveConversationRuntimePayload } from './credentials';
 import { findUnsupportedConversationTool } from './tools';
@@ -365,10 +365,25 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
     });
   }
 
-  const finishedAfter = new Date(Date.now() - CONVERSATION_GENERATION_TERMINAL_CLEANUP_MS);
-  const recentlyFinished = await systemModel.listRecentlyFinished(finishedAfter);
-  for (const operation of recentlyFinished) {
-    await clearOperationPlaceholders(db, operation);
+  let after: { finishedAt: Date; id: string } | undefined;
+  for (;;) {
+    const page = await systemModel.listUncleanedFinished({
+      after,
+      limit: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
+    });
+    if (page.length === 0) break;
+    for (const operation of page) {
+      await clearOperationPlaceholders(db, operation);
+      await new ConversationGenerationModel(db, operation.userId).markPlaceholdersCleaned(
+        operation.id,
+      );
+    }
+    const last = page.at(-1);
+    if (!last?.finishedAt || page.length < CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE) break;
+    after = {
+      finishedAt: new Date(last.finishedAt),
+      id: last.id,
+    };
   }
 };
 
