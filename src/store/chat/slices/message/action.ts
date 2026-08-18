@@ -285,7 +285,8 @@ export const chatMessage: StateCreator<
       ids = ids.concat(toolMessageIds);
     }
 
-    get().cancelAndDetachDurableOps({
+    await get().cancelAndDetachDurableOps({
+      assistantMessageIds: ids,
       sessionId: requestedSessionId,
       threadId: message.threadId,
       topicId: requestedTopicId,
@@ -334,7 +335,7 @@ export const chatMessage: StateCreator<
       get().activeId === activeId &&
       get().activeTopicId === activeTopicId;
 
-    get().cancelAndDetachDurableOps({
+    await get().cancelAndDetachDurableOps({
       allThreads: true,
       sessionId: activeId,
       topicId: activeTopicId,
@@ -376,7 +377,7 @@ export const chatMessage: StateCreator<
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     if (!accountMutationSnapshot) return;
 
-    get().cancelAndDetachDurableOps({ allConversations: true, allThreads: true });
+    await get().cancelAndDetachDurableOps({ allConversations: true, allThreads: true });
 
     const {
       chatLoadingIdsAbortController,

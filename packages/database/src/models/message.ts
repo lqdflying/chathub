@@ -18,7 +18,7 @@ import {
 } from '@lobechat/types';
 import type { HeatmapsProps } from '@lobehub/charts';
 import dayjs from 'dayjs';
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
 
 import { merge } from '@/utils/merge';
 import { today } from '@/utils/time';
@@ -715,7 +715,16 @@ export class MessageModel {
       .set({
         state: sql`coalesce(${messagePlugins.state}, '{}'::jsonb) || jsonb_build_object(${MCP_RESULT_RECOVERY_STATE_KEY}::text, ${JSON.stringify(recoveryState)}::jsonb)`,
       })
-      .where(and(eq(messagePlugins.id, id), eq(messagePlugins.userId, this.userId)))
+      .where(
+        and(
+          eq(messagePlugins.id, id),
+          eq(messagePlugins.userId, this.userId),
+          or(
+            sql`coalesce(${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'status', '') is distinct from 'pending'`,
+            sql`${messagePlugins.state} -> ${MCP_RESULT_RECOVERY_STATE_KEY}::text ->> 'invocationId' = ${invocationId}`,
+          ),
+        ),
+      )
       .returning({ id: messagePlugins.id });
 
     return result.length === 1;
@@ -792,10 +801,13 @@ export class MessageModel {
     return { content: item.content };
   };
 
-  recoverPersistedMCPResult = async (id: string): Promise<{ content: string } | undefined> => {
+  recoverPersistedMCPResult = async (
+    id: string,
+  ): Promise<{ content: string; error?: ConversationGenerationError | null } | undefined> => {
     const [item] = await this.db
       .select({
         content: messages.content,
+        error: messagePlugins.error,
         state: messagePlugins.state,
       })
       .from(messages)
@@ -813,7 +825,7 @@ export class MessageModel {
       return undefined;
     }
 
-    return { content: item.content };
+    return { content: item.content, error: item.error as ConversationGenerationError | null };
   };
 
   updatePluginError = async (id: string, error: ConversationGenerationError | null) => {

@@ -125,7 +125,7 @@ export const buildConversationChatPayload = async ({
     searchMode: chatConfig?.searchMode,
     useModelBuiltinSearch: chatConfig?.useModelBuiltinSearch,
   });
-  const canUseFC = modelCard?.abilities?.functionCall !== false;
+  const canUseFC = Boolean(modelCard?.abilities?.functionCall);
   const canUseVision = Boolean(modelCard?.abilities?.vision);
   const canUseVideo = Boolean(modelCard?.abilities?.video);
   const installed = await new PluginModel(db, userId).query();

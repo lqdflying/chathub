@@ -184,7 +184,7 @@ describe('conversationGeneration store actions', () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());
 
-    act(() => {
+    await act(async () => {
       result.current.attachConversationGeneration({
         generation: 0,
         kind: 'chat',
@@ -194,7 +194,7 @@ describe('conversationGeneration store actions', () => {
         topicId: TEST_IDS.TOPIC_ID,
         userScope: 'current',
       });
-      result.current.stopDurableConversationGeneration();
+      await result.current.stopDurableConversationGeneration();
     });
 
     expect(cancel).toHaveBeenCalledWith('cgo_active');
@@ -209,7 +209,7 @@ describe('conversationGeneration store actions', () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());
 
-    act(() => {
+    await act(async () => {
       result.current.attachConversationGeneration({
         generation: 0,
         kind: 'chat',
@@ -228,7 +228,7 @@ describe('conversationGeneration store actions', () => {
         topicId: TEST_IDS.TOPIC_ID,
         userScope: 'current',
       });
-      result.current.stopDurableConversationGeneration();
+      await result.current.stopDurableConversationGeneration();
     });
 
     expect(cancel).toHaveBeenCalledWith('cgo_active');
@@ -265,10 +265,10 @@ describe('conversationGeneration store actions', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('stops only the exact active thread lane', () => {
+  it('stops only the exact active thread lane', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());
-    act(() => {
+    await act(async () => {
       useChatStore.setState({ activeThreadId: 'thread-1' });
       result.current.attachConversationGeneration({
         generation: 0,
@@ -289,17 +289,17 @@ describe('conversationGeneration store actions', () => {
         topicId: TEST_IDS.TOPIC_ID,
         userScope: 'current',
       });
-      result.current.stopDurableConversationGeneration({ threadId: 'thread-1' });
+      await result.current.stopDurableConversationGeneration({ threadId: 'thread-1' });
     });
 
     expect(cancel).toHaveBeenCalledWith('cgo_thread');
     expect(cancel).not.toHaveBeenCalledWith('cgo_main');
   });
 
-  it('uses operation kind to stop a supervisor without cancelling group agents', () => {
+  it('uses operation kind to stop a supervisor without cancelling group agents', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());
-    act(() => {
+    await act(async () => {
       result.current.attachConversationGeneration({
         generation: 0,
         groupId: 'group-1',
@@ -320,11 +320,46 @@ describe('conversationGeneration store actions', () => {
         topicId: TEST_IDS.TOPIC_ID,
         userScope: 'current',
       });
-      result.current.stopDurableConversationGeneration({ kind: 'group_supervisor' });
+      await result.current.stopDurableConversationGeneration({ kind: 'group_supervisor' });
     });
 
     expect(cancel).toHaveBeenCalledWith('cgo_supervisor');
     expect(cancel).not.toHaveBeenCalledWith('cgo_agent');
+  });
+
+  it('cancels only durable operations whose assistant message is being deleted', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const { result } = renderHook(() => useChatStore());
+    await act(async () => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: 'assistant-keep',
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-keep',
+        operationId: 'cgo_keep',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.attachConversationGeneration({
+        assistantMessageId: 'assistant-delete',
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-delete',
+        operationId: 'cgo_delete',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      await result.current.cancelAndDetachDurableOps({
+        assistantMessageIds: ['assistant-delete'],
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      });
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_delete');
+    expect(cancel).not.toHaveBeenCalledWith('cgo_keep');
   });
 
   it('syncs only the active thread and preserves server lane metadata', async () => {

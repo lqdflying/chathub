@@ -1775,32 +1775,28 @@ describe('MessageModel', () => {
       expect(plugin?.state).toMatchObject({ existing: 'value' });
     });
 
-    it('prevents a stale invocation from overwriting a newer attempt', async () => {
+    it('does not let a second invocation steal a pending MCP result', async () => {
       await messageModel.beginMCPResultInvocation(
         'mcp-tool-message',
         'mi_11111111111111111111',
       );
-      await messageModel.beginMCPResultInvocation(
-        'mcp-tool-message',
-        'mi_22222222222222222222',
-      );
+
+      await expect(
+        messageModel.beginMCPResultInvocation(
+          'mcp-tool-message',
+          'mi_22222222222222222222',
+        ),
+      ).resolves.toBe(false);
 
       await expect(
         messageModel.persistMCPResult(
           'mcp-tool-message',
           'mi_11111111111111111111',
-          '{"result":"stale"}',
-        ),
-      ).resolves.toBe(false);
-      await expect(
-        messageModel.persistMCPResult(
-          'mcp-tool-message',
-          'mi_22222222222222222222',
           '{"result":"current"}',
         ),
       ).resolves.toBe(true);
       await expect(
-        messageModel.recoverMCPResult('mcp-tool-message', 'mi_22222222222222222222'),
+        messageModel.recoverMCPResult('mcp-tool-message', 'mi_11111111111111111111'),
       ).resolves.toEqual({ content: '{"result":"current"}' });
     });
   });

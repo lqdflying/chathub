@@ -1,8 +1,9 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@/const/message';
 import { chatService } from '@/services/chat';
+import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
@@ -41,6 +42,11 @@ beforeEach(() => {
 
   // Setup default spies that most tests need
   spyOnMessageService();
+  vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+  vi.spyOn(conversationGenerationService, 'getOperationByIdempotencyKey').mockResolvedValue(
+    undefined,
+  );
+  vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
   // ✅ Removed spyOnChatService() - tests should spy chatService only when needed
 
   // Setup common mock methods that most tests need
@@ -2013,7 +2019,9 @@ describe('chatMessage actions', () => {
 
         await act(async () => {
           const firstRetry = result.current.internal_resendMessage('assistant-2');
-          await Promise.resolve();
+          await waitFor(() => {
+            expect(useChatStore.getState().messageRetryingIds.length).toBeGreaterThan(0);
+          });
           await result.current.internal_resendMessage('assistant-1');
           finishRewind?.();
           await firstRetry;

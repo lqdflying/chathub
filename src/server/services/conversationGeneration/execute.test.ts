@@ -148,6 +148,37 @@ describe('executeConversationGeneration', () => {
     expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
   });
 
+  it('finalizes a cancelling row when claim loses the race', async () => {
+    modelMocks.findById
+      .mockResolvedValueOnce({
+        id: 'cgo_claim_race',
+        revision: 0,
+        status: 'pending',
+        userId: 'user-1',
+      })
+      .mockResolvedValueOnce({
+        cancelRequestedAt: new Date('2026-08-18T00:00:00.000Z'),
+        id: 'cgo_claim_race',
+        revision: 1,
+        status: 'cancelling',
+        userId: 'user-1',
+      });
+    modelMocks.claimForProcessing.mockResolvedValue(undefined);
+
+    await executeConversationGeneration({
+      db: {} as any,
+      operationId: 'cgo_claim_race',
+      userId: 'user-1',
+    });
+
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      'cgo_claim_race',
+      'cancelled',
+      undefined,
+      expect.objectContaining({ attempt: undefined }),
+    );
+  });
+
   it('finalizes superseded operations without executing', async () => {
     modelMocks.findById.mockResolvedValue({
       id: 'cgo_old',

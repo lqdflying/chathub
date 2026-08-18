@@ -120,6 +120,7 @@ beforeEach(() => {
   vi.spyOn(conversationGenerationService, 'getOperationByIdempotencyKey').mockResolvedValue(
     undefined,
   );
+  vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
 
   // Setup common mock methods that most V2 tests need
   act(() => {

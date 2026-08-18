@@ -1199,7 +1199,7 @@ export const generateAIChat: StateCreator<
       }
       state.reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
       state.searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
-      get().cancelAndDetachDurableOps({
+      await get().cancelAndDetachDurableOps({
         groupId: isGroupChat ? groupId : undefined,
         sessionId: activeId,
         threadId: requestedThreadId,

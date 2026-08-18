@@ -101,6 +101,48 @@ const serializeStepResult = (result: ConversationToolInvocationResult) => ({
   success: result.success,
 });
 
+const persistConversationToolMessage = async ({
+  assistantMessage,
+  db,
+  payload,
+  result,
+  userId,
+}: {
+  assistantMessage: UIChatMessage;
+  db: LobeChatDatabase | Transaction;
+  payload: ChatToolPayload;
+  result: ConversationToolInvocationResult;
+  userId: string;
+}) => {
+  const messageModel = new MessageModel(db, userId);
+  const existing = result.messageId
+    ? { id: result.messageId }
+    : await messageModel.findToolMessageByCall(assistantMessage.id, payload.id);
+  if (existing?.id) {
+    if (!result.messageId) {
+      await messageModel.update(existing.id, {
+        content: result.content,
+        metadata: result.metadata,
+      });
+    }
+    return existing.id;
+  }
+
+  const created = await messageModel.create({
+    content: result.content,
+    groupId: assistantMessage.groupId,
+    metadata: result.metadata,
+    parentId: assistantMessage.id,
+    plugin: payload,
+    role: 'tool',
+    sessionId: assistantMessage.sessionId ?? assistantMessage.groupId ?? '',
+    threadId: assistantMessage.threadId,
+    tool_call_id: payload.id,
+    topicId: assistantMessage.topicId,
+  });
+  return created.id;
+};
+
 const invokeMemoryTool = async ({
   assistantMessage,
   db,
@@ -217,12 +259,14 @@ const invokeMemoryTool = async ({
 
 export const invokeConversationTool = async ({
   assistantMessage,
+  attempt,
   db,
   inputHash,
   payload,
   userId,
 }: {
   assistantMessage: UIChatMessage;
+  attempt: number;
   db: LobeChatDatabase;
   inputHash: string;
   payload: ChatToolPayload;
@@ -244,7 +288,7 @@ export const invokeConversationTool = async ({
     return {
       content: result.content,
       inputHash,
-      shouldContinue: result.success !== false,
+      shouldContinue: true,
       state: result.state,
       success: result.success !== false,
     };
@@ -304,7 +348,7 @@ export const invokeConversationTool = async ({
     { auth?: any; headers?: Record<string, string>; type?: string; url?: string } | undefined;
 
   if (mcp?.type === 'http' && mcp.url) {
-    const invocationId = `mi_${inputHash.slice(0, 20) || nanoid(20)}`;
+    const invocationId = `mi_${inputHash.slice(0, 12)}_${attempt}_${nanoid(8)}`;
     const existingToolMessage = await messageModel.findToolMessageByCall(
       assistantMessage.id,
       payload.id,
@@ -329,11 +373,24 @@ export const invokeConversationTool = async ({
         inputHash,
         messageId: toolMessage.id,
         shouldContinue: true,
-        success: true,
+        success: !recovered.error,
       };
     }
 
-    await messageModel.beginMCPResultInvocation(toolMessage.id, invocationId);
+    const began = await messageModel.beginMCPResultInvocation(toolMessage.id, invocationId);
+    if (!began) {
+      const raced = await messageModel.recoverPersistedMCPResult(toolMessage.id);
+      if (raced) {
+        return {
+          content: raced.content,
+          inputHash,
+          messageId: toolMessage.id,
+          shouldContinue: true,
+          success: !raced.error,
+        };
+      }
+      throw new Error('MCP result invocation is already in progress.');
+    }
     const oauthService = new McpOAuthService(db);
     const oauthContext = {
       oauthService,
@@ -358,15 +415,21 @@ export const invokeConversationTool = async ({
         oauthContext,
       );
       const content = stringifyToolResult(data);
+      const isError = Boolean((data as { isError?: unknown } | null)?.isError);
       const persisted = await messageModel.persistMCPResult(toolMessage.id, invocationId, content);
       if (!persisted) throw new Error('MCP result was superseded before it could be persisted.');
-      await messageModel.updatePluginError(toolMessage.id, null);
+      if (isError) {
+        const normalized = toToolError(new Error(content));
+        await messageModel.updatePluginError(toolMessage.id, normalized);
+      } else {
+        await messageModel.updatePluginError(toolMessage.id, null);
+      }
       return {
         content,
         inputHash,
         messageId: toolMessage.id,
         shouldContinue: true,
-        success: true,
+        success: !isError,
       };
     } catch (error) {
       const normalized = toToolError(error);
@@ -455,17 +518,26 @@ export const executeConversationToolStep = async ({
             })
           : await invokeConversationTool({
               assistantMessage,
+              attempt,
               db: database as LobeChatDatabase,
               inputHash,
               payload,
               userId,
             });
+      const messageId = await persistConversationToolMessage({
+        assistantMessage,
+        db: database,
+        payload,
+        result,
+        userId,
+      });
+      const finalized = { ...result, messageId };
       await stepModel.updateStep(step.id, {
         finishedAt: new Date(),
-        result: serializeStepResult(result),
+        result: serializeStepResult(finalized),
         status: 'succeeded',
       });
-      return result;
+      return finalized;
     } catch (error) {
       await stepModel.updateStep(step.id, {
         error: toToolError(error),

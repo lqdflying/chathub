@@ -19,20 +19,21 @@ const n = setNamespace('durableGeneration');
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
-  cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => void;
+  cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => Promise<void>;
   detachDurableOps: (options?: ConversationGenerationScope) => void;
   detachConversationGeneration: (operationId: string, conversationKey?: string) => void;
   internal_markDurableGenerating: (id: string, loading: boolean) => void;
   reconcileConversationGeneration: (
     operationId: string,
   ) => Promise<ConversationGenerationOperation | undefined>;
-  stopDurableConversationGeneration: (options?: ConversationGenerationScope) => void;
+  stopDurableConversationGeneration: (options?: ConversationGenerationScope) => void | Promise<void>;
   syncActiveConversationGenerations: () => Promise<void>;
 }
 
 interface ConversationGenerationScope {
   allConversations?: boolean;
   allThreads?: boolean;
+  assistantMessageIds?: string[];
   groupId?: string;
   kind?: ConversationGenerationKind | ConversationGenerationKind[];
   operationId?: string;
@@ -83,6 +84,14 @@ const matchesOperationScope = (
   if (options?.kind) {
     const kinds = Array.isArray(options.kind) ? options.kind : [options.kind];
     if (!kinds.includes(operation.kind)) return false;
+  }
+  if (options?.assistantMessageIds) {
+    if (
+      !operation.assistantMessageId ||
+      !options.assistantMessageIds.includes(operation.assistantMessageId)
+    ) {
+      return false;
+    }
   }
   if (!options?.allThreads) {
     const threadId =
@@ -292,15 +301,15 @@ export const conversationGeneration: StateCreator<
     }
   },
 
-  cancelAndDetachDurableOps: (options) => {
+  cancelAndDetachDurableOps: async (options) => {
     const state = get();
     const operations = Object.values(state.serverGenerationOperations)
       .flatMap((items) => Object.values(items))
       .filter((operation) => matchesOperationScope(operation, options, state));
 
-    for (const operation of operations) {
-      void conversationGenerationService.cancel(operation.operationId).catch(console.error);
-    }
+    await Promise.allSettled(
+      operations.map((operation) => conversationGenerationService.cancel(operation.operationId)),
+    );
     get().detachDurableOps(options);
   },
 
@@ -322,9 +331,7 @@ export const conversationGeneration: StateCreator<
     return operation;
   },
 
-  stopDurableConversationGeneration: (options) => {
-    get().cancelAndDetachDurableOps(options);
-  },
+  stopDurableConversationGeneration: (options) => get().cancelAndDetachDurableOps(options),
 
   syncActiveConversationGenerations: async () => {
     const operations = (await conversationGenerationService.listActive()) as Array<

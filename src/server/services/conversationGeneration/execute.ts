@@ -69,7 +69,7 @@ export const shouldGenerateConversationTitle = ({
 }) => !isWelcomeQuestion && (Boolean(force) || !title?.trim());
 
 const toError = (error: unknown): ConversationGenerationError => ({
-  body: error instanceof Error ? { name: error.name } : error,
+  body: error instanceof Error ? { name: error.name } : undefined,
   message: error instanceof Error ? error.message : String(error),
   type: error instanceof ConversationWriteRejectedError ? 'ConversationCleared' : 'GenerationError',
 });
@@ -94,7 +94,17 @@ export const executeConversationGeneration = async ({
   }
 
   const claimed = await model.claimForProcessing(operationId);
-  if (!claimed) return;
+  if (!claimed) {
+    const current = await model.findById(operationId);
+    if (
+      current &&
+      (current.status === 'cancelling' || current.cancelRequestedAt) &&
+      isActiveConversationGenerationStatus(current.status)
+    ) {
+      await finalize(model, current, 'cancelled');
+    }
+    return;
+  }
 
   if (
     await model.isSupersededByLaneGeneration({
@@ -550,18 +560,21 @@ const executeChat = async (
           userId: operation.userId,
         });
         if (!invocation.messageId) {
-          await messageModel.create({
-            content: invocation.content,
-            groupId: operation.groupId ?? undefined,
-            metadata: invocation.metadata,
-            parentId: assistantId,
-            plugin: tool,
-            role: 'tool',
-            sessionId: operation.sessionId ?? operation.groupId ?? '',
-            threadId: operation.threadId ?? undefined,
-            tool_call_id: tool.id,
-            topicId: operation.topicId ?? undefined,
-          });
+          const existing = await messageModel.findToolMessageByCall(assistantId, tool.id);
+          if (!existing) {
+            await messageModel.create({
+              content: invocation.content,
+              groupId: operation.groupId ?? undefined,
+              metadata: invocation.metadata,
+              parentId: assistantId,
+              plugin: tool,
+              role: 'tool',
+              sessionId: operation.sessionId ?? operation.groupId ?? '',
+              threadId: operation.threadId ?? undefined,
+              tool_call_id: tool.id,
+              topicId: operation.topicId ?? undefined,
+            });
+          }
         }
         shouldContinue = shouldContinue && invocation.shouldContinue;
       }

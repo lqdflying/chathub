@@ -73,6 +73,7 @@ const mockState = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
   useUserStore.setState({ ownershipInvalidationGeneration: 0 });
   useChatStore.setState(mockState, false);
 });

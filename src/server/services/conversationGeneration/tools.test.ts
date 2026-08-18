@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DalleManifest } from '@/tools/dalle';
 import { MemoryApiName, MemoryManifest } from '@/tools/memory';
+import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
+import { WebBrowsingApiName, WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { executeConversationToolStep, findUnsupportedConversationTool } from './tools';
 
@@ -18,7 +20,13 @@ const messageMocks = vi.hoisted(() => ({
   findToolMessageByCall: vi.fn(),
   persistMCPResult: vi.fn(),
   recoverPersistedMCPResult: vi.fn(),
+  update: vi.fn(),
   updatePluginError: vi.fn(),
+}));
+const searchMocks = vi.hoisted(() => ({
+  crawlMultiPages: vi.fn(),
+  crawlSinglePage: vi.fn(),
+  search: vi.fn(),
 }));
 const pluginMocks = vi.hoisted(() => ({ findById: vi.fn() }));
 const skillMocks = vi.hoisted(() => ({ findById: vi.fn() }));
@@ -38,6 +46,7 @@ vi.mock('@/database/models/message', () => ({
     findToolMessageByCall = messageMocks.findToolMessageByCall;
     persistMCPResult = messageMocks.persistMCPResult;
     recoverPersistedMCPResult = messageMocks.recoverPersistedMCPResult;
+    update = messageMocks.update;
     updatePluginError = messageMocks.updatePluginError;
   },
 }));
@@ -59,7 +68,11 @@ vi.mock('@/server/services/mcp/oauth', () => ({
 }));
 vi.mock('@/server/services/search', () => ({ SearchService: class {} }));
 vi.mock('@/tools/web-browsing/ExecutionRuntime', () => ({
-  WebBrowsingExecutionRuntime: class {},
+  WebBrowsingExecutionRuntime: class {
+    crawlMultiPages = searchMocks.crawlMultiPages;
+    crawlSinglePage = searchMocks.crawlSinglePage;
+    search = searchMocks.search;
+  },
 }));
 
 const assistantMessage = {
@@ -90,6 +103,12 @@ describe('executeConversationToolStep', () => {
     messageMocks.recoverPersistedMCPResult.mockResolvedValue(undefined);
     messageMocks.beginMCPResultInvocation.mockResolvedValue(true);
     messageMocks.persistMCPResult.mockResolvedValue(true);
+    messageMocks.update.mockResolvedValue(undefined);
+    searchMocks.search.mockResolvedValue({
+      content: '{"error":"search failed"}',
+      state: { results: [] },
+      success: false,
+    });
   });
 
   it('replays a completed step without invoking the tool again', async () => {
@@ -188,7 +207,7 @@ describe('executeConversationToolStep', () => {
     expect(generationMocks.updateStep).toHaveBeenCalledWith(
       'step-1',
       expect.objectContaining({
-        result: expect.objectContaining({ success: true }),
+        result: expect.objectContaining({ messageId: 'tool-message-1', success: true }),
         status: 'succeeded',
       }),
     );
@@ -228,6 +247,141 @@ describe('executeConversationToolStep', () => {
       expect.objectContaining({ status: 'succeeded' }),
     );
   });
+
+  it('treats MCP isError payloads as failed tool results', async () => {
+    pluginMocks.findById.mockResolvedValue({
+      customParams: { mcp: { type: 'http', url: 'https://mcp.example.test' } },
+    });
+    mcpMocks.callTool.mockResolvedValue({ content: 'denied', isError: true });
+
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 1,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload(),
+      userId: 'user-1',
+    });
+
+    expect(result.success).toBe(false);
+    expect(messageMocks.updatePluginError).toHaveBeenCalledWith(
+      'tool-message-1',
+      expect.objectContaining({ type: 'ToolExecutionError' }),
+    );
+  });
+
+  it('replays a persisted MCP error as a failed result', async () => {
+    pluginMocks.findById.mockResolvedValue({
+      customParams: { mcp: { type: 'http', url: 'https://mcp.example.test' } },
+    });
+    messageMocks.findToolMessageByCall.mockResolvedValue({ id: 'tool-message-1' });
+    messageMocks.recoverPersistedMCPResult.mockResolvedValue({
+      content: '{"error":"remote tool failed"}',
+      error: { message: 'remote tool failed', type: 'ToolExecutionError' },
+    });
+
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 2,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload(),
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({ success: false, shouldContinue: true });
+    expect(mcpMocks.callTool).not.toHaveBeenCalled();
+  });
+
+  it('keeps browsing after a failed web search and stores the tool message id', async () => {
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 1,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload({
+        apiName: WebBrowsingApiName.search,
+        identifier: WebBrowsingManifest.identifier,
+      }),
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({
+      messageId: 'tool-message-1',
+      shouldContinue: true,
+      success: false,
+    });
+    expect(messageMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: '{"error":"search failed"}',
+        tool_call_id: 'tool-call-1',
+      }),
+    );
+  });
+
+  it('updates an existing tool message instead of creating a duplicate', async () => {
+    messageMocks.findToolMessageByCall.mockResolvedValue({ id: 'tool-message-existing' });
+
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 2,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload({
+        apiName: WebBrowsingApiName.search,
+        identifier: WebBrowsingManifest.identifier,
+      }),
+      userId: 'user-1',
+    });
+
+    expect(result.messageId).toBe('tool-message-existing');
+    expect(messageMocks.create).not.toHaveBeenCalled();
+    expect(messageMocks.update).toHaveBeenCalledWith(
+      'tool-message-existing',
+      expect.objectContaining({ content: '{"error":"search failed"}' }),
+    );
+  });
+
+  it('uses a unique MCP invocation id per attempt', async () => {
+    pluginMocks.findById.mockResolvedValue({
+      customParams: { mcp: { type: 'http', url: 'https://mcp.example.test' } },
+    });
+    mcpMocks.callTool.mockResolvedValue({ content: 'ok' });
+
+    await executeConversationToolStep({
+      assistantMessage,
+      attempt: 4,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload(),
+      userId: 'user-1',
+    });
+
+    expect(messageMocks.beginMCPResultInvocation).toHaveBeenCalledWith(
+      'tool-message-1',
+      expect.stringMatching(/_4_/),
+    );
+  });
+
+  it('does not steal an in-progress MCP invocation', async () => {
+    pluginMocks.findById.mockResolvedValue({
+      customParams: { mcp: { type: 'http', url: 'https://mcp.example.test' } },
+    });
+    messageMocks.beginMCPResultInvocation.mockResolvedValue(false);
+    messageMocks.recoverPersistedMCPResult.mockResolvedValue(undefined);
+
+    await expect(
+      executeConversationToolStep({
+        assistantMessage,
+        attempt: 1,
+        db: {} as any,
+        operationId: 'operation-1',
+        payload: payload(),
+        userId: 'user-1',
+      }),
+    ).rejects.toThrow('already in progress');
+    expect(mcpMocks.callTool).not.toHaveBeenCalled();
+  });
 });
 
 describe('findUnsupportedConversationTool', () => {
@@ -247,6 +401,20 @@ describe('findUnsupportedConversationTool', () => {
         userId: 'user-1',
       }),
     ).resolves.toMatchObject({ identifier: DalleManifest.identifier });
+  });
+
+  it('defers the code interpreter to the browser', async () => {
+    await expect(
+      findUnsupportedConversationTool({
+        config: {
+          model: 'model-1',
+          plugins: [CodeInterpreterIdentifier],
+          provider: 'provider-1',
+        },
+        db: {} as any,
+        userId: 'user-1',
+      }),
+    ).resolves.toMatchObject({ identifier: CodeInterpreterIdentifier });
   });
 
   it('allows HTTP MCP and defers non-HTTP plugins', async () => {
