@@ -57,15 +57,20 @@ each have their own family so they cannot cancel an in-flight reply. Supervisor
 and member work stay in the chat family for Stop, but they no longer share a
 replacement lane: parallel group members must not cancel one another.
 
-Enqueue callers pass a stable `idempotencyKey` (send, continue, regenerate,
-supervisor, member, title, translation, compaction). After a committed request
-whose response is lost, recovery uses that key only — never an arbitrary active
-lane.
+Enqueue callers pass a **request-scoped** `idempotencyKey`. Chat send/continue
+and group-member turns can use the unique message id for that send. Supervisor,
+regenerate, translation, and title each mint a fresh request id at the action
+boundary and reuse it only for that enqueue plus a lost-response lookup. A
+typed `CONFLICT` (lane busy, or the key was used for a different request) is
+not recovered by key lookup — recovering a terminal operation would skip the
+new user action.
 
-A retry inspects the owned assistant before calling the model: tool-bearing rows
-resume tool execution / continuation, completed text skips a new model call, and
-the owned assistant is never sent back as history. Standalone portal threads
-send only the source message plus that thread’s children.
+A retry inspects the owned assistant before calling the model: tool-bearing
+rows resume tool execution, rows with an explicit
+`conversationGenerationTurnComplete` metadata marker skip a new model call,
+and an unmarked partial checkpoint is regenerated (never treated as a finished
+answer). The owned assistant is never sent back as history. Standalone portal
+threads send only the source message plus that thread’s children.
 
 Job payload is `{ operationId, userId }` only. Credentials are resolved from
 encrypted user/provider vaults at execution time.
@@ -93,8 +98,9 @@ browser `internal_execAgentRuntime` path still runs.
 `fetchOnClient` providers without a server-reachable API key, unsupported
 browser-only tools (`UNPROCESSABLE_CONTENT`), and a disabled flag all drop
 durable enqueue. The user message is still saved and the connected-tab runtime
-runs. `tryEnqueue` recovers a lane only by `idempotencyKey`; it must not attach
-a previous chat job after a credential or capability miss.
+runs. `tryEnqueue` recovers a lane only by `idempotencyKey` after a transport
+failure, and never after a typed `CONFLICT`, credential miss, or capability
+miss. It must not attach a previous chat job as if it were the new request.
 
 Context Export arms a one-shot browser capture. While that capture is armed,
 the send skips durable enqueue so the existing preview still records the
@@ -206,6 +212,9 @@ stale summary.
 The tool continuation budget is checked before creating another assistant
 placeholder. A nested group-agent turn returns an explicit outcome; failed,
 cancelled, or interrupted children cannot be overwritten by supervisor success.
+Supervisor child assistant ids are persisted on the parent operation and
+cleared or annotated when Stop or a final failure lands before those rows have
+real content, including parallel members.
 
 ## Startup schema repair
 

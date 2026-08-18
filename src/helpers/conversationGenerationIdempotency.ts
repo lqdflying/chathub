@@ -13,3 +13,13 @@ export const conversationGenerationIdempotencyKey = (
   const digest = (hash >>> 0).toString(16).padStart(8, '0');
   return `${raw.slice(0, 160)}:${digest}`.slice(0, 180);
 };
+
+/**
+ * Build a key that is unique for one logical user action. Reuse it only for the
+ * enqueue plus its lost-response lookup — never as a long-lived resource id.
+ */
+export const conversationGenerationRequestKey = (
+  kind: string,
+  requestId: string,
+  ...context: Array<string | number | null | undefined>
+) => conversationGenerationIdempotencyKey(kind, ...context, 'req', requestId);

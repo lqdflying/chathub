@@ -12,7 +12,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { message } from '@/components/AntdStaticMethods';
 import { LOADING_FLAT } from '@/const/message';
-import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
+import { conversationGenerationRequestKey } from '@/helpers/conversationGenerationIdempotency';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
@@ -448,7 +448,7 @@ export const chatTopic: StateCreator<
           title: { force: true, topicId },
         },
         kind: 'topic_title',
-        idempotencyKey: conversationGenerationIdempotencyKey('topic-title', topicId),
+        idempotencyKey: conversationGenerationRequestKey('topic-title', operationId, topicId),
         replaceActive: true,
         sessionId: requestedContainerId,
         topicId,

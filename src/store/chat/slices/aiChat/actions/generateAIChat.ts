@@ -14,12 +14,16 @@ import {
   TraceNameMap,
   UIChatMessage,
 } from '@lobechat/types';
+import { nanoid } from '@lobechat/utils';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
 import { normalizeAssistantMemoryText } from '@/helpers/assistantMemory';
 import { getMessagesAfterHistorySummaryCursor } from '@/helpers/contextCompaction';
-import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
+import {
+  conversationGenerationIdempotencyKey,
+  conversationGenerationRequestKey,
+} from '@/helpers/conversationGenerationIdempotency';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
@@ -1392,7 +1396,11 @@ export const generateAIChat: StateCreator<
           }),
           conversationVersion: expectedConversationVersion,
           expectedConversationVersion,
-          idempotencyKey: conversationGenerationIdempotencyKey('regenerate', anchor.message.id),
+          idempotencyKey: conversationGenerationRequestKey(
+            'regenerate',
+            nanoid(),
+            anchor.message.id,
+          ),
           kind: 'regenerate',
           parentMessageId: anchor.message.id,
           replaceActive: true,

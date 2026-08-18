@@ -223,6 +223,54 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     expect(db.execute).not.toHaveBeenCalled();
   });
 
+  it('returns a terminal operation for the same request key', async () => {
+    const existing = {
+      ...input,
+      id: 'operation-succeeded',
+      lane: 'user-1:session:session-1:topic-1:main:topic_title',
+      laneGeneration: 1,
+      status: 'succeeded',
+      userId: 'user-1',
+    };
+    const db = { execute: vi.fn() };
+    modelMocks.findByIdempotencyKey.mockResolvedValue(existing);
+
+    const result = await new ConversationGenerationService(
+      db as any,
+      'user-1',
+    ).enqueueInTransaction(db as any, input);
+
+    expect(result).toBe(existing);
+    expect(modelMocks.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a new operation when a later action uses a different request key', async () => {
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '99' }]) };
+    modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
+    modelMocks.create.mockResolvedValue({
+      ...input,
+      id: 'operation-later',
+      idempotencyKey: 'topic-title:topic-1:req-laterxxxxxxxx',
+      lane: 'lane-1',
+      laneGeneration: 2,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    });
+
+    await new ConversationGenerationService(db as any, 'user-1').enqueueInTransaction(db as any, {
+      ...input,
+      idempotencyKey: 'topic-title:topic-1:req-laterxxxxxxxx',
+    });
+
+    expect(modelMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: 'topic-title:topic-1:req-laterxxxxxxxx',
+      }),
+    );
+    expect(db.execute).toHaveBeenCalled();
+  });
+
   it('lets a transactional Graphile enqueue failure roll back without opening a fallback connection', async () => {
     const db = { execute: vi.fn().mockRejectedValue(new Error('transaction aborted')) };
     modelMocks.create.mockResolvedValue({

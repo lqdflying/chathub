@@ -4,16 +4,23 @@ import { mutate } from 'swr';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@/const/message';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { chatService } from '@/services/chat';
+import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
+import { systemAgentSelectors } from '@/store/user/selectors';
 import { LobeSessionType } from '@/types/session';
 import { ChatTopic } from '@/types/topic';
 
 import { useChatStore } from '../../store';
 
+vi.mock('@/helpers/durableConversationGeneration', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/helpers/durableConversationGeneration')>()),
+  isClientDurableConversationGenerationEnabled: vi.fn(() => false),
+}));
 vi.mock('zustand/traditional', async (importOriginal) => await importOriginal());
 let currentUserScope = 'local';
 let hasActiveUserStateOwnerMismatch = false;
@@ -42,7 +49,7 @@ vi.mock('@/store/user/selectors', () => ({
     hasActiveUserStateOwnerMismatch: () => hasActiveUserStateOwnerMismatch,
   },
   systemAgentSelectors: {
-    topic: () => ({}),
+    topic: vi.fn(() => ({})),
   },
 }));
 // Mock topicService 和 messageService
@@ -859,6 +866,46 @@ describe('topic action', () => {
     });
   });
   describe('summaryTopicTitle', () => {
+    it('uses a new durable request key for each title summary of the same topic', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.mocked(systemAgentSelectors.topic).mockReturnValue({
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      } as any);
+      const enqueue = vi.spyOn(conversationGenerationService, 'enqueue').mockImplementation(
+        async (input: any) =>
+          ({
+            id: `cgo-${input.idempotencyKey}`,
+            kind: 'topic_title',
+            lane: 'lane-title',
+            laneGeneration: 1,
+            revision: 1,
+          }) as any,
+      );
+      const topicId = 'topic-1';
+      const { result } = renderHook(() => useChatStore());
+      act(() => {
+        useChatStore.setState({
+          activeId: 'test',
+          attachConversationGeneration: vi.fn(),
+          topicMaps: { test: [{ id: topicId, title: 'Test Topic' }] as ChatTopic[] },
+        });
+      });
+
+      await act(async () => {
+        await result.current.summaryTopicTitle(topicId, []);
+      });
+      await act(async () => {
+        await result.current.summaryTopicTitle(topicId, []);
+      });
+
+      expect(enqueue).toHaveBeenCalledTimes(2);
+      const keys = enqueue.mock.calls.map(([input]) => input.idempotencyKey);
+      expect(keys[0]).not.toEqual(keys[1]);
+      expect(keys[0]).toContain('topic-title');
+      expect(keys[1]).toContain('topic-title');
+    });
+
     it('should auto-summarize the topic title and update it', async () => {
       const topicId = 'topic-1';
       const messages = [{ content: 'Hello', id: 'message-1' }] as UIChatMessage[];

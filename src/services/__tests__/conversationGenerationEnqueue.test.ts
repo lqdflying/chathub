@@ -59,6 +59,27 @@ describe('tryEnqueueConversationGeneration', () => {
     expect(byKey).toHaveBeenCalledWith('chat-send:temp');
     expect(listActive).not.toHaveBeenCalled();
   });
+
+  it('does not recover a typed CONFLICT by idempotency key', async () => {
+    vi.spyOn(conversationGenerationService, 'enqueue').mockRejectedValue(
+      Object.assign(new TRPCClientError('A generation is already running for this conversation.'), {
+        data: { code: 'CONFLICT' },
+      }),
+    );
+    const byKey = vi
+      .spyOn(conversationGenerationService, 'getOperationByIdempotencyKey')
+      .mockResolvedValue({ id: 'cgo_other', kind: 'chat', status: 'succeeded' } as any);
+
+    await expect(
+      tryEnqueueConversationGeneration({
+        config: { model: 'gpt-4o', provider: 'openai' } as any,
+        idempotencyKey: 'regenerate:msg:req-new',
+        kind: 'regenerate',
+        sessionId: 's1',
+      }),
+    ).resolves.toBeUndefined();
+    expect(byKey).not.toHaveBeenCalled();
+  });
 });
 
 describe('waitForConversationGeneration', () => {

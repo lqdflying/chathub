@@ -130,6 +130,7 @@ const isNonRecoverableEnqueueError = (error: unknown) => {
   if (error instanceof TRPCClientError) {
     const code = (error.data as { code?: string } | undefined)?.code;
     if (
+      code === 'CONFLICT' ||
       code === 'PRECONDITION_FAILED' ||
       code === 'UNPROCESSABLE_CONTENT' ||
       code === 'FORBIDDEN' ||

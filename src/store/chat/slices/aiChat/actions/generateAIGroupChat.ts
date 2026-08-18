@@ -11,13 +11,17 @@ import {
   SendGroupMessageParams,
   UIChatMessage,
 } from '@lobechat/types';
+import { nanoid } from '@lobechat/utils';
 import debug from 'debug';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
 import { LOADING_FLAT } from '@/const/message';
 import { DEFAULT_CHAT_GROUP_CHAT_CONFIG } from '@/const/settings';
-import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
+import {
+  conversationGenerationIdempotencyKey,
+  conversationGenerationRequestKey,
+} from '@/helpers/conversationGenerationIdempotency';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
@@ -562,11 +566,11 @@ export const chatAiGroupChat: StateCreator<
           conversationVersion: resolvedConversationVersion,
           expectedConversationVersion: resolvedConversationVersion,
           groupId,
-          idempotencyKey: conversationGenerationIdempotencyKey(
+          idempotencyKey: conversationGenerationRequestKey(
             'group-supervisor',
+            nanoid(),
             groupId,
             currentTopicId,
-            resolvedConversationVersion,
           ),
           kind: 'group_supervisor',
           replaceActive: true,

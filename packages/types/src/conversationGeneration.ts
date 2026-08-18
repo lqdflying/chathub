@@ -96,6 +96,7 @@ export interface ConversationGenerationConfigSnapshot {
   provider: string;
   ragQuery?: string;
   rewindFromMessageId?: string;
+  supervisorChildMessageIds?: string[];
   systemRole?: string;
   targetId?: string;
   title?: { force?: boolean; topicId: string };

@@ -3,11 +3,13 @@ import { chainTranslate } from '@lobechat/prompts';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { chatService } from '@/services/chat';
+import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
-import { authSelectors } from '@/store/user/selectors';
+import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
 
 import { useChatStore } from '../../store';
 
@@ -37,6 +39,10 @@ vi.mock('@/chains/translate', () => ({
 // Mock supportLocales
 vi.mock('@/locales/options', () => ({
   supportLocales: ['en-US', 'zh-CN'],
+}));
+vi.mock('@/helpers/durableConversationGeneration', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/helpers/durableConversationGeneration')>()),
+  isClientDurableConversationGenerationEnabled: vi.fn(() => false),
 }));
 
 const createDeferred = <Value>() => {
@@ -106,6 +112,60 @@ describe('ChatEnhanceAction', () => {
       });
 
       expect(messageService.updateMessageTranslate).toHaveBeenCalled();
+    });
+
+    it('uses a new durable request key for each translation of the same message', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(systemAgentSelectors, 'translation').mockReturnValue({
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      } as any);
+      const enqueue = vi.spyOn(conversationGenerationService, 'enqueue').mockImplementation(
+        async (input: any) =>
+          ({
+            id: `cgo-${input.idempotencyKey}`,
+            kind: 'translation',
+            lane: 'lane-translation',
+            laneGeneration: 1,
+            revision: 1,
+          }) as any,
+      );
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'message-id';
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'session',
+          attachConversationGeneration: vi.fn(),
+          messagesMap: {
+            [messageMapKey('session')]: [
+              {
+                content: 'Hello World',
+                createdAt: Date.now(),
+                id: messageId,
+                meta: {},
+                role: 'user',
+                sessionId: 'test',
+                topicId: 'test',
+                updatedAt: Date.now(),
+              },
+            ],
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.translateMessage(messageId, 'zh-CN');
+      });
+      await act(async () => {
+        await result.current.translateMessage(messageId, 'zh-CN');
+      });
+
+      expect(enqueue).toHaveBeenCalledTimes(2);
+      const keys = enqueue.mock.calls.map(([input]) => input.idempotencyKey);
+      expect(keys[0]).not.toEqual(keys[1]);
+      expect(keys[0]).toContain('translation');
+      expect(keys[1]).toContain('translation');
     });
   });
 

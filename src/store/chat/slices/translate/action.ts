@@ -1,13 +1,14 @@
 import { chainLangDetect, chainTranslate } from '@lobechat/prompts';
 import { ChatTranslate, TraceNameMap, TracePayload } from '@lobechat/types';
+import { nanoid } from '@lobechat/utils';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
+import { conversationGenerationRequestKey } from '@/helpers/conversationGenerationIdempotency';
+import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { supportLocales } from '@/locales/resources';
 import { chatService } from '@/services/chat';
 import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
-import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
-import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { messageService } from '@/services/message';
 import {
   captureAccountMutationSnapshot,
@@ -89,7 +90,7 @@ export const chatTranslate: StateCreator<
           translation: { messageId: id, to: targetLang },
         },
         kind: 'translation',
-        idempotencyKey: conversationGenerationIdempotencyKey('translation', id, targetLang),
+        idempotencyKey: conversationGenerationRequestKey('translation', nanoid(), id, targetLang),
         replaceActive: true,
         sessionId: requestedSessionId,
         topicId: requestedTopicId ?? undefined,
