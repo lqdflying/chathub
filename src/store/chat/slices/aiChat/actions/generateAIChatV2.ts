@@ -440,6 +440,23 @@ export const generateAIChatV2: StateCreator<
     //  update assistant update to make it rerank
     getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
 
+    const summaryTitle = async () => {
+      // check activeTopic and then auto update topic title
+      if (data.isCreateNewTopic) {
+        await get().summaryTopicTitle(data.topicId, data.messages);
+        return;
+      }
+
+      if (!data.topicId) return;
+
+      const topic = topicSelectors.getTopicById(data.topicId)(get());
+
+      if (topic && !topic.title) {
+        const chats = chatSelectors.getBaseChatsByKey(messageMapKey(activeId, topic.id))(get());
+        await get().summaryTopicTitle(topic.id, chats);
+      }
+    };
+
     if (data.operationId) {
       const durableOperation = data.operation;
       get().attachConversationGeneration({
@@ -450,6 +467,7 @@ export const generateAIChatV2: StateCreator<
         lane:
           durableOperation?.lane ||
           buildConversationGenerationLane({
+            kind: durableOperation?.kind || 'chat',
             sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
             threadId: activeThreadId,
             topicId: data.topicId,
@@ -463,6 +481,7 @@ export const generateAIChatV2: StateCreator<
         topicId: data.topicId,
         userScope: requestedScope,
       });
+      summaryTitle().catch(console.error);
       await get().reconcileConversationGeneration(data.operationId).catch(console.error);
       const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
       await getAgentStoreState().addFilesToAgent(userFiles, false);
@@ -517,23 +536,6 @@ export const generateAIChatV2: StateCreator<
         }),
       );
     }
-
-    const summaryTitle = async () => {
-      // check activeTopic and then auto update topic title
-      if (data.isCreateNewTopic) {
-        await get().summaryTopicTitle(data.topicId, data.messages);
-        return;
-      }
-
-      if (!data.topicId) return;
-
-      const topic = topicSelectors.getTopicById(data.topicId)(get());
-
-      if (topic && !topic.title) {
-        const chats = chatSelectors.getBaseChatsByKey(messageMapKey(activeId, topic.id))(get());
-        await get().summaryTopicTitle(topic.id, chats);
-      }
-    };
 
     summaryTitle().catch(console.error);
 

@@ -15,6 +15,8 @@ export const useConversationGenerationSync = () => {
   const userId = useUserStore((s) => s.user?.id);
   const sessionId = useSessionStore((s) => s.activeId);
   const topicId = useChatStore((s) => s.activeTopicId);
+  const activeThreadId = useChatStore((s) => s.activeThreadId);
+  const portalThreadId = useChatStore((s) => s.portalThreadId);
   const applyEvent = useChatStore((s) => s.applyConversationGenerationEvent);
   const syncActive = useChatStore((s) => s.syncActiveConversationGenerations);
   const previousUserId = useRef(userId);
@@ -27,7 +29,7 @@ export const useConversationGenerationSync = () => {
   useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled()) return;
     void syncActive().catch(console.error);
-  }, [sessionId, syncActive, topicId, userId]);
+  }, [sessionId, syncActive, topicId, userId, activeThreadId, portalThreadId]);
 
   useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled() || !userId) return;

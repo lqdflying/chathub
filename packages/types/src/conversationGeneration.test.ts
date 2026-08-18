@@ -3,16 +3,17 @@ import { describe, expect, it } from 'vitest';
 import {
   ConversationGenerationConfigSchema,
   buildConversationGenerationLane,
+  getConversationGenerationLaneFamily,
   isActiveConversationGenerationStatus,
 } from './conversationGeneration';
 
 describe('buildConversationGenerationLane', () => {
-  it('builds a session lane with inbox and main-thread defaults', () => {
+  it('builds a session lane with inbox, main-thread, and chat-family defaults', () => {
     expect(
       buildConversationGenerationLane({
         userId: 'user-1',
       }),
-    ).toBe('user-1:session:inbox:none:main');
+    ).toBe('user-1:session:inbox:none:main:chat');
   });
 
   it('includes session, topic, and thread ids', () => {
@@ -23,7 +24,7 @@ describe('buildConversationGenerationLane', () => {
         topicId: 'topic-1',
         userId: 'user-1',
       }),
-    ).toBe('user-1:session:sess-1:topic-1:thread-1');
+    ).toBe('user-1:session:sess-1:topic-1:thread-1:chat');
   });
 
   it('uses a group lane when groupId is present', () => {
@@ -34,7 +35,28 @@ describe('buildConversationGenerationLane', () => {
         topicId: 'topic-1',
         userId: 'user-1',
       }),
-    ).toBe('user-1:group:group-1:topic-1:main');
+    ).toBe('user-1:group:group-1:topic-1:main:chat');
+  });
+
+  it('keeps chat retries on one family and isolates title and translation', () => {
+    expect(getConversationGenerationLaneFamily('regenerate')).toBe('chat');
+    expect(getConversationGenerationLaneFamily('group_supervisor')).toBe('chat');
+    expect(
+      buildConversationGenerationLane({
+        kind: 'topic_title',
+        sessionId: 'sess-1',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).toBe('user-1:session:sess-1:topic-1:main:topic_title');
+    expect(
+      buildConversationGenerationLane({
+        kind: 'translation',
+        sessionId: 'sess-1',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    ).toBe('user-1:session:sess-1:topic-1:main:translation');
   });
 });
 

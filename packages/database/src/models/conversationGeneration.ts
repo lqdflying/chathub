@@ -18,6 +18,7 @@ import { LobeChatDatabase, Transaction } from '../type';
 import { idGenerator } from '../utils/idGenerator';
 
 const ACTIVE_STATUSES: ConversationGenerationStatus[] = ['pending', 'processing', 'cancelling'];
+const BLOCKING_STATUSES: ConversationGenerationStatus[] = ['pending', 'processing'];
 
 export interface CreateConversationGenerationOperationParams {
   agentId?: string | null;
@@ -81,10 +82,14 @@ export class ConversationGenerationModel {
 
   findActiveByLane = async (lane: string) => {
     return this.db.query.conversationGenerationOperations.findFirst({
+      orderBy: [
+        desc(conversationGenerationOperations.laneGeneration),
+        desc(conversationGenerationOperations.createdAt),
+      ],
       where: and(
         eq(conversationGenerationOperations.userId, this.userId),
         eq(conversationGenerationOperations.lane, lane),
-        inArray(conversationGenerationOperations.status, ACTIVE_STATUSES),
+        inArray(conversationGenerationOperations.status, BLOCKING_STATUSES),
       ),
     });
   };
@@ -459,11 +464,24 @@ export class ConversationGenerationModel {
           status: 'processing',
           updatedAt: now,
         },
+        setWhere: sql`${conversationGenerationSteps.status} is distinct from 'succeeded'`,
         target: [conversationGenerationSteps.operationId, conversationGenerationSteps.inputHash],
       })
       .returning();
 
-    return item;
+    if (item) return item;
+
+    return this.findStepByHash(params.operationId, params.inputHash);
+  };
+
+  findStepByHash = async (operationId: string, inputHash: string) => {
+    return this.db.query.conversationGenerationSteps.findFirst({
+      where: and(
+        eq(conversationGenerationSteps.operationId, operationId),
+        eq(conversationGenerationSteps.userId, this.userId),
+        eq(conversationGenerationSteps.inputHash, inputHash),
+      ),
+    });
   };
 
   createStep = async (params: {

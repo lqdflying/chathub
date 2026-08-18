@@ -205,7 +205,7 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     const existing = {
       ...input,
       id: 'operation-existing',
-      lane: 'user-1:session:session-1:topic-1:main',
+      lane: 'user-1:session:session-1:topic-1:main:topic_title',
       laneGeneration: 1,
       status: 'processing',
       userId: 'user-1',
@@ -273,6 +273,7 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
       laneGeneration: 4,
       status: 'processing',
     });
+    modelMocks.findMaxLaneGeneration.mockResolvedValue(4);
     modelMocks.create.mockImplementation(async (value) => ({
       ...value,
       attempt: 0,
@@ -288,8 +289,38 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     ).enqueueInTransaction(db as any, { ...input, replaceActive: true });
 
     expect(modelMocks.requestCancel).toHaveBeenCalledWith('operation-active');
+    expect(modelMocks.findMaxLaneGeneration).toHaveBeenCalled();
     expect(modelMocks.create).toHaveBeenCalledWith(expect.objectContaining({ laneGeneration: 5 }));
     expect(result).toMatchObject({ id: 'operation-replacement', workerJobId: '43' });
+  });
+
+  it('does not treat a cancelling predecessor as a blocking lane occupant', async () => {
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '44' }]) };
+    modelMocks.findActiveByLane.mockResolvedValue(undefined);
+    modelMocks.findMaxLaneGeneration.mockResolvedValue(6);
+    modelMocks.create.mockImplementation(async (value) => ({
+      ...value,
+      attempt: 0,
+      id: 'operation-after-cancel',
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    }));
+
+    const result = await new ConversationGenerationService(
+      db as any,
+      'user-1',
+    ).enqueueInTransaction(db as any, { ...input, replaceActive: true });
+
+    expect(modelMocks.requestCancel).not.toHaveBeenCalled();
+    expect(modelMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'topic_title',
+        lane: 'user-1:session:session-1:topic-1:main:topic_title',
+        laneGeneration: 7,
+      }),
+    );
+    expect(result).toMatchObject({ id: 'operation-after-cancel', workerJobId: '44' });
   });
 
   it('rejects reuse of an idempotency key for a different request', async () => {
@@ -297,7 +328,7 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
       config: { model: 'different-model', provider: 'provider-1' },
       id: 'operation-existing',
       kind: 'topic_title',
-      lane: 'user-1:session:session-1:topic-1:main',
+      lane: 'user-1:session:session-1:topic-1:main:topic_title',
     });
 
     await expect(

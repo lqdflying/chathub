@@ -52,6 +52,9 @@ const findAttachedOperation = (
     .flatMap((ops) => Object.values(ops))
     .find((item) => item.operationId === operationId);
 
+const visibleConversationThreadId = (state: Pick<ChatStore, 'activeThreadId' | 'portalThreadId'>) =>
+  state.portalThreadId ?? state.activeThreadId ?? null;
+
 const shouldApplyAttachedOperation = (
   attached: ServerGenerationOperation | undefined,
   state: ChatStore,
@@ -60,7 +63,7 @@ const shouldApplyAttachedOperation = (
   if (attached.generation !== state.conversationClearGeneration) return false;
   if (attached.sessionId !== state.activeId) return false;
   if ((attached.topicId ?? null) !== (state.activeTopicId ?? null)) return false;
-  if ((attached.threadId ?? null) !== (state.activeThreadId ?? null)) return false;
+  if ((attached.threadId ?? null) !== visibleConversationThreadId(state)) return false;
   return true;
 };
 
@@ -85,7 +88,7 @@ const matchesOperationScope = (
     const threadId =
       options && Object.hasOwn(options, 'threadId')
         ? options.threadId
-        : state.activeThreadId;
+        : visibleConversationThreadId(state);
     if ((operation.threadId ?? null) !== (threadId ?? null)) return false;
   }
   return true;
@@ -327,13 +330,14 @@ export const conversationGeneration: StateCreator<
     const operations = (await conversationGenerationService.listActive()) as Array<
       ConversationGenerationOperation & { assistantMessageId?: string | null }
     >;
-    const { activeId, activeThreadId, activeTopicId, conversationClearGeneration } = get();
+    const { activeId, activeTopicId, conversationClearGeneration } = get();
+    const visibleThreadId = visibleConversationThreadId(get());
     const activeOperationIds = new Set<string>();
     for (const operation of operations) {
       if (
         (operation.sessionId || activeId) === activeId &&
         (operation.topicId ?? null) === (activeTopicId ?? null) &&
-        (operation.threadId ?? null) === (activeThreadId ?? null)
+        (operation.threadId ?? null) === visibleThreadId
       ) {
         activeOperationIds.add(operation.id);
         get().attachConversationGeneration({
@@ -350,12 +354,15 @@ export const conversationGeneration: StateCreator<
           topicId: operation.topicId || undefined,
           userScope: 'current',
         });
+        if (operation.kind === 'group_supervisor' && operation.groupId) {
+          get().internal_toggleSupervisorLoading(true, operation.groupId);
+        }
       }
     }
 
     const attachedForCurrentLane = Object.values(
       get().serverGenerationOperations[conversationKeyFor(activeId, activeTopicId)] || {},
-    ).filter((operation) => (operation.threadId ?? null) === (activeThreadId ?? null));
+    ).filter((operation) => (operation.threadId ?? null) === visibleThreadId);
     let detachedTerminal = false;
     for (const operation of attachedForCurrentLane) {
       if (activeOperationIds.has(operation.operationId)) continue;

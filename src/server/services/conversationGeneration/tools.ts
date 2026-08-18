@@ -437,6 +437,11 @@ export const executeConversationToolStep = async ({
       operationId,
     });
     if (!step) throw new Error('Conversation tool step could not be claimed.');
+    const claimedReplay = parseStepResult(
+      step.status === 'succeeded' ? step.result : undefined,
+      inputHash,
+    );
+    if (claimedReplay) return claimedReplay;
 
     try {
       const result =

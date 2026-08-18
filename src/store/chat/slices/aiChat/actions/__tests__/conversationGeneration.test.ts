@@ -371,4 +371,80 @@ describe('conversationGeneration store actions', () => {
     });
     expect(operations.cgo_hidden).toBeUndefined();
   });
+
+  it('applies snapshots for the open portal thread even when activeThreadId is empty', () => {
+    const dispatch = vi.fn();
+    const { result } = renderHook(() => useChatStore());
+    act(() => {
+      useChatStore.setState({
+        activeThreadId: undefined,
+        internal_dispatchMessage: dispatch,
+        portalThreadId: 'thread-1',
+      });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-thread',
+        operationId: 'cgo_portal',
+        sessionId: TEST_IDS.SESSION_ID,
+        threadId: 'thread-1',
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 5,
+        operationId: 'cgo_portal',
+        payload: { content: 'portal update' },
+        revision: 1,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        value: expect.objectContaining({ content: 'portal update' }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('syncs the portal thread when that is the visible conversation', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        assistantMessageId: 'assistant-portal',
+        groupId: 'group-1',
+        id: 'cgo_portal',
+        kind: 'group_supervisor',
+        lane: 'lane-portal',
+        laneGeneration: 2,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        threadId: 'thread-1',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+    const toggleSupervisor = vi.fn();
+    act(() => {
+      useChatStore.setState({
+        activeThreadId: undefined,
+        internal_toggleSupervisorLoading: toggleSupervisor,
+        portalThreadId: 'thread-1',
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ].cgo_portal,
+    ).toMatchObject({ threadId: 'thread-1' });
+    expect(toggleSupervisor).toHaveBeenCalledWith(true, 'group-1');
+  });
 });

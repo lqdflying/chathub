@@ -120,6 +120,35 @@ describe('executeConversationToolStep', () => {
     expect(pluginMocks.findById).not.toHaveBeenCalled();
   });
 
+  it('replays a succeeded step returned by claim instead of wiping and re-invoking it', async () => {
+    generationMocks.claimStep.mockResolvedValue({
+      result: {
+        content: '{"already":true}',
+        messageId: 'tool-message-existing',
+        shouldContinue: true,
+        success: true,
+      },
+      status: 'succeeded',
+    });
+
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 3,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload(),
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({
+      content: '{"already":true}',
+      messageId: 'tool-message-existing',
+      success: true,
+    });
+    expect(pluginMocks.findById).not.toHaveBeenCalled();
+    expect(generationMocks.updateStep).not.toHaveBeenCalled();
+  });
+
   it('serializes a memory write and step completion in one transaction', async () => {
     const whereUpdate = vi.fn().mockResolvedValue(undefined);
     const trx = {

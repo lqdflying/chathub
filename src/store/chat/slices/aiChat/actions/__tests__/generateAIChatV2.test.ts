@@ -473,6 +473,51 @@ describe('generateAIChatV2 actions', () => {
         );
       });
 
+      it('still auto-titles a new topic after durable send', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        const summaryTopicTitle = vi.fn(async () => {});
+        act(() => {
+          useChatStore.setState({
+            summaryTopicTitle,
+            switchTopic: vi.fn(async (id: string) => {
+              useChatStore.setState({ activeTopicId: id });
+            }),
+          });
+        });
+        (aiChatService.sendMessageInServer as Mock).mockResolvedValueOnce({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          isCreateNewTopic: true,
+          messages: [
+            {
+              content: TEST_CONTENT.USER_MESSAGE,
+              id: TEST_IDS.USER_MESSAGE_ID,
+              role: 'user',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: TEST_IDS.NEW_TOPIC_ID,
+            },
+          ],
+          operationId: 'cgo_new_topic',
+          topicId: TEST_IDS.NEW_TOPIC_ID,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(summaryTopicTitle).toHaveBeenCalledWith(
+          TEST_IDS.NEW_TOPIC_ID,
+          expect.any(Array),
+        );
+        expect(result.current.internal_execAgentRuntime).not.toHaveBeenCalled();
+      });
+
       it('falls back to the browser runtime when no durable operation can be reconciled', async () => {
         vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
         vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(

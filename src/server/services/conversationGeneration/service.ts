@@ -133,6 +133,7 @@ export class ConversationGenerationService {
     const parsed = ConversationGenerationEnqueueSchema.parse(input);
     const lane = buildConversationGenerationLane({
       groupId: parsed.groupId,
+      kind: parsed.kind,
       sessionId: parsed.sessionId,
       threadId: parsed.threadId,
       topicId: parsed.topicId,
@@ -169,10 +170,7 @@ export class ConversationGenerationService {
       await model.requestCancel(active.id);
     }
 
-    const laneGeneration =
-      active && parsed.replaceActive
-        ? (active.laneGeneration ?? 1) + 1
-        : (await model.findMaxLaneGeneration(lane)) + 1;
+    const laneGeneration = (await model.findMaxLaneGeneration(lane)) + 1;
 
     let assistantMessageId = parsed.assistantMessageId;
     if (

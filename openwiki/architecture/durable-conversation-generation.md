@@ -46,8 +46,12 @@ Migrations `0054_add_conversation_generation.sql` through
 Lanes are unique only while status is `pending` or `processing`. A
 `cancelling` predecessor therefore cannot block its replacement:
 
-- session: `{userId}:session:{sessionId|inbox}:{topicId|none}:{threadId|main}`
-- group: `{userId}:group:{groupId}:{topicId|none}:{threadId|main}`
+- session: `{userId}:session:{sessionId|inbox}:{topicId|none}:{threadId|main}:{family}`
+- group: `{userId}:group:{groupId}:{topicId|none}:{threadId|main}:{family}`
+
+`family` groups replaceable work: `chat` covers `chat` / `continue` / `regenerate` /
+`group_supervisor` / `group_agent`. Title, translation, compaction, TTS, and RAG
+each have their own family so they cannot cancel an in-flight reply.
 
 Job payload is `{ operationId, userId }` only. Credentials are resolved from
 encrypted user/provider vaults at execution time.
@@ -113,11 +117,12 @@ The active-lane unique index covers only `pending` and `processing`, so a
 per-user event cursor across topic switches. If SSE ends or fails, it polls
 `conversationGeneration.listEvents`.
 
-Events are applied only when the attached operation still matches the active
-session/topic/thread, operation kind, lane generation, user scope, and
-`conversationClearGeneration`. Navigation detaches local UI state without
-cancelling server work. Explicit Stop, retry/rewind, delete, and clear perform
-scoped server cancellation.
+Events are applied only when the attached operation still matches the visible
+session/topic/thread (`portalThreadId` when a thread portal is open, otherwise
+`activeThreadId`) and `conversationClearGeneration`. Title and translation use
+separate lanes, so their events can attach alongside chat. Navigation detaches
+local UI state without cancelling server work. Explicit Stop, retry/rewind,
+delete, and clear perform scoped server cancellation.
 
 Stop still goes through `stopGenerateMessage` / group supervisor stop →
 `cancelAndDetachDurableOps` → `conversationGeneration.cancel`. Durable

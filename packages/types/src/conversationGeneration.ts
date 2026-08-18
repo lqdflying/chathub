@@ -241,18 +241,41 @@ export const ConversationGenerationEnqueueSchema = z.object({
   userMessageId: z.string().optional(),
 });
 
+/**
+ * Lanes serialize replaceActive within a family. Chat retries share a lane;
+ * title, translation, and compaction must not cancel an in-flight reply.
+ */
+export const ConversationGenerationLaneFamilies = {
+  chat: 'chat',
+  continue: 'chat',
+  regenerate: 'chat',
+  group_supervisor: 'chat',
+  group_agent: 'chat',
+  topic_title: 'topic_title',
+  translation: 'translation',
+  memory_compaction: 'memory_compaction',
+  tts: 'tts',
+  rag: 'rag',
+} as const satisfies Record<ConversationGenerationKind, string>;
+
+export const getConversationGenerationLaneFamily = (
+  kind: ConversationGenerationKind = 'chat',
+) => ConversationGenerationLaneFamilies[kind];
+
 export const buildConversationGenerationLane = (params: {
   groupId?: string | null;
+  kind?: ConversationGenerationKind;
   sessionId?: string | null;
   threadId?: string | null;
   topicId?: string | null;
   userId: string;
 }) => {
+  const family = getConversationGenerationLaneFamily(params.kind);
   if (params.groupId) {
-    return `${params.userId}:group:${params.groupId}:${params.topicId ?? 'none'}:${params.threadId ?? 'main'}`;
+    return `${params.userId}:group:${params.groupId}:${params.topicId ?? 'none'}:${params.threadId ?? 'main'}:${family}`;
   }
 
-  return `${params.userId}:session:${params.sessionId ?? 'inbox'}:${params.topicId ?? 'none'}:${params.threadId ?? 'main'}`;
+  return `${params.userId}:session:${params.sessionId ?? 'inbox'}:${params.topicId ?? 'none'}:${params.threadId ?? 'main'}:${family}`;
 };
 
 export const isActiveConversationGenerationStatus = (

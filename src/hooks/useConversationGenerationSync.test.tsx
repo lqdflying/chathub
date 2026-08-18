@@ -28,6 +28,8 @@ describe('useConversationGenerationSync', () => {
     useSessionStore.setState({ activeId: 'session-1' });
     useChatStore.setState({
       activeTopicId: 'topic-1',
+      activeThreadId: undefined,
+      portalThreadId: undefined,
       syncActiveConversationGenerations: vi.fn(async () => {}),
     });
     useUserStore.setState({ user: { id: 'user-a' } as any });
@@ -69,6 +71,26 @@ describe('useConversationGenerationSync', () => {
     });
 
     expect(vi.mocked(conversationGenerationService.subscribe).mock.calls[2][0].cursor).toBe(0);
+    unmount();
+  });
+
+  it('resyncs when the visible portal thread changes', async () => {
+    const syncActive = vi.fn(async () => {});
+    useChatStore.setState({ syncActiveConversationGenerations: syncActive });
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+
+    await waitFor(() => {
+      expect(syncActive).toHaveBeenCalled();
+    });
+    const callsAfterMount = syncActive.mock.calls.length;
+
+    act(() => {
+      useChatStore.setState({ portalThreadId: 'thread-1' });
+    });
+
+    await waitFor(() => {
+      expect(syncActive.mock.calls.length).toBeGreaterThan(callsAfterMount);
+    });
     unmount();
   });
 });
