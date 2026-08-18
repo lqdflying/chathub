@@ -52,7 +52,7 @@ const bindDbMethod = vi.hoisted(
     ) {
       this.db?.ensureActive?.();
       try {
-        return await fn(...args);
+        return await fn.call(this, ...args);
       } catch (error) {
         this.db?.fail?.();
         throw error;
@@ -413,14 +413,22 @@ describe('sweepStaleConversationGenerationOperations', () => {
 
   type AbortAwareHandle = {
     aborted: boolean;
+    applyMutation: (apply: () => void, revert: () => void) => void;
     ensureActive: () => void;
     fail: () => void;
+    rollbackMutations: () => void;
     transaction: <T>(callback: (trx: AbortAwareHandle) => Promise<T>) => Promise<T>;
   };
 
   const createAbortAwareHandle = (parent?: AbortAwareHandle): AbortAwareHandle => {
+    const mutations: Array<() => void> = [];
     const handle: AbortAwareHandle = {
       aborted: false,
+      applyMutation(apply, revert) {
+        handle.ensureActive();
+        apply();
+        mutations.push(revert);
+      },
       ensureActive() {
         if (handle.aborted || parent?.aborted) {
           throw new Error(ABORTED_TRANSACTION_MESSAGE);
@@ -429,17 +437,24 @@ describe('sweepStaleConversationGenerationOperations', () => {
       fail() {
         handle.aborted = true;
       },
+      rollbackMutations() {
+        while (mutations.length > 0) {
+          mutations.pop()?.();
+        }
+      },
       async transaction(callback) {
         handle.ensureActive();
         const nested = createAbortAwareHandle(handle);
         try {
           const result = await callback(nested);
           if (nested.aborted) {
+            nested.rollbackMutations();
             throw new Error(ABORTED_TRANSACTION_MESSAGE);
           }
           return result;
         } catch (error) {
           nested.aborted = true;
+          nested.rollbackMutations();
           throw error;
         }
       },
@@ -525,21 +540,46 @@ describe('sweepStaleConversationGenerationOperations', () => {
 
   it('rolls a failed leftover marker write back to a savepoint so later page rows still commit', async () => {
     const { all, laterId, leftover, poisonChild } = createPoisonSweepRows();
+    const cleanedIds = new Set<string>();
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     mockUncleanedKeyset(all);
     modelMocks.findById.mockImplementation(async (id) => all.find((row) => row.id === id));
-    modelMocks.markPlaceholdersCleaned.mockImplementation(async (id) => {
+    modelMocks.markPlaceholdersCleaned.mockImplementation(async function (
+      this: { db?: AbortAwareHandle },
+      id: string,
+    ) {
       if (id === 'operation-oldest') throw new Error('marker write failed');
+      const apply = () => cleanedIds.add(id);
+      const revert = () => cleanedIds.delete(id);
+      if (typeof this.db?.applyMutation === 'function') {
+        this.db.applyMutation(apply, revert);
+      } else {
+        apply();
+      }
       return { id };
     });
     messageMocks.findById.mockImplementation(async (id) => {
       if (id === poisonChild.id) return poisonChild;
       return id === leftover.id ? leftover : undefined;
     });
-    messageMocks.update.mockImplementation(async (id, value) => {
-      if (id === leftover.id) Object.assign(leftover, value);
-      if (id === poisonChild.id) Object.assign(poisonChild, value);
+    messageMocks.update.mockImplementation(async function (
+      this: { db?: AbortAwareHandle },
+      id: string,
+      value: { content?: string },
+    ) {
+      const target = id === leftover.id ? leftover : id === poisonChild.id ? poisonChild : undefined;
+      if (!target) return;
+      const previousContent = target.content;
+      const apply = () => Object.assign(target, value);
+      const revert = () => {
+        target.content = previousContent;
+      };
+      if (typeof this.db?.applyMutation === 'function') {
+        this.db.applyMutation(apply, revert);
+      } else {
+        apply();
+      }
     });
 
     await expect(
@@ -547,7 +587,10 @@ describe('sweepStaleConversationGenerationOperations', () => {
     ).resolves.toBeUndefined();
 
     expect(modelMocks.listUncleanedFinished.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(poisonChild.content).toBe(LOADING_FLAT);
+    expect(cleanedIds.has('operation-oldest')).toBe(false);
     expect(leftover.content).toBe('');
+    expect(cleanedIds.has(laterId!)).toBe(true);
     expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith('operation-oldest');
     expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith(laterId);
     expect(errorSpy).toHaveBeenCalled();
