@@ -122,6 +122,11 @@ of whether Graphile Worker boots successfully. The sweeper requeues pending
 operations with a null `workerJobId`. A stale `processing` attempt is atomically
 returned to `pending` and re-enqueued while retry budget remains, then finalized
 as `failed` after the last attempt. Stale `cancelling` rows become `cancelled`.
+Unmarked terminal leftovers are claimed with `SELECT … FOR UPDATE SKIP LOCKED`
+inside the cleanup transaction so overlapping replicas skip in-flight rows. A
+failed leftover is left unmarked and logged; the keyset still advances so later
+rows are not starved. One process keeps only a single sweep in flight: a 15s
+timer tick that overlaps a long drain joins that run instead of starting another.
 
 Graphile Worker itself is started in a separate try/catch. A boot failure is
 logged and does not crash Next.js. ChatHub owns signal handling because the
@@ -215,20 +220,23 @@ database transaction (Drizzle nested transactions use PostgreSQL savepoints).
 Supervisor child ids are appended with a single JSONB `UPDATE`
 (`jsonb_exists` / `jsonb_set` / `jsonb_build_array`) so PostgreSQL’s row lock
 and READ COMMITTED re-evaluation keep parallel member continuations from
-dropping a committed sibling. A retry that finds a persisted assistant id with
+dropping a committed sibling. The helper merges only the returned child-id
+array back onto the caller; a nested member overlay keeps its model, plugins,
+group prompt, and target. A retry that finds a persisted assistant id with
 no row recreates the loading placeholder and refuses to finalize success if the
 row is still missing. A nested group-agent turn returns an explicit outcome;
 failed, cancelled, or interrupted children cannot be overwritten by supervisor
 success. Stop, pending cancel, stale finalization, and a failed round clear
 leftover loading placeholders in the same transaction as the terminal status
 change, then set `placeholdersCleanedAt`. A sweeper keyset-pages unmarked
-terminal rows (`finished_at`, `id`, partial index) until none remain so a crash
-between those writes cannot leave permanent `LOADING_FLAT` rows. Successful
-sibling replies keep their content and are not annotated with another member’s
-error; round-level failure lives on the operation. After a tool continuation,
-cancel, clear, and failure annotate or clear the newest assistant, not the
-completed tool-call row. Parallel member turns settle before the parent is
-finalized.
+terminal rows (`finished_at`, `id`, partial index, `SKIP LOCKED`) until none
+remain so a crash between those writes cannot leave permanent `LOADING_FLAT`
+rows. One bad leftover is logged and skipped for that pass; later pages still
+run. Successful sibling replies keep their content and are not annotated with
+another member’s error; round-level failure lives on the operation. After a
+tool continuation, cancel, clear, and failure annotate or clear the newest
+assistant, not the completed tool-call row. Parallel member turns settle before
+the parent is finalized.
 
 ## Startup schema repair
 

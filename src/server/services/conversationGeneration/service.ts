@@ -14,7 +14,11 @@ import { ConversationGenerationModel } from '@/database/models/conversationGener
 import { MessageModel } from '@/database/models/message';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 
-import { clearOperationPlaceholders, finalizeOperationWithCleanup } from './assistantPlaceholders';
+import {
+  clearOperationPlaceholders,
+  finalizeOperationWithCleanup,
+  withConversationDbTransaction,
+} from './assistantPlaceholders';
 import {
   CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
   CONVERSATION_GENERATION_EVENT_PAGE_SIZE,
@@ -367,17 +371,28 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
 
   let after: { finishedAt: Date; id: string } | undefined;
   for (;;) {
-    const page = await systemModel.listUncleanedFinished({
-      after,
-      limit: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
+    const cursor = after;
+    const page = await withConversationDbTransaction(db, async (trx) => {
+      const rows = await new ConversationGenerationModel(trx, 'system').listUncleanedFinished({
+        after: cursor,
+        limit: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
+      });
+      for (const operation of rows) {
+        try {
+          await clearOperationPlaceholders(trx, operation);
+          await new ConversationGenerationModel(trx, operation.userId).markPlaceholdersCleaned(
+            operation.id,
+          );
+        } catch (error) {
+          console.error(
+            `[conversation-generation] placeholder cleanup failed for ${operation.id}`,
+            error,
+          );
+        }
+      }
+      return rows;
     });
     if (page.length === 0) break;
-    for (const operation of page) {
-      await clearOperationPlaceholders(db, operation);
-      await new ConversationGenerationModel(db, operation.userId).markPlaceholdersCleaned(
-        operation.id,
-      );
-    }
     const last = page.at(-1);
     if (!last?.finishedAt || page.length < CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE) break;
     after = {

@@ -13,6 +13,7 @@ import {
   shouldCreateToolContinuation,
   shouldGenerateConversationTitle,
 } from './execute';
+import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
 import { executeConversationToolStep } from './tools';
 
@@ -930,6 +931,48 @@ describe('executeConversationGeneration supervisor children', () => {
       expect.objectContaining({ type: 'GenerationError' }),
       expect.anything(),
     );
+  });
+
+  it('keeps the member model and group prompt on a tool continuation', async () => {
+    agentMocks.getAgentConfigById.mockImplementation(async (id: string) => ({
+      id,
+      model: 'member-model',
+      plugins: ['lobe-web-browsing'],
+      provider: 'member-provider',
+      systemRole: 'member-base-role',
+      title: id,
+    }));
+    vi.mocked(executeConversationToolStep).mockResolvedValue({
+      content: 'tool result',
+      inputHash: 'hash-1',
+      messageId: 'tool-1',
+      shouldContinue: true,
+      success: true,
+    });
+    let consumeCalls = 0;
+    vi.mocked(consumeProtocolResponse).mockImplementation(async () => {
+      consumeCalls += 1;
+      if (consumeCalls === 1) {
+        return {
+          content: 'calling tool',
+          toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-1' }],
+        };
+      }
+      return { content: 'member continuation' };
+    });
+
+    await runOperation({ ...row, attempt: 8 });
+
+    const continuationConfig = vi.mocked(buildConversationChatPayload).mock.calls.at(-1)?.[0]
+      ?.config;
+    expect(vi.mocked(buildConversationChatPayload).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(continuationConfig).toMatchObject({
+      model: 'member-model',
+      plugins: ['lobe-web-browsing'],
+      provider: 'member-provider',
+    });
+    expect(continuationConfig?.systemRole).toContain('Stay in character as agent-1');
+    expect(continuationConfig?.model).not.toBe(row.config.model);
   });
 });
 

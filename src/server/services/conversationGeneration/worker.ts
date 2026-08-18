@@ -15,6 +15,7 @@ import {
 type GlobalWithConversationWorker = typeof globalThis & {
   __chathubConversationGenerationShutdown?: Promise<void>;
   __chathubConversationGenerationSignalsRegistered?: boolean;
+  __chathubConversationGenerationSweepInFlight?: Promise<void>;
   __chathubConversationGenerationSweeper?: ReturnType<typeof setInterval>;
   __chathubConversationGenerationWorker?: Promise<Runner | undefined>;
 };
@@ -44,9 +45,25 @@ const handleConversationGenerationJob: Task = async (payload) => {
 };
 
 const runConversationGenerationSweep = async () => {
-  const db = await getServerDB();
-  await sweepPendingConversationGenerationJobs(db);
-  await sweepStaleConversationGenerationOperations(db);
+  const globalState = globalThis as GlobalWithConversationWorker;
+  if (globalState.__chathubConversationGenerationSweepInFlight) {
+    return globalState.__chathubConversationGenerationSweepInFlight;
+  }
+
+  const run = (async () => {
+    const db = await getServerDB();
+    await sweepPendingConversationGenerationJobs(db);
+    await sweepStaleConversationGenerationOperations(db);
+  })();
+
+  globalState.__chathubConversationGenerationSweepInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (globalState.__chathubConversationGenerationSweepInFlight === run) {
+      globalState.__chathubConversationGenerationSweepInFlight = undefined;
+    }
+  }
 };
 
 export const stopConversationGenerationWorker = async () => {

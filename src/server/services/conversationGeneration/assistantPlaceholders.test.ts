@@ -256,13 +256,23 @@ describe('conversation generation crash recovery helpers', () => {
     expect(created.content).toBe('');
   });
 
-  it('appends supervisor child ids through the atomic JSONB writer', async () => {
+  it('appends supervisor child ids without replacing the member overlay config', async () => {
+    modelMocks.appendSupervisorChildMessageId.mockResolvedValue({
+      ...operation,
+      config: {
+        model: 'supervisor-model',
+        provider: 'supervisor-provider',
+        supervisorChildMessageIds: ['child-2'],
+      },
+    });
     const childCopy = {
       ...operation,
       config: {
         model: 'agent-model',
-        provider: 'p',
+        plugins: ['lobe-web-browsing'],
+        provider: 'agent-provider',
         systemRole: 'group overlay',
+        targetId: 'user',
       },
     };
 
@@ -279,7 +289,14 @@ describe('conversation generation crash recovery helpers', () => {
       laneGeneration: 1,
     });
     expect(modelMocks.update).not.toHaveBeenCalled();
-    expect(childCopy.config.supervisorChildMessageIds).toEqual(['child-2']);
+    expect(childCopy.config).toEqual({
+      model: 'agent-model',
+      plugins: ['lobe-web-browsing'],
+      provider: 'agent-provider',
+      supervisorChildMessageIds: ['child-2'],
+      systemRole: 'group overlay',
+      targetId: 'user',
+    });
   });
 
   it('keeps both concurrent supervisor child ids and clears both loading rows', async () => {

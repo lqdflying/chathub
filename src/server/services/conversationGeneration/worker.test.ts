@@ -27,6 +27,9 @@ vi.mock('./service', () => ({
 }));
 
 import {
+  CONVERSATION_GENERATION_SWEEP_INTERVAL_MS,
+} from './constants';
+import {
   registerConversationGenerationShutdown,
   startConversationGenerationSweeper,
   startConversationGenerationWorker,
@@ -36,6 +39,7 @@ import {
 const GLOBAL_KEYS = [
   '__chathubConversationGenerationShutdown',
   '__chathubConversationGenerationSignalsRegistered',
+  '__chathubConversationGenerationSweepInFlight',
   '__chathubConversationGenerationSweeper',
   '__chathubConversationGenerationWorker',
 ] as const;
@@ -113,5 +117,30 @@ describe('conversation generation worker lifecycle', () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(mocks.getServerDB).toHaveBeenCalledTimes(callsBeforeShutdown);
+  });
+
+  it('does not start a second sweep while one is already in flight', async () => {
+    vi.useFakeTimers();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mocks.getServerDB.mockResolvedValue({});
+    mocks.sweepPending.mockResolvedValue(undefined);
+    mocks.sweepStale.mockImplementation(() => held);
+
+    startConversationGenerationSweeper();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.sweepStale).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(CONVERSATION_GENERATION_SWEEP_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(CONVERSATION_GENERATION_SWEEP_INTERVAL_MS);
+
+    expect(mocks.sweepStale).toHaveBeenCalledTimes(1);
+    expect(mocks.sweepPending).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.resolve();
+    await Promise.resolve();
   });
 });

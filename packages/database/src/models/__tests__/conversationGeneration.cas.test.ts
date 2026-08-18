@@ -160,7 +160,8 @@ describe('ConversationGenerationModel compare-and-set guards', () => {
   });
 
   it('lists unmarked finished operations oldest-first with a finishedAt/id keyset', async () => {
-    const limit = vi.fn().mockResolvedValue([]);
+    const forUpdate = vi.fn().mockResolvedValue([]);
+    const limit = vi.fn(() => ({ for: forUpdate }));
     const orderBy = vi.fn(() => ({ limit }));
     const where = vi.fn(() => ({ orderBy }));
     const from = vi.fn(() => ({ where }));
@@ -172,6 +173,7 @@ describe('ConversationGenerationModel compare-and-set guards', () => {
 
     expect(select).toHaveBeenCalled();
     expect(limit).toHaveBeenCalledWith(50);
+    expect(forUpdate).toHaveBeenCalledWith('update', { skipLocked: true });
     const whereTexts = collectStrings(where.mock.calls[0]?.[0]);
     expect(whereTexts).toEqual(
       expect.arrayContaining(['cancelled', 'failed', 'interrupted', 'succeeded']),

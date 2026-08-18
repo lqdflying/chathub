@@ -153,7 +153,10 @@ export const createAssistantMessageAndAssign = async ({
     if (!updated) {
       throw new Error('Conversation generation attempt no longer owns the operation.');
     }
-    operation.config = updated.config;
+    operation.config = {
+      ...operation.config,
+      supervisorChildMessageIds: updated.config.supervisorChildMessageIds,
+    };
   };
 
   return withConversationDbTransaction(db, async (trx) => {

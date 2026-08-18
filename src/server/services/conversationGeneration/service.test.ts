@@ -382,6 +382,72 @@ describe('sweepStaleConversationGenerationOperations', () => {
     expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith('operation-oldest');
     expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledTimes(all.length);
   });
+
+  it('advances past a failed cleanup row so later unmarked jobs still drain', async () => {
+    const poisonChild = { content: LOADING_FLAT, id: 'poison-child' };
+    const leftover = { content: LOADING_FLAT, id: 'later-child' };
+    const oldestFinishedAt = new Date('2026-01-01T00:00:00.000Z');
+    const newerFinishedAt = new Date('2026-08-01T00:00:00.000Z');
+    const oldest = {
+      assistantMessageId: null,
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        supervisorChildMessageIds: [poisonChild.id],
+      },
+      finishedAt: oldestFinishedAt,
+      id: 'operation-oldest',
+      status: 'failed',
+      userId: 'user-1',
+    };
+    const newer = Array.from({ length: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE }, (_, index) => ({
+      assistantMessageId: null,
+      config:
+        index === CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE - 1
+          ? {
+              model: 'test-model',
+              provider: 'test-provider',
+              supervisorChildMessageIds: [leftover.id],
+            }
+          : { model: 'test-model', provider: 'test-provider' },
+      finishedAt: new Date(newerFinishedAt.getTime() + index),
+      id: `operation-new-${String(index).padStart(3, '0')}`,
+      status: 'succeeded',
+      userId: 'user-1',
+    }));
+    const all = [oldest, ...newer];
+    const laterId = newer.at(-1)?.id;
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    modelMocks.listUncleanedFinished.mockImplementation(async ({ after, limit = 100 } = {}) => {
+      const start = after
+        ? all.findIndex(
+            (row) =>
+              row.finishedAt.getTime() > after.finishedAt.getTime() ||
+              (row.finishedAt.getTime() === after.finishedAt.getTime() && row.id > after.id),
+          )
+        : 0;
+      const from = start < 0 ? all.length : start;
+      return all.slice(from, from + limit);
+    });
+    modelMocks.findById.mockImplementation(async (id) => all.find((row) => row.id === id));
+    messageMocks.findById.mockImplementation(async (id) => {
+      if (id === poisonChild.id) throw new Error('poison cleanup');
+      return id === leftover.id ? leftover : undefined;
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === leftover.id) Object.assign(leftover, value);
+    });
+
+    await sweepStaleConversationGenerationOperations({ execute: vi.fn() } as any);
+
+    expect(modelMocks.listUncleanedFinished.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(leftover.content).toBe('');
+    expect(modelMocks.markPlaceholdersCleaned).not.toHaveBeenCalledWith('operation-oldest');
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith(laterId);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
 });
 
 describe('ConversationGenerationService.enqueueInTransaction', () => {

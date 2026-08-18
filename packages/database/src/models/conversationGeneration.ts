@@ -203,7 +203,8 @@ export class ConversationGenerationModel {
         asc(conversationGenerationOperations.finishedAt),
         asc(conversationGenerationOperations.id),
       )
-      .limit(limit);
+      .limit(limit)
+      .for('update', { skipLocked: true });
   };
 
   listPendingWithoutJob = async () => {
@@ -407,23 +408,27 @@ export class ConversationGenerationModel {
     childMessageId: string,
     guard?: { attempt?: number; laneGeneration?: number },
   ) => {
-    const childIdsSql = sql`CASE
-      WHEN jsonb_typeof(${conversationGenerationOperations.config}->'supervisorChildMessageIds') = 'array'
-      THEN ${conversationGenerationOperations.config}->'supervisorChildMessageIds'
-      ELSE '[]'::jsonb
-    END`;
+    const childIdsSql = sql`
+      CASE
+        WHEN jsonb_typeof(${conversationGenerationOperations.config}->'supervisorChildMessageIds') = 'array'
+        THEN ${conversationGenerationOperations.config}->'supervisorChildMessageIds'
+        ELSE '[]'::jsonb
+      END
+    `;
     const [item] = await this.db
       .update(conversationGenerationOperations)
       .set({
-        config: sql`CASE
-          WHEN jsonb_exists(${childIdsSql}, ${childMessageId})
-          THEN ${conversationGenerationOperations.config}
-          ELSE jsonb_set(
-            ${conversationGenerationOperations.config},
-            '{supervisorChildMessageIds}',
-            ${childIdsSql} || jsonb_build_array(${childMessageId})
-          )
-        END`,
+        config: sql`
+          CASE
+            WHEN jsonb_exists(${childIdsSql}, ${childMessageId})
+            THEN ${conversationGenerationOperations.config}
+            ELSE jsonb_set(
+              ${conversationGenerationOperations.config},
+              '{supervisorChildMessageIds}',
+              ${childIdsSql} || jsonb_build_array(${childMessageId})
+            )
+          END
+        `,
         updatedAt: new Date(),
       })
       .where(
