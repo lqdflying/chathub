@@ -568,7 +568,8 @@ describe('sweepStaleConversationGenerationOperations', () => {
       id: string,
       value: { content?: string },
     ) {
-      const target = id === leftover.id ? leftover : id === poisonChild.id ? poisonChild : undefined;
+      const target =
+        id === leftover.id ? leftover : id === poisonChild.id ? poisonChild : undefined;
       if (!target) return;
       const previousContent = target.content;
       const apply = () => Object.assign(target, value);
