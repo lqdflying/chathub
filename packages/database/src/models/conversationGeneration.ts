@@ -314,6 +314,7 @@ export class ConversationGenerationModel {
       assistantMessageId: string | null;
       attempt: number;
       cancelRequestedAt: Date | null;
+      config: ConversationGenerationConfigSnapshot;
       conversationVersion: number | null;
       error: ConversationGenerationError | null;
       finishedAt: Date | null;

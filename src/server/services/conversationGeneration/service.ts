@@ -14,6 +14,7 @@ import { ConversationGenerationModel } from '@/database/models/conversationGener
 import { MessageModel } from '@/database/models/message';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 
+import { clearOperationPlaceholders } from './assistantPlaceholders';
 import {
   CONVERSATION_GENERATION_EVENT_PAGE_SIZE,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
@@ -245,6 +246,7 @@ export class ConversationGenerationService {
         revision: cancelled.revision,
         type: 'done',
       });
+      await clearOperationPlaceholders(this.db, cancelled.config ? cancelled : current);
       return cancelled;
     }
 
@@ -331,6 +333,7 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
           revision: failed.revision,
           type: 'error',
         });
+        await clearOperationPlaceholders(db, failed.config ? failed : operation);
       }
       continue;
     }
@@ -380,6 +383,7 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
       revision: cancelled.revision,
       type: 'done',
     });
+    await clearOperationPlaceholders(db, cancelled.config ? cancelled : operation);
   }
 };
 

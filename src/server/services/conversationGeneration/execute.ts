@@ -26,6 +26,7 @@ import { ConversationGenerationModel } from '@/database/models/conversationGener
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
+import { idGenerator } from '@/database/utils/idGenerator';
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   createCompactionFingerprint,
@@ -48,6 +49,11 @@ import {
 import { RagEmbeddingService, resolveRagEmbeddingConfig } from '@/server/services/rag/embedding';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 
+import {
+  annotateAssistantError,
+  clearOperationPlaceholders,
+  clearUnfinishedPlaceholders,
+} from './assistantPlaceholders';
 import { buildConversationCompactionMetadata } from './compaction';
 import {
   CONVERSATION_GENERATION_CHECKPOINT_CHARS,
@@ -123,6 +129,7 @@ export const executeConversationGeneration = async ({
 
   if (operation.status === 'cancelling' || operation.cancelRequestedAt) {
     await finalize(model, operation, 'cancelled');
+    await clearOperationPlaceholders(db, operation);
     return;
   }
 
@@ -135,6 +142,7 @@ export const executeConversationGeneration = async ({
       isActiveConversationGenerationStatus(current.status)
     ) {
       await finalize(model, current, 'cancelled');
+      await clearOperationPlaceholders(db, current);
       return;
     }
     if (current?.status === 'processing') {
@@ -224,7 +232,8 @@ export const executeConversationGeneration = async ({
     const normalizedError = toError(error);
     if (error instanceof ConversationWriteRejectedError) {
       await finalize(model, claimed, 'interrupted', normalizedError);
-      await clearAssistantPlaceholder(db, claimed, normalizedError);
+      await clearOperationPlaceholders(db, claimed);
+      await annotateAssistantError(db, claimed.userId, claimed.assistantMessageId, normalizedError);
       return;
     }
 
@@ -246,7 +255,8 @@ export const executeConversationGeneration = async ({
     }
 
     await finalize(model, claimed, 'failed', normalizedError);
-    await clearAssistantPlaceholder(db, claimed, normalizedError);
+    await clearOperationPlaceholders(db, claimed);
+    await annotateAssistantError(db, claimed.userId, claimed.assistantMessageId, normalizedError);
   } finally {
     clearInterval(heartbeatTimer);
   }
@@ -310,7 +320,12 @@ const finalize = async (
 };
 
 type ConversationGenerationStopReason =
-  'cancelled' | 'conversation_cleared' | 'retrying' | 'superseded' | 'terminal';
+  | 'cancelled'
+  | 'conversation_cleared'
+  | 'retrying'
+  | 'sibling_stop'
+  | 'superseded'
+  | 'terminal';
 
 export type ConversationExecutionOutcome = {
   error?: ConversationGenerationError;
@@ -323,6 +338,7 @@ export const getSupervisorTerminalOutcome = (outcome: ConversationExecutionOutco
 const outcomeFromStopReason = (
   reason: ConversationGenerationStopReason,
 ): ConversationExecutionOutcome => {
+  if (reason === 'sibling_stop') return { status: 'succeeded' };
   if (reason === 'cancelled' || reason === 'superseded') return { status: 'cancelled' };
   if (reason === 'retrying' || reason === 'terminal') return { status: 'retrying' };
   return { status: 'interrupted' };
@@ -359,6 +375,7 @@ const shouldStopGeneration = async (
     if (
       reason === 'cancelled' ||
       reason === 'conversation_cleared' ||
+      reason === 'sibling_stop' ||
       reason === 'superseded' ||
       reason === 'terminal'
     ) {
@@ -369,64 +386,22 @@ const shouldStopGeneration = async (
   return null;
 };
 
-const clearPlaceholderMessages = async (
-  db: LobeChatDatabase,
-  userId: string,
-  messageIds: Array<string | null | undefined>,
-  error?: ConversationGenerationError,
-) => {
-  const ids = [...new Set(messageIds.filter((id): id is string => Boolean(id)))];
-  if (ids.length === 0) return;
-  const messageModel = new MessageModel(db, userId);
-  for (const messageId of ids) {
-    const current = await messageModel.findById(messageId);
-    if (!current) continue;
-    if (current.content !== LOADING_FLAT && !error) continue;
-    await messageModel.update(messageId, {
-      ...(current.content === LOADING_FLAT ? { content: '' } : {}),
-      ...(error ? { error: error as any } : {}),
-    });
-  }
-};
-
-const listOperationAssistantIds = (operation?: ConversationGenerationOperation | null) => [
-  operation?.assistantMessageId,
-  ...(operation?.config?.supervisorChildMessageIds || []),
-];
-
-const clearAssistantPlaceholder = async (
-  db: LobeChatDatabase,
-  operation: ConversationGenerationOperation,
-  error?: ConversationGenerationError,
-) => {
-  const latestOperation = await new ConversationGenerationModel(db, operation.userId).findById(
-    operation.id,
-  );
-  await clearPlaceholderMessages(
-    db,
-    operation.userId,
-    listOperationAssistantIds(latestOperation ?? operation),
-    error,
-  );
-};
-
 const finalizeIfStopped = async (
   model: ConversationGenerationModel,
   operation: ConversationGenerationOperation,
   reason: ConversationGenerationStopReason,
   db?: LobeChatDatabase,
 ) => {
-  if (reason === 'terminal' || reason === 'retrying') return;
+  if (reason === 'terminal' || reason === 'retrying' || reason === 'sibling_stop') return;
   if (reason === 'conversation_cleared') {
-    await finalize(model, operation, 'interrupted', {
+    const error = {
       message: 'Conversation history was cleared before generation finished.',
       type: 'ConversationCleared',
-    });
+    };
+    await finalize(model, operation, 'interrupted', error);
     if (db) {
-      await clearAssistantPlaceholder(db, operation, {
-        message: 'Conversation history was cleared before generation finished.',
-        type: 'ConversationCleared',
-      });
+      await clearOperationPlaceholders(db, operation);
+      await annotateAssistantError(db, operation.userId, operation.assistantMessageId, error);
     }
     return;
   }
@@ -438,7 +413,7 @@ const finalizeIfStopped = async (
         }
       : undefined;
   await finalize(model, operation, 'cancelled', error);
-  if (db) await clearAssistantPlaceholder(db, operation, error);
+  if (db) await clearOperationPlaceholders(db, operation);
 };
 
 const finalizeUnlessStopped = async (
@@ -509,12 +484,11 @@ const finishChatStop = async (
     return outcomeFromStopReason(stopReason);
   }
   if (stopReason !== 'retrying' && stopReason !== 'terminal') {
-    await clearPlaceholderMessages(
-      db,
-      operation.userId,
-      [assistantId],
-      stopReasonError(stopReason),
-    );
+    await clearUnfinishedPlaceholders(db, operation.userId, [assistantId]);
+    const error = stopReasonError(stopReason);
+    if (error && stopReason !== 'sibling_stop') {
+      await annotateAssistantError(db, operation.userId, assistantId, error);
+    }
   }
   return outcomeFromStopReason(stopReason);
 };
@@ -542,7 +516,8 @@ const executeChat = async (
     };
     if (!options?.skipFinalize) await finalize(model, operation, 'interrupted', error);
     else {
-      await clearPlaceholderMessages(db, operation.userId, [operation.assistantMessageId], error);
+      await clearUnfinishedPlaceholders(db, operation.userId, [operation.assistantMessageId]);
+      await annotateAssistantError(db, operation.userId, operation.assistantMessageId, error);
     }
     return { error, status: 'interrupted' };
   }
@@ -830,24 +805,41 @@ const executeChat = async (
       if (!shouldCreateToolContinuation(remainingTurns, shouldContinue)) break;
       remainingTurns -= 1;
 
-      const nextAssistant = await messageModel.create({
-        agentId: operation.agentId ?? undefined,
-        content: LOADING_FLAT,
-        fromModel: operation.config.model,
-        fromProvider: operation.config.provider,
-        groupId: operation.groupId ?? undefined,
-        parentId: assistantId,
-        role: 'assistant',
-        sessionId: operation.sessionId ?? operation.groupId ?? '',
-        threadId: operation.threadId ?? undefined,
-        topicId: operation.topicId ?? undefined,
-      });
-      assistantId = nextAssistant.id;
-      if (!options?.skipFinalize) {
-        await updateOperation(model, operation, { assistantMessageId: assistantId });
-      }
-      if (options?.onAssistantMessageId) {
-        await options.onAssistantMessageId(assistantId);
+      const previousAssistantId = assistantId;
+      const nextAssistantId = idGenerator('messages', 14);
+      try {
+        if (!options?.skipFinalize) {
+          await updateOperation(model, operation, { assistantMessageId: nextAssistantId });
+        }
+        if (options?.onAssistantMessageId) {
+          await options.onAssistantMessageId(nextAssistantId);
+        }
+        await messageModel.create(
+          {
+            agentId: operation.agentId ?? undefined,
+            content: LOADING_FLAT,
+            fromModel: operation.config.model,
+            fromProvider: operation.config.provider,
+            groupId: operation.groupId ?? undefined,
+            parentId: previousAssistantId,
+            role: 'assistant',
+            sessionId: operation.sessionId ?? operation.groupId ?? '',
+            threadId: operation.threadId ?? undefined,
+            topicId: operation.topicId ?? undefined,
+          },
+          nextAssistantId,
+        );
+        assistantId = nextAssistantId;
+      } catch (error) {
+        await clearUnfinishedPlaceholders(db, operation.userId, [nextAssistantId]);
+        if (!options?.skipFinalize) {
+          try {
+            await updateOperation(model, operation, { assistantMessageId: previousAssistantId });
+          } catch {
+            // Ownership may already have moved off this attempt.
+          }
+        }
+        throw error;
       }
       await emit(model, operation, 'snapshot', {
         assistantMessageId: assistantId,
@@ -1385,7 +1377,7 @@ const executeSupervisor = async (
     await persistChildIds();
   };
 
-  await clearPlaceholderMessages(db, operation.userId, childMessageIds);
+  await clearUnfinishedPlaceholders(db, operation.userId, childMessageIds);
   if (childMessageIds.length > 0) {
     childMessageIds.length = 0;
     await persistChildIds();
@@ -1398,23 +1390,32 @@ const executeSupervisor = async (
   }) => {
     const agent = availableAgents.find((item) => item.id === decision.id);
     if (!agent?.id) return;
-    const created = await messageModel.create({
-      agentId: agent.id,
-      content: LOADING_FLAT,
-      fromModel: agent.model || operation.config.model,
-      fromProvider: agent.provider || operation.config.provider,
-      groupId,
-      role: 'assistant',
-      sessionId: operation.sessionId ?? groupId,
-      targetId: decision.target,
-      topicId: operation.topicId ?? undefined,
-    });
-    await trackChild(created.id);
-    await emit(model, operation, 'snapshot', {
-      agentId: agent.id,
-      assistantMessageId: created.id,
-    });
-    return { agent, assistantId: created.id, decision };
+    const assistantId = idGenerator('messages', 14);
+    try {
+      await trackChild(assistantId);
+      const created = await messageModel.create(
+        {
+          agentId: agent.id,
+          content: LOADING_FLAT,
+          fromModel: agent.model || operation.config.model,
+          fromProvider: agent.provider || operation.config.provider,
+          groupId,
+          role: 'assistant',
+          sessionId: operation.sessionId ?? groupId,
+          targetId: decision.target,
+          topicId: operation.topicId ?? undefined,
+        },
+        assistantId,
+      );
+      await emit(model, operation, 'snapshot', {
+        agentId: agent.id,
+        assistantMessageId: created.id,
+      });
+      return { agent, assistantId: created.id, decision };
+    } catch (error) {
+      await clearUnfinishedPlaceholders(db, operation.userId, [assistantId]);
+      throw error;
+    }
   };
 
   const runAgentDecision = async (
@@ -1424,6 +1425,7 @@ const executeSupervisor = async (
       decision: { id: string; instruction?: string; target?: string };
     },
     history: UIChatMessage[],
+    runSignal?: AbortSignal,
   ) => {
     const agentId = child.agent.id;
     if (!agentId) return { status: 'succeeded' } as ConversationExecutionOutcome;
@@ -1459,19 +1461,33 @@ const executeSupervisor = async (
         },
         {
           onAssistantMessageId: trackChild,
-          runSignal: options?.runSignal,
+          runSignal: runSignal ?? options?.runSignal,
           skipFinalize: true,
         },
       );
     } catch (error) {
-      await clearPlaceholderMessages(db, operation.userId, [child.assistantId], toError(error));
-      throw error;
+      const stopReason = await shouldStopGeneration(
+        db,
+        model,
+        operation,
+        runSignal ?? options?.runSignal,
+      );
+      if (stopReason) {
+        return finishChatStop(db, model, operation, child.assistantId, stopReason, true);
+      }
+      const normalizedError = toError(error);
+      await clearUnfinishedPlaceholders(db, operation.userId, [child.assistantId]);
+      await annotateAssistantError(db, operation.userId, child.assistantId, normalizedError);
+      return { error: normalizedError, status: 'failed' as const };
     }
   };
 
   const applyChildOutcome = async (
     outcome: ConversationExecutionOutcome,
-    agentId?: string,
+    child?: {
+      assistantId: string;
+      decision: { id: string };
+    },
   ): Promise<boolean> => {
     if (outcome.status === 'retrying') {
       throw new Error('Conversation generation attempt lost ownership');
@@ -1481,12 +1497,17 @@ const executeSupervisor = async (
     const error =
       terminalOutcome.status === 'failed'
         ? terminalOutcome.error || {
-            message: agentId ? `Group agent "${agentId}" failed.` : 'Group agent failed.',
+            message: child?.decision.id
+              ? `Group agent "${child.decision.id}" failed.`
+              : 'Group agent failed.',
             type: 'GroupAgentError',
           }
         : undefined;
     await finalize(model, operation, terminalOutcome.status, error);
-    await clearAssistantPlaceholder(db, operation, error);
+    await clearOperationPlaceholders(db, operation, childMessageIds);
+    if (error && child?.assistantId) {
+      await annotateAssistantError(db, operation.userId, child.assistantId, error);
+    }
     return true;
   };
 
@@ -1517,7 +1538,7 @@ const executeSupervisor = async (
           topicId: operation.topicId ?? undefined,
         });
         const outcome = await runAgentDecision(child, history);
-        if (await applyChildOutcome(outcome, child.decision.id)) return true;
+        if (await applyChildOutcome(outcome, child)) return true;
       }
       return false;
     }
@@ -1526,13 +1547,61 @@ const executeSupervisor = async (
       groupId,
       topicId: operation.topicId ?? undefined,
     });
-    const outcomes = await Promise.all(
-      children.map((child) => runAgentDecision(child, latestForAgents)),
-    );
-    for (const [index, outcome] of outcomes.entries()) {
-      if (await applyChildOutcome(outcome, children[index]?.decision.id)) return true;
+    const siblingControllers = children.map(() => new AbortController());
+    const abortSiblings = (exceptIndex: number, reason: unknown) => {
+      siblingControllers.forEach((controller, index) => {
+        if (index !== exceptIndex && !controller.signal.aborted) {
+          controller.abort(reason);
+        }
+      });
+    };
+    const onParentAbort = () => {
+      siblingControllers.forEach((controller) => {
+        if (!controller.signal.aborted) {
+          controller.abort(options?.runSignal?.reason ?? 'cancelled');
+        }
+      });
+    };
+    options?.runSignal?.addEventListener('abort', onParentAbort);
+    if (options?.runSignal?.aborted) onParentAbort();
+
+    try {
+      const settled = await Promise.allSettled(
+        children.map(async (child, index) => {
+          try {
+            const outcome = await runAgentDecision(
+              child,
+              latestForAgents,
+              siblingControllers[index]?.signal,
+            );
+            if (outcome.status === 'retrying' || getSupervisorTerminalOutcome(outcome)) {
+              abortSiblings(index, outcome.status === 'retrying' ? 'retrying' : 'sibling_stop');
+            }
+            return outcome;
+          } catch (error) {
+            abortSiblings(index, 'sibling_stop');
+            throw error;
+          }
+        }),
+      );
+      const outcomes = settled.map((result) => {
+        if (result.status === 'fulfilled') return result.value;
+        const normalizedError = toError(result.reason);
+        return {
+          error: normalizedError,
+          status: 'failed' as const,
+        };
+      });
+      if (outcomes.some((outcome) => outcome.status === 'retrying')) {
+        throw new Error('Conversation generation attempt lost ownership');
+      }
+      for (const [index, outcome] of outcomes.entries()) {
+        if (await applyChildOutcome(outcome, children[index])) return true;
+      }
+      return false;
+    } finally {
+      options?.runSignal?.removeEventListener('abort', onParentAbort);
     }
-    return false;
   };
 
   for (let round = 0; round < CONVERSATION_GENERATION_MAX_SUPERVISOR_ROUNDS; round += 1) {

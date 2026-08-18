@@ -1,6 +1,8 @@
 /** @vitest-environment node */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LOADING_FLAT } from '@lobechat/const';
+
 import {
   ConversationGenerationService,
   sweepPendingConversationGenerationJobs,
@@ -22,6 +24,12 @@ const modelMocks = vi.hoisted(() => ({
   listStaleProcessing: vi.fn(),
   requestCancel: vi.fn(),
   requeueStaleProcessing: vi.fn(),
+  update: vi.fn(),
+}));
+
+const messageMocks = vi.hoisted(() => ({
+  create: vi.fn(),
+  findById: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -53,7 +61,11 @@ vi.mock('@/database/models/conversationGeneration', () => ({
 }));
 
 vi.mock('@/database/models/message', () => ({
-  MessageModel: class {},
+  MessageModel: class {
+    create = messageMocks.create;
+    findById = messageMocks.findById;
+    update = messageMocks.update;
+  },
 }));
 
 vi.mock('@/server/services/conversationWriteLock', () => ({
@@ -180,6 +192,67 @@ describe('sweepStaleConversationGenerationOperations', () => {
       { attempt: 8, laneGeneration: 1 },
     );
     expect(db.execute).not.toHaveBeenCalled();
+  });
+
+  it('clears tracked child placeholders when a stale cancelling operation is finalized', async () => {
+    const child = { content: LOADING_FLAT, id: 'child-stale-cancel' };
+    const operation = {
+      attempt: 1,
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        supervisorChildMessageIds: [child.id],
+      },
+      id: 'operation-cancelling-children',
+      laneGeneration: 1,
+      revision: 2,
+      userId: 'user-1',
+    };
+    modelMocks.listStaleCancelling.mockResolvedValue([operation]);
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...operation,
+      revision: 3,
+      status: 'cancelled',
+    });
+    messageMocks.findById.mockImplementation(async (id) => (id === child.id ? child : undefined));
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === child.id) Object.assign(child, value);
+    });
+
+    await sweepStaleConversationGenerationOperations({ execute: vi.fn() } as any);
+
+    expect(child.content).toBe('');
+  });
+
+  it('clears tracked child placeholders when a final-attempt stale operation fails', async () => {
+    const child = { content: LOADING_FLAT, id: 'child-stale-fail' };
+    const operation = {
+      attempt: 8,
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        supervisorChildMessageIds: [child.id],
+      },
+      id: 'operation-final-attempt-children',
+      laneGeneration: 1,
+      revision: 7,
+      userId: 'user-1',
+    };
+    modelMocks.listStaleProcessing.mockResolvedValue([operation]);
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...operation,
+      revision: 8,
+      status: 'failed',
+    });
+    messageMocks.findById.mockImplementation(async (id) => (id === child.id ? child : undefined));
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === child.id) Object.assign(child, value);
+    });
+
+    await sweepStaleConversationGenerationOperations({ execute: vi.fn() } as any);
+
+    expect(child.content).toBe('');
+    expect(modelMocks.requeueStaleProcessing).not.toHaveBeenCalled();
   });
 });
 
@@ -416,6 +489,38 @@ describe('ConversationGenerationService cancellation and event cursors', () => {
     });
     expect(modelMocks.insertEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'done' }));
     expect(result).toMatchObject({ status: 'cancelled' });
+  });
+
+  it('clears tracked child placeholders when a pending supervisor job is cancelled', async () => {
+    const child = { content: LOADING_FLAT, id: 'child-pending-cancel' };
+    const pending = {
+      attempt: 1,
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        supervisorChildMessageIds: [child.id],
+      },
+      id: 'operation-pending-children',
+      laneGeneration: 2,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    modelMocks.findById.mockResolvedValue(pending);
+    modelMocks.requestCancel.mockResolvedValue({ ...pending, status: 'cancelling' });
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...pending,
+      revision: 1,
+      status: 'cancelled',
+    });
+    messageMocks.findById.mockImplementation(async (id) => (id === child.id ? child : undefined));
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === child.id) Object.assign(child, value);
+    });
+
+    await new ConversationGenerationService({} as any, 'user-1').cancel(pending.id);
+
+    expect(child.content).toBe('');
   });
 
   it('resets an event cursor that is ahead of the retained stream', async () => {
