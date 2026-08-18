@@ -43,33 +43,58 @@ const toolMocks = vi.hoisted(() => ({
   findUnsupportedConversationTool: vi.fn(),
 }));
 
+const bindDbMethod = vi.hoisted(
+  () =>
+    (fn: (...args: any[]) => unknown) =>
+    async function (
+      this: { db?: { ensureActive?: () => void; fail?: () => void } },
+      ...args: any[]
+    ) {
+      this.db?.ensureActive?.();
+      try {
+        return await fn(...args);
+      } catch (error) {
+        this.db?.fail?.();
+        throw error;
+      }
+    },
+);
+
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
-    create = modelMocks.create;
-    finalizeActive = modelMocks.finalizeActive;
-    findActiveByLane = modelMocks.findActiveByLane;
-    findById = modelMocks.findById;
-    findByIdempotencyKey = modelMocks.findByIdempotencyKey;
-    findMaxLaneGeneration = modelMocks.findMaxLaneGeneration;
-    insertEvent = modelMocks.insertEvent;
-    latestEventId = modelMocks.latestEventId;
-    listEventsAfter = modelMocks.listEventsAfter;
-    listPendingWithoutJob = modelMocks.listPendingWithoutJob;
-    listStaleCancelling = modelMocks.listStaleCancelling;
-    listStaleProcessing = modelMocks.listStaleProcessing;
-    listUncleanedFinished = modelMocks.listUncleanedFinished;
-    markPlaceholdersCleaned = modelMocks.markPlaceholdersCleaned;
-    requestCancel = modelMocks.requestCancel;
-    requeueStaleProcessing = modelMocks.requeueStaleProcessing;
-    update = modelMocks.update;
+    constructor(db?: { ensureActive?: () => void; fail?: () => void }) {
+      this.db = db;
+    }
+    db?: { ensureActive?: () => void; fail?: () => void };
+    create = bindDbMethod(modelMocks.create);
+    finalizeActive = bindDbMethod(modelMocks.finalizeActive);
+    findActiveByLane = bindDbMethod(modelMocks.findActiveByLane);
+    findById = bindDbMethod(modelMocks.findById);
+    findByIdempotencyKey = bindDbMethod(modelMocks.findByIdempotencyKey);
+    findMaxLaneGeneration = bindDbMethod(modelMocks.findMaxLaneGeneration);
+    insertEvent = bindDbMethod(modelMocks.insertEvent);
+    latestEventId = bindDbMethod(modelMocks.latestEventId);
+    listEventsAfter = bindDbMethod(modelMocks.listEventsAfter);
+    listPendingWithoutJob = bindDbMethod(modelMocks.listPendingWithoutJob);
+    listStaleCancelling = bindDbMethod(modelMocks.listStaleCancelling);
+    listStaleProcessing = bindDbMethod(modelMocks.listStaleProcessing);
+    listUncleanedFinished = bindDbMethod(modelMocks.listUncleanedFinished);
+    markPlaceholdersCleaned = bindDbMethod(modelMocks.markPlaceholdersCleaned);
+    requestCancel = bindDbMethod(modelMocks.requestCancel);
+    requeueStaleProcessing = bindDbMethod(modelMocks.requeueStaleProcessing);
+    update = bindDbMethod(modelMocks.update);
   },
 }));
 
 vi.mock('@/database/models/message', () => ({
   MessageModel: class {
-    create = messageMocks.create;
-    findById = messageMocks.findById;
-    update = messageMocks.update;
+    constructor(db?: { ensureActive?: () => void; fail?: () => void }) {
+      this.db = db;
+    }
+    db?: { ensureActive?: () => void; fail?: () => void };
+    create = bindDbMethod(messageMocks.create);
+    findById = bindDbMethod(messageMocks.findById);
+    update = bindDbMethod(messageMocks.update);
   },
 }));
 
@@ -383,9 +408,48 @@ describe('sweepStaleConversationGenerationOperations', () => {
     expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledTimes(all.length);
   });
 
-  it('advances past a failed cleanup row so later unmarked jobs still drain', async () => {
-    const poisonChild = { content: LOADING_FLAT, id: 'poison-child' };
+  const ABORTED_TRANSACTION_MESSAGE =
+    'current transaction is aborted, commands ignored until end of transaction block';
+
+  type AbortAwareHandle = {
+    aborted: boolean;
+    ensureActive: () => void;
+    fail: () => void;
+    transaction: <T>(callback: (trx: AbortAwareHandle) => Promise<T>) => Promise<T>;
+  };
+
+  const createAbortAwareHandle = (parent?: AbortAwareHandle): AbortAwareHandle => {
+    const handle: AbortAwareHandle = {
+      aborted: false,
+      ensureActive() {
+        if (handle.aborted || parent?.aborted) {
+          throw new Error(ABORTED_TRANSACTION_MESSAGE);
+        }
+      },
+      fail() {
+        handle.aborted = true;
+      },
+      async transaction(callback) {
+        handle.ensureActive();
+        const nested = createAbortAwareHandle(handle);
+        try {
+          const result = await callback(nested);
+          if (nested.aborted) {
+            throw new Error(ABORTED_TRANSACTION_MESSAGE);
+          }
+          return result;
+        } catch (error) {
+          nested.aborted = true;
+          throw error;
+        }
+      },
+    };
+    return handle;
+  };
+
+  const createPoisonSweepRows = () => {
     const leftover = { content: LOADING_FLAT, id: 'later-child' };
+    const poisonChild = { content: LOADING_FLAT, id: 'poison-child' };
     const oldestFinishedAt = new Date('2026-01-01T00:00:00.000Z');
     const newerFinishedAt = new Date('2026-08-01T00:00:00.000Z');
     const oldest = {
@@ -416,9 +480,10 @@ describe('sweepStaleConversationGenerationOperations', () => {
       userId: 'user-1',
     }));
     const all = [oldest, ...newer];
-    const laterId = newer.at(-1)?.id;
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    return { all, laterId: newer.at(-1)?.id, leftover, oldest, poisonChild };
+  };
 
+  const mockUncleanedKeyset = (all: Array<{ finishedAt: Date; id: string }>) => {
     modelMocks.listUncleanedFinished.mockImplementation(async ({ after, limit = 100 } = {}) => {
       const start = after
         ? all.findIndex(
@@ -430,6 +495,13 @@ describe('sweepStaleConversationGenerationOperations', () => {
       const from = start < 0 ? all.length : start;
       return all.slice(from, from + limit);
     });
+  };
+
+  it('rolls a failed leftover read back to a savepoint so later page rows still commit', async () => {
+    const { all, laterId, leftover, poisonChild } = createPoisonSweepRows();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockUncleanedKeyset(all);
     modelMocks.findById.mockImplementation(async (id) => all.find((row) => row.id === id));
     messageMocks.findById.mockImplementation(async (id) => {
       if (id === poisonChild.id) throw new Error('poison cleanup');
@@ -439,11 +511,44 @@ describe('sweepStaleConversationGenerationOperations', () => {
       if (id === leftover.id) Object.assign(leftover, value);
     });
 
-    await sweepStaleConversationGenerationOperations({ execute: vi.fn() } as any);
+    await expect(
+      sweepStaleConversationGenerationOperations(createAbortAwareHandle() as any),
+    ).resolves.toBeUndefined();
 
     expect(modelMocks.listUncleanedFinished.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(leftover.content).toBe('');
     expect(modelMocks.markPlaceholdersCleaned).not.toHaveBeenCalledWith('operation-oldest');
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith(laterId);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('rolls a failed leftover marker write back to a savepoint so later page rows still commit', async () => {
+    const { all, laterId, leftover, poisonChild } = createPoisonSweepRows();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockUncleanedKeyset(all);
+    modelMocks.findById.mockImplementation(async (id) => all.find((row) => row.id === id));
+    modelMocks.markPlaceholdersCleaned.mockImplementation(async (id) => {
+      if (id === 'operation-oldest') throw new Error('marker write failed');
+      return { id };
+    });
+    messageMocks.findById.mockImplementation(async (id) => {
+      if (id === poisonChild.id) return poisonChild;
+      return id === leftover.id ? leftover : undefined;
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === leftover.id) Object.assign(leftover, value);
+      if (id === poisonChild.id) Object.assign(poisonChild, value);
+    });
+
+    await expect(
+      sweepStaleConversationGenerationOperations(createAbortAwareHandle() as any),
+    ).resolves.toBeUndefined();
+
+    expect(modelMocks.listUncleanedFinished.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(leftover.content).toBe('');
+    expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith('operation-oldest');
     expect(modelMocks.markPlaceholdersCleaned).toHaveBeenCalledWith(laterId);
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();

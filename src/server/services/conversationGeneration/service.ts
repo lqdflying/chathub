@@ -379,10 +379,14 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
       });
       for (const operation of rows) {
         try {
-          await clearOperationPlaceholders(trx, operation);
-          await new ConversationGenerationModel(trx, operation.userId).markPlaceholdersCleaned(
-            operation.id,
-          );
+          // Nested trx = SAVEPOINT so a failed statement can ROLLBACK TO it
+          // without aborting the page lock transaction.
+          await withConversationDbTransaction(trx, async (rowTrx) => {
+            await clearOperationPlaceholders(rowTrx, operation);
+            await new ConversationGenerationModel(rowTrx, operation.userId).markPlaceholdersCleaned(
+              operation.id,
+            );
+          });
         } catch (error) {
           console.error(
             `[conversation-generation] placeholder cleanup failed for ${operation.id}`,

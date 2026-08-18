@@ -123,10 +123,14 @@ operations with a null `workerJobId`. A stale `processing` attempt is atomically
 returned to `pending` and re-enqueued while retry budget remains, then finalized
 as `failed` after the last attempt. Stale `cancelling` rows become `cancelled`.
 Unmarked terminal leftovers are claimed with `SELECT … FOR UPDATE SKIP LOCKED`
-inside the cleanup transaction so overlapping replicas skip in-flight rows. A
-failed leftover is left unmarked and logged; the keyset still advances so later
-rows are not starved. One process keeps only a single sweep in flight: a 15s
-timer tick that overlaps a long drain joins that run instead of starting another.
+inside the cleanup transaction so overlapping replicas skip in-flight rows.
+Each leftover’s cleanup and marker write run in a nested transaction (Drizzle
+`tx.transaction(...)`, which issues `SAVEPOINT` / `ROLLBACK TO SAVEPOINT`). A
+failed leftover is left unmarked and logged; the outer page transaction stays
+usable so later rows in that page can still commit. The keyset still advances
+so later pages are not starved. One process keeps only a single sweep in
+flight: a 15s timer tick that overlaps a long drain joins that run instead of
+starting another.
 
 Graphile Worker itself is started in a separate try/catch. A boot failure is
 logged and does not crash Next.js. ChatHub owns signal handling because the
@@ -231,8 +235,9 @@ leftover loading placeholders in the same transaction as the terminal status
 change, then set `placeholdersCleanedAt`. A sweeper keyset-pages unmarked
 terminal rows (`finished_at`, `id`, partial index, `SKIP LOCKED`) until none
 remain so a crash between those writes cannot leave permanent `LOADING_FLAT`
-rows. One bad leftover is logged and skipped for that pass; later pages still
-run. Successful sibling replies keep their content and are not annotated with
+rows. One bad leftover is rolled back to a savepoint, logged, and skipped for
+that pass; later rows in the page and later pages still commit. Successful
+sibling replies keep their content and are not annotated with
 another member’s error; round-level failure lives on the operation. After a
 tool continuation, cancel, clear, and failure annotate or clear the newest
 assistant, not the completed tool-call row. Parallel member turns settle before
