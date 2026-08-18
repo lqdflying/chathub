@@ -118,4 +118,25 @@ describe('ConversationGenerationModel compare-and-set guards', () => {
     expect(texts).toEqual(expect.arrayContaining(['processing']));
     expect(texts).not.toContain('cancelling');
   });
+
+  it('lists recently finished operations by finishedAt without scoping to the caller', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const db = {
+      query: { conversationGenerationOperations: { findMany } },
+    };
+    const model = new ConversationGenerationModel(db as any, 'system');
+    const finishedAfter = new Date('2026-08-17T00:00:00.000Z');
+
+    await model.listRecentlyFinished(finishedAfter, 50);
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: 50,
+      }),
+    );
+    const texts = collectStrings(findMany.mock.calls[0]?.[0]);
+    expect(texts).toEqual(
+      expect.arrayContaining(['cancelled', 'failed', 'interrupted', 'succeeded']),
+    );
+  });
 });

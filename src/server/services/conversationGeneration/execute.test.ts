@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@lobechat/const';
 import { UserModel } from '@/database/models/user';
+import { getConversationVersion } from '@/server/services/conversationWriteLock';
 import {
   CONVERSATION_GENERATION_TURN_COMPLETE,
   excludeOwnedAssistantMessages,
@@ -647,6 +648,8 @@ describe('executeConversationGeneration supervisor children', () => {
       revision: 9,
       status,
     }));
+    runtimeMocks.chat.mockReset();
+    runtimeMocks.chat.mockResolvedValue(new Response());
     aiChatMocks.getMessagesAndTopics.mockResolvedValue({
       messages: [{ content: 'hello', id: 'user-1', role: 'user' }],
       topics: [],
@@ -683,6 +686,7 @@ describe('executeConversationGeneration supervisor children', () => {
       const current = children.find((item) => item.id === id);
       if (current) current.metadata = { ...(current.metadata || {}), ...value };
     });
+    vi.mocked(consumeProtocolResponse).mockReset();
     vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'member answer' });
     runtimeMocks.generateObject.mockResolvedValue([
       { arguments: { id: 'agent-1' }, name: 'trigger_agent' },
@@ -841,7 +845,7 @@ describe('executeConversationGeneration supervisor children', () => {
     );
   });
 
-  it('records a child id before inserting the placeholder row', async () => {
+  it('creates the child placeholder before assigning the persisted child id', async () => {
     const order: string[] = [];
     modelMocks.update.mockImplementation(async (_id, value) => {
       if (value.config?.supervisorChildMessageIds?.length) {
@@ -860,12 +864,12 @@ describe('executeConversationGeneration supervisor children', () => {
 
     await runOperation(row, { preserveUpdate: true });
 
-    expect(order[0]).toMatch(/^persist:/);
-    expect(order[1]).toMatch(/^create:/);
-    expect(order[0]?.slice('persist:'.length)).toBe(order[1]?.slice('create:'.length));
+    expect(order[0]).toMatch(/^create:/);
+    expect(order[1]).toMatch(/^persist:/);
+    expect(order[0]?.slice('create:'.length)).toBe(order[1]?.slice('persist:'.length));
   });
 
-  it('does not insert a child row when id persistence fails', async () => {
+  it('clears a child row when id persistence fails after insert', async () => {
     modelMocks.update.mockImplementation(async (_id, value) => {
       if (value.config?.supervisorChildMessageIds?.length) {
         throw new Error('config persist failed');
@@ -877,8 +881,43 @@ describe('executeConversationGeneration supervisor children', () => {
     await expect(runOperation(row, { preserveUpdate: true })).rejects.toThrow(
       'config persist failed',
     );
-    expect(messageMocks.create).not.toHaveBeenCalled();
-    expect(children).toEqual([]);
+    expect(messageMocks.create).toHaveBeenCalled();
+    expect(children[0]?.content).toBe('');
+  });
+
+  it('annotates the latest group-agent continuation instead of the original child', async () => {
+    row.attempt = 8;
+    vi.mocked(executeConversationToolStep).mockResolvedValue({
+      content: 'tool result',
+      inputHash: 'hash-1',
+      messageId: 'tool-1',
+      shouldContinue: true,
+      success: true,
+    });
+    let consumeCalls = 0;
+    vi.mocked(consumeProtocolResponse).mockImplementation(async () => {
+      consumeCalls += 1;
+      if (consumeCalls === 1) {
+        return {
+          content: 'calling tool',
+          toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-1' }],
+        };
+      }
+      throw new Error('nested continuation failed');
+    });
+
+    await runOperation({ ...row, attempt: 8 });
+
+    expect(children).toHaveLength(2);
+    expect(children[0]?.error).toBeUndefined();
+    expect(children[0]?.content).toBe('calling tool');
+    expect(children[1]?.error).toMatchObject({ type: 'GenerationError' });
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({ type: 'GenerationError' }),
+      expect.anything(),
+    );
   });
 });
 
@@ -894,6 +933,8 @@ describe('executeConversationGeneration tool continuation ids', () => {
     vi.clearAllMocks();
     assistant.content = LOADING_FLAT;
     assistant.metadata = {};
+    delete (assistant as { error?: unknown }).error;
+    delete (assistant as { tools?: unknown }).tools;
     modelMocks.insertEvent.mockResolvedValue({ id: 1 });
     modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
     modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
@@ -915,7 +956,9 @@ describe('executeConversationGeneration tool continuation ids', () => {
     messageMocks.updateMetadata.mockImplementation(async (id, value) => {
       if (id === assistant.id) assistant.metadata = { ...assistant.metadata, ...value };
     });
+    runtimeMocks.chat.mockReset();
     runtimeMocks.chat.mockResolvedValue(new Response());
+    vi.mocked(executeConversationToolStep).mockReset();
     vi.mocked(executeConversationToolStep).mockResolvedValue({
       content: 'tool result',
       inputHash: 'hash-1',
@@ -923,9 +966,12 @@ describe('executeConversationGeneration tool continuation ids', () => {
       shouldContinue: true,
       success: true,
     });
+    vi.mocked(getConversationVersion).mockReset();
+    vi.mocked(getConversationVersion).mockResolvedValue(1);
+    vi.mocked(consumeProtocolResponse).mockReset();
   });
 
-  it('persists the next assistant id before creating the continuation placeholder', async () => {
+  it('creates the continuation placeholder before assigning the next assistant id', async () => {
     const created: Array<{ content: string; id: string }> = [];
     const order: string[] = [];
     const row = {
@@ -966,12 +1012,13 @@ describe('executeConversationGeneration tool continuation ids', () => {
 
     await runOperation(row, { preserveUpdate: true });
 
-    expect(order[0]).toMatch(/^persist:/);
-    expect(order[1]).toMatch(/^create:/);
-    expect(order[0]?.slice('persist:'.length)).toBe(order[1]?.slice('create:'.length));
+    expect(order[0]).toMatch(/^create:/);
+    expect(order[1]).toMatch(/^persist:/);
+    expect(order[0]?.slice('create:'.length)).toBe(order[1]?.slice('persist:'.length));
   });
 
-  it('does not insert a continuation row when id persistence fails', async () => {
+  it('clears the continuation row when id persistence fails after insert', async () => {
+    const created: Array<{ content: string; error?: unknown; id: string }> = [];
     const row = {
       assistantMessageId: assistant.id,
       attempt: 0,
@@ -991,6 +1038,20 @@ describe('executeConversationGeneration tool continuation ids', () => {
       Object.assign(row, value);
       return { ...row, revision: 2, status: 'processing' };
     });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      const next = { content: params.content, id };
+      created.push(next);
+      messageMocks.findById.mockImplementation(async (messageId) => {
+        if (messageId === assistant.id) return { ...assistant };
+        return created.find((item) => item.id === messageId);
+      });
+      return next;
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === assistant.id) Object.assign(assistant, value);
+      const current = created.find((item) => item.id === id);
+      if (current) Object.assign(current, value);
+    });
     vi.mocked(consumeProtocolResponse).mockResolvedValue({
       content: 'calling tool',
       toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-1' }],
@@ -999,6 +1060,297 @@ describe('executeConversationGeneration tool continuation ids', () => {
     await expect(runOperation(row, { preserveUpdate: true })).rejects.toThrow(
       'assistant id persist failed',
     );
-    expect(messageMocks.create).not.toHaveBeenCalled();
+    expect(messageMocks.create).toHaveBeenCalled();
+    expect(created[0]?.content).toBe('');
+  });
+
+  it('annotates the continuation assistant after a final-attempt failure', async () => {
+    const created: Array<{ content: string; error?: unknown; id: string }> = [];
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 8,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_continue_fail_latest',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    modelMocks.update.mockImplementation(async (_id, value) => {
+      Object.assign(row, value);
+      return { ...row, revision: 2, status: 'processing' };
+    });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      const next = { content: params.content, id };
+      created.push(next);
+      return next;
+    });
+    messageMocks.findById.mockImplementation(async (messageId) => {
+      if (messageId === assistant.id) return assistant;
+      return created.find((item) => item.id === messageId);
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === assistant.id) Object.assign(assistant, value);
+      const current = created.find((item) => item.id === id);
+      if (current) Object.assign(current, value);
+    });
+    let consumeCalls = 0;
+    vi.mocked(consumeProtocolResponse).mockImplementation(async () => {
+      consumeCalls += 1;
+      if (consumeCalls === 1) {
+        return {
+          content: 'calling tool',
+          toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-1' }],
+        };
+      }
+      throw new Error('continuation failed');
+    });
+
+    await runOperation(row, { preserveUpdate: true });
+
+    expect(created[0]?.error).toMatchObject({ type: 'GenerationError' });
+    expect(assistant.error).toBeUndefined();
+    expect(assistant.tools).toEqual([
+      expect.objectContaining({ id: 'call-1' }),
+    ]);
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({ type: 'GenerationError' }),
+      expect.anything(),
+    );
+  });
+
+  it('clears the continuation placeholder on cancel without failing the tool-call row', async () => {
+    const created: Array<{ content: string; error?: unknown; id: string }> = [];
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 1,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_continue_cancel_latest',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    modelMocks.update.mockImplementation(async (_id, value) => {
+      Object.assign(row, value);
+      return { ...row, revision: 2, status: 'processing' };
+    });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      const next = { content: params.content, id };
+      created.push(next);
+      (row as { cancelRequestedAt?: Date }).cancelRequestedAt = new Date();
+      row.status = 'cancelling';
+      return next;
+    });
+    messageMocks.findById.mockImplementation(async (messageId) => {
+      if (messageId === assistant.id) return assistant;
+      return created.find((item) => item.id === messageId);
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === assistant.id) Object.assign(assistant, value);
+      const current = created.find((item) => item.id === id);
+      if (current) Object.assign(current, value);
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: 'calling tool',
+      toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-1' }],
+    });
+
+    await runOperation(row, { preserveUpdate: true });
+
+    expect(created[0]?.content).toBe('');
+    expect(created[0]?.error).toBeUndefined();
+    expect(assistant.error).toBeUndefined();
+    expect(assistant.content).toBe('calling tool');
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'cancelled',
+      undefined,
+      expect.anything(),
+    );
+  });
+
+  it('annotates the continuation assistant when conversation history is cleared', async () => {
+    const created: Array<{ content: string; error?: unknown; id: string }> = [];
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 8,
+      config: { model: 'test-model', provider: 'test-provider' },
+      conversationVersion: 1,
+      id: 'cgo_continue_cleared_latest',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    vi.mocked(getConversationVersion).mockResolvedValue(1);
+    modelMocks.update.mockImplementation(async (_id, value) => {
+      Object.assign(row, value);
+      return { ...row, revision: 2, status: 'processing' };
+    });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      const next = { content: params.content, id };
+      created.push(next);
+      vi.mocked(getConversationVersion).mockResolvedValue(2);
+      return next;
+    });
+    messageMocks.findById.mockImplementation(async (messageId) => {
+      if (messageId === assistant.id) return assistant;
+      return created.find((item) => item.id === messageId);
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === assistant.id) Object.assign(assistant, value);
+      const current = created.find((item) => item.id === id);
+      if (current) Object.assign(current, value);
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: 'calling tool',
+      toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-1' }],
+    });
+
+    await runOperation(row, { preserveUpdate: true });
+
+    expect(created[0]?.error).toMatchObject({ type: 'ConversationCleared' });
+    expect(assistant.error).toBeUndefined();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'interrupted',
+      expect.objectContaining({ type: 'ConversationCleared' }),
+      expect.anything(),
+    );
+  });
+});
+
+describe('executeConversationGeneration dangling assistant pointer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+    modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
+    modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
+    modelMocks.finalizeActive.mockImplementation(async (id, status) => ({
+      id,
+      revision: 5,
+      status,
+    }));
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: 'hi', id: 'user-1', role: 'user' }],
+      topics: [],
+    });
+    runtimeMocks.chat.mockResolvedValue(new Response());
+    vi.mocked(consumeProtocolResponse).mockReset();
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'recovered answer' });
+  });
+
+  it('recreates a missing owned assistant and stores the recovered response', async () => {
+    const ghost = {
+      content: LOADING_FLAT,
+      id: 'ghost-asst',
+      metadata: {} as Record<string, unknown>,
+      role: 'assistant',
+    };
+    let created = false;
+    const row = {
+      assistantMessageId: ghost.id,
+      attempt: 1,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_ghost',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    messageMocks.findById.mockImplementation(async (id) =>
+      id === ghost.id && created ? ghost : undefined,
+    );
+    messageMocks.create.mockImplementation(async (params, id) => {
+      created = true;
+      ghost.content = params.content;
+      return { ...ghost, id, content: params.content };
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === ghost.id) Object.assign(ghost, value);
+    });
+    messageMocks.updateMetadata.mockImplementation(async (id, value) => {
+      if (id === ghost.id) ghost.metadata = { ...ghost.metadata, ...value };
+    });
+
+    await runOperation(row);
+
+    expect(messageMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ content: LOADING_FLAT, role: 'assistant' }),
+      'ghost-asst',
+    );
+    expect(ghost.content).toBe('recovered answer');
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.anything(),
+    );
+  });
+
+  it('refuses to mark success when the assistant row is missing after generation', async () => {
+    const ghost = {
+      content: LOADING_FLAT,
+      id: 'ghost-asst',
+      metadata: {} as Record<string, unknown>,
+      role: 'assistant',
+    };
+    let created = false;
+    let vanished = false;
+    const row = {
+      assistantMessageId: ghost.id,
+      attempt: 8,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_ghost_missing',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    messageMocks.findById.mockImplementation(async (id) => {
+      if (id !== ghost.id || vanished || !created) return undefined;
+      return ghost;
+    });
+    messageMocks.create.mockImplementation(async (params, id) => {
+      created = true;
+      ghost.content = params.content;
+      return { ...ghost, id, content: params.content };
+    });
+    messageMocks.update.mockResolvedValue(undefined);
+    messageMocks.updateMetadata.mockResolvedValue(undefined);
+    vi.mocked(consumeProtocolResponse).mockImplementation(async () => {
+      vanished = true;
+      return { content: 'secret answer' };
+    });
+
+    await runOperation(row);
+
+    expect(modelMocks.finalizeActive).not.toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'failed',
+      expect.objectContaining({
+        message: 'Assistant message is missing after generation.',
+      }),
+      expect.anything(),
+    );
   });
 });

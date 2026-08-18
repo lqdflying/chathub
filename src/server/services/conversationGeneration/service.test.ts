@@ -20,6 +20,7 @@ const modelMocks = vi.hoisted(() => ({
   latestEventId: vi.fn(),
   listEventsAfter: vi.fn(),
   listPendingWithoutJob: vi.fn(),
+  listRecentlyFinished: vi.fn(),
   listStaleCancelling: vi.fn(),
   listStaleProcessing: vi.fn(),
   requestCancel: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     latestEventId = modelMocks.latestEventId;
     listEventsAfter = modelMocks.listEventsAfter;
     listPendingWithoutJob = modelMocks.listPendingWithoutJob;
+    listRecentlyFinished = modelMocks.listRecentlyFinished;
     listStaleCancelling = modelMocks.listStaleCancelling;
     listStaleProcessing = modelMocks.listStaleProcessing;
     requestCancel = modelMocks.requestCancel;
@@ -94,6 +96,7 @@ describe('sweepStaleConversationGenerationOperations', () => {
     modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
     modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
     modelMocks.listPendingWithoutJob.mockResolvedValue([]);
+    modelMocks.listRecentlyFinished.mockResolvedValue([]);
     toolMocks.findUnsupportedConversationTool.mockResolvedValue(undefined);
   });
 
@@ -253,6 +256,51 @@ describe('sweepStaleConversationGenerationOperations', () => {
 
     expect(child.content).toBe('');
     expect(modelMocks.requeueStaleProcessing).not.toHaveBeenCalled();
+  });
+
+  it('clears leftover loading rows on recently finished operations after a crash', async () => {
+    const pendingCancelChild = { content: LOADING_FLAT, id: 'child-pending-crash' };
+    const staleFailChild = { content: LOADING_FLAT, id: 'child-stale-crash' };
+    const rows: Record<string, { content: string; id: string }> = {
+      [pendingCancelChild.id]: pendingCancelChild,
+      [staleFailChild.id]: staleFailChild,
+    };
+    modelMocks.listRecentlyFinished.mockResolvedValue([
+      {
+        assistantMessageId: null,
+        config: {
+          model: 'test-model',
+          provider: 'test-provider',
+          supervisorChildMessageIds: [pendingCancelChild.id],
+        },
+        finishedAt: new Date(),
+        id: 'operation-pending-cancel-crash',
+        status: 'cancelled',
+        userId: 'user-1',
+      },
+      {
+        assistantMessageId: null,
+        config: {
+          model: 'test-model',
+          provider: 'test-provider',
+          supervisorChildMessageIds: [staleFailChild.id],
+        },
+        finishedAt: new Date(),
+        id: 'operation-stale-fail-crash',
+        status: 'failed',
+        userId: 'user-1',
+      },
+    ]);
+    messageMocks.findById.mockImplementation(async (id) => rows[id]);
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (rows[id]) Object.assign(rows[id], value);
+    });
+
+    await sweepStaleConversationGenerationOperations({ execute: vi.fn() } as any);
+
+    expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
+    expect(pendingCancelChild.content).toBe('');
+    expect(staleFailChild.content).toBe('');
   });
 });
 

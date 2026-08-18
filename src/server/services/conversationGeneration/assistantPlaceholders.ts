@@ -1,12 +1,16 @@
 import { LOADING_FLAT } from '@lobechat/const';
-import type { LobeChatDatabase } from '@lobechat/database';
+import type { LobeChatDatabase, Transaction } from '@lobechat/database';
 import type {
   ConversationGenerationError,
   ConversationGenerationOperation,
+  ConversationGenerationStatus,
+  CreateMessageParams,
 } from '@lobechat/types';
 
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { MessageModel } from '@/database/models/message';
+
+type ConversationDb = LobeChatDatabase | Transaction;
 
 export const listOperationAssistantIds = (
   operation?: ConversationGenerationOperation | null,
@@ -15,8 +19,19 @@ export const listOperationAssistantIds = (
   ...(operation?.config?.supervisorChildMessageIds || []),
 ];
 
+export const withConversationDbTransaction = async <T>(
+  db: ConversationDb,
+  callback: (trx: ConversationDb) => Promise<T>,
+): Promise<T> => {
+  const transaction = (db as LobeChatDatabase).transaction;
+  if (typeof transaction === 'function') {
+    return transaction.call(db, async (trx: Transaction) => callback(trx));
+  }
+  return callback(db);
+};
+
 export const clearUnfinishedPlaceholders = async (
-  db: LobeChatDatabase,
+  db: ConversationDb,
   userId: string,
   messageIds: Array<string | null | undefined>,
 ) => {
@@ -35,7 +50,7 @@ export const clearUnfinishedPlaceholders = async (
 };
 
 export const annotateAssistantError = async (
-  db: LobeChatDatabase,
+  db: ConversationDb,
   userId: string,
   messageId: string | null | undefined,
   error: ConversationGenerationError,
@@ -51,7 +66,7 @@ export const annotateAssistantError = async (
 };
 
 export const clearOperationPlaceholders = async (
-  db: LobeChatDatabase,
+  db: ConversationDb,
   operation: ConversationGenerationOperation,
   extraMessageIds: Array<string | null | undefined> = [],
 ) => {
@@ -62,4 +77,154 @@ export const clearOperationPlaceholders = async (
     ...listOperationAssistantIds(latest ?? operation),
     ...extraMessageIds,
   ]);
+};
+
+export const resolveLatestAssistantMessageId = async (
+  db: ConversationDb,
+  operation: ConversationGenerationOperation,
+) => {
+  const latest = await new ConversationGenerationModel(db, operation.userId).findById(
+    operation.id,
+  );
+  return latest?.assistantMessageId ?? operation.assistantMessageId ?? undefined;
+};
+
+export const ensureOwnedAssistantPlaceholder = async (
+  db: ConversationDb,
+  operation: ConversationGenerationOperation,
+  assistantId: string,
+) => {
+  const messageModel = new MessageModel(db, operation.userId);
+  const existing = await messageModel.findById(assistantId);
+  if (existing) return existing;
+  return messageModel.create(
+    {
+      agentId: operation.agentId ?? undefined,
+      content: LOADING_FLAT,
+      fromModel: operation.config.model,
+      fromProvider: operation.config.provider,
+      groupId: operation.groupId ?? undefined,
+      parentId: operation.parentMessageId ?? operation.userMessageId ?? undefined,
+      role: 'assistant',
+      sessionId: operation.sessionId ?? operation.groupId ?? '',
+      targetId: operation.config.targetId,
+      threadId: operation.threadId ?? undefined,
+      topicId: operation.topicId ?? undefined,
+    },
+    assistantId,
+  );
+};
+
+export const createAssistantMessageAndAssign = async ({
+  assignment,
+  db,
+  id,
+  operation,
+  params,
+}: {
+  assignment: 'assistantMessageId' | 'supervisorChild';
+  db: ConversationDb;
+  id: string;
+  operation: ConversationGenerationOperation;
+  params: CreateMessageParams;
+}) => {
+  const assignPointer = async (trx: ConversationDb) => {
+    const model = new ConversationGenerationModel(trx, operation.userId);
+    if (assignment === 'assistantMessageId') {
+      const updated = await model.update(
+        operation.id,
+        { assistantMessageId: id },
+        {
+          attempt: operation.attempt,
+          laneGeneration: operation.laneGeneration,
+        },
+      );
+      if (!updated) {
+        throw new Error('Conversation generation attempt no longer owns the operation.');
+      }
+      operation.assistantMessageId = id;
+      return;
+    }
+
+    const current = await model.findById(operation.id);
+    if (!current) {
+      throw new Error('Conversation generation attempt no longer owns the operation.');
+    }
+    const previousChildIds = current.config.supervisorChildMessageIds;
+    const childIds = [...new Set([...(previousChildIds || []), id])];
+    const updated = await model.update(
+      operation.id,
+      {
+        config: {
+          ...current.config,
+          supervisorChildMessageIds: childIds,
+        },
+      },
+      {
+        attempt: operation.attempt,
+        laneGeneration: operation.laneGeneration,
+      },
+    );
+    if (!updated) {
+      throw new Error('Conversation generation attempt no longer owns the operation.');
+    }
+    operation.config = {
+      ...operation.config,
+      supervisorChildMessageIds: childIds,
+    };
+  };
+
+  return withConversationDbTransaction(db, async (trx) => {
+    const created = await new MessageModel(trx, operation.userId).create(params, id);
+    try {
+      await assignPointer(trx);
+      return created;
+    } catch (error) {
+      await clearUnfinishedPlaceholders(trx, operation.userId, [id]);
+      throw error;
+    }
+  });
+};
+
+export const finalizeOperationWithCleanup = async ({
+  annotateMessageId,
+  db,
+  error,
+  extraMessageIds,
+  operation,
+  status,
+}: {
+  annotateMessageId?: string | null;
+  db: ConversationDb;
+  error?: ConversationGenerationError;
+  extraMessageIds?: Array<string | null | undefined>;
+  operation: ConversationGenerationOperation;
+  status: Extract<ConversationGenerationStatus, 'succeeded' | 'cancelled' | 'failed' | 'interrupted'>;
+}) => {
+  return withConversationDbTransaction(db, async (trx) => {
+    const model = new ConversationGenerationModel(trx, operation.userId);
+    const updated = await model.finalizeActive(operation.id, status, error, {
+      attempt: operation.attempt,
+      laneGeneration: operation.laneGeneration,
+    });
+    if (!updated) return undefined;
+    await model.insertEvent({
+      operationId: operation.id,
+      payload: {
+        error,
+        status,
+      },
+      revision: updated.revision,
+      type: status === 'failed' ? 'error' : 'done',
+    });
+    await clearUnfinishedPlaceholders(trx, operation.userId, [
+      ...listOperationAssistantIds(updated),
+      ...listOperationAssistantIds(operation),
+      ...(extraMessageIds || []),
+    ]);
+    if (error && annotateMessageId) {
+      await annotateAssistantError(trx, operation.userId, annotateMessageId, error);
+    }
+    return updated;
+  });
 };

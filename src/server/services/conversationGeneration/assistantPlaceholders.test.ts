@@ -7,20 +7,30 @@ import {
   annotateAssistantError,
   clearOperationPlaceholders,
   clearUnfinishedPlaceholders,
+  createAssistantMessageAndAssign,
+  ensureOwnedAssistantPlaceholder,
+  finalizeOperationWithCleanup,
   listOperationAssistantIds,
+  resolveLatestAssistantMessageId,
+  withConversationDbTransaction,
 } from './assistantPlaceholders';
 
 const messageMocks = vi.hoisted(() => ({
+  create: vi.fn(),
   findById: vi.fn(),
   update: vi.fn(),
 }));
 
 const modelMocks = vi.hoisted(() => ({
+  finalizeActive: vi.fn(),
   findById: vi.fn(),
+  insertEvent: vi.fn(),
+  update: vi.fn(),
 }));
 
 vi.mock('@/database/models/message', () => ({
   MessageModel: class {
+    create = messageMocks.create;
     findById = messageMocks.findById;
     update = messageMocks.update;
   },
@@ -28,7 +38,10 @@ vi.mock('@/database/models/message', () => ({
 
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
+    finalizeActive = modelMocks.finalizeActive;
     findById = modelMocks.findById;
+    insertEvent = modelMocks.insertEvent;
+    update = modelMocks.update;
   },
 }));
 
@@ -103,5 +116,222 @@ describe('assistant placeholder cleanup', () => {
     );
 
     expect(messageMocks.update).toHaveBeenCalledWith('child-1', { content: '' });
+  });
+});
+
+describe('conversation generation crash recovery helpers', () => {
+  const operation = {
+    agentId: 'agent-1',
+    assistantMessageId: 'asst-1',
+    attempt: 1,
+    config: { model: 'm', provider: 'p' },
+    id: 'cgo-1',
+    laneGeneration: 1,
+    parentMessageId: 'user-1',
+    sessionId: 'session-1',
+    userId: 'user-1',
+  } as any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.findById.mockResolvedValue({ ...operation });
+    modelMocks.update.mockResolvedValue({ ...operation, revision: 2 });
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...operation,
+      revision: 3,
+      status: 'failed',
+    });
+    modelMocks.insertEvent.mockResolvedValue({ id: 1 });
+    messageMocks.create.mockImplementation(async (params, id) => ({
+      content: params.content,
+      id,
+    }));
+    messageMocks.findById.mockResolvedValue(undefined);
+    messageMocks.update.mockResolvedValue(undefined);
+  });
+
+  it('runs the callback directly when the database handle has no transaction', async () => {
+    const db = { label: 'passthrough' };
+    const seen: unknown[] = [];
+
+    await withConversationDbTransaction(db as any, async (trx) => {
+      seen.push(trx);
+      return 'ok';
+    });
+
+    expect(seen).toEqual([db]);
+  });
+
+  it('uses a database transaction when one is available', async () => {
+    const inner = { label: 'trx' };
+    const db = {
+      transaction: vi.fn(async (callback: (trx: typeof inner) => Promise<string>) =>
+        callback(inner),
+      ),
+    };
+
+    const result = await withConversationDbTransaction(db as any, async (trx) => {
+      expect(trx).toBe(inner);
+      return 'committed';
+    });
+
+    expect(result).toBe('committed');
+    expect(db.transaction).toHaveBeenCalledOnce();
+  });
+
+  it('recreates a missing owned assistant placeholder with the persisted id', async () => {
+    messageMocks.findById.mockResolvedValueOnce(undefined);
+    messageMocks.create.mockResolvedValue({ content: LOADING_FLAT, id: 'asst-1' });
+
+    const created = await ensureOwnedAssistantPlaceholder({} as any, operation, 'asst-1');
+
+    expect(messageMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ content: LOADING_FLAT, role: 'assistant' }),
+      'asst-1',
+    );
+    expect(created).toMatchObject({ id: 'asst-1' });
+  });
+
+  it('creates the assistant row before assigning the operation pointer', async () => {
+    const order: string[] = [];
+    messageMocks.create.mockImplementation(async (_params, id) => {
+      order.push(`create:${id}`);
+      return { content: LOADING_FLAT, id };
+    });
+    modelMocks.update.mockImplementation(async (_id, value) => {
+      if (value.assistantMessageId) order.push(`persist:${value.assistantMessageId}`);
+      return { ...operation, ...value, revision: 2 };
+    });
+
+    await createAssistantMessageAndAssign({
+      assignment: 'assistantMessageId',
+      db: {} as any,
+      id: 'asst-next',
+      operation: { ...operation },
+      params: { content: LOADING_FLAT, role: 'assistant', sessionId: 'session-1' } as any,
+    });
+
+    expect(order).toEqual(['create:asst-next', 'persist:asst-next']);
+  });
+
+  it('clears the new loading row when pointer assignment fails', async () => {
+    const created = { content: LOADING_FLAT, id: 'asst-next' };
+    messageMocks.create.mockResolvedValue(created);
+    messageMocks.findById.mockImplementation(async (id) =>
+      id === created.id ? created : undefined,
+    );
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === created.id) Object.assign(created, value);
+    });
+    modelMocks.update.mockRejectedValue(new Error('pointer persist failed'));
+
+    await expect(
+      createAssistantMessageAndAssign({
+        assignment: 'assistantMessageId',
+        db: {} as any,
+        id: created.id,
+        operation: { ...operation },
+        params: { content: LOADING_FLAT, role: 'assistant', sessionId: 'session-1' } as any,
+      }),
+    ).rejects.toThrow('pointer persist failed');
+
+    expect(created.content).toBe('');
+  });
+
+  it('merges supervisor child ids onto the persisted parent config', async () => {
+    modelMocks.findById.mockResolvedValue({
+      ...operation,
+      config: {
+        model: 'supervisor-model',
+        provider: 'p',
+        supervisorChildMessageIds: ['child-1'],
+      },
+    });
+    const childCopy = {
+      ...operation,
+      config: {
+        model: 'agent-model',
+        provider: 'p',
+        systemRole: 'group overlay',
+      },
+    };
+
+    await createAssistantMessageAndAssign({
+      assignment: 'supervisorChild',
+      db: {} as any,
+      id: 'child-2',
+      operation: childCopy,
+      params: { content: LOADING_FLAT, role: 'assistant', sessionId: 'session-1' } as any,
+    });
+
+    expect(modelMocks.update).toHaveBeenCalledWith(
+      'cgo-1',
+      {
+        config: {
+          model: 'supervisor-model',
+          provider: 'p',
+          supervisorChildMessageIds: ['child-1', 'child-2'],
+        },
+      },
+      { attempt: 1, laneGeneration: 1 },
+    );
+  });
+
+  it('finalizes, emits, and clears loading rows inside one transaction', async () => {
+    const inner = { label: 'trx' };
+    const db = {
+      transaction: vi.fn(async (callback: (trx: typeof inner) => Promise<unknown>) =>
+        callback(inner),
+      ),
+    };
+    const loading = { content: LOADING_FLAT, id: 'asst-1' };
+    const current = {
+      ...operation,
+      config: { model: 'm', provider: 'p', supervisorChildMessageIds: ['child-1'] },
+    };
+    const child = { content: LOADING_FLAT, id: 'child-1' };
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...current,
+      revision: 4,
+      status: 'cancelled',
+    });
+    messageMocks.findById.mockImplementation(async (id) => {
+      if (id === loading.id) return loading;
+      if (id === child.id) return child;
+      return undefined;
+    });
+    messageMocks.update.mockImplementation(async (id, value) => {
+      if (id === loading.id) Object.assign(loading, value);
+      if (id === child.id) Object.assign(child, value);
+    });
+
+    await finalizeOperationWithCleanup({
+      annotateMessageId: 'asst-1',
+      db: db as any,
+      error: { message: 'stopped', type: 'GenerationError' },
+      operation: current as any,
+      status: 'failed',
+    });
+
+    expect(db.transaction).toHaveBeenCalledOnce();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      'cgo-1',
+      'failed',
+      expect.objectContaining({ type: 'GenerationError' }),
+      { attempt: 1, laneGeneration: 1 },
+    );
+    expect(modelMocks.insertEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: 4, type: 'error' }),
+    );
+    expect(loading.content).toBe('');
+    expect(child.content).toBe('');
+  });
+
+  it('resolves the latest persisted assistant id', async () => {
+    modelMocks.findById.mockResolvedValue({ assistantMessageId: 'asst-latest' });
+
+    await expect(resolveLatestAssistantMessageId({} as any, operation)).resolves.toBe(
+      'asst-latest',
+    );
   });
 });

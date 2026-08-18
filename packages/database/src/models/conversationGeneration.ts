@@ -7,7 +7,7 @@ import {
   ConversationGenerationStatus,
   isActiveConversationGenerationStatus,
 } from '@lobechat/types';
-import { and, desc, eq, gt, inArray, isNull, lt, max, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, max, or, sql } from 'drizzle-orm';
 
 import {
   conversationGenerationEvents,
@@ -156,6 +156,23 @@ export class ConversationGenerationModel {
           isNull(conversationGenerationOperations.heartbeatAt),
           lt(conversationGenerationOperations.heartbeatAt, heartbeatBefore),
         ),
+      ),
+    });
+  };
+
+  listRecentlyFinished = async (finishedAfter: Date, limit = 100) => {
+    return this.db.query.conversationGenerationOperations.findMany({
+      limit,
+      orderBy: [desc(conversationGenerationOperations.finishedAt)],
+      where: and(
+        inArray(conversationGenerationOperations.status, [
+          'cancelled',
+          'failed',
+          'interrupted',
+          'succeeded',
+        ]),
+        isNotNull(conversationGenerationOperations.finishedAt),
+        gt(conversationGenerationOperations.finishedAt, finishedAfter),
       ),
     });
   };

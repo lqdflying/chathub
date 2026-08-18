@@ -210,14 +210,20 @@ other invalidation makes the operation `interrupted` instead of committing a
 stale summary.
 
 The tool continuation budget is checked before creating another assistant
-placeholder. A nested group-agent turn returns an explicit outcome; failed,
-cancelled, or interrupted children cannot be overwritten by supervisor success.
-Supervisor child assistant ids are persisted on the parent operation before
-the placeholder row is inserted. Stop, pending cancel, stale finalization, and
-a failed round clear leftover loading placeholders, including parallel members
-that have not produced content. Successful sibling replies keep their content
-and are not annotated with another member’s error; round-level failure lives
-on the operation. Parallel member turns settle before the parent is finalized.
+placeholder. Creating that placeholder and recording its id happen in one
+database transaction (Drizzle nested transactions use PostgreSQL savepoints).
+A retry that finds a persisted assistant id with no row recreates the loading
+placeholder and refuses to finalize success if the row is still missing. A
+nested group-agent turn returns an explicit outcome; failed, cancelled, or
+interrupted children cannot be overwritten by supervisor success. Stop, pending
+cancel, stale finalization, and a failed round clear leftover loading
+placeholders in the same transaction as the terminal status change. A sweeper
+also revisits recently finished operations so a crash between those writes
+cannot leave permanent `LOADING_FLAT` rows. Successful sibling replies keep
+their content and are not annotated with another member’s error; round-level
+failure lives on the operation. After a tool continuation, cancel, clear, and
+failure annotate or clear the newest assistant, not the completed tool-call
+row. Parallel member turns settle before the parent is finalized.
 
 ## Startup schema repair
 

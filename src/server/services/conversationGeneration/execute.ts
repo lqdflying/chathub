@@ -51,8 +51,11 @@ import { composeSystemRole } from '@/services/chat/composeSystemRole';
 
 import {
   annotateAssistantError,
-  clearOperationPlaceholders,
   clearUnfinishedPlaceholders,
+  createAssistantMessageAndAssign,
+  ensureOwnedAssistantPlaceholder,
+  finalizeOperationWithCleanup,
+  resolveLatestAssistantMessageId,
 } from './assistantPlaceholders';
 import { buildConversationCompactionMetadata } from './compaction';
 import {
@@ -128,8 +131,7 @@ export const executeConversationGeneration = async ({
   if (!isActiveConversationGenerationStatus(operation.status)) return;
 
   if (operation.status === 'cancelling' || operation.cancelRequestedAt) {
-    await finalize(model, operation, 'cancelled');
-    await clearOperationPlaceholders(db, operation);
+    await finalize(model, operation, 'cancelled', undefined, db);
     return;
   }
 
@@ -141,8 +143,7 @@ export const executeConversationGeneration = async ({
       (current.status === 'cancelling' || current.cancelRequestedAt) &&
       isActiveConversationGenerationStatus(current.status)
     ) {
-      await finalize(model, current, 'cancelled');
-      await clearOperationPlaceholders(db, current);
+      await finalize(model, current, 'cancelled', undefined, db);
       return;
     }
     if (current?.status === 'processing') {
@@ -229,11 +230,11 @@ export const executeConversationGeneration = async ({
       return;
     }
 
+    const latestAssistantId =
+      (await resolveLatestAssistantMessageId(db, claimed)) ?? claimed.assistantMessageId;
     const normalizedError = toError(error);
     if (error instanceof ConversationWriteRejectedError) {
-      await finalize(model, claimed, 'interrupted', normalizedError);
-      await clearOperationPlaceholders(db, claimed);
-      await annotateAssistantError(db, claimed.userId, claimed.assistantMessageId, normalizedError);
+      await finalize(model, claimed, 'interrupted', normalizedError, db, latestAssistantId);
       return;
     }
 
@@ -254,9 +255,7 @@ export const executeConversationGeneration = async ({
       }
     }
 
-    await finalize(model, claimed, 'failed', normalizedError);
-    await clearOperationPlaceholders(db, claimed);
-    await annotateAssistantError(db, claimed.userId, claimed.assistantMessageId, normalizedError);
+    await finalize(model, claimed, 'failed', normalizedError, db, latestAssistantId);
   } finally {
     clearInterval(heartbeatTimer);
   }
@@ -301,7 +300,21 @@ const finalize = async (
   operation: ConversationGenerationOperation,
   status: 'succeeded' | 'cancelled' | 'failed' | 'interrupted',
   error?: ConversationGenerationError,
+  db?: LobeChatDatabase,
+  annotateMessageId?: string | null,
+  extraMessageIds?: Array<string | null | undefined>,
 ) => {
+  if (db) {
+    const updated = await finalizeOperationWithCleanup({
+      annotateMessageId,
+      db,
+      error,
+      extraMessageIds,
+      operation,
+      status,
+    });
+    return Boolean(updated);
+  }
   const updated = await model.finalizeActive(operation.id, status, error, {
     attempt: operation.attempt,
     laneGeneration: operation.laneGeneration,
@@ -328,6 +341,7 @@ type ConversationGenerationStopReason =
   | 'terminal';
 
 export type ConversationExecutionOutcome = {
+  assistantMessageId?: string;
   error?: ConversationGenerationError;
   status: 'succeeded' | 'cancelled' | 'failed' | 'interrupted' | 'retrying';
 };
@@ -398,11 +412,10 @@ const finalizeIfStopped = async (
       message: 'Conversation history was cleared before generation finished.',
       type: 'ConversationCleared',
     };
-    await finalize(model, operation, 'interrupted', error);
-    if (db) {
-      await clearOperationPlaceholders(db, operation);
-      await annotateAssistantError(db, operation.userId, operation.assistantMessageId, error);
-    }
+    const annotateMessageId = db
+      ? await resolveLatestAssistantMessageId(db, operation)
+      : operation.assistantMessageId;
+    await finalize(model, operation, 'interrupted', error, db, annotateMessageId);
     return;
   }
   const error =
@@ -412,8 +425,7 @@ const finalizeIfStopped = async (
           type: 'Superseded',
         }
       : undefined;
-  await finalize(model, operation, 'cancelled', error);
-  if (db) await clearOperationPlaceholders(db, operation);
+  await finalize(model, operation, 'cancelled', error, db);
 };
 
 const finalizeUnlessStopped = async (
@@ -428,7 +440,7 @@ const finalizeUnlessStopped = async (
     if (!skipFinalize) await finalizeIfStopped(model, operation, stopReason, db);
     return stopReason;
   }
-  if (!skipFinalize) await finalize(model, operation, 'succeeded');
+  if (!skipFinalize) await finalize(model, operation, 'succeeded', undefined, db);
   return null;
 };
 
@@ -481,7 +493,7 @@ const finishChatStop = async (
 ): Promise<ConversationExecutionOutcome> => {
   if (!skipFinalize) {
     await finalizeIfStopped(model, operation, stopReason, db);
-    return outcomeFromStopReason(stopReason);
+    return { ...outcomeFromStopReason(stopReason), assistantMessageId: assistantId };
   }
   if (stopReason !== 'retrying' && stopReason !== 'terminal') {
     await clearUnfinishedPlaceholders(db, operation.userId, [assistantId]);
@@ -490,7 +502,7 @@ const finishChatStop = async (
       await annotateAssistantError(db, operation.userId, assistantId, error);
     }
   }
-  return outcomeFromStopReason(stopReason);
+  return { ...outcomeFromStopReason(stopReason), assistantMessageId: assistantId };
 };
 
 const executeChat = async (
@@ -514,12 +526,12 @@ const executeChat = async (
       message: 'Conversation history was cleared before generation finished.',
       type: 'ConversationCleared',
     };
-    if (!options?.skipFinalize) await finalize(model, operation, 'interrupted', error);
+    if (!options?.skipFinalize) await finalize(model, operation, 'interrupted', error, db, operation.assistantMessageId);
     else {
       await clearUnfinishedPlaceholders(db, operation.userId, [operation.assistantMessageId]);
       await annotateAssistantError(db, operation.userId, operation.assistantMessageId, error);
     }
-    return { error, status: 'interrupted' };
+    return { assistantMessageId: operation.assistantMessageId ?? undefined, error, status: 'interrupted' };
   }
 
   await updateOperation(model, operation, { phase: 'model' });
@@ -534,6 +546,7 @@ const executeChat = async (
     throw new Error('Assistant message is missing for conversation generation');
   }
   let assistantId: string = operation.assistantMessageId;
+  await ensureOwnedAssistantPlaceholder(db, operation, assistantId);
 
   const user = await UserModel.findById(db, operation.userId);
   const agent = operation.sessionId
@@ -704,8 +717,8 @@ const executeChat = async (
             error: result.error as any,
             reasoning: result.reasoning ?? undefined,
           });
-          if (!options?.skipFinalize) await finalize(model, operation, 'failed', result.error);
-          return { error: result.error, status: 'failed' };
+          if (!options?.skipFinalize) await finalize(model, operation, 'failed', result.error, db, assistantId);
+          return { assistantMessageId: assistantId, error: result.error, status: 'failed' };
         }
 
         content = result.content;
@@ -808,14 +821,12 @@ const executeChat = async (
       const previousAssistantId = assistantId;
       const nextAssistantId = idGenerator('messages', 14);
       try {
-        if (!options?.skipFinalize) {
-          await updateOperation(model, operation, { assistantMessageId: nextAssistantId });
-        }
-        if (options?.onAssistantMessageId) {
-          await options.onAssistantMessageId(nextAssistantId);
-        }
-        await messageModel.create(
-          {
+        await createAssistantMessageAndAssign({
+          assignment: options?.skipFinalize ? 'supervisorChild' : 'assistantMessageId',
+          db,
+          id: nextAssistantId,
+          operation,
+          params: {
             agentId: operation.agentId ?? undefined,
             content: LOADING_FLAT,
             fromModel: operation.config.model,
@@ -827,14 +838,16 @@ const executeChat = async (
             threadId: operation.threadId ?? undefined,
             topicId: operation.topicId ?? undefined,
           },
-          nextAssistantId,
-        );
+        });
         assistantId = nextAssistantId;
+        operation.assistantMessageId = nextAssistantId;
+        await options?.onAssistantMessageId?.(nextAssistantId);
       } catch (error) {
         await clearUnfinishedPlaceholders(db, operation.userId, [nextAssistantId]);
         if (!options?.skipFinalize) {
           try {
             await updateOperation(model, operation, { assistantMessageId: previousAssistantId });
+            operation.assistantMessageId = previousAssistantId;
           } catch {
             // Ownership may already have moved off this attempt.
           }
@@ -879,7 +892,10 @@ const executeChat = async (
     }
 
     const latest = await messageModel.findById(assistantId);
-    if (latest?.content === LOADING_FLAT) {
+    if (!latest) {
+      throw new Error('Assistant message is missing after generation.');
+    }
+    if (latest.content === LOADING_FLAT) {
       await messageModel.update(assistantId, { content: content || '' });
     }
 
@@ -915,8 +931,8 @@ const executeChat = async (
       );
     }
 
-    if (!options?.skipFinalize) await finalize(model, operation, 'succeeded');
-    return { status: 'succeeded' };
+    if (!options?.skipFinalize) await finalize(model, operation, 'succeeded', undefined, db);
+    return { assistantMessageId: assistantId, status: 'succeeded' };
   } finally {
     clearInterval(cancelWatcher);
   }
@@ -1045,7 +1061,7 @@ const executeTranslation = async (
     await finalize(model, operation, 'failed', {
       message: 'Translation target is missing.',
       type: 'InvalidOperation',
-    });
+    }, db);
     return;
   }
   await updateOperation(model, operation, { phase: 'translating' });
@@ -1055,7 +1071,7 @@ const executeTranslation = async (
     await finalize(model, operation, 'failed', {
       message: 'Source message was not found.',
       type: 'InvalidOperation',
-    });
+    }, db);
     return;
   }
   const from =
@@ -1095,7 +1111,7 @@ const executeTts = async (
     await finalize(model, operation, 'failed', {
       message: 'TTS target is missing.',
       type: 'InvalidOperation',
-    });
+    }, db);
     return;
   }
   await updateOperation(model, operation, { phase: 'synthesizing' });
@@ -1120,7 +1136,7 @@ const executeCompaction = async (
       message:
         'Background compaction requires a planned regular-topic snapshot; the client must re-plan it.',
       type: 'CompactionInvalidated',
-    });
+    }, db);
     return;
   }
   await updateOperation(model, operation, { phase: 'compacting' });
@@ -1145,7 +1161,7 @@ const executeCompaction = async (
     await finalize(model, operation, 'interrupted', {
       message: 'Compaction input changed before summarization started.',
       type: 'CompactionInvalidated',
-    });
+    }, db);
     return;
   }
 
@@ -1229,7 +1245,7 @@ const executeCompaction = async (
     await finalize(model, operation, 'interrupted', {
       message: 'Compaction input was invalidated before the summary could be persisted.',
       type: 'CompactionInvalidated',
-    });
+    }, db);
     return;
   }
 
@@ -1247,7 +1263,7 @@ const executeRag = async (db: LobeChatDatabase, operation: ConversationGeneratio
   const model = new ConversationGenerationModel(db, operation.userId);
   await updateOperation(model, operation, { phase: 'retrieving' });
   await emit(model, operation, 'status', { phase: 'retrieving' });
-  await finalize(model, operation, 'succeeded');
+  await finalize(model, operation, 'succeeded', undefined, db);
 };
 
 const parseJsonObject = (value?: string) => {
@@ -1312,7 +1328,7 @@ const executeSupervisor = async (
     await finalize(model, operation, 'failed', {
       message: 'Group is missing for supervisor generation.',
       type: 'InvalidOperation',
-    });
+    }, db);
     return;
   }
 
@@ -1392,9 +1408,12 @@ const executeSupervisor = async (
     if (!agent?.id) return;
     const assistantId = idGenerator('messages', 14);
     try {
-      await trackChild(assistantId);
-      const created = await messageModel.create(
-        {
+      const created = await createAssistantMessageAndAssign({
+        assignment: 'supervisorChild',
+        db,
+        id: assistantId,
+        operation,
+        params: {
           agentId: agent.id,
           content: LOADING_FLAT,
           fromModel: agent.model || operation.config.model,
@@ -1405,8 +1424,8 @@ const executeSupervisor = async (
           targetId: decision.target,
           topicId: operation.topicId ?? undefined,
         },
-        assistantId,
-      );
+      });
+      if (!childMessageIds.includes(assistantId)) childMessageIds.push(assistantId);
       await emit(model, operation, 'snapshot', {
         agentId: agent.id,
         assistantMessageId: created.id,
@@ -1442,29 +1461,28 @@ const executeSupervisor = async (
       messages: history,
       targetId: child.decision.target,
     });
+    const childOperation: ConversationGenerationOperation = {
+      ...operation,
+      agentId,
+      assistantMessageId: child.assistantId,
+      config: {
+        ...operation.config,
+        model: child.agent.model || operation.config.model,
+        plugins: child.agent.plugins || undefined,
+        provider: child.agent.provider || operation.config.provider,
+        systemRole: groupChatSystemPrompt,
+        targetId: child.decision.target,
+      },
+      kind: 'group_agent',
+    };
     try {
-      return await executeChat(
-        db,
-        {
-          ...operation,
-          agentId,
-          assistantMessageId: child.assistantId,
-          config: {
-            ...operation.config,
-            model: child.agent.model || operation.config.model,
-            plugins: child.agent.plugins || undefined,
-            provider: child.agent.provider || operation.config.provider,
-            systemRole: groupChatSystemPrompt,
-            targetId: child.decision.target,
-          },
-          kind: 'group_agent',
-        },
-        {
-          onAssistantMessageId: trackChild,
-          runSignal: runSignal ?? options?.runSignal,
-          skipFinalize: true,
-        },
-      );
+      const outcome = await executeChat(db, childOperation, {
+        onAssistantMessageId: trackChild,
+        runSignal: runSignal ?? options?.runSignal,
+        skipFinalize: true,
+      });
+      if (outcome.assistantMessageId) child.assistantId = outcome.assistantMessageId;
+      return outcome;
     } catch (error) {
       const stopReason = await shouldStopGeneration(
         db,
@@ -1472,13 +1490,19 @@ const executeSupervisor = async (
         operation,
         runSignal ?? options?.runSignal,
       );
+      const latestAssistantId = childOperation.assistantMessageId || child.assistantId;
+      child.assistantId = latestAssistantId;
       if (stopReason) {
-        return finishChatStop(db, model, operation, child.assistantId, stopReason, true);
+        return finishChatStop(db, model, operation, latestAssistantId, stopReason, true);
       }
       const normalizedError = toError(error);
-      await clearUnfinishedPlaceholders(db, operation.userId, [child.assistantId]);
-      await annotateAssistantError(db, operation.userId, child.assistantId, normalizedError);
-      return { error: normalizedError, status: 'failed' as const };
+      await clearUnfinishedPlaceholders(db, operation.userId, [latestAssistantId]);
+      await annotateAssistantError(db, operation.userId, latestAssistantId, normalizedError);
+      return {
+        assistantMessageId: latestAssistantId,
+        error: normalizedError,
+        status: 'failed' as const,
+      };
     }
   };
 
@@ -1503,11 +1527,16 @@ const executeSupervisor = async (
             type: 'GroupAgentError',
           }
         : undefined;
-    await finalize(model, operation, terminalOutcome.status, error);
-    await clearOperationPlaceholders(db, operation, childMessageIds);
-    if (error && child?.assistantId) {
-      await annotateAssistantError(db, operation.userId, child.assistantId, error);
-    }
+    const failedAssistantId = outcome.assistantMessageId ?? child?.assistantId;
+    await finalize(
+      model,
+      operation,
+      terminalOutcome.status,
+      error,
+      db,
+      error ? failedAssistantId : undefined,
+      childMessageIds,
+    );
     return true;
   };
 

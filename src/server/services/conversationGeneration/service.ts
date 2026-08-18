@@ -14,12 +14,13 @@ import { ConversationGenerationModel } from '@/database/models/conversationGener
 import { MessageModel } from '@/database/models/message';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 
-import { clearOperationPlaceholders } from './assistantPlaceholders';
+import { clearOperationPlaceholders, finalizeOperationWithCleanup } from './assistantPlaceholders';
 import {
   CONVERSATION_GENERATION_EVENT_PAGE_SIZE,
   CONVERSATION_GENERATION_MAX_ATTEMPTS,
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
   CONVERSATION_GENERATION_TASK,
+  CONVERSATION_GENERATION_TERMINAL_CLEANUP_MS,
 } from './constants';
 import { resolveConversationRuntimePayload } from './credentials';
 import { findUnsupportedConversationTool } from './tools';
@@ -235,18 +236,12 @@ export class ConversationGenerationService {
     }
 
     if (current.status === 'pending') {
-      const cancelled = await model.finalizeActive(operationId, 'cancelled', undefined, {
-        attempt: current.attempt,
-        laneGeneration: current.laneGeneration,
+      const cancelled = await finalizeOperationWithCleanup({
+        db: this.db,
+        operation: current,
+        status: 'cancelled',
       });
       if (!cancelled) return (await model.findById(operationId)) || operation;
-      await model.insertEvent({
-        operationId,
-        payload: { status: 'cancelled' },
-        revision: cancelled.revision,
-        type: 'done',
-      });
-      await clearOperationPlaceholders(this.db, cancelled.config ? cancelled : current);
       return cancelled;
     }
 
@@ -322,19 +317,12 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
         message: 'Generation stopped responding on its final retry attempt.',
         type: 'StaleProcessing',
       };
-      const failed = await model.finalizeActive(operation.id, 'failed', error, {
-        attempt: operation.attempt,
-        laneGeneration: operation.laneGeneration,
+      await finalizeOperationWithCleanup({
+        db,
+        error,
+        operation,
+        status: 'failed',
       });
-      if (failed) {
-        await model.insertEvent({
-          operationId: operation.id,
-          payload: { error, status: 'failed' },
-          revision: failed.revision,
-          type: 'error',
-        });
-        await clearOperationPlaceholders(db, failed.config ? failed : operation);
-      }
       continue;
     }
 
@@ -370,20 +358,17 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
 
   const staleCancelling = await systemModel.listStaleCancelling(heartbeatBefore);
   for (const operation of staleCancelling) {
-    const model = new ConversationGenerationModel(db, operation.userId);
-    const cancelled = await model.finalizeActive(operation.id, 'cancelled', undefined, {
-      attempt: operation.attempt,
-      laneGeneration: operation.laneGeneration,
+    await finalizeOperationWithCleanup({
+      db,
+      operation,
+      status: 'cancelled',
     });
-    if (!cancelled) continue;
+  }
 
-    await model.insertEvent({
-      operationId: operation.id,
-      payload: { status: 'cancelled' },
-      revision: cancelled.revision,
-      type: 'done',
-    });
-    await clearOperationPlaceholders(db, cancelled.config ? cancelled : operation);
+  const finishedAfter = new Date(Date.now() - CONVERSATION_GENERATION_TERMINAL_CLEANUP_MS);
+  const recentlyFinished = await systemModel.listRecentlyFinished(finishedAfter);
+  for (const operation of recentlyFinished) {
+    await clearOperationPlaceholders(db, operation);
   }
 };
 
