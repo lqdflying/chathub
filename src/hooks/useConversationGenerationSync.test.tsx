@@ -93,4 +93,58 @@ describe('useConversationGenerationSync', () => {
     });
     unmount();
   });
+
+  it('replays events from cursor zero after a stream reset', async () => {
+    const applyEvent = vi.fn();
+    const syncActive = vi.fn(async () => {});
+    useChatStore.setState({
+      applyConversationGenerationEvent: applyEvent,
+      syncActiveConversationGenerations: syncActive,
+    });
+    vi.mocked(conversationGenerationService.listEvents).mockResolvedValueOnce({
+      cursor: 4,
+      events: [
+        {
+          createdAt: new Date().toISOString(),
+          id: 4,
+          operationId: 'operation-1',
+          payload: { status: 'processing' },
+          revision: 1,
+          type: 'status',
+          userId: 'user-a',
+        },
+      ],
+      reset: false,
+    } as any);
+
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    const subscription = vi.mocked(conversationGenerationService.subscribe).mock.calls[0][0];
+    subscription.onEvent({ type: 'reset' } as any);
+
+    await waitFor(() => {
+      expect(conversationGenerationService.listEvents).toHaveBeenCalledWith(0);
+    });
+    await waitFor(() => {
+      expect(applyEvent).toHaveBeenCalledWith(expect.objectContaining({ id: 4, type: 'status' }));
+    });
+    expect(syncActive.mock.calls.length).toBeGreaterThan(0);
+    unmount();
+  });
+
+  it('reconnects SSE after the stream ends instead of staying on poll-only', async () => {
+    vi.mocked(conversationGenerationService.subscribe)
+      .mockImplementationOnce(async () => undefined)
+      .mockImplementationOnce(() => new Promise(() => {}));
+
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
+    });
+    unmount();
+  });
 });

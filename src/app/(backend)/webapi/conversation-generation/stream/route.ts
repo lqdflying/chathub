@@ -74,16 +74,25 @@ export const GET = async (req: NextRequest) => {
           const page = await service.listEvents(cursor);
           if (page.reset) {
             writeSse(controller, { data: { reset: true }, type: 'reset' });
-            cursor = 0;
+            const replay = await service.listEvents(0);
+            for (const event of replay.events) {
+              writeSse(controller, {
+                data: event,
+                id: event.id,
+                type: event.type,
+              });
+            }
+            cursor = replay.cursor;
+          } else {
+            for (const event of page.events) {
+              writeSse(controller, {
+                data: event,
+                id: event.id,
+                type: event.type,
+              });
+            }
+            cursor = page.cursor;
           }
-          for (const event of page.events) {
-            writeSse(controller, {
-              data: event,
-              id: event.id,
-              type: event.type,
-            });
-          }
-          cursor = page.cursor;
           if (Date.now() - heartbeat >= CONVERSATION_GENERATION_SSE_HEARTBEAT_MS) {
             controller.enqueue(encoder.encode(': ping\n\n'));
             heartbeat = Date.now();

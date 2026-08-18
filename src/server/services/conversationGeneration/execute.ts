@@ -117,13 +117,21 @@ export const executeConversationGeneration = async ({
     return;
   }
 
+  const runAbortController = new AbortController();
   const heartbeatTimer = setInterval(() => {
-    void model.touchHeartbeat(claimed.id, claimed.attempt).catch((error) => {
-      console.warn('[conversation-generation] heartbeat failed', {
-        error: error instanceof Error ? error.message : String(error),
-        operationId: claimed.id,
+    void model
+      .touchHeartbeat(claimed.id, claimed.attempt)
+      .then((row) => {
+        if (!row && !runAbortController.signal.aborted) {
+          runAbortController.abort('heartbeat_lost');
+        }
+      })
+      .catch((error) => {
+        console.warn('[conversation-generation] heartbeat failed', {
+          error: error instanceof Error ? error.message : String(error),
+          operationId: claimed.id,
+        });
       });
-    });
   }, CONVERSATION_GENERATION_HEARTBEAT_MS);
   heartbeatTimer.unref?.();
 
@@ -150,15 +158,20 @@ export const executeConversationGeneration = async ({
         break;
       }
       case 'group_supervisor': {
-        await executeSupervisor(db, claimed);
+        await executeSupervisor(db, claimed, { runSignal: runAbortController.signal });
         break;
       }
       default: {
-        await executeChat(db, claimed);
+        await executeChat(db, claimed, { runSignal: runAbortController.signal });
       }
     }
   } catch (error) {
-    const stopReason = await shouldStopGeneration(db, model, claimed);
+    const stopReason = await shouldStopGeneration(
+      db,
+      model,
+      claimed,
+      runAbortController.signal,
+    );
     if (stopReason) {
       await finalizeIfStopped(model, claimed, stopReason);
       if (stopReason === 'retrying') throw error;
@@ -338,7 +351,7 @@ const loadGeneralInstruction = async (db: LobeChatDatabase, userId: string) => {
 const executeChat = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
-  options?: { skipFinalize?: boolean },
+  options?: { runSignal?: AbortSignal; skipFinalize?: boolean },
 ): Promise<ConversationExecutionOutcome> => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const messageModel = new MessageModel(db, operation.userId);
@@ -421,6 +434,15 @@ const executeChat = async (
 
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
   const abortController = new AbortController();
+  if (options?.runSignal?.aborted) {
+    abortController.abort(options.runSignal.reason);
+  } else {
+    options?.runSignal?.addEventListener(
+      'abort',
+      () => abortController.abort(options.runSignal?.reason),
+      { once: true },
+    );
+  }
   let lastFlush = Date.now();
   let lastChars = 0;
   let content = '';
@@ -1011,6 +1033,7 @@ const normalizeSupervisorToolCalls = (
 const executeSupervisor = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
+  options?: { runSignal?: AbortSignal },
 ) => {
   const model = new ConversationGenerationModel(db, operation.userId);
   const groupId = operation.groupId;
@@ -1102,7 +1125,7 @@ const executeSupervisor = async (
   const generalInstruction = await loadGeneralInstruction(db, operation.userId);
 
   for (const decision of decisions) {
-    const stopReason = await shouldStopGeneration(db, model, operation);
+    const stopReason = await shouldStopGeneration(db, model, operation, options?.runSignal);
     if (stopReason) {
       await finalizeIfStopped(model, operation, stopReason);
       return;
@@ -1155,7 +1178,7 @@ const executeSupervisor = async (
         },
         kind: 'group_agent',
       },
-      { skipFinalize: true },
+      { runSignal: options?.runSignal, skipFinalize: true },
     );
     const terminalOutcome = getSupervisorTerminalOutcome(outcome);
     if (terminalOutcome) {

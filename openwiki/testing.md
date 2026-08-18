@@ -119,6 +119,7 @@ High-signal suites:
 - `src/services/__tests__/conversationGeneration.test.ts`
 - `src/helpers/__tests__/durableConversationGeneration.test.ts`
 - `src/hooks/useConversationGenerationSync.test.tsx`
+- `packages/database/src/models/__tests__/conversationGeneration.cas.test.ts`
 - `src/store/chat/slices/aiChat/actions/__tests__/generateAIChatV2.test.ts`
 - `src/store/chat/slices/aiChat/actions/__tests__/conversationGeneration.test.ts`
 - `src/store/chat/slices/aiChat/actions/memory.test.ts`

@@ -220,6 +220,7 @@ export class ConversationGenerationModel {
         revision: sql`${conversationGenerationOperations.revision} + 1`,
         status: 'pending',
         updatedAt: new Date(),
+        workerJobId: null,
       })
       .where(
         and(

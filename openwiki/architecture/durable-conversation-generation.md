@@ -94,10 +94,12 @@ runner uses `noHandleSignals`: `SIGTERM`/`SIGINT` clear the sweeper and await
 and propagates its exit status.
 
 Each worker attempt claims `pending → processing` with compare-and-set guards.
-Retryable failures return the row to `pending` and are rethrown so Graphile
-applies backoff. Heartbeats cover the whole operation, and checkpoint/final
-writes require the same attempt and lane generation. A terminal row is never
-rewritten by a late worker.
+Retryable failures return the row to `pending`, clear `workerJobId` so the
+sweeper can re-enqueue if Graphile does not retry, and are rethrown so Graphile
+applies backoff. Heartbeats cover the whole operation: a missed heartbeat
+(no matching `processing` row/attempt) aborts the local run and feeds
+`shouldStopGeneration`. Checkpoint/final writes require the same attempt and
+lane generation. A terminal row is never rewritten by a late worker.
 
 ## Lane replacement
 
@@ -114,8 +116,10 @@ The active-lane unique index covers only `pending` and `processing`, so a
 `useConversationGenerationSync` (ChatList `Content.tsx`) opens
 `GET /webapi/conversation-generation/stream` with auth headers. Native
 `EventSource` is not used because it cannot send those headers. The hook keeps a
-per-user event cursor across topic switches. If SSE ends or fails, it polls
-`conversationGeneration.listEvents`.
+per-user event cursor across topic switches. A `reset` event (cursor ahead of
+the retained stream) replays from cursor `0` and resyncs active operations. If
+SSE ends or fails, the hook polls `conversationGeneration.listEvents` while it
+reconnects the stream with backoff instead of staying on poll-only.
 
 Events are applied only when the attached operation still matches the visible
 session/topic/thread (`portalThreadId` when a thread portal is open, otherwise
@@ -191,7 +195,8 @@ High-signal suites:
 - `src/store/chat/slices/aiChat/actions/__tests__/conversationGeneration.test.ts`
 - `src/server/services/conversationGeneration/*.test.ts`
 - `scripts/migrateServerDB/ensureConversationGenerationOperations.test.ts`
-- `packages/types/src/conversationGeneration.test.ts`
+- `src/hooks/useConversationGenerationSync.test.tsx`
+- `packages/database/src/models/__tests__/conversationGeneration.cas.test.ts`
 
 Model tests that top-level-await `getTestDB()` are not required for this
 feature unless `DATABASE_TEST_URL` is present.

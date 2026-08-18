@@ -10,6 +10,7 @@ import { useSessionStore } from '@/store/session';
 import { useUserStore } from '@/store/user';
 
 const cursorByUser = new Map<string, number>();
+const SSE_RECONNECT_MAX_MS = 15_000;
 
 export const useConversationGenerationSync = () => {
   const userId = useUserStore((s) => s.user?.id);
@@ -37,16 +38,37 @@ export const useConversationGenerationSync = () => {
     const abortController = new AbortController();
     let cursor = cursorByUser.get(userId) ?? 0;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let pollInFlight = false;
+    let reconnectAttempts = 0;
+    let connecting = false;
 
     const persistCursor = (nextCursor: number) => {
       cursor = nextCursor;
       cursorByUser.set(userId, nextCursor);
     };
 
+    const replayFromStart = async () => {
+      persistCursor(0);
+      await syncActive().catch(console.error);
+      if (abortController.signal.aborted) return;
+      const replay = await conversationGenerationService.listEvents(0);
+      if (abortController.signal.aborted) return;
+      for (const event of replay.events) {
+        if (typeof event.id === 'number') persistCursor(event.id);
+        applyEvent(event);
+      }
+      persistCursor(replay.cursor);
+    };
+
     const handleEvent = (event: ConversationGenerationStreamEvent) => {
+      reconnectAttempts = 0;
       if (event.type === 'reset') {
-        persistCursor(0);
+        void replayFromStart().catch((error) => {
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('[conversation-generation] reset replay failed', error);
+          }
+        });
         return;
       }
       if (typeof event.id === 'number') persistCursor(event.id);
@@ -58,8 +80,12 @@ export const useConversationGenerationSync = () => {
       pollInFlight = true;
       void conversationGenerationService
         .listEvents(cursor)
-        .then((page) => {
-          if (page.reset) persistCursor(0);
+        .then(async (page) => {
+          if (abortController.signal.aborted) return;
+          if (page.reset) {
+            await replayFromStart();
+            return;
+          }
           for (const event of page.events) handleEvent(event);
           persistCursor(page.cursor);
         })
@@ -73,28 +99,59 @@ export const useConversationGenerationSync = () => {
         });
     };
 
+    const stopPoll = () => {
+      if (!pollTimer) return;
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    };
+
     const startPoll = () => {
-      if (pollTimer) return;
+      if (pollTimer || abortController.signal.aborted) return;
       pollTimer = setInterval(pollOnce, 2000);
       pollOnce();
     };
 
-    void conversationGenerationService
-      .subscribe({
-        cursor,
-        onEvent: handleEvent,
-        signal: abortController.signal,
-      })
-      .then(() => {
-        if (!abortController.signal.aborted) startPoll();
-      })
-      .catch(() => {
-        if (!abortController.signal.aborted) startPoll();
-      });
+    const connect = () => {
+      if (abortController.signal.aborted || connecting) return;
+      connecting = true;
+      void conversationGenerationService
+        .subscribe({
+          cursor,
+          onEvent: handleEvent,
+          signal: abortController.signal,
+        })
+        .then(() => {
+          connecting = false;
+          if (abortController.signal.aborted) return;
+          startPoll();
+          const delay = Math.min(250 * 2 ** reconnectAttempts, SSE_RECONNECT_MAX_MS);
+          reconnectAttempts += 1;
+          reconnectTimer = setTimeout(() => {
+            if (abortController.signal.aborted) return;
+            stopPoll();
+            connect();
+          }, delay);
+        })
+        .catch(() => {
+          connecting = false;
+          if (abortController.signal.aborted) return;
+          startPoll();
+          const delay = Math.min(250 * 2 ** reconnectAttempts, SSE_RECONNECT_MAX_MS);
+          reconnectAttempts += 1;
+          reconnectTimer = setTimeout(() => {
+            if (abortController.signal.aborted) return;
+            stopPoll();
+            connect();
+          }, delay);
+        });
+    };
+
+    connect();
 
     return () => {
       abortController.abort();
-      if (pollTimer) clearInterval(pollTimer);
+      stopPoll();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [applyEvent, userId]);
+  }, [applyEvent, syncActive, userId]);
 };
