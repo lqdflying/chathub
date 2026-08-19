@@ -12,6 +12,7 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { message } from '@/components/AntdStaticMethods';
 import { LOADING_FLAT } from '@/const/message';
+import { MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { conversationGenerationRequestKey } from '@/helpers/conversationGenerationIdempotency';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
@@ -25,7 +26,7 @@ import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
-import { bumpTopicScopedClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
+import { bumpTopicScopedClearGeneration, markConversationTopicDurableGenerationStopped } from '@/store/chat/utils/conversationClearGeneration';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
@@ -785,8 +786,14 @@ export const chatTopic: StateCreator<
     });
 
     set(
-      (state) =>
-        bumpTopicScopedClearGeneration(state, requestedContainerId, requestedTopicId),
+      (state) => ({
+        ...bumpTopicScopedClearGeneration(state, requestedContainerId, requestedTopicId),
+        ...markConversationTopicDurableGenerationStopped(
+          state,
+          requestedContainerId,
+          requestedTopicId,
+        ),
+      }),
       false,
       n('removeTopic/bumpTopicScopedClearGeneration'),
     );

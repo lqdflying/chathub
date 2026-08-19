@@ -50,8 +50,12 @@ import {
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { preventLeavingFn, toggleBooleanList } from '@/store/chat/utils';
 import {
   bumpLaneScopedClearGeneration,
+  clearConversationLaneDurableGenerationStop,
+  laneScopedClearKey,
+  markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
@@ -62,6 +66,22 @@ import { Action, setNamespace } from '@/utils/storeDebug';
 
 import { chatSelectors, topicSelectors } from '../../../selectors';
 import { notifyToolCallPersistenceFailure } from './persistenceNotification';
+
+const hasProtectedChatLoadingWork = (
+  state: Pick<
+    ChatStore,
+    | 'chatLoadingIds'
+    | 'messageInToolsCallingIds'
+    | 'pluginApiLoadingIds'
+    | 'reasoningLoadingIds'
+    | 'searchWorkflowLoadingIds'
+  >,
+) =>
+  state.chatLoadingIds.length > 0 ||
+  state.messageInToolsCallingIds.length > 0 ||
+  state.pluginApiLoadingIds.length > 0 ||
+  state.reasoningLoadingIds.length > 0 ||
+  state.searchWorkflowLoadingIds.length > 0;
 
 const n = setNamespace('ai');
 
@@ -220,6 +240,7 @@ export interface AIGenerateAction {
     loading: boolean,
     id?: string,
     action?: Action,
+    scopeThreadId?: string | null,
   ) => AbortController | undefined;
   internal_toggleMessageInToolsCalling: (
     loading: boolean,
@@ -307,7 +328,10 @@ export const generateAIChat: StateCreator<
     }
 
     set(
-      (state) => bumpLaneScopedClearGeneration(state, activeId, activeTopicId, threadId),
+      (state) => ({
+        ...bumpLaneScopedClearGeneration(state, activeId, activeTopicId, threadId),
+        ...markConversationLaneDurableGenerationStopped(state, activeId, activeTopicId, threadId),
+      }),
       false,
       n('stopGenerateMessage/bumpLaneScopedClearGeneration'),
     );
@@ -321,6 +345,26 @@ export const generateAIChat: StateCreator<
     }
 
     await get().stopDurableConversationGeneration(options);
+
+    const laneKey = laneScopedClearKey(activeId, activeTopicId, threadId);
+    const laneController = get().chatLoadingAbortControllersByLane[laneKey];
+    if (laneController) {
+      laneController.abort(MESSAGE_CANCEL_FLAT);
+    }
+
+    const laneMessageIds = get().chatLoadingIds.filter(
+      (messageId) => get().chatLoadingLaneByMessageId[messageId] === laneKey,
+    );
+    for (const messageId of laneMessageIds) {
+      get().internal_toggleChatLoading(
+        false,
+        messageId,
+        n('stopGenerateMessage/clearLaneLoading') as string,
+        threadId,
+      );
+    }
+
+    if (isThreadScopedStop) return;
 
     const { chatLoadingIdsAbortController, internal_toggleChatLoading } = get();
 
@@ -637,6 +681,7 @@ export const generateAIChat: StateCreator<
         true,
         assistantId,
         n('generateMessage(start)', { messageId: assistantId, messages }),
+        conversationContext.threadId ?? null,
       );
 
       get().internal_toggleSearchWorkflow(true, assistantId);
@@ -833,6 +878,7 @@ export const generateAIChat: StateCreator<
       true,
       messageId,
       n('generateMessage(start)', { messageId, messages }),
+      conversationContext.threadId ?? null,
     );
 
     const agentStoreState = getAgentStoreState();
@@ -1537,8 +1583,94 @@ export const generateAIChat: StateCreator<
   },
 
   // ----- Loading ------- //
-  internal_toggleChatLoading: (loading, id, action) => {
-    return get().internal_toggleLoadingArrays('chatLoadingIds', loading, id, action);
+  internal_toggleChatLoading: (loading, id, action, scopeThreadId = null) => {
+    const { activeId, activeTopicId } = get();
+    const laneKey = laneScopedClearKey(activeId, activeTopicId, scopeThreadId ?? null);
+
+    if (loading) {
+      window.addEventListener('beforeunload', preventLeavingFn);
+
+      const abortController = new AbortController();
+      set(
+        (state) => {
+          const nextLaneByMessageId = { ...state.chatLoadingLaneByMessageId };
+          if (id) nextLaneByMessageId[id] = laneKey;
+
+          return {
+            chatLoadingAbortControllersByLane: {
+              ...state.chatLoadingAbortControllersByLane,
+              [laneKey]: abortController,
+            },
+            chatLoadingIds: toggleBooleanList(state.chatLoadingIds, id!, loading),
+            chatLoadingIdsAbortController: abortController,
+            chatLoadingLaneByMessageId: nextLaneByMessageId,
+          };
+        },
+        false,
+        action,
+      );
+
+      return abortController;
+    }
+
+    if (!id) {
+      set(
+        (state) => {
+          const laneMessageIds = state.chatLoadingIds.filter(
+            (messageId) => state.chatLoadingLaneByMessageId[messageId] === laneKey,
+          );
+          const nextLaneByMessageId = { ...state.chatLoadingLaneByMessageId };
+          for (const messageId of laneMessageIds) {
+            delete nextLaneByMessageId[messageId];
+          }
+          const nextLaneControllers = { ...state.chatLoadingAbortControllersByLane };
+          delete nextLaneControllers[laneKey];
+
+          return {
+            chatLoadingAbortControllersByLane: nextLaneControllers,
+            chatLoadingIds: state.chatLoadingIds.filter(
+              (messageId) => state.chatLoadingLaneByMessageId[messageId] !== laneKey,
+            ),
+            chatLoadingIdsAbortController: undefined,
+            chatLoadingLaneByMessageId: nextLaneByMessageId,
+          };
+        },
+        false,
+        action,
+      );
+    } else {
+      set(
+        (state) => {
+          const nextIds = toggleBooleanList(state.chatLoadingIds, id, loading);
+          const nextLaneByMessageId = { ...state.chatLoadingLaneByMessageId };
+          if (!loading) delete nextLaneByMessageId[id];
+
+          const laneStillLoading = nextIds.some(
+            (messageId) => nextLaneByMessageId[messageId] === laneKey,
+          );
+          const nextLaneControllers = { ...state.chatLoadingAbortControllersByLane };
+          if (!laneStillLoading) delete nextLaneControllers[laneKey];
+
+          const globalStillLoading = nextIds.length > 0;
+
+          return {
+            chatLoadingAbortControllersByLane: nextLaneControllers,
+            chatLoadingIds: nextIds,
+            chatLoadingIdsAbortController: globalStillLoading
+              ? state.chatLoadingIdsAbortController
+              : undefined,
+            chatLoadingLaneByMessageId: nextLaneByMessageId,
+          };
+        },
+        false,
+        action,
+      );
+    }
+
+    const nextState = get();
+    if (!hasProtectedChatLoadingWork(nextState)) {
+      window.removeEventListener('beforeunload', preventLeavingFn);
+    }
   },
   internal_toggleMessageInToolsCalling: (loading, id) => {
     return get().internal_toggleLoadingArrays('messageInToolsCallingIds', loading, id);

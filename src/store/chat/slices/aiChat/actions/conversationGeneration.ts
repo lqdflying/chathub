@@ -12,7 +12,11 @@ import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/stor
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
-import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
+import {
+  isConversationLaneDurableGenerationStopped,
+  isConversationTopicDurableGenerationStopped,
+  resolveConversationClearGeneration,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { toggleBooleanList } from '@/store/chat/utils';
 import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
@@ -436,7 +440,7 @@ export const conversationGeneration: StateCreator<
   cancelActiveDurableOpsInScope: async (options) => {
     const state = get();
     try {
-      const activeOps = (await conversationGenerationService.listActive()) as ConversationGenerationOperation[];
+      const activeOps = (await conversationGenerationService.listActive({ quiet: true })) as ConversationGenerationOperation[];
       const scoped = activeOps.filter((operation) =>
         matchesActiveServerOperationScope(operation, options, state),
       );
@@ -545,6 +549,25 @@ export const conversationGeneration: StateCreator<
     const activeOperationIds = new Set<string>();
     for (const operation of operations) {
       const operationSessionId = operation.sessionId || activeId;
+      if (
+        isConversationLaneDurableGenerationStopped(
+          get(),
+          operationSessionId,
+          operation.topicId,
+          operation.threadId ?? null,
+        ) ||
+        (operation.topicId &&
+          isConversationTopicDurableGenerationStopped(
+            get(),
+            operationSessionId,
+            operation.topicId,
+          ))
+      ) {
+        if (isSyncAttachableConversationGenerationStatus(operation.status)) {
+          await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+        }
+        continue;
+      }
       if (
         operationSessionId === activeId &&
         (operation.topicId ?? null) === (activeTopicId ?? null) &&

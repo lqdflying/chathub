@@ -121,6 +121,7 @@ beforeEach(() => {
     undefined,
   );
   vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+  vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
 
   // Setup common mock methods that most V2 tests need
   act(() => {
@@ -484,8 +485,7 @@ describe('generateAIChatV2 actions', () => {
       it('skips placeholder creation and agent runtime when compaction is aborted', async () => {
         const internal_deleteMessage = vi.fn(() => Promise.resolve());
         const compactionSpy = vi.fn(async () => {
-          // simulate the user pressing Stop while the pre-send compaction is running
-          useChatStore.getState().stopGenerateMessage();
+          await useChatStore.getState().stopGenerateMessage();
           return { status: 'ineligible' } as any;
         });
         act(() => {
@@ -509,7 +509,7 @@ describe('generateAIChatV2 actions', () => {
       it('does not create a placeholder after the user navigates away mid-abort', async () => {
         const internal_deleteMessage = vi.fn(() => Promise.resolve());
         const compactionSpy = vi.fn(async () => {
-          useChatStore.getState().stopGenerateMessage();
+          await useChatStore.getState().stopGenerateMessage();
           useChatStore.setState({ activeTopicId: 'another-topic' });
           return { status: 'ineligible' } as any;
         });
@@ -1743,6 +1743,7 @@ describe('generateAIChatV2 actions', () => {
       expect(cancel).toHaveBeenCalledWith('cgo_pre_enqueue');
       const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
       expect(useChatStore.getState().conversationScopedClearGenerations[laneKey]).toBeGreaterThan(0);
+      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toBe(true);
     });
 
     it('should handle gracefully when operation does not exist', async () => {

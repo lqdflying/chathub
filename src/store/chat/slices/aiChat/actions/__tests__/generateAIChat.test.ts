@@ -1071,6 +1071,41 @@ describe('chatMessage actions', () => {
       expect(useChatStore.getState().conversationScopedClearGenerations[mainLaneKey] ?? 0).toBe(0);
     });
 
+    it('portal thread stop leaves the main lane controller and loading id intact', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const mainLaneKey = `${messageMapKey(sessionId, topicId)}:main`;
+      const threadLaneKey = `${messageMapKey(sessionId, topicId)}:thread-1`;
+      const mainController = new AbortController();
+      const threadController = new AbortController();
+
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          chatLoadingAbortControllersByLane: {
+            [mainLaneKey]: mainController,
+            [threadLaneKey]: threadController,
+          },
+          chatLoadingIds: ['main-msg', 'thread-msg'],
+          chatLoadingIdsAbortController: threadController,
+          chatLoadingLaneByMessageId: {
+            'main-msg': mainLaneKey,
+            'thread-msg': threadLaneKey,
+          },
+          stopDurableConversationGeneration: vi.fn(),
+        });
+      });
+
+      await act(async () => {
+        await useChatStore.getState().stopGenerateMessage({ threadId: 'thread-1' });
+      });
+
+      expect(threadController.signal.aborted).toBe(true);
+      expect(mainController.signal.aborted).toBe(false);
+      expect(useChatStore.getState().chatLoadingIds).toEqual(['main-msg']);
+    });
+
     it('main stop bumps only the main lane scoped clear generation', async () => {
       const sessionId = TEST_IDS.SESSION_ID;
       const topicId = TEST_IDS.TOPIC_ID;

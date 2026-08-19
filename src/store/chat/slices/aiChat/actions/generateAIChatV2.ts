@@ -51,6 +51,8 @@ import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import {
   bumpLaneScopedClearGeneration,
+  clearConversationLaneDurableGenerationStop,
+  markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
@@ -165,6 +167,17 @@ export const generateAIChatV2: StateCreator<
     } = get();
     if (!accountMutationSnapshot || !activeId) return;
     const requestedScope = accountMutationSnapshot.scope;
+    set(
+      (state) =>
+        clearConversationLaneDurableGenerationStop(
+          state,
+          activeId,
+          activeTopicId,
+          activeThreadId ?? null,
+        ),
+      false,
+      n('sendMessageInServer/clearLaneStopMarker'),
+    );
     let conversationContext: ConversationContext = {
       clearGeneration: resolveConversationClearGeneration(
         get(),
@@ -738,8 +751,15 @@ export const generateAIChatV2: StateCreator<
     const operationKey = messageMapKey(activeId, targetTopicId);
 
     set(
-      (state) =>
-        bumpLaneScopedClearGeneration(state, activeId, targetTopicId, targetThreadId),
+      (state) => ({
+        ...bumpLaneScopedClearGeneration(state, activeId, targetTopicId, targetThreadId),
+        ...markConversationLaneDurableGenerationStopped(
+          state,
+          activeId,
+          targetTopicId,
+          targetThreadId,
+        ),
+      }),
       false,
       n('cancelSendMessageInServer/bumpLaneScopedClearGeneration'),
     );
@@ -1012,6 +1032,7 @@ export const generateAIChatV2: StateCreator<
         true,
         assistantId,
         n('generateMessage(start)', { messageId: assistantId, messages }),
+        conversationContext.threadId ?? null,
       );
 
       get().internal_toggleSearchWorkflow(true, assistantId);
@@ -1080,6 +1101,7 @@ export const generateAIChatV2: StateCreator<
           false,
           assistantId,
           n('generateMessage(start)', { messageId: assistantId, messages }),
+          conversationContext.threadId ?? null,
         );
         get().internal_toggleSearchWorkflow(false, assistantId);
       }

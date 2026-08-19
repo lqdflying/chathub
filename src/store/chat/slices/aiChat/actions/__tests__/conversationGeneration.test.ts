@@ -590,6 +590,55 @@ describe('conversationGeneration store actions', () => {
     expect(operations.cgo_hidden).toBeUndefined();
   });
 
+  it('re-cancels and skips attach when the lane is marked stopped', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        id: 'cgo_stopped_lane',
+        kind: 'chat',
+        lane: 'lane-stopped',
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+
+    act(() => {
+      useChatStore.setState({
+        conversationLaneStopMarkers: {
+          [`${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`]: true,
+        },
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_stopped_lane');
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ]?.cgo_stopped_lane,
+    ).toBeUndefined();
+  });
+
+  it('uses quiet listActive for scoped cancellation without surfacing fetch errors', async () => {
+    const listActive = vi.spyOn(conversationGenerationService, 'listActive').mockRejectedValue(
+      new Error('network down'),
+    );
+    const { result } = renderHook(() => useChatStore());
+
+    await act(async () => {
+      await result.current.cancelActiveDurableOpsInScope({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      });
+    });
+
+    expect(listActive).toHaveBeenCalledWith({ quiet: true });
+  });
+
   it('applies snapshots for the open portal thread even when activeThreadId is empty', () => {
     const dispatch = vi.fn();
     const { result } = renderHook(() => useChatStore());

@@ -54,8 +54,10 @@ class ConversationGenerationClient {
     });
   };
 
-  listActive = async () => {
-    return lambdaClient.conversationGeneration.listActive.query();
+  listActive = async (options?: { quiet?: boolean }) => {
+    return lambdaClient.conversationGeneration.listActive.query(undefined, {
+      context: { showNotification: !options?.quiet },
+    });
   };
 
   listEvents = async (cursor = 0) => {

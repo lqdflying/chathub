@@ -18,6 +18,12 @@ export interface ChatAIChatState {
    */
   chatLoadingIds: string[];
   chatLoadingIdsAbortController?: AbortController;
+  /** Maps assistant message ids to durable conversation lane keys for scoped Stop. */
+  chatLoadingLaneByMessageId: Record<string, string>;
+  /** Per-lane abort controllers so thread Stop does not abort main generation. */
+  chatLoadingAbortControllersByLane: Record<string, AbortController>;
+  /** Lane/topic keys marked stopped until the next send clears them. */
+  conversationLaneStopMarkers: Record<string, boolean>;
   inputFiles: File[];
   inputMessage: string;
   /** RAG prompt tokens currently carried by an in-flight provider request. */
@@ -60,6 +66,9 @@ export interface ChatAIChatState {
 
 export const initialAiChatState: ChatAIChatState = {
   chatLoadingIds: [],
+  chatLoadingAbortControllersByLane: {},
+  chatLoadingLaneByMessageId: {},
+  conversationLaneStopMarkers: {},
   inputFiles: [],
   inputMessage: '',
   knowledgeBaseContextTokens: {},

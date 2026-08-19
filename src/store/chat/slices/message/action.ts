@@ -83,6 +83,31 @@ const isConversationCacheKey = (key: unknown): boolean => {
   return conversationCacheKeys.has(key[0] as string);
 };
 
+type LoadingIdsArrayKey =
+  | 'chatLoadingIds'
+  | 'messageInToolsCallingIds'
+  | 'reasoningLoadingIds'
+  | 'searchWorkflowLoadingIds'
+  | 'pluginApiLoadingIds';
+
+const getLoadingAbortController = (
+  state: ChatStoreState,
+  key: LoadingIdsArrayKey,
+): AbortController | undefined => {
+  switch (key) {
+    case 'chatLoadingIds':
+      return state.chatLoadingIdsAbortController;
+    case 'messageInToolsCallingIds':
+      return state.messageInToolsCallingIdsAbortController;
+    case 'reasoningLoadingIds':
+      return state.reasoningLoadingIdsAbortController;
+    case 'searchWorkflowLoadingIds':
+      return state.searchWorkflowLoadingIdsAbortController;
+    default:
+      return undefined;
+  }
+};
+
 const clearTitleSummaryOperations = (
   state: ChatStoreState,
 ): Pick<
@@ -1135,10 +1160,11 @@ export const chatMessage: StateCreator<
         set({ [abortControllerKey]: undefined, [key]: [] }, false, action);
       } else {
         const nextIds = toggleBooleanList(get()[key] as string[], id, loading);
+        const currentAbortController = getLoadingAbortController(get(), key as LoadingIdsArrayKey);
         set(
           {
             [key]: nextIds,
-            [abortControllerKey]: nextIds.length > 0 ? get()[abortControllerKey] : undefined,
+            [abortControllerKey]: nextIds.length > 0 ? currentAbortController : undefined,
           },
           false,
           action,

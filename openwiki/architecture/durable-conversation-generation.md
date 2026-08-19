@@ -185,9 +185,9 @@ store value but preserves the send-time **clear** generation, so a late response
 after clear/delete/reset cannot re-attach. **Stop** bumps a **lane-scoped** clear
 epoch (`session/topic:threadId|main`); **topic delete** bumps a **topic-scoped**
 tombstone that invalidates every lane in that topic. `cancelActiveDurableOpsInScope`
-lists active server operations and cancels by scope before detaching local
-attachments, so detached jobs are not left running after delete or pre-enqueue
-Stop. **Clear current conversation** bumps the global clear epoch. `syncActive` does not
+lists active server operations via a quiet `listActive` call before detaching
+local attachments. Lane stop markers block sync re-attach until the next send
+clears them. **Clear current conversation** bumps the global clear epoch. `syncActive` does not
 reattach operations in `cancelling` status, and skips topics missing from
 `topicMaps` once that session’s topic list is loaded. Navigation-only invalidation
 re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
@@ -218,7 +218,8 @@ Explicit Stop, retry/rewind, delete, and clear perform scoped server
 cancellation.
 
 Stop still goes through `stopGenerateMessage` / group supervisor stop →
-`cancelAndDetachDurableOps` → `conversationGeneration.cancel`. Durable
+`cancelActiveDurableOpsInScope` → `conversationGeneration.cancel`. Lane stop
+markers block sync re-attach until the next send clears them. Durable
 generating UI uses `internal_markDurableGenerating` so it does not install
 `beforeunload`.
 
