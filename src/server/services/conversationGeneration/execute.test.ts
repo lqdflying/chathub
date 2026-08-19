@@ -609,6 +609,43 @@ describe('executeConversationGeneration chat resume', () => {
       expect.objectContaining({ attempt: 1 }),
     );
   });
+
+  it('passes cache diagnostics and a trusted prompt-cache key into ModelRuntime', async () => {
+    vi.stubEnv('DEBUG_OPENAI_CACHE', '1');
+    vi.stubEnv('KEY_VAULTS_SECRET', 'conversation-cache-fingerprint-secret');
+    try {
+      const row = {
+        assistantMessageId: assistant.id,
+        attempt: 0,
+        config: { model: 'gpt-5.6', provider: 'openai' },
+        id: 'cgo_cache_debug',
+        kind: 'chat',
+        lane: 'lane-1',
+        laneGeneration: 1,
+        revision: 0,
+        sessionId: 'session-1',
+        status: 'pending',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      };
+      vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'complete answer' });
+
+      await runOperation(row);
+
+      expect(runtimeMocks.chat).toHaveBeenCalledTimes(1);
+      expect(runtimeMocks.chat.mock.calls[0][1]).toMatchObject({
+        cacheDiagnostics: {
+          provider: 'openai',
+          runtimeFamily: 'openai',
+        },
+        runtimeProvider: 'openai',
+        trustedPromptCacheKey: expect.stringMatching(/^ch_[\da-f]{32}$/),
+        user: 'user-1',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('executeConversationGeneration supervisor children', () => {

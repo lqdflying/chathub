@@ -15,6 +15,7 @@ import type {
   ChatTopicMetadata,
   ConversationGenerationError,
   ConversationGenerationOperation,
+  ToolCacheDebugMetadata,
   UIChatMessage,
 } from '@lobechat/types';
 import { isActiveConversationGenerationStatus } from '@lobechat/types';
@@ -38,6 +39,13 @@ import {
   parseSupervisorTodosFromMessages,
   shouldAvoidSupervisorDecision,
 } from '@/helpers/supervisorTodos';
+import {
+  createKnowledgeDiagnosticId,
+  describeKnowledgeDebugError,
+  isKnowledgeDebugEnabled,
+  logKnowledgeDebugSafe,
+  runWithKnowledgeDebugOperation,
+} from '@/libs/logger/knowledgeDebug';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
 import { AiChatService } from '@/server/services/aiChat';
@@ -69,8 +77,18 @@ import {
 } from './constants';
 import { loadConversationRuntimeState, resolveConversationRuntimePayload } from './credentials';
 import { buildConversationChatPayload } from './payload';
+import {
+  createConversationRuntimeChatOptions,
+  type ConversationRuntimeChatOptionsInput,
+} from './runtimeChatOptions';
 import { consumeProtocolResponse } from './stream';
 import { loadConversationThreadMessages } from './threadScope';
+import {
+  createConversationToolBatchCorrelation,
+  reportConversationToolBatch,
+  reportConversationToolCompletion,
+  toConversationToolCacheMetadata,
+} from './toolDiagnostics';
 import { executeConversationToolStep } from './tools';
 
 export const shouldCreateToolContinuation = (remainingTurns: number, shouldContinue: boolean) =>
@@ -657,6 +675,8 @@ const executeChat = async (
   try {
     let remainingTurns = CONVERSATION_GENERATION_MAX_TOOL_TURNS;
     let currentPayload = built.payload;
+    let nextToolCache: ToolCacheDebugMetadata | undefined;
+    let toolDiagnosticSequence = 0;
 
     for (;;) {
       const stopReason = await shouldStopGeneration(db, model, operation, abortController.signal);
@@ -678,10 +698,18 @@ const executeChat = async (
           reasoning = undefined;
           await messageModel.update(assistantId, { content: LOADING_FLAT, reasoning: undefined });
         }
-        const response = await runtime.chat(currentPayload as any, {
-          signal: abortController.signal,
-          user: operation.userId,
-        });
+        const response = await runtime.chat(
+          currentPayload as any,
+          createConversationRuntimeChatOptions({
+            payload: currentPayload as ConversationRuntimeChatOptionsInput['payload'],
+            provider: operation.config.provider,
+            sessionId: operation.sessionId,
+            signal: abortController.signal,
+            topicId: operation.topicId,
+            toolCache: nextToolCache,
+            userId: operation.userId,
+          }),
+        );
         const result = await consumeProtocolResponse(response, {
           onReasoning: async (_delta, next) => {
             reasoning = next;
@@ -764,55 +792,82 @@ const executeChat = async (
 
       const assistantMessage = ((await messageModel.findById(assistantId)) || currentAssistant) as UIChatMessage;
       let shouldContinue = true;
-      for (const tool of tools) {
-        const toolStopReason = await shouldStopGeneration(
-          db,
-          model,
-          operation,
-          abortController.signal,
-        );
-        if (toolStopReason) {
-          return finishChatStop(
+      toolDiagnosticSequence += 1;
+      const toolBatch = createConversationToolBatchCorrelation(
+        tools.map((tool) => tool.id),
+        toolDiagnosticSequence,
+        operation.sessionId || operation.groupId,
+      );
+      reportConversationToolBatch(toolBatch, 'started');
+      let toolResultCount = 0;
+      let toolFailureCount = 0;
+      try {
+        for (const tool of tools) {
+          const toolStopReason = await shouldStopGeneration(
             db,
             model,
             operation,
-            assistantId,
-            toolStopReason,
-            options?.skipFinalize,
+            abortController.signal,
           );
-        }
+          if (toolStopReason) {
+            return finishChatStop(
+              db,
+              model,
+              operation,
+              assistantId,
+              toolStopReason,
+              options?.skipFinalize,
+            );
+          }
 
-        const invocation = await executeConversationToolStep({
-          assistantMessage: { ...assistantMessage, tools } as UIChatMessage,
-          attempt: operation.attempt,
-          db,
-          operationId: operation.id,
-          payload: tool,
-          userId: operation.userId,
-        });
-        if (!invocation.messageId) {
-          const existing = await messageModel.findToolMessageByCall(assistantId, tool.id);
-          if (!existing) {
-            await messageModel.create({
-              content: invocation.content,
-              groupId: operation.groupId ?? undefined,
-              metadata: invocation.metadata,
-              parentId: assistantId,
-              plugin: tool,
-              role: 'tool',
-              sessionId: operation.sessionId ?? operation.groupId ?? '',
-              threadId: operation.threadId ?? undefined,
-              tool_call_id: tool.id,
-              topicId: operation.topicId ?? undefined,
-            });
+          const invocation = await executeConversationToolStep({
+            assistantMessage: { ...assistantMessage, tools } as UIChatMessage,
+            attempt: operation.attempt,
+            db,
+            operationId: operation.id,
+            payload: tool,
+            userId: operation.userId,
+          });
+          if (invocation.success) toolResultCount += 1;
+          else toolFailureCount += 1;
+          reportConversationToolCompletion({
+            correlation: toolBatch,
+            identifier: tool.identifier,
+            outcome: invocation.success ? 'completed' : 'failed',
+            toolCallId: tool.id,
+          });
+          if (!invocation.messageId) {
+            const existing = await messageModel.findToolMessageByCall(assistantId, tool.id);
+            if (!existing) {
+              await messageModel.create({
+                content: invocation.content,
+                groupId: operation.groupId ?? undefined,
+                metadata: invocation.metadata,
+                parentId: assistantId,
+                plugin: tool,
+                role: 'tool',
+                sessionId: operation.sessionId ?? operation.groupId ?? '',
+                threadId: operation.threadId ?? undefined,
+                tool_call_id: tool.id,
+                topicId: operation.topicId ?? undefined,
+              });
+            }
+          }
+          shouldContinue = shouldContinue && invocation.shouldContinue;
+          const activated = (invocation.metadata?.skills as { activated?: string[] } | undefined)
+            ?.activated;
+          if (Array.isArray(activated)) {
+            activatedSkillIds = [...new Set([...activatedSkillIds, ...activated])];
           }
         }
-        shouldContinue = shouldContinue && invocation.shouldContinue;
-        const activated = (invocation.metadata?.skills as { activated?: string[] } | undefined)
-          ?.activated;
-        if (Array.isArray(activated)) {
-          activatedSkillIds = [...new Set([...activatedSkillIds, ...activated])];
-        }
+      } finally {
+        const settledBatch = {
+          ...toolBatch,
+          failureCount: toolFailureCount,
+          resultCount: toolResultCount,
+        };
+        reportConversationToolBatch(settledBatch, 'settled');
+        nextToolCache = toConversationToolCacheMetadata(settledBatch);
       }
 
       if (!shouldCreateToolContinuation(remainingTurns, shouldContinue)) break;
@@ -946,33 +1001,75 @@ const injectRag = async (
 ) => {
   const query = operation.config.ragQuery;
   if (!query) return messages;
-  try {
-    const resolved = await resolveRagEmbeddingConfig(db, operation.userId);
-    if (!resolved.config || !resolved.fingerprint) return messages;
-    const embeddings = await new RagEmbeddingService(resolved.config).embed(query, 'query');
-    const fileIds = (agent?.files || [])
-      .filter((file) => file?.enabled && file.id)
-      .map((file) => file.id as string);
-    const chunks = await new ChunkModel(db, operation.userId).semanticSearchForChat({
-      embedding: embeddings[0],
-      fileIds: fileIds.length > 0 ? fileIds : undefined,
-      fingerprint: resolved.fingerprint,
-      query,
-    });
-    if (!Array.isArray(chunks) || chunks.length === 0) return messages;
-    const lastUser = [...messages].reverse().find((item) => item.role === 'user');
-    if (!lastUser) return messages;
-    const prompt = knowledgeBaseQAPrompts({
-      chunks,
-      userQuery: lastUser.content,
-    });
-    if (!prompt) return messages;
-    return messages.map((item) =>
-      item.id === lastUser.id ? { ...item, content: `${item.content}\n\n${prompt}`.trim() } : item,
-    );
-  } catch {
-    return messages;
-  }
+  const diagnosticId = isKnowledgeDebugEnabled() ? createKnowledgeDiagnosticId() : undefined;
+  return runWithKnowledgeDebugOperation(
+    {
+      diagnosticId,
+      operation: 'conversation_retrieval',
+      runtime: 'worker',
+      transport: 'graphile',
+    },
+    async () => {
+      const startedAt = Date.now();
+      const fileIds = (agent?.files || [])
+        .filter((file) => file?.enabled && file.id)
+        .map((file) => file.id as string);
+      logKnowledgeDebugSafe('retrieval_started', {
+        directFileCount: fileIds.length,
+        knowledgeBaseCount: 0,
+        phase: 'retrieval',
+        queryCharacters: query.length,
+        queryRewritten: false,
+      });
+      try {
+        const resolved = await resolveRagEmbeddingConfig(db, operation.userId);
+        if (!resolved.config || !resolved.fingerprint) return messages;
+        const embeddings = await new RagEmbeddingService(resolved.config).embed(query, 'query');
+        const { chunks, stats } = await new ChunkModel(db, operation.userId).semanticSearchForChatWithStats({
+          embedding: embeddings[0],
+          fileIds: fileIds.length > 0 ? fileIds : undefined,
+          fingerprint: resolved.fingerprint,
+          query,
+        });
+        logKnowledgeDebugSafe('vector_search_settled', {
+          ...stats,
+          outcome: 'completed',
+          phase: 'vector_search',
+        });
+        logKnowledgeDebugSafe('retrieval_settled', {
+          durationMs: Date.now() - startedAt,
+          outcome: 'completed',
+          phase: 'retrieval',
+          selectedCount: stats.selectedCount,
+        });
+        if (!Array.isArray(chunks) || chunks.length === 0) return messages;
+        const lastUser = [...messages].reverse().find((item) => item.role === 'user');
+        if (!lastUser) return messages;
+        const prompt = knowledgeBaseQAPrompts({
+          chunks,
+          userQuery: lastUser.content,
+        });
+        if (!prompt) return messages;
+        logKnowledgeDebugSafe('prompt_injection_reported', {
+          chunkCount: chunks.length,
+          outcome: 'completed',
+          phase: 'client_prompt_preparation',
+        });
+        return messages.map((item) =>
+          item.id === lastUser.id ? { ...item, content: `${item.content}\n\n${prompt}`.trim() } : item,
+        );
+      } catch (error) {
+        logKnowledgeDebugSafe('retrieval_settled', {
+          ...describeKnowledgeDebugError(error),
+          durationMs: Date.now() - startedAt,
+          failurePhase: 'retrieval',
+          outcome: 'failed',
+          phase: 'retrieval',
+        });
+        return messages;
+      }
+    },
+  );
 };
 
 const runSimpleCompletion = async (
@@ -987,13 +1084,21 @@ const runSimpleCompletion = async (
     userId: operation.userId,
   });
   const runtime = initModelRuntimeWithUserPayload(operation.config.provider, runtimePayload);
+  const chatPayload = {
+    ...payload,
+    model: operation.config.model,
+    stream: true,
+  };
   const response = await runtime.chat(
-    {
-      ...payload,
-      model: operation.config.model,
-      stream: true,
-    } as any,
-    signal ? { signal } : undefined,
+    chatPayload as any,
+    createConversationRuntimeChatOptions({
+      payload: chatPayload,
+      provider: operation.config.provider,
+      sessionId: operation.sessionId,
+      signal,
+      topicId: operation.topicId,
+      userId: operation.userId,
+    }),
   );
   const result = await consumeProtocolResponse(response);
   if (result.error) throw new Error(result.error.message);
@@ -1675,7 +1780,10 @@ const executeSupervisor = async (
         ...payload,
         model: operation.config.model,
       } as any,
-      options?.runSignal ? { signal: options.runSignal } : undefined,
+      {
+        ...(options?.runSignal ? { signal: options.runSignal } : {}),
+        user: operation.userId,
+      },
     );
 
     const applied = applySupervisorToolCalls({

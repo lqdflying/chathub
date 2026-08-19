@@ -273,6 +273,23 @@ build if that overlay is incomplete.
 `DISABLE_CONVERSATION_WORKER=1` skips worker *start*, not the static import, so
 it does not work around a missing `tslib`.
 
+## Diagnostics
+
+`src/instrumentation.ts` calls `bootstrapDebug()` before starting the worker.
+Debug env vars are process-wide; the Docker overlay does not strip them.
+
+| Switch | Worker wiring |
+| --- | --- |
+| `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs. |
+| `CHATHUB_TOOLS_DEBUG` | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`. |
+| `DEBUG_*_CACHE` | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`. |
+| `CHATHUB_KNOWLEDGE_DEBUG` | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`. |
+| `CHATHUB_IMAGE_DEBUG` | Unchanged. Image workspace uses `async_tasks`, not this worker. |
+| `DEBUG_*_CHAT_COMPLETION` | Provider factories read `process.env` at call time. |
+
+Browser-only switches (`NEXT_PUBLIC_CHATHUB_DEBUG`, `?replacement_debug=1`)
+are unchanged.
+
 ## Startup schema repair
 
 `ensureConversationGenerationOperations.cjs` runs after Drizzle migrations on

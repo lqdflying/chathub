@@ -390,7 +390,10 @@ CONVERSATION_WORKER_CONCURRENCY=4
 Jobs are stored in PostgreSQL through Graphile Worker. Missing server
 credentials fall back to the connected-tab runtime after the user message is
 saved. JSON account backup does not include `conversation_generation_*` or
-`graphile_worker`. Details:
+`graphile_worker`. The worker shares the container env with HTTP routes, so
+`CHATHUB_TOOLS_DEBUG`, `CHATHUB_KNOWLEDGE_DEBUG`, `CHATHUB_IMAGE_DEBUG`,
+`CHATHUB_DEBUG` / `LOG_LEVEL`, and `DEBUG_*_CACHE` apply without a rebuild.
+Details:
 [Durable conversation generation](../architecture/durable-conversation-generation.md).
 
 ## Change guidance
