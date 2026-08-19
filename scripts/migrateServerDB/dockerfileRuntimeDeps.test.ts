@@ -40,8 +40,13 @@ describe('Dockerfile Graphile Worker runtime overlay', () => {
     expect(dockerfile).toContain(
       'npm install pg@^8.16.3 drizzle-orm@^0.44.6 graphile-worker@0.17.3 --omit=dev',
     );
-    expect(dockerfile).toContain('COPY --from=builder /deps/node_modules/ /app/node_modules/');
+    expect(dockerfile).toContain('COPY --from=builder /deps/node_modules /tmp/deps-node-modules');
+    expect(dockerfile).toContain('if [ -L "$dest" ]; then rm -f "$dest"; fi;');
+    expect(dockerfile).toContain('cp -a /tmp/deps-node-modules/. /app/node_modules/');
     expect(dockerfile).toContain("require('/app/node_modules/graphile-worker')");
+    expect(dockerfile).not.toContain(
+      'COPY --from=builder /deps/node_modules/ /app/node_modules/',
+    );
     expect(dockerfile).not.toContain(
       'COPY --from=builder /deps/node_modules/graphile-worker /app/node_modules/graphile-worker',
     );

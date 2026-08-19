@@ -197,20 +197,37 @@ COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 
 # Overlay runtime deps for docker.cjs (pg, drizzle-orm) and Graphile Worker.
 # graphile-worker@0.17.3 always `require('tslib')` (TypeScript importHelpers).
-# Docker COPY of a pnpm package symlink materializes only that package, so Node
-# cannot see sibling `.pnpm` deps from `/app/node_modules/graphile-worker`.
 # /deps uses npm's hoisted layout so tslib, cosmiconfig, yargs, and the rest
-# land as real directories next to graphile-worker.
+# land as real directories. Do not COPY that tree straight onto standalone
+# node_modules: Next's pnpm layout leaves names such as `pg` as symlinks, and
+# BuildKit then fails with "cannot copy to non-directory".
+# https://github.com/docker/buildx/issues/150
 # https://www.typescriptlang.org/tsconfig/importHelpers.html
 # https://nodejs.org/api/modules.html#loading-from-node_modules-folders
-COPY --from=builder /deps/node_modules/ /app/node_modules/
+COPY --from=builder /deps/node_modules /tmp/deps-node-modules
 
 # Copy server launcher
 COPY --from=builder /app/scripts/serverLauncher/startServer.js /app/startServer.js
 
 RUN \
-    # Fail the image if Graphile Worker or migrate deps cannot resolve (tslib, …)
-    /bin/node -e "require('/app/node_modules/graphile-worker'); require('/app/node_modules/pg'); require('/app/node_modules/drizzle-orm')" \
+    # Replace pnpm dest symlinks, then merge the hoisted /deps tree
+    for pkg in /tmp/deps-node-modules/*; do \
+        [ -e "$pkg" ] || continue; \
+        name=$(basename "$pkg"); \
+        dest="/app/node_modules/$name"; \
+        if [ -L "$dest" ]; then rm -f "$dest"; fi; \
+        if [ -d "$pkg" ] && [ "${name#@}" != "$name" ]; then \
+            mkdir -p "$dest"; \
+            for scoped in "$pkg"/*; do \
+                [ -e "$scoped" ] || continue; \
+                sdest="$dest/$(basename "$scoped")"; \
+                if [ -L "$sdest" ]; then rm -f "$sdest"; fi; \
+            done; \
+        fi; \
+    done \
+    && cp -a /tmp/deps-node-modules/. /app/node_modules/ \
+    && rm -rf /tmp/deps-node-modules \
+    && /bin/node -e "require('/app/node_modules/graphile-worker'); require('/app/node_modules/pg'); require('/app/node_modules/drizzle-orm')" \
     # Add nextjs:nodejs to run the app
     && addgroup -S -g 1001 nodejs \
     && adduser -D -G nodejs -H -S -h /app -u 1001 nextjs \

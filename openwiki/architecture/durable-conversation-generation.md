@@ -257,8 +257,13 @@ compiles with TypeScript `importHelpers` and therefore
 directories from that file upward; it does not search pnpm's `.pnpm` store.
 
 The image therefore installs a separate `/deps` tree with **npm** (hoisted
-layout) and copies the contents of `/deps/node_modules/` onto the standalone
-`/app/node_modules/` (merge; existing Next traced packages stay).
+layout), copies it to `/tmp/deps-node-modules`, removes any standalone pnpm
+symlinks that share those package names (`pg`, `drizzle-orm`, scoped
+`@graphile/*`, …), then `cp -a` merges the real directories into
+`/app/node_modules/`. A direct `COPY /deps/node_modules/ /app/node_modules/`
+fails BuildKit with `cannot copy to non-directory` because Next's standalone
+`pg` is a symlink
+([docker/buildx#150](https://github.com/docker/buildx/issues/150)).
 Copying only `graphile-worker` materializes the package directory without
 `tslib`, `cosmiconfig`, or `yargs`, and Next fails while loading
 `instrumentation` (`Failed to prepare server` / `MODULE_NOT_FOUND`). The app
