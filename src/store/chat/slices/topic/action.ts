@@ -1,6 +1,7 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Note: To make the code more logic and readable, we just disable the auto sort key eslint rule
 // DON'T REMOVE THE FIRST LINE
+import { MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { chainSummaryTitle } from '@lobechat/prompts';
 import { TraceNameMap, UIChatMessage } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
@@ -12,7 +13,6 @@ import { StateCreator } from 'zustand/vanilla';
 
 import { message } from '@/components/AntdStaticMethods';
 import { LOADING_FLAT } from '@/const/message';
-import { MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { conversationGenerationRequestKey } from '@/helpers/conversationGenerationIdempotency';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
@@ -25,8 +25,11 @@ import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/stor
 import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
+import {
+  bumpTopicScopedClearGeneration,
+  markConversationTopicDurableGenerationStopped,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
-import { bumpTopicScopedClearGeneration, markConversationTopicDurableGenerationStopped } from '@/store/chat/utils/conversationClearGeneration';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
@@ -779,12 +782,6 @@ export const chatTopic: StateCreator<
       get().activeId === requestedContainerId &&
       get().activeTopicId === requestedActiveTopicId;
 
-    await get().cancelActiveDurableOpsInScope({
-      allThreads: true,
-      sessionId: requestedContainerId,
-      topicId: requestedTopicId,
-    });
-
     set(
       (state) => ({
         ...bumpTopicScopedClearGeneration(state, requestedContainerId, requestedTopicId),
@@ -797,6 +794,12 @@ export const chatTopic: StateCreator<
       false,
       n('removeTopic/bumpTopicScopedClearGeneration'),
     );
+
+    await get().cancelActiveDurableOpsInScope({
+      allThreads: true,
+      sessionId: requestedContainerId,
+      topicId: requestedTopicId,
+    });
 
     if (requestedActiveTopicId === requestedTopicId) {
       const operationKey = messageMapKey(requestedContainerId, requestedTopicId);

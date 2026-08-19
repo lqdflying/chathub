@@ -3,8 +3,16 @@ import type { ChatStore } from '@/store/chat/store';
 import { messageMapKey } from './messageMapKey';
 
 export interface ConversationLaneStopMarker {
-  supersededByOperationId?: string;
+  /** Sync rejects same-lane ops at or below this server lane generation. */
+  maxStoppedLaneGeneration?: number;
+  /** Server operation ids explicitly cancelled for this lane/topic fence. */
+  stoppedOperationIds: string[];
 }
+
+type StoppedOperationRef = {
+  laneGeneration?: number;
+  operationId: string;
+};
 
 const topicScopedClearKey = (sessionId: string, topicId?: string | null) =>
   messageMapKey(sessionId, topicId);
@@ -77,63 +85,142 @@ export const bumpScopedConversationClearGeneration = bumpTopicScopedClearGenerat
 
 type LaneStopMarkerState = Pick<ChatStore, 'conversationLaneStopMarkers'>;
 
+const mergeStoppedOperations = (
+  existing: ConversationLaneStopMarker | undefined,
+  operations: StoppedOperationRef[],
+): ConversationLaneStopMarker => {
+  const stoppedOperationIds = [
+    ...new Set([
+      ...(existing?.stoppedOperationIds ?? []),
+      ...operations.map((operation) => operation.operationId),
+    ]),
+  ];
+  const laneGenerations = operations
+    .map((operation) => operation.laneGeneration)
+    .filter((laneGeneration): laneGeneration is number => laneGeneration !== undefined);
+  const maxFromOps = laneGenerations.length > 0 ? Math.max(...laneGenerations) : 0;
+  const maxStoppedLaneGeneration = Math.max(existing?.maxStoppedLaneGeneration ?? 0, maxFromOps);
+
+  return {
+    maxStoppedLaneGeneration: maxStoppedLaneGeneration > 0 ? maxStoppedLaneGeneration : undefined,
+    stoppedOperationIds,
+  };
+};
+
+const applyStoppedOperationsToMarkerKey = (
+  markers: LaneStopMarkerState['conversationLaneStopMarkers'],
+  markerKey: string,
+  operations: StoppedOperationRef[],
+) => ({
+  ...markers,
+  [markerKey]: mergeStoppedOperations(markers[markerKey], operations),
+});
+
 const isMarkerSuppressedForOperation = (
   marker: ConversationLaneStopMarker | undefined,
   operationId?: string,
+  laneGeneration?: number,
 ) => {
   if (!marker) return false;
-  if (operationId && marker.supersededByOperationId === operationId) return false;
-  return true;
+
+  if (operationId && marker.stoppedOperationIds.includes(operationId)) return true;
+
+  if (
+    laneGeneration !== undefined &&
+    marker.maxStoppedLaneGeneration !== undefined &&
+    laneGeneration <= marker.maxStoppedLaneGeneration
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+const collectAttachedOperationsForLane = (
+  state: Pick<ChatStore, 'serverGenerationOperations'>,
+  sessionId: string,
+  topicId?: string | null,
+  threadId?: string | null,
+): StoppedOperationRef[] => {
+  const topicKey = messageMapKey(sessionId, topicId);
+  const targetThreadId = threadId ?? null;
+
+  return Object.values(state.serverGenerationOperations[topicKey] || {})
+    .filter((operation) => (operation.threadId ?? null) === targetThreadId)
+    .map((operation) => ({
+      laneGeneration: operation.laneGeneration,
+      operationId: operation.operationId,
+    }));
+};
+
+const collectAttachedOperationsForTopic = (
+  state: Pick<ChatStore, 'serverGenerationOperations'>,
+  sessionId: string,
+  topicId?: string | null,
+): StoppedOperationRef[] => {
+  const topicKey = messageMapKey(sessionId, topicId);
+
+  return Object.values(state.serverGenerationOperations[topicKey] || {}).map((operation) => ({
+    laneGeneration: operation.laneGeneration,
+    operationId: operation.operationId,
+  }));
+};
+
+export const recordStoppedDurableOperationsInMarkers = (
+  state: LaneStopMarkerState,
+  sessionId: string,
+  operations: StoppedOperationRef[],
+  topicId?: string | null,
+  threadId?: string | null,
+) => {
+  if (operations.length === 0) return {};
+
+  let conversationLaneStopMarkers = state.conversationLaneStopMarkers;
+  const laneKey = laneScopedClearKey(sessionId, topicId, threadId);
+  conversationLaneStopMarkers = applyStoppedOperationsToMarkerKey(
+    conversationLaneStopMarkers,
+    laneKey,
+    operations,
+  );
+
+  if (topicId) {
+    const topicKey = topicScopedClearKey(sessionId, topicId);
+    conversationLaneStopMarkers = applyStoppedOperationsToMarkerKey(
+      conversationLaneStopMarkers,
+      topicKey,
+      operations,
+    );
+  }
+
+  return { conversationLaneStopMarkers };
 };
 
 export const markConversationLaneDurableGenerationStopped = (
-  state: LaneStopMarkerState,
+  state: LaneStopMarkerState & Pick<ChatStore, 'serverGenerationOperations'>,
   sessionId: string,
   topicId?: string | null,
   threadId?: string | null,
-) => {
-  const laneKey = laneScopedClearKey(sessionId, topicId, threadId);
-
-  return {
-    conversationLaneStopMarkers: {
-      ...state.conversationLaneStopMarkers,
-      [laneKey]: {},
-    },
-  };
-};
+) =>
+  recordStoppedDurableOperationsInMarkers(
+    state,
+    sessionId,
+    collectAttachedOperationsForLane(state, sessionId, topicId, threadId),
+    topicId,
+    threadId,
+  );
 
 export const markConversationTopicDurableGenerationStopped = (
-  state: LaneStopMarkerState,
+  state: LaneStopMarkerState & Pick<ChatStore, 'serverGenerationOperations'>,
   sessionId: string,
   topicId?: string | null,
-) => {
-  const topicKey = topicScopedClearKey(sessionId, topicId);
-
-  return {
-    conversationLaneStopMarkers: {
-      ...state.conversationLaneStopMarkers,
-      [topicKey]: {},
-    },
-  };
-};
-
-export const supersedeConversationLaneStopMarker = (
-  state: LaneStopMarkerState,
-  sessionId: string,
-  topicId?: string | null,
-  threadId?: string | null,
-  operationId: string,
-) => {
-  const laneKey = laneScopedClearKey(sessionId, topicId, threadId);
-  if (!state.conversationLaneStopMarkers?.[laneKey]) return {};
-
-  return {
-    conversationLaneStopMarkers: {
-      ...state.conversationLaneStopMarkers,
-      [laneKey]: { supersededByOperationId: operationId },
-    },
-  };
-};
+) =>
+  recordStoppedDurableOperationsInMarkers(
+    state,
+    sessionId,
+    collectAttachedOperationsForTopic(state, sessionId, topicId),
+    topicId,
+    null,
+  );
 
 export const isConversationLaneDurableGenerationStopped = (
   state: LaneStopMarkerState,
@@ -141,10 +228,12 @@ export const isConversationLaneDurableGenerationStopped = (
   topicId?: string | null,
   threadId?: string | null,
   operationId?: string,
+  laneGeneration?: number,
 ) =>
   isMarkerSuppressedForOperation(
     state.conversationLaneStopMarkers?.[laneScopedClearKey(sessionId, topicId, threadId)],
     operationId,
+    laneGeneration,
   );
 
 export const isConversationTopicDurableGenerationStopped = (
@@ -152,8 +241,10 @@ export const isConversationTopicDurableGenerationStopped = (
   sessionId: string,
   topicId?: string | null,
   operationId?: string,
+  laneGeneration?: number,
 ) =>
   isMarkerSuppressedForOperation(
     state.conversationLaneStopMarkers?.[topicScopedClearKey(sessionId, topicId)],
     operationId,
+    laneGeneration,
   );

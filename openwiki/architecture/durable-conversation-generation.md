@@ -186,12 +186,16 @@ after clear/delete/reset cannot re-attach. **Stop** bumps a **lane-scoped** clea
 epoch (`session/topic:threadId|main`); **topic delete** bumps a **topic-scoped**
 tombstone that invalidates every lane in that topic. `cancelActiveDurableOpsInScope`
 lists active server operations via a quiet `listActive` call before detaching
-local attachments. Lane stop markers block sync re-attach until a **replacement**
-durable operation supersedes the marker with its `operationId` (successful attach
-on send, regenerate, or late V2 response). Failed or deferred sends do **not**
-clear markers at send start. **Clear current conversation** bumps the global clear epoch. `syncActive` does not
-reattach operations in `cancelling` status, and skips topics missing from
-`topicMaps` once that session’s topic list is loaded. Navigation-only invalidation
+local attachments. Lane stop markers record cancelled operation ids and the
+maximum stopped **lane generation** for that lane/topic. Sync re-cancels only
+those predecessors or same-lane ops at or below that generation; newer server
+lane generations (group supervisor, group agent, or another tab) attach without a
+local producer callsite. Failed or deferred sends do **not** clear markers at
+send start. **Topic delete** installs its tombstone synchronously before the
+first `await`, then performs best-effort server cancellation. **Clear current
+conversation** bumps the global clear epoch. `syncActive` does not
+reattach operations in `cancelling` status, and skips topics absent from a
+loaded `topicMaps` entry (an explicitly empty list means the topic was removed). Navigation-only invalidation
 re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
 and abort recovery are gated on `isAccountMutationCurrent` and `userScope` at
 the shared attach boundary so account reset does not write durable state into
@@ -200,9 +204,10 @@ the wrong scope. Per-lane `chatLoadingAbortControllersByLane` pair with
 tracks the latest-started lane only and is not used for lane-scoped Stop.
 Lane maps are cleared on normal completion (with thread scope in `finally`),
 conversation clear, invalidate, and account reset via `abortAllChatLoadingLanes`
-/ `clearChatLoadingLaneMaps`. Shared
-cleared only when the corresponding loading list becomes empty, so one
-generation’s `finally` cleanup cannot strip Stop from a sibling in-flight job.
+/ `clearChatLoadingLaneMaps`. Legacy global `chatLoadingIdsAbortController` and
+`searchWorkflowLoadingIdsAbortController` are cleared only when the corresponding
+loading list becomes empty, so one generation’s `finally` cleanup cannot strip
+Stop from a sibling in-flight job.
 It skips only UI-only work: `switchTopic`, skill move, `addFilesToAgent`, and
 browser `internal_execAgentRuntime`. Abort recovery looks up the
 `idempotencyKey` unless Stop cancelled the send (`MESSAGE_CANCEL_FLAT` /
@@ -225,9 +230,8 @@ cancellation.
 
 Stop still goes through `stopGenerateMessage` / group supervisor stop →
 `cancelActiveDurableOpsInScope` → `conversationGeneration.cancel`. Lane stop
-markers block sync re-attach until superseded by a replacement operation id.
-Durable
-generating UI uses `internal_markDurableGenerating` so it does not install
+markers fence only the cancelled predecessor ids and lane-generation cutoff.
+Durable generating UI uses `internal_markDurableGenerating` so it does not install
 `beforeunload`.
 
 Useful env vars:
@@ -322,7 +326,7 @@ Copying only `graphile-worker` materializes the package directory without
 stage `require('/app/node_modules/graphile-worker')` check fails the image
 build if that overlay is incomplete.
 
-`DISABLE_CONVERSATION_WORKER=1` skips worker *start*, not the static import, so
+`DISABLE_CONVERSATION_WORKER=1` skips worker _start_, not the static import, so
 it does not work around a missing `tslib`.
 
 ## Diagnostics
@@ -330,14 +334,14 @@ it does not work around a missing `tslib`.
 `src/instrumentation.ts` calls `bootstrapDebug()` before starting the worker.
 Debug env vars are process-wide; the Docker overlay does not strip them.
 
-| Switch | Worker wiring |
-| --- | --- |
-| `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs. |
-| `CHATHUB_TOOLS_DEBUG` | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`. |
-| `DEBUG_*_CACHE` | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`. |
-| `CHATHUB_KNOWLEDGE_DEBUG` | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`. |
-| `CHATHUB_IMAGE_DEBUG` | Unchanged. Image workspace uses `async_tasks`, not this worker. |
-| `DEBUG_*_CHAT_COMPLETION` | Provider factories read `process.env` at call time. |
+| Switch                        | Worker wiring                                                                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs.                                                                  |
+| `CHATHUB_TOOLS_DEBUG`         | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`.                  |
+| `DEBUG_*_CACHE`               | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`. |
+| `CHATHUB_KNOWLEDGE_DEBUG`     | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`.                                 |
+| `CHATHUB_IMAGE_DEBUG`         | Unchanged. Image workspace uses `async_tasks`, not this worker.                                                                                       |
+| `DEBUG_*_CHAT_COMPLETION`     | Provider factories read `process.env` at call time.                                                                                                   |
 
 Browser-only switches (`NEXT_PUBLIC_CHATHUB_DEBUG`, `?replacement_debug=1`)
 are unchanged.

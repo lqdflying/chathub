@@ -15,6 +15,7 @@ import { toggleBooleanList } from '@/store/chat/utils';
 import {
   isConversationLaneDurableGenerationStopped,
   isConversationTopicDurableGenerationStopped,
+  recordStoppedDurableOperationsInMarkers,
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -151,12 +152,13 @@ const matchesOperationScope = (
     const kinds = Array.isArray(options.kind) ? options.kind : [options.kind];
     if (!kinds.includes(operation.kind)) return false;
   }
-  if (options?.assistantMessageIds && (
-      !operation.assistantMessageId ||
-      !options.assistantMessageIds.includes(operation.assistantMessageId)
-    )) {
-      return false;
-    }
+  if (
+    options?.assistantMessageIds &&
+    (!operation.assistantMessageId ||
+      !options.assistantMessageIds.includes(operation.assistantMessageId))
+  ) {
+    return false;
+  }
   if (!options?.allThreads) {
     const threadId =
       options && Object.hasOwn(options, 'threadId')
@@ -196,7 +198,8 @@ const topicExistsInMaps = (
 ) => {
   if (!topicId) return true;
   const topics = topicMaps[sessionId];
-  if (!topics?.length) return true;
+  if (topics === undefined) return true;
+  if (topics.length === 0) return false;
   return topics.some((topic) => topic.id === topicId);
 };
 
@@ -398,6 +401,33 @@ export const conversationGeneration: StateCreator<
       const scoped = activeOps.filter((operation) =>
         matchesActiveServerOperationScope(operation, options, state),
       );
+      if (scoped.length > 0) {
+        set(
+          (current) => {
+            let conversationLaneStopMarkers = current.conversationLaneStopMarkers;
+            for (const operation of scoped) {
+              const sessionId = operation.sessionId || state.activeId;
+              const stoppedOperations = [
+                {
+                  laneGeneration: operation.laneGeneration,
+                  operationId: operation.id,
+                },
+              ];
+              const nextMarkers = recordStoppedDurableOperationsInMarkers(
+                { conversationLaneStopMarkers },
+                sessionId,
+                stoppedOperations,
+                operation.topicId,
+                operation.threadId ?? null,
+              );
+              conversationLaneStopMarkers = nextMarkers.conversationLaneStopMarkers;
+            }
+            return { conversationLaneStopMarkers };
+          },
+          false,
+          n('cancelActive/recordStoppedMarkers'),
+        );
+      }
       await Promise.allSettled(
         scoped.map((operation) => conversationGenerationService.cancel(operation.id)),
       );
@@ -557,6 +587,7 @@ export const conversationGeneration: StateCreator<
           operation.topicId,
           operation.threadId ?? null,
           operation.id,
+          operation.laneGeneration,
         ) ||
         (operation.topicId &&
           isConversationTopicDurableGenerationStopped(
@@ -564,6 +595,7 @@ export const conversationGeneration: StateCreator<
             operationSessionId,
             operation.topicId,
             operation.id,
+            operation.laneGeneration,
           ))
       ) {
         if (isSyncAttachableConversationGenerationStatus(operation.status)) {

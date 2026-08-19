@@ -350,13 +350,15 @@ describe('generateAIChatV2 actions', () => {
       const abortError = new Error('The user aborted a request.');
       abortError.name = 'AbortError';
       (aiChatService.sendMessageInServer as Mock).mockRejectedValueOnce(abortError);
-      vi.spyOn(conversationGenerationService, 'getOperationByIdempotencyKey').mockResolvedValueOnce({
-        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
-        id: 'cgo_recovered',
-        kind: 'chat',
-        topicId: TEST_IDS.TOPIC_ID,
-        userMessageId: TEST_IDS.USER_MESSAGE_ID,
-      } as any);
+      vi.spyOn(conversationGenerationService, 'getOperationByIdempotencyKey').mockResolvedValueOnce(
+        {
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          id: 'cgo_recovered',
+          kind: 'chat',
+          topicId: TEST_IDS.TOPIC_ID,
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        } as any,
+      );
       const execAgentRuntime = vi.fn();
 
       act(() => {
@@ -757,7 +759,9 @@ describe('generateAIChatV2 actions', () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect((aiChatService.sendMessageInServer as Mock).mock.calls[0][0].generation).toBeUndefined();
+        expect(
+          (aiChatService.sendMessageInServer as Mock).mock.calls[0][0].generation,
+        ).toBeUndefined();
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
@@ -801,28 +805,28 @@ describe('generateAIChatV2 actions', () => {
         (aiChatService.sendMessageInServer as Mock).mockRejectedValueOnce(
           new Error('network disconnected'),
         );
-        vi.mocked(
-          conversationGenerationService.getOperationByIdempotencyKey,
-        ).mockResolvedValueOnce({
-          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
-          id: 'cgo_recovered',
-          kind: 'chat',
-          lane: 'lane-recovered',
-          laneGeneration: 1,
-          sessionId: TEST_IDS.SESSION_ID,
-          status: 'processing',
-          topicId: TEST_IDS.TOPIC_ID,
-          userMessageId: TEST_IDS.USER_MESSAGE_ID,
-        } as any);
+        vi.mocked(conversationGenerationService.getOperationByIdempotencyKey).mockResolvedValueOnce(
+          {
+            assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+            id: 'cgo_recovered',
+            kind: 'chat',
+            lane: 'lane-recovered',
+            laneGeneration: 1,
+            sessionId: TEST_IDS.SESSION_ID,
+            status: 'processing',
+            topicId: TEST_IDS.TOPIC_ID,
+            userMessageId: TEST_IDS.USER_MESSAGE_ID,
+          } as any,
+        );
         const { result } = renderHook(() => useChatStore());
 
         await act(async () => {
           await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
         });
 
-        expect(
-          conversationGenerationService.getOperationByIdempotencyKey,
-        ).toHaveBeenCalledWith(expect.stringMatching(/^chat-send:/));
+        expect(conversationGenerationService.getOperationByIdempotencyKey).toHaveBeenCalledWith(
+          expect.stringMatching(/^chat-send:/),
+        );
         expect(
           useChatStore.getState().serverGenerationOperations[
             messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
@@ -1760,8 +1764,12 @@ describe('generateAIChatV2 actions', () => {
 
       expect(cancel).toHaveBeenCalledWith('cgo_pre_enqueue');
       const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
-      expect(useChatStore.getState().conversationScopedClearGenerations[laneKey]).toBeGreaterThan(0);
-      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toEqual({});
+      expect(useChatStore.getState().conversationScopedClearGenerations[laneKey]).toBeGreaterThan(
+        0,
+      );
+      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toMatchObject({
+        stoppedOperationIds: ['cgo_pre_enqueue'],
+      });
     });
 
     it('should handle gracefully when operation does not exist', async () => {

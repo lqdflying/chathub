@@ -51,11 +51,14 @@ import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { preventLeavingFn, toggleBooleanList } from '@/store/chat/utils';
 import {
+  abortChatLoadingLane,
+  clearChatLoadingLaneEntries,
+} from '@/store/chat/utils/chatLoadingLanes';
+import {
   bumpLaneScopedClearGeneration,
   laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
-  supersedeConversationLaneStopMarker,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
@@ -485,18 +488,6 @@ export const generateAIChat: StateCreator<
           topicId: conversationContext.topicId ?? undefined,
           userScope: accountMutationSnapshot.scope,
         });
-        set(
-          (state) =>
-            supersedeConversationLaneStopMarker(
-              state,
-              conversationContext.sessionId,
-              conversationContext.topicId,
-              params?.threadId ?? null,
-              operation.id,
-            ),
-          false,
-          n('coreProcessMessage/supersedeLaneStopMarker'),
-        );
         if (!isCurrentConversation()) return;
         await refreshMessages();
         return;
@@ -1290,6 +1281,7 @@ export const generateAIChat: StateCreator<
     const supervisorTodoKey = messageMapKey(groupId, activeTopicId);
     const originalSupervisorTodos = state.supervisorTodos[supervisorTodoKey];
     const requestedThreadId = outThreadId ?? state.activeThreadId;
+    const retryLaneKey = laneScopedClearKey(activeId, activeTopicId, requestedThreadId ?? null);
     let rewindPersisted = false;
 
     set(
@@ -1300,7 +1292,7 @@ export const generateAIChat: StateCreator<
 
     try {
       // Cancel every producer that could append diagnostics or tool output to the discarded tail.
-      state.chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      abortChatLoadingLane(state, retryLaneKey, MESSAGE_CANCEL_FLAT);
       state.messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
       for (const controller of Object.values(state.pluginApiAbortControllers)) {
         controller.abort(MESSAGE_CANCEL_FLAT);
@@ -1313,7 +1305,17 @@ export const generateAIChat: StateCreator<
         threadId: requestedThreadId,
         topicId: activeTopicId,
       });
-      get().internal_toggleChatLoading(false, undefined, n('retryMessage/cancelChatLoading'));
+      const laneMessageIds = get().chatLoadingIds.filter(
+        (messageId) => get().chatLoadingLaneByMessageId[messageId] === retryLaneKey,
+      );
+      for (const messageId of laneMessageIds) {
+        get().internal_toggleChatLoading(
+          false,
+          messageId,
+          n('retryMessage/cancelChatLoading'),
+          requestedThreadId ?? null,
+        );
+      }
       get().internal_toggleMessageInToolsCalling(false, undefined, n('retryMessage/cancelTools'));
       get().internal_togglePluginApiCalling(false, undefined, n('retryMessage/cancelPlugin'));
       get().internal_toggleChatReasoning(false, undefined, n('retryMessage/cancelReasoning'));
@@ -1350,7 +1352,11 @@ export const generateAIChat: StateCreator<
             draft[key] = draft[key].filter((id) => !discardedIds.has(id)) as never;
           }
           for (const id of discardedIds) delete draft.toolCallingStreamIds[id];
-          draft.chatLoadingIdsAbortController = undefined;
+          const laneCleanup = clearChatLoadingLaneEntries(draft, retryLaneKey);
+          draft.chatLoadingAbortControllersByLane = laneCleanup.chatLoadingAbortControllersByLane;
+          draft.chatLoadingIds = laneCleanup.chatLoadingIds;
+          draft.chatLoadingIdsAbortController = laneCleanup.chatLoadingIdsAbortController;
+          draft.chatLoadingLaneByMessageId = laneCleanup.chatLoadingLaneByMessageId;
           draft.messageInToolsCallingIdsAbortController = undefined;
           draft.pluginApiAbortControllers = {};
           draft.reasoningLoadingIdsAbortController = undefined;
@@ -1526,18 +1532,6 @@ export const generateAIChat: StateCreator<
             topicId: activeTopicId,
             userScope: accountMutationSnapshot.scope,
           });
-          set(
-            (state) =>
-              supersedeConversationLaneStopMarker(
-                state,
-                activeId,
-                activeTopicId,
-                threadId ?? null,
-                operation.id,
-              ),
-            false,
-            n('regenerateMessage/supersedeLaneStopMarker'),
-          );
           await get().refreshMessages();
           return;
         }

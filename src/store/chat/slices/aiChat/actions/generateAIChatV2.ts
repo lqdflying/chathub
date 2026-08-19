@@ -53,7 +53,6 @@ import {
   bumpLaneScopedClearGeneration,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
-  supersedeConversationLaneStopMarker,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
@@ -525,18 +524,6 @@ export const generateAIChatV2: StateCreator<
           topicId: data.topicId,
           userScope: requestedScope,
         });
-        set(
-          (state) =>
-            supersedeConversationLaneStopMarker(
-              state,
-              conversationContext.sessionId,
-              conversationContext.topicId,
-              conversationContext.threadId ?? null,
-              data.operationId,
-            ),
-          false,
-          n('sendMessageInServer/supersedeLaneStopMarker'),
-        );
         await get().reconcileConversationGeneration(data.operationId).catch(console.error);
         if (isCurrentConversation()) {
           const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);

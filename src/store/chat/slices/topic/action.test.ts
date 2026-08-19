@@ -670,7 +670,37 @@ describe('topic action', () => {
 
       expect(cancel).toHaveBeenCalledWith('cgo_detached');
       const topicKey = messageMapKey(activeId, deletedTopicId);
-      expect(useChatStore.getState().conversationScopedClearGenerations[topicKey]).toBeGreaterThan(0);
+      expect(useChatStore.getState().conversationScopedClearGenerations[topicKey]).toBeGreaterThan(
+        0,
+      );
+    });
+
+    it('installs the tombstone before awaiting server cancellation', async () => {
+      const deletedTopicId = 'inactive-topic';
+      const activeId = 'test-session-id';
+      const topicKey = messageMapKey(activeId, deletedTopicId);
+      let tombstoneDuringListActive: number | undefined;
+      vi.spyOn(conversationGenerationService, 'listActive').mockImplementation(async () => {
+        tombstoneDuringListActive =
+          useChatStore.getState().conversationScopedClearGenerations[topicKey] ?? 0;
+        return [];
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: 'other-topic',
+          conversationScopedClearGenerations: {},
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeTopic(deletedTopicId);
+      });
+
+      expect(tombstoneDuringListActive).toBeGreaterThan(0);
     });
 
     it('should remove a specific topic and its messages, then not refresh the topic list', async () => {

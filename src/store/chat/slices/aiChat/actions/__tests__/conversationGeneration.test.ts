@@ -592,11 +592,13 @@ describe('conversationGeneration store actions', () => {
 
   it('re-cancels and skips attach when the lane is marked stopped', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
     vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
       {
         id: 'cgo_stopped_lane',
         kind: 'chat',
         lane: 'lane-stopped',
+        laneGeneration: 2,
         sessionId: TEST_IDS.SESSION_ID,
         status: 'processing',
         topicId: TEST_IDS.TOPIC_ID,
@@ -606,7 +608,10 @@ describe('conversationGeneration store actions', () => {
     act(() => {
       useChatStore.setState({
         conversationLaneStopMarkers: {
-          [`${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`]: {},
+          [laneKey]: {
+            stoppedOperationIds: ['cgo_stopped_lane'],
+            maxStoppedLaneGeneration: 2,
+          },
         },
       });
     });
@@ -623,13 +628,14 @@ describe('conversationGeneration store actions', () => {
     ).toBeUndefined();
   });
 
-  it('allows attach when the lane marker is superseded by the operation id', async () => {
+  it('allows attach when sync discovers a newer lane generation after Stop', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
       {
-        id: 'cgo_superseded',
+        id: 'cgo_replacement',
         kind: 'chat',
-        lane: 'lane-superseded',
+        lane: 'lane-replacement',
+        laneGeneration: 4,
         sessionId: TEST_IDS.SESSION_ID,
         status: 'processing',
         topicId: TEST_IDS.TOPIC_ID,
@@ -640,7 +646,10 @@ describe('conversationGeneration store actions', () => {
     act(() => {
       useChatStore.setState({
         conversationLaneStopMarkers: {
-          [laneKey]: { supersededByOperationId: 'cgo_superseded' },
+          [laneKey]: {
+            stoppedOperationIds: ['cgo_old'],
+            maxStoppedLaneGeneration: 3,
+          },
         },
       });
     });
@@ -653,14 +662,86 @@ describe('conversationGeneration store actions', () => {
     expect(
       useChatStore.getState().serverGenerationOperations[
         messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
-      ]?.cgo_superseded,
-    ).toMatchObject({ operationId: 'cgo_superseded' });
+      ]?.cgo_replacement,
+    ).toMatchObject({ operationId: 'cgo_replacement' });
+  });
+
+  it('allows a replacement group supervisor after Stop when lane generation advances', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const toggleSupervisor = vi.fn();
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        groupId: 'group-1',
+        id: 'cgo_group_replacement',
+        kind: 'group_supervisor',
+        lane: 'lane-group',
+        laneGeneration: 5,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+    const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+
+    act(() => {
+      useChatStore.setState({
+        conversationLaneStopMarkers: {
+          [laneKey]: {
+            stoppedOperationIds: ['cgo_group_old'],
+            maxStoppedLaneGeneration: 4,
+          },
+        },
+        internal_toggleSupervisorLoading: toggleSupervisor,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ]?.cgo_group_replacement,
+    ).toMatchObject({ operationId: 'cgo_group_replacement', kind: 'group_supervisor' });
+    expect(toggleSupervisor).toHaveBeenCalledWith(true, 'group-1');
+  });
+
+  it('skips sync attach when the loaded topic list is explicitly empty', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        id: 'cgo_deleted_topic',
+        kind: 'chat',
+        lane: 'lane-deleted',
+        laneGeneration: 2,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+
+    act(() => {
+      useChatStore.setState({
+        topicMaps: { [TEST_IDS.SESSION_ID]: [] },
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ]?.cgo_deleted_topic,
+    ).toBeUndefined();
   });
 
   it('uses quiet listActive for scoped cancellation without surfacing fetch errors', async () => {
-    const listActive = vi.spyOn(conversationGenerationService, 'listActive').mockRejectedValue(
-      new Error('network down'),
-    );
+    const listActive = vi
+      .spyOn(conversationGenerationService, 'listActive')
+      .mockRejectedValue(new Error('network down'));
     const { result } = renderHook(() => useChatStore());
 
     await act(async () => {

@@ -1032,12 +1032,7 @@ describe('chatMessage actions', () => {
       });
 
       expect(abortController.signal.aborted).toBe(true);
-      expect(toggleLoadingSpy).toHaveBeenCalledWith(
-        false,
-        'msg-1',
-        expect.any(String),
-        null,
-      );
+      expect(toggleLoadingSpy).toHaveBeenCalledWith(false, 'msg-1', expect.any(String), null);
     });
 
     it('awaits durable cancel even when no abort controller is set', async () => {
@@ -1080,9 +1075,9 @@ describe('chatMessage actions', () => {
         await useChatStore.getState().stopGenerateMessage({ threadId: 'thread-1' });
       });
 
-      expect(useChatStore.getState().conversationScopedClearGenerations[threadLaneKey]).toBeGreaterThan(
-        0,
-      );
+      expect(
+        useChatStore.getState().conversationScopedClearGenerations[threadLaneKey],
+      ).toBeGreaterThan(0);
       expect(useChatStore.getState().conversationScopedClearGenerations[mainLaneKey] ?? 0).toBe(0);
     });
 
@@ -1178,10 +1173,62 @@ describe('chatMessage actions', () => {
         await useChatStore.getState().stopGenerateMessage();
       });
 
-      expect(useChatStore.getState().conversationScopedClearGenerations[mainLaneKey]).toBeGreaterThan(
-        0,
-      );
+      expect(
+        useChatStore.getState().conversationScopedClearGenerations[mainLaneKey],
+      ).toBeGreaterThan(0);
       expect(useChatStore.getState().conversationScopedClearGenerations[threadLaneKey]).toBe(2);
+    });
+  });
+
+  describe('retryMessage lane loading', () => {
+    it('main retry aborts only the main lane controller', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const mainLaneKey = `${messageMapKey(sessionId, topicId)}:main`;
+      const threadLaneKey = `${messageMapKey(sessionId, topicId)}:thread-1`;
+      const mainController = new AbortController();
+      const threadController = new AbortController();
+      const user = createMockMessage({ id: TEST_IDS.USER_MESSAGE_ID, role: 'user' });
+      const assistant = createMockMessage({
+        id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        parentId: user.id,
+        role: 'assistant',
+      });
+
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          chatLoadingAbortControllersByLane: {
+            [mainLaneKey]: mainController,
+            [threadLaneKey]: threadController,
+          },
+          chatLoadingIds: ['main-msg', 'thread-msg'],
+          chatLoadingIdsAbortController: threadController,
+          chatLoadingLaneByMessageId: {
+            'main-msg': mainLaneKey,
+            'thread-msg': threadLaneKey,
+          },
+          cancelAndDetachDurableOps: vi.fn(async () => {}),
+          messagesMap: {
+            [messageMapKey(sessionId, topicId)]: [user, assistant],
+          },
+        });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      vi.spyOn(messageService, 'rewindMessages').mockResolvedValue({
+        messageIds: [TEST_IDS.ASSISTANT_MESSAGE_ID],
+        threadIds: [],
+      });
+
+      await act(async () => {
+        await result.current.internal_resendMessage(assistant.id);
+      });
+
+      expect(mainController.signal.aborted).toBe(true);
+      expect(threadController.signal.aborted).toBe(false);
+      expect(useChatStore.getState().chatLoadingIds).toEqual(['thread-msg']);
     });
   });
 
