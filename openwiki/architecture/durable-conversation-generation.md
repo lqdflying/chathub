@@ -186,17 +186,28 @@ after clear/delete/reset cannot re-attach. **Stop** bumps a **lane-scoped** clea
 epoch (`session/topic:threadId|main`); **topic delete** bumps a **topic-scoped**
 tombstone that invalidates every lane in that topic. `cancelActiveDurableOpsInScope`
 lists active server operations via a quiet `listActive` call before detaching
-local attachments. Lane stop markers record cancelled operation ids and the
-maximum stopped **lane generation** for that lane/topic. Sync re-cancels only
-those predecessors or same-lane ops at or below that generation; newer server
-lane generations (group supervisor, group agent, or another tab) attach without a
-local producer callsite. Failed or deferred sends do **not** clear markers at
+local attachments. Lane stop markers record three fences per client lane key:
+cancelled operation ids, idempotency keys whose enqueue was still in flight at
+Stop time (tracked in `durableInFlightIdempotencyKeys` from send start until the
+response settles), and a **per-server-lane** generation cutoff map
+(`laneGenerations[operation.lane]`). Server lane generations are independent per
+lane (main vs portal thread vs group agent), so cutoffs are never projected as a
+single scalar onto a thread or topic key: a lane Stop writes only its own lane
+key, and a Stop at main-lane generation 5 cannot cancel a portal/group operation
+on another server lane at generation 1. Sync re-cancels only exact predecessor
+ids, fenced idempotency keys (this closes the race where an operation was
+enqueued before Stop but invisible to the `listActive` snapshot), or ops on the
+same server lane at or below that lane's cutoff; newer server lane generations
+(group supervisor, group agent, or another tab) and deliberate post-Stop sends
+(fresh idempotency keys) attach without a local producer callsite. Only a
+topic-wide tombstone (topic delete) writes the topic marker key, still with
+per-server-lane cutoffs. Failed or deferred sends do **not** clear markers at
 send start. **Topic delete** installs its tombstone synchronously before the
 first `await`, then performs best-effort server cancellation. **Clear current
 conversation** bumps the global clear epoch. `syncActive` does not
 reattach operations in `cancelling` status, and skips topics absent from a
-loaded `topicMaps` entry (an explicitly empty list means the topic was removed). Navigation-only invalidation
-re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
+loaded `topicMaps` entry (an explicitly empty list means the topic was removed).
+Navigation-only invalidation re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
 and abort recovery are gated on `isAccountMutationCurrent` and `userScope` at
 the shared attach boundary so account reset does not write durable state into
 the wrong scope. Per-lane `chatLoadingAbortControllersByLane` pair with
@@ -230,7 +241,12 @@ cancellation.
 
 Stop still goes through `stopGenerateMessage` / group supervisor stop →
 `cancelActiveDurableOpsInScope` → `conversationGeneration.cancel`. Lane stop
-markers fence only the cancelled predecessor ids and lane-generation cutoff.
+markers fence only the cancelled predecessor ids, in-flight idempotency keys,
+and the per-server-lane generation cutoff. Retry/rewind aborts the chat lane
+controller plus the **discarded messages'** per-message `pluginApiAbortControllers`;
+the shared tools/reasoning/search controllers are bookkeeping-only (no fetch
+consumes them) and are released only when the rewind empties their id list, so a
+scoped retry never cancels a sibling lane's auxiliary work.
 Durable generating UI uses `internal_markDurableGenerating` so it does not install
 `beforeunload`.
 

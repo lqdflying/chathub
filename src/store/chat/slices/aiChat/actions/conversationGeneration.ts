@@ -409,6 +409,8 @@ export const conversationGeneration: StateCreator<
               const sessionId = operation.sessionId || state.activeId;
               const stoppedOperations = [
                 {
+                  idempotencyKey: operation.idempotencyKey,
+                  lane: operation.lane,
                   laneGeneration: operation.laneGeneration,
                   operationId: operation.id,
                 },
@@ -586,16 +588,24 @@ export const conversationGeneration: StateCreator<
           operationSessionId,
           operation.topicId,
           operation.threadId ?? null,
-          operation.id,
-          operation.laneGeneration,
+          {
+            idempotencyKey: operation.idempotencyKey,
+            lane: operation.lane,
+            laneGeneration: operation.laneGeneration,
+            operationId: operation.id,
+          },
         ) ||
         (operation.topicId &&
           isConversationTopicDurableGenerationStopped(
             get(),
             operationSessionId,
             operation.topicId,
-            operation.id,
-            operation.laneGeneration,
+            {
+              idempotencyKey: operation.idempotencyKey,
+              lane: operation.lane,
+              laneGeneration: operation.laneGeneration,
+              operationId: operation.id,
+            },
           ))
       ) {
         if (isSyncAttachableConversationGenerationStatus(operation.status)) {

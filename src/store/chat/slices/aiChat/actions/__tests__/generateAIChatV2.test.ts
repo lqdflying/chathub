@@ -342,6 +342,46 @@ describe('generateAIChatV2 actions', () => {
       expect(execAgentRuntime).not.toHaveBeenCalled();
     });
 
+    it('tracks the durable enqueue idempotency key only while the send is in flight', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      let resolveServerSend: (response: any) => void;
+      const serverSendPromise = new Promise<any>((resolve) => {
+        resolveServerSend = resolve;
+      });
+      (aiChatService.sendMessageInServer as Mock).mockReturnValueOnce(serverSendPromise);
+
+      act(() => {
+        useChatStore.setState({ internal_execAgentRuntime: vi.fn() });
+      });
+
+      const sendPromise = useChatStore
+        .getState()
+        .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+      await vi.waitFor(() => {
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
+      });
+
+      const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+      const inFlight = useChatStore.getState().durableInFlightIdempotencyKeys[laneKey] ?? [];
+      expect(inFlight.some((key) => key.startsWith('chat-send:'))).toBe(true);
+
+      resolveServerSend!({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: false,
+        messages: [],
+        operationId: 'cgo_tracked',
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      });
+      await sendPromise;
+
+      expect(useChatStore.getState().durableInFlightIdempotencyKeys[laneKey] ?? []).toHaveLength(0);
+    });
+
     it('recovers a durable operation when send is aborted without a user Stop', async () => {
       vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
       vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
@@ -1353,12 +1393,17 @@ describe('generateAIChatV2 actions', () => {
 
     it('keeps the lane stop marker when send returns early on empty input', async () => {
       const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+      const existingMarker = {
+        laneGenerations: {},
+        stoppedIdempotencyKeys: [],
+        stoppedOperationIds: ['cgo_existing'],
+      };
 
       act(() => {
         useChatStore.setState({
           activeId: TEST_IDS.SESSION_ID,
           activeTopicId: TEST_IDS.TOPIC_ID,
-          conversationLaneStopMarkers: { [laneKey]: {} },
+          conversationLaneStopMarkers: { [laneKey]: existingMarker },
         });
       });
 
@@ -1366,7 +1411,7 @@ describe('generateAIChatV2 actions', () => {
         await useChatStore.getState().sendMessageInServer({ message: '' });
       });
 
-      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toEqual({});
+      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toEqual(existingMarker);
     });
   });
 

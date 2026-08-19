@@ -59,6 +59,8 @@ import {
   laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
+  trackDurableEnqueueIdempotencyKey,
+  untrackDurableEnqueueIdempotencyKey,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
@@ -97,6 +99,18 @@ const RETRY_LOADING_KEYS = [
   'messageRAGLoadingIds',
   'searchWorkflowLoadingIds',
   'pluginApiLoadingIds',
+] as const;
+
+/**
+ * Auxiliary loading lists share one bookkeeping-only controller per list (no
+ * fetch consumes it). A scoped retry filters the discarded message ids out of
+ * each list and only aborts/clears the shared controller when no sibling-lane
+ * ids remain, so retrying one lane never wipes another lane's indicators.
+ */
+const RETRY_AUX_LOADING_STATE = [
+  { controllerKey: 'messageInToolsCallingIdsAbortController', idsKey: 'messageInToolsCallingIds' },
+  { controllerKey: 'reasoningLoadingIdsAbortController', idsKey: 'reasoningLoadingIds' },
+  { controllerKey: 'searchWorkflowLoadingIdsAbortController', idsKey: 'searchWorkflowLoadingIds' },
 ] as const;
 
 const resolveRetryAnchor = (messages: UIChatMessage[], messageId: string) => {
@@ -434,45 +448,66 @@ export const generateAIChat: StateCreator<
     });
 
     if (isClientDurableConversationGenerationEnabled() && model && provider) {
-      const operation = await tryEnqueueConversationGeneration({
-        config: buildDurableConversationConfig({
-          activatedSkillIds: params?.activatedSkillIds,
-          agentConfig: { ...agentConfig, model, provider },
-          chatConfig,
-          enableMemoryTool:
-            chatConfig.enableAssistantMemory !== false &&
-            get().activeSessionType !== 'group' &&
-            !params?.groupId &&
-            !params?.agentId &&
-            !messages.some(({ groupId }) => !!groupId),
-          fetchOnClient:
-            aiProviderSelectors.isProviderFetchOnClient(provider)(getAiInfraStoreState()),
-          historySummary,
-          historySummaryLastMessageId: enableHistoryCompaction
-            ? activeTopic?.metadata?.historySummaryLastMessageId
-            : undefined,
-          isWelcomeQuestion: params?.isWelcomeQuestion,
-          locale: globalHelpers.getCurrentLanguage(),
-          ragQuery: params?.ragQuery,
-          systemRole: agentSelectors.currentAgentSystemRole(agentStoreState),
-        }),
-        conversationVersion: expectedConversationVersion,
-        expectedConversationVersion,
-        idempotencyKey: conversationGenerationIdempotencyKey(
-          params?.isToolContinuation ? 'continue' : 'chat',
-          userMessageId,
-        ),
-        kind: params?.isToolContinuation ? 'continue' : 'chat',
-        parentMessageId: userMessageId,
-        replaceActive: true,
-        sessionId:
-          conversationContext.sessionId === INBOX_SESSION_ID
-            ? undefined
-            : conversationContext.sessionId,
-        threadId: params?.threadId,
-        topicId: conversationContext.topicId ?? undefined,
+      const enqueueIdempotencyKey = conversationGenerationIdempotencyKey(
+        params?.isToolContinuation ? 'continue' : 'chat',
         userMessageId,
-      });
+      );
+      const enqueueLaneKey = laneScopedClearKey(
+        conversationContext.sessionId,
+        conversationContext.topicId ?? null,
+        params?.threadId ?? null,
+      );
+      set(
+        (state) => trackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, enqueueIdempotencyKey),
+        false,
+        n('coreProcessMessage/trackDurableEnqueue'),
+      );
+      let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+      try {
+        operation = await tryEnqueueConversationGeneration({
+          config: buildDurableConversationConfig({
+            activatedSkillIds: params?.activatedSkillIds,
+            agentConfig: { ...agentConfig, model, provider },
+            chatConfig,
+            enableMemoryTool:
+              chatConfig.enableAssistantMemory !== false &&
+              get().activeSessionType !== 'group' &&
+              !params?.groupId &&
+              !params?.agentId &&
+              !messages.some(({ groupId }) => !!groupId),
+            fetchOnClient:
+              aiProviderSelectors.isProviderFetchOnClient(provider)(getAiInfraStoreState()),
+            historySummary,
+            historySummaryLastMessageId: enableHistoryCompaction
+              ? activeTopic?.metadata?.historySummaryLastMessageId
+              : undefined,
+            isWelcomeQuestion: params?.isWelcomeQuestion,
+            locale: globalHelpers.getCurrentLanguage(),
+            ragQuery: params?.ragQuery,
+            systemRole: agentSelectors.currentAgentSystemRole(agentStoreState),
+          }),
+          conversationVersion: expectedConversationVersion,
+          expectedConversationVersion,
+          idempotencyKey: enqueueIdempotencyKey,
+          kind: params?.isToolContinuation ? 'continue' : 'chat',
+          parentMessageId: userMessageId,
+          replaceActive: true,
+          sessionId:
+            conversationContext.sessionId === INBOX_SESSION_ID
+              ? undefined
+              : conversationContext.sessionId,
+          threadId: params?.threadId,
+          topicId: conversationContext.topicId ?? undefined,
+          userMessageId,
+        });
+      } finally {
+        set(
+          (state) =>
+            untrackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, enqueueIdempotencyKey),
+          false,
+          n('coreProcessMessage/untrackDurableEnqueue'),
+        );
+      }
       if (operation && isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
@@ -1282,6 +1317,8 @@ export const generateAIChat: StateCreator<
     const originalSupervisorTodos = state.supervisorTodos[supervisorTodoKey];
     const requestedThreadId = outThreadId ?? state.activeThreadId;
     const retryLaneKey = laneScopedClearKey(activeId, activeTopicId, requestedThreadId ?? null);
+    const discardedIds = optimisticRewind.messageIds;
+    const discardedThreadIds = optimisticRewind.threadIds;
     let rewindPersisted = false;
 
     set(
@@ -1293,12 +1330,17 @@ export const generateAIChat: StateCreator<
     try {
       // Cancel every producer that could append diagnostics or tool output to the discarded tail.
       abortChatLoadingLane(state, retryLaneKey, MESSAGE_CANCEL_FLAT);
-      state.messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
-      for (const controller of Object.values(state.pluginApiAbortControllers)) {
-        controller.abort(MESSAGE_CANCEL_FLAT);
+      // Plugin API controllers are per-message: abort only the discarded tail so a
+      // scoped retry never cancels a sibling lane's tool work.
+      for (const id of discardedIds) {
+        state.pluginApiAbortControllers[id]?.abort(MESSAGE_CANCEL_FLAT);
       }
-      state.reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
-      state.searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      for (const { controllerKey, idsKey } of RETRY_AUX_LOADING_STATE) {
+        const ids = state[idsKey];
+        if (ids.length > 0 && ids.every((id) => discardedIds.has(id))) {
+          state[controllerKey]?.abort(MESSAGE_CANCEL_FLAT);
+        }
+      }
       await get().cancelAndDetachDurableOps({
         groupId: isGroupChat ? groupId : undefined,
         sessionId: activeId,
@@ -1316,10 +1358,6 @@ export const generateAIChat: StateCreator<
           requestedThreadId ?? null,
         );
       }
-      get().internal_toggleMessageInToolsCalling(false, undefined, n('retryMessage/cancelTools'));
-      get().internal_togglePluginApiCalling(false, undefined, n('retryMessage/cancelPlugin'));
-      get().internal_toggleChatReasoning(false, undefined, n('retryMessage/cancelReasoning'));
-      get().internal_toggleSearchWorkflow(false);
       const operation = state.mainSendMessageOperations[chatKey];
       if (operation?.isLoading) {
         get().internal_toggleSendMessageOperation(chatKey, false, MESSAGE_CANCEL_FLAT);
@@ -1329,8 +1367,6 @@ export const generateAIChat: StateCreator<
         get().internal_updateSupervisorTodos(groupId, activeTopicId, []);
       }
 
-      const discardedIds = optimisticRewind.messageIds;
-      const discardedThreadIds = optimisticRewind.threadIds;
       const activeTopic = topicSelectors.currentActiveTopic(get());
       if (activeTopic?.historySummary || activeTopic?.metadata?.historySummaryLastMessageId) {
         await get()
@@ -1351,16 +1387,24 @@ export const generateAIChat: StateCreator<
           for (const key of RETRY_LOADING_KEYS) {
             draft[key] = draft[key].filter((id) => !discardedIds.has(id)) as never;
           }
-          for (const id of discardedIds) delete draft.toolCallingStreamIds[id];
+          for (const id of discardedIds) {
+            delete draft.toolCallingStreamIds[id];
+            delete draft.pluginApiAbortControllers[id];
+          }
           const laneCleanup = clearChatLoadingLaneEntries(draft, retryLaneKey);
           draft.chatLoadingAbortControllersByLane = laneCleanup.chatLoadingAbortControllersByLane;
           draft.chatLoadingIds = laneCleanup.chatLoadingIds;
           draft.chatLoadingIdsAbortController = laneCleanup.chatLoadingIdsAbortController;
           draft.chatLoadingLaneByMessageId = laneCleanup.chatLoadingLaneByMessageId;
-          draft.messageInToolsCallingIdsAbortController = undefined;
-          draft.pluginApiAbortControllers = {};
-          draft.reasoningLoadingIdsAbortController = undefined;
-          draft.searchWorkflowLoadingIdsAbortController = undefined;
+          if (draft.messageInToolsCallingIds.length === 0) {
+            draft.messageInToolsCallingIdsAbortController = undefined;
+          }
+          if (draft.reasoningLoadingIds.length === 0) {
+            draft.reasoningLoadingIdsAbortController = undefined;
+          }
+          if (draft.searchWorkflowLoadingIds.length === 0) {
+            draft.searchWorkflowLoadingIdsAbortController = undefined;
+          }
           draft.threadLoadingIds = draft.threadLoadingIds.filter(
             (id) => !discardedThreadIds.has(id),
           );
@@ -1473,47 +1517,65 @@ export const generateAIChat: StateCreator<
         agentConfig.model &&
         agentConfig.provider
       ) {
-        const operation = await tryEnqueueConversationGeneration({
-          config: buildDurableConversationConfig({
-            agentConfig: {
-              ...agentConfig,
-              model: agentConfig.model,
-              provider: agentConfig.provider,
-            },
-            chatConfig,
-            enableMemoryTool:
-              chatConfig.enableAssistantMemory !== false && get().activeSessionType !== 'group',
-            fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(agentConfig.provider)(
-              getAiInfraStoreState(),
-            ),
-            historySummary: buildHistorySummaryForRequest({
-              archives: activeTopic?.metadata?.memoryArchives,
-              enableCompressHistory: enableHistoryCompaction,
-              enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
-              topicSummary: activeTopic?.historySummary,
+        const regenerateIdempotencyKey = conversationGenerationRequestKey(
+          'regenerate',
+          nanoid(),
+          anchor.message.id,
+        );
+        const enqueueLaneKey = laneScopedClearKey(activeId, activeTopicId, threadId ?? null);
+        set(
+          (state) =>
+            trackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, regenerateIdempotencyKey),
+          false,
+          n('retryMessage/trackDurableEnqueue'),
+        );
+        let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+        try {
+          operation = await tryEnqueueConversationGeneration({
+            config: buildDurableConversationConfig({
+              agentConfig: {
+                ...agentConfig,
+                model: agentConfig.model,
+                provider: agentConfig.provider,
+              },
+              chatConfig,
+              enableMemoryTool:
+                chatConfig.enableAssistantMemory !== false && get().activeSessionType !== 'group',
+              fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(agentConfig.provider)(
+                getAiInfraStoreState(),
+              ),
+              historySummary: buildHistorySummaryForRequest({
+                archives: activeTopic?.metadata?.memoryArchives,
+                enableCompressHistory: enableHistoryCompaction,
+                enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+                topicSummary: activeTopic?.historySummary,
+              }),
+              historySummaryLastMessageId: enableHistoryCompaction
+                ? activeTopic?.metadata?.historySummaryLastMessageId
+                : undefined,
+              locale: globalHelpers.getCurrentLanguage(),
+              ragQuery: get().internal_shouldUseRAG() ? anchor.message.content : undefined,
+              systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
             }),
-            historySummaryLastMessageId: enableHistoryCompaction
-              ? activeTopic?.metadata?.historySummaryLastMessageId
-              : undefined,
-            locale: globalHelpers.getCurrentLanguage(),
-            ragQuery: get().internal_shouldUseRAG() ? anchor.message.content : undefined,
-            systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
-          }),
-          conversationVersion: expectedConversationVersion,
-          expectedConversationVersion,
-          idempotencyKey: conversationGenerationRequestKey(
-            'regenerate',
-            nanoid(),
-            anchor.message.id,
-          ),
-          kind: 'regenerate',
-          parentMessageId: anchor.message.id,
-          replaceActive: true,
-          sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
-          threadId,
-          topicId: activeTopicId,
-          userMessageId: anchor.message.id,
-        });
+            conversationVersion: expectedConversationVersion,
+            expectedConversationVersion,
+            idempotencyKey: regenerateIdempotencyKey,
+            kind: 'regenerate',
+            parentMessageId: anchor.message.id,
+            replaceActive: true,
+            sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
+            threadId,
+            topicId: activeTopicId,
+            userMessageId: anchor.message.id,
+          });
+        } finally {
+          set(
+            (state) =>
+              untrackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, regenerateIdempotencyKey),
+            false,
+            n('retryMessage/untrackDurableEnqueue'),
+          );
+        }
         if (
           operation &&
           isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)

@@ -1230,6 +1230,77 @@ describe('chatMessage actions', () => {
       expect(threadController.signal.aborted).toBe(false);
       expect(useChatStore.getState().chatLoadingIds).toEqual(['thread-msg']);
     });
+
+    it('main retry preserves sibling-lane auxiliary loading and plugin controllers', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const user = createMockMessage({ id: TEST_IDS.USER_MESSAGE_ID, role: 'user' });
+      const anchor = createMockMessage({
+        id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        parentId: user.id,
+        role: 'assistant',
+      });
+      const mainTool = createMockMessage({
+        id: 'main-tool-msg',
+        parentId: anchor.id,
+        role: 'assistant',
+      });
+      const mainPluginController = new AbortController();
+      const threadPluginController = new AbortController();
+      const toolsController = new AbortController();
+      const reasoningController = new AbortController();
+      const searchController = new AbortController();
+
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          cancelAndDetachDurableOps: vi.fn(async () => {}),
+          messageInToolsCallingIds: ['main-tool-msg', 'thread-tool-msg'],
+          messageInToolsCallingIdsAbortController: toolsController,
+          messagesMap: {
+            [messageMapKey(sessionId, topicId)]: [user, anchor, mainTool],
+          },
+          pluginApiAbortControllers: {
+            'main-tool-msg': mainPluginController,
+            'thread-plugin-msg': threadPluginController,
+          },
+          pluginApiLoadingIds: ['main-tool-msg', 'thread-plugin-msg'],
+          reasoningLoadingIds: ['main-tool-msg', 'thread-reasoning-msg'],
+          reasoningLoadingIdsAbortController: reasoningController,
+          searchWorkflowLoadingIds: ['main-tool-msg'],
+          searchWorkflowLoadingIdsAbortController: searchController,
+        });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      vi.spyOn(messageService, 'rewindMessages').mockResolvedValue({
+        messageIds: [anchor.id, 'main-tool-msg'],
+        threadIds: [],
+      });
+
+      await act(async () => {
+        await result.current.internal_resendMessage(anchor.id);
+      });
+
+      const state = useChatStore.getState();
+      // Discarded main-lane plugin work is aborted; the sibling lane's is not.
+      expect(mainPluginController.signal.aborted).toBe(true);
+      expect(threadPluginController.signal.aborted).toBe(false);
+      expect(state.pluginApiLoadingIds).toEqual(['thread-plugin-msg']);
+      expect(Object.keys(state.pluginApiAbortControllers)).toEqual(['thread-plugin-msg']);
+      // Shared bookkeeping controllers survive while sibling-lane ids remain.
+      expect(toolsController.signal.aborted).toBe(false);
+      expect(reasoningController.signal.aborted).toBe(false);
+      expect(state.messageInToolsCallingIds).toEqual(['thread-tool-msg']);
+      expect(state.messageInToolsCallingIdsAbortController).toBe(toolsController);
+      expect(state.reasoningLoadingIds).toEqual(['thread-reasoning-msg']);
+      expect(state.reasoningLoadingIdsAbortController).toBe(reasoningController);
+      // A fully discarded list releases its shared controller.
+      expect(searchController.signal.aborted).toBe(true);
+      expect(state.searchWorkflowLoadingIds).toEqual([]);
+      expect(state.searchWorkflowLoadingIdsAbortController).toBeUndefined();
+    });
   });
 
   describe('internal_coreProcessMessage', () => {

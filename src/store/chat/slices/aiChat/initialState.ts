@@ -26,6 +26,12 @@ export interface ChatAIChatState {
   chatLoadingLaneByMessageId: Record<string, string>;
   /** Lane/topic keys marked stopped until a replacement durable operation supersedes them. */
   conversationLaneStopMarkers: Record<string, ConversationLaneStopMarker>;
+  /**
+   * Idempotency keys of durable enqueue requests currently in flight, keyed by
+   * client lane key. Stop promotes them into the lane stop marker so an operation
+   * that only becomes visible to the server after the Stop snapshot is still fenced.
+   */
+  durableInFlightIdempotencyKeys: Record<string, string[]>;
   inputFiles: File[];
   inputMessage: string;
   /** RAG prompt tokens currently carried by an in-flight provider request. */
@@ -71,6 +77,7 @@ export const initialAiChatState: ChatAIChatState = {
   chatLoadingIds: [],
   chatLoadingLaneByMessageId: {},
   conversationLaneStopMarkers: {},
+  durableInFlightIdempotencyKeys: {},
   inputFiles: [],
   inputMessage: '',
   knowledgeBaseContextTokens: {},

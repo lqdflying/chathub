@@ -51,8 +51,11 @@ import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import {
   bumpLaneScopedClearGeneration,
+  laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
+  trackDurableEnqueueIdempotencyKey,
+  untrackDurableEnqueueIdempotencyKey,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
@@ -329,6 +332,20 @@ export const generateAIChatV2: StateCreator<
             idempotencyKey: `chat-send:${tempId}`,
           }
         : undefined;
+    // Fence window: while the enqueue request is in flight the server operation is
+    // invisible to Stop's listActive snapshot, so Stop promotes this key into the
+    // lane stop marker and sync cancels the late-appearing operation instead of
+    // reattaching it. Untracked in the finally below; the attach path right after
+    // the finally is synchronous, so the fence handoff cannot be interleaved.
+    const durableIdempotencyKey = generation?.idempotencyKey;
+    const sendLaneKey = laneScopedClearKey(activeId, activeTopicId, activeThreadId ?? null);
+    if (durableIdempotencyKey) {
+      set(
+        (state) => trackDurableEnqueueIdempotencyKey(state, sendLaneKey, durableIdempotencyKey),
+        false,
+        n('sendMessageInServer/trackDurableEnqueue'),
+      );
+    }
     try {
       data = await aiChatService.sendMessageInServer(
         {
@@ -426,6 +443,13 @@ export const generateAIChatV2: StateCreator<
         }
       }
     } finally {
+      if (durableIdempotencyKey) {
+        set(
+          (state) => untrackDurableEnqueueIdempotencyKey(state, sendLaneKey, durableIdempotencyKey),
+          false,
+          n('sendMessageInServer/untrackDurableEnqueue'),
+        );
+      }
       const currentOperation = get().mainSendMessageOperations[operationKey];
       const isTrackedOperation = currentOperation?.abortController === abortController;
 
