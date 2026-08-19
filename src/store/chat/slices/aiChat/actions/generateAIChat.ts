@@ -667,15 +667,15 @@ export const generateAIChat: StateCreator<
         if (knowledgeBasePromptTokens > 0) {
           get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
         }
+        get().internal_toggleChatLoading(
+          false,
+          assistantId,
+          n('generateMessage(start)', { messageId: assistantId, messages }),
+        );
+        get().internal_toggleSearchWorkflow(false, assistantId);
       }
 
       if (!isCurrentConversation()) return;
-      get().internal_toggleChatLoading(
-        false,
-        assistantId,
-        n('generateMessage(start)', { messageId: assistantId, messages }),
-      );
-      get().internal_toggleSearchWorkflow(false, assistantId);
 
       // if there is error, then stop
       if (isError) return;

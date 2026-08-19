@@ -224,8 +224,141 @@ describe('generateAIChatV2 actions', () => {
       });
       await sendPromise;
 
-      expect(refreshAiChat).not.toHaveBeenCalled();
+      expect(refreshAiChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+        }),
+      );
       expect(execAgentRuntime).not.toHaveBeenCalled();
+    });
+
+    it('attaches a durable operation after switching conversations', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      let resolveServerSend: (response: any) => void;
+      const serverSendPromise = new Promise<any>((resolve) => {
+        resolveServerSend = resolve;
+      });
+      (aiChatService.sendMessageInServer as Mock).mockReturnValueOnce(serverSendPromise);
+      const execAgentRuntime = vi.fn();
+
+      act(() => {
+        useChatStore.setState({
+          internal_execAgentRuntime: execAgentRuntime,
+        });
+      });
+
+      const sendPromise = useChatStore
+        .getState()
+        .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+      await Promise.resolve();
+
+      act(() => {
+        useChatStore.getState().internal_updateActiveId('other-session');
+      });
+
+      resolveServerSend!({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: false,
+        messages: [
+          {
+            content: TEST_CONTENT.USER_MESSAGE,
+            id: TEST_IDS.USER_MESSAGE_ID,
+            role: 'user',
+          },
+        ],
+        operationId: 'cgo_left_during_send',
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      });
+      await sendPromise;
+
+      expect(
+        useChatStore.getState().serverGenerationOperations[
+          messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+        ]['cgo_left_during_send'],
+      ).toEqual(
+        expect.objectContaining({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          operationId: 'cgo_left_during_send',
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+        }),
+      );
+      expect(execAgentRuntime).not.toHaveBeenCalled();
+    });
+
+    it('recovers a durable operation when send is aborted without a user Stop', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      const abortError = new Error('The user aborted a request.');
+      abortError.name = 'AbortError';
+      (aiChatService.sendMessageInServer as Mock).mockRejectedValueOnce(abortError);
+      vi.spyOn(conversationGenerationService, 'getOperationByIdempotencyKey').mockResolvedValueOnce({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        id: 'cgo_recovered',
+        kind: 'chat',
+        topicId: TEST_IDS.TOPIC_ID,
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      } as any);
+      const execAgentRuntime = vi.fn();
+
+      act(() => {
+        useChatStore.setState({
+          internal_execAgentRuntime: execAgentRuntime,
+        });
+      });
+
+      await act(async () => {
+        await useChatStore.getState().sendMessageInServer({
+          message: TEST_CONTENT.USER_MESSAGE,
+        });
+      });
+
+      expect(conversationGenerationService.getOperationByIdempotencyKey).toHaveBeenCalled();
+      expect(
+        useChatStore.getState().serverGenerationOperations[
+          messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+        ].cgo_recovered,
+      ).toEqual(
+        expect.objectContaining({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          operationId: 'cgo_recovered',
+        }),
+      );
+      expect(execAgentRuntime).not.toHaveBeenCalled();
+    });
+
+    it('does not recover a durable operation after an explicit user cancel', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      const abortError = new Error('canceled');
+      abortError.name = 'AbortError';
+      (aiChatService.sendMessageInServer as Mock).mockImplementationOnce((_params, controller) => {
+        controller?.abort('canceled');
+        return Promise.reject(abortError);
+      });
+
+      await act(async () => {
+        await useChatStore.getState().sendMessageInServer({
+          message: TEST_CONTENT.USER_MESSAGE,
+        });
+      });
+
+      expect(conversationGenerationService.getOperationByIdempotencyKey).not.toHaveBeenCalled();
+      expect(
+        useChatStore.getState().serverGenerationOperations[
+          messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+        ],
+      ).toBeUndefined();
     });
 
     describe('validation', () => {

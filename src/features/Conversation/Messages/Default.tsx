@@ -8,20 +8,23 @@ import { chatSelectors } from '@/store/chat/selectors';
 
 // A freshly-created assistant row is persisted as LOADING_FLAT before its id is
 // added to `chatLoadingIds`, so a "not generating" check alone would blank every
-// send during that window. Treat a LOADING_FLAT placeholder as interrupted only
-// once it is both not generating AND older than this: a reloaded orphan (old
-// createdAt) qualifies immediately, while a live send keeps showing dots.
-const STALE_MS = 3000;
+// send during that window. Wait this long after mount (or after generating
+// stops) before treating the placeholder as interrupted. Reloaded durable rows
+// stay visible while an attached server job is still running.
+const STALE_MS = 8000;
 
-const InterruptibleLoading = memo<{ createdAt: number; id: string }>(({ createdAt, id }) => {
-  const generating = useChatStore(chatSelectors.isMessageGenerating(id));
-  const [stale, setStale] = useState(() => Date.now() - createdAt > STALE_MS);
+const InterruptibleLoading = memo<{ id: string }>(({ id }) => {
+  const generating = useChatStore(chatSelectors.isMessageAwaitingServerGeneration(id));
+  const [stale, setStale] = useState(false);
 
   useEffect(() => {
-    if (generating || stale) return;
+    if (generating) {
+      setStale(false);
+      return;
+    }
     const timer = setTimeout(() => setStale(true), STALE_MS);
     return () => clearTimeout(timer);
-  }, [generating, stale]);
+  }, [generating]);
 
   // an interrupted placeholder renders nothing rather than looping on dots
   return generating || !stale ? <BubblesLoading /> : null;
@@ -33,13 +36,13 @@ export const DefaultMessage = memo<
     editableContent: ReactNode;
     isToolCallGenerating?: boolean;
   }
->(({ id, createdAt, editableContent, content, isToolCallGenerating, addIdOnDOM = true }) => {
+>(({ id, editableContent, content, isToolCallGenerating, addIdOnDOM = true }) => {
   const editing = useChatStore(chatSelectors.isMessageEditing(id));
 
   if (isToolCallGenerating) return;
 
   if (content === LOADING_FLAT && !editing)
-    return <InterruptibleLoading createdAt={createdAt} id={id} />;
+    return <InterruptibleLoading id={id} />;
 
   return <div id={addIdOnDOM ? id : undefined}>{editableContent}</div>;
 });

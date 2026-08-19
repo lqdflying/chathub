@@ -1,3 +1,4 @@
+import { LOADING_FLAT } from '@lobechat/const';
 import {
   ConversationGenerationChatFamilyKinds,
   isActiveConversationGenerationStatus,
@@ -8,9 +9,12 @@ import {
 import { StateCreator } from 'zustand/vanilla';
 
 import { conversationGenerationService } from '@/services/conversationGeneration';
+import { captureAccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat/store';
+import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { toggleBooleanList } from '@/store/chat/utils';
+import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
 
 import type { ServerGenerationOperation } from '../../topic/initialState';
@@ -63,10 +67,33 @@ const shouldApplyAttachedOperation = (
 ) => {
   if (!attached) return false;
   if (attached.generation !== state.conversationClearGeneration) return false;
-  if (attached.sessionId !== state.activeId) return false;
-  if ((attached.topicId ?? null) !== (state.activeTopicId ?? null)) return false;
-  if ((attached.threadId ?? null) !== visibleConversationThreadId(state)) return false;
   return true;
+};
+
+const conversationContextFromAttached = (
+  attached: Pick<ServerGenerationOperation, 'generation' | 'sessionId' | 'topicId'>,
+): ConversationContext => ({
+  generation: attached.generation,
+  sessionId: attached.sessionId,
+  topicId: attached.topicId,
+});
+
+const refreshAttachedConversation = async (
+  get: () => ChatStore,
+  attached?: Pick<ServerGenerationOperation, 'generation' | 'sessionId' | 'topicId'>,
+) => {
+  if (attached?.sessionId) {
+    await get().refreshMessages(conversationContextFromAttached(attached));
+    const snapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (snapshot) {
+      await get().refreshTopic({
+        accountMutationSnapshot: snapshot,
+        containerId: attached.sessionId,
+      });
+      return;
+    }
+  }
+  await Promise.all([get().refreshMessages(), get().refreshTopic()]);
 };
 
 const matchesOperationScope = (
@@ -173,7 +200,7 @@ export const conversationGeneration: StateCreator<
         payload.phase === 'tools' ||
         Boolean(payload.tools);
       if (shouldRefreshMessages) {
-        void get().refreshMessages();
+        void refreshAttachedConversation(get, attached);
       }
       if (assistantMessageId && (payload.content !== undefined || payload.reasoning)) {
         get().internal_dispatchMessage(
@@ -225,8 +252,7 @@ export const conversationGeneration: StateCreator<
         get().internal_toggleSupervisorLoading(false, attached.groupId);
       }
       get().detachConversationGeneration(event.operationId);
-      void get().refreshMessages();
-      void get().refreshTopic();
+      void refreshAttachedConversation(get, attached);
     }
   },
 
@@ -343,7 +369,17 @@ export const conversationGeneration: StateCreator<
       get().internal_toggleSupervisorLoading(false, attached.groupId);
     }
     get().detachConversationGeneration(operationId);
-    await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+    await refreshAttachedConversation(
+      get,
+      attached ??
+        (operation.sessionId
+          ? {
+              generation: get().conversationClearGeneration,
+              sessionId: operation.sessionId,
+              topicId: operation.topicId,
+            }
+          : undefined),
+    );
     return operation;
   },
 
@@ -401,6 +437,15 @@ export const conversationGeneration: StateCreator<
     }
     if (detachedTerminal) {
       await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+    } else {
+      const visibleMessages =
+        get().messagesMap[conversationKeyFor(activeId, activeTopicId)] || [];
+      const hasLoadingPlaceholder = visibleMessages.some(
+        (message) => message.role === 'assistant' && message.content === LOADING_FLAT,
+      );
+      if (hasLoadingPlaceholder && activeOperationIds.size === 0) {
+        await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+      }
     }
   },
 });

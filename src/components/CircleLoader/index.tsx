@@ -16,8 +16,14 @@ export const useStyles = createStyles(({ css, token }, borderWidth: number = 2.5
   `,
   container: css`
     position: relative;
+
+    overflow: hidden;
+    flex: none;
+
     width: 13px;
     height: 13px;
+    min-width: 13px;
+    min-height: 13px;
   `,
 
   loader: css`

@@ -74,8 +74,9 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
     userGeneralSettingsSelectors.config,
   );
 
-  const [generating, isInRAGFlow, editing] = useChatStore((s) => [
+  const [generating, awaitingServer, isInRAGFlow, editing] = useChatStore((s) => [
     chatSelectors.isMessageGenerating(id)(s),
+    chatSelectors.isMessageAwaitingServerGeneration(id)(s),
     chatSelectors.isMessageInRAGFlow(id)(s),
     chatSelectors.isMessageEditing(id)(s),
   ]);
@@ -95,7 +96,7 @@ const AssistantMessage = memo<AssistantMessageProps>((props) => {
   const message = !editing ? normalizeThinkTags(processWithArtifact(content)) : content;
 
   // when the message is in RAG flow or the AI generating, it should be in loading state
-  const loading = isInRAGFlow || generating;
+  const loading = isInRAGFlow || generating || awaitingServer;
 
   const animated = transitionMode === 'fadeIn' && generating;
 

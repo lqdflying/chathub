@@ -74,6 +74,77 @@ describe('useConversationGenerationSync', () => {
     unmount();
   });
 
+  it('resyncs and reconnects when the tab becomes visible', async () => {
+    const syncActive = vi.fn(async () => {});
+    useChatStore.setState({ syncActiveConversationGenerations: syncActive });
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    });
+    const syncAfterMount = syncActive.mock.calls.length;
+
+    act(() => {
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        value: 'visible',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => {
+      expect(syncActive.mock.calls.length).toBeGreaterThan(syncAfterMount);
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
+    });
+    unmount();
+  });
+
+  it('resyncs and reconnects on persisted pageshow', async () => {
+    const syncActive = vi.fn(async () => {});
+    useChatStore.setState({ syncActiveConversationGenerations: syncActive });
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    });
+    const syncAfterMount = syncActive.mock.calls.length;
+
+    act(() => {
+      const event = new Event('pageshow');
+      Object.defineProperty(event, 'persisted', { value: true });
+      window.dispatchEvent(event);
+    });
+
+    await waitFor(() => {
+      expect(syncActive.mock.calls.length).toBeGreaterThan(syncAfterMount);
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(2);
+    });
+    unmount();
+  });
+
+  it('does not treat first-load pageshow without persisted as resume', async () => {
+    const syncActive = vi.fn(async () => {});
+    useChatStore.setState({ syncActiveConversationGenerations: syncActive });
+    const { unmount } = renderHook(() => useConversationGenerationSync());
+
+    await waitFor(() => {
+      expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    });
+    const syncAfterMount = syncActive.mock.calls.length;
+
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(syncActive.mock.calls.length).toBe(syncAfterMount);
+    expect(conversationGenerationService.subscribe).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
   it('resyncs when the visible portal thread changes', async () => {
     const syncActive = vi.fn(async () => {});
     useChatStore.setState({ syncActiveConversationGenerations: syncActive });

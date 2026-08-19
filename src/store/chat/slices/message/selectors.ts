@@ -188,6 +188,12 @@ const isMessageEditing = (id: string) => (s: ChatStoreState) => s.messageEditing
 const isMessageLoading = (id: string) => (s: ChatStoreState) => s.messageLoadingIds.includes(id);
 
 const isMessageGenerating = (id: string) => (s: ChatStoreState) => s.chatLoadingIds.includes(id);
+const isMessageAwaitingServerGeneration = (id: string) => (s: ChatStoreState) => {
+  if (s.chatLoadingIds.includes(id)) return true;
+  return Object.values(s.serverGenerationOperations).some((operations) =>
+    Object.values(operations).some((operation) => operation.assistantMessageId === id),
+  );
+};
 const isMessageInRAGFlow = (id: string) => (s: ChatStoreState) =>
   s.messageRAGLoadingIds.includes(id);
 const isMessageInChatReasoning = (id: string) => (s: ChatStoreState) =>
@@ -319,6 +325,7 @@ export const chatSelectors = {
   isCurrentChatLoaded,
   isHasMessageLoading,
   isInToolsCalling,
+  isMessageAwaitingServerGeneration,
   isMessageEditing,
   isMessageGenerating,
   isMessageInChatReasoning,

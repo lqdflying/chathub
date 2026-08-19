@@ -1,3 +1,4 @@
+import { LOADING_FLAT } from '@lobechat/const';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -82,6 +83,48 @@ describe('conversationGeneration store actions', () => {
     ).toBe('assistant-2');
     expect(useChatStore.getState().chatLoadingIds).toEqual(['assistant-2']);
     expect(useChatStore.getState().refreshMessages).toHaveBeenCalled();
+  });
+
+  it('applies snapshots to an attached operation after switching topics', () => {
+    const { result } = renderHook(() => useChatStore());
+    const dispatch = vi.fn();
+
+    act(() => {
+      useChatStore.setState({
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        conversationClearGeneration: 0,
+        internal_dispatchMessage: dispatch,
+      });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_one',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      useChatStore.setState({ activeTopicId: 'other-topic' });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 1,
+        operationId: 'cgo_one',
+        payload: { content: 'background text' },
+        revision: 2,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        type: 'updateMessage',
+        value: { content: 'background text' },
+      }),
+      { sessionId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
+    );
   });
 
   it('clears supervisor loading and detaches on done', () => {
@@ -236,7 +279,7 @@ describe('conversationGeneration store actions', () => {
     expect(cancel).not.toHaveBeenCalledWith('cgo_other');
   });
 
-  it('ignores snapshots attached to a hidden thread', () => {
+  it('applies snapshots to an attached thread operation even when that thread is hidden', () => {
     const dispatch = vi.fn();
     const { result } = renderHook(() => useChatStore());
     act(() => {
@@ -263,7 +306,13 @@ describe('conversationGeneration store actions', () => {
       });
     });
 
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        value: expect.objectContaining({ content: 'hidden update' }),
+      }),
+      { sessionId: TEST_IDS.SESSION_ID, topicId: TEST_IDS.TOPIC_ID },
+    );
   });
 
   it('stops only the exact active thread lane', async () => {
@@ -559,5 +608,72 @@ describe('conversationGeneration store actions', () => {
 
     expect(cancel).toHaveBeenCalledWith('cgo_chat');
     expect(cancel).not.toHaveBeenCalledWith('cgo_title');
+  });
+
+  it('refreshes messages when returning to a loading placeholder with no active job', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const refreshMessages = vi.fn(async () => {});
+    const refreshTopic = vi.fn(async () => {});
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        messagesMap: {
+          [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: [
+            {
+              content: LOADING_FLAT,
+              id: TEST_IDS.ASSISTANT_MESSAGE_ID,
+              role: 'assistant',
+            },
+          ],
+        },
+        refreshMessages,
+        refreshTopic,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(refreshMessages).toHaveBeenCalled();
+    expect(refreshTopic).toHaveBeenCalled();
+  });
+
+  it('reconciles a finished operation into its own conversation after switching topics', async () => {
+    vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValueOnce({
+      id: 'cgo_one',
+      sessionId: TEST_IDS.SESSION_ID,
+      status: 'succeeded',
+      topicId: TEST_IDS.TOPIC_ID,
+    } as any);
+    const refreshMessages = vi.fn(async () => {});
+    const { result } = renderHook(() => useChatStore());
+
+    await act(async () => {
+      useChatStore.setState({
+        activeTopicId: 'other-topic',
+        refreshMessages,
+      });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_one',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      await result.current.reconcileConversationGeneration('cgo_one');
+    });
+
+    expect(refreshMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      }),
+    );
   });
 });

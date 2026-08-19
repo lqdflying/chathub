@@ -1,7 +1,7 @@
 'use client';
 
 import type { ConversationGenerationStreamEvent } from '@lobechat/types';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -21,6 +21,7 @@ export const useConversationGenerationSync = () => {
   const applyEvent = useChatStore((s) => s.applyConversationGenerationEvent);
   const syncActive = useChatStore((s) => s.syncActiveConversationGenerations);
   const previousUserId = useRef(userId);
+  const [resumeNonce, setResumeNonce] = useState(0);
 
   useEffect(() => {
     if (previousUserId.current !== userId && userId) cursorByUser.delete(userId);
@@ -28,9 +29,27 @@ export const useConversationGenerationSync = () => {
   }, [userId]);
 
   useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') setResumeNonce((value) => value + 1);
+    };
+    const onPageShow = (event: Event) => {
+      if ('persisted' in event && (event as PageTransitionEvent).persisted) {
+        setResumeNonce((value) => value + 1);
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled()) return;
     void syncActive().catch(console.error);
-  }, [sessionId, syncActive, topicId, userId, activeThreadId, portalThreadId]);
+  }, [sessionId, syncActive, topicId, userId, activeThreadId, portalThreadId, resumeNonce]);
 
   useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled() || !userId) return;
@@ -55,8 +74,8 @@ export const useConversationGenerationSync = () => {
       const replay = await conversationGenerationService.listEvents(0);
       if (abortController.signal.aborted) return;
       for (const event of replay.events) {
-        if (typeof event.id === 'number') persistCursor(event.id);
         applyEvent(event);
+        if (typeof event.id === 'number') persistCursor(event.id);
       }
       persistCursor(replay.cursor);
     };
@@ -71,8 +90,8 @@ export const useConversationGenerationSync = () => {
         });
         return;
       }
-      if (typeof event.id === 'number') persistCursor(event.id);
       applyEvent(event);
+      if (typeof event.id === 'number') persistCursor(event.id);
     };
 
     const pollOnce = () => {
@@ -153,5 +172,5 @@ export const useConversationGenerationSync = () => {
       stopPoll();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [applyEvent, syncActive, userId]);
+  }, [applyEvent, resumeNonce, syncActive, userId]);
 };

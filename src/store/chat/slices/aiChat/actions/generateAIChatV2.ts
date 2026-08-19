@@ -1,6 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
-import { DEFAULT_AGENT_CHAT_CONFIG, INBOX_SESSION_ID } from '@lobechat/const';
+import { DEFAULT_AGENT_CHAT_CONFIG, INBOX_SESSION_ID, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { knowledgeBaseQAPrompts } from '@lobechat/prompts';
 import {
   ChatImageItem,
@@ -63,6 +63,17 @@ import { messageMapKey } from '../../../utils/messageMapKey';
 import { notifyToolCallPersistenceFailure } from './persistenceNotification';
 
 const n = setNamespace('ai');
+
+const USER_CANCELLED_SEND = 'User cancelled sendMessageInServer operation';
+
+const isUserCancelledSend = (error: unknown, abortController: AbortController) => {
+  const reason = abortController.signal.reason;
+  if (reason === MESSAGE_CANCEL_FLAT || reason === USER_CANCELLED_SEND) return true;
+  return (
+    error instanceof Error &&
+    (error.message === MESSAGE_CANCEL_FLAT || error.message === USER_CANCELLED_SEND)
+  );
+};
 
 type GuardedSendMessageParams = SendMessageParams & {
   contextExportCaptureId?: string;
@@ -321,49 +332,50 @@ export const generateAIChatV2: StateCreator<
         },
         abortController,
       );
-      if (!isCurrentConversation()) return;
 
-      // refresh the total data
+      // Persist the server rows into the conversation that sent them even if the
+      // user already switched topic or session. Attach below still needs this map.
       get().internal_refreshAiChat({
         messages: data.messages,
         topics: data.topics,
-        sessionId: activeId,
+        sessionId: conversationContext.sessionId,
         topicId: data.topicId,
       });
 
       if (data.isCreateNewTopic && data.topicId) {
+        const stillOnSendingConversation = isCurrentConversation();
         conversationContext = { ...conversationContext, topicId: data.topicId };
-        await get().switchTopic(data.topicId, true);
-        if (!isCurrentConversation()) return;
-        getSkillStoreState().moveSelectedSkills(
-          getSkillSelectionKey({
-            sessionId: activeId,
-            threadId: activeThreadId,
-            topicId: activeTopicId,
-          }),
-          getSkillSelectionKey({
-            sessionId: activeId,
-            threadId: activeThreadId,
-            topicId: data.topicId,
-          }),
-        );
+        if (stillOnSendingConversation) {
+          await get().switchTopic(data.topicId, true);
+          if (isCurrentConversation()) {
+            getSkillStoreState().moveSelectedSkills(
+              getSkillSelectionKey({
+                sessionId: activeId,
+                threadId: activeThreadId,
+                topicId: activeTopicId,
+              }),
+              getSkillSelectionKey({
+                sessionId: activeId,
+                threadId: activeThreadId,
+                topicId: data.topicId,
+              }),
+            );
+          }
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isAbort = errorMessage.includes('aborted') || (error as Error)?.name === 'AbortError';
+      const userCancelled = isUserCancelledSend(error, abortController);
 
-      if (!isAbort && generation?.idempotencyKey) {
+      if (generation?.idempotencyKey && (!isAbort || !userCancelled)) {
         try {
           const recovered =
             await conversationGenerationService.getOperationByIdempotencyKey(
               generation.idempotencyKey,
             );
           recoveryChecked = true;
-          if (
-            recovered?.assistantMessageId &&
-            recovered.userMessageId &&
-            isCurrentConversation()
-          ) {
+          if (recovered?.assistantMessageId && recovered.userMessageId) {
             data = {
               assistantMessageId: recovered.assistantMessageId,
               isCreateNewTopic: shouldCreateNewTopic,
@@ -373,7 +385,11 @@ export const generateAIChatV2: StateCreator<
               topicId: recovered.topicId || activeTopicId || '',
               userMessageId: recovered.userMessageId,
             };
-            await get().refreshMessages();
+            await get().refreshMessages({
+              generation: conversationContext.generation,
+              sessionId: conversationContext.sessionId,
+              topicId: recovered.topicId || conversationContext.topicId,
+            });
           }
         } catch {
           // The reconciliation request is itself ambiguous; retain the optimistic row.
@@ -383,10 +399,9 @@ export const generateAIChatV2: StateCreator<
       if (!data) {
         sendFailure = error;
         const currentOperation = get().mainSendMessageOperations[operationKey];
-        const isCurrentOperation =
-          isCurrentConversation() && currentOperation?.abortController === abortController;
+        const isCurrentOperation = currentOperation?.abortController === abortController;
 
-        if (!isAbort && isCurrentOperation) {
+        if (!isAbort && isCurrentOperation && isCurrentConversation()) {
           get().internal_updateSendMessageOperation(operationKey, {
             inputSendErrorMsg: errorMessage,
           });
@@ -394,13 +409,11 @@ export const generateAIChatV2: StateCreator<
         }
       }
     } finally {
-      // Stop tracking sendMessageInServer operation
       const currentOperation = get().mainSendMessageOperations[operationKey];
-      const isCurrentOperation =
-        isCurrentConversation() && currentOperation?.abortController === abortController;
+      const isTrackedOperation = currentOperation?.abortController === abortController;
 
-      if (isCurrentOperation) {
-        operationWasCurrent = true;
+      if (isTrackedOperation) {
+        operationWasCurrent = isCurrentConversation();
         get().internal_updateSendMessageOperation(
           operationKey,
           { inputEditorTempState: null },
@@ -427,19 +440,16 @@ export const generateAIChatV2: StateCreator<
       );
     }
 
-    // remove temporally message
-    if (data?.isCreateNewTopic && operationWasCurrent && isCurrentConversation()) {
+    if (data?.isCreateNewTopic) {
       get().internal_dispatchMessage(
         { type: 'deleteMessage', id: tempId },
         { topicId: activeTopicId, sessionId: activeId },
       );
     }
 
-    if (operationWasCurrent && isCurrentConversation()) {
-      get().internal_toggleMessageLoading(false, tempId);
-    }
+    get().internal_toggleMessageLoading(false, tempId);
 
-    if (!data || !isCurrentConversation()) return;
+    if (!data) return;
 
     //  update assistant update to make it rerank
     getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
@@ -486,8 +496,10 @@ export const generateAIChatV2: StateCreator<
         userScope: requestedScope,
       });
       await get().reconcileConversationGeneration(data.operationId).catch(console.error);
-      const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
-      await getAgentStoreState().addFilesToAgent(userFiles, false);
+      if (isCurrentConversation()) {
+        const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
+        await getAgentStoreState().addFilesToAgent(userFiles, false);
+      }
       return;
     }
 
@@ -496,11 +508,15 @@ export const generateAIChatV2: StateCreator<
       const durableKey = messageMapKey(conversationContext.sessionId, data.topicId);
       const attached = Object.values(get().serverGenerationOperations[durableKey] || {});
       if (attached.some((operation) => isConversationGenerationChatFamilyKind(operation.kind))) {
-        const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
-        await getAgentStoreState().addFilesToAgent(userFiles, false);
+        if (isCurrentConversation()) {
+          const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
+          await getAgentStoreState().addFilesToAgent(userFiles, false);
+        }
         return;
       }
     }
+
+    if (!isCurrentConversation()) return;
 
     // The current server only returns persisted user history here. Keep filtering the
     // reserved ID for compatibility with an older server during rolling deployments.
@@ -694,7 +710,7 @@ export const generateAIChatV2: StateCreator<
     get().internal_toggleSendMessageOperation(
       operationKey,
       false,
-      'User cancelled sendMessageInServer operation',
+      USER_CANCELLED_SEND,
     );
 
     // Only clear creating message state if it's the active session
@@ -1010,15 +1026,15 @@ export const generateAIChatV2: StateCreator<
         if (knowledgeBasePromptTokens > 0) {
           get().internal_setKnowledgeBaseContextTokens(conversationContext, 0);
         }
+        get().internal_toggleChatLoading(
+          false,
+          assistantId,
+          n('generateMessage(start)', { messageId: assistantId, messages }),
+        );
+        get().internal_toggleSearchWorkflow(false, assistantId);
       }
 
       if (!isCurrentConversation()) return;
-      get().internal_toggleChatLoading(
-        false,
-        assistantId,
-        n('generateMessage(start)', { messageId: assistantId, messages }),
-      );
-      get().internal_toggleSearchWorkflow(false, assistantId);
 
       // if there is error, then stop
       if (isError) return;

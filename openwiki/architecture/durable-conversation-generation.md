@@ -171,12 +171,33 @@ the retained stream) replays from cursor `0` and resyncs active operations. If
 SSE ends or fails, the hook polls `conversationGeneration.listEvents` while it
 reconnects the stream with backoff instead of staying on poll-only.
 
-Events are applied only when the attached operation still matches the visible
-session/topic/thread (`portalThreadId` when a thread portal is open, otherwise
-`activeThreadId`) and `conversationClearGeneration`. Title and translation use
-separate lanes, so their events can attach alongside chat. Navigation detaches
-local UI state without cancelling server work. Explicit Stop, retry/rewind,
-delete, and clear perform scoped server cancellation.
+Attached operations receive snapshots and `done` even when the user is looking
+at another topic. Dispatch writes into that operation’s session/topic
+`messagesMap`. Events are refused only when `conversationClearGeneration` no
+longer matches (Stop, delete, clear). The SSE/poll cursor is advanced **after**
+`applyEvent`, so a dropped snapshot is not skipped permanently.
+
+`sendMessageInServer` still refreshes the sending conversation and attaches a
+returned `operationId` after leave (PC topic switch, mobile back, PWA abort).
+It skips only UI-only work: `switchTopic`, skill move, `addFilesToAgent`, and
+browser `internal_execAgentRuntime`. Abort recovery looks up the
+`idempotencyKey` unless Stop cancelled the send (`MESSAGE_CANCEL_FLAT` /
+`canceled`, or `User cancelled sendMessageInServer operation`). Search-intent
+leftover loading (`searchWorkflowLoadingIds`) is cleared in `finally` even after
+leave.
+
+On `visibilitychange` → `visible` and `pageshow` with `event.persisted`, the
+hook bumps a resume nonce so SSE reconnects and `syncActive` runs. A first-load
+`pageshow` without `persisted` is ignored. If the visible conversation has a
+`LOADING_FLAT` assistant and `listActive()` has no matching job, `syncActive`
+refreshes messages (a job that finished while the user was away and was never
+attached). `reconcileConversationGeneration` refreshes the **operation’s**
+session/topic, not whichever topic is currently visible.
+
+Title and translation use separate lanes, so their events can attach alongside
+chat. Navigation detaches local UI state without cancelling server work.
+Explicit Stop, retry/rewind, delete, and clear perform scoped server
+cancellation.
 
 Stop still goes through `stopGenerateMessage` / group supervisor stop →
 `cancelAndDetachDurableOps` → `conversationGeneration.cancel`. Durable
@@ -312,6 +333,8 @@ High-signal suites:
 - `scripts/migrateServerDB/ensureConversationGenerationOperations.test.ts`
 - `scripts/migrateServerDB/dockerfileRuntimeDeps.test.ts`
 - `src/hooks/useConversationGenerationSync.test.tsx`
+- `src/store/chat/slices/message/selectors.test.ts`
+- `src/features/Conversation/Messages/Default.test.tsx`
 - `packages/database/src/models/__tests__/conversationGeneration.cas.test.ts`
 
 Model tests that top-level-await `getTestDB()` are not required for this

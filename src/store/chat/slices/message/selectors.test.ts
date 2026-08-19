@@ -474,6 +474,47 @@ describe('chatSelectors', () => {
     });
   });
 
+  describe('isMessageAwaitingServerGeneration', () => {
+    it('returns true when the message is in chatLoadingIds', () => {
+      const state: Partial<ChatStore> = {
+        chatLoadingIds: ['msg-1'],
+        serverGenerationOperations: {},
+      };
+      expect(chatSelectors.isMessageAwaitingServerGeneration('msg-1')(state as ChatStore)).toBe(
+        true,
+      );
+      expect(chatSelectors.isMessageAwaitingServerGeneration('msg-2')(state as ChatStore)).toBe(
+        false,
+      );
+    });
+
+    it('returns true when an attached operation owns the assistant message', () => {
+      const state: Partial<ChatStore> = {
+        chatLoadingIds: [],
+        serverGenerationOperations: {
+          [messageMapKey('session-1', 'topic-1')]: {
+            cgo_one: {
+              assistantMessageId: 'msg-1',
+              generation: 0,
+              kind: 'chat',
+              lane: 'lane-main',
+              operationId: 'cgo_one',
+              sessionId: 'session-1',
+              topicId: 'topic-1',
+              userScope: 'current',
+            },
+          },
+        },
+      };
+      expect(chatSelectors.isMessageAwaitingServerGeneration('msg-1')(state as ChatStore)).toBe(
+        true,
+      );
+      expect(chatSelectors.isMessageAwaitingServerGeneration('msg-2')(state as ChatStore)).toBe(
+        false,
+      );
+    });
+  });
+
   describe('activeBaseChats with group chat messages', () => {
     it('should retrieve agent meta for group chat messages with groupId and agentId', () => {
       const groupChatMessages = [
