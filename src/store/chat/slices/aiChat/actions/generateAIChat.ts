@@ -1,6 +1,6 @@
 /* eslint-disable sort-keys-fix/sort-keys-fix, typescript-sort-keys/interface */
 // Disable the auto sort key eslint rule to make the code more logic and readable
-import { LOADING_FLAT, MESSAGE_CANCEL_FLAT, INBOX_SESSION_ID } from '@lobechat/const';
+import { INBOX_SESSION_ID, LOADING_FLAT, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import { knowledgeBaseQAPrompts } from '@lobechat/prompts';
 import {
   ChatImageItem,
@@ -49,15 +49,15 @@ import {
 } from '@/store/chat/helpers/knowledgeBaseContext';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { preventLeavingFn, toggleBooleanList } from '@/store/chat/utils';
 import {
   bumpLaneScopedClearGeneration,
-  clearConversationLaneDurableGenerationStop,
   laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
+  supersedeConversationLaneStopMarker,
 } from '@/store/chat/utils/conversationClearGeneration';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
@@ -321,7 +321,7 @@ export const generateAIChat: StateCreator<
     const { activeId, activeTopicId, mainSendMessageOperations, preSendCompactionOperations } =
       get();
     const threadId = options?.threadId ?? null;
-    const isThreadScopedStop = threadId != null;
+    const isThreadScopedStop = threadId !== null;
     const preSendCompaction = preSendCompactionOperations[messageMapKey(activeId, activeTopicId)];
     if (preSendCompaction && (preSendCompaction.threadId ?? null) === threadId) {
       preSendCompaction.abortController.abort(MESSAGE_CANCEL_FLAT);
@@ -363,16 +363,6 @@ export const generateAIChat: StateCreator<
         threadId,
       );
     }
-
-    if (isThreadScopedStop) return;
-
-    const { chatLoadingIdsAbortController, internal_toggleChatLoading } = get();
-
-    if (!chatLoadingIdsAbortController) return;
-
-    chatLoadingIdsAbortController.abort(MESSAGE_CANCEL_FLAT);
-
-    internal_toggleChatLoading(false, undefined, n('stopGenerateMessage') as string);
   },
 
   // the internal process method of the AI message
@@ -452,9 +442,8 @@ export const generateAIChat: StateCreator<
             !params?.groupId &&
             !params?.agentId &&
             !messages.some(({ groupId }) => !!groupId),
-          fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(provider)(
-            getAiInfraStoreState(),
-          ),
+          fetchOnClient:
+            aiProviderSelectors.isProviderFetchOnClient(provider)(getAiInfraStoreState()),
           historySummary,
           historySummaryLastMessageId: enableHistoryCompaction
             ? activeTopic?.metadata?.historySummaryLastMessageId
@@ -496,6 +485,18 @@ export const generateAIChat: StateCreator<
           topicId: conversationContext.topicId ?? undefined,
           userScope: accountMutationSnapshot.scope,
         });
+        set(
+          (state) =>
+            supersedeConversationLaneStopMarker(
+              state,
+              conversationContext.sessionId,
+              conversationContext.topicId,
+              params?.threadId ?? null,
+              operation.id,
+            ),
+          false,
+          n('coreProcessMessage/supersedeLaneStopMarker'),
+        );
         if (!isCurrentConversation()) return;
         await refreshMessages();
         return;
@@ -750,6 +751,7 @@ export const generateAIChat: StateCreator<
           false,
           assistantId,
           n('generateMessage(start)', { messageId: assistantId, messages }),
+          conversationContext.threadId ?? null,
         );
         get().internal_toggleSearchWorkflow(false, assistantId);
       }
@@ -1224,7 +1226,12 @@ export const generateAIChat: StateCreator<
           messageId,
           n('generateMessage(reasoningEnd)') as string,
         );
-        internal_toggleChatLoading(false, messageId, n('generateMessage(end)') as string);
+        internal_toggleChatLoading(
+          false,
+          messageId,
+          n('generateMessage(end)') as string,
+          conversationContext.threadId ?? null,
+        );
       }
     }
 
@@ -1519,6 +1526,18 @@ export const generateAIChat: StateCreator<
             topicId: activeTopicId,
             userScope: accountMutationSnapshot.scope,
           });
+          set(
+            (state) =>
+              supersedeConversationLaneStopMarker(
+                state,
+                activeId,
+                activeTopicId,
+                threadId ?? null,
+                operation.id,
+              ),
+            false,
+            n('regenerateMessage/supersedeLaneStopMarker'),
+          );
           await get().refreshMessages();
           return;
         }

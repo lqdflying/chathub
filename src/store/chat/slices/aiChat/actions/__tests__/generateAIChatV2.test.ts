@@ -1346,6 +1346,24 @@ describe('generateAIChatV2 actions', () => {
         );
       });
     });
+
+    it('keeps the lane stop marker when send returns early on empty input', async () => {
+      const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+
+      act(() => {
+        useChatStore.setState({
+          activeId: TEST_IDS.SESSION_ID,
+          activeTopicId: TEST_IDS.TOPIC_ID,
+          conversationLaneStopMarkers: { [laneKey]: {} },
+        });
+      });
+
+      await act(async () => {
+        await useChatStore.getState().sendMessageInServer({ message: '' });
+      });
+
+      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toEqual({});
+    });
   });
 
   describe('internal_execAgentRuntime', () => {
@@ -1743,7 +1761,7 @@ describe('generateAIChatV2 actions', () => {
       expect(cancel).toHaveBeenCalledWith('cgo_pre_enqueue');
       const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
       expect(useChatStore.getState().conversationScopedClearGenerations[laneKey]).toBeGreaterThan(0);
-      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toBe(true);
+      expect(useChatStore.getState().conversationLaneStopMarkers[laneKey]).toEqual({});
     });
 
     it('should handle gracefully when operation does not exist', async () => {

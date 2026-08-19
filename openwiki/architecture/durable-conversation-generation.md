@@ -186,15 +186,21 @@ after clear/delete/reset cannot re-attach. **Stop** bumps a **lane-scoped** clea
 epoch (`session/topic:threadId|main`); **topic delete** bumps a **topic-scoped**
 tombstone that invalidates every lane in that topic. `cancelActiveDurableOpsInScope`
 lists active server operations via a quiet `listActive` call before detaching
-local attachments. Lane stop markers block sync re-attach until the next send
-clears them. **Clear current conversation** bumps the global clear epoch. `syncActive` does not
+local attachments. Lane stop markers block sync re-attach until a **replacement**
+durable operation supersedes the marker with its `operationId` (successful attach
+on send, regenerate, or late V2 response). Failed or deferred sends do **not**
+clear markers at send start. **Clear current conversation** bumps the global clear epoch. `syncActive` does not
 reattach operations in `cancelling` status, and skips topics missing from
 `topicMaps` once that session’s topic list is loaded. Navigation-only invalidation
 re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
 and abort recovery are gated on `isAccountMutationCurrent` and `userScope` at
 the shared attach boundary so account reset does not write durable state into
-the wrong scope. Shared
-`chatLoadingIdsAbortController` / `searchWorkflowLoadingIdsAbortController` are
+the wrong scope. Per-lane `chatLoadingAbortControllersByLane` pair with
+`chatLoadingLaneByMessageId`; the legacy global `chatLoadingIdsAbortController`
+tracks the latest-started lane only and is not used for lane-scoped Stop.
+Lane maps are cleared on normal completion (with thread scope in `finally`),
+conversation clear, invalidate, and account reset via `abortAllChatLoadingLanes`
+/ `clearChatLoadingLaneMaps`. Shared
 cleared only when the corresponding loading list becomes empty, so one
 generation’s `finally` cleanup cannot strip Stop from a sibling in-flight job.
 It skips only UI-only work: `switchTopic`, skill move, `addFilesToAgent`, and
@@ -219,7 +225,8 @@ cancellation.
 
 Stop still goes through `stopGenerateMessage` / group supervisor stop →
 `cancelActiveDurableOpsInScope` → `conversationGeneration.cancel`. Lane stop
-markers block sync re-attach until the next send clears them. Durable
+markers block sync re-attach until superseded by a replacement operation id.
+Durable
 generating UI uses `internal_markDurableGenerating` so it does not install
 `beforeunload`.
 

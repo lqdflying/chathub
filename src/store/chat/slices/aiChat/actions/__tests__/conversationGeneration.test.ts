@@ -606,7 +606,7 @@ describe('conversationGeneration store actions', () => {
     act(() => {
       useChatStore.setState({
         conversationLaneStopMarkers: {
-          [`${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`]: true,
+          [`${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`]: {},
         },
       });
     });
@@ -621,6 +621,40 @@ describe('conversationGeneration store actions', () => {
         messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
       ]?.cgo_stopped_lane,
     ).toBeUndefined();
+  });
+
+  it('allows attach when the lane marker is superseded by the operation id', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+      {
+        id: 'cgo_superseded',
+        kind: 'chat',
+        lane: 'lane-superseded',
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+    const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+
+    act(() => {
+      useChatStore.setState({
+        conversationLaneStopMarkers: {
+          [laneKey]: { supersededByOperationId: 'cgo_superseded' },
+        },
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ]?.cgo_superseded,
+    ).toMatchObject({ operationId: 'cgo_superseded' });
   });
 
   it('uses quiet listActive for scoped cancellation without surfacing fetch errors', async () => {

@@ -6,15 +6,15 @@ import {
   ChatImageItem,
   ChatTopic,
   ChatVideoItem,
-  buildConversationGenerationLane,
   ContextExportRequestContext,
-  isConversationGenerationChatFamilyKind,
   type KnowledgeBaseClientPreparationFailurePhase,
   MessageSemanticSearchChunk,
   SendMessageParams,
   SendMessageServerResponse,
   TraceNameMap,
   UIChatMessage,
+  buildConversationGenerationLane,
+  isConversationGenerationChatFamilyKind,
 } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
 import { TRPCClientError } from '@trpc/client';
@@ -22,12 +22,12 @@ import { t } from 'i18next';
 import { produce } from 'immer';
 import { StateCreator } from 'zustand/vanilla';
 
-import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import {
   buildDurableConversationConfig,
   isClientDurableConversationGenerationEnabled,
 } from '@/helpers/durableConversationGeneration';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
+import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -51,9 +51,9 @@ import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import {
   bumpLaneScopedClearGeneration,
-  clearConversationLaneDurableGenerationStop,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
+  supersedeConversationLaneStopMarker,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
@@ -167,17 +167,6 @@ export const generateAIChatV2: StateCreator<
     } = get();
     if (!accountMutationSnapshot || !activeId) return;
     const requestedScope = accountMutationSnapshot.scope;
-    set(
-      (state) =>
-        clearConversationLaneDurableGenerationStop(
-          state,
-          activeId,
-          activeTopicId,
-          activeThreadId ?? null,
-        ),
-      false,
-      n('sendMessageInServer/clearLaneStopMarker'),
-    );
     let conversationContext: ConversationContext = {
       clearGeneration: resolveConversationClearGeneration(
         get(),
@@ -300,7 +289,9 @@ export const generateAIChatV2: StateCreator<
     let operationWasCurrent = false;
     const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
     const { model, provider } = agentConfig;
-    const activeTopic = activeTopicId ? topicSelectors.getTopicById(activeTopicId)(get()) : undefined;
+    const activeTopic = activeTopicId
+      ? topicSelectors.getTopicById(activeTopicId)(get())
+      : undefined;
     const enableHistoryCompaction =
       !!activeTopicId &&
       activeSessionType !== 'group' &&
@@ -325,9 +316,8 @@ export const generateAIChatV2: StateCreator<
               chatConfig,
               enableMemoryTool:
                 chatConfig.enableAssistantMemory !== false && activeSessionType !== 'group',
-              fetchOnClient: aiProviderSelectors.isProviderFetchOnClient(provider)(
-                getAiInfraStoreState(),
-              ),
+              fetchOnClient:
+                aiProviderSelectors.isProviderFetchOnClient(provider)(getAiInfraStoreState()),
               historySummary,
               historySummaryLastMessageId: enableHistoryCompaction
                 ? activeTopic?.metadata?.historySummaryLastMessageId
@@ -403,10 +393,9 @@ export const generateAIChatV2: StateCreator<
 
       if (generation?.idempotencyKey && (!isAbort || !userCancelled)) {
         try {
-          const recovered =
-            await conversationGenerationService.getOperationByIdempotencyKey(
-              generation.idempotencyKey,
-            );
+          const recovered = await conversationGenerationService.getOperationByIdempotencyKey(
+            generation.idempotencyKey,
+          );
           recoveryChecked = true;
           if (recovered?.assistantMessageId && recovered.userMessageId && isSameAccount()) {
             data = {
@@ -515,8 +504,7 @@ export const generateAIChatV2: StateCreator<
       if (isLateDurableAttachCurrent()) {
         const durableOperation = data.operation;
         get().attachConversationGeneration({
-          assistantMessageId:
-            durableOperation?.assistantMessageId || data.assistantMessageId,
+          assistantMessageId: durableOperation?.assistantMessageId || data.assistantMessageId,
           clearGeneration: conversationContext.clearGeneration,
           generation: conversationContext.generation,
           kind: durableOperation?.kind || 'chat',
@@ -537,6 +525,18 @@ export const generateAIChatV2: StateCreator<
           topicId: data.topicId,
           userScope: requestedScope,
         });
+        set(
+          (state) =>
+            supersedeConversationLaneStopMarker(
+              state,
+              conversationContext.sessionId,
+              conversationContext.topicId,
+              conversationContext.threadId ?? null,
+              data.operationId,
+            ),
+          false,
+          n('sendMessageInServer/supersedeLaneStopMarker'),
+        );
         await get().reconcileConversationGeneration(data.operationId).catch(console.error);
         if (isCurrentConversation()) {
           const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);

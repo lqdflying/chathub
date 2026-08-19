@@ -54,6 +54,7 @@ export const resetAccountScopedStores = (reason: string): void => {
   abortControllers(
     [
       chatState.chatLoadingIdsAbortController,
+      ...Object.values(chatState.chatLoadingAbortControllersByLane),
       chatState.messageInToolsCallingIdsAbortController,
       chatState.reasoningLoadingIdsAbortController,
       chatState.searchWorkflowLoadingIdsAbortController,

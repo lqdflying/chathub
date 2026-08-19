@@ -1008,10 +1008,20 @@ describe('chatMessage actions', () => {
 
   describe('stopGenerateMessage', () => {
     it('should abort generation and clear loading state when controller exists', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const mainLaneKey = `${messageMapKey(sessionId, topicId)}:main`;
       const abortController = new AbortController();
 
       act(() => {
-        useChatStore.setState({ chatLoadingIdsAbortController: abortController });
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          chatLoadingAbortControllersByLane: { [mainLaneKey]: abortController },
+          chatLoadingIds: ['msg-1'],
+          chatLoadingIdsAbortController: abortController,
+          chatLoadingLaneByMessageId: { 'msg-1': mainLaneKey },
+        });
       });
 
       const { result } = renderHook(() => useChatStore());
@@ -1022,7 +1032,12 @@ describe('chatMessage actions', () => {
       });
 
       expect(abortController.signal.aborted).toBe(true);
-      expect(toggleLoadingSpy).toHaveBeenCalledWith(false, undefined, expect.any(String));
+      expect(toggleLoadingSpy).toHaveBeenCalledWith(
+        false,
+        'msg-1',
+        expect.any(String),
+        null,
+      );
     });
 
     it('awaits durable cancel even when no abort controller is set', async () => {
@@ -1104,6 +1119,41 @@ describe('chatMessage actions', () => {
       expect(threadController.signal.aborted).toBe(true);
       expect(mainController.signal.aborted).toBe(false);
       expect(useChatStore.getState().chatLoadingIds).toEqual(['main-msg']);
+    });
+
+    it('main stop leaves the portal thread lane intact when global controller points at thread', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const mainLaneKey = `${messageMapKey(sessionId, topicId)}:main`;
+      const threadLaneKey = `${messageMapKey(sessionId, topicId)}:thread-1`;
+      const mainController = new AbortController();
+      const threadController = new AbortController();
+
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          chatLoadingAbortControllersByLane: {
+            [mainLaneKey]: mainController,
+            [threadLaneKey]: threadController,
+          },
+          chatLoadingIds: ['main-msg', 'thread-msg'],
+          chatLoadingIdsAbortController: threadController,
+          chatLoadingLaneByMessageId: {
+            'main-msg': mainLaneKey,
+            'thread-msg': threadLaneKey,
+          },
+          stopDurableConversationGeneration: vi.fn(),
+        });
+      });
+
+      await act(async () => {
+        await useChatStore.getState().stopGenerateMessage();
+      });
+
+      expect(mainController.signal.aborted).toBe(true);
+      expect(threadController.signal.aborted).toBe(false);
+      expect(useChatStore.getState().chatLoadingIds).toEqual(['thread-msg']);
     });
 
     it('main stop bumps only the main lane scoped clear generation', async () => {
@@ -1685,6 +1735,7 @@ describe('chatMessage actions', () => {
         false,
         TEST_IDS.ASSISTANT_MESSAGE_ID,
         expect.any(String),
+        null,
       );
       expect(toggleChatReasoning).toHaveBeenLastCalledWith(
         false,
@@ -2383,11 +2434,21 @@ describe('chatMessage actions', () => {
     });
 
     it('still aborts a later generation after an earlier one clears its loading id', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const mainLaneKey = `${messageMapKey(sessionId, topicId)}:main`;
       const sharedController = new AbortController();
       act(() => {
         useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          chatLoadingAbortControllersByLane: { [mainLaneKey]: sharedController },
           chatLoadingIds: ['msg-a', 'msg-b'],
           chatLoadingIdsAbortController: sharedController,
+          chatLoadingLaneByMessageId: {
+            'msg-a': mainLaneKey,
+            'msg-b': mainLaneKey,
+          },
         });
       });
 

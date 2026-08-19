@@ -1,5 +1,7 @@
 import type { ChatInputEditor } from '@/features/ChatInput';
 
+import type { ConversationLaneStopMarker } from '../../utils/conversationClearGeneration';
+
 export interface MainSendMessageOperation {
   abortController?: AbortController | null;
   inputEditorTempState?: any | null;
@@ -13,6 +15,8 @@ export interface PreSendCompactionOperation {
 }
 
 export interface ChatAIChatState {
+  /** Per-lane abort controllers so thread Stop does not abort main generation. */
+  chatLoadingAbortControllersByLane: Record<string, AbortController>;
   /**
    * is the AI message is generating
    */
@@ -20,10 +24,8 @@ export interface ChatAIChatState {
   chatLoadingIdsAbortController?: AbortController;
   /** Maps assistant message ids to durable conversation lane keys for scoped Stop. */
   chatLoadingLaneByMessageId: Record<string, string>;
-  /** Per-lane abort controllers so thread Stop does not abort main generation. */
-  chatLoadingAbortControllersByLane: Record<string, AbortController>;
-  /** Lane/topic keys marked stopped until the next send clears them. */
-  conversationLaneStopMarkers: Record<string, boolean>;
+  /** Lane/topic keys marked stopped until a replacement durable operation supersedes them. */
+  conversationLaneStopMarkers: Record<string, ConversationLaneStopMarker>;
   inputFiles: File[];
   inputMessage: string;
   /** RAG prompt tokens currently carried by an in-flight provider request. */
@@ -65,8 +67,8 @@ export interface ChatAIChatState {
 }
 
 export const initialAiChatState: ChatAIChatState = {
-  chatLoadingIds: [],
   chatLoadingAbortControllersByLane: {},
+  chatLoadingIds: [],
   chatLoadingLaneByMessageId: {},
   conversationLaneStopMarkers: {},
   inputFiles: [],

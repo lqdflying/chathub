@@ -11,13 +11,13 @@ import { conversationGenerationService } from '@/services/conversationGeneration
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { toggleBooleanList } from '@/store/chat/utils';
 import {
   isConversationLaneDurableGenerationStopped,
   isConversationTopicDurableGenerationStopped,
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
-import { toggleBooleanList } from '@/store/chat/utils';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
 
@@ -30,13 +30,15 @@ export interface ConversationGenerationAction {
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
   cancelActiveDurableOpsInScope: (options?: ConversationGenerationScope) => Promise<void>;
   cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => Promise<void>;
-  detachDurableOps: (options?: ConversationGenerationScope) => void;
   detachConversationGeneration: (operationId: string, conversationKey?: string) => void;
+  detachDurableOps: (options?: ConversationGenerationScope) => void;
   internal_markDurableGenerating: (id: string, loading: boolean) => void;
   reconcileConversationGeneration: (
     operationId: string,
   ) => Promise<ConversationGenerationOperation | undefined>;
-  stopDurableConversationGeneration: (options?: ConversationGenerationScope) => void | Promise<void>;
+  stopDurableConversationGeneration: (
+    options?: ConversationGenerationScope,
+  ) => void | Promise<void>;
   syncActiveConversationGenerations: () => Promise<void>;
 }
 
@@ -79,7 +81,8 @@ const shouldApplyAttachedOperation = (
   ) {
     return false;
   }
-  if (attached.clearGeneration !==
+  if (
+    attached.clearGeneration !==
     resolveConversationClearGeneration(
       state,
       attached.sessionId,
@@ -148,14 +151,12 @@ const matchesOperationScope = (
     const kinds = Array.isArray(options.kind) ? options.kind : [options.kind];
     if (!kinds.includes(operation.kind)) return false;
   }
-  if (options?.assistantMessageIds) {
-    if (
+  if (options?.assistantMessageIds && (
       !operation.assistantMessageId ||
       !options.assistantMessageIds.includes(operation.assistantMessageId)
-    ) {
+    )) {
       return false;
     }
-  }
   if (!options?.allThreads) {
     const threadId =
       options && Object.hasOwn(options, 'threadId')
@@ -264,9 +265,7 @@ export const conversationGeneration: StateCreator<
         assistantMessageId = payload.assistantMessageId as string;
       }
       const shouldRefreshMessages =
-        Boolean(payload.assistantMessageId) ||
-        payload.phase === 'tools' ||
-        Boolean(payload.tools);
+        Boolean(payload.assistantMessageId) || payload.phase === 'tools' || Boolean(payload.tools);
       if (shouldRefreshMessages) {
         void refreshAttachedConversation(get, attached);
       }
@@ -390,57 +389,12 @@ export const conversationGeneration: StateCreator<
     }
   },
 
-  detachConversationGeneration: (operationId, conversationKey) => {
-    set(
-      (state) => {
-        const serverGenerationOperations = { ...state.serverGenerationOperations };
-        const keys = conversationKey ? [conversationKey] : Object.keys(serverGenerationOperations);
-        for (const key of keys) {
-          const current = serverGenerationOperations[key];
-          if (!current?.[operationId]) continue;
-          const remaining = { ...current };
-          delete remaining[operationId];
-          if (Object.keys(remaining).length === 0) delete serverGenerationOperations[key];
-          else serverGenerationOperations[key] = remaining;
-        }
-        return { serverGenerationOperations };
-      },
-      false,
-      n('detach', { operationId }),
-    );
-  },
-
-  internal_markDurableGenerating: (id, loading) => {
-    set(
-      {
-        chatLoadingIds: toggleBooleanList(get().chatLoadingIds, id, loading),
-      },
-      false,
-      n(loading ? 'generating/start' : 'generating/end', { id }),
-    );
-  },
-
-  detachDurableOps: (options) => {
-    const state = get();
-    const operations = Object.values(state.serverGenerationOperations)
-      .flatMap((items) => Object.values(items))
-      .filter((operation) => matchesOperationScope(operation, options, state));
-
-    for (const operation of operations) {
-      if (operation.assistantMessageId) {
-        get().internal_markDurableGenerating(operation.assistantMessageId, false);
-      }
-      if (operation.groupId) {
-        get().internal_toggleSupervisorLoading(false, operation.groupId);
-      }
-      get().detachConversationGeneration(operation.operationId);
-    }
-  },
-
   cancelActiveDurableOpsInScope: async (options) => {
     const state = get();
     try {
-      const activeOps = (await conversationGenerationService.listActive({ quiet: true })) as ConversationGenerationOperation[];
+      const activeOps = (await conversationGenerationService.listActive({
+        quiet: true,
+      })) as ConversationGenerationOperation[];
       const scoped = activeOps.filter((operation) =>
         matchesActiveServerOperationScope(operation, options, state),
       );
@@ -471,6 +425,53 @@ export const conversationGeneration: StateCreator<
       }
       get().detachConversationGeneration(operation.operationId);
     }
+  },
+
+  detachConversationGeneration: (operationId, conversationKey) => {
+    set(
+      (state) => {
+        const serverGenerationOperations = { ...state.serverGenerationOperations };
+        const keys = conversationKey ? [conversationKey] : Object.keys(serverGenerationOperations);
+        for (const key of keys) {
+          const current = serverGenerationOperations[key];
+          if (!current?.[operationId]) continue;
+          const remaining = { ...current };
+          delete remaining[operationId];
+          if (Object.keys(remaining).length === 0) delete serverGenerationOperations[key];
+          else serverGenerationOperations[key] = remaining;
+        }
+        return { serverGenerationOperations };
+      },
+      false,
+      n('detach', { operationId }),
+    );
+  },
+
+  detachDurableOps: (options) => {
+    const state = get();
+    const operations = Object.values(state.serverGenerationOperations)
+      .flatMap((items) => Object.values(items))
+      .filter((operation) => matchesOperationScope(operation, options, state));
+
+    for (const operation of operations) {
+      if (operation.assistantMessageId) {
+        get().internal_markDurableGenerating(operation.assistantMessageId, false);
+      }
+      if (operation.groupId) {
+        get().internal_toggleSupervisorLoading(false, operation.groupId);
+      }
+      get().detachConversationGeneration(operation.operationId);
+    }
+  },
+
+  internal_markDurableGenerating: (id, loading) => {
+    set(
+      {
+        chatLoadingIds: toggleBooleanList(get().chatLoadingIds, id, loading),
+      },
+      false,
+      n(loading ? 'generating/start' : 'generating/end', { id }),
+    );
   },
 
   reconcileConversationGeneration: async (operationId) => {
@@ -555,12 +556,14 @@ export const conversationGeneration: StateCreator<
           operationSessionId,
           operation.topicId,
           operation.threadId ?? null,
+          operation.id,
         ) ||
         (operation.topicId &&
           isConversationTopicDurableGenerationStopped(
             get(),
             operationSessionId,
             operation.topicId,
+            operation.id,
           ))
       ) {
         if (isSyncAttachableConversationGenerationStatus(operation.status)) {
@@ -623,8 +626,7 @@ export const conversationGeneration: StateCreator<
     if (detachedTerminal) {
       await Promise.all([get().refreshMessages(), get().refreshTopic()]);
     } else {
-      const visibleMessages =
-        get().messagesMap[conversationKeyFor(activeId, activeTopicId)] || [];
+      const visibleMessages = get().messagesMap[conversationKeyFor(activeId, activeTopicId)] || [];
       const hasLoadingPlaceholder = visibleMessages.some(
         (message) => message.role === 'assistant' && message.content === LOADING_FLAT,
       );

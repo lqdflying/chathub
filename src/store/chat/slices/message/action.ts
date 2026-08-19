@@ -32,6 +32,10 @@ import { traceService } from '@/services/trace';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
+import {
+  abortAllChatLoadingLanes,
+  clearChatLoadingLaneMaps,
+} from '@/store/chat/utils/chatLoadingLanes';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -44,6 +48,7 @@ import { Action, setNamespace } from '@/utils/storeDebug';
 import type { ChatStoreState } from '../../initialState';
 import { chatSelectors } from '../../selectors';
 import { preventLeavingFn, toggleBooleanList } from '../../utils';
+import { MessageDispatch, messagesReducer } from './reducer';
 
 const hasProtectedLoadingWork = (
   state: Pick<
@@ -60,7 +65,6 @@ const hasProtectedLoadingWork = (
   state.pluginApiLoadingIds.length > 0 ||
   state.reasoningLoadingIds.length > 0 ||
   state.searchWorkflowLoadingIds.length > 0;
-import { MessageDispatch, messagesReducer } from './reducer';
 
 const n = setNamespace('m');
 
@@ -95,16 +99,21 @@ const getLoadingAbortController = (
   key: LoadingIdsArrayKey,
 ): AbortController | undefined => {
   switch (key) {
-    case 'chatLoadingIds':
+    case 'chatLoadingIds': {
       return state.chatLoadingIdsAbortController;
-    case 'messageInToolsCallingIds':
+    }
+    case 'messageInToolsCallingIds': {
       return state.messageInToolsCallingIdsAbortController;
-    case 'reasoningLoadingIds':
+    }
+    case 'reasoningLoadingIds': {
       return state.reasoningLoadingIdsAbortController;
-    case 'searchWorkflowLoadingIds':
+    }
+    case 'searchWorkflowLoadingIds': {
       return state.searchWorkflowLoadingIdsAbortController;
-    default:
+    }
+    default: {
       return undefined;
+    }
   }
 };
 
@@ -381,6 +390,17 @@ export const chatMessage: StateCreator<
       n('clearMessage/bumpClearGeneration'),
     );
 
+    abortAllChatLoadingLanes(get());
+
+    set(
+      (state) => ({
+        ...clearChatLoadingLaneMaps(),
+        conversationClearGeneration: state.conversationClearGeneration,
+      }),
+      false,
+      n('clearMessage/clearLoadingLanes'),
+    );
+
     const operationKey = messageMapKey(activeId, activeTopicId);
     const sendOperation = mainSendMessageOperations[operationKey];
     if (sendOperation?.abortController) {
@@ -449,6 +469,8 @@ export const chatMessage: StateCreator<
       n('clearAllTopicsHistory/start'),
     );
 
+    abortAllChatLoadingLanes(get());
+
     chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
     messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
     reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
@@ -498,12 +520,11 @@ export const chatMessage: StateCreator<
 
     set(
       (state) => ({
+        ...clearChatLoadingLaneMaps(),
         ...clearTitleSummaryOperations(state),
         activePageContentUrl: undefined,
         activeThreadId: undefined,
         activeTopicId: null as any,
-        chatLoadingIds: [],
-        chatLoadingIdsAbortController: undefined,
         codeInterpreterExecuting: {},
         codeInterpreterImageMap: {},
         conversationClearGeneration: get().conversationClearGeneration,
@@ -1195,6 +1216,8 @@ export const chatMessage: StateCreator<
       topicTitleSummaryOperations,
     } = get();
 
+    abortAllChatLoadingLanes(get());
+
     chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
     messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
     reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
@@ -1225,9 +1248,8 @@ export const chatMessage: StateCreator<
     const invalidatedGenerationOperationKey = messageMapKey(get().activeId, get().activeTopicId);
     set(
       (state) => ({
+        ...clearChatLoadingLaneMaps(),
         ...clearTitleSummaryOperations(state),
-        chatLoadingIds: [],
-        chatLoadingIdsAbortController: undefined,
         conversationNavigationGeneration: state.conversationNavigationGeneration + 1,
         creatingThreadId: undefined,
         isCreatingMessage: false,
