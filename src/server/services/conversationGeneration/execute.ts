@@ -702,7 +702,7 @@ const executeChat = async (
           currentPayload as any,
           createConversationRuntimeChatOptions({
             payload: currentPayload as ConversationRuntimeChatOptionsInput['payload'],
-            provider: operation.config.provider,
+            provider: runtimePayload.runtimeProvider,
             sessionId: operation.sessionId,
             signal: abortController.signal,
             topicId: operation.topicId,
@@ -820,22 +820,36 @@ const executeChat = async (
             );
           }
 
-          const invocation = await executeConversationToolStep({
-            assistantMessage: { ...assistantMessage, tools } as UIChatMessage,
-            attempt: operation.attempt,
-            db,
-            operationId: operation.id,
-            payload: tool,
-            userId: operation.userId,
-          });
-          if (invocation.success) toolResultCount += 1;
-          else toolFailureCount += 1;
-          reportConversationToolCompletion({
-            correlation: toolBatch,
-            identifier: tool.identifier,
-            outcome: invocation.success ? 'completed' : 'failed',
-            toolCallId: tool.id,
-          });
+          let invocation: Awaited<ReturnType<typeof executeConversationToolStep>> | undefined;
+          try {
+            invocation = await executeConversationToolStep({
+              assistantMessage: { ...assistantMessage, tools } as UIChatMessage,
+              attempt: operation.attempt,
+              db,
+              operationId: operation.id,
+              payload: tool,
+              userId: operation.userId,
+            });
+            if (invocation.success) toolResultCount += 1;
+            else toolFailureCount += 1;
+            reportConversationToolCompletion({
+              correlation: toolBatch,
+              identifier: tool.identifier,
+              isHttpMcp: invocation.isHttpMcp,
+              outcome: invocation.success ? 'completed' : 'failed',
+              toolCallId: tool.id,
+            });
+          } catch (error) {
+            toolFailureCount += 1;
+            reportConversationToolCompletion({
+              correlation: toolBatch,
+              identifier: tool.identifier,
+              isHttpMcp: invocation?.isHttpMcp,
+              outcome: 'failed',
+              toolCallId: tool.id,
+            });
+            throw error;
+          }
           if (!invocation.messageId) {
             const existing = await messageModel.findToolMessageByCall(assistantId, tool.id);
             if (!existing) {
@@ -1093,7 +1107,7 @@ const runSimpleCompletion = async (
     chatPayload as any,
     createConversationRuntimeChatOptions({
       payload: chatPayload,
-      provider: operation.config.provider,
+      provider: runtimePayload.runtimeProvider,
       sessionId: operation.sessionId,
       signal,
       topicId: operation.topicId,

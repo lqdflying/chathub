@@ -2279,6 +2279,20 @@ describe('chatMessage actions', () => {
       expect(state.chatLoadingIds).toEqual([]);
     });
 
+    it('preserves the abort controller when one loading id remains', () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_toggleChatLoading(true, 'msg-a', 'start-a');
+        result.current.internal_toggleChatLoading(true, 'msg-b', 'start-b');
+        result.current.internal_toggleChatLoading(false, 'msg-a', 'stop-a');
+      });
+
+      const state = useChatStore.getState();
+      expect(state.chatLoadingIdsAbortController).toBeInstanceOf(AbortController);
+      expect(state.chatLoadingIds).toEqual(['msg-b']);
+    });
+
     it('should manage beforeunload event listener', () => {
       const { result } = renderHook(() => useChatStore());
       const addListenerSpy = vi.spyOn(window, 'addEventListener');

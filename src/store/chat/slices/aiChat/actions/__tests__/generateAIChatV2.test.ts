@@ -233,6 +233,52 @@ describe('generateAIChatV2 actions', () => {
       expect(execAgentRuntime).not.toHaveBeenCalled();
     });
 
+    it('does not attach a durable operation after account scope changes during send', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      let resolveServerSend: (response: any) => void;
+      const serverSendPromise = new Promise<any>((resolve) => {
+        resolveServerSend = resolve;
+      });
+      (aiChatService.sendMessageInServer as Mock).mockReturnValueOnce(serverSendPromise);
+      const execAgentRuntime = vi.fn();
+
+      act(() => {
+        useChatStore.setState({
+          internal_execAgentRuntime: execAgentRuntime,
+        });
+      });
+
+      const sendPromise = useChatStore
+        .getState()
+        .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+      await Promise.resolve();
+
+      act(() => {
+        useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+      });
+
+      resolveServerSend!({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: false,
+        messages: [],
+        operationId: 'cgo_account_reset',
+        topicId: TEST_IDS.TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      });
+      await sendPromise;
+
+      expect(
+        useChatStore.getState().serverGenerationOperations[
+          messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+        ],
+      ).toBeUndefined();
+      expect(execAgentRuntime).not.toHaveBeenCalled();
+    });
+
     it('attaches a durable operation after switching conversations', async () => {
       vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
       vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
@@ -284,6 +330,7 @@ describe('generateAIChatV2 actions', () => {
       ).toEqual(
         expect.objectContaining({
           assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          generation: useChatStore.getState().conversationClearGeneration,
           operationId: 'cgo_left_during_send',
           sessionId: TEST_IDS.SESSION_ID,
           topicId: TEST_IDS.TOPIC_ID,

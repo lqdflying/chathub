@@ -1106,15 +1106,17 @@ export const chatMessage: StateCreator<
     } else {
       if (!id) {
         set({ [abortControllerKey]: undefined, [key]: [] }, false, action);
-      } else
+      } else {
+        const nextIds = toggleBooleanList(get()[key] as string[], id, loading);
         set(
           {
-            [abortControllerKey]: undefined,
-            [key]: toggleBooleanList(get()[key] as string[], id, loading),
+            [key]: nextIds,
+            [abortControllerKey]: nextIds.length > 0 ? get()[abortControllerKey] : undefined,
           },
           false,
           action,
         );
+      }
 
       window.removeEventListener('beforeunload', preventLeavingFn);
     }

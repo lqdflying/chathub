@@ -179,6 +179,14 @@ longer matches (Stop, delete, clear). The SSE/poll cursor is advanced **after**
 
 `sendMessageInServer` still refreshes the sending conversation and attaches a
 returned `operationId` after leave (PC topic switch, mobile back, PWA abort).
+`attachConversationGeneration` always stores the **current**
+`conversationClearGeneration`, so a late send response cannot re-poison the
+client with a captured pre-navigation generation token. Late refresh, attach,
+reconcile, and abort recovery are gated on `isAccountMutationCurrent` so account
+reset does not write durable state into the wrong scope. Shared
+`chatLoadingIdsAbortController` / `searchWorkflowLoadingIdsAbortController` are
+cleared only when the corresponding loading list becomes empty, so one
+generation’s `finally` cleanup cannot strip Stop from a sibling in-flight job.
 It skips only UI-only work: `switchTopic`, skill move, `addFilesToAgent`, and
 browser `internal_execAgentRuntime`. Abort recovery looks up the
 `idempotencyKey` unless Stop cancelled the send (`MESSAGE_CANCEL_FLAT` /
@@ -227,7 +235,12 @@ Tool calls use `conversation_generation_steps` before side effects. A retry
 replays the completed result for the same operation/tool-call identity instead
 of invoking it again. Fixed-memory read/modify/write and step completion share
 one transaction with a row lock. HTTP MCP results—including handled remote
-errors—are persisted to the tool message and its recovery state.
+errors—are persisted to the tool message and its recovery state. HTTP MCP
+invocations carry `isHttpMcp` through step serialization; the execute tool loop
+reports completion (including thrown failures) to tool diagnostics with
+`runtimeType: 'mcp'`. `createConversationRuntimeChatOptions` receives resolved
+`runtimePayload.runtimeProvider` (not the raw gateway id) so `DEBUG_*_CACHE`
+diagnostics match the SDK family the worker actually calls.
 
 The worker currently supports builtin web browsing, fixed Memory, activated
 skills, and HTTP MCP. Image generation, code interpreter, non-HTTP MCP, and

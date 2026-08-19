@@ -404,7 +404,7 @@ export const generateAIChat: StateCreator<
         topicId: conversationContext.topicId ?? undefined,
         userMessageId,
       });
-      if (operation) {
+      if (operation && isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
           generation: conversationContext.generation,
@@ -1409,7 +1409,10 @@ export const generateAIChat: StateCreator<
           topicId: activeTopicId,
           userMessageId: anchor.message.id,
         });
-        if (operation) {
+        if (
+          operation &&
+          isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)
+        ) {
           get().attachConversationGeneration({
             assistantMessageId: operation.assistantMessageId || undefined,
             generation: requestedGeneration,

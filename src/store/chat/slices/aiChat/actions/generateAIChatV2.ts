@@ -171,6 +171,8 @@ export const generateAIChatV2: StateCreator<
       get().conversationClearGeneration === conversationContext.generation &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
+    const isSameAccount = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot);
 
     const fileIdList = files?.map((f) => f.id);
 
@@ -335,12 +337,14 @@ export const generateAIChatV2: StateCreator<
 
       // Persist the server rows into the conversation that sent them even if the
       // user already switched topic or session. Attach below still needs this map.
-      get().internal_refreshAiChat({
-        messages: data.messages,
-        topics: data.topics,
-        sessionId: conversationContext.sessionId,
-        topicId: data.topicId,
-      });
+      if (isSameAccount()) {
+        get().internal_refreshAiChat({
+          messages: data.messages,
+          topics: data.topics,
+          sessionId: conversationContext.sessionId,
+          topicId: data.topicId,
+        });
+      }
 
       if (data.isCreateNewTopic && data.topicId) {
         const stillOnSendingConversation = isCurrentConversation();
@@ -375,7 +379,7 @@ export const generateAIChatV2: StateCreator<
               generation.idempotencyKey,
             );
           recoveryChecked = true;
-          if (recovered?.assistantMessageId && recovered.userMessageId) {
+          if (recovered?.assistantMessageId && recovered.userMessageId && isSameAccount()) {
             data = {
               assistantMessageId: recovered.assistantMessageId,
               isCreateNewTopic: shouldCreateNewTopic,
@@ -472,33 +476,35 @@ export const generateAIChatV2: StateCreator<
     };
 
     if (data.operationId) {
-      const durableOperation = data.operation;
-      get().attachConversationGeneration({
-        assistantMessageId:
-          durableOperation?.assistantMessageId || data.assistantMessageId,
-        generation: conversationContext.generation,
-        kind: durableOperation?.kind || 'chat',
-        lane:
-          durableOperation?.lane ||
-          buildConversationGenerationLane({
-            kind: durableOperation?.kind || 'chat',
-            sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
-            threadId: activeThreadId,
-            topicId: data.topicId,
-            userId: requestedScope,
-          }),
-        laneGeneration: durableOperation?.laneGeneration,
-        operationId: data.operationId,
-        revision: durableOperation?.revision,
-        sessionId: conversationContext.sessionId,
-        threadId: durableOperation?.threadId || activeThreadId,
-        topicId: data.topicId,
-        userScope: requestedScope,
-      });
-      await get().reconcileConversationGeneration(data.operationId).catch(console.error);
-      if (isCurrentConversation()) {
-        const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
-        await getAgentStoreState().addFilesToAgent(userFiles, false);
+      if (isSameAccount()) {
+        const durableOperation = data.operation;
+        get().attachConversationGeneration({
+          assistantMessageId:
+            durableOperation?.assistantMessageId || data.assistantMessageId,
+          generation: conversationContext.generation,
+          kind: durableOperation?.kind || 'chat',
+          lane:
+            durableOperation?.lane ||
+            buildConversationGenerationLane({
+              kind: durableOperation?.kind || 'chat',
+              sessionId: activeId === INBOX_SESSION_ID ? undefined : activeId,
+              threadId: activeThreadId,
+              topicId: data.topicId,
+              userId: requestedScope,
+            }),
+          laneGeneration: durableOperation?.laneGeneration,
+          operationId: data.operationId,
+          revision: durableOperation?.revision,
+          sessionId: conversationContext.sessionId,
+          threadId: durableOperation?.threadId || activeThreadId,
+          topicId: data.topicId,
+          userScope: requestedScope,
+        });
+        await get().reconcileConversationGeneration(data.operationId).catch(console.error);
+        if (isCurrentConversation()) {
+          const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
+          await getAgentStoreState().addFilesToAgent(userFiles, false);
+        }
       }
       return;
     }

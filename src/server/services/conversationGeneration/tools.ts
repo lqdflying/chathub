@@ -49,6 +49,7 @@ const parseArgs = (value?: string) => {
 export interface ConversationToolInvocationResult {
   content: string;
   inputHash: string;
+  isHttpMcp?: boolean;
   messageId?: string;
   metadata?: Record<string, unknown>;
   shouldContinue: boolean;
@@ -80,6 +81,7 @@ const parseStepResult = (
   return {
     content: result.content,
     inputHash,
+    isHttpMcp: result.isHttpMcp === true,
     messageId: typeof result.messageId === 'string' ? result.messageId : undefined,
     metadata:
       result.metadata && typeof result.metadata === 'object'
@@ -93,6 +95,7 @@ const parseStepResult = (
 
 const serializeStepResult = (result: ConversationToolInvocationResult) => ({
   content: result.content,
+  ...(result.isHttpMcp ? { isHttpMcp: true } : {}),
   ...(result.messageId ? { messageId: result.messageId } : {}),
   ...(result.metadata ? { metadata: result.metadata } : {}),
   shouldContinue: result.shouldContinue,
@@ -435,6 +438,7 @@ export const invokeConversationTool = async ({
       return {
         content,
         inputHash,
+        isHttpMcp: true,
         messageId: toolMessage.id,
         shouldContinue: true,
         success: !isError,
@@ -448,6 +452,7 @@ export const invokeConversationTool = async ({
       return {
         content,
         inputHash,
+        isHttpMcp: true,
         messageId: toolMessage.id,
         shouldContinue: true,
         success: false,

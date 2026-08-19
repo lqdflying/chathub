@@ -194,6 +194,71 @@ describe('conversationGeneration store actions', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
+  it('rebases generation when re-attaching after navigation invalidate', () => {
+    const dispatch = vi.fn();
+    const { result } = renderHook(() => useChatStore());
+
+    act(() => {
+      useChatStore.setState({ internal_dispatchMessage: dispatch });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_late',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.internal_invalidateConversation();
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_late',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    const attached =
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ]['cgo_late'];
+    expect(attached.generation).toBe(useChatStore.getState().conversationClearGeneration);
+
+    act(() => {
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 4,
+        operationId: 'cgo_late',
+        payload: { content: 'synced answer' },
+        revision: 5,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 5,
+        operationId: 'cgo_late',
+        payload: { status: 'succeeded' },
+        revision: 6,
+        type: 'done',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).toHaveBeenCalled();
+    expect(useChatStore.getState().chatLoadingIds).toEqual([]);
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ],
+    ).toBeUndefined();
+  });
+
   it('ignores replayed events at or below the attached revision', () => {
     const dispatch = vi.fn();
     const { result } = renderHook(() => useChatStore());

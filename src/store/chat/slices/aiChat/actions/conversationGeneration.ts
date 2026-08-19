@@ -257,9 +257,10 @@ export const conversationGeneration: StateCreator<
   },
 
   attachConversationGeneration: (operation) => {
-    const key = conversationKeyFor(operation.sessionId, operation.topicId);
+    const attached = { ...operation, generation: get().conversationClearGeneration };
+    const key = conversationKeyFor(attached.sessionId, attached.topicId);
     const replaced = Object.values(get().serverGenerationOperations[key] || {}).filter(
-      (item) => item.operationId !== operation.operationId && item.lane === operation.lane,
+      (item) => item.operationId !== attached.operationId && item.lane === attached.lane,
     );
     for (const item of replaced) {
       if (item.assistantMessageId) {
@@ -276,15 +277,15 @@ export const conversationGeneration: StateCreator<
                 ([, item]) => item.lane !== operation.lane,
               ),
             ),
-            [operation.operationId]: operation,
+            [attached.operationId]: attached,
           },
         },
       }),
       false,
-      n('attach', { operationId: operation.operationId }),
+      n('attach', { operationId: attached.operationId }),
     );
-    if (operation.assistantMessageId) {
-      get().internal_markDurableGenerating(operation.assistantMessageId, true);
+    if (attached.assistantMessageId) {
+      get().internal_markDurableGenerating(attached.assistantMessageId, true);
     }
   },
 
@@ -356,6 +357,13 @@ export const conversationGeneration: StateCreator<
   },
 
   reconcileConversationGeneration: async (operationId) => {
+    const existingAttached = findAttachedOperation(get().serverGenerationOperations, operationId);
+    if (
+      existingAttached &&
+      existingAttached.generation !== get().conversationClearGeneration
+    ) {
+      get().attachConversationGeneration(existingAttached);
+    }
     const operation = (await conversationGenerationService.getOperation(
       operationId,
     )) as ConversationGenerationOperation;

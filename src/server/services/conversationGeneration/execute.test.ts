@@ -16,6 +16,7 @@ import {
 import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
 import { executeConversationToolStep } from './tools';
+import * as toolDiagnostics from './toolDiagnostics';
 
 const modelMocks = vi.hoisted(() => ({
   appendSupervisorChildMessageId: vi.fn(),
@@ -122,7 +123,7 @@ vi.mock('@/server/modules/ModelRuntime', () => ({
 }));
 vi.mock('./credentials', () => ({
   loadConversationRuntimeState: vi.fn().mockResolvedValue({}),
-  resolveConversationRuntimePayload: vi.fn().mockResolvedValue({}),
+  resolveConversationRuntimePayload: vi.fn().mockResolvedValue({ runtimeProvider: 'openai' }),
 }));
 vi.mock('./payload', () => ({
   buildConversationChatPayload: vi.fn().mockResolvedValue({ payload: { messages: [] } }),
@@ -646,6 +647,46 @@ describe('executeConversationGeneration chat resume', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it('uses resolved runtimeProvider for cache diagnostics on custom gateways', async () => {
+    const { resolveConversationRuntimePayload } = await import('./credentials');
+    vi.mocked(resolveConversationRuntimePayload).mockResolvedValue({
+      apiKey: 'test-key',
+      runtimeProvider: 'openai',
+    } as any);
+    vi.stubEnv('DEBUG_OPENAI_CACHE', '1');
+    vi.stubEnv('KEY_VAULTS_SECRET', 'conversation-cache-fingerprint-secret');
+    try {
+      const row = {
+        assistantMessageId: assistant.id,
+        attempt: 0,
+        config: { model: 'gpt-5.6', provider: 'gateway' },
+        id: 'cgo_gateway_cache',
+        kind: 'chat',
+        lane: 'lane-1',
+        laneGeneration: 1,
+        revision: 0,
+        sessionId: 'session-1',
+        status: 'pending',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      };
+      vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'complete answer' });
+
+      await runOperation(row);
+
+      expect(runtimeMocks.chat).toHaveBeenCalledTimes(1);
+      expect(runtimeMocks.chat.mock.calls[0][1]).toMatchObject({
+        cacheDiagnostics: {
+          provider: 'openai',
+          runtimeFamily: 'openai',
+        },
+        runtimeProvider: 'openai',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('executeConversationGeneration supervisor children', () => {
@@ -1107,6 +1148,77 @@ describe('executeConversationGeneration tool continuation ids', () => {
     expect(order[0]).toMatch(/^create:/);
     expect(order[1]).toMatch(/^persist:/);
     expect(order[0]?.slice('create:'.length)).toBe(order[1]?.slice('persist:'.length));
+  });
+
+  it('reports HTTP MCP tool completions with runtimeType mcp', async () => {
+    const report = vi.spyOn(toolDiagnostics, 'reportConversationToolCompletion');
+    vi.mocked(executeConversationToolStep).mockResolvedValue({
+      content: 'mcp ok',
+      inputHash: 'hash-mcp',
+      isHttpMcp: true,
+      messageId: 'tool-mcp',
+      shouldContinue: true,
+      success: true,
+    });
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_mcp_tool',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    vi.mocked(consumeProtocolResponse)
+      .mockResolvedValueOnce({
+        content: 'calling tool',
+        toolCalls: [{ function: { arguments: '{}', name: 'notion____search' }, id: 'call-mcp' }],
+      })
+      .mockResolvedValueOnce({ content: 'final answer' });
+
+    await runOperation(row, { preserveUpdate: true });
+
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identifier: 'notion',
+        isHttpMcp: true,
+        outcome: 'completed',
+        toolCallId: 'call-mcp',
+      }),
+    );
+  });
+
+  it('reports failed tool completions when executeConversationToolStep throws', async () => {
+    const report = vi.spyOn(toolDiagnostics, 'reportConversationToolCompletion');
+    vi.mocked(executeConversationToolStep).mockRejectedValue(new Error('tool exploded'));
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_tool_throw',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    vi.mocked(consumeProtocolResponse).mockResolvedValueOnce({
+      content: 'calling tool',
+      toolCalls: [{ function: { arguments: '{}', name: 'plugin____search' }, id: 'call-fail' }],
+    });
+
+    await expect(runOperation(row, { preserveUpdate: true })).rejects.toThrow('tool exploded');
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identifier: 'plugin',
+        outcome: 'failed',
+        toolCallId: 'call-fail',
+      }),
+    );
   });
 
   it('clears the continuation row when id persistence fails after insert', async () => {
