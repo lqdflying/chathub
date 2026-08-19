@@ -2293,6 +2293,31 @@ describe('chatMessage actions', () => {
       expect(state.chatLoadingIds).toEqual(['msg-b']);
     });
 
+    it('still aborts a later generation after an earlier one clears its loading id', async () => {
+      const sharedController = new AbortController();
+      act(() => {
+        useChatStore.setState({
+          chatLoadingIds: ['msg-a', 'msg-b'],
+          chatLoadingIdsAbortController: sharedController,
+        });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_toggleChatLoading(false, 'msg-a', 'generation-a-end');
+      });
+
+      expect(useChatStore.getState().chatLoadingIdsAbortController).toBe(sharedController);
+      expect(useChatStore.getState().chatLoadingIds).toEqual(['msg-b']);
+
+      await act(async () => {
+        await result.current.stopGenerateMessage();
+      });
+
+      expect(sharedController.signal.aborted).toBe(true);
+    });
+
     it('should manage beforeunload event listener', () => {
       const { result } = renderHook(() => useChatStore());
       const addListenerSpy = vi.spyOn(window, 'addEventListener');
