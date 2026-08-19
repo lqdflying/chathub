@@ -23,7 +23,7 @@ describe('Cancel send message functionality tests', () => {
       // Test method can be called safely
       expect(() => {
         act(() => {
-          result.current.cancelSendMessageInServer();
+          void result.current.cancelSendMessageInServer();
         });
       }).not.toThrow();
     });

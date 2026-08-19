@@ -14,6 +14,8 @@ vi.mock('zustand/traditional', async (importOriginal) => await importOriginal())
 describe('conversationGeneration store actions', () => {
   beforeEach(() => {
     resetTestEnvironment();
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     act(() => {
       useChatStore.setState({
         ...createMockStoreState(),

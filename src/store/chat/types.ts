@@ -2,6 +2,7 @@ export interface ConversationContext {
   clearGeneration: number;
   generation: number;
   sessionId: string;
+  threadId?: string | null;
   topicId?: string | null;
 }
 

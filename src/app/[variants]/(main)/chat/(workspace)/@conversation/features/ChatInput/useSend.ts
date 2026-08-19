@@ -154,7 +154,7 @@ export const useSend = () => {
     const isCreatingMessage = aiChatSelectors.isCurrentSendMessageLoading(store);
 
     if (isCreatingMessage) {
-      cancelSendMessageInServer();
+      void cancelSendMessageInServer();
     }
   };
 

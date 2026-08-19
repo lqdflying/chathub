@@ -1663,10 +1663,11 @@ describe('generateAIChatV2 actions', () => {
   });
 
   describe('cancelSendMessageInServer', () => {
-    it('should abort operation and restore editor state when cancelling', () => {
+    it('should abort operation and restore editor state when cancelling', async () => {
       const { result } = renderHook(() => useChatStore());
       const mockAbort = vi.fn();
       const mockSetJSONState = vi.fn();
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
 
       act(() => {
         useChatStore.setState({
@@ -1683,8 +1684,8 @@ describe('generateAIChatV2 actions', () => {
         });
       });
 
-      act(() => {
-        result.current.cancelSendMessageInServer();
+      await act(async () => {
+        await result.current.cancelSendMessageInServer();
       });
 
       expect(mockAbort).toHaveBeenCalledWith('User cancelled sendMessageInServer operation');
@@ -1696,10 +1697,11 @@ describe('generateAIChatV2 actions', () => {
       expect(mockSetJSONState).toHaveBeenCalledWith({ content: 'saved content' });
     });
 
-    it('should cancel operation for specified topic ID', () => {
+    it('should cancel operation for specified topic ID', async () => {
       const { result } = renderHook(() => useChatStore());
       const mockAbort = vi.fn();
       const customTopicId = 'custom-topic-id';
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
 
       act(() => {
         useChatStore.setState({
@@ -1713,25 +1715,49 @@ describe('generateAIChatV2 actions', () => {
         });
       });
 
-      act(() => {
-        result.current.cancelSendMessageInServer(customTopicId);
+      await act(async () => {
+        await result.current.cancelSendMessageInServer(customTopicId);
       });
 
       expect(mockAbort).toHaveBeenCalledWith('User cancelled sendMessageInServer operation');
     });
 
-    it('should handle gracefully when operation does not exist', () => {
+    it('bumps lane scoped clear and cancels detached durable ops', async () => {
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+        {
+          id: 'cgo_pre_enqueue',
+          kind: 'chat',
+          lane: 'lane-send',
+          sessionId: TEST_IDS.SESSION_ID,
+          status: 'pending',
+          topicId: TEST_IDS.TOPIC_ID,
+        },
+      ] as any);
       const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        await result.current.cancelSendMessageInServer();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_pre_enqueue');
+      const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
+      expect(useChatStore.getState().conversationScopedClearGenerations[laneKey]).toBeGreaterThan(0);
+    });
+
+    it('should handle gracefully when operation does not exist', async () => {
+      const { result } = renderHook(() => useChatStore());
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
 
       act(() => {
         useChatStore.setState({ mainSendMessageOperations: {} });
       });
 
-      expect(() => {
-        act(() => {
-          result.current.cancelSendMessageInServer('non-existing-topic');
-        });
-      }).not.toThrow();
+      await expect(
+        act(async () => {
+          await result.current.cancelSendMessageInServer('non-existing-topic');
+        }),
+      ).resolves.not.toThrow();
     });
   });
 

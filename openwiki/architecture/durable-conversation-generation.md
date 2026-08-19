@@ -182,10 +182,14 @@ no longer matches the attached operation. The SSE/poll cursor is advanced **afte
 returned `operationId` after leave (PC topic switch, mobile back, PWA abort).
 `attachConversationGeneration` rebases **navigation** generation to the current
 store value but preserves the send-time **clear** generation, so a late response
-after clear/delete/reset cannot re-attach. **Stop** and active-topic **delete**
-bump a scoped clear epoch for that session/topic (`conversationScopedClearGenerations`);
-**clear current conversation** bumps the global clear epoch. `syncActive` does not
-reattach operations in `cancelling` status. Navigation-only invalidation
+after clear/delete/reset cannot re-attach. **Stop** bumps a **lane-scoped** clear
+epoch (`session/topic:threadId|main`); **topic delete** bumps a **topic-scoped**
+tombstone that invalidates every lane in that topic. `cancelActiveDurableOpsInScope`
+lists active server operations and cancels by scope before detaching local
+attachments, so detached jobs are not left running after delete or pre-enqueue
+Stop. **Clear current conversation** bumps the global clear epoch. `syncActive` does not
+reattach operations in `cancelling` status, and skips topics missing from
+`topicMaps` once that session’s topic list is loaded. Navigation-only invalidation
 re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
 and abort recovery are gated on `isAccountMutationCurrent` and `userScope` at
 the shared attach boundary so account reset does not write durable state into

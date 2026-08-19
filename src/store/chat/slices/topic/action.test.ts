@@ -107,6 +107,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   currentUserScope = 'local';
   hasActiveUserStateOwnerMismatch = false;
+  vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+  vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
   useChatStore.setState(
     {
       activeId: undefined,
@@ -629,6 +631,48 @@ describe('topic action', () => {
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
     });
+
+    it('cancels detached server ops and tombstones scoped clear when deleting an inactive topic', async () => {
+      const deletedTopicId = 'inactive-topic';
+      const otherTopicId = 'active-topic';
+      const activeId = 'test-session-id';
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+        {
+          id: 'cgo_detached',
+          kind: 'chat',
+          lane: 'lane-detached',
+          sessionId: activeId,
+          status: 'processing',
+          topicId: deletedTopicId,
+        },
+      ] as any);
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: otherTopicId,
+          conversationScopedClearGenerations: {},
+          topicMaps: {
+            [activeId]: [
+              { id: deletedTopicId, title: 'Deleted' },
+              { id: otherTopicId, title: 'Active' },
+            ],
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeTopic(deletedTopicId);
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_detached');
+      const topicKey = messageMapKey(activeId, deletedTopicId);
+      expect(useChatStore.getState().conversationScopedClearGenerations[topicKey]).toBeGreaterThan(0);
+    });
+
     it('should remove a specific topic and its messages, then not refresh the topic list', async () => {
       const topicId = 'topic-1';
       const { result } = renderHook(() => useChatStore());

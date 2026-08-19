@@ -684,6 +684,7 @@ describe('ChatPluginAction', () => {
         { id: 'active-message', role: 'user' },
       ]);
       expect(refreshMessages).toHaveBeenCalledWith({
+        clearGeneration: 0,
         generation: 0,
         sessionId: 'inactive-session',
         topicId: 'inactive-topic',

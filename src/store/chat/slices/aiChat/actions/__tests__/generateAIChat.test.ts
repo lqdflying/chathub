@@ -1044,6 +1044,60 @@ describe('chatMessage actions', () => {
       expect(stopDurable).toHaveBeenCalled();
       expect(toggleLoadingSpy).not.toHaveBeenCalled();
     });
+
+    it('thread stop bumps only the thread lane scoped clear generation', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const mainLaneKey = `${messageMapKey(sessionId, topicId)}:main`;
+      const threadLaneKey = `${messageMapKey(sessionId, topicId)}:thread-1`;
+
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          chatLoadingIdsAbortController: new AbortController(),
+          conversationScopedClearGenerations: {},
+          stopDurableConversationGeneration: vi.fn(),
+        });
+      });
+
+      await act(async () => {
+        await useChatStore.getState().stopGenerateMessage({ threadId: 'thread-1' });
+      });
+
+      expect(useChatStore.getState().conversationScopedClearGenerations[threadLaneKey]).toBeGreaterThan(
+        0,
+      );
+      expect(useChatStore.getState().conversationScopedClearGenerations[mainLaneKey] ?? 0).toBe(0);
+    });
+
+    it('main stop bumps only the main lane scoped clear generation', async () => {
+      const sessionId = TEST_IDS.SESSION_ID;
+      const topicId = TEST_IDS.TOPIC_ID;
+      const mainLaneKey = `${messageMapKey(sessionId, topicId)}:main`;
+      const threadLaneKey = `${messageMapKey(sessionId, topicId)}:thread-1`;
+
+      act(() => {
+        useChatStore.setState({
+          activeId: sessionId,
+          activeTopicId: topicId,
+          chatLoadingIdsAbortController: new AbortController(),
+          conversationScopedClearGenerations: {
+            [threadLaneKey]: 2,
+          },
+          stopDurableConversationGeneration: vi.fn(),
+        });
+      });
+
+      await act(async () => {
+        await useChatStore.getState().stopGenerateMessage();
+      });
+
+      expect(useChatStore.getState().conversationScopedClearGenerations[mainLaneKey]).toBeGreaterThan(
+        0,
+      );
+      expect(useChatStore.getState().conversationScopedClearGenerations[threadLaneKey]).toBe(2);
+    });
   });
 
   describe('internal_coreProcessMessage', () => {

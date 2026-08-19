@@ -12,10 +12,7 @@ import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/stor
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
-import {
-  bumpScopedConversationClearGeneration,
-  resolveConversationClearGeneration,
-} from '@/store/chat/utils/conversationClearGeneration';
+import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
 import { toggleBooleanList } from '@/store/chat/utils';
 import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
@@ -27,6 +24,7 @@ const n = setNamespace('durableGeneration');
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
+  cancelActiveDurableOpsInScope: (options?: ConversationGenerationScope) => Promise<void>;
   cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => Promise<void>;
   detachDurableOps: (options?: ConversationGenerationScope) => void;
   detachConversationGeneration: (operationId: string, conversationKey?: string) => void;
@@ -77,17 +75,30 @@ const shouldApplyAttachedOperation = (
   ) {
     return false;
   }
-  if (attached.clearGeneration !== resolveConversationClearGeneration(state, attached.sessionId, attached.topicId)) return false;
+  if (attached.clearGeneration !==
+    resolveConversationClearGeneration(
+      state,
+      attached.sessionId,
+      attached.topicId,
+      attached.threadId ?? null,
+    )
+  ) {
+    return false;
+  }
   if (attached.generation !== state.conversationNavigationGeneration) return false;
   return true;
 };
 
 const conversationContextFromAttached = (
-  attached: Pick<ServerGenerationOperation, 'clearGeneration' | 'generation' | 'sessionId' | 'topicId'>,
+  attached: Pick<
+    ServerGenerationOperation,
+    'clearGeneration' | 'generation' | 'sessionId' | 'threadId' | 'topicId'
+  >,
 ): ConversationContext => ({
   clearGeneration: attached.clearGeneration,
   generation: attached.generation,
   sessionId: attached.sessionId,
+  threadId: attached.threadId ?? null,
   topicId: attached.topicId,
 });
 
@@ -99,7 +110,7 @@ const refreshAttachedConversation = async (
   get: () => ChatStore,
   attached?: Pick<
     ServerGenerationOperation,
-    'clearGeneration' | 'generation' | 'sessionId' | 'topicId'
+    'clearGeneration' | 'generation' | 'sessionId' | 'threadId' | 'topicId'
   >,
 ) => {
   if (attached?.sessionId) {
@@ -149,6 +160,39 @@ const matchesOperationScope = (
     if ((operation.threadId ?? null) !== (threadId ?? null)) return false;
   }
   return true;
+};
+
+const matchesActiveServerOperationScope = (
+  operation: ConversationGenerationOperation,
+  options: ConversationGenerationScope | undefined,
+  state: ChatStore,
+) => {
+  const attachedLike: ServerGenerationOperation = {
+    assistantMessageId: operation.assistantMessageId || undefined,
+    clearGeneration: 0,
+    generation: 0,
+    groupId: operation.groupId || undefined,
+    kind: operation.kind,
+    lane: operation.lane,
+    operationId: operation.id,
+    sessionId: operation.sessionId || state.activeId,
+    threadId: operation.threadId ?? undefined,
+    topicId: operation.topicId ?? undefined,
+    userScope: '',
+  };
+
+  return matchesOperationScope(attachedLike, options, state);
+};
+
+const topicExistsInMaps = (
+  topicMaps: ChatStore['topicMaps'],
+  sessionId: string,
+  topicId?: string | null,
+) => {
+  if (!topicId) return true;
+  const topics = topicMaps[sessionId];
+  if (!topics?.length) return true;
+  return topics.some((topic) => topic.id === topicId);
 };
 
 export const conversationGeneration: StateCreator<
@@ -288,10 +332,20 @@ export const conversationGeneration: StateCreator<
     }
     const clearGeneration =
       operation.clearGeneration ??
-      resolveConversationClearGeneration(state, operation.sessionId, operation.topicId);
+      resolveConversationClearGeneration(
+        state,
+        operation.sessionId,
+        operation.topicId,
+        operation.threadId ?? null,
+      );
     if (
       clearGeneration !==
-      resolveConversationClearGeneration(state, operation.sessionId, operation.topicId)
+      resolveConversationClearGeneration(
+        state,
+        operation.sessionId,
+        operation.topicId,
+        operation.threadId ?? null,
+      )
     ) {
       return;
     }
@@ -379,6 +433,22 @@ export const conversationGeneration: StateCreator<
     }
   },
 
+  cancelActiveDurableOpsInScope: async (options) => {
+    const state = get();
+    try {
+      const activeOps = (await conversationGenerationService.listActive()) as ConversationGenerationOperation[];
+      const scoped = activeOps.filter((operation) =>
+        matchesActiveServerOperationScope(operation, options, state),
+      );
+      await Promise.allSettled(
+        scoped.map((operation) => conversationGenerationService.cancel(operation.id)),
+      );
+    } catch {
+      // Best-effort server cancel for detached durable ops.
+    }
+    await get().cancelAndDetachDurableOps(options);
+  },
+
   cancelAndDetachDurableOps: async (options) => {
     const state = get();
     const operations = Object.values(state.serverGenerationOperations)
@@ -409,6 +479,7 @@ export const conversationGeneration: StateCreator<
             get(),
             existingAttached.sessionId,
             existingAttached.topicId,
+            existingAttached.threadId ?? null,
           ))
     ) {
       get().attachConversationGeneration(existingAttached);
@@ -445,10 +516,12 @@ export const conversationGeneration: StateCreator<
                 get(),
                 operation.sessionId,
                 operation.topicId,
+                operation.threadId ?? null,
               ),
               generation: get().conversationNavigationGeneration,
               sessionId: operation.sessionId,
-              topicId: operation.topicId,
+              threadId: operation.threadId ?? undefined,
+              topicId: operation.topicId ?? undefined,
             }
           : undefined),
     );
@@ -456,7 +529,7 @@ export const conversationGeneration: StateCreator<
   },
 
   stopDurableConversationGeneration: (options) =>
-    get().cancelAndDetachDurableOps({
+    get().cancelActiveDurableOpsInScope({
       ...options,
       kind: options?.kind ?? ConversationGenerationChatFamilyKinds,
     }),
@@ -465,25 +538,35 @@ export const conversationGeneration: StateCreator<
     const operations = (await conversationGenerationService.listActive()) as Array<
       ConversationGenerationOperation & { assistantMessageId?: string | null }
     >;
-    const { activeId, activeTopicId, conversationNavigationGeneration } = get();
-    const activeClearGeneration = resolveConversationClearGeneration(get(), activeId, activeTopicId);
+    const { activeId, activeTopicId, conversationNavigationGeneration, topicMaps } = get();
     const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const currentScope = accountSnapshot?.scope;
     const visibleThreadId = visibleConversationThreadId(get());
     const activeOperationIds = new Set<string>();
     for (const operation of operations) {
+      const operationSessionId = operation.sessionId || activeId;
       if (
-        (operation.sessionId || activeId) === activeId &&
+        operationSessionId === activeId &&
         (operation.topicId ?? null) === (activeTopicId ?? null) &&
         (operation.threadId ?? null) === visibleThreadId
       ) {
         activeOperationIds.add(operation.id);
-        if (!currentScope || !isSyncAttachableConversationGenerationStatus(operation.status)) {
+        if (
+          !currentScope ||
+          !isSyncAttachableConversationGenerationStatus(operation.status) ||
+          !topicExistsInMaps(topicMaps, operationSessionId, operation.topicId)
+        ) {
           continue;
         }
+        const operationClearGeneration = resolveConversationClearGeneration(
+          get(),
+          operationSessionId,
+          operation.topicId,
+          operation.threadId ?? null,
+        );
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
-          clearGeneration: activeClearGeneration,
+          clearGeneration: operationClearGeneration,
           generation: conversationNavigationGeneration,
           groupId: operation.groupId || undefined,
           kind: operation.kind,
@@ -491,7 +574,7 @@ export const conversationGeneration: StateCreator<
           laneGeneration: operation.laneGeneration,
           operationId: operation.id,
           revision: operation.revision,
-          sessionId: operation.sessionId || activeId,
+          sessionId: operationSessionId,
           threadId: operation.threadId || undefined,
           topicId: operation.topicId || undefined,
           userScope: currentScope,

@@ -25,7 +25,7 @@ import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
-import { bumpScopedConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
+import { bumpTopicScopedClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
@@ -778,23 +778,20 @@ export const chatTopic: StateCreator<
       get().activeId === requestedContainerId &&
       get().activeTopicId === requestedActiveTopicId;
 
-    await get().cancelAndDetachDurableOps({
+    await get().cancelActiveDurableOpsInScope({
       allThreads: true,
       sessionId: requestedContainerId,
       topicId: requestedTopicId,
     });
 
+    set(
+      (state) =>
+        bumpTopicScopedClearGeneration(state, requestedContainerId, requestedTopicId),
+      false,
+      n('removeTopic/bumpTopicScopedClearGeneration'),
+    );
+
     if (requestedActiveTopicId === requestedTopicId) {
-      set(
-        (state) =>
-          bumpScopedConversationClearGeneration(
-            state,
-            requestedContainerId,
-            requestedTopicId,
-          ),
-        false,
-        n('removeTopic/bumpScopedClearGeneration'),
-      );
       const operationKey = messageMapKey(requestedContainerId, requestedTopicId);
       const sendOperation = mainSendMessageOperations[operationKey];
       if (sendOperation?.abortController) {

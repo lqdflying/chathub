@@ -131,7 +131,12 @@ const isPluginMutationCurrent = (
 
 const createResourceConversationContext = (
   resource: PluginMessageResource | undefined,
-  state: Pick<ChatStore, 'conversationClearGeneration' | 'conversationNavigationGeneration'>,
+  state: Pick<
+    ChatStore,
+    | 'conversationClearGeneration'
+    | 'conversationNavigationGeneration'
+    | 'conversationScopedClearGenerations'
+  >,
 ): ConversationContext | undefined => {
   if (!resource?.sessionId) return;
 

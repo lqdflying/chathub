@@ -51,7 +51,7 @@ import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import {
-  bumpScopedConversationClearGeneration,
+  bumpLaneScopedClearGeneration,
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
@@ -306,13 +306,13 @@ export const generateAIChat: StateCreator<
       preSendCompaction.abortController.abort(MESSAGE_CANCEL_FLAT);
     }
 
+    set(
+      (state) => bumpLaneScopedClearGeneration(state, activeId, activeTopicId, threadId),
+      false,
+      n('stopGenerateMessage/bumpLaneScopedClearGeneration'),
+    );
+
     if (!isThreadScopedStop) {
-      set(
-        (state) =>
-          bumpScopedConversationClearGeneration(state, activeId, activeTopicId),
-        false,
-        n('stopGenerateMessage/bumpScopedClearGeneration'),
-      );
       const operationKey = messageMapKey(activeId, activeTopicId);
       const sendOperation = mainSendMessageOperations[operationKey];
       if (sendOperation?.abortController) {
@@ -338,9 +338,15 @@ export const generateAIChat: StateCreator<
 
     const { internal_fetchAIChatMessage, triggerToolCalls, refreshMessages } = get();
     const conversationContext = params?.conversationContext ?? {
-      clearGeneration: resolveConversationClearGeneration(get(), get().activeId, get().activeTopicId),
+      clearGeneration: resolveConversationClearGeneration(
+        get(),
+        get().activeId,
+        get().activeTopicId,
+        params?.threadId ?? get().activeThreadId ?? null,
+      ),
       generation: get().conversationNavigationGeneration,
       sessionId: get().activeId,
+      threadId: params?.threadId ?? get().activeThreadId ?? null,
       topicId: get().activeTopicId,
     };
     const dispatchContext = {
@@ -349,8 +355,12 @@ export const generateAIChat: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      resolveConversationClearGeneration(get(), conversationContext.sessionId, conversationContext.topicId) ===
-        conversationContext.clearGeneration &&
+      resolveConversationClearGeneration(
+        get(),
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId ?? null,
+      ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =
@@ -794,9 +804,11 @@ export const generateAIChat: StateCreator<
           get(),
           get().activeId,
           get().activeTopicId,
+          params?.threadId ?? get().activeThreadId ?? null,
         ),
         generation: get().conversationNavigationGeneration,
         sessionId: get().activeId,
+        threadId: params?.threadId ?? get().activeThreadId ?? null,
         topicId: get().activeTopicId,
       };
     const dispatchContext = {
@@ -805,8 +817,12 @@ export const generateAIChat: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      resolveConversationClearGeneration(get(), conversationContext.sessionId, conversationContext.topicId) ===
-        conversationContext.clearGeneration &&
+      resolveConversationClearGeneration(
+        get(),
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId ?? null,
+      ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     if (!isCurrentConversation()) {

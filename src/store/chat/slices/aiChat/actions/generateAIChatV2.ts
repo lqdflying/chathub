@@ -49,7 +49,10 @@ import {
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
-import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
+import {
+  bumpLaneScopedClearGeneration,
+  resolveConversationClearGeneration,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
 import { getSessionStoreState } from '@/store/session';
@@ -89,7 +92,7 @@ export interface AIGenerateV2Action {
   /**
    * Cancels sendMessageInServer operation for a specific topic/session
    */
-  cancelSendMessageInServer: (topicId?: string) => void;
+  cancelSendMessageInServer: (topicId?: string) => Promise<void>;
   clearSendMessageError: () => void;
   internal_refreshAiChat: (params: {
     topics?: ChatTopic[];
@@ -163,9 +166,15 @@ export const generateAIChatV2: StateCreator<
     if (!accountMutationSnapshot || !activeId) return;
     const requestedScope = accountMutationSnapshot.scope;
     let conversationContext: ConversationContext = {
-      clearGeneration: resolveConversationClearGeneration(get(), activeId, activeTopicId),
+      clearGeneration: resolveConversationClearGeneration(
+        get(),
+        activeId,
+        activeTopicId,
+        activeThreadId ?? null,
+      ),
       generation: get().conversationNavigationGeneration,
       sessionId: activeId,
+      threadId: activeThreadId ?? null,
       topicId: activeTopicId,
     };
     const isCurrentConversation = () =>
@@ -174,6 +183,7 @@ export const generateAIChatV2: StateCreator<
         get(),
         conversationContext.sessionId,
         conversationContext.topicId,
+        conversationContext.threadId ?? null,
       ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
@@ -485,6 +495,7 @@ export const generateAIChatV2: StateCreator<
         get(),
         conversationContext.sessionId,
         conversationContext.topicId,
+        conversationContext.threadId ?? null,
       ) === conversationContext.clearGeneration;
 
     if (data.operationId) {
@@ -719,21 +730,28 @@ export const generateAIChatV2: StateCreator<
     }
   },
 
-  cancelSendMessageInServer: (topicId?: string) => {
-    const { activeId, activeTopicId } = get();
+  cancelSendMessageInServer: async (topicId?: string) => {
+    const { activeId, activeTopicId, activeThreadId } = get();
 
-    // Determine which operation to cancel
     const targetTopicId = topicId ?? activeTopicId;
+    const targetThreadId = activeThreadId ?? null;
     const operationKey = messageMapKey(activeId, targetTopicId);
 
-    // Cancel the specific operation
-    get().internal_toggleSendMessageOperation(
-      operationKey,
+    set(
+      (state) =>
+        bumpLaneScopedClearGeneration(state, activeId, targetTopicId, targetThreadId),
       false,
-      USER_CANCELLED_SEND,
+      n('cancelSendMessageInServer/bumpLaneScopedClearGeneration'),
     );
 
-    // Only clear creating message state if it's the active session
+    await get().cancelActiveDurableOpsInScope({
+      sessionId: activeId,
+      threadId: targetThreadId,
+      topicId: targetTopicId,
+    });
+
+    get().internal_toggleSendMessageOperation(operationKey, false, USER_CANCELLED_SEND);
+
     if (operationKey === messageMapKey(activeId, activeTopicId)) {
       const editorTempState = get().mainSendMessageOperations[operationKey]?.inputEditorTempState;
 
@@ -773,9 +791,15 @@ export const generateAIChatV2: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const conversationContext = params.conversationContext ?? {
-      clearGeneration: resolveConversationClearGeneration(get(), get().activeId, get().activeTopicId),
+      clearGeneration: resolveConversationClearGeneration(
+        get(),
+        get().activeId,
+        get().activeTopicId,
+        params.threadId ?? get().activeThreadId ?? null,
+      ),
       generation: get().conversationNavigationGeneration,
       sessionId: get().activeId,
+      threadId: params.threadId ?? get().activeThreadId ?? null,
       topicId: get().activeTopicId,
     };
     const dispatchContext = {
@@ -788,6 +812,7 @@ export const generateAIChatV2: StateCreator<
         get(),
         conversationContext.sessionId,
         conversationContext.topicId,
+        conversationContext.threadId ?? null,
       ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
