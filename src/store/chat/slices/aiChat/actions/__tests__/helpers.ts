@@ -4,10 +4,14 @@ import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
 import { sessionMetaSelectors } from '@/store/session/selectors';
+import { useUserStore } from '@/store/user';
+import { authSelectors } from '@/store/user/selectors';
 
 import { useChatStore } from '../../../../store';
 import { messageMapKey } from '../../../../utils/messageMapKey';
 import { TEST_IDS, createMockAgentConfig, createMockChatConfig } from './fixtures';
+
+export const TEST_ACCOUNT_SCOPE = 'current';
 
 /**
  * Setup mock selectors with default or custom values
@@ -100,6 +104,12 @@ export const spyOnChatService = () => {
  */
 export const resetTestEnvironment = () => {
   vi.clearAllMocks();
+  useUserStore.setState({
+    isUserStateInit: true,
+    ownershipInvalidationGeneration: 0,
+    userStateScope: TEST_ACCOUNT_SCOPE,
+  });
+  vi.spyOn(authSelectors, 'currentUserScope').mockReturnValue(TEST_ACCOUNT_SCOPE);
   useChatStore.setState(
     {
       activeId: TEST_IDS.SESSION_ID,
@@ -109,6 +119,7 @@ export const resetTestEnvironment = () => {
       chatLoadingIds: [],
       chatLoadingIdsAbortController: undefined,
       conversationClearGeneration: 0,
+      conversationNavigationGeneration: 0,
       messageRetryingIds: [],
       messagesMap: {},
       portalThreadId: undefined,

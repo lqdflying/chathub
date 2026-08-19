@@ -44,6 +44,22 @@ import { Action, setNamespace } from '@/utils/storeDebug';
 import type { ChatStoreState } from '../../initialState';
 import { chatSelectors } from '../../selectors';
 import { preventLeavingFn, toggleBooleanList } from '../../utils';
+
+const hasProtectedLoadingWork = (
+  state: Pick<
+    ChatStore,
+    | 'chatLoadingIds'
+    | 'messageInToolsCallingIds'
+    | 'pluginApiLoadingIds'
+    | 'reasoningLoadingIds'
+    | 'searchWorkflowLoadingIds'
+  >,
+) =>
+  state.chatLoadingIds.length > 0 ||
+  state.messageInToolsCallingIds.length > 0 ||
+  state.pluginApiLoadingIds.length > 0 ||
+  state.reasoningLoadingIds.length > 0 ||
+  state.searchWorkflowLoadingIds.length > 0;
 import { MessageDispatch, messagesReducer } from './reducer';
 
 const n = setNamespace('m');
@@ -767,13 +783,13 @@ export const chatMessage: StateCreator<
     const dispatchContext = conversationContext
       ? { sessionId: conversationContext.sessionId, topicId: conversationContext.topicId }
       : undefined;
-    const requestedGeneration =
-      conversationContext?.generation ?? get().conversationClearGeneration;
+    const requestedClearGeneration =
+      conversationContext?.clearGeneration ?? get().conversationClearGeneration;
     const requestedSessionId = conversationContext?.sessionId ?? get().activeId;
     const requestedTopicId = conversationContext?.topicId ?? get().activeTopicId;
     const isCurrentRequest = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
+      get().conversationClearGeneration === requestedClearGeneration &&
       (conversationContext
         ? true
         : get().activeId === requestedSessionId && get().activeTopicId === requestedTopicId);
@@ -923,7 +939,7 @@ export const chatMessage: StateCreator<
     } = get();
     const conversationContext = context?.conversationContext;
     const conversationClearGeneration =
-      conversationContext?.generation ?? get().conversationClearGeneration;
+      conversationContext?.clearGeneration ?? get().conversationClearGeneration;
     const dispatchContext = conversationContext
       ? { sessionId: conversationContext.sessionId, topicId: conversationContext.topicId }
       : { sessionId: message.sessionId, topicId: message.topicId };
@@ -1118,7 +1134,10 @@ export const chatMessage: StateCreator<
         );
       }
 
-      window.removeEventListener('beforeunload', preventLeavingFn);
+      const nextState = get();
+      if (!hasProtectedLoadingWork(nextState)) {
+        window.removeEventListener('beforeunload', preventLeavingFn);
+      }
     }
   },
   internal_updateActiveSessionType: (sessionType?: 'agent' | 'group') => {
@@ -1172,7 +1191,7 @@ export const chatMessage: StateCreator<
         ...clearTitleSummaryOperations(state),
         chatLoadingIds: [],
         chatLoadingIdsAbortController: undefined,
-        conversationClearGeneration: state.conversationClearGeneration + 1,
+        conversationNavigationGeneration: state.conversationNavigationGeneration + 1,
         creatingThreadId: undefined,
         isCreatingMessage: false,
         isCreatingThread: false,

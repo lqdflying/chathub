@@ -330,10 +330,12 @@ describe('generateAIChatV2 actions', () => {
       ).toEqual(
         expect.objectContaining({
           assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
-          generation: useChatStore.getState().conversationClearGeneration,
+          clearGeneration: useChatStore.getState().conversationClearGeneration,
+          generation: useChatStore.getState().conversationNavigationGeneration,
           operationId: 'cgo_left_during_send',
           sessionId: TEST_IDS.SESSION_ID,
           topicId: TEST_IDS.TOPIC_ID,
+          userScope: 'current',
         }),
       );
       expect(execAgentRuntime).not.toHaveBeenCalled();
@@ -721,6 +723,7 @@ describe('generateAIChatV2 actions', () => {
         );
         const syncActive = vi.fn(async () => {
           useChatStore.getState().attachConversationGeneration({
+            clearGeneration: 0,
             generation: 0,
             kind: 'topic_title',
             lane: 'lane-title',

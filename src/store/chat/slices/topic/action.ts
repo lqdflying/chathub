@@ -453,9 +453,14 @@ export const chatTopic: StateCreator<
         sessionId: requestedContainerId,
         topicId,
       });
+      if (!isCurrentTopicRequest()) {
+        finishOwnedOperation(false);
+        return;
+      }
       if (operation) {
         get().attachConversationGeneration({
-          generation: requestedGeneration,
+          clearGeneration: requestedGeneration,
+          generation: get().conversationNavigationGeneration,
           kind: operation.kind,
           lane: operation.lane,
           laneGeneration: operation.laneGeneration,

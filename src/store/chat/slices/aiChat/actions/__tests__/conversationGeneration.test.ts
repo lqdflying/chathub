@@ -35,6 +35,7 @@ describe('conversationGeneration store actions', () => {
     act(() => {
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -58,6 +59,7 @@ describe('conversationGeneration store actions', () => {
     act(() => {
       result.current.attachConversationGeneration({
         assistantMessageId: 'assistant-1',
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -97,6 +99,7 @@ describe('conversationGeneration store actions', () => {
       });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -135,6 +138,7 @@ describe('conversationGeneration store actions', () => {
       useChatStore.setState({ internal_toggleSupervisorLoading: toggleSupervisor });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         groupId: 'group-1',
         kind: 'group_supervisor',
@@ -171,6 +175,7 @@ describe('conversationGeneration store actions', () => {
       useChatStore.setState({ internal_dispatchMessage: dispatch });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -202,6 +207,7 @@ describe('conversationGeneration store actions', () => {
       useChatStore.setState({ internal_dispatchMessage: dispatch });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -213,6 +219,7 @@ describe('conversationGeneration store actions', () => {
       result.current.internal_invalidateConversation();
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -227,7 +234,7 @@ describe('conversationGeneration store actions', () => {
       useChatStore.getState().serverGenerationOperations[
         messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
       ]['cgo_late'];
-    expect(attached.generation).toBe(useChatStore.getState().conversationClearGeneration);
+    expect(attached.generation).toBe(useChatStore.getState().conversationNavigationGeneration);
 
     act(() => {
       result.current.applyConversationGenerationEvent({
@@ -259,6 +266,54 @@ describe('conversationGeneration store actions', () => {
     ).toBeUndefined();
   });
 
+  it('rejects attach and events after destructive clear generation bump', () => {
+    const dispatch = vi.fn();
+    const { result } = renderHook(() => useChatStore());
+
+    act(() => {
+      useChatStore.setState({ internal_dispatchMessage: dispatch });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_cleared',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      useChatStore.setState({ conversationClearGeneration: 1 });
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-main',
+        operationId: 'cgo_cleared',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 6,
+        operationId: 'cgo_cleared',
+        payload: { content: 'should not apply' },
+        revision: 7,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+      ]?.cgo_cleared,
+    ).toBeDefined();
+  });
+
   it('ignores replayed events at or below the attached revision', () => {
     const dispatch = vi.fn();
     const { result } = renderHook(() => useChatStore());
@@ -266,6 +321,7 @@ describe('conversationGeneration store actions', () => {
       useChatStore.setState({ internal_dispatchMessage: dispatch });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -295,6 +351,7 @@ describe('conversationGeneration store actions', () => {
 
     await act(async () => {
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -320,6 +377,7 @@ describe('conversationGeneration store actions', () => {
 
     await act(async () => {
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -329,6 +387,7 @@ describe('conversationGeneration store actions', () => {
         userScope: 'current',
       });
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-other',
@@ -351,6 +410,7 @@ describe('conversationGeneration store actions', () => {
       useChatStore.setState({ activeThreadId: undefined, internal_dispatchMessage: dispatch });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-thread',
@@ -386,6 +446,7 @@ describe('conversationGeneration store actions', () => {
     await act(async () => {
       useChatStore.setState({ activeThreadId: 'thread-1' });
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',
@@ -395,6 +456,7 @@ describe('conversationGeneration store actions', () => {
         userScope: 'current',
       });
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-thread',
@@ -416,6 +478,7 @@ describe('conversationGeneration store actions', () => {
     const { result } = renderHook(() => useChatStore());
     await act(async () => {
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         groupId: 'group-1',
         kind: 'group_supervisor',
@@ -426,6 +489,7 @@ describe('conversationGeneration store actions', () => {
         userScope: 'current',
       });
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         groupId: 'group-1',
         kind: 'group_agent',
@@ -448,6 +512,7 @@ describe('conversationGeneration store actions', () => {
     await act(async () => {
       result.current.attachConversationGeneration({
         assistantMessageId: 'assistant-keep',
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-keep',
@@ -458,6 +523,7 @@ describe('conversationGeneration store actions', () => {
       });
       result.current.attachConversationGeneration({
         assistantMessageId: 'assistant-delete',
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-delete',
@@ -533,6 +599,7 @@ describe('conversationGeneration store actions', () => {
       });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-thread',
@@ -611,6 +678,7 @@ describe('conversationGeneration store actions', () => {
 
     await act(async () => {
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-old',
@@ -626,6 +694,7 @@ describe('conversationGeneration store actions', () => {
       stopPromise = result.current.cancelAndDetachDurableOps();
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-new',
@@ -651,6 +720,7 @@ describe('conversationGeneration store actions', () => {
     const { result } = renderHook(() => useChatStore());
     await act(async () => {
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'topic_title',
         lane: 'lane-title',
@@ -660,6 +730,7 @@ describe('conversationGeneration store actions', () => {
         userScope: 'current',
       });
       result.current.attachConversationGeneration({
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-chat',
@@ -723,6 +794,7 @@ describe('conversationGeneration store actions', () => {
       });
       result.current.attachConversationGeneration({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
         generation: 0,
         kind: 'chat',
         lane: 'lane-main',

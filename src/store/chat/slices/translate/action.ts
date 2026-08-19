@@ -95,10 +95,12 @@ export const chatTranslate: StateCreator<
         sessionId: requestedSessionId,
         topicId: requestedTopicId ?? undefined,
       });
+      if (!isCurrentRequest()) return;
       if (operation) {
         get().attachConversationGeneration({
           assistantMessageId: id,
-          generation: requestedGeneration,
+          clearGeneration: requestedGeneration,
+          generation: get().conversationNavigationGeneration,
           kind: operation.kind,
           lane: operation.lane,
           laneGeneration: operation.laneGeneration,

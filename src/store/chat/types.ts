@@ -1,4 +1,5 @@
 export interface ConversationContext {
+  clearGeneration: number;
   generation: number;
   sessionId: string;
   topicId?: string | null;

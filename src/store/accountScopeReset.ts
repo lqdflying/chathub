@@ -77,6 +77,7 @@ export const resetAccountScopedStores = (reason: string): void => {
   useChatStore.setState({
     ...initialChatState,
     conversationClearGeneration: chatState.conversationClearGeneration + 1,
+    conversationNavigationGeneration: chatState.conversationNavigationGeneration + 1,
   });
 
   const imageState = useImageStore.getState();

@@ -9,7 +9,7 @@ import {
 import { StateCreator } from 'zustand/vanilla';
 
 import { conversationGenerationService } from '@/services/conversationGeneration';
-import { captureAccountMutationSnapshot } from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -66,13 +66,23 @@ const shouldApplyAttachedOperation = (
   state: ChatStore,
 ) => {
   if (!attached) return false;
-  if (attached.generation !== state.conversationClearGeneration) return false;
+  const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+  if (
+    !accountSnapshot ||
+    !isAccountMutationCurrent(useUserStore.getState(), accountSnapshot) ||
+    attached.userScope !== accountSnapshot.scope
+  ) {
+    return false;
+  }
+  if (attached.clearGeneration !== state.conversationClearGeneration) return false;
+  if (attached.generation !== state.conversationNavigationGeneration) return false;
   return true;
 };
 
 const conversationContextFromAttached = (
-  attached: Pick<ServerGenerationOperation, 'generation' | 'sessionId' | 'topicId'>,
+  attached: Pick<ServerGenerationOperation, 'clearGeneration' | 'generation' | 'sessionId' | 'topicId'>,
 ): ConversationContext => ({
+  clearGeneration: attached.clearGeneration,
   generation: attached.generation,
   sessionId: attached.sessionId,
   topicId: attached.topicId,
@@ -257,7 +267,23 @@ export const conversationGeneration: StateCreator<
   },
 
   attachConversationGeneration: (operation) => {
-    const attached = { ...operation, generation: get().conversationClearGeneration };
+    const state = get();
+    const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    if (
+      !accountSnapshot ||
+      !isAccountMutationCurrent(useUserStore.getState(), accountSnapshot) ||
+      operation.userScope !== accountSnapshot.scope
+    ) {
+      return;
+    }
+    const clearGeneration = operation.clearGeneration ?? state.conversationClearGeneration;
+    if (clearGeneration !== state.conversationClearGeneration) return;
+
+    const attached = {
+      ...operation,
+      clearGeneration,
+      generation: state.conversationNavigationGeneration,
+    };
     const key = conversationKeyFor(attached.sessionId, attached.topicId);
     const replaced = Object.values(get().serverGenerationOperations[key] || {}).filter(
       (item) => item.operationId !== attached.operationId && item.lane === attached.lane,
@@ -360,7 +386,8 @@ export const conversationGeneration: StateCreator<
     const existingAttached = findAttachedOperation(get().serverGenerationOperations, operationId);
     if (
       existingAttached &&
-      existingAttached.generation !== get().conversationClearGeneration
+      (existingAttached.generation !== get().conversationNavigationGeneration ||
+        existingAttached.clearGeneration !== get().conversationClearGeneration)
     ) {
       get().attachConversationGeneration(existingAttached);
     }
@@ -382,7 +409,8 @@ export const conversationGeneration: StateCreator<
       attached ??
         (operation.sessionId
           ? {
-              generation: get().conversationClearGeneration,
+              clearGeneration: get().conversationClearGeneration,
+              generation: get().conversationNavigationGeneration,
               sessionId: operation.sessionId,
               topicId: operation.topicId,
             }
@@ -401,7 +429,10 @@ export const conversationGeneration: StateCreator<
     const operations = (await conversationGenerationService.listActive()) as Array<
       ConversationGenerationOperation & { assistantMessageId?: string | null }
     >;
-    const { activeId, activeTopicId, conversationClearGeneration } = get();
+    const { activeId, activeTopicId, conversationClearGeneration, conversationNavigationGeneration } =
+      get();
+    const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
+    const currentScope = accountSnapshot?.scope;
     const visibleThreadId = visibleConversationThreadId(get());
     const activeOperationIds = new Set<string>();
     for (const operation of operations) {
@@ -411,9 +442,11 @@ export const conversationGeneration: StateCreator<
         (operation.threadId ?? null) === visibleThreadId
       ) {
         activeOperationIds.add(operation.id);
+        if (!currentScope) continue;
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
-          generation: conversationClearGeneration,
+          clearGeneration: conversationClearGeneration,
+          generation: conversationNavigationGeneration,
           groupId: operation.groupId || undefined,
           kind: operation.kind,
           lane: operation.lane,
@@ -423,7 +456,7 @@ export const conversationGeneration: StateCreator<
           sessionId: operation.sessionId || activeId,
           threadId: operation.threadId || undefined,
           topicId: operation.topicId || undefined,
-          userScope: 'current',
+          userScope: currentScope,
         });
         if (operation.kind === 'group_supervisor' && operation.groupId) {
           get().internal_toggleSupervisorLoading(true, operation.groupId);

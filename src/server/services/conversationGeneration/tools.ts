@@ -380,6 +380,7 @@ export const invokeConversationTool = async ({
       return {
         content: recovered.content,
         inputHash,
+        isHttpMcp: true,
         messageId: toolMessage.id,
         shouldContinue: true,
         success: !recovered.error,
@@ -395,6 +396,7 @@ export const invokeConversationTool = async ({
         return {
           content: raced.content,
           inputHash,
+          isHttpMcp: true,
           messageId: toolMessage.id,
           shouldContinue: true,
           success: !raced.error,
@@ -481,6 +483,20 @@ export const invokeConversationTool = async ({
     shouldContinue: false,
     success: false,
   };
+};
+
+export const resolveConversationToolHttpMcp = async ({
+  db,
+  payload,
+  userId,
+}: {
+  db: LobeChatDatabase;
+  payload: ChatToolPayload;
+  userId: string;
+}): Promise<boolean> => {
+  const plugin = await new PluginModel(db, userId).findById(payload.identifier);
+  const mcp = plugin?.customParams?.mcp as { type?: string; url?: string } | undefined;
+  return mcp?.type === 'http' && Boolean(mcp.url);
 };
 
 export const executeConversationToolStep = async ({

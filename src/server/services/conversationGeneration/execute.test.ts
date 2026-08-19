@@ -15,7 +15,7 @@ import {
 } from './execute';
 import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
-import { executeConversationToolStep } from './tools';
+import { executeConversationToolStep, resolveConversationToolHttpMcp } from './tools';
 import * as toolDiagnostics from './toolDiagnostics';
 
 const modelMocks = vi.hoisted(() => ({
@@ -133,6 +133,7 @@ vi.mock('./stream', () => ({
 }));
 vi.mock('./tools', () => ({
   executeConversationToolStep: vi.fn(),
+  resolveConversationToolHttpMcp: vi.fn().mockResolvedValue(false),
 }));
 
 describe('conversation generation workflow guards', () => {
@@ -1217,6 +1218,38 @@ describe('executeConversationGeneration tool continuation ids', () => {
         identifier: 'plugin',
         outcome: 'failed',
         toolCallId: 'call-fail',
+      }),
+    );
+  });
+
+  it('reports thrown HTTP MCP tool completions with runtimeType mcp', async () => {
+    const report = vi.spyOn(toolDiagnostics, 'reportConversationToolCompletion');
+    vi.mocked(resolveConversationToolHttpMcp).mockResolvedValueOnce(true);
+    vi.mocked(executeConversationToolStep).mockRejectedValue(new Error('mcp oauth failed'));
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider' },
+      id: 'cgo_mcp_throw',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    };
+    vi.mocked(consumeProtocolResponse).mockResolvedValueOnce({
+      content: 'calling tool',
+      toolCalls: [{ function: { arguments: '{}', name: 'plugin____mcp' }, id: 'call-mcp-fail' }],
+    });
+
+    await expect(runOperation(row, { preserveUpdate: true })).rejects.toThrow('mcp oauth failed');
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identifier: 'plugin',
+        isHttpMcp: true,
+        outcome: 'failed',
+        toolCallId: 'call-mcp-fail',
       }),
     );
   });

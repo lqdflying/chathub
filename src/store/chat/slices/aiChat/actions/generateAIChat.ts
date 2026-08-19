@@ -317,7 +317,8 @@ export const generateAIChat: StateCreator<
 
     const { internal_fetchAIChatMessage, triggerToolCalls, refreshMessages } = get();
     const conversationContext = params?.conversationContext ?? {
-      generation: get().conversationClearGeneration,
+      clearGeneration: get().conversationClearGeneration,
+      generation: get().conversationNavigationGeneration,
       sessionId: get().activeId,
       topicId: get().activeTopicId,
     };
@@ -327,7 +328,7 @@ export const generateAIChat: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.generation &&
+      get().conversationClearGeneration === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =
@@ -407,6 +408,7 @@ export const generateAIChat: StateCreator<
       if (operation && isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
+          clearGeneration: conversationContext.clearGeneration,
           generation: conversationContext.generation,
           kind: operation.kind,
           lane: operation.lane,
@@ -766,7 +768,8 @@ export const generateAIChat: StateCreator<
     } = get();
     const conversationContext = requestedConversationContext ??
       params?.conversationContext ?? {
-        generation: get().conversationClearGeneration,
+        clearGeneration: get().conversationClearGeneration,
+        generation: get().conversationNavigationGeneration,
         sessionId: get().activeId,
         topicId: get().activeTopicId,
       };
@@ -776,7 +779,7 @@ export const generateAIChat: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.generation &&
+      get().conversationClearGeneration === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     if (!isCurrentConversation()) {
@@ -1415,7 +1418,8 @@ export const generateAIChat: StateCreator<
         ) {
           get().attachConversationGeneration({
             assistantMessageId: operation.assistantMessageId || undefined,
-            generation: requestedGeneration,
+            clearGeneration: requestedGeneration,
+            generation: get().conversationNavigationGeneration,
             kind: operation.kind,
             lane: operation.lane,
             laneGeneration: operation.laneGeneration,

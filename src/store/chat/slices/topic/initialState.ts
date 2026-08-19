@@ -6,6 +6,7 @@ import type { TitleSummaryOperation } from '../../types';
 
 export interface ServerGenerationOperation {
   assistantMessageId?: string;
+  clearGeneration: number;
   generation: number;
   groupId?: string;
   kind: ConversationGenerationKind;

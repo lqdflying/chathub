@@ -173,17 +173,20 @@ reconnects the stream with backoff instead of staying on poll-only.
 
 Attached operations receive snapshots and `done` even when the user is looking
 at another topic. Dispatch writes into that operation’s session/topic
-`messagesMap`. Events are refused only when `conversationClearGeneration` no
-longer matches (Stop, delete, clear). The SSE/poll cursor is advanced **after**
+`messagesMap`. Events are refused when `conversationClearGeneration` (destructive
+clear/reset/Stop) or `conversationNavigationGeneration` (topic/session switch)
+no longer matches the attached operation. The SSE/poll cursor is advanced **after**
 `applyEvent`, so a dropped snapshot is not skipped permanently.
 
 `sendMessageInServer` still refreshes the sending conversation and attaches a
 returned `operationId` after leave (PC topic switch, mobile back, PWA abort).
-`attachConversationGeneration` always stores the **current**
-`conversationClearGeneration`, so a late send response cannot re-poison the
-client with a captured pre-navigation generation token. Late refresh, attach,
-reconcile, and abort recovery are gated on `isAccountMutationCurrent` so account
-reset does not write durable state into the wrong scope. Shared
+`attachConversationGeneration` rebases **navigation** generation to the current
+store value but preserves the send-time **clear** generation, so a late response
+after clear/delete/reset cannot re-attach. Navigation-only invalidation
+re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
+and abort recovery are gated on `isAccountMutationCurrent` and `userScope` at
+the shared attach boundary so account reset does not write durable state into
+the wrong scope. Shared
 `chatLoadingIdsAbortController` / `searchWorkflowLoadingIdsAbortController` are
 cleared only when the corresponding loading list becomes empty, so one
 generation’s `finally` cleanup cannot strip Stop from a sibling in-flight job.

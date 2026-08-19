@@ -162,13 +162,14 @@ export const generateAIChatV2: StateCreator<
     if (!accountMutationSnapshot || !activeId) return;
     const requestedScope = accountMutationSnapshot.scope;
     let conversationContext: ConversationContext = {
-      generation: get().conversationClearGeneration,
+      clearGeneration: get().conversationClearGeneration,
+      generation: get().conversationNavigationGeneration,
       sessionId: activeId,
       topicId: activeTopicId,
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.generation &&
+      get().conversationClearGeneration === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const isSameAccount = () =>
@@ -389,11 +390,7 @@ export const generateAIChatV2: StateCreator<
               topicId: recovered.topicId || activeTopicId || '',
               userMessageId: recovered.userMessageId,
             };
-            await get().refreshMessages({
-              generation: conversationContext.generation,
-              sessionId: conversationContext.sessionId,
-              topicId: recovered.topicId || conversationContext.topicId,
-            });
+            await get().refreshMessages(conversationContext);
           }
         } catch {
           // The reconciliation request is itself ambiguous; retain the optimistic row.
@@ -455,8 +452,10 @@ export const generateAIChatV2: StateCreator<
 
     if (!data) return;
 
-    //  update assistant update to make it rerank
-    getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
+    if (isSameAccount()) {
+      //  update assistant update to make it rerank
+      getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
+    }
 
     const summaryTitle = async () => {
       // check activeTopic and then auto update topic title
@@ -481,6 +480,7 @@ export const generateAIChatV2: StateCreator<
         get().attachConversationGeneration({
           assistantMessageId:
             durableOperation?.assistantMessageId || data.assistantMessageId,
+          clearGeneration: conversationContext.clearGeneration,
           generation: conversationContext.generation,
           kind: durableOperation?.kind || 'chat',
           lane:
@@ -542,6 +542,7 @@ export const generateAIChatV2: StateCreator<
             [generationOperationKey]: {
               ...state.serverGenerationOperations[generationOperationKey],
               [generationOperationId]: {
+                clearGeneration: conversationContext.clearGeneration,
                 generation: conversationContext.generation,
                 kind: 'chat',
                 lane: `browser:${generationOperationId}`,
@@ -759,7 +760,8 @@ export const generateAIChatV2: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const conversationContext = params.conversationContext ?? {
-      generation: get().conversationClearGeneration,
+      clearGeneration: get().conversationClearGeneration,
+      generation: get().conversationNavigationGeneration,
       sessionId: get().activeId,
       topicId: get().activeTopicId,
     };
@@ -769,7 +771,7 @@ export const generateAIChatV2: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.generation &&
+      get().conversationClearGeneration === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =

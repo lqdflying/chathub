@@ -89,7 +89,7 @@ import {
   reportConversationToolCompletion,
   toConversationToolCacheMetadata,
 } from './toolDiagnostics';
-import { executeConversationToolStep } from './tools';
+import { executeConversationToolStep, resolveConversationToolHttpMcp } from './tools';
 
 export const shouldCreateToolContinuation = (remainingTurns: number, shouldContinue: boolean) =>
   shouldContinue && remainingTurns > 0;
@@ -820,6 +820,11 @@ const executeChat = async (
             );
           }
 
+          const isHttpMcp = await resolveConversationToolHttpMcp({
+            db,
+            payload: tool,
+            userId: operation.userId,
+          });
           let invocation: Awaited<ReturnType<typeof executeConversationToolStep>> | undefined;
           try {
             invocation = await executeConversationToolStep({
@@ -844,7 +849,7 @@ const executeChat = async (
             reportConversationToolCompletion({
               correlation: toolBatch,
               identifier: tool.identifier,
-              isHttpMcp: invocation?.isHttpMcp,
+              isHttpMcp,
               outcome: 'failed',
               toolCallId: tool.id,
             });

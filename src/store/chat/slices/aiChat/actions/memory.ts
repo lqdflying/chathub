@@ -343,9 +343,13 @@ async function runCompactionFromStore(
       sessionId: requestedSessionId,
       topicId: requestedTopicId,
     });
+    if (!isCurrentRequest()) {
+      return compactionResult('ineligible', { reason: 'stale_request' });
+    }
     if (operation) {
       get().attachConversationGeneration({
-        generation: requestedGeneration,
+        clearGeneration: requestedGeneration,
+        generation: get().conversationNavigationGeneration,
         kind: operation.kind,
         lane: operation.lane,
         laneGeneration: operation.laneGeneration,

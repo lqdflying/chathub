@@ -577,9 +577,11 @@ export const chatAiGroupChat: StateCreator<
           sessionId: requestedSessionId,
           topicId: currentTopicId ?? undefined,
         });
+        if (!isCurrentConversation()) return;
         if (operation) {
           get().attachConversationGeneration({
-            generation: conversationClearGeneration,
+            clearGeneration: conversationClearGeneration,
+            generation: get().conversationNavigationGeneration,
             groupId,
             kind: operation.kind,
             lane: operation.lane,
@@ -953,10 +955,12 @@ export const chatAiGroupChat: StateCreator<
             sessionId: requestedSessionId,
             topicId: activeTopicId,
           });
+          if (!isCurrentConversation()) return;
           if (operation) {
             get().attachConversationGeneration({
               assistantMessageId: assistantId,
-              generation: conversationClearGeneration,
+              clearGeneration: conversationClearGeneration,
+              generation: get().conversationNavigationGeneration,
               groupId,
               kind: operation.kind,
               lane: operation.lane,

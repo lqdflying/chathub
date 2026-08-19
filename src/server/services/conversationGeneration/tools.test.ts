@@ -291,7 +291,7 @@ describe('executeConversationToolStep', () => {
       userId: 'user-1',
     });
 
-    expect(result).toMatchObject({ success: false, shouldContinue: true });
+    expect(result).toMatchObject({ isHttpMcp: true, success: false, shouldContinue: true });
     expect(mcpMocks.callTool).not.toHaveBeenCalled();
   });
 
