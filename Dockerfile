@@ -142,8 +142,8 @@ RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
     pnpm i \
     && mkdir -p /deps \
     && cd /deps \
-    && pnpm init \
-    && pnpm add pg drizzle-orm graphile-worker@0.17.3
+    && npm init -y \
+    && npm install pg@^8.16.3 drizzle-orm@^0.44.6 graphile-worker@0.17.3 --omit=dev
 
 # ── Layer 3: source + build ───────────────────────────────────────────────────
 # Copy full source (overrides stub package.json files with real ones + src/ trees).
@@ -195,18 +195,24 @@ COPY --from=builder /app/scripts/migrateServerDB/ensureTopicLastActivity.cjs /ap
 COPY --from=builder /app/scripts/migrateServerDB/ensureConversationGenerationOperations.cjs /app/ensureConversationGenerationOperations.cjs
 COPY --from=builder /app/scripts/migrateServerDB/errorHint.js /app/errorHint.js
 
-# copy dependencies
-COPY --from=builder /deps/node_modules/.pnpm /app/node_modules/.pnpm
-COPY --from=builder /deps/node_modules/pg /app/node_modules/pg
-COPY --from=builder /deps/node_modules/drizzle-orm /app/node_modules/drizzle-orm
-COPY --from=builder /deps/node_modules/graphile-worker /app/node_modules/graphile-worker
+# Overlay runtime deps for docker.cjs (pg, drizzle-orm) and Graphile Worker.
+# graphile-worker@0.17.3 always `require('tslib')` (TypeScript importHelpers).
+# Docker COPY of a pnpm package symlink materializes only that package, so Node
+# cannot see sibling `.pnpm` deps from `/app/node_modules/graphile-worker`.
+# /deps uses npm's hoisted layout so tslib, cosmiconfig, yargs, and the rest
+# land as real directories next to graphile-worker.
+# https://www.typescriptlang.org/tsconfig/importHelpers.html
+# https://nodejs.org/api/modules.html#loading-from-node_modules-folders
+COPY --from=builder /deps/node_modules/ /app/node_modules/
 
 # Copy server launcher
 COPY --from=builder /app/scripts/serverLauncher/startServer.js /app/startServer.js
 
 RUN \
+    # Fail the image if Graphile Worker or migrate deps cannot resolve (tslib, …)
+    /bin/node -e "require('/app/node_modules/graphile-worker'); require('/app/node_modules/pg'); require('/app/node_modules/drizzle-orm')" \
     # Add nextjs:nodejs to run the app
-    addgroup -S -g 1001 nodejs \
+    && addgroup -S -g 1001 nodejs \
     && adduser -D -G nodejs -H -S -h /app -u 1001 nextjs \
     # Set permission for nextjs:nodejs
     && chown -R nextjs:nodejs /app /etc/proxychains4.conf

@@ -248,6 +248,26 @@ tool continuation, cancel, clear, and failure annotate or clear the newest
 assistant, not the completed tool-call row. Parallel member turns settle before
 the parent is finalized.
 
+## Docker runtime overlay
+
+Next marks `graphile-worker` as `serverExternalPackages`, so instrumentation
+loads it with Node `require` instead of bundling it. `graphile-worker@0.17.3`
+compiles with TypeScript `importHelpers` and therefore
+`require('tslib')` from `dist/index.js`. Node only walks `node_modules`
+directories from that file upward; it does not search pnpm's `.pnpm` store.
+
+The image therefore installs a separate `/deps` tree with **npm** (hoisted
+layout) and copies the contents of `/deps/node_modules/` onto the standalone
+`/app/node_modules/` (merge; existing Next traced packages stay).
+Copying only `graphile-worker` materializes the package directory without
+`tslib`, `cosmiconfig`, or `yargs`, and Next fails while loading
+`instrumentation` (`Failed to prepare server` / `MODULE_NOT_FOUND`). The app
+stage `require('/app/node_modules/graphile-worker')` check fails the image
+build if that overlay is incomplete.
+
+`DISABLE_CONVERSATION_WORKER=1` skips worker *start*, not the static import, so
+it does not work around a missing `tslib`.
+
 ## Startup schema repair
 
 `ensureConversationGenerationOperations.cjs` runs after Drizzle migrations on
@@ -268,6 +288,7 @@ High-signal suites:
 - `src/server/services/conversationGeneration/*.test.ts`
 - `src/services/__tests__/conversationGenerationEnqueue.test.ts`
 - `scripts/migrateServerDB/ensureConversationGenerationOperations.test.ts`
+- `scripts/migrateServerDB/dockerfileRuntimeDeps.test.ts`
 - `src/hooks/useConversationGenerationSync.test.tsx`
 - `packages/database/src/models/__tests__/conversationGeneration.cas.test.ts`
 
