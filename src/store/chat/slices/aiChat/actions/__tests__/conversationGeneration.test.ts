@@ -796,7 +796,9 @@ describe('conversationGeneration store actions', () => {
 
     act(() => {
       useChatStore.setState({
-        durableInFlightIdempotencyKeys: { [laneKey]: ['chat-send:temp-late'] },
+        durableInFlightEnqueues: {
+          [laneKey]: [{ idempotencyKey: 'chat-send:temp-late', kind: 'chat' }],
+        },
       });
     });
 
@@ -842,7 +844,9 @@ describe('conversationGeneration store actions', () => {
 
     act(() => {
       useChatStore.setState({
-        durableInFlightIdempotencyKeys: { [laneKey]: ['chat-send:temp-late'] },
+        durableInFlightEnqueues: {
+          [laneKey]: [{ idempotencyKey: 'chat-send:temp-late', kind: 'chat' }],
+        },
       });
     });
 
@@ -873,6 +877,114 @@ describe('conversationGeneration store actions', () => {
         messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
       ]?.cgo_new_send,
     ).toMatchObject({ operationId: 'cgo_new_send' });
+  });
+
+  it('cancels a relocated auto-topic operation whose source-lane idempotency key was fenced', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    const listActive = vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    const defaultLaneKey = `${messageMapKey(TEST_IDS.SESSION_ID, null)}:main`;
+
+    act(() => {
+      useChatStore.setState({
+        activeTopicId: null,
+        durableInFlightEnqueues: {
+          [defaultLaneKey]: [{ idempotencyKey: 'chat-send:temp-relocate', kind: 'chat' }],
+        },
+        // The auto-created topic is already in the map when sync runs, so the
+        // operation would attach without the idempotency fence.
+        topicMaps: { [TEST_IDS.SESSION_ID]: [{ id: 'topic-auto-created' } as any] },
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().stopGenerateMessage();
+    });
+
+    // The server auto-created a topic and persisted the operation under the new
+    // id; the Stop marker lives on the source (default topic) lane.
+    listActive.mockResolvedValue([
+      {
+        id: 'cgo_relocated',
+        idempotencyKey: 'chat-send:temp-relocate',
+        kind: 'chat',
+        lane: 'lane-relocated',
+        laneGeneration: 1,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: 'topic-auto-created',
+      },
+    ] as any);
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_relocated');
+    expect(
+      useChatStore.getState().serverGenerationOperations[
+        messageMapKey(TEST_IDS.SESSION_ID, 'topic-auto-created')
+      ]?.cgo_relocated,
+    ).toBeUndefined();
+  });
+
+  it('chat Stop fences chat-family work but keeps a translation operation applying events', async () => {
+    const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      result.current.attachConversationGeneration({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'chat',
+        lane: 'lane-chat',
+        operationId: 'cgo_chat',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      result.current.attachConversationGeneration({
+        clearGeneration: 0,
+        generation: 0,
+        kind: 'translation',
+        lane: 'lane-translation',
+        operationId: 'cgo_translation',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+    });
+
+    await act(async () => {
+      await result.current.stopGenerateMessage();
+    });
+
+    // Chat work is cancelled and detached; the translation survives the Stop.
+    expect(cancel).toHaveBeenCalledWith('cgo_chat');
+    expect(cancel).not.toHaveBeenCalledWith('cgo_translation');
+    expect(useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_chat).toBeUndefined();
+    expect(
+      useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_translation,
+    ).toMatchObject({ operationId: 'cgo_translation' });
+
+    // The lane epoch bump must not suppress the translation's events.
+    act(() => {
+      result.current.applyConversationGenerationEvent({
+        createdAt: new Date().toISOString(),
+        id: 1,
+        operationId: 'cgo_translation',
+        payload: {},
+        revision: 3,
+        type: 'snapshot',
+        userId: 'user-1',
+      });
+    });
+
+    expect(
+      useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_translation?.revision,
+    ).toBe(3);
   });
 
   it('skips sync attach when the loaded topic list is explicitly empty', async () => {

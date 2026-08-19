@@ -703,6 +703,120 @@ describe('topic action', () => {
       expect(tombstoneDuringListActive).toBeGreaterThan(0);
     });
 
+    it('fences an in-flight group supervisor enqueue so sync cancels it after topic deletion', async () => {
+      const deletedTopicId = 'group-topic';
+      const activeId = 'test-session-id';
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      const listActive = vi
+        .spyOn(conversationGenerationService, 'listActive')
+        .mockResolvedValue([]);
+      const topicKey = messageMapKey(activeId, deletedTopicId);
+      const laneKey = `${topicKey}:main`;
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: 'other-topic',
+          conversationLaneStopMarkers: {},
+          durableInFlightEnqueues: {
+            [laneKey]: [{ idempotencyKey: 'group-supervisor:xyz', kind: 'group_supervisor' }],
+          },
+          serverGenerationOperations: {},
+          topicMaps: { [activeId]: [{ id: deletedTopicId, title: 'Group' } as any] },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeTopic(deletedTopicId);
+      });
+
+      expect(
+        useChatStore.getState().conversationLaneStopMarkers[topicKey]?.stoppedIdempotencyKeys,
+      ).toContain('group-supervisor:xyz');
+
+      // The supervisor operation only reaches the server after the delete
+      // snapshot; sync must cancel it instead of attaching it.
+      listActive.mockResolvedValue([
+        {
+          id: 'cgo_supervisor_late',
+          idempotencyKey: 'group-supervisor:xyz',
+          kind: 'group_supervisor',
+          lane: 'lane-supervisor',
+          laneGeneration: 1,
+          sessionId: activeId,
+          status: 'processing',
+          topicId: deletedTopicId,
+        },
+      ] as any);
+
+      await act(async () => {
+        await result.current.syncActiveConversationGenerations();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_supervisor_late');
+      expect(
+        useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_supervisor_late,
+      ).toBeUndefined();
+    });
+
+    it('fences an in-flight translation enqueue so sync cancels it after topic deletion', async () => {
+      const deletedTopicId = 'translation-topic';
+      const activeId = 'test-session-id';
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      const listActive = vi
+        .spyOn(conversationGenerationService, 'listActive')
+        .mockResolvedValue([]);
+      const topicKey = messageMapKey(activeId, deletedTopicId);
+      const laneKey = `${topicKey}:main`;
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: 'other-topic',
+          conversationLaneStopMarkers: {},
+          durableInFlightEnqueues: {
+            [laneKey]: [{ idempotencyKey: 'translation:abc', kind: 'translation' }],
+          },
+          serverGenerationOperations: {},
+          topicMaps: { [activeId]: [{ id: deletedTopicId, title: 'Translation' } as any] },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeTopic(deletedTopicId);
+      });
+
+      expect(
+        useChatStore.getState().conversationLaneStopMarkers[topicKey]?.stoppedIdempotencyKeys,
+      ).toContain('translation:abc');
+
+      listActive.mockResolvedValue([
+        {
+          id: 'cgo_translation_late',
+          idempotencyKey: 'translation:abc',
+          kind: 'translation',
+          lane: 'lane-translation',
+          laneGeneration: 1,
+          sessionId: activeId,
+          status: 'processing',
+          topicId: deletedTopicId,
+        },
+      ] as any);
+
+      await act(async () => {
+        await result.current.syncActiveConversationGenerations();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_translation_late');
+      expect(
+        useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_translation_late,
+      ).toBeUndefined();
+    });
+
     it('should remove a specific topic and its messages, then not refresh the topic list', async () => {
       const topicId = 'topic-1';
       const { result } = renderHook(() => useChatStore());

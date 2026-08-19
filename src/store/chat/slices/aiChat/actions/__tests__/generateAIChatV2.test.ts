@@ -365,8 +365,9 @@ describe('generateAIChatV2 actions', () => {
       });
 
       const laneKey = `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`;
-      const inFlight = useChatStore.getState().durableInFlightIdempotencyKeys[laneKey] ?? [];
-      expect(inFlight.some((key) => key.startsWith('chat-send:'))).toBe(true);
+      const inFlight = useChatStore.getState().durableInFlightEnqueues[laneKey] ?? [];
+      expect(inFlight.some((entry) => entry.idempotencyKey.startsWith('chat-send:'))).toBe(true);
+      expect(inFlight[0]?.kind).toBe('chat');
 
       resolveServerSend!({
         assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
@@ -379,7 +380,68 @@ describe('generateAIChatV2 actions', () => {
       });
       await sendPromise;
 
-      expect(useChatStore.getState().durableInFlightIdempotencyKeys[laneKey] ?? []).toHaveLength(0);
+      expect(useChatStore.getState().durableInFlightEnqueues[laneKey] ?? []).toHaveLength(0);
+    });
+
+    it('cancels an orphaned operation when Stop fences the source lane during auto-topic creation', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+        () => () => false,
+      );
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+      let resolveServerSend: (response: any) => void;
+      const serverSendPromise = new Promise<any>((resolve) => {
+        resolveServerSend = resolve;
+      });
+      (aiChatService.sendMessageInServer as Mock).mockReturnValueOnce(serverSendPromise);
+      const execAgentRuntime = vi.fn();
+
+      act(() => {
+        useChatStore.setState({
+          activeTopicId: null,
+          internal_execAgentRuntime: execAgentRuntime,
+          switchTopic: vi.fn(async (id: string) => {
+            useChatStore.setState({ activeTopicId: id });
+          }),
+        });
+      });
+
+      const sendPromise = useChatStore
+        .getState()
+        .sendMessageInServer({ message: TEST_CONTENT.USER_MESSAGE });
+      await vi.waitFor(() => {
+        expect(aiChatService.sendMessageInServer).toHaveBeenCalled();
+      });
+
+      // Stop while the auto-create send is in flight: bumps the SOURCE (default
+      // topic) lane epoch and records the in-flight idempotency key there.
+      await act(async () => {
+        await useChatStore.getState().stopGenerateMessage();
+      });
+
+      // The server commits the new topic and operation just before the abort
+      // reaches it; the response relocates the context to the new topic id.
+      resolveServerSend!({
+        assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        isCreateNewTopic: true,
+        messages: [],
+        operationId: 'cgo_auto_topic',
+        topicId: TEST_IDS.NEW_TOPIC_ID,
+        topics: [],
+        userMessageId: TEST_IDS.USER_MESSAGE_ID,
+      });
+      await sendPromise;
+
+      // The relocated context no longer matches the fenced source lane, so the
+      // orphaned server operation is cancelled instead of attached.
+      expect(cancel).toHaveBeenCalledWith('cgo_auto_topic');
+      expect(
+        useChatStore.getState().serverGenerationOperations[
+          messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.NEW_TOPIC_ID)
+        ]?.cgo_auto_topic,
+      ).toBeUndefined();
+      expect(execAgentRuntime).not.toHaveBeenCalled();
     });
 
     it('recovers a durable operation when send is aborted without a user Stop', async () => {

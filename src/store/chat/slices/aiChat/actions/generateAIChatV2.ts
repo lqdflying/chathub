@@ -7,6 +7,7 @@ import {
   ChatTopic,
   ChatVideoItem,
   ContextExportRequestContext,
+  ConversationGenerationChatFamilyKinds,
   type KnowledgeBaseClientPreparationFailurePhase,
   MessageSemanticSearchChunk,
   SendMessageParams,
@@ -54,8 +55,8 @@ import {
   laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
-  trackDurableEnqueueIdempotencyKey,
-  untrackDurableEnqueueIdempotencyKey,
+  trackDurableEnqueue,
+  untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
@@ -180,6 +181,16 @@ export const generateAIChatV2: StateCreator<
       sessionId: activeId,
       threadId: activeThreadId ?? null,
       topicId: activeTopicId,
+    };
+    // Immutable source fence context: when the server auto-creates a topic, the
+    // response path relocates conversationContext to the new topic, but a Stop
+    // pressed while the request was in flight fenced the SOURCE lane. The
+    // late-attach guard must therefore consult both contexts.
+    const sourceClearContext = {
+      clearGeneration: conversationContext.clearGeneration,
+      sessionId: conversationContext.sessionId,
+      threadId: conversationContext.threadId ?? null,
+      topicId: conversationContext.topicId ?? null,
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
@@ -341,7 +352,11 @@ export const generateAIChatV2: StateCreator<
     const sendLaneKey = laneScopedClearKey(activeId, activeTopicId, activeThreadId ?? null);
     if (durableIdempotencyKey) {
       set(
-        (state) => trackDurableEnqueueIdempotencyKey(state, sendLaneKey, durableIdempotencyKey),
+        (state) =>
+          trackDurableEnqueue(state, sendLaneKey, {
+            idempotencyKey: durableIdempotencyKey,
+            kind: 'chat',
+          }),
         false,
         n('sendMessageInServer/trackDurableEnqueue'),
       );
@@ -445,7 +460,7 @@ export const generateAIChatV2: StateCreator<
     } finally {
       if (durableIdempotencyKey) {
         set(
-          (state) => untrackDurableEnqueueIdempotencyKey(state, sendLaneKey, durableIdempotencyKey),
+          (state) => untrackDurableEnqueue(state, sendLaneKey, durableIdempotencyKey),
           false,
           n('sendMessageInServer/untrackDurableEnqueue'),
         );
@@ -518,6 +533,12 @@ export const generateAIChatV2: StateCreator<
       isSameAccount() &&
       resolveConversationClearGeneration(
         get(),
+        sourceClearContext.sessionId,
+        sourceClearContext.topicId,
+        sourceClearContext.threadId,
+      ) === sourceClearContext.clearGeneration &&
+      resolveConversationClearGeneration(
+        get(),
         conversationContext.sessionId,
         conversationContext.topicId,
         conversationContext.threadId ?? null,
@@ -553,6 +574,12 @@ export const generateAIChatV2: StateCreator<
           const userFiles = chatSelectors.currentUserFiles(get()).map((f) => f.id);
           await getAgentStoreState().addFilesToAgent(userFiles, false);
         }
+      } else if (isSameAccount()) {
+        // The send was fenced by Stop/clear/delete while in flight — possibly on
+        // the pre-auto-create source lane, which the relocated context no longer
+        // consults. Cancel the orphaned server operation now instead of waiting
+        // for sync to discover it through the idempotency-key fence.
+        await conversationGenerationService.cancel(data.operationId).catch(() => undefined);
       }
       return;
     }
@@ -776,6 +803,7 @@ export const generateAIChatV2: StateCreator<
     );
 
     await get().cancelActiveDurableOpsInScope({
+      kind: ConversationGenerationChatFamilyKinds,
       sessionId: activeId,
       threadId: targetThreadId,
       topicId: targetTopicId,

@@ -36,6 +36,10 @@ import {
   abortAllChatLoadingLanes,
   clearChatLoadingLaneMaps,
 } from '@/store/chat/utils/chatLoadingLanes';
+import {
+  markAllDurableGenerationsStopped,
+  markConversationTopicDurableGenerationStopped,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -385,7 +389,14 @@ export const chatMessage: StateCreator<
       get().activeTopicId === activeTopicId;
 
     set(
-      (state) => ({ conversationClearGeneration: state.conversationClearGeneration + 1 }),
+      (state) => ({
+        // Destructive tombstone before the first await: fence attached operations
+        // and registered in-flight enqueues for every thread of the cleared topic,
+        // so a job that only becomes visible to the server after this snapshot is
+        // still cancelled by sync instead of reviving.
+        ...markConversationTopicDurableGenerationStopped(state, activeId, activeTopicId),
+        conversationClearGeneration: state.conversationClearGeneration + 1,
+      }),
       false,
       n('clearMessage/bumpClearGeneration'),
     );
@@ -407,7 +418,7 @@ export const chatMessage: StateCreator<
       sendOperation.abortController.abort(MESSAGE_CANCEL_FLAT);
     }
 
-    await get().cancelAndDetachDurableOps({
+    await get().cancelActiveDurableOpsInScope({
       allThreads: true,
       sessionId: activeId,
       topicId: activeTopicId,
@@ -449,7 +460,19 @@ export const chatMessage: StateCreator<
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     if (!accountMutationSnapshot) return;
 
-    await get().cancelAndDetachDurableOps({ allConversations: true, allThreads: true });
+    // Global destructive tombstone before the first await: fence every attached
+    // operation and registered in-flight enqueue so a job that only becomes
+    // visible to the server after this snapshot is still cancelled by sync.
+    set(
+      (state) => ({
+        ...markAllDurableGenerationsStopped(state),
+        conversationClearGeneration: state.conversationClearGeneration + 1,
+      }),
+      false,
+      n('clearAllTopicsHistory/start'),
+    );
+
+    await get().cancelActiveDurableOpsInScope({ allConversations: true, allThreads: true });
 
     const {
       chatLoadingIdsAbortController,
@@ -462,12 +485,6 @@ export const chatMessage: StateCreator<
       threadTitleSummaryOperations,
       topicTitleSummaryOperations,
     } = get();
-
-    set(
-      (state) => ({ conversationClearGeneration: state.conversationClearGeneration + 1 }),
-      false,
-      n('clearAllTopicsHistory/start'),
-    );
 
     abortAllChatLoadingLanes(get());
 

@@ -186,11 +186,19 @@ after clear/delete/reset cannot re-attach. **Stop** bumps a **lane-scoped** clea
 epoch (`session/topic:threadId|main`); **topic delete** bumps a **topic-scoped**
 tombstone that invalidates every lane in that topic. `cancelActiveDurableOpsInScope`
 lists active server operations via a quiet `listActive` call before detaching
-local attachments. Lane stop markers record three fences per client lane key:
-cancelled operation ids, idempotency keys whose enqueue was still in flight at
-Stop time (tracked in `durableInFlightIdempotencyKeys` from send start until the
-response settles), and a **per-server-lane** generation cutoff map
-(`laneGenerations[operation.lane]`). Server lane generations are independent per
+local attachments. Before that `listActive` await it also promotes every
+matching in-flight enqueue into the lane stop markers, so an operation that
+only becomes visible to the server after the snapshot is still fenced. Lane
+stop markers record three fences per client lane key: cancelled operation ids,
+idempotency keys whose enqueue was still in flight at Stop time (tracked in
+`durableInFlightEnqueues` from send start until the response settles), and a
+**per-server-lane** generation cutoff map
+(`laneGenerations[operation.lane]`). Every durable producer registers its
+in-flight enqueue with its **kind** — chat send/continue/regenerate, group
+supervisor/agent, translation, topic title, and memory compaction — and a lane
+Stop only fences chat-family entries, so pressing Stop on a reply never
+suppresses a concurrent title, translation, or compaction enqueue. Server lane
+generations are independent per
 lane (main vs portal thread vs group agent), so cutoffs are never projected as a
 single scalar onto a thread or topic key: a lane Stop writes only its own lane
 key, and a Stop at main-lane generation 5 cannot cancel a portal/group operation
@@ -199,14 +207,31 @@ ids, fenced idempotency keys (this closes the race where an operation was
 enqueued before Stop but invisible to the `listActive` snapshot), or ops on the
 same server lane at or below that lane's cutoff; newer server lane generations
 (group supervisor, group agent, or another tab) and deliberate post-Stop sends
-(fresh idempotency keys) attach without a local producer callsite. Only a
+(fresh idempotency keys) attach without a local producer callsite. The
+idempotency-key fence is **global across markers**
+(`isDurableIdempotencyKeyStopped`): when the server auto-creates a topic for a
+default-topic send, the operation relocates to the new topic id while the Stop
+marker stays on the source lane, so sync checks the key across every marker
+before attaching. `sendMessageInServer` additionally captures an immutable
+source fence context at enqueue; when a fenced late response arrives after the
+relocation it cancels the orphaned server operation immediately instead of
+waiting for sync. Only a
 topic-wide tombstone (topic delete) writes the topic marker key, still with
 per-server-lane cutoffs. Failed or deferred sends do **not** clear markers at
 send start. **Topic delete** installs its tombstone synchronously before the
 first `await`, then performs best-effort server cancellation. **Clear current
-conversation** bumps the global clear epoch. `syncActive` does not
+conversation** and **clear all topics history** do the same with a topic-wide /
+session-wide destructive tombstone (`markConversationTopicDurableGenerationStopped`
+/ `markAllDurableGenerationsStopped`) that collects attached operations and
+registered in-flight enqueues before the first `await`, then bump the global
+clear epoch; `clearChatLoadingLaneMaps` deliberately keeps the markers so a
+pre-clear job cannot reattach when sync discovers it. `syncActive` does not
 reattach operations in `cancelling` status, and skips topics absent from a
 loaded `topicMaps` entry (an explicitly empty list means the topic was removed).
+Event application and attach/reconcile resolve the clear epoch **per kind**
+(`resolveConversationClearGeneration`): non-chat kinds ignore the lane-scoped
+component, so the lane epoch bump from a chat Stop does not invalidate a
+translation or title operation that shares the client lane.
 Navigation-only invalidation re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
 and abort recovery are gated on `isAccountMutationCurrent` and `userScope` at
 the shared attach boundary so account reset does not write durable state into

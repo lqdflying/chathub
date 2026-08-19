@@ -1,6 +1,9 @@
 import type { ChatInputEditor } from '@/features/ChatInput';
 
-import type { ConversationLaneStopMarker } from '../../utils/conversationClearGeneration';
+import type {
+  ConversationLaneStopMarker,
+  DurableInFlightEnqueue,
+} from '../../utils/conversationClearGeneration';
 
 export interface MainSendMessageOperation {
   abortController?: AbortController | null;
@@ -27,11 +30,13 @@ export interface ChatAIChatState {
   /** Lane/topic keys marked stopped until a replacement durable operation supersedes them. */
   conversationLaneStopMarkers: Record<string, ConversationLaneStopMarker>;
   /**
-   * Idempotency keys of durable enqueue requests currently in flight, keyed by
-   * client lane key. Stop promotes them into the lane stop marker so an operation
-   * that only becomes visible to the server after the Stop snapshot is still fenced.
+   * Durable enqueue requests currently in flight, keyed by client lane key. Stop
+   * promotes matching entries into the lane stop marker so an operation that only
+   * becomes visible to the server after the Stop snapshot is still fenced; the
+   * entry kind keeps chat Stop from fencing unrelated title/translation/compaction
+   * enqueues.
    */
-  durableInFlightIdempotencyKeys: Record<string, string[]>;
+  durableInFlightEnqueues: Record<string, DurableInFlightEnqueue[]>;
   inputFiles: File[];
   inputMessage: string;
   /** RAG prompt tokens currently carried by an in-flight provider request. */
@@ -77,7 +82,7 @@ export const initialAiChatState: ChatAIChatState = {
   chatLoadingIds: [],
   chatLoadingLaneByMessageId: {},
   conversationLaneStopMarkers: {},
-  durableInFlightIdempotencyKeys: {},
+  durableInFlightEnqueues: {},
   inputFiles: [],
   inputMessage: '',
   knowledgeBaseContextTokens: {},

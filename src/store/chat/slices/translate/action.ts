@@ -10,12 +10,15 @@ import { supportLocales } from '@/locales/resources';
 import { chatService } from '@/services/chat';
 import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
-import {
-  captureAccountMutationSnapshot,
-  isAccountMutationCurrent,
-} from '@/store/accountMutation';
+import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
+import {
+  laneScopedClearKey,
+  resolveConversationClearGeneration,
+  trackDurableEnqueue,
+  untrackDurableEnqueue,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
@@ -82,24 +85,59 @@ export const chatTranslate: StateCreator<
       translationSetting.model &&
       translationSetting.provider
     ) {
-      const operation = await tryEnqueueConversationGeneration({
-        config: {
-          locale: globalHelpers.getCurrentLanguage(),
-          model: translationSetting.model,
-          provider: translationSetting.provider,
-          translation: { messageId: id, to: targetLang },
-        },
-        kind: 'translation',
-        idempotencyKey: conversationGenerationRequestKey('translation', nanoid(), id, targetLang),
-        replaceActive: true,
-        sessionId: requestedSessionId,
-        topicId: requestedTopicId ?? undefined,
-      });
+      const translationIdempotencyKey = conversationGenerationRequestKey(
+        'translation',
+        nanoid(),
+        id,
+        targetLang,
+      );
+      const translationLaneKey = laneScopedClearKey(
+        requestedSessionId,
+        requestedTopicId ?? null,
+        null,
+      );
+      set(
+        (state) =>
+          trackDurableEnqueue(state, translationLaneKey, {
+            idempotencyKey: translationIdempotencyKey,
+            kind: 'translation',
+          }),
+        false,
+        n('translateMessage/trackDurableEnqueue'),
+      );
+      let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+      try {
+        operation = await tryEnqueueConversationGeneration({
+          config: {
+            locale: globalHelpers.getCurrentLanguage(),
+            model: translationSetting.model,
+            provider: translationSetting.provider,
+            translation: { messageId: id, to: targetLang },
+          },
+          idempotencyKey: translationIdempotencyKey,
+          kind: 'translation',
+          replaceActive: true,
+          sessionId: requestedSessionId,
+          topicId: requestedTopicId ?? undefined,
+        });
+      } finally {
+        set(
+          (state) => untrackDurableEnqueue(state, translationLaneKey, translationIdempotencyKey),
+          false,
+          n('translateMessage/untrackDurableEnqueue'),
+        );
+      }
       if (!isCurrentRequest()) return;
       if (operation) {
         get().attachConversationGeneration({
           assistantMessageId: id,
-          clearGeneration: requestedGeneration,
+          clearGeneration: resolveConversationClearGeneration(
+            get(),
+            requestedSessionId,
+            requestedTopicId ?? null,
+            null,
+            'translation',
+          ),
           generation: get().conversationNavigationGeneration,
           kind: operation.kind,
           lane: operation.lane,

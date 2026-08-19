@@ -723,6 +723,91 @@ describe('chatMessage actions', () => {
       expect(topicService.removeTopic).toHaveBeenCalledWith(mockState.activeTopicId);
       expect(switchTopicSpy).toHaveBeenCalled();
     });
+
+    it('fences an in-flight durable send on the default topic so sync cancels it after clear', async () => {
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      const listActive = vi
+        .spyOn(conversationGenerationService, 'listActive')
+        .mockResolvedValue([]);
+      const defaultTopicKey = messageMapKey('session-id', null);
+      const defaultLaneKey = `${defaultTopicKey}:main`;
+
+      useChatStore.setState({
+        activeTopicId: null,
+        conversationLaneStopMarkers: {},
+        durableInFlightEnqueues: {
+          [defaultLaneKey]: [{ idempotencyKey: 'chat-send:temp-clear', kind: 'chat' }],
+        },
+        serverGenerationOperations: {},
+      });
+
+      await act(async () => {
+        await useChatStore.getState().clearMessage();
+      });
+
+      // The destructive tombstone collects the in-flight key synchronously...
+      expect(
+        useChatStore.getState().conversationLaneStopMarkers[defaultTopicKey]
+          ?.stoppedIdempotencyKeys,
+      ).toContain('chat-send:temp-clear');
+
+      // ...so when the operation only becomes visible to the server afterwards,
+      // sync cancels it instead of reattaching it.
+      listActive.mockResolvedValue([
+        {
+          id: 'cgo_after_clear',
+          idempotencyKey: 'chat-send:temp-clear',
+          kind: 'chat',
+          lane: 'lane-late',
+          laneGeneration: 1,
+          sessionId: 'session-id',
+          status: 'processing',
+          topicId: null,
+        },
+      ] as any);
+
+      await act(async () => {
+        await useChatStore.getState().syncActiveConversationGenerations();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_after_clear');
+      expect(
+        useChatStore.getState().serverGenerationOperations[defaultTopicKey]?.cgo_after_clear,
+      ).toBeUndefined();
+    });
+
+    it('cancels a detached durable operation visible to the server during clearMessage', async () => {
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([
+        {
+          id: 'cgo_detached_clear',
+          idempotencyKey: 'chat-send:temp-detached-clear',
+          kind: 'chat',
+          lane: 'lane-detached',
+          laneGeneration: 1,
+          sessionId: 'session-id',
+          status: 'processing',
+          topicId: 'topic-id',
+        },
+      ] as any);
+
+      useChatStore.setState({
+        conversationLaneStopMarkers: {},
+        durableInFlightEnqueues: {},
+        serverGenerationOperations: {},
+      });
+
+      await act(async () => {
+        await useChatStore.getState().clearMessage();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_detached_clear');
+      // The cancel scope resolves to the topic's main lane key.
+      const laneMarkerKey = `${messageMapKey('session-id', 'topic-id')}:main`;
+      expect(
+        useChatStore.getState().conversationLaneStopMarkers[laneMarkerKey]?.stoppedIdempotencyKeys,
+      ).toContain('chat-send:temp-detached-clear');
+    });
   });
 
   describe('toggleMessageEditing ', () => {

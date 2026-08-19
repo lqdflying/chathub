@@ -59,8 +59,8 @@ import {
   laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
-  trackDurableEnqueueIdempotencyKey,
-  untrackDurableEnqueueIdempotencyKey,
+  trackDurableEnqueue,
+  untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
@@ -458,7 +458,11 @@ export const generateAIChat: StateCreator<
         params?.threadId ?? null,
       );
       set(
-        (state) => trackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, enqueueIdempotencyKey),
+        (state) =>
+          trackDurableEnqueue(state, enqueueLaneKey, {
+            idempotencyKey: enqueueIdempotencyKey,
+            kind: params?.isToolContinuation ? 'continue' : 'chat',
+          }),
         false,
         n('coreProcessMessage/trackDurableEnqueue'),
       );
@@ -502,8 +506,7 @@ export const generateAIChat: StateCreator<
         });
       } finally {
         set(
-          (state) =>
-            untrackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, enqueueIdempotencyKey),
+          (state) => untrackDurableEnqueue(state, enqueueLaneKey, enqueueIdempotencyKey),
           false,
           n('coreProcessMessage/untrackDurableEnqueue'),
         );
@@ -1525,7 +1528,10 @@ export const generateAIChat: StateCreator<
         const enqueueLaneKey = laneScopedClearKey(activeId, activeTopicId, threadId ?? null);
         set(
           (state) =>
-            trackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, regenerateIdempotencyKey),
+            trackDurableEnqueue(state, enqueueLaneKey, {
+              idempotencyKey: regenerateIdempotencyKey,
+              kind: 'regenerate',
+            }),
           false,
           n('retryMessage/trackDurableEnqueue'),
         );
@@ -1570,8 +1576,7 @@ export const generateAIChat: StateCreator<
           });
         } finally {
           set(
-            (state) =>
-              untrackDurableEnqueueIdempotencyKey(state, enqueueLaneKey, regenerateIdempotencyKey),
+            (state) => untrackDurableEnqueue(state, enqueueLaneKey, regenerateIdempotencyKey),
             false,
             n('retryMessage/untrackDurableEnqueue'),
           );

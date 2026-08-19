@@ -27,7 +27,11 @@ import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import {
   bumpTopicScopedClearGeneration,
+  laneScopedClearKey,
   markConversationTopicDurableGenerationStopped,
+  resolveConversationClearGeneration,
+  trackDurableEnqueue,
+  untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
@@ -451,26 +455,56 @@ export const chatTopic: StateCreator<
       topicConfig.model &&
       topicConfig.provider
     ) {
-      const operation = await tryEnqueueConversationGeneration({
-        config: {
-          locale: globalHelpers.getCurrentLanguage(),
-          model: topicConfig.model,
-          provider: topicConfig.provider,
-          title: { force: true, topicId },
-        },
-        kind: 'topic_title',
-        idempotencyKey: conversationGenerationRequestKey('topic-title', operationId, topicId),
-        replaceActive: true,
-        sessionId: requestedContainerId,
+      const titleIdempotencyKey = conversationGenerationRequestKey(
+        'topic-title',
+        operationId,
         topicId,
-      });
+      );
+      const titleLaneKey = laneScopedClearKey(requestedContainerId, topicId, null);
+      set(
+        (state) =>
+          trackDurableEnqueue(state, titleLaneKey, {
+            idempotencyKey: titleIdempotencyKey,
+            kind: 'topic_title',
+          }),
+        false,
+        n('summaryTopicTitle/trackDurableEnqueue'),
+      );
+      let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+      try {
+        operation = await tryEnqueueConversationGeneration({
+          config: {
+            locale: globalHelpers.getCurrentLanguage(),
+            model: topicConfig.model,
+            provider: topicConfig.provider,
+            title: { force: true, topicId },
+          },
+          kind: 'topic_title',
+          idempotencyKey: titleIdempotencyKey,
+          replaceActive: true,
+          sessionId: requestedContainerId,
+          topicId,
+        });
+      } finally {
+        set(
+          (state) => untrackDurableEnqueue(state, titleLaneKey, titleIdempotencyKey),
+          false,
+          n('summaryTopicTitle/untrackDurableEnqueue'),
+        );
+      }
       if (!isCurrentTopicRequest()) {
         finishOwnedOperation(false);
         return;
       }
       if (operation) {
         get().attachConversationGeneration({
-          clearGeneration: requestedGeneration,
+          clearGeneration: resolveConversationClearGeneration(
+            get(),
+            requestedContainerId,
+            topicId,
+            null,
+            'topic_title',
+          ),
           generation: get().conversationNavigationGeneration,
           kind: operation.kind,
           lane: operation.lane,

@@ -15,6 +15,8 @@ import { toggleBooleanList } from '@/store/chat/utils';
 import {
   isConversationLaneDurableGenerationStopped,
   isConversationTopicDurableGenerationStopped,
+  isDurableIdempotencyKeyStopped,
+  recordInFlightEnqueuesForScope,
   recordStoppedDurableOperationsInMarkers,
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
@@ -89,6 +91,7 @@ const shouldApplyAttachedOperation = (
       attached.sessionId,
       attached.topicId,
       attached.threadId ?? null,
+      attached.kind,
     )
   ) {
     return false;
@@ -343,6 +346,7 @@ export const conversationGeneration: StateCreator<
         operation.sessionId,
         operation.topicId,
         operation.threadId ?? null,
+        operation.kind,
       );
     if (
       clearGeneration !==
@@ -351,6 +355,7 @@ export const conversationGeneration: StateCreator<
         operation.sessionId,
         operation.topicId,
         operation.threadId ?? null,
+        operation.kind,
       )
     ) {
       return;
@@ -394,6 +399,33 @@ export const conversationGeneration: StateCreator<
 
   cancelActiveDurableOpsInScope: async (options) => {
     const state = get();
+    // Fence in-flight enqueues matching the scope BEFORE the first await: their
+    // server operations are invisible to the listActive snapshot below, so the
+    // marker is the only fence sync can use when they appear later.
+    set(
+      (current) =>
+        recordInFlightEnqueuesForScope(current, {
+          allConversations: options?.allConversations,
+          allThreads: options?.allThreads,
+          kinds: options?.kind
+            ? Array.isArray(options.kind)
+              ? options.kind
+              : [options.kind]
+            : undefined,
+          sessionId: options?.allConversations ? undefined : (options?.sessionId ?? state.activeId),
+          threadId:
+            options?.allThreads || options?.allConversations
+              ? undefined
+              : options && Object.hasOwn(options, 'threadId')
+                ? options.threadId
+                : visibleConversationThreadId(state),
+          topicId: options?.allConversations
+            ? undefined
+            : (options?.topicId ?? state.activeTopicId ?? null),
+        }),
+      false,
+      n('cancelActive/fenceInFlightEnqueues'),
+    );
     try {
       const activeOps = (await conversationGenerationService.listActive({
         quiet: true,
@@ -517,6 +549,7 @@ export const conversationGeneration: StateCreator<
             existingAttached.sessionId,
             existingAttached.topicId,
             existingAttached.threadId ?? null,
+            existingAttached.kind,
           ))
     ) {
       get().attachConversationGeneration(existingAttached);
@@ -583,6 +616,7 @@ export const conversationGeneration: StateCreator<
     for (const operation of operations) {
       const operationSessionId = operation.sessionId || activeId;
       if (
+        isDurableIdempotencyKeyStopped(get(), operation.idempotencyKey) ||
         isConversationLaneDurableGenerationStopped(
           get(),
           operationSessionId,
@@ -595,18 +629,12 @@ export const conversationGeneration: StateCreator<
             operationId: operation.id,
           },
         ) ||
-        (operation.topicId &&
-          isConversationTopicDurableGenerationStopped(
-            get(),
-            operationSessionId,
-            operation.topicId,
-            {
-              idempotencyKey: operation.idempotencyKey,
-              lane: operation.lane,
-              laneGeneration: operation.laneGeneration,
-              operationId: operation.id,
-            },
-          ))
+        isConversationTopicDurableGenerationStopped(get(), operationSessionId, operation.topicId, {
+          idempotencyKey: operation.idempotencyKey,
+          lane: operation.lane,
+          laneGeneration: operation.laneGeneration,
+          operationId: operation.id,
+        })
       ) {
         if (isSyncAttachableConversationGenerationStatus(operation.status)) {
           await conversationGenerationService.cancel(operation.id).catch(() => undefined);
@@ -631,6 +659,7 @@ export const conversationGeneration: StateCreator<
           operationSessionId,
           operation.topicId,
           operation.threadId ?? null,
+          operation.kind,
         );
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,

@@ -60,17 +60,20 @@ export const abortAllChatLoadingLanes = (
   state.chatLoadingIdsAbortController?.abort(reason);
 };
 
+/**
+ * Resets the per-lane chat loading bookkeeping. Stop markers deliberately
+ * survive: destructive clears install tombstones before calling this, and wiping
+ * them here would let pre-clear durable jobs reattach when sync discovers them.
+ */
 export const clearChatLoadingLaneMaps = (): Pick<
   ChatAIChatState,
   | 'chatLoadingAbortControllersByLane'
   | 'chatLoadingIds'
   | 'chatLoadingIdsAbortController'
   | 'chatLoadingLaneByMessageId'
-  | 'conversationLaneStopMarkers'
 > => ({
   chatLoadingAbortControllersByLane: {},
   chatLoadingIds: [],
   chatLoadingIdsAbortController: undefined,
   chatLoadingLaneByMessageId: {},
-  conversationLaneStopMarkers: {},
 });

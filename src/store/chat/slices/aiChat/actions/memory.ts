@@ -8,7 +8,6 @@ import {
 } from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
-import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
 import {
   CONTEXT_COMPACTION_MAX_SUMMARY_TOKENS,
   createCompactionFingerprint,
@@ -18,6 +17,7 @@ import {
   selectDefaultCompactionPrefix,
   splitCompactionBatches,
 } from '@/helpers/contextCompaction';
+import { conversationGenerationIdempotencyKey } from '@/helpers/conversationGenerationIdempotency';
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
@@ -34,6 +34,12 @@ import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selector
 import { getAgentStoreState } from '@/store/agent/store';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import type { ChatStore } from '@/store/chat/store';
+import {
+  laneScopedClearKey,
+  resolveConversationClearGeneration,
+  trackDurableEnqueue,
+  untrackDurableEnqueue,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
@@ -161,6 +167,7 @@ const isRegularTopicCompaction = (state: ChatStore) =>
 const MAX_PRE_SEND_BATCHES = 3;
 
 async function runCompactionFromStore(
+  set: (partial: (state: ChatStore) => Partial<ChatStore>, replace?: false, name?: string) => void,
   get: () => ChatStore,
   trigger: MemoryCompactionTrigger,
   accountMutationSnapshot: AccountMutationSnapshot,
@@ -304,51 +311,74 @@ async function runCompactionFromStore(
     chatProvider
   ) {
     const expectedConversationVersion = await messageService.getConversationVersion();
-    const operation = await tryEnqueueConversationGeneration({
-      config: {
-        compaction: {
-          candidateMessageIds: candidateMessages.map(({ id }) => id),
-          enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
-          estimatedTokensBefore: beforeEstimate.totalToken,
-          expectedCursorId: topic.metadata?.historySummaryLastMessageId,
-          expectedFingerprint: createCompactionFingerprint({
-            cursorId: topic.metadata?.historySummaryLastMessageId,
-            messages: candidateMessages,
-            summary: topic.historySummary,
-          }),
-          expectedHistorySummary: topic.historySummary ?? '',
-          highWatermark: high,
-          lowWatermark: low,
-          targetReachable,
-          trigger,
-        },
-        historySummary: pending.previousSummary,
-        locale: globalHelpers.getCurrentLanguage(),
-        model: chatModel,
-        provider: chatProvider,
-      },
-      conversationVersion: expectedConversationVersion,
-      expectedConversationVersion,
-      idempotencyKey: conversationGenerationIdempotencyKey(
-        'compaction',
-        requestedTopicId,
-        createCompactionFingerprint({
-          cursorId: topic.metadata?.historySummaryLastMessageId,
-          messages: candidateMessages,
-          summary: topic.historySummary,
-        }),
-      ),
-      kind: 'memory_compaction',
-      replaceActive: true,
-      sessionId: requestedSessionId,
-      topicId: requestedTopicId,
+    const compactionFingerprint = createCompactionFingerprint({
+      cursorId: topic.metadata?.historySummaryLastMessageId,
+      messages: candidateMessages,
+      summary: topic.historySummary,
     });
+    const compactionIdempotencyKey = conversationGenerationIdempotencyKey(
+      'compaction',
+      requestedTopicId,
+      compactionFingerprint,
+    );
+    const compactionLaneKey = laneScopedClearKey(requestedSessionId, requestedTopicId, null);
+    set(
+      (state) =>
+        trackDurableEnqueue(state, compactionLaneKey, {
+          idempotencyKey: compactionIdempotencyKey,
+          kind: 'memory_compaction',
+        }),
+      false,
+      'memoryCompaction/trackDurableEnqueue',
+    );
+    let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+    try {
+      operation = await tryEnqueueConversationGeneration({
+        config: {
+          compaction: {
+            candidateMessageIds: candidateMessages.map(({ id }) => id),
+            enableUserMemoryArchive: chatConfig.enableUserMemoryArchive,
+            estimatedTokensBefore: beforeEstimate.totalToken,
+            expectedCursorId: topic.metadata?.historySummaryLastMessageId,
+            expectedFingerprint: compactionFingerprint,
+            expectedHistorySummary: topic.historySummary ?? '',
+            highWatermark: high,
+            lowWatermark: low,
+            targetReachable,
+            trigger,
+          },
+          historySummary: pending.previousSummary,
+          locale: globalHelpers.getCurrentLanguage(),
+          model: chatModel,
+          provider: chatProvider,
+        },
+        conversationVersion: expectedConversationVersion,
+        expectedConversationVersion,
+        idempotencyKey: compactionIdempotencyKey,
+        kind: 'memory_compaction',
+        replaceActive: true,
+        sessionId: requestedSessionId,
+        topicId: requestedTopicId,
+      });
+    } finally {
+      set(
+        (state) => untrackDurableEnqueue(state, compactionLaneKey, compactionIdempotencyKey),
+        false,
+        'memoryCompaction/untrackDurableEnqueue',
+      );
+    }
     if (!isCurrentRequest()) {
       return compactionResult('ineligible', { reason: 'stale_request' });
     }
     if (operation) {
       get().attachConversationGeneration({
-        clearGeneration: requestedGeneration,
+        clearGeneration: resolveConversationClearGeneration(
+          get(),
+          requestedSessionId,
+          requestedTopicId,
+          null,
+          'memory_compaction',
+        ),
         generation: get().conversationNavigationGeneration,
         kind: operation.kind,
         lane: operation.lane,
@@ -539,6 +569,7 @@ async function runCompactionFromStore(
 }
 
 const triggerCompaction = async (
+  set: (partial: (state: ChatStore) => Partial<ChatStore>, replace?: false, name?: string) => void,
   get: () => ChatStore,
   trigger: MemoryCompactionTrigger,
   abortController?: AbortController,
@@ -572,9 +603,13 @@ const triggerCompaction = async (
     ]);
   }
 
-  const job = runCompactionFromStore(get, trigger, accountMutationSnapshot, abortController).catch(
-    () => compactionResult('failed', { reason: 'compaction_exception' }),
-  );
+  const job = runCompactionFromStore(
+    set,
+    get,
+    trigger,
+    accountMutationSnapshot,
+    abortController,
+  ).catch(() => compactionResult('failed', { reason: 'compaction_exception' }));
   compactionJobs.set(key, job);
   try {
     return await job;
@@ -588,7 +623,7 @@ export const chatMemory: StateCreator<
   [['zustand/devtools', never]],
   [],
   ChatMemoryAction
-> = (_set, get) => ({
+> = (set, get) => ({
   internal_invalidateMemoryCompaction: async (messageIds) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const state = get();
@@ -610,7 +645,7 @@ export const chatMemory: StateCreator<
     });
     if (!affectsSummary) return;
 
-    _set(
+    set(
       (s) => ({
         memoryCompactionInvalidationGeneration: s.memoryCompactionInvalidationGeneration + 1,
       }),
@@ -637,9 +672,9 @@ export const chatMemory: StateCreator<
     }
   },
 
-  triggerManualMemoryCompaction: () => triggerCompaction(get, 'manual'),
-  triggerMessageCountMemoryCompaction: () => triggerCompaction(get, 'message_count'),
-  triggerScheduledMemoryCompaction: () => triggerCompaction(get, 'scheduled'),
+  triggerManualMemoryCompaction: () => triggerCompaction(set, get, 'manual'),
+  triggerMessageCountMemoryCompaction: () => triggerCompaction(set, get, 'message_count'),
+  triggerScheduledMemoryCompaction: () => triggerCompaction(set, get, 'scheduled'),
   triggerTokenThresholdMemoryCompaction: (abortController) =>
-    triggerCompaction(get, 'token_threshold', abortController),
+    triggerCompaction(set, get, 'token_threshold', abortController),
 });

@@ -35,6 +35,12 @@ import {
 import { messageService } from '@/services/message';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
+import {
+  laneScopedClearKey,
+  resolveConversationClearGeneration,
+  trackDurableEnqueue,
+  untrackDurableEnqueue,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
@@ -557,30 +563,60 @@ export const chatAiGroupChat: StateCreator<
         groupConfig.orchestratorModel &&
         groupConfig.orchestratorProvider
       ) {
-        const operation = await tryEnqueueConversationGeneration({
-          config: {
-            locale: globalHelpers.getCurrentLanguage(),
-            model: groupConfig.orchestratorModel,
-            provider: groupConfig.orchestratorProvider,
-          },
-          conversationVersion: resolvedConversationVersion,
-          expectedConversationVersion: resolvedConversationVersion,
+        const supervisorIdempotencyKey = conversationGenerationRequestKey(
+          'group-supervisor',
+          nanoid(),
           groupId,
-          idempotencyKey: conversationGenerationRequestKey(
-            'group-supervisor',
-            nanoid(),
+          currentTopicId,
+        );
+        const supervisorLaneKey = laneScopedClearKey(
+          requestedSessionId,
+          currentTopicId ?? null,
+          null,
+        );
+        set(
+          (state) =>
+            trackDurableEnqueue(state, supervisorLaneKey, {
+              idempotencyKey: supervisorIdempotencyKey,
+              kind: 'group_supervisor',
+            }),
+          false,
+          n('supervisor/trackDurableEnqueue'),
+        );
+        let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+        try {
+          operation = await tryEnqueueConversationGeneration({
+            config: {
+              locale: globalHelpers.getCurrentLanguage(),
+              model: groupConfig.orchestratorModel,
+              provider: groupConfig.orchestratorProvider,
+            },
+            conversationVersion: resolvedConversationVersion,
+            expectedConversationVersion: resolvedConversationVersion,
             groupId,
-            currentTopicId,
-          ),
-          kind: 'group_supervisor',
-          replaceActive: true,
-          sessionId: requestedSessionId,
-          topicId: currentTopicId ?? undefined,
-        });
+            idempotencyKey: supervisorIdempotencyKey,
+            kind: 'group_supervisor',
+            replaceActive: true,
+            sessionId: requestedSessionId,
+            topicId: currentTopicId ?? undefined,
+          });
+        } finally {
+          set(
+            (state) => untrackDurableEnqueue(state, supervisorLaneKey, supervisorIdempotencyKey),
+            false,
+            n('supervisor/untrackDurableEnqueue'),
+          );
+        }
         if (!isCurrentConversation()) return;
         if (operation) {
           get().attachConversationGeneration({
-            clearGeneration: conversationClearGeneration,
+            clearGeneration: resolveConversationClearGeneration(
+              get(),
+              requestedSessionId,
+              currentTopicId ?? null,
+              null,
+              'group_supervisor',
+            ),
             generation: get().conversationNavigationGeneration,
             groupId,
             kind: operation.kind,
@@ -783,7 +819,7 @@ export const chatAiGroupChat: StateCreator<
           if (!isCurrentConversation()) return;
           await Promise.all(
             operationIds
-              .filter((operationId): operationId is string => Boolean(operationId))
+              .filter(Boolean)
               .map((operationId) => waitForConversationGeneration(operationId)),
           );
           if (!isCurrentConversation()) return;
@@ -925,41 +961,70 @@ export const chatAiGroupChat: StateCreator<
         if (!isCurrentConversation()) return;
 
         if (assistantId && isClientDurableConversationGenerationEnabled()) {
-          const operation = await tryEnqueueConversationGeneration({
-            agentId,
-            assistantMessageId: assistantId,
-            config: {
-              ...buildDurableConversationConfig({
-                agentConfig: {
-                  chatConfig: agentData.chatConfig,
-                  model: agentModel,
-                  params: agentData.params as Record<string, unknown> | undefined,
-                  plugins: agentData.plugins,
-                  provider: agentProvider,
-                  systemRole: groupChatSystemPrompt,
-                },
-                chatConfig: agentData.chatConfig || undefined,
-                enableMemoryTool: false,
-                locale: globalHelpers.getCurrentLanguage(),
-                systemRole: groupChatSystemPrompt,
+          const agentIdempotencyKey = conversationGenerationIdempotencyKey(
+            'group-agent',
+            assistantId,
+          );
+          const agentLaneKey = laneScopedClearKey(requestedSessionId, activeTopicId ?? null, null);
+          set(
+            (state) =>
+              trackDurableEnqueue(state, agentLaneKey, {
+                idempotencyKey: agentIdempotencyKey,
+                kind: 'group_agent',
               }),
+            false,
+            n('groupAgent/trackDurableEnqueue'),
+          );
+          let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+          try {
+            operation = await tryEnqueueConversationGeneration({
+              agentId,
+              assistantMessageId: assistantId,
+              config: {
+                ...buildDurableConversationConfig({
+                  agentConfig: {
+                    chatConfig: agentData.chatConfig,
+                    model: agentModel,
+                    params: agentData.params as Record<string, unknown> | undefined,
+                    plugins: agentData.plugins,
+                    provider: agentProvider,
+                    systemRole: groupChatSystemPrompt,
+                  },
+                  chatConfig: agentData.chatConfig || undefined,
+                  enableMemoryTool: false,
+                  locale: globalHelpers.getCurrentLanguage(),
+                  systemRole: groupChatSystemPrompt,
+                }),
+                groupId,
+                targetId,
+              },
+              conversationVersion: resolvedConversationVersion,
+              expectedConversationVersion: resolvedConversationVersion,
               groupId,
-              targetId,
-            },
-            conversationVersion: resolvedConversationVersion,
-            expectedConversationVersion: resolvedConversationVersion,
-            groupId,
-            idempotencyKey: conversationGenerationIdempotencyKey('group-agent', assistantId),
-            kind: 'group_agent',
-            replaceActive: true,
-            sessionId: requestedSessionId,
-            topicId: activeTopicId,
-          });
+              idempotencyKey: agentIdempotencyKey,
+              kind: 'group_agent',
+              replaceActive: true,
+              sessionId: requestedSessionId,
+              topicId: activeTopicId,
+            });
+          } finally {
+            set(
+              (state) => untrackDurableEnqueue(state, agentLaneKey, agentIdempotencyKey),
+              false,
+              n('groupAgent/untrackDurableEnqueue'),
+            );
+          }
           if (!isCurrentConversation()) return;
           if (operation) {
             get().attachConversationGeneration({
               assistantMessageId: assistantId,
-              clearGeneration: conversationClearGeneration,
+              clearGeneration: resolveConversationClearGeneration(
+                get(),
+                requestedSessionId,
+                activeTopicId ?? null,
+                null,
+                'group_agent',
+              ),
               generation: get().conversationNavigationGeneration,
               groupId,
               kind: operation.kind,
