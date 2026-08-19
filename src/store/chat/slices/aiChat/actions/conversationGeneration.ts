@@ -1,7 +1,6 @@
 import { LOADING_FLAT } from '@lobechat/const';
 import {
   ConversationGenerationChatFamilyKinds,
-  isActiveConversationGenerationStatus,
   type ConversationGenerationEvent,
   type ConversationGenerationKind,
   type ConversationGenerationOperation,
@@ -13,6 +12,10 @@ import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/stor
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import {
+  bumpScopedConversationClearGeneration,
+  resolveConversationClearGeneration,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { toggleBooleanList } from '@/store/chat/utils';
 import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
@@ -74,7 +77,7 @@ const shouldApplyAttachedOperation = (
   ) {
     return false;
   }
-  if (attached.clearGeneration !== state.conversationClearGeneration) return false;
+  if (attached.clearGeneration !== resolveConversationClearGeneration(state, attached.sessionId, attached.topicId)) return false;
   if (attached.generation !== state.conversationNavigationGeneration) return false;
   return true;
 };
@@ -88,9 +91,16 @@ const conversationContextFromAttached = (
   topicId: attached.topicId,
 });
 
+const isSyncAttachableConversationGenerationStatus = (
+  status: ConversationGenerationOperation['status'],
+) => status === 'pending' || status === 'processing';
+
 const refreshAttachedConversation = async (
   get: () => ChatStore,
-  attached?: Pick<ServerGenerationOperation, 'generation' | 'sessionId' | 'topicId'>,
+  attached?: Pick<
+    ServerGenerationOperation,
+    'clearGeneration' | 'generation' | 'sessionId' | 'topicId'
+  >,
 ) => {
   if (attached?.sessionId) {
     await get().refreshMessages(conversationContextFromAttached(attached));
@@ -276,8 +286,15 @@ export const conversationGeneration: StateCreator<
     ) {
       return;
     }
-    const clearGeneration = operation.clearGeneration ?? state.conversationClearGeneration;
-    if (clearGeneration !== state.conversationClearGeneration) return;
+    const clearGeneration =
+      operation.clearGeneration ??
+      resolveConversationClearGeneration(state, operation.sessionId, operation.topicId);
+    if (
+      clearGeneration !==
+      resolveConversationClearGeneration(state, operation.sessionId, operation.topicId)
+    ) {
+      return;
+    }
 
     const attached = {
       ...operation,
@@ -387,7 +404,12 @@ export const conversationGeneration: StateCreator<
     if (
       existingAttached &&
       (existingAttached.generation !== get().conversationNavigationGeneration ||
-        existingAttached.clearGeneration !== get().conversationClearGeneration)
+        existingAttached.clearGeneration !==
+          resolveConversationClearGeneration(
+            get(),
+            existingAttached.sessionId,
+            existingAttached.topicId,
+          ))
     ) {
       get().attachConversationGeneration(existingAttached);
     }
@@ -395,7 +417,17 @@ export const conversationGeneration: StateCreator<
       operationId,
     )) as ConversationGenerationOperation;
     const attached = findAttachedOperation(get().serverGenerationOperations, operationId);
-    if (isActiveConversationGenerationStatus(operation.status)) return operation;
+    if (operation.status === 'cancelling') {
+      if (attached?.assistantMessageId) {
+        get().internal_markDurableGenerating(attached.assistantMessageId, false);
+      }
+      if (attached?.groupId) {
+        get().internal_toggleSupervisorLoading(false, attached.groupId);
+      }
+      get().detachConversationGeneration(operationId);
+      return operation;
+    }
+    if (isSyncAttachableConversationGenerationStatus(operation.status)) return operation;
 
     if (attached?.assistantMessageId) {
       get().internal_markDurableGenerating(attached.assistantMessageId, false);
@@ -409,7 +441,11 @@ export const conversationGeneration: StateCreator<
       attached ??
         (operation.sessionId
           ? {
-              clearGeneration: get().conversationClearGeneration,
+              clearGeneration: resolveConversationClearGeneration(
+                get(),
+                operation.sessionId,
+                operation.topicId,
+              ),
               generation: get().conversationNavigationGeneration,
               sessionId: operation.sessionId,
               topicId: operation.topicId,
@@ -429,8 +465,8 @@ export const conversationGeneration: StateCreator<
     const operations = (await conversationGenerationService.listActive()) as Array<
       ConversationGenerationOperation & { assistantMessageId?: string | null }
     >;
-    const { activeId, activeTopicId, conversationClearGeneration, conversationNavigationGeneration } =
-      get();
+    const { activeId, activeTopicId, conversationNavigationGeneration } = get();
+    const activeClearGeneration = resolveConversationClearGeneration(get(), activeId, activeTopicId);
     const accountSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const currentScope = accountSnapshot?.scope;
     const visibleThreadId = visibleConversationThreadId(get());
@@ -442,10 +478,12 @@ export const conversationGeneration: StateCreator<
         (operation.threadId ?? null) === visibleThreadId
       ) {
         activeOperationIds.add(operation.id);
-        if (!currentScope) continue;
+        if (!currentScope || !isSyncAttachableConversationGenerationStatus(operation.status)) {
+          continue;
+        }
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
-          clearGeneration: conversationClearGeneration,
+          clearGeneration: activeClearGeneration,
           generation: conversationNavigationGeneration,
           groupId: operation.groupId || undefined,
           kind: operation.kind,

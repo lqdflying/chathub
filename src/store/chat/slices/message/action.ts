@@ -335,21 +335,32 @@ export const chatMessage: StateCreator<
 
   clearMessage: async () => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    const requestedGeneration = get().conversationClearGeneration;
     const {
       activeId,
       activeTopicId,
+      mainSendMessageOperations,
       refreshMessages,
       refreshTopic,
       switchTopic,
       activeSessionType,
     } = get();
     if (!accountMutationSnapshot || !activeId) return;
-    const isCurrentRequest = () =>
+    const isUiContinuationCurrent = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
       get().activeId === activeId &&
       get().activeTopicId === activeTopicId;
+
+    set(
+      (state) => ({ conversationClearGeneration: state.conversationClearGeneration + 1 }),
+      false,
+      n('clearMessage/bumpClearGeneration'),
+    );
+
+    const operationKey = messageMapKey(activeId, activeTopicId);
+    const sendOperation = mainSendMessageOperations[operationKey];
+    if (sendOperation?.abortController) {
+      sendOperation.abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
 
     await get().cancelAndDetachDurableOps({
       allThreads: true,
@@ -374,17 +385,17 @@ export const chatMessage: StateCreator<
       // For regular session, activeId is the sessionId
       await messageService.removeMessagesByAssistant(activeId, activeTopicId);
     }
-    if (!isCurrentRequest()) return;
+    if (!isUiContinuationCurrent()) return;
 
     if (activeTopicId) {
       await topicService.removeTopic(activeTopicId);
-      if (!isCurrentRequest()) return;
+      if (!isUiContinuationCurrent()) return;
     }
     await refreshTopic();
-    if (!isCurrentRequest()) return;
+    if (!isUiContinuationCurrent()) return;
 
     await refreshMessages();
-    if (!isCurrentRequest()) return;
+    if (!isUiContinuationCurrent()) return;
 
     // after remove topic , go back to default topic
     switchTopic();

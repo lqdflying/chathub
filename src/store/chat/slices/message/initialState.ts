@@ -17,6 +17,8 @@ export interface ChatMessageState {
   activeSessionType?: 'agent' | 'group';
   /** Incremented when conversation history is cleared to invalidate stale producers */
   conversationClearGeneration: number;
+  /** Per session/topic destructive bumps (Stop, scoped delete) layered on the global clear epoch */
+  conversationScopedClearGenerations: Record<string, number>;
   conversationNavigationGeneration: number;
   /** Incremented when a memory summary is invalidated so in-flight compactions discard their result */
   memoryCompactionInvalidationGeneration: number;
@@ -68,6 +70,7 @@ export const initialMessageState: ChatMessageState = {
   activeId: 'inbox',
   activeSessionType: undefined,
   conversationClearGeneration: 0,
+  conversationScopedClearGenerations: {},
   conversationNavigationGeneration: 0,
   memoryCompactionInvalidationGeneration: 0,
   groupAgentMaps: {},

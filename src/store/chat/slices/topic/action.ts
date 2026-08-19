@@ -25,6 +25,7 @@ import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { bumpScopedConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
 import { enqueueTitleSummaryPersistence } from '@/store/chat/utils/titleSummaryOperation';
 import { globalHelpers } from '@/store/global/helpers';
 import { useSessionStore } from '@/store/session';
@@ -50,11 +51,12 @@ const topicLoadingOperations = new Map<string, Set<string>>();
 const getTopicLoadingOperationKey = (
   scope: string,
   ownershipInvalidationGeneration: number,
-  conversationGeneration: number,
+  conversationClearGeneration: number,
+  conversationNavigationGeneration: number,
   containerId: string,
   topicId: string,
 ): string =>
-  `${scope}:${ownershipInvalidationGeneration}:${conversationGeneration}:${containerId}:${topicId}`;
+  `${scope}:${ownershipInvalidationGeneration}:${conversationClearGeneration}:${conversationNavigationGeneration}:${containerId}:${topicId}`;
 
 const acquireTopicLoadingOperation = (loadingOperationKey: string, operationId: string): void => {
   const operations = topicLoadingOperations.get(loadingOperationKey) ?? new Set<string>();
@@ -75,7 +77,10 @@ const hasTopicLoadingOperation = (loadingOperationKey: string): boolean => {
 };
 
 const hasCurrentTopicLoadingOperation = (
-  state: Pick<ChatStore, 'activeId' | 'conversationClearGeneration'>,
+  state: Pick<
+    ChatStore,
+    'activeId' | 'conversationClearGeneration' | 'conversationNavigationGeneration'
+  >,
   topicId: string,
 ): boolean => {
   const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
@@ -85,6 +90,7 @@ const hasCurrentTopicLoadingOperation = (
     accountMutationSnapshot.scope,
     accountMutationSnapshot.ownershipInvalidationGeneration,
     state.conversationClearGeneration,
+    state.conversationNavigationGeneration,
     state.activeId,
     topicId,
   );
@@ -327,6 +333,7 @@ export const chatTopic: StateCreator<
       accountMutationSnapshot.scope,
       accountMutationSnapshot.ownershipInvalidationGeneration,
       requestedGeneration,
+      get().conversationNavigationGeneration,
       requestedContainerId,
       topicId,
     );
@@ -532,6 +539,7 @@ export const chatTopic: StateCreator<
       accountMutationSnapshot.scope,
       accountMutationSnapshot.ownershipInvalidationGeneration,
       requestedGeneration,
+      get().conversationNavigationGeneration,
       requestedContainerId,
       id,
     );
@@ -572,6 +580,7 @@ export const chatTopic: StateCreator<
       accountMutationSnapshot.scope,
       accountMutationSnapshot.ownershipInvalidationGeneration,
       requestedGeneration,
+      get().conversationNavigationGeneration,
       sessionId,
       id,
     );
@@ -760,7 +769,7 @@ export const chatTopic: StateCreator<
     const requestedContainerId = get().activeId;
     const requestedActiveTopicId = get().activeTopicId;
     const requestedTopicId = id;
-    const { switchTopic } = get();
+    const { mainSendMessageOperations, switchTopic } = get();
     if (!accountMutationSnapshot || !requestedContainerId || !requestedTopicId) return;
     const isPersistenceCurrent = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot);
@@ -768,6 +777,30 @@ export const chatTopic: StateCreator<
       isPersistenceCurrent() &&
       get().activeId === requestedContainerId &&
       get().activeTopicId === requestedActiveTopicId;
+
+    await get().cancelAndDetachDurableOps({
+      allThreads: true,
+      sessionId: requestedContainerId,
+      topicId: requestedTopicId,
+    });
+
+    if (requestedActiveTopicId === requestedTopicId) {
+      set(
+        (state) =>
+          bumpScopedConversationClearGeneration(
+            state,
+            requestedContainerId,
+            requestedTopicId,
+          ),
+        false,
+        n('removeTopic/bumpScopedClearGeneration'),
+      );
+      const operationKey = messageMapKey(requestedContainerId, requestedTopicId);
+      const sendOperation = mainSendMessageOperations[operationKey];
+      if (sendOperation?.abortController) {
+        sendOperation.abortController.abort(MESSAGE_CANCEL_FLAT);
+      }
+    }
 
     // remove messages in the topic
     // TODO: Need to remove because server service don't need to call it
@@ -854,6 +887,7 @@ export const chatTopic: StateCreator<
       accountMutationSnapshot.scope,
       accountMutationSnapshot.ownershipInvalidationGeneration,
       requestedGeneration,
+      get().conversationNavigationGeneration,
       requestedContainerId,
       id,
     );
@@ -888,6 +922,7 @@ export const chatTopic: StateCreator<
       accountMutationSnapshot.scope,
       accountMutationSnapshot.ownershipInvalidationGeneration,
       requestedGeneration,
+      get().conversationNavigationGeneration,
       requestedContainerId,
       operationId,
     );

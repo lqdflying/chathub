@@ -182,7 +182,10 @@ no longer matches the attached operation. The SSE/poll cursor is advanced **afte
 returned `operationId` after leave (PC topic switch, mobile back, PWA abort).
 `attachConversationGeneration` rebases **navigation** generation to the current
 store value but preserves the send-time **clear** generation, so a late response
-after clear/delete/reset cannot re-attach. Navigation-only invalidation
+after clear/delete/reset cannot re-attach. **Stop** and active-topic **delete**
+bump a scoped clear epoch for that session/topic (`conversationScopedClearGenerations`);
+**clear current conversation** bumps the global clear epoch. `syncActive` does not
+reattach operations in `cancelling` status. Navigation-only invalidation
 re-attaches with the current navigation epoch. Late refresh, attach, reconcile,
 and abort recovery are gated on `isAccountMutationCurrent` and `userScope` at
 the shared attach boundary so account reset does not write durable state into

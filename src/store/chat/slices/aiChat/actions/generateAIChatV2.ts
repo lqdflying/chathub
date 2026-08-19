@@ -49,6 +49,7 @@ import {
 import { MainSendMessageOperation } from '@/store/chat/slices/aiChat/initialState';
 import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
+import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
 import { getSessionStoreState } from '@/store/session';
@@ -162,14 +163,18 @@ export const generateAIChatV2: StateCreator<
     if (!accountMutationSnapshot || !activeId) return;
     const requestedScope = accountMutationSnapshot.scope;
     let conversationContext: ConversationContext = {
-      clearGeneration: get().conversationClearGeneration,
+      clearGeneration: resolveConversationClearGeneration(get(), activeId, activeTopicId),
       generation: get().conversationNavigationGeneration,
       sessionId: activeId,
       topicId: activeTopicId,
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.clearGeneration &&
+      resolveConversationClearGeneration(
+        get(),
+        conversationContext.sessionId,
+        conversationContext.topicId,
+      ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const isSameAccount = () =>
@@ -452,7 +457,7 @@ export const generateAIChatV2: StateCreator<
 
     if (!data) return;
 
-    if (isSameAccount()) {
+    if (isSameAccount() && isCurrentConversation()) {
       //  update assistant update to make it rerank
       getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
     }
@@ -474,8 +479,16 @@ export const generateAIChatV2: StateCreator<
       }
     };
 
+    const isLateDurableAttachCurrent = () =>
+      isSameAccount() &&
+      resolveConversationClearGeneration(
+        get(),
+        conversationContext.sessionId,
+        conversationContext.topicId,
+      ) === conversationContext.clearGeneration;
+
     if (data.operationId) {
-      if (isSameAccount()) {
+      if (isLateDurableAttachCurrent()) {
         const durableOperation = data.operation;
         get().attachConversationGeneration({
           assistantMessageId:
@@ -760,7 +773,7 @@ export const generateAIChatV2: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const conversationContext = params.conversationContext ?? {
-      clearGeneration: get().conversationClearGeneration,
+      clearGeneration: resolveConversationClearGeneration(get(), get().activeId, get().activeTopicId),
       generation: get().conversationNavigationGeneration,
       sessionId: get().activeId,
       topicId: get().activeTopicId,
@@ -771,7 +784,11 @@ export const generateAIChatV2: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.clearGeneration &&
+      resolveConversationClearGeneration(
+        get(),
+        conversationContext.sessionId,
+        conversationContext.topicId,
+      ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =

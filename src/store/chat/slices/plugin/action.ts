@@ -31,6 +31,7 @@ import type { AccountMutationSnapshot } from '@/store/accountMutation';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
+import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey, parseMessageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
@@ -130,12 +131,17 @@ const isPluginMutationCurrent = (
 
 const createResourceConversationContext = (
   resource: PluginMessageResource | undefined,
-  generation: number,
+  state: Pick<ChatStore, 'conversationClearGeneration' | 'conversationNavigationGeneration'>,
 ): ConversationContext | undefined => {
   if (!resource?.sessionId) return;
 
   return {
-    generation,
+    clearGeneration: resolveConversationClearGeneration(
+      state,
+      resource.sessionId,
+      resource.topicId,
+    ),
+    generation: state.conversationNavigationGeneration,
     sessionId: resource.sessionId,
     topicId: resource.topicId,
   };
@@ -323,10 +329,7 @@ export const chatPlugin: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(messageResource, get());
     const invocationIsCurrent = () =>
       isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
     const { triggerAIMessage, internal_updateMessageContent } = get();
@@ -479,10 +482,7 @@ export const chatPlugin: StateCreator<
 
     const { internal_updateMessageContent } = get();
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(messageResource, get());
     // Kimi / Moonshot `$web_search`: submit `tool_call.function.arguments` verbatim as the
     // tool message content so the next completion can run search (see Moonshot docs).
     const content =
@@ -524,10 +524,7 @@ export const chatPlugin: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(messageResource, get());
     const invocationIsCurrent = () =>
       isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
     const result = await useToolStore.getState().validatePluginSettings(payload.identifier);
@@ -874,10 +871,7 @@ export const chatPlugin: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(messageResource, get());
     const isCurrentRequest = () =>
       isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
     if (!isCurrentRequest()) return;
@@ -905,10 +899,7 @@ export const chatPlugin: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const toolMessageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      toolMessageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(toolMessageResource, get());
     const isCurrentRequest = () =>
       isPluginMutationCurrent(get(), accountMutationSnapshot, toolMessageResource);
     const { refreshMessages } = get();
@@ -1008,10 +999,7 @@ export const chatPlugin: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(messageResource, get());
     const isCurrentRequest = () =>
       isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
     const message = messageResource?.message;
@@ -1036,10 +1024,7 @@ export const chatPlugin: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(messageResource, get());
     const { internal_updateMessageContent, refreshMessages, internal_togglePluginApiCalling } =
       get();
     let data: string;
@@ -1364,10 +1349,7 @@ export const chatPlugin: StateCreator<
     if (!accountMutationSnapshot) return;
 
     const messageResource = resolvePluginMessageResource(get(), id);
-    const conversationContext = createResourceConversationContext(
-      messageResource,
-      get().conversationClearGeneration,
-    );
+    const conversationContext = createResourceConversationContext(messageResource, get());
     const isCurrentRequest = () =>
       isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource);
     if (!isCurrentRequest()) return;

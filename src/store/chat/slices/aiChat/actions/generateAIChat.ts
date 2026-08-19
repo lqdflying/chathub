@@ -50,6 +50,10 @@ import {
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import {
+  bumpScopedConversationClearGeneration,
+  resolveConversationClearGeneration,
+} from '@/store/chat/utils/conversationClearGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
 import { useUserStore } from '@/store/user';
@@ -293,10 +297,27 @@ export const generateAIChat: StateCreator<
     // a Stop from a thread portal (threadId set) shares the conversation key but must not kill
     // the main send's compaction — pre-send compaction only ever runs for the main
     // conversation (threadId null), so it matches a main Stop and never a thread Stop.
-    const { activeId, activeTopicId, preSendCompactionOperations } = get();
+    const { activeId, activeTopicId, mainSendMessageOperations, preSendCompactionOperations } =
+      get();
+    const threadId = options?.threadId ?? null;
+    const isThreadScopedStop = threadId != null;
     const preSendCompaction = preSendCompactionOperations[messageMapKey(activeId, activeTopicId)];
-    if (preSendCompaction && (preSendCompaction.threadId ?? null) === (options?.threadId ?? null)) {
+    if (preSendCompaction && (preSendCompaction.threadId ?? null) === threadId) {
       preSendCompaction.abortController.abort(MESSAGE_CANCEL_FLAT);
+    }
+
+    if (!isThreadScopedStop) {
+      set(
+        (state) =>
+          bumpScopedConversationClearGeneration(state, activeId, activeTopicId),
+        false,
+        n('stopGenerateMessage/bumpScopedClearGeneration'),
+      );
+      const operationKey = messageMapKey(activeId, activeTopicId);
+      const sendOperation = mainSendMessageOperations[operationKey];
+      if (sendOperation?.abortController) {
+        sendOperation.abortController.abort(MESSAGE_CANCEL_FLAT);
+      }
     }
 
     await get().stopDurableConversationGeneration(options);
@@ -317,7 +338,7 @@ export const generateAIChat: StateCreator<
 
     const { internal_fetchAIChatMessage, triggerToolCalls, refreshMessages } = get();
     const conversationContext = params?.conversationContext ?? {
-      clearGeneration: get().conversationClearGeneration,
+      clearGeneration: resolveConversationClearGeneration(get(), get().activeId, get().activeTopicId),
       generation: get().conversationNavigationGeneration,
       sessionId: get().activeId,
       topicId: get().activeTopicId,
@@ -328,7 +349,8 @@ export const generateAIChat: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.clearGeneration &&
+      resolveConversationClearGeneration(get(), conversationContext.sessionId, conversationContext.topicId) ===
+        conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const expectedConversationVersion =
@@ -768,7 +790,11 @@ export const generateAIChat: StateCreator<
     } = get();
     const conversationContext = requestedConversationContext ??
       params?.conversationContext ?? {
-        clearGeneration: get().conversationClearGeneration,
+        clearGeneration: resolveConversationClearGeneration(
+          get(),
+          get().activeId,
+          get().activeTopicId,
+        ),
         generation: get().conversationNavigationGeneration,
         sessionId: get().activeId,
         topicId: get().activeTopicId,
@@ -779,7 +805,8 @@ export const generateAIChat: StateCreator<
     };
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === conversationContext.clearGeneration &&
+      resolveConversationClearGeneration(get(), conversationContext.sessionId, conversationContext.topicId) ===
+        conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     if (!isCurrentConversation()) {

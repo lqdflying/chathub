@@ -119,6 +119,7 @@ export const resetTestEnvironment = () => {
       chatLoadingIds: [],
       chatLoadingIdsAbortController: undefined,
       conversationClearGeneration: 0,
+      conversationScopedClearGenerations: {},
       conversationNavigationGeneration: 0,
       messageRetryingIds: [],
       messagesMap: {},
