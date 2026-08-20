@@ -5,7 +5,7 @@ import {
 
 import type { ChatStore } from '@/store/chat/store';
 
-import { messageMapKey } from './messageMapKey';
+import { messageMapKey, parseMessageMapKey } from './messageMapKey';
 
 type AttachedOperationRef = Pick<
   ChatStore['serverGenerationOperations'][string][string],
@@ -43,6 +43,18 @@ export const laneScopedClearKey = (
   topicId?: string | null,
   threadId?: string | null,
 ) => `${messageMapKey(sessionId, topicId)}:${threadId ?? 'main'}`;
+
+/**
+ * Recovers the session/topic context encoded in a lane key
+ * (`messageMapKey(sessionId, topicId):thread`). Used by the session/account-wide
+ * topic-delete scopes, which must match every real-topic lane without knowing
+ * the concrete topic ids up front.
+ */
+const parseLaneKeyContext = (laneKey: string) => {
+  const boundary = laneKey.lastIndexOf(']:');
+  const mapKey = boundary < 0 ? laneKey : laneKey.slice(0, boundary + 1);
+  return parseMessageMapKey(mapKey);
+};
 
 /**
  * The lane-scoped epoch is the chat-Stop fence: bumping it invalidates in-flight
@@ -461,7 +473,9 @@ export const markAllDurableGenerationsStopped = (
 export const recordInFlightEnqueuesForScope = (
   state: LaneStopMarkerState & Pick<ChatStore, 'durableInFlightEnqueues'>,
   scope: {
+    allAccountTopics?: boolean;
     allConversations?: boolean;
+    allSessionTopics?: boolean;
     allThreads?: boolean;
     kinds?: ConversationGenerationKind[];
     sessionId?: string;
@@ -476,7 +490,14 @@ export const recordInFlightEnqueuesForScope = (
     const matched = entries.filter((entry) => !scope.kinds || scope.kinds.includes(entry.kind));
     if (matched.length === 0) continue;
 
-    if (!scope.allConversations) {
+    if (scope.allAccountTopics || scope.allSessionTopics) {
+      // Session/account-wide topic delete: fence every real-topic lane,
+      // preserving the virtual default topic (null topicId). The concrete topic
+      // ids need not be known to the client.
+      const context = parseLaneKeyContext(laneKey);
+      if (!context || !context.topicId) continue;
+      if (scope.allSessionTopics && context.sessionId !== scope.sessionId) continue;
+    } else if (!scope.allConversations) {
       if (!scope.sessionId) continue;
       if (scope.topicIds) {
         const matchesTopic = scope.topicIds.some((topicId) => {

@@ -17,7 +17,10 @@ import { conversationGenerationRequestKey } from '@/helpers/conversationGenerati
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { chatService } from '@/services/chat';
-import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import {
+  conversationGenerationService,
+  tryEnqueueConversationGeneration,
+} from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { CreateTopicParams } from '@/services/topic/type';
@@ -27,6 +30,7 @@ import type { ChatStore } from '@/store/chat';
 import type { ChatStoreState } from '@/store/chat/initialState';
 import {
   bumpTopicScopedClearGeneration,
+  isConversationClearFenceCurrent,
   laneScopedClearKey,
   markConversationTopicDurableGenerationStopped,
   resolveConversationClearGeneration,
@@ -56,58 +60,68 @@ interface TopicDeletionFenceTarget {
   topicIds: string[];
 }
 
+type DurableCancellationScope = NonNullable<
+  Parameters<ChatStore['cancelActiveDurableOpsInScope']>[0]
+>;
+
 /**
  * Bulk topic deletion is a destructive workflow: before the first server
- * await, install a topic-scoped epoch bump + tombstone for every target topic
- * (which also collects already-registered in-flight enqueue keys and attached
- * operations into the markers), then run scoped server cancellation per
- * session. Producers re-check the resolved clear fence before registering or
- * attaching, so work that races this fence is rejected instead of orphaned.
+ * await, install a topic-scoped epoch bump + tombstone for every known target
+ * topic (which also collects already-registered in-flight enqueue keys and
+ * attached operations into the markers), then run scoped server cancellation.
+ * Producers re-check the resolved clear fence before registering or attaching,
+ * so work that races this fence is rejected instead of orphaned.
+ *
+ * `cancellationScopes` lets session-wide / account-wide deletes cancel durable
+ * work for topic ids the client has not loaded (or that were created in another
+ * tab after the map was fetched); when omitted, cancellation falls back to a
+ * per-target `topicIds` scope.
  */
 const fenceTopicsForDeletion = async (
   set: (partial: (state: ChatStore) => Partial<ChatStore>, replace?: false, name?: string) => void,
   get: () => ChatStore,
   targets: TopicDeletionFenceTarget[],
+  cancellationScopes?: DurableCancellationScope[],
 ) => {
   const scopedTargets = targets.filter((target) => target.topicIds.length > 0);
-  if (scopedTargets.length === 0) return;
+  if (scopedTargets.length > 0) {
+    set(
+      (state) => {
+        let conversationScopedClearGenerations = state.conversationScopedClearGenerations;
+        let conversationLaneStopMarkers = state.conversationLaneStopMarkers;
 
-  set(
-    (state) => {
-      let conversationScopedClearGenerations = state.conversationScopedClearGenerations;
-      let conversationLaneStopMarkers = state.conversationLaneStopMarkers;
-
-      for (const { sessionId, topicIds } of scopedTargets) {
-        for (const topicId of topicIds) {
-          const current = {
-            ...state,
-            conversationLaneStopMarkers,
-            conversationScopedClearGenerations,
-          };
-          conversationScopedClearGenerations = bumpTopicScopedClearGeneration(
-            current,
-            sessionId,
-            topicId,
-          ).conversationScopedClearGenerations;
-          conversationLaneStopMarkers = markConversationTopicDurableGenerationStopped(
-            current,
-            sessionId,
-            topicId,
-          ).conversationLaneStopMarkers;
+        for (const { sessionId, topicIds } of scopedTargets) {
+          for (const topicId of topicIds) {
+            const current = {
+              ...state,
+              conversationLaneStopMarkers,
+              conversationScopedClearGenerations,
+            };
+            conversationScopedClearGenerations = bumpTopicScopedClearGeneration(
+              current,
+              sessionId,
+              topicId,
+            ).conversationScopedClearGenerations;
+            conversationLaneStopMarkers = markConversationTopicDurableGenerationStopped(
+              current,
+              sessionId,
+              topicId,
+            ).conversationLaneStopMarkers;
+          }
         }
-      }
 
-      return { conversationLaneStopMarkers, conversationScopedClearGenerations };
-    },
-    false,
-    n('fenceTopicsForDeletion'),
-  );
+        return { conversationLaneStopMarkers, conversationScopedClearGenerations };
+      },
+      false,
+      n('fenceTopicsForDeletion'),
+    );
+  }
 
-  await Promise.all(
-    scopedTargets.map(({ sessionId, topicIds }) =>
-      get().cancelActiveDurableOpsInScope({ allThreads: true, sessionId, topicIds }),
-    ),
-  );
+  const scopes: DurableCancellationScope[] =
+    cancellationScopes ??
+    scopedTargets.map(({ sessionId, topicIds }) => ({ allThreads: true, sessionId, topicIds }));
+  if (scopes.length === 0) return;
+  await Promise.all(scopes.map((scope) => get().cancelActiveDurableOpsInScope(scope)));
 };
 
 const SWR_USE_FETCH_TOPIC = 'SWR_USE_FETCH_TOPIC';
@@ -380,6 +394,16 @@ export const chatTopic: StateCreator<
     const requestedContainerId = get().activeId;
     if (!accountMutationSnapshot || !requestedContainerId) return;
     const requestedScope = accountMutationSnapshot.scope;
+    // Full clear fence (global + topic tombstone): topic deletion never bumps
+    // the global epoch, so only the resolved fence detects it before the
+    // in-flight key is registered or a returned operation is attached.
+    const requestedClearFence = resolveConversationClearGeneration(
+      get(),
+      requestedContainerId,
+      topicId,
+      null,
+      'topic_title',
+    );
 
     const topic = get().topicMaps[requestedContainerId]?.find((item) => item.id === topicId);
     if (!topic) return;
@@ -408,6 +432,14 @@ export const chatTopic: StateCreator<
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedContainerId &&
+      isConversationClearFenceCurrent(
+        get(),
+        requestedClearFence,
+        requestedContainerId,
+        topicId,
+        null,
+        'topic_title',
+      ) &&
       get().topicTitleSummaryOperations[topicId]?.operationId === operationId;
     const updateOwnedTitle = (title: string) => {
       set(
@@ -552,18 +584,17 @@ export const chatTopic: StateCreator<
         );
       }
       if (!isCurrentTopicRequest()) {
+        // A destructive action (e.g. topic delete) landed while the enqueue was
+        // in flight: cancel the orphaned operation instead of attaching.
+        if (operation) {
+          await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+        }
         finishOwnedOperation(false);
         return;
       }
       if (operation) {
         get().attachConversationGeneration({
-          clearGeneration: resolveConversationClearGeneration(
-            get(),
-            requestedContainerId,
-            topicId,
-            null,
-            'topic_title',
-          ),
+          clearGeneration: requestedClearFence,
           generation: get().conversationNavigationGeneration,
           kind: operation.kind,
           lane: operation.lane,
@@ -672,6 +703,16 @@ export const chatTopic: StateCreator<
     const requestedGeneration = get().conversationClearGeneration;
     const { activeId: sessionId, summaryTopicTitle, internal_updateTopicLoading } = get();
     if (!accountMutationSnapshot || !sessionId) return;
+    // Capture the full clear fence before the message lookup await: a topic
+    // deletion landing during that await must block entry into title summary,
+    // which would otherwise capture a fresh (post-tombstone) fence and proceed.
+    const requestedClearFence = resolveConversationClearGeneration(
+      get(),
+      sessionId,
+      id,
+      null,
+      'topic_title',
+    );
     const operationId = `topic-auto-rename-${nanoid(8)}`;
     const loadingOperationKey = getTopicLoadingOperationKey(
       accountMutationSnapshot.scope,
@@ -684,7 +725,15 @@ export const chatTopic: StateCreator<
     const isCurrentRequest = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === sessionId;
+      get().activeId === sessionId &&
+      isConversationClearFenceCurrent(
+        get(),
+        requestedClearFence,
+        sessionId,
+        id,
+        null,
+        'topic_title',
+      );
 
     acquireTopicLoadingOperation(loadingOperationKey, operationId);
     internal_updateTopicLoading(id, true);
@@ -811,9 +860,29 @@ export const chatTopic: StateCreator<
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === activeId;
 
-    await fenceTopicsForDeletion(set, get, [
-      { sessionId: activeId, topicIds: (get().topicMaps[activeId] || []).map((t) => t.id) },
-    ]);
+    // The server deletes every topic in the session; tombstone every topic id
+    // the client can name (loaded map + attached operations) before the delete
+    // await, then cancel the whole session's real topics server-authoritatively.
+    const sessionTopicIds = new Set<string>();
+    for (const topic of get().topicMaps[activeId] || []) {
+      if (topic?.id) sessionTopicIds.add(topic.id);
+    }
+    for (const operations of Object.values(get().serverGenerationOperations)) {
+      for (const operation of Object.values(operations)) {
+        if (operation.sessionId === activeId && operation.topicId) {
+          sessionTopicIds.add(operation.topicId);
+        }
+      }
+    }
+
+    await fenceTopicsForDeletion(
+      set,
+      get,
+      [{ sessionId: activeId, topicIds: [...sessionTopicIds] }],
+      // The server deletes every topic in the session, including ids the client
+      // has not loaded; cancel durable work for the whole session's real topics.
+      [{ allSessionTopics: true, sessionId: activeId }],
+    );
 
     await topicService.removeTopics(activeId);
     if (!isCurrentRequest()) return;
@@ -885,6 +954,9 @@ export const chatTopic: StateCreator<
       set,
       get,
       [...topicIdsBySession].map(([sessionId, ids]) => ({ sessionId, topicIds: [...ids] })),
+      // The server deletes every topic across every session, including ids the
+      // client has not loaded; cancel durable work for all real topics.
+      [{ allAccountTopics: true }],
     );
 
     await topicService.removeAllTopic();

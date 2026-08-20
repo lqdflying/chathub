@@ -46,8 +46,12 @@ export interface ConversationGenerationAction {
   syncActiveConversationGenerations: () => Promise<void>;
 }
 
-interface ConversationGenerationScope {
+export interface ConversationGenerationScope {
+  /** Match every operation targeting a real (non-default) topic across all sessions. */
+  allAccountTopics?: boolean;
   allConversations?: boolean;
+  /** Match every operation in the session that targets a real (non-default) topic. */
+  allSessionTopics?: boolean;
   allThreads?: boolean;
   assistantMessageIds?: string[];
   groupId?: string;
@@ -147,7 +151,16 @@ const matchesOperationScope = (
   state: ChatStore,
 ) => {
   if (options?.operationId && operation.operationId !== options.operationId) return false;
-  if (options?.topicIds) {
+  if (options?.allAccountTopics) {
+    // Account-wide topic delete: every real-topic operation across sessions,
+    // preserving the virtual default topic (null topicId).
+    if (!operation.topicId) return false;
+  } else if (options?.allSessionTopics) {
+    // Session-wide topic delete: every real-topic operation in the session,
+    // preserving the virtual default topic (null topicId).
+    if (!operation.topicId) return false;
+    if (operation.sessionId !== (options?.sessionId ?? state.activeId)) return false;
+  } else if (options?.topicIds) {
     // Topic ids are globally unique, so a bulk-delete scope matches by topic
     // alone; operations on the (virtual) default topic have no topicId and are
     // never part of a topic deletion set.
@@ -415,14 +428,19 @@ export const conversationGeneration: StateCreator<
     set(
       (current) => {
         const withInFlight = recordInFlightEnqueuesForScope(current, {
+          allAccountTopics: options?.allAccountTopics,
           allConversations: options?.allConversations,
+          allSessionTopics: options?.allSessionTopics,
           allThreads: options?.allThreads,
           kinds: options?.kind
             ? Array.isArray(options.kind)
               ? options.kind
               : [options.kind]
             : undefined,
-          sessionId: options?.allConversations ? undefined : (options?.sessionId ?? state.activeId),
+          sessionId:
+            options?.allConversations || options?.allAccountTopics
+              ? undefined
+              : (options?.sessionId ?? state.activeId),
           threadId:
             options?.allThreads || options?.allConversations
               ? undefined
@@ -430,7 +448,10 @@ export const conversationGeneration: StateCreator<
                 ? options.threadId
                 : visibleConversationThreadId(state),
           topicId:
-            options?.allConversations || options?.topicIds
+            options?.allConversations ||
+            options?.topicIds ||
+            options?.allSessionTopics ||
+            options?.allAccountTopics
               ? undefined
               : (options?.topicId ?? state.activeTopicId ?? null),
           topicIds: options?.topicIds,

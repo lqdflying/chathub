@@ -233,12 +233,23 @@ per-server-lane cutoffs. Failed or deferred sends do **not** clear markers at
 send start. **Topic delete** installs its tombstone synchronously before the
 first `await`, then performs best-effort server cancellation. **Bulk topic
 deletion** (`removeSessionTopics`, `removeGroupTopics`, `removeAllTopics`,
-`removeUnstarredTopic`) follows the same protocol: before the first server
-delete await it installs a topic-scoped epoch bump + tombstone for every target
+`removeUnstarredTopic`) fences before the first server delete await, with a
+scope that reflects what the server actually deletes. Exact-ID deletes
+(`removeGroupTopics`, `removeUnstarredTopic`) remove only the client-supplied
+ids, so they install a topic-scoped epoch bump + tombstone for every target
 topic (collecting attached operations and registered in-flight keys into the
-markers), then runs scoped server cancellation with a `topicIds` scope that
-matches operations by their globally unique topic id — work attached to the
-(virtual) default topic or to surviving starred topics is never cancelled.
+markers) and cancel with a `topicIds` scope matching operations by their
+globally unique topic id. Server-authoritative deletes fence more than any
+loaded map: `removeSessionTopics` maps to `batchDeleteBySessionId` (every topic
+row in the session) and `removeAllTopics` to `deleteAll` (every user topic), so
+they tombstone every client-known topic (the union of loaded maps and
+attached-operation topic ids) and then cancel with an
+`allSessionTopics` / `allAccountTopics` scope that matches every non-null-topic
+attached operation, registered in-flight key, and late `listActive` operation
+in the session / account — including topic ids the client has not loaded (an
+unloaded id is fenced into its lane marker rather than a topic-key tombstone).
+In all cases work attached to the (virtual) default topic, and to surviving
+starred topics on an unstarred delete, is never cancelled.
 **Clear current
 conversation** and **clear all topics history** do the same with a topic-wide /
 session-wide destructive tombstone (`markConversationTopicDurableGenerationStopped`

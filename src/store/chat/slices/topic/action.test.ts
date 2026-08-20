@@ -649,6 +649,86 @@ describe('topic action', () => {
         useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_late_1,
       ).toBeUndefined();
     });
+
+    it('cancels durable work for session topics missing from the loaded map', async () => {
+      const activeId = 'test-session-id';
+      const unloadedTopicId = 'unloaded-topic';
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      const listActive = vi
+        .spyOn(conversationGenerationService, 'listActive')
+        .mockResolvedValue([]);
+      const topicKey = messageMapKey(activeId, unloadedTopicId);
+      const laneKey = `${topicKey}:main`;
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          conversationLaneStopMarkers: {},
+          conversationScopedClearGenerations: {},
+          durableInFlightEnqueues: {
+            [laneKey]: [{ idempotencyKey: 'chat-send:unloaded', kind: 'chat' }],
+          },
+          serverGenerationOperations: {
+            [topicKey]: {
+              cgo_unloaded: {
+                clearGeneration: 0,
+                generation: 0,
+                kind: 'chat',
+                lane: 'lane-chat',
+                laneGeneration: 1,
+                operationId: 'cgo_unloaded',
+                revision: 1,
+                sessionId: activeId,
+                topicId: unloadedTopicId,
+                userScope: 'local',
+              } as any,
+            },
+          },
+          // The loaded map knows a different topic only; the server still
+          // deletes every topic in the session, including unloadedTopicId.
+          topicMaps: { [activeId]: [{ id: 'loaded-topic', title: 'Loaded' } as any] },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeSessionTopics();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_unloaded');
+      expect(
+        useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_unloaded,
+      ).toBeUndefined();
+      // Broad session scope fences into the lane marker (the topic id is not in
+      // the loaded map, so no topic-key tombstone collection can know it).
+      const marker = useChatStore.getState().conversationLaneStopMarkers[laneKey];
+      expect(marker?.stoppedIdempotencyKeys).toContain('chat-send:unloaded');
+      expect(marker?.stoppedOperationIds).toContain('cgo_unloaded');
+
+      // Late visibility for the unloaded topic: sync must cancel, not attach.
+      listActive.mockResolvedValue([
+        {
+          id: 'cgo_unloaded_late',
+          idempotencyKey: 'chat-send:unloaded',
+          kind: 'chat',
+          lane: 'lane-chat',
+          laneGeneration: 1,
+          sessionId: activeId,
+          status: 'processing',
+          topicId: unloadedTopicId,
+        },
+      ] as any);
+
+      await act(async () => {
+        await result.current.syncActiveConversationGenerations();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_unloaded_late');
+      expect(
+        useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_unloaded_late,
+      ).toBeUndefined();
+    });
   });
   describe('removeGroupTopics', () => {
     it('should remove all topics for the specified group and refresh state', async () => {
@@ -751,6 +831,66 @@ describe('topic action', () => {
       expect(
         useChatStore.getState().serverGenerationOperations[keyDefault]?.cgo_default,
       ).toBeDefined();
+    });
+
+    it('cancels durable work for topics missing from every loaded map', async () => {
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+      const operation = (operationId: string, sessionId: string, topicId?: string) =>
+        ({
+          clearGeneration: 0,
+          generation: 0,
+          kind: 'chat',
+          lane: 'lane-chat',
+          laneGeneration: 1,
+          operationId,
+          revision: 1,
+          sessionId,
+          topicId,
+          userScope: 'local',
+        }) as any;
+      const keyUnloaded = messageMapKey('session-b', 'unloaded-topic');
+      const unloadedLaneKey = `${keyUnloaded}:main`;
+      const keyDefault = messageMapKey('session-b');
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId: 'session-a',
+          conversationLaneStopMarkers: {},
+          conversationScopedClearGenerations: {},
+          durableInFlightEnqueues: {
+            [unloadedLaneKey]: [{ idempotencyKey: 'chat-send:unloaded', kind: 'chat' }],
+          },
+          serverGenerationOperations: {
+            [keyUnloaded]: {
+              cgo_unloaded: operation('cgo_unloaded', 'session-b', 'unloaded-topic'),
+            },
+            [keyDefault]: { cgo_default: operation('cgo_default', 'session-b') },
+          },
+          // No loaded map knows session-b's topic; the server still deletes
+          // every topic across every session.
+          topicMaps: { 'session-a': [{ id: 'topic-a', title: 'A' } as any] },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeAllTopics();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_unloaded');
+      expect(cancel).not.toHaveBeenCalledWith('cgo_default');
+      expect(
+        useChatStore.getState().serverGenerationOperations[keyUnloaded]?.cgo_unloaded,
+      ).toBeUndefined();
+      expect(
+        useChatStore.getState().serverGenerationOperations[keyDefault]?.cgo_default,
+      ).toBeDefined();
+      // Broad account scope fences into the lane marker for unloaded topics.
+      const marker = useChatStore.getState().conversationLaneStopMarkers[`${keyUnloaded}:main`];
+      expect(marker?.stoppedIdempotencyKeys).toContain('chat-send:unloaded');
+      expect(marker?.stoppedOperationIds).toContain('cgo_unloaded');
     });
   });
   describe('removeTopic', () => {
@@ -1304,6 +1444,64 @@ describe('topic action', () => {
       expect(keys[1]).toContain('topic-title');
     });
 
+    it('cancels the returned operation instead of attaching when the topic is deleted during the enqueue', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.mocked(systemAgentSelectors.topic).mockReturnValue({
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      } as any);
+      const deferred = createDeferred<any>();
+      const enqueue = vi
+        .spyOn(conversationGenerationService, 'enqueue')
+        .mockReturnValue(deferred.promise);
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      const topicId = 'topic-title-race';
+      const activeId = 'test-session-id';
+
+      const { result } = renderHook(() => useChatStore());
+      const attach = vi.fn();
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: 'other-topic',
+          attachConversationGeneration: attach,
+          conversationLaneStopMarkers: {},
+          conversationScopedClearGenerations: {},
+          durableInFlightEnqueues: {},
+          serverGenerationOperations: {},
+          topicMaps: { [activeId]: [{ id: topicId, title: 'Original' } as any] },
+        });
+      });
+
+      let summaryPromise!: Promise<void>;
+      await act(async () => {
+        summaryPromise = result.current.summaryTopicTitle(topicId, []);
+      });
+      expect(enqueue).toHaveBeenCalledTimes(1);
+
+      // The topic is deleted while the enqueue is still in flight; the tombstone
+      // must make the post-await guard reject the returned operation.
+      await act(async () => {
+        await result.current.removeTopic(topicId);
+      });
+
+      await act(async () => {
+        deferred.resolve({
+          id: 'cgo_title_late',
+          idempotencyKey: enqueue.mock.calls[0]?.[0]?.idempotencyKey,
+          kind: 'topic_title',
+          lane: 'lane-title',
+          laneGeneration: 1,
+          revision: 1,
+        });
+        await summaryPromise;
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_title_late');
+      expect(attach).not.toHaveBeenCalled();
+      expect(useChatStore.getState().topicLoadingIds).not.toContain(topicId);
+    });
+
     it('should auto-summarize the topic title and update it', async () => {
       const topicId = 'topic-1';
       const messages = [{ content: 'Hello', id: 'message-1' }] as UIChatMessage[];
@@ -1787,6 +1985,48 @@ describe('topic action', () => {
 
       expect(getMessagesSpy).toHaveBeenCalledWith(activeId, topicId);
       expect(summaryTopicTitleSpy).toHaveBeenCalledWith(topicId, messages);
+    });
+
+    it('never starts title summary when the topic is deleted during the message lookup', async () => {
+      const topicId = 'topic-autorename-race';
+      const activeId = 'test-session-id';
+      const deferred = createDeferred<UIChatMessage[]>();
+      const getMessagesSpy = vi
+        .spyOn(messageService, 'getMessages')
+        .mockReturnValue(deferred.promise);
+
+      const { result } = renderHook(() => useChatStore());
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: 'other-topic',
+          conversationLaneStopMarkers: {},
+          conversationScopedClearGenerations: {},
+          durableInFlightEnqueues: {},
+          serverGenerationOperations: {},
+          topicMaps: { [activeId]: [{ id: topicId, title: 'Original' } as any] },
+        });
+      });
+      const summaryTopicTitleSpy = vi.spyOn(result.current, 'summaryTopicTitle');
+
+      let renamePromise!: Promise<void>;
+      await act(async () => {
+        renamePromise = result.current.autoRenameTopicTitle(topicId);
+      });
+      expect(getMessagesSpy).toHaveBeenCalledWith(activeId, topicId);
+
+      // Deletion lands while the message lookup is still in flight; the
+      // captured fence must block entry into title summary afterwards.
+      await act(async () => {
+        await result.current.removeTopic(topicId);
+      });
+
+      await act(async () => {
+        deferred.resolve([{ content: 'Hello', id: 'message-1' }] as UIChatMessage[]);
+        await renamePromise;
+      });
+
+      expect(summaryTopicTitleSpy).not.toHaveBeenCalled();
     });
   });
 });
