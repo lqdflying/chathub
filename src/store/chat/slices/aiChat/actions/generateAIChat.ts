@@ -31,7 +31,10 @@ import {
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
 import { chatService } from '@/services/chat';
-import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import {
+  conversationGenerationService,
+  tryEnqueueConversationGeneration,
+} from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
@@ -56,6 +59,7 @@ import {
 } from '@/store/chat/utils/chatLoadingLanes';
 import {
   bumpLaneScopedClearGeneration,
+  isConversationClearFenceCurrent,
   laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
@@ -1288,11 +1292,30 @@ export const generateAIChat: StateCreator<
     const activeId = state.activeId;
     const activeTopicId = state.activeTopicId;
     const requestedGeneration = state.conversationClearGeneration;
+    // Full clear fence (global + topic tombstone + lane epoch): topic deletion
+    // never bumps the global epoch, so only the resolved fence detects it
+    // before the late in-flight registration or attach below.
+    const requestedFenceThreadId = outThreadId ?? state.activeThreadId ?? null;
+    const requestedClearFence = resolveConversationClearGeneration(
+      state,
+      activeId,
+      activeTopicId,
+      requestedFenceThreadId,
+      'regenerate',
+    );
     const isCurrentConversation = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === activeId &&
-      get().activeTopicId === activeTopicId;
+      get().activeTopicId === activeTopicId &&
+      isConversationClearFenceCurrent(
+        get(),
+        requestedClearFence,
+        activeId,
+        activeTopicId,
+        requestedFenceThreadId,
+        'regenerate',
+      );
     const expectedConversationVersion = await messageService.getConversationVersion();
     if (!isCurrentConversation()) return;
     const contextMessages = chats.slice(0, anchor.index + 1);
@@ -1581,13 +1604,19 @@ export const generateAIChat: StateCreator<
             n('retryMessage/untrackDurableEnqueue'),
           );
         }
-        if (
-          operation &&
-          isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)
-        ) {
+        if (!isCurrentConversation()) {
+          // A destructive action (e.g. topic delete) landed while the enqueue
+          // was in flight: cancel the orphaned operation instead of attaching
+          // it or falling through to a legacy regeneration.
+          if (operation) {
+            await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+          }
+          return;
+        }
+        if (operation) {
           get().attachConversationGeneration({
             assistantMessageId: operation.assistantMessageId || undefined,
-            clearGeneration: requestedGeneration,
+            clearGeneration: requestedClearFence,
             generation: get().conversationNavigationGeneration,
             kind: operation.kind,
             lane: operation.lane,

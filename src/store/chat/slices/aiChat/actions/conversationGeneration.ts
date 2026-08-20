@@ -56,6 +56,8 @@ interface ConversationGenerationScope {
   sessionId?: string;
   threadId?: string | null;
   topicId?: string | null;
+  /** Match operations whose topic is one of these ids (topic ids are globally unique). */
+  topicIds?: string[];
 }
 
 const conversationKeyFor = (sessionId?: string | null, topicId?: string | null) =>
@@ -145,7 +147,12 @@ const matchesOperationScope = (
   state: ChatStore,
 ) => {
   if (options?.operationId && operation.operationId !== options.operationId) return false;
-  if (!options?.allConversations) {
+  if (options?.topicIds) {
+    // Topic ids are globally unique, so a bulk-delete scope matches by topic
+    // alone; operations on the (virtual) default topic have no topicId and are
+    // never part of a topic deletion set.
+    if (!operation.topicId || !options.topicIds.includes(operation.topicId)) return false;
+  } else if (!options?.allConversations) {
     if (operation.sessionId !== (options?.sessionId ?? state.activeId)) return false;
     if ((operation.topicId ?? null) !== (options?.topicId ?? state.activeTopicId ?? null)) {
       return false;
@@ -422,9 +429,11 @@ export const conversationGeneration: StateCreator<
               : options && Object.hasOwn(options, 'threadId')
                 ? options.threadId
                 : visibleConversationThreadId(state),
-          topicId: options?.allConversations
-            ? undefined
-            : (options?.topicId ?? state.activeTopicId ?? null),
+          topicId:
+            options?.allConversations || options?.topicIds
+              ? undefined
+              : (options?.topicId ?? state.activeTopicId ?? null),
+          topicIds: options?.topicIds,
         });
         const attachedInScope = Object.values(current.serverGenerationOperations)
           .flatMap((items) => Object.values(items))

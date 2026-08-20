@@ -8,12 +8,16 @@ import { conversationGenerationRequestKey } from '@/helpers/conversationGenerati
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
 import { supportLocales } from '@/locales/resources';
 import { chatService } from '@/services/chat';
-import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import {
+  conversationGenerationService,
+  tryEnqueueConversationGeneration,
+} from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import {
+  isConversationClearFenceCurrent,
   laneScopedClearKey,
   resolveConversationClearGeneration,
   trackDurableEnqueue,
@@ -62,11 +66,29 @@ export const chatTranslate: StateCreator<
     const requestedGeneration = get().conversationClearGeneration;
     const requestedSessionId = get().activeId;
     const requestedTopicId = get().activeTopicId;
+    // Full clear fence (global + topic tombstone): topic deletion never bumps
+    // the global epoch, so only the resolved fence detects it before the
+    // in-flight key is registered or a returned operation is attached.
+    const requestedClearFence = resolveConversationClearGeneration(
+      get(),
+      requestedSessionId,
+      requestedTopicId ?? null,
+      null,
+      'translation',
+    );
     const isCurrentRequest = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedSessionId &&
       get().activeTopicId === requestedTopicId &&
+      isConversationClearFenceCurrent(
+        get(),
+        requestedClearFence,
+        requestedSessionId,
+        requestedTopicId ?? null,
+        null,
+        'translation',
+      ) &&
       !!chatSelectors.getMessageById(id)(get());
     const { internal_toggleChatLoading, updateMessageTranslate, internal_dispatchMessage } = get();
 
@@ -127,17 +149,18 @@ export const chatTranslate: StateCreator<
           n('translateMessage/untrackDurableEnqueue'),
         );
       }
-      if (!isCurrentRequest()) return;
+      if (!isCurrentRequest()) {
+        // A destructive action (e.g. topic delete) landed while the enqueue was
+        // in flight: cancel the orphaned operation instead of attaching.
+        if (operation) {
+          await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+        }
+        return;
+      }
       if (operation) {
         get().attachConversationGeneration({
           assistantMessageId: id,
-          clearGeneration: resolveConversationClearGeneration(
-            get(),
-            requestedSessionId,
-            requestedTopicId ?? null,
-            null,
-            'translation',
-          ),
+          clearGeneration: requestedClearFence,
           generation: get().conversationNavigationGeneration,
           kind: operation.kind,
           lane: operation.lane,

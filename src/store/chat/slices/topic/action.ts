@@ -51,6 +51,65 @@ import { topicSelectors } from './selectors';
 
 const n = setNamespace('t');
 
+interface TopicDeletionFenceTarget {
+  sessionId: string;
+  topicIds: string[];
+}
+
+/**
+ * Bulk topic deletion is a destructive workflow: before the first server
+ * await, install a topic-scoped epoch bump + tombstone for every target topic
+ * (which also collects already-registered in-flight enqueue keys and attached
+ * operations into the markers), then run scoped server cancellation per
+ * session. Producers re-check the resolved clear fence before registering or
+ * attaching, so work that races this fence is rejected instead of orphaned.
+ */
+const fenceTopicsForDeletion = async (
+  set: (partial: (state: ChatStore) => Partial<ChatStore>, replace?: false, name?: string) => void,
+  get: () => ChatStore,
+  targets: TopicDeletionFenceTarget[],
+) => {
+  const scopedTargets = targets.filter((target) => target.topicIds.length > 0);
+  if (scopedTargets.length === 0) return;
+
+  set(
+    (state) => {
+      let conversationScopedClearGenerations = state.conversationScopedClearGenerations;
+      let conversationLaneStopMarkers = state.conversationLaneStopMarkers;
+
+      for (const { sessionId, topicIds } of scopedTargets) {
+        for (const topicId of topicIds) {
+          const current = {
+            ...state,
+            conversationLaneStopMarkers,
+            conversationScopedClearGenerations,
+          };
+          conversationScopedClearGenerations = bumpTopicScopedClearGeneration(
+            current,
+            sessionId,
+            topicId,
+          ).conversationScopedClearGenerations;
+          conversationLaneStopMarkers = markConversationTopicDurableGenerationStopped(
+            current,
+            sessionId,
+            topicId,
+          ).conversationLaneStopMarkers;
+        }
+      }
+
+      return { conversationLaneStopMarkers, conversationScopedClearGenerations };
+    },
+    false,
+    n('fenceTopicsForDeletion'),
+  );
+
+  await Promise.all(
+    scopedTargets.map(({ sessionId, topicIds }) =>
+      get().cancelActiveDurableOpsInScope({ allThreads: true, sessionId, topicIds }),
+    ),
+  );
+};
+
 const SWR_USE_FETCH_TOPIC = 'SWR_USE_FETCH_TOPIC';
 const SWR_USE_SEARCH_TOPIC = 'SWR_USE_SEARCH_TOPIC';
 
@@ -752,6 +811,10 @@ export const chatTopic: StateCreator<
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === activeId;
 
+    await fenceTopicsForDeletion(set, get, [
+      { sessionId: activeId, topicIds: (get().topicMaps[activeId] || []).map((t) => t.id) },
+    ]);
+
     await topicService.removeTopics(activeId);
     if (!isCurrentRequest()) return;
 
@@ -778,6 +841,7 @@ export const chatTopic: StateCreator<
     const topicIds = groupTopics.map((t) => t.id);
 
     if (topicIds.length > 0) {
+      await fenceTopicsForDeletion(set, get, [{ sessionId: groupId, topicIds }]);
       await topicService.batchRemoveTopics(topicIds);
       if (!isCurrentRequest()) return;
     }
@@ -798,6 +862,30 @@ export const chatTopic: StateCreator<
       get().conversationClearGeneration === requestedGeneration &&
       get().activeId === requestedContainerId;
     const { refreshTopic } = get();
+
+    // removeAllTopic deletes every topic across sessions: fence every known
+    // topic map plus any attached operation whose session map was never loaded.
+    const topicIdsBySession = new Map<string, Set<string>>();
+    for (const [sessionId, topics] of Object.entries(get().topicMaps)) {
+      const ids = topicIdsBySession.get(sessionId) ?? new Set<string>();
+      for (const topic of topics || []) {
+        if (topic?.id) ids.add(topic.id);
+      }
+      topicIdsBySession.set(sessionId, ids);
+    }
+    for (const operations of Object.values(get().serverGenerationOperations)) {
+      for (const operation of Object.values(operations)) {
+        if (!operation.sessionId || !operation.topicId) continue;
+        const ids = topicIdsBySession.get(operation.sessionId) ?? new Set<string>();
+        ids.add(operation.topicId);
+        topicIdsBySession.set(operation.sessionId, ids);
+      }
+    }
+    await fenceTopicsForDeletion(
+      set,
+      get,
+      [...topicIdsBySession].map(([sessionId, ids]) => ({ sessionId, topicIds: [...ids] })),
+    );
 
     await topicService.removeAllTopic();
     if (isCurrentRequest()) await refreshTopic();
@@ -871,6 +959,10 @@ export const chatTopic: StateCreator<
       get().activeId === requestedContainerId;
     const { refreshTopic, switchTopic } = get();
     const topics = topicSelectors.currentUnFavTopics(get());
+
+    await fenceTopicsForDeletion(set, get, [
+      { sessionId: requestedContainerId, topicIds: topics.map((t) => t.id) },
+    ]);
 
     await topicService.batchRemoveTopics(topics.map((t) => t.id));
     if (!isCurrentRequest()) return;

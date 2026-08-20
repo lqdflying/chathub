@@ -71,6 +71,23 @@ export const resolveConversationClearGeneration = (
   return Math.max(state.conversationClearGeneration, topicScoped, laneScoped);
 };
 
+/**
+ * Compares a producer's captured clear fence against the current resolve.
+ * Capturing and re-checking the full resolved fence (global clear epoch +
+ * topic tombstone + chat-family lane epoch) detects destructive actions that
+ * never touch the global epoch — notably topic deletion — before the producer
+ * registers its in-flight key or attaches a returned operation.
+ */
+export const isConversationClearFenceCurrent = (
+  state: Pick<ChatStore, 'conversationClearGeneration' | 'conversationScopedClearGenerations'>,
+  capturedFence: number,
+  sessionId?: string | null,
+  topicId?: string | null,
+  threadId?: string | null,
+  kind?: ConversationGenerationKind,
+) =>
+  resolveConversationClearGeneration(state, sessionId, topicId, threadId, kind) === capturedFence;
+
 export const bumpTopicScopedClearGeneration = (
   state: Pick<ChatStore, 'conversationClearGeneration' | 'conversationScopedClearGenerations'>,
   sessionId: string,
@@ -450,6 +467,7 @@ export const recordInFlightEnqueuesForScope = (
     sessionId?: string;
     threadId?: string | null;
     topicId?: string | null;
+    topicIds?: string[];
   },
 ): LaneStopMarkerState => {
   let conversationLaneStopMarkers = state.conversationLaneStopMarkers;
@@ -460,7 +478,13 @@ export const recordInFlightEnqueuesForScope = (
 
     if (!scope.allConversations) {
       if (!scope.sessionId) continue;
-      if (scope.allThreads) {
+      if (scope.topicIds) {
+        const matchesTopic = scope.topicIds.some((topicId) => {
+          const topicPrefix = topicScopedClearKey(scope.sessionId!, topicId);
+          return laneKey === topicPrefix || laneKey.startsWith(`${topicPrefix}:`);
+        });
+        if (!matchesTopic) continue;
+      } else if (scope.allThreads) {
         const topicPrefix = topicScopedClearKey(scope.sessionId, scope.topicId);
         if (laneKey !== topicPrefix && !laneKey.startsWith(`${topicPrefix}:`)) continue;
       } else if (laneKey !== laneScopedClearKey(scope.sessionId, scope.topicId, scope.threadId)) {

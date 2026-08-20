@@ -561,6 +561,94 @@ describe('topic action', () => {
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
     });
+
+    it('cancels attached durable work and fences late-visible enqueues for session topics', async () => {
+      const activeId = 'test-session-id';
+      const topicId = 'session-topic-1';
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      const listActive = vi
+        .spyOn(conversationGenerationService, 'listActive')
+        .mockResolvedValue([]);
+      const topicKey = messageMapKey(activeId, topicId);
+      const laneKey = `${topicKey}:main`;
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: 'other-topic',
+          conversationLaneStopMarkers: {},
+          conversationScopedClearGenerations: {},
+          durableInFlightEnqueues: {
+            [laneKey]: [{ idempotencyKey: 'chat-send:xyz', kind: 'chat' }],
+          },
+          serverGenerationOperations: {
+            [topicKey]: {
+              cgo_attached_1: {
+                clearGeneration: 0,
+                generation: 0,
+                kind: 'chat',
+                lane: 'lane-chat',
+                laneGeneration: 1,
+                operationId: 'cgo_attached_1',
+                revision: 1,
+                sessionId: activeId,
+                topicId,
+                userScope: 'local',
+              } as any,
+            },
+          },
+          topicMaps: {
+            [activeId]: [
+              { id: topicId, title: 'T1' } as any,
+              { id: 'other-topic', title: 'T2' } as any,
+            ],
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeSessionTopics();
+      });
+
+      // The attached operation is cancelled + detached and the in-flight key is
+      // fenced into the topic tombstone before the server delete resolves.
+      expect(cancel).toHaveBeenCalledWith('cgo_attached_1');
+      expect(
+        useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_attached_1,
+      ).toBeUndefined();
+      const marker = useChatStore.getState().conversationLaneStopMarkers[topicKey];
+      expect(marker?.stoppedIdempotencyKeys).toContain('chat-send:xyz');
+      expect(marker?.stoppedOperationIds).toContain('cgo_attached_1');
+      expect(useChatStore.getState().conversationScopedClearGenerations[topicKey]).toBeGreaterThan(
+        0,
+      );
+
+      // Late visibility: the operation only reaches listActive after the
+      // snapshot; sync must cancel it instead of attaching it.
+      listActive.mockResolvedValue([
+        {
+          id: 'cgo_late_1',
+          idempotencyKey: 'chat-send:xyz',
+          kind: 'chat',
+          lane: 'lane-chat',
+          laneGeneration: 1,
+          sessionId: activeId,
+          status: 'processing',
+          topicId,
+        },
+      ] as any);
+
+      await act(async () => {
+        await result.current.syncActiveConversationGenerations();
+      });
+
+      expect(cancel).toHaveBeenCalledWith('cgo_late_1');
+      expect(
+        useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_late_1,
+      ).toBeUndefined();
+    });
   });
   describe('removeGroupTopics', () => {
     it('should remove all topics for the specified group and refresh state', async () => {
@@ -607,6 +695,62 @@ describe('topic action', () => {
 
       expect(topicService.removeAllTopic).toHaveBeenCalled();
       expect(refreshTopicSpy).toHaveBeenCalled();
+    });
+
+    it('cancels attached durable work across sessions but preserves default-topic work', async () => {
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+      const keyA = messageMapKey('session-a', 'topic-a');
+      const keyB = messageMapKey('session-b', 'topic-b');
+      const keyDefault = messageMapKey('session-a');
+      const operation = (operationId: string, sessionId: string, topicId?: string) =>
+        ({
+          clearGeneration: 0,
+          generation: 0,
+          kind: 'chat',
+          lane: 'lane-chat',
+          laneGeneration: 1,
+          operationId,
+          revision: 1,
+          sessionId,
+          topicId,
+          userScope: 'local',
+        }) as any;
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId: 'session-a',
+          conversationLaneStopMarkers: {},
+          conversationScopedClearGenerations: {},
+          durableInFlightEnqueues: {},
+          serverGenerationOperations: {
+            [keyA]: { cgo_a: operation('cgo_a', 'session-a', 'topic-a') },
+            [keyB]: { cgo_b: operation('cgo_b', 'session-b', 'topic-b') },
+            [keyDefault]: { cgo_default: operation('cgo_default', 'session-a') },
+          },
+          topicMaps: {
+            'session-a': [{ id: 'topic-a', title: 'A' } as any],
+            'session-b': [{ id: 'topic-b', title: 'B' } as any],
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeAllTopics();
+      });
+
+      // Topic-scoped operations in every session are cancelled; work attached
+      // to the (virtual) default topic is not part of any topic deletion set.
+      expect(cancel).toHaveBeenCalledWith('cgo_a');
+      expect(cancel).toHaveBeenCalledWith('cgo_b');
+      expect(cancel).not.toHaveBeenCalledWith('cgo_default');
+      expect(useChatStore.getState().serverGenerationOperations[keyA]?.cgo_a).toBeUndefined();
+      expect(useChatStore.getState().serverGenerationOperations[keyB]?.cgo_b).toBeUndefined();
+      expect(
+        useChatStore.getState().serverGenerationOperations[keyDefault]?.cgo_default,
+      ).toBeDefined();
     });
   });
   describe('removeTopic', () => {
@@ -928,6 +1072,72 @@ describe('topic action', () => {
       expect(topicService.batchRemoveTopics).toHaveBeenCalledWith(['topic-1', 'topic-3']);
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
+    });
+
+    it('cancels durable work only for unstarred topics', async () => {
+      const activeId = 'abc';
+      const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
+      vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+      const unstarredKey = messageMapKey(activeId, 'topic-1');
+      const starredKey = messageMapKey(activeId, 'topic-2');
+      const operation = (operationId: string, topicId: string) =>
+        ({
+          clearGeneration: 0,
+          generation: 0,
+          kind: 'chat',
+          lane: 'lane-chat',
+          laneGeneration: 1,
+          operationId,
+          revision: 1,
+          sessionId: activeId,
+          topicId,
+          userScope: 'local',
+        }) as any;
+
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: 'topic-2',
+          conversationLaneStopMarkers: {},
+          conversationScopedClearGenerations: {},
+          durableInFlightEnqueues: {},
+          // Isolate the deletion fence from navigation cleanup: switching away
+          // would detach the surviving starred operation as a side effect.
+          refreshTopic: vi.fn(async () => {}),
+          serverGenerationOperations: {
+            [unstarredKey]: { cgo_unstarred: operation('cgo_unstarred', 'topic-1') },
+            [starredKey]: { cgo_starred: operation('cgo_starred', 'topic-2') },
+          },
+          switchTopic: vi.fn(async () => {}),
+          topicMaps: {
+            abc: [
+              { favorite: false, id: 'topic-1' },
+              { favorite: true, id: 'topic-2' },
+            ] as ChatTopic[],
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeUnstarredTopic();
+      });
+
+      // Unstarred topic work is cancelled and tombstoned; the starred topic's
+      // operation survives untouched.
+      expect(cancel).toHaveBeenCalledWith('cgo_unstarred');
+      expect(cancel).not.toHaveBeenCalledWith('cgo_starred');
+      expect(
+        useChatStore.getState().serverGenerationOperations[unstarredKey]?.cgo_unstarred,
+      ).toBeUndefined();
+      expect(
+        useChatStore.getState().serverGenerationOperations[starredKey]?.cgo_starred,
+      ).toBeDefined();
+      expect(
+        useChatStore.getState().conversationScopedClearGenerations[unstarredKey],
+      ).toBeGreaterThan(0);
+      expect(useChatStore.getState().conversationScopedClearGenerations[starredKey] ?? 0).toBe(0);
     });
   });
   describe('updateTopicLoading', () => {

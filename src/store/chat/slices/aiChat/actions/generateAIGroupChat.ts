@@ -29,6 +29,7 @@ import {
 import { formatSupervisorTodoContent } from '@/helpers/supervisorTodos';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
+  conversationGenerationService,
   tryEnqueueConversationGeneration,
   waitForConversationGeneration,
 } from '@/services/conversationGeneration';
@@ -36,6 +37,7 @@ import { messageService } from '@/services/message';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import { ChatStore } from '@/store/chat/store';
 import {
+  isConversationClearFenceCurrent,
   laneScopedClearKey,
   resolveConversationClearGeneration,
   trackDurableEnqueue,
@@ -495,11 +497,29 @@ export const chatAiGroupChat: StateCreator<
       const conversationClearGeneration = get().conversationClearGeneration;
       const requestedSessionId = useSessionStore.getState().activeId;
       const currentTopicId = typeof topicId === 'undefined' ? get().activeTopicId : topicId;
+      // Full clear fence (global + topic tombstone): topic deletion never bumps
+      // the global epoch, so only the resolved fence detects it before the
+      // in-flight key is registered or a returned operation is attached.
+      const requestedClearFence = resolveConversationClearGeneration(
+        get(),
+        requestedSessionId,
+        currentTopicId ?? null,
+        null,
+        'group_supervisor',
+      );
       const isCurrentConversation = () =>
         isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
         get().conversationClearGeneration === conversationClearGeneration &&
         useSessionStore.getState().activeId === requestedSessionId &&
-        get().activeTopicId === currentTopicId;
+        get().activeTopicId === currentTopicId &&
+        isConversationClearFenceCurrent(
+          get(),
+          requestedClearFence,
+          requestedSessionId,
+          currentTopicId ?? null,
+          null,
+          'group_supervisor',
+        );
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
       if (!isCurrentConversation()) return;
@@ -607,16 +627,17 @@ export const chatAiGroupChat: StateCreator<
             n('supervisor/untrackDurableEnqueue'),
           );
         }
-        if (!isCurrentConversation()) return;
+        if (!isCurrentConversation()) {
+          // A destructive action (e.g. topic delete) landed while the enqueue
+          // was in flight: cancel the orphaned operation instead of attaching.
+          if (operation) {
+            await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+          }
+          return;
+        }
         if (operation) {
           get().attachConversationGeneration({
-            clearGeneration: resolveConversationClearGeneration(
-              get(),
-              requestedSessionId,
-              currentTopicId ?? null,
-              null,
-              'group_supervisor',
-            ),
+            clearGeneration: requestedClearFence,
             generation: get().conversationNavigationGeneration,
             groupId,
             kind: operation.kind,
@@ -859,11 +880,29 @@ export const chatAiGroupChat: StateCreator<
       const conversationClearGeneration = get().conversationClearGeneration;
       const requestedSessionId = useSessionStore.getState().activeId;
       const requestedTopicId = get().activeTopicId;
+      // Full clear fence (global + topic tombstone): topic deletion never bumps
+      // the global epoch, so only the resolved fence detects it before the
+      // in-flight key is registered or a returned operation is attached.
+      const requestedClearFence = resolveConversationClearGeneration(
+        get(),
+        requestedSessionId,
+        requestedTopicId ?? null,
+        null,
+        'group_agent',
+      );
       const isCurrentConversation = () =>
         isAccountMutationCurrent(getUserStoreState(), accountMutationSnapshot) &&
         get().conversationClearGeneration === conversationClearGeneration &&
         useSessionStore.getState().activeId === requestedSessionId &&
-        get().activeTopicId === requestedTopicId;
+        get().activeTopicId === requestedTopicId &&
+        isConversationClearFenceCurrent(
+          get(),
+          requestedClearFence,
+          requestedSessionId,
+          requestedTopicId ?? null,
+          null,
+          'group_agent',
+        );
       const resolvedConversationVersion =
         expectedConversationVersion ?? (await messageService.getConversationVersion());
       if (!isCurrentConversation()) return;
@@ -1014,17 +1053,18 @@ export const chatAiGroupChat: StateCreator<
               n('groupAgent/untrackDurableEnqueue'),
             );
           }
-          if (!isCurrentConversation()) return;
+          if (!isCurrentConversation()) {
+            // A destructive action (e.g. topic delete) landed while the enqueue
+            // was in flight: cancel the orphaned operation instead of attaching.
+            if (operation) {
+              await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+            }
+            return;
+          }
           if (operation) {
             get().attachConversationGeneration({
               assistantMessageId: assistantId,
-              clearGeneration: resolveConversationClearGeneration(
-                get(),
-                requestedSessionId,
-                activeTopicId ?? null,
-                null,
-                'group_agent',
-              ),
+              clearGeneration: requestedClearFence,
               generation: get().conversationNavigationGeneration,
               groupId,
               kind: operation.kind,

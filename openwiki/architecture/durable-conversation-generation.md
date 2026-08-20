@@ -200,13 +200,16 @@ idempotency keys whose enqueue was still in flight at Stop time (tracked in
 in-flight enqueue with its **kind** — chat send/continue/regenerate, group
 supervisor/agent, translation, topic title, and memory compaction — and a lane
 Stop only fences chat-family entries, so pressing Stop on a reply never
-suppresses a concurrent title, translation, or compaction enqueue. Memory
-compaction checks `isCurrentRequest()` immediately after its conversation
-version lookup — before registering its in-flight key — so a destructive
-clear/delete landing during that await prevents the enqueue entirely; if the
-destructive action lands during the enqueue await instead, the tombstone
-collects the tracked key and the post-enqueue stale path cancels the returned
-operation eagerly. Server lane
+suppresses a concurrent title, translation, or compaction enqueue. Every
+durable producer captures the **full resolved clear fence**
+(`resolveConversationClearGeneration`: global epoch + topic tombstone +
+chat-family lane epoch) at request start and re-checks it
+(`isConversationClearFenceCurrent`) after every pre-registration await and
+again before attach — topic deletion never bumps the global epoch, so only the
+resolved fence detects it while the active topic id is still unchanged. A
+producer that finds the fence stale after its enqueue already returned cancels
+the orphaned operation eagerly instead of attaching, and attach always uses the
+captured fence token rather than re-resolving a changed fence. Server lane
 generations are independent per
 lane (main vs portal thread vs group agent), so cutoffs are never projected as a
 single scalar onto a thread or topic key: a lane Stop writes only its own lane
@@ -228,7 +231,15 @@ waiting for sync. Only a
 topic-wide tombstone (topic delete) writes the topic marker key, still with
 per-server-lane cutoffs. Failed or deferred sends do **not** clear markers at
 send start. **Topic delete** installs its tombstone synchronously before the
-first `await`, then performs best-effort server cancellation. **Clear current
+first `await`, then performs best-effort server cancellation. **Bulk topic
+deletion** (`removeSessionTopics`, `removeGroupTopics`, `removeAllTopics`,
+`removeUnstarredTopic`) follows the same protocol: before the first server
+delete await it installs a topic-scoped epoch bump + tombstone for every target
+topic (collecting attached operations and registered in-flight keys into the
+markers), then runs scoped server cancellation with a `topicIds` scope that
+matches operations by their globally unique topic id — work attached to the
+(virtual) default topic or to surviving starred topics is never cancelled.
+**Clear current
 conversation** and **clear all topics history** do the same with a topic-wide /
 session-wide destructive tombstone (`markConversationTopicDurableGenerationStopped`
 / `markAllDurableGenerationsStopped`) that collects attached operations and

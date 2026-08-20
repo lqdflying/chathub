@@ -70,6 +70,7 @@ const setConversation = (overrides: Record<string, unknown> = {}) => {
       activeThreadId: undefined,
       activeTopicId: TOPIC_ID,
       conversationClearGeneration: 0,
+      conversationScopedClearGenerations: {},
       messagesMap: { [messageMapKey(SESSION_ID, TOPIC_ID)]: messages },
       portalThreadId: undefined,
       topicMaps: {
@@ -269,6 +270,81 @@ describe('chat memory actions', () => {
       userId: 'user-1',
     });
     const result = await compactionPromise;
+
+    expect(result).toEqual({ reason: 'stale_request', status: 'ineligible' });
+    expect(conversationGenerationService.cancel).toHaveBeenCalledWith('operation-late');
+    expect(attach).not.toHaveBeenCalled();
+    expect(useChatStore.getState().durableInFlightEnqueues).toEqual({});
+  });
+
+  it('never enqueues when the active topic is deleted during the version lookup', async () => {
+    durableMocks.enabled = true;
+    let resolveVersion!: (version: number) => void;
+    vi.mocked(messageService.getConversationVersion).mockImplementation(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveVersion = resolve;
+        }),
+    );
+    vi.spyOn(useChatStore.getState(), 'refreshMessages').mockResolvedValue(undefined);
+    vi.spyOn(useChatStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    // Keep the active topic id unchanged so only the topic-scoped tombstone can
+    // reject the enqueue (the global clear epoch is not bumped by removeTopic).
+    vi.spyOn(useChatStore.getState(), 'switchTopic').mockImplementation(() => {});
+
+    const compactionPromise = useChatStore.getState().triggerManualMemoryCompaction();
+    await vi.waitFor(() => {
+      expect(messageService.getConversationVersion).toHaveBeenCalled();
+    });
+
+    const removePromise = useChatStore.getState().removeTopic(TOPIC_ID);
+    resolveVersion(7);
+    const result = await compactionPromise;
+    await removePromise;
+
+    expect(result).toEqual({ reason: 'stale_request', status: 'ineligible' });
+    expect(tryEnqueueConversationGeneration).not.toHaveBeenCalled();
+    expect(useChatStore.getState().durableInFlightEnqueues).toEqual({});
+  });
+
+  it('cancels the late operation when the active topic is deleted during the enqueue await', async () => {
+    durableMocks.enabled = true;
+    let resolveEnqueue!: (operation: unknown) => void;
+    vi.mocked(tryEnqueueConversationGeneration).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEnqueue = resolve;
+        }),
+    );
+    vi.spyOn(useChatStore.getState(), 'refreshMessages').mockResolvedValue(undefined);
+    vi.spyOn(useChatStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    vi.spyOn(useChatStore.getState(), 'switchTopic').mockImplementation(() => {});
+    const attach = vi
+      .spyOn(useChatStore.getState(), 'attachConversationGeneration')
+      .mockImplementation(vi.fn());
+
+    const compactionPromise = useChatStore.getState().triggerManualMemoryCompaction();
+    await vi.waitFor(() => {
+      expect(tryEnqueueConversationGeneration).toHaveBeenCalled();
+    });
+
+    // The topic tombstone collects the tracked in-flight key; when the enqueue
+    // resolves afterwards, the stale path must cancel the orphaned operation.
+    const removePromise = useChatStore.getState().removeTopic(TOPIC_ID);
+    resolveEnqueue({
+      attempt: 0,
+      config: { model: 'summary-model', provider: 'summary-provider' },
+      id: 'operation-late',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: TOPIC_ID,
+      userId: 'user-1',
+    });
+    const result = await compactionPromise;
+    await removePromise;
 
     expect(result).toEqual({ reason: 'stale_request', status: 'ineligible' });
     expect(conversationGenerationService.cancel).toHaveBeenCalledWith('operation-late');

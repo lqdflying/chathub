@@ -7,6 +7,7 @@ import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableC
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
+import { bumpTopicScopedClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { authSelectors, systemAgentSelectors } from '@/store/user/selectors';
@@ -166,6 +167,66 @@ describe('ChatEnhanceAction', () => {
       expect(keys[0]).not.toEqual(keys[1]);
       expect(keys[0]).toContain('translation');
       expect(keys[1]).toContain('translation');
+    });
+
+    it('never enqueues when the topic tombstone lands during the pre-enqueue update', async () => {
+      vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+      vi.spyOn(systemAgentSelectors, 'translation').mockReturnValue({
+        model: 'gpt-5-mini',
+        provider: 'openai',
+      } as any);
+      const enqueue = vi
+        .spyOn(conversationGenerationService, 'enqueue')
+        .mockResolvedValue({} as any);
+      const messageId = 'message-id';
+      const persistedTranslation = createDeferred<void>();
+      (messageService.updateMessageTranslate as Mock).mockReturnValue(persistedTranslation.promise);
+
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        useChatStore.setState({
+          activeId: 'session',
+          activeTopicId: 'topic-1',
+          messagesMap: {
+            [messageMapKey('session', 'topic-1')]: [
+              {
+                content: 'Hello World',
+                createdAt: Date.now(),
+                id: messageId,
+                meta: {},
+                role: 'user',
+                sessionId: 'session',
+                topicId: 'topic-1',
+                updatedAt: Date.now(),
+              },
+            ],
+          },
+          refreshMessages: vi.fn(),
+        });
+      });
+
+      const translatePromise = result.current.translateMessage(messageId, 'zh-CN');
+      await vi.waitFor(() => {
+        expect(messageService.updateMessageTranslate).toHaveBeenCalled();
+      });
+
+      // Topic deletion installs a topic-scoped tombstone without bumping the
+      // global clear epoch, so only the resolved clear fence can reject the
+      // enqueue after the pre-track update resolves.
+      act(() => {
+        useChatStore.setState((state) =>
+          bumpTopicScopedClearGeneration(state, 'session', 'topic-1'),
+        );
+      });
+
+      persistedTranslation.resolve();
+      await act(async () => {
+        await translatePromise;
+      });
+
+      expect(enqueue).not.toHaveBeenCalled();
+      expect(useChatStore.getState().durableInFlightEnqueues).toEqual({});
     });
   });
 

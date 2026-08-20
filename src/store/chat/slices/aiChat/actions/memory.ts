@@ -38,6 +38,7 @@ import { getAgentStoreState } from '@/store/agent/store';
 import { chatSelectors, topicSelectors } from '@/store/chat/selectors';
 import type { ChatStore } from '@/store/chat/store';
 import {
+  isConversationClearFenceCurrent,
   laneScopedClearKey,
   resolveConversationClearGeneration,
   trackDurableEnqueue,
@@ -181,12 +182,29 @@ async function runCompactionFromStore(
   const requestedInvalidationGeneration = state.memoryCompactionInvalidationGeneration;
   const requestedSessionId = state.activeId;
   const requestedTopicId = state.activeTopicId;
+  // Full clear fence (global + topic tombstone): topic deletion never bumps the
+  // global epoch, so only the resolved fence detects it before registration.
+  const requestedClearFence = resolveConversationClearGeneration(
+    state,
+    requestedSessionId,
+    requestedTopicId,
+    null,
+    'memory_compaction',
+  );
   const isCurrentRequest = () =>
     isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
     get().conversationClearGeneration === requestedGeneration &&
     get().memoryCompactionInvalidationGeneration === requestedInvalidationGeneration &&
     get().activeId === requestedSessionId &&
-    get().activeTopicId === requestedTopicId;
+    get().activeTopicId === requestedTopicId &&
+    isConversationClearFenceCurrent(
+      get(),
+      requestedClearFence,
+      requestedSessionId,
+      requestedTopicId,
+      null,
+      'memory_compaction',
+    );
 
   if (!requestedSessionId || !requestedTopicId || !isCurrentRequest()) {
     return compactionResult('ineligible', { reason: 'no_active_topic' });
@@ -387,13 +405,7 @@ async function runCompactionFromStore(
     }
     if (operation) {
       get().attachConversationGeneration({
-        clearGeneration: resolveConversationClearGeneration(
-          get(),
-          requestedSessionId,
-          requestedTopicId,
-          null,
-          'memory_compaction',
-        ),
+        clearGeneration: requestedClearFence,
         generation: get().conversationNavigationGeneration,
         kind: operation.kind,
         lane: operation.lane,
