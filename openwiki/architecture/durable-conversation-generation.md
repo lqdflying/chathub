@@ -436,11 +436,20 @@ empty message content — Moonshot returns 400 `invalid_request_error`
 Three defenses are in place:
 
 - `executeTitle` (`src/server/services/conversationGeneration/execute.ts`)
-  skips title generation and finalizes gracefully when no scoped message has
-  non-blank content, so no provider ever receives an empty conversation. Note
-  this finalizes the operation as `succeeded` without a title; a topic caught
-  by the message-binding race therefore stays untitled unless something else
-  triggers a rename (see the open product decision below).
+  throws a typed `TitleTranscriptEmptyError` when no scoped message has
+  non-blank content, so no provider ever receives an empty conversation. For a
+  dedicated `topic_title` operation the bounded retry mechanism
+  (`markForRetry` + Graphile backoff, up to `CONVERSATION_GENERATION_MAX_ATTEMPTS`)
+  re-runs the job once the message-binding race resolves and the transcript is
+  loadable. Auto-title is therefore **guaranteed**: a raced topic keeps retrying
+  until it gets a title, and only finalizes `failed` if the transcript is still
+  empty after the last attempt. The **inline** title pass that runs at the end
+  of a chat operation must never fail or retry the completed reply, so it wraps
+  `executeTitle` in a guard: on any error it re-checks the stop state and, if
+  still active, hands the title off to a fresh dedicated `topic_title`
+  operation (`handoffInlineTitle`, idempotency key `<chatOpId>:title-handoff`,
+  inheriting model/provider/locale/thread/conversationVersion). A busy title
+  lane or enqueue failure is logged and the chat reply still succeeds.
 - `dropFullyEmptyMessages` (`packages/utils/src/emptyChatMessages.ts`) is
   applied in the shared OpenAI-compatible factory
   (`packages/model-runtime/src/core/openaiCompatibleFactory/index.ts`) for
@@ -462,9 +471,13 @@ Three defenses are in place:
   persisted operation errors carry the upstream detail without double-encoding
   the type.
 
-Open product decision: when the scoped transcript is not yet loadable, durable
-auto-title currently finalizes `succeeded` with no title (best effort). Whether
-it should instead retry until the transcript is bound is undecided.
+Product decision (resolved): when the scoped transcript is not yet loadable,
+durable auto-title is **guaranteed**, not best-effort. `executeTitle` throws a
+retryable error instead of finalizing `succeeded`, so the bounded retry loop
+re-checks the transcript on each attempt and the topic eventually receives a
+title once message-to-topic binding lands. A transcript that is still empty
+after the final attempt finalizes the operation as `failed` with the
+transcript-empty error.
 
 ## Startup schema repair
 

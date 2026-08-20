@@ -81,6 +81,7 @@ import {
   createConversationRuntimeChatOptions,
   type ConversationRuntimeChatOptionsInput,
 } from './runtimeChatOptions';
+import { ConversationGenerationService } from './service';
 import { consumeProtocolResponse } from './stream';
 import { loadConversationThreadMessages } from './threadScope';
 import {
@@ -133,6 +134,18 @@ const toError = (error: unknown): ConversationGenerationError => ({
   message: error instanceof Error ? error.message : String(error),
   type: error instanceof ConversationWriteRejectedError ? 'ConversationCleared' : 'GenerationError',
 });
+
+/**
+ * The topic transcript is not loadable yet (usually the message-binding race).
+ * Throwing makes the dedicated `topic_title` operation use its bounded retry
+ * loop until the transcript exists, instead of finalizing without a title.
+ */
+export class TitleTranscriptEmptyError extends Error {
+  constructor() {
+    super('Topic transcript is empty; messages may still be binding to the topic.');
+    this.name = 'TitleTranscriptEmptyError';
+  }
+}
 
 export const executeConversationGeneration = async ({
   db,
@@ -981,10 +994,20 @@ const executeChat = async (
         abortController.signal,
       );
       if (!titleStopReason) {
-        await executeTitle(db, operation, {
-          runSignal: abortController.signal,
-          skipFinalize: true,
-        });
+        try {
+          await executeTitle(db, operation, {
+            runSignal: abortController.signal,
+            skipFinalize: true,
+          });
+        } catch (titleError) {
+          const stillActive = await shouldStopGeneration(
+            db,
+            model,
+            operation,
+            abortController.signal,
+          );
+          if (!stillActive) await handoffInlineTitle(db, operation, titleError);
+        }
       }
     }
 
@@ -1131,6 +1154,46 @@ const runSimpleCompletion = async (
   return result.content.trim();
 };
 
+/**
+ * The inline title pass inside a chat operation must never fail or retry the
+ * completed chat reply. When it cannot run (transcript race or provider error),
+ * hand the title off to a dedicated `topic_title` operation whose own bounded
+ * retry loop owns the title lifecycle. Best effort: a busy title lane or any
+ * enqueue failure is logged and the chat reply still succeeds.
+ */
+const handoffInlineTitle = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  error: unknown,
+) => {
+  const topicId = operation.config.title?.topicId;
+  if (!topicId) return;
+  try {
+    await new ConversationGenerationService(db, operation.userId).enqueueInTransaction(db, {
+      config: {
+        isWelcomeQuestion: operation.config.isWelcomeQuestion,
+        locale: operation.config.locale,
+        model: operation.config.model,
+        provider: operation.config.provider,
+        title: { force: operation.config.title?.force, topicId },
+      },
+      conversationVersion: operation.conversationVersion ?? undefined,
+      idempotencyKey: `${operation.id}:title-handoff`,
+      kind: 'topic_title',
+      sessionId: operation.sessionId ?? undefined,
+      threadId: operation.threadId ?? undefined,
+      topicId,
+    });
+  } catch (handoffError) {
+    console.warn('[conversation-generation] inline title handoff skipped', {
+      error: error instanceof Error ? error.message : String(error),
+      handoffError: handoffError instanceof Error ? handoffError.message : String(handoffError),
+      operationId: operation.id,
+      topicId,
+    });
+  }
+};
+
 const executeTitle = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
@@ -1167,16 +1230,16 @@ const executeTitle = async (
     sessionId: operation.sessionId ?? undefined,
     topicId,
   });
-  // Without scoped messages (e.g. the title operation runs before messages are
-  // bound to the topic) the summary prompt degrades to an empty user message,
-  // which strict providers reject with a 400 ("content must not be empty").
-  // Skip title generation instead of sending an invalid request.
+  // Without scoped messages the summary prompt degrades to an empty user message,
+  // which strict providers reject with a 400 ("content must not be empty"). This
+  // usually means the title operation raced ahead of message-to-topic binding.
+  // Throw so the bounded retry mechanism re-runs the job once the transcript is
+  // available, rather than finalizing succeeded and leaving the topic untitled.
   const hasTranscript = messages.some(
     (message) => typeof message.content === 'string' && message.content.trim().length > 0,
   );
   if (!hasTranscript) {
-    await finalizeUnlessStopped(db, model, operation, options?.runSignal, options?.skipFinalize);
-    return;
+    throw new TitleTranscriptEmptyError();
   }
   const payload = chainSummaryTitle(messages, operation.config.locale || 'en-US');
   const title = await runSimpleCompletion(db, operation, payload, options?.runSignal);

@@ -64,6 +64,16 @@ const runtimeMocks = vi.hoisted(() => ({
   generateObject: vi.fn(),
 }));
 
+const serviceMocks = vi.hoisted(() => ({
+  enqueueInTransaction: vi.fn(),
+}));
+
+vi.mock('./service', () => ({
+  ConversationGenerationService: class {
+    enqueueInTransaction = serviceMocks.enqueueInTransaction;
+  },
+}));
+
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
     appendSupervisorChildMessageId = modelMocks.appendSupervisorChildMessageId;
@@ -477,7 +487,7 @@ describe('executeConversationGeneration', () => {
     );
   });
 
-  it('skips title generation without calling the model when the scoped transcript is empty', async () => {
+  it('retries title generation without calling the model when the scoped transcript is empty', async () => {
     const pending = {
       attempt: 0,
       config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
@@ -496,31 +506,35 @@ describe('executeConversationGeneration', () => {
       .mockResolvedValueOnce(processing)
       .mockResolvedValueOnce(processing);
     modelMocks.claimForProcessing.mockResolvedValue(processing);
-    modelMocks.finalizeActive.mockResolvedValue({
+    modelMocks.markForRetry.mockResolvedValue({
       ...processing,
-      revision: 3,
-      status: 'succeeded',
+      revision: 2,
+      status: 'pending',
     });
     topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
     aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
 
-    await executeConversationGeneration({
-      db: {} as any,
-      operationId: pending.id,
-      userId: pending.userId,
-    });
+    await expect(
+      executeConversationGeneration({
+        db: {} as any,
+        operationId: pending.id,
+        userId: pending.userId,
+      }),
+    ).rejects.toThrow('Topic transcript is empty');
 
     expect(runtimeMocks.chat).not.toHaveBeenCalled();
-    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
-    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+    expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
+    expect(modelMocks.markForRetry).toHaveBeenCalledWith(
       pending.id,
-      'succeeded',
-      undefined,
-      { attempt: 1, laneGeneration: 1 },
+      expect.objectContaining({
+        message: expect.stringContaining('Topic transcript is empty'),
+        type: 'GenerationError',
+      }),
+      1,
     );
   });
 
-  it('skips title generation when scoped messages only contain blank content', async () => {
+  it('retries title generation when scoped messages only contain blank content', async () => {
     const pending = {
       attempt: 0,
       config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
@@ -539,10 +553,10 @@ describe('executeConversationGeneration', () => {
       .mockResolvedValueOnce(processing)
       .mockResolvedValueOnce(processing);
     modelMocks.claimForProcessing.mockResolvedValue(processing);
-    modelMocks.finalizeActive.mockResolvedValue({
+    modelMocks.markForRetry.mockResolvedValue({
       ...processing,
-      revision: 3,
-      status: 'succeeded',
+      revision: 2,
+      status: 'pending',
     });
     topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
     aiChatMocks.getMessagesAndTopics.mockResolvedValue({
@@ -550,14 +564,21 @@ describe('executeConversationGeneration', () => {
       topics: [],
     });
 
-    await executeConversationGeneration({
-      db: {} as any,
-      operationId: pending.id,
-      userId: pending.userId,
-    });
+    await expect(
+      executeConversationGeneration({
+        db: {} as any,
+        operationId: pending.id,
+        userId: pending.userId,
+      }),
+    ).rejects.toThrow('Topic transcript is empty');
 
     expect(runtimeMocks.chat).not.toHaveBeenCalled();
-    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
+    expect(modelMocks.markForRetry).toHaveBeenCalledWith(
+      pending.id,
+      expect.objectContaining({ type: 'GenerationError' }),
+      1,
+    );
   });
 
   it('surfaces the upstream error type in the persisted title failure', async () => {
@@ -829,6 +850,57 @@ describe('executeConversationGeneration chat resume', () => {
       'succeeded',
       undefined,
       expect.objectContaining({ attempt: 1 }),
+    );
+  });
+
+  it('hands off a failed inline title to a dedicated topic_title operation without failing the chat', async () => {
+    const row = {
+      assistantMessageId: assistant.id,
+      attempt: 0,
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        title: { force: true, topicId: 'topic-1' },
+      },
+      id: 'cgo_chat_title_handoff',
+      kind: 'chat',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      sessionId: 'session-1',
+      status: 'pending',
+      userId: 'user-1',
+    };
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'the answer' });
+    // The title scope has no transcript yet (message-binding race).
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    serviceMocks.enqueueInTransaction.mockResolvedValue({ id: 'cgo_title_handoff' });
+
+    await runOperation(row);
+
+    // The chat reply still succeeds even though the inline title could not run.
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.objectContaining({ attempt: 1 }),
+    );
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    // The title is handed off to a dedicated operation for bounded retry.
+    expect(serviceMocks.enqueueInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          model: 'test-model',
+          provider: 'test-provider',
+          title: { force: true, topicId: 'topic-1' },
+        }),
+        idempotencyKey: `${row.id}:title-handoff`,
+        kind: 'topic_title',
+        sessionId: 'session-1',
+        topicId: 'topic-1',
+      }),
     );
   });
 
