@@ -165,6 +165,11 @@ export interface ConversationGenerationEnqueueInput {
   assistantMessageId?: string;
   config: ConversationGenerationConfigSnapshot;
   conversationVersion?: number;
+  /**
+   * Optional correlation id created by the client for CHATHUB_GENERATION_DEBUG.
+   * Diagnostics only: hashed/label-sanitized before logging, never content.
+   */
+  debugSpanId?: string;
   expectedConversationVersion?: number;
   groupId?: string;
   idempotencyKey?: string;
@@ -231,6 +236,7 @@ export const ConversationGenerationEnqueueSchema = z.object({
   assistantMessageId: z.string().optional(),
   config: ConversationGenerationConfigSchema,
   conversationVersion: z.number().optional(),
+  debugSpanId: z.string().min(4).max(64).optional(),
   expectedConversationVersion: z.number().optional(),
   groupId: z.string().optional(),
   idempotencyKey: z.string().min(8).max(180).optional(),
@@ -260,9 +266,8 @@ export const ConversationGenerationLaneFamilies = {
   rag: 'rag',
 } as const satisfies Record<ConversationGenerationKind, string>;
 
-export const getConversationGenerationLaneFamily = (
-  kind: ConversationGenerationKind = 'chat',
-) => ConversationGenerationLaneFamilies[kind];
+export const getConversationGenerationLaneFamily = (kind: ConversationGenerationKind = 'chat') =>
+  ConversationGenerationLaneFamilies[kind];
 
 export const ConversationGenerationChatFamilyKinds = ConversationGenerationKinds.filter(
   (kind) => ConversationGenerationLaneFamilies[kind] === 'chat',

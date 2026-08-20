@@ -1,7 +1,6 @@
 /** @vitest-environment node */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { LOADING_FLAT } from '@lobechat/const';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE } from './constants';
 import {
@@ -44,8 +43,7 @@ const toolMocks = vi.hoisted(() => ({
 }));
 
 const bindDbMethod = vi.hoisted(
-  () =>
-    (fn: (...args: any[]) => unknown) =>
+  () => (fn: (...args: any[]) => unknown) =>
     async function (
       this: { db?: { ensureActive?: () => void; fail?: () => void } },
       ...args: any[]
@@ -361,14 +359,17 @@ describe('sweepStaleConversationGenerationOperations', () => {
       status: 'succeeded',
       userId: 'user-1',
     }));
-    const newer = Array.from({ length: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE - 1 }, (_, index) => ({
-      assistantMessageId: null,
-      config: { model: 'test-model', provider: 'test-provider' },
-      finishedAt: new Date(newestFinishedAt.getTime() + index),
-      id: `operation-new-${String(index).padStart(3, '0')}`,
-      status: 'succeeded',
-      userId: 'user-1',
-    }));
+    const newer = Array.from(
+      { length: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE - 1 },
+      (_, index) => ({
+        assistantMessageId: null,
+        config: { model: 'test-model', provider: 'test-provider' },
+        finishedAt: new Date(newestFinishedAt.getTime() + index),
+        id: `operation-new-${String(index).padStart(3, '0')}`,
+        status: 'succeeded',
+        userId: 'user-1',
+      }),
+    );
     const all = [oldest, ...tied, ...newer].sort((left, right) => {
       const time = left.finishedAt.getTime() - right.finishedAt.getTime();
       if (time !== 0) return time;
@@ -388,7 +389,9 @@ describe('sweepStaleConversationGenerationOperations', () => {
       return all.slice(from, from + limit);
     });
     modelMocks.findById.mockImplementation(async (id) => all.find((row) => row.id === id));
-    messageMocks.findById.mockImplementation(async (id) => (id === leftover.id ? leftover : undefined));
+    messageMocks.findById.mockImplementation(async (id) =>
+      id === leftover.id ? leftover : undefined,
+    );
     messageMocks.update.mockImplementation(async (id, value) => {
       if (id === leftover.id) Object.assign(leftover, value);
     });
@@ -397,7 +400,10 @@ describe('sweepStaleConversationGenerationOperations', () => {
 
     expect(modelMocks.listUncleanedFinished.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(modelMocks.listUncleanedFinished.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ after: undefined, limit: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE }),
+      expect.objectContaining({
+        after: undefined,
+        limit: CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE,
+      }),
     );
     expect(modelMocks.listUncleanedFinished.mock.calls[1]?.[0]?.after).toEqual({
       finishedAt: all[CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE - 1]?.finishedAt,
@@ -894,5 +900,115 @@ describe('sweepPendingConversationGenerationJobs', () => {
     expect(modelMocks.update).toHaveBeenCalledWith('operation-pending', {
       workerJobId: '44',
     });
+  });
+});
+
+describe('CHATHUB_GENERATION_DEBUG instrumentation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    modelMocks.findActiveByLane.mockResolvedValue(undefined);
+    modelMocks.findByIdempotencyKey.mockResolvedValue(undefined);
+    modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
+    modelMocks.update.mockImplementation(async (id, value) => ({ id, ...value }));
+    vi.stubEnv('CHATHUB_GENERATION_DEBUG', '1');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  const findDebugCall = (spy: ReturnType<typeof vi.spyOn>, event: string) =>
+    spy.mock.calls.find(([prefix]) => prefix === `[chathub-generation-debug:${event}]`);
+
+  it('emits enqueue_persisted with the client span id and jobAdded true', async () => {
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '42' }]) };
+    modelMocks.create.mockResolvedValue({
+      attempt: 0,
+      config: { model: 'model-1', provider: 'provider-1' },
+      id: 'operation-new',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    });
+
+    await new ConversationGenerationService(db as any, 'user-1').enqueueInTransaction(db as any, {
+      config: { model: 'model-1', provider: 'provider-1' },
+      debugSpanId: 'gd_0123456789abcdef',
+      idempotencyKey: 'request-key-123',
+      kind: 'topic_title' as const,
+      sessionId: 'session-1',
+      topicId: 'topic-1',
+    });
+
+    const persistedCall = findDebugCall(consoleLogSpy, 'enqueue_persisted');
+    expect(persistedCall).toBeDefined();
+    const record = JSON.parse(persistedCall![1] as string);
+    expect(record).toMatchObject({
+      idempotentReplay: false,
+      jobAdded: true,
+      kind: 'topic_title',
+      side: 'server',
+      spanId: 'gd_0123456789abcdef',
+    });
+    expect(record.laneHash).toMatch(/^[\da-f]{16}$/);
+    expect(record.idempotencyKeyHash).toMatch(/^[\da-f]{16}$/);
+  });
+
+  it('emits sweep_reenqueued with jobAdded false when the job cannot be added at all', async () => {
+    // The reachable jobAdded:false path: the SQL add_job fails and the
+    // worker-utils fallback also fails (no DATABASE_URL for makeWorkerUtils).
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubEnv('DATABASE_URL', '');
+    modelMocks.listPendingWithoutJob.mockResolvedValue([
+      {
+        createdAt: new Date(Date.now() - 60_000),
+        id: 'operation-orphan',
+        kind: 'chat',
+        status: 'pending',
+        userId: 'user-1',
+      },
+    ]);
+    const db = { execute: vi.fn().mockRejectedValue(new Error('add_job failed')) };
+
+    await sweepPendingConversationGenerationJobs(db as any);
+
+    const sweepCall = findDebugCall(consoleLogSpy, 'sweep_reenqueued');
+    expect(sweepCall).toBeDefined();
+    const record = JSON.parse(sweepCall![1] as string);
+    expect(record).toMatchObject({
+      jobAdded: false,
+      kind: 'chat',
+      reason: 'pending_without_job',
+      status: 'pending',
+    });
+    expect(record.ageMs).toBeGreaterThanOrEqual(60_000);
+    expect(record.operationHash).toMatch(/^[\da-f]{16}$/);
+    expect(record.operationHash).not.toContain('operation-orphan');
+    // Without a job id the operation must not be marked as having one.
+    expect(modelMocks.update).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('emits no generation debug records when the switch is off', async () => {
+    vi.stubEnv('CHATHUB_GENERATION_DEBUG', '0');
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    modelMocks.listPendingWithoutJob.mockResolvedValue([
+      { id: 'operation-pending', kind: 'chat', status: 'pending', userId: 'user-1' },
+    ]);
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '44' }]) };
+
+    await sweepPendingConversationGenerationJobs(db as any);
+
+    expect(
+      consoleLogSpy.mock.calls.some(([prefix]) =>
+        String(prefix).startsWith('[chathub-generation-debug:'),
+      ),
+    ).toBe(false);
   });
 });

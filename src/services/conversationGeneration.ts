@@ -8,6 +8,7 @@ import { isActiveConversationGenerationStatus } from '@lobechat/types';
 import { TRPCClientError } from '@trpc/client';
 
 import { CHATHUB_ACCOUNT_SCOPE_HEADER } from '@/const/auth';
+import { logGenerationDebugClientSafe } from '@/libs/logger/generationDebugClient';
 import { lambdaClient } from '@/libs/trpc/client';
 import { createHeaderWithAuth } from '@/services/_auth';
 import { captureAccountMutationSnapshot } from '@/store/accountMutation';
@@ -165,10 +166,42 @@ export const tryEnqueueConversationGeneration = async (
   input: ConversationGenerationEnqueueInput,
 ): Promise<ConversationGenerationOperation | undefined> => {
   try {
-    return (await conversationGenerationService.enqueue(input)) as ConversationGenerationOperation;
+    const operation = (await conversationGenerationService.enqueue(
+      input,
+    )) as ConversationGenerationOperation;
+    logGenerationDebugClientSafe('enqueue_client_settled', {
+      kind: input.kind,
+      outcome: 'ok',
+      spanId: input.debugSpanId,
+      status: operation?.status,
+    });
+    return operation;
   } catch (error) {
-    if (isNonRecoverableEnqueueError(error)) return undefined;
-    return recoverByIdempotencyKey(input);
+    const errorClass = error instanceof Error ? error.name : typeof error;
+    const trpcCode =
+      error instanceof TRPCClientError
+        ? (error.data as { code?: string } | undefined)?.code
+        : undefined;
+    if (isNonRecoverableEnqueueError(error)) {
+      logGenerationDebugClientSafe('enqueue_client_settled', {
+        errorClass,
+        kind: input.kind,
+        outcome: 'nonRecoverable',
+        spanId: input.debugSpanId,
+        trpcCode,
+      });
+      return undefined;
+    }
+    const recovered = await recoverByIdempotencyKey(input);
+    logGenerationDebugClientSafe('enqueue_client_settled', {
+      errorClass,
+      kind: input.kind,
+      outcome: recovered ? 'recoveredByKey' : 'lost',
+      recovered: Boolean(recovered),
+      spanId: input.debugSpanId,
+      trpcCode,
+    });
+    return recovered;
   }
 };
 

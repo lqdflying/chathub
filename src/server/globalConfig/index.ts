@@ -5,6 +5,7 @@ import { fileEnv } from '@/envs/file';
 import { imageEnv } from '@/envs/image';
 import { knowledgeEnv } from '@/envs/knowledge';
 import { langfuseEnv } from '@/envs/langfuse';
+import { isGenerationDebugEnabled } from '@/libs/logger/generationDebug';
 import { parseAuthProviders } from '@/libs/next-auth/parseAuthProviders';
 import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
 import { GlobalServerConfig } from '@/types/serverConfig';
@@ -42,6 +43,7 @@ export const getServerGlobalConfig = async () => {
     enabledMarkItDown: !!knowledgeEnv.MARKITDOWN_SERVICE_URL,
 
     enabledOAuthSSO: enableNextAuth,
+    generationDebug: isGenerationDebugEnabled(),
     image: cleanObject({
       defaultImageNum: imageEnv.AI_IMAGE_DEFAULT_IMAGE_NUM,
     }),

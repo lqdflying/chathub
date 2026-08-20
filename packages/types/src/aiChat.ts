@@ -21,6 +21,7 @@ export interface SendMessageServerParams {
   expectedConversationVersion?: number;
   generation?: {
     config: ConversationGenerationConfigSnapshot;
+    debugSpanId?: string;
     idempotencyKey?: string;
   };
   newTopic?: {
@@ -39,6 +40,7 @@ export const AiSendMessageServerSchema = z.object({
   generation: z
     .object({
       config: ConversationGenerationConfigSchema,
+      debugSpanId: z.string().min(4).max(64).optional(),
       idempotencyKey: z.string().min(8).max(180).optional(),
     })
     .optional(),

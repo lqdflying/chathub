@@ -29,6 +29,10 @@ import {
 } from '@/helpers/durableConversationGeneration';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import {
+  createGenerationDebugSpanId,
+  logGenerationDebugClientSafe,
+} from '@/libs/logger/generationDebugClient';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
@@ -300,6 +304,8 @@ export const generateAIChatV2: StateCreator<
     let sendFailure: unknown;
     let recoveryChecked = false;
     let operationWasCurrent = false;
+    let failureErrorShown = false;
+    const debugSpanId = createGenerationDebugSpanId();
     const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
     const { model, provider } = agentConfig;
     const activeTopic = activeTopicId
@@ -340,6 +346,7 @@ export const generateAIChatV2: StateCreator<
               ragQuery: get().internal_shouldUseRAG() ? message : undefined,
               systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
             }),
+            debugSpanId,
             idempotencyKey: `chat-send:${tempId}`,
           }
         : undefined;
@@ -362,6 +369,12 @@ export const generateAIChatV2: StateCreator<
       );
     }
     try {
+      logGenerationDebugClientSafe('send_started', {
+        durableRequested: Boolean(generation),
+        hasTopic: Boolean(activeTopicId),
+        isWelcomeQuestion: Boolean(isWelcomeQuestion),
+        spanId: debugSpanId,
+      });
       data = await aiChatService.sendMessageInServer(
         {
           expectedConversationVersion,
@@ -384,6 +397,13 @@ export const generateAIChatV2: StateCreator<
         },
         abortController,
       );
+      logGenerationDebugClientSafe('send_rpc_settled', {
+        hasAssistantMessageId: Boolean(data.assistantMessageId),
+        hasOperationId: Boolean(data.operationId),
+        isCreateNewTopic: Boolean(data.isCreateNewTopic),
+        outcome: 'ok',
+        spanId: debugSpanId,
+      });
 
       // Persist the server rows into the conversation that sent them even if the
       // user already switched topic or session. Attach below still needs this map.
@@ -421,6 +441,16 @@ export const generateAIChatV2: StateCreator<
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isAbort = errorMessage.includes('aborted') || (error as Error)?.name === 'AbortError';
       const userCancelled = isUserCancelledSend(error, abortController);
+      logGenerationDebugClientSafe('send_rpc_settled', {
+        errorClass: error instanceof Error ? error.name : typeof error,
+        outcome: 'error',
+        spanId: debugSpanId,
+        trpcCode:
+          error instanceof TRPCClientError
+            ? (error.data as { code?: string } | undefined)?.code
+            : undefined,
+        userCancelled,
+      });
 
       if (generation?.idempotencyKey && (!isAbort || !userCancelled)) {
         try {
@@ -443,6 +473,10 @@ export const generateAIChatV2: StateCreator<
         } catch {
           // The reconciliation request is itself ambiguous; retain the optimistic row.
         }
+        logGenerationDebugClientSafe('send_recovery', {
+          recovered: Boolean(data),
+          spanId: debugSpanId,
+        });
       }
 
       if (!data) {
@@ -451,6 +485,7 @@ export const generateAIChatV2: StateCreator<
         const isCurrentOperation = currentOperation?.abortController === abortController;
 
         if (!isAbort && isCurrentOperation && isCurrentConversation()) {
+          failureErrorShown = true;
           get().internal_updateSendMessageOperation(operationKey, {
             inputSendErrorMsg: errorMessage,
           });
@@ -494,6 +529,18 @@ export const generateAIChatV2: StateCreator<
         { id: tempId, type: 'deleteMessage' },
         { sessionId: activeId, topicId: activeTopicId },
       );
+    }
+
+    if (sendFailure && !data) {
+      logGenerationDebugClientSafe('send_failure_ui', {
+        errorShown: failureErrorShown,
+        spanId: debugSpanId,
+        tempRowDeleted: Boolean(
+          operationWasCurrent &&
+          isCurrentConversation() &&
+          (recoveryChecked || sendFailure instanceof TRPCClientError),
+        ),
+      });
     }
 
     if (data?.isCreateNewTopic) {
@@ -547,6 +594,11 @@ export const generateAIChatV2: StateCreator<
     if (data.operationId) {
       if (isLateDurableAttachCurrent()) {
         const durableOperation = data.operation;
+        logGenerationDebugClientSafe('durable_attach', {
+          kind: durableOperation?.kind || 'chat',
+          operationId: data.operationId,
+          spanId: debugSpanId,
+        });
         get().attachConversationGeneration({
           assistantMessageId: durableOperation?.assistantMessageId || data.assistantMessageId,
           clearGeneration: conversationContext.clearGeneration,
@@ -579,7 +631,18 @@ export const generateAIChatV2: StateCreator<
         // the pre-auto-create source lane, which the relocated context no longer
         // consults. Cancel the orphaned server operation now instead of waiting
         // for sync to discover it through the idempotency-key fence.
+        logGenerationDebugClientSafe('durable_attach_skipped', {
+          operationId: data.operationId,
+          reason: 'fenced',
+          spanId: debugSpanId,
+        });
         await conversationGenerationService.cancel(data.operationId).catch(() => undefined);
+      } else {
+        logGenerationDebugClientSafe('durable_attach_skipped', {
+          operationId: data.operationId,
+          reason: 'notCurrent',
+          spanId: debugSpanId,
+        });
       }
       return;
     }
@@ -598,6 +661,11 @@ export const generateAIChatV2: StateCreator<
     }
 
     if (!isCurrentConversation()) return;
+
+    logGenerationDebugClientSafe('browser_path_started', {
+      hasTopicId: Boolean(data.topicId),
+      spanId: debugSpanId,
+    });
 
     // The current server only returns persisted user history here. Keep filtering the
     // reserved ID for compatibility with an older server during rolling deployments.
@@ -647,6 +715,7 @@ export const generateAIChatV2: StateCreator<
     // it. A server-created topic is already folded into conversationContext at this point.
     const compactionKey = messageMapKey(conversationContext.sessionId, conversationContext.topicId);
     const compactionController = new AbortController();
+    let browserRuntimeStarted = false;
     const clearCompactionOperation = () => {
       set(
         (state) => {
@@ -726,6 +795,7 @@ export const generateAIChatV2: StateCreator<
         clearCompactionOperation();
       }
 
+      browserRuntimeStarted = true;
       await internal_execAgentRuntime({
         activatedSkillIds,
         conversationContext,
@@ -738,6 +808,10 @@ export const generateAIChatV2: StateCreator<
         ragQuery: get().internal_shouldUseRAG() ? message : undefined,
         threadId: activeThreadId,
       });
+      logGenerationDebugClientSafe('exec_runtime_settled', {
+        outcome: 'ok',
+        spanId: debugSpanId,
+      });
       if (!isCurrentConversation()) return;
 
       //
@@ -748,6 +822,13 @@ export const generateAIChatV2: StateCreator<
       await getAgentStoreState().addFilesToAgent(userFiles, false);
     } catch (e) {
       console.error(e);
+      if (browserRuntimeStarted) {
+        logGenerationDebugClientSafe('exec_runtime_settled', {
+          errorClass: e instanceof Error ? e.name : typeof e,
+          outcome: 'error',
+          spanId: debugSpanId,
+        });
+      }
     } finally {
       if (activeContextExportCaptureId && isCurrentConversation()) {
         get().completeContextExport(activeContextExportCaptureId);

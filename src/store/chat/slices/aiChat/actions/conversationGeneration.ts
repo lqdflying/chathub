@@ -7,6 +7,10 @@ import {
 } from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
+import {
+  hashGenerationDebugClientValue,
+  logGenerationDebugClientSafe,
+} from '@/libs/logger/generationDebugClient';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/store/accountMutation';
 import type { ChatStore } from '@/store/chat/store';
@@ -659,6 +663,8 @@ export const conversationGeneration: StateCreator<
     const currentScope = accountSnapshot?.scope;
     const visibleThreadId = visibleConversationThreadId(get());
     const activeOperationIds = new Set<string>();
+    let attachedCount = 0;
+    let fencedCancelCount = 0;
     for (const operation of operations) {
       const operationSessionId = operation.sessionId || activeId;
       if (
@@ -683,6 +689,7 @@ export const conversationGeneration: StateCreator<
         })
       ) {
         if (isSyncAttachableConversationGenerationStatus(operation.status)) {
+          fencedCancelCount += 1;
           await conversationGenerationService.cancel(operation.id).catch(() => undefined);
         }
         continue;
@@ -722,6 +729,7 @@ export const conversationGeneration: StateCreator<
           topicId: operation.topicId || undefined,
           userScope: currentScope,
         });
+        attachedCount += 1;
         if (operation.kind === 'group_supervisor' && operation.groupId) {
           get().internal_toggleSupervisorLoading(true, operation.groupId);
         }
@@ -732,9 +740,11 @@ export const conversationGeneration: StateCreator<
       get().serverGenerationOperations[conversationKeyFor(activeId, activeTopicId)] || {},
     ).filter((operation) => (operation.threadId ?? null) === visibleThreadId);
     let detachedTerminal = false;
+    let detachedCount = 0;
     for (const operation of attachedForCurrentLane) {
       if (activeOperationIds.has(operation.operationId)) continue;
       detachedTerminal = true;
+      detachedCount += 1;
       if (operation.assistantMessageId) {
         get().internal_markDurableGenerating(operation.assistantMessageId, false);
       }
@@ -773,6 +783,13 @@ export const conversationGeneration: StateCreator<
         Date.now() - message.createdAt > ORPHAN_PLACEHOLDER_GRACE_MS,
     );
     for (const placeholder of orphanedPlaceholders) {
+      logGenerationDebugClientSafe('orphan_deleted', {
+        ageMs:
+          typeof placeholder.createdAt === 'number'
+            ? Math.max(0, Date.now() - placeholder.createdAt)
+            : undefined,
+        messageHash: await hashGenerationDebugClientValue(placeholder.id),
+      });
       await get()
         .internal_deleteMessage(placeholder.id)
         .catch(() => undefined);
@@ -787,5 +804,13 @@ export const conversationGeneration: StateCreator<
         await Promise.all([get().refreshMessages(), get().refreshTopic()]);
       }
     }
+
+    logGenerationDebugClientSafe('sync_summary', {
+      activeCount: operations.length,
+      attachedCount,
+      detachedCount,
+      fencedCancelCount,
+      orphanDeleted: orphanedPlaceholders.length,
+    });
   },
 });

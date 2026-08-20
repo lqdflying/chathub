@@ -374,6 +374,7 @@ export const aiChatRouter = router({
                 title: titleConfig,
               },
               conversationVersion: input.expectedConversationVersion,
+              debugSpanId: durableGeneration.debugSpanId,
               expectedConversationVersion: input.expectedConversationVersion,
               idempotencyKey: durableGeneration.idempotencyKey,
               kind: 'chat',

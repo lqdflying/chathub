@@ -417,6 +417,7 @@ Debug env vars are process-wide; the Docker overlay does not strip them.
 | Switch                        | Worker wiring                                                                                                                                         |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs.                                                                  |
+| `CHATHUB_GENERATION_DEBUG`    | Send-path diagnostics for this engine itself: client send/attach/sync decisions re-emitted via `reportClientDebug`, plus enqueue/sweep/execute events. |
 | `CHATHUB_TOOLS_DEBUG`         | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`.                  |
 | `DEBUG_*_CACHE`               | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`. |
 | `CHATHUB_KNOWLEDGE_DEBUG`     | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`.                                 |
@@ -425,6 +426,54 @@ Debug env vars are process-wide; the Docker overlay does not strip them.
 
 Browser-only switches (`NEXT_PUBLIC_CHATHUB_DEBUG`, `?replacement_debug=1`)
 are unchanged.
+
+### CHATHUB_GENERATION_DEBUG send-path instrumentation
+
+The send path has decisions that no other switch can see: the client silently
+returns on guard failures (`sendMessageInServer` guards, `internal_resendMessage`
+anchor/retry guards, `tryEnqueueConversationGeneration` swallowing
+non-recoverable errors), and the server never logged whether a Graphile job was
+actually added for an operation row. `CHATHUB_GENERATION_DEBUG` closes that gap.
+
+- Server emitter: `src/libs/logger/generationDebug.ts`
+  (`logGenerationDebugSafe`), namespace `chathub-generation-debug`, same
+  prefixed-JSON line format and sanitizers as `chathub-tools-debug`
+  (`sanitizeSafeRecord` / `fingerprintString` exported from `toolsDebug.ts`).
+- Client emitter: `src/libs/logger/generationDebugClient.ts`. Gated by
+  `GlobalServerConfig.generationDebug` (set from the env var in
+  `getServerGlobalConfig`) with a `localStorage['chathub.generationDebug']`
+  override; queues events and flushes fire-and-forget (2 s or 20 events, plus
+  `pagehide`) through `conversationGeneration.reportClientDebug`, which
+  re-sanitizes the fields as untrusted input and re-emits them with
+  `side:'client'`.
+- Correlation: each send/regenerate creates a client `spanId` (`gd_...`),
+  carried as `generation.debugSpanId` through `AiSendMessageServerSchema` /
+  `ConversationGenerationEnqueueSchema` into the server enqueue events.
+
+Event coverage:
+
+| Layer  | Events                                                                                          |
+| ------ | ----------------------------------------------------------------------------------------------- |
+| Client | `send_started`, `send_rpc_settled`, `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started`, `exec_runtime_settled`, `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `sync_summary`, `orphan_deleted` |
+| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `execute_started`, `execute_skipped`, `execute_transcript_loaded`, `execute_settled` |
+
+Semantics that matter when reading the stream:
+
+- `enqueue_persisted.jobAdded` is always true on the transactional send path —
+  a failed SQL `add_job` rolls the enqueue back (the client then sees an RPC
+  error). The reachable `jobAdded=false` signal is `sweep_reenqueued`: the
+  operation row exists, but neither the SQL insert nor the worker-utils
+  fallback could add a job; the sweeper retries on its next pass.
+- `execute_transcript_loaded` records `parentUserHash` (content fingerprint of
+  the triggering user message) and `lastTranscriptUserHash` (last user message
+  actually loaded). A mismatch proves a transcript/binding race — the worker
+  answered a different user turn than intended.
+- Sanitization is identical to tools debug: free-form strings are fingerprinted
+  (`{hash,length,type}`), safe labels/identifiers pass through, secret-keyed
+  fields are dropped, records are capped at 16 KiB. Message content never
+  appears; content comparisons use `hashGenerationDebugValue` /
+  `hashGenerationDebugClientValue` (both sha256-16, so client and server
+  hashes compare).
 
 ## Troubleshooting
 

@@ -1,11 +1,11 @@
 ---
-description: How to verify CHATHUB_TOOLS_DEBUG, CHATHUB_IMAGE_DEBUG, and cache-hit debug are working in production Axiom logs
+description: How to verify CHATHUB_TOOLS_DEBUG, CHATHUB_IMAGE_DEBUG, CHATHUB_GENERATION_DEBUG, and cache-hit debug are working in production Axiom logs
 alwaysApply: false
 ---
 
-# Checking Tool, Image & Cache Debug Logs
+# Checking Tool, Image, Generation & Cache Debug Logs
 
-Both dedicated switches emit prefixed JSON. Query their distinct `debug_namespace` values to select the desired diagnostic stream.
+All dedicated switches emit prefixed JSON. Query their distinct `debug_namespace` values to select the desired diagnostic stream.
 
 ## Safe switches
 
@@ -15,6 +15,7 @@ Both dedicated switches emit prefixed JSON. Query their distinct `debug_namespac
 | `CHATHUB_TOOLS_DEBUG=verbose`       | verbose | safe events + structured payload fingerprints  |
 | `CHATHUB_IMAGE_DEBUG=1`             | safe    | structured image generation lifecycle events   |
 | `CHATHUB_IMAGE_DEBUG=verbose`       | verbose | safe events + keyed prompt/config fingerprints |
+| `CHATHUB_GENERATION_DEBUG=1`        | safe    | durable conversation-generation send-path events (client + server) |
 | `DEBUG_OPENAI_CACHE=1`              | safe    | native OpenAI cache events                     |
 | `DEBUG_AZURE_CACHE=1`               | safe    | Azure OpenAI cache events                      |
 | `DEBUG_AZUREAI_CACHE=1`             | safe    | Azure AI cache support/usage events            |
@@ -54,6 +55,7 @@ The Docker line is `<container> | [<namespace>:<event>] {<json>}`. In Axiom:
 - All other cache providers use `debug_namespace=model-cache-debug`; use the `provider` and `runtimeFamily` payload fields to split providers.
 - Tools use `debug_namespace=chathub-tools-debug`.
 - Image generation uses `debug_namespace=chathub-image-debug`.
+- Durable conversation generation uses `debug_namespace=chathub-generation-debug`; records carry `side=server` or `side=client` (client records are re-emitted by the server's `reportClientDebug` procedure and re-sanitized as untrusted input).
 - Payload fields listed by `getschema` may still be null in current ingestion. Parse the JSON suffix from `message`, then extract fields in a second `extend`:
 
 ```apl
@@ -133,6 +135,59 @@ Image debug:
 
 `bodyKind=json` with `fingerprintTruncated=true` is a valid large JSON response;
 the flag describes the bounded diagnostic sample, not JSON validity.
+
+Generation debug (durable send path):
+
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-generation-debug'
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend spanId=tostring(payload.spanId), side=tostring(payload.side),
+  kind=tostring(payload.kind), outcome=tostring(payload.outcome),
+  reason=tostring(payload.reason), trpcCode=tostring(payload.trpcCode),
+  errorClass=tostring(payload.errorClass), jobAdded=tobool(payload.jobAdded),
+  operationHash=tostring(payload.operationHash),
+  parentUserHash=tostring(payload.parentUserHash),
+  lastTranscriptUserHash=tostring(payload.lastTranscriptUserHash)
+| project _time, spanId, side, debug_event, kind, outcome, reason, trpcCode,
+  errorClass, jobAdded, operationHash, parentUserHash, lastTranscriptUserHash
+| sort by _time asc
+```
+
+Follow one send/regenerate end to end by client span:
+
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-generation-debug'
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend spanId=tostring(payload.spanId), side=tostring(payload.side),
+  outcome=tostring(payload.outcome), jobAdded=tobool(payload.jobAdded)
+| where spanId == '<gd_span_id>'
+| project _time, side, debug_event, outcome, reason=tostring(payload.reason),
+  trpcCode=tostring(payload.trpcCode), jobAdded
+| sort by _time asc
+```
+
+Generation-debug semantics:
+
+- Client events (`side=client`) only appear when the server switch is on: the
+  client gates on `GlobalServerConfig.generationDebug` (or the
+  `localStorage['chathub.generationDebug']` override) and flushes through
+  `conversationGeneration.reportClientDebug`, which re-sanitizes and re-emits.
+- A healthy durable send is: `send_started` → `send_rpc_settled(outcome=ok,
+  hasOperationId=true)` → `durable_attach` (client) → `enqueue_received` →
+  `enqueue_persisted(jobAdded=true)` → `execute_started` →
+  `execute_settled(outcome=succeeded)`, all sharing one `spanId` where present.
+- `enqueue_persisted(jobAdded=false)` does not occur on the transactional send
+  path (a failed SQL add rolls the enqueue back); the false path lives in
+  `sweep_reenqueued`, where it means an operation row exists but no Graphile
+  job could be added — the sweeper will retry on its next pass.
+- `execute_transcript_loaded` carries `parentUserHash` (content hash of the
+  triggering user message) and `lastTranscriptUserHash` (last user message in
+  the loaded transcript). A mismatch between the two proves a transcript/
+  binding race (the worker answered a different user turn than intended).
+- `regenerate_early_return` names the guard that made Regenerate a no-op
+  (`reason=noAnchor|retrying|notCurrent`).
+- `sync_summary` reports per-sync counts; `orphan_deleted` records the cleanup
+  of stale `...` placeholder rows.
 
 Tool-call failures:
 
@@ -216,8 +271,10 @@ Absence of `debug_namespace=chathub-tools-debug` or `debug_namespace=chathub-ima
 docker inspect lobe-chat --format '{{.Config.Image}}'
 docker exec lobe-chat env | grep CHATHUB_TOOLS_DEBUG # must print the value
 docker exec lobe-chat env | grep CHATHUB_IMAGE_DEBUG # must print the value
+docker exec lobe-chat env | grep CHATHUB_GENERATION_DEBUG # must print the value
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_TOOLS_DEBUG'
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_IMAGE_DEBUG'
+docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep CHATHUB_GENERATION_DEBUG'
 docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG_.*_CACHE|KEY_VAULTS_SECRET|NEXT_AUTH_SECRET"'
 ```
 
@@ -229,3 +286,4 @@ docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG
 - Image: one image submission should show `submission_accepted`, `batch_persisted`, `dispatch_started`, paired `async_route_started`/`async_route_settled`, provider events, transform/upload events, and terminal `task_status_settled`. Safe records may show provider hashes, dimensions, status/media metadata, counts, and keyed hashes, but provider labels, prompts, image URLs/data, response bodies, user/database IDs, credentials, headers/cookies, arbitrary error messages, stacks, and environment values must never be raw.
 - Tool lifecycle: every local batch should have `tool_batch_started`, one `tool_completion_reported` per expected call, and `tool_batch_settled`. `resultCount + failureCount` should equal `toolCallCount`. Provider-native tools are `delegated`/`handed_off`; ChatHub built-ins are `builtin`.
 - Cache: every enabled request should have one `request` followed by one `usage`, `usage_missing`, or `terminal_error` for the same `requestHash`. `cachedTokens=0` is an explicit zero only when the provider reported it. Missing cache counters or `cacheStatus=not_reported` are unavailable telemetry, not misses.
+- Generation: every durable send/regenerate should show one `enqueue_persisted` with `jobAdded=true`, then one `execute_started` and one `execute_settled` for the same `operationHash`. Client `send_*`/`regenerate_*`/`sync_summary` events with the same `spanId` bracket the server events. Identifiers appear only as sha256-16 hashes; message content, session/topic ids, and error messages must never be raw.

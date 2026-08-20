@@ -44,6 +44,7 @@ import {
   parseSupervisorTodosFromMessages,
   shouldAvoidSupervisorDecision,
 } from '@/helpers/supervisorTodos';
+import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import {
   createKnowledgeDiagnosticId,
   describeKnowledgeDebugError,
@@ -197,8 +198,22 @@ export const executeConversationGeneration = async ({
 }) => {
   const model = new ConversationGenerationModel(db, userId);
   const operation = await model.findById(operationId);
-  if (!operation) return;
-  if (!isActiveConversationGenerationStatus(operation.status)) return;
+  if (!operation) {
+    logGenerationDebugSafe('execute_skipped', {
+      operationHash: hashGenerationDebugValue(operationId),
+      reason: 'not_found',
+    });
+    return;
+  }
+  if (!isActiveConversationGenerationStatus(operation.status)) {
+    logGenerationDebugSafe('execute_skipped', {
+      kind: operation.kind,
+      operationHash: hashGenerationDebugValue(operationId),
+      reason: 'not_active',
+      status: operation.status,
+    });
+    return;
+  }
 
   if (operation.status === 'cancelling' || operation.cancelRequestedAt) {
     await finalize(model, operation, 'cancelled', undefined, db);
@@ -219,11 +234,30 @@ export const executeConversationGeneration = async ({
     if (current?.status === 'processing') {
       const heartbeatAt = current.heartbeatAt ? new Date(current.heartbeatAt).getTime() : 0;
       if (!heartbeatAt || Date.now() - heartbeatAt >= CONVERSATION_GENERATION_STALE_PROCESSING_MS) {
+        logGenerationDebugSafe('execute_skipped', {
+          kind: current.kind,
+          operationHash: hashGenerationDebugValue(operationId),
+          reason: 'claim_failed_stale_processing',
+          status: current.status,
+        });
         throw new Error('Stale conversation generation is still marked processing.');
       }
     }
+    logGenerationDebugSafe('execute_skipped', {
+      kind: current?.kind ?? operation.kind,
+      operationHash: hashGenerationDebugValue(operationId),
+      reason: 'claim_failed',
+      status: current?.status,
+    });
     return;
   }
+
+  logGenerationDebugSafe('execute_started', {
+    attempt: claimed.attempt,
+    kind: claimed.kind,
+    laneGeneration: claimed.laneGeneration,
+    operationHash: hashGenerationDebugValue(claimed.id),
+  });
 
   if (
     await model.isSupersededByLaneGeneration({
@@ -369,6 +403,13 @@ const finalize = async (
   annotateMessageId?: string | null,
   extraMessageIds?: Array<string | null | undefined>,
 ) => {
+  logGenerationDebugSafe('execute_settled', {
+    attempt: operation.attempt,
+    errorType: error?.type,
+    kind: operation.kind,
+    operationHash: hashGenerationDebugValue(operation.id),
+    outcome: status,
+  });
   if (db) {
     const updated = await finalizeOperationWithCleanup({
       annotateMessageId,
@@ -565,6 +606,16 @@ const finishChatStop = async (
   return { ...outcomeFromStopReason(stopReason), assistantMessageId: assistantId };
 };
 
+const hashMessageContentForDebug = (content: unknown): string => {
+  try {
+    return hashGenerationDebugValue(
+      typeof content === 'string' ? content : JSON.stringify(content),
+    );
+  } catch {
+    return 'unavailable';
+  }
+};
+
 const executeChat = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
@@ -606,6 +657,22 @@ const executeChat = async (
     groupId: operation.groupId ?? undefined,
     sessionId: operation.sessionId ?? undefined,
     topicId: operation.topicId ?? undefined,
+  });
+  logGenerationDebugSafe('execute_transcript_loaded', {
+    kind: operation.kind,
+    lastTranscriptUserHash: (() => {
+      const lastUser = [...messages].reverse().find((message) => message.role === 'user');
+      return lastUser ? hashMessageContentForDebug(lastUser.content) : undefined;
+    })(),
+    operationHash: hashGenerationDebugValue(operation.id),
+    parentUserHash: (() => {
+      if (!operation.userMessageId) return undefined;
+      const parentUser = messages.find(
+        (message) => message.id === operation.userMessageId && message.role === 'user',
+      );
+      return parentUser ? hashMessageContentForDebug(parentUser.content) : undefined;
+    })(),
+    transcriptCount: messages.length,
   });
   if (!operation.assistantMessageId) {
     throw new Error('Assistant message is missing for conversation generation');

@@ -18,7 +18,7 @@ const PRIVATE_IDENTIFIER_KEY_PATTERN =
   /^(?:id|(?:user|account|session|connection|request|client|tenant|topic)[_-]?id)$/i;
 const SAFE_SECRET_METADATA_KEY_PATTERN = /(?:configured|count|hash|length|present|state)$/i;
 const SAFE_LABEL_KEY_PATTERN =
-  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|code|contentEncoding|debugLevel|deploymentMode|endpoint|errorClass|errorCode|errorKind|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|timestamp|toolName|transport|trpcCode|type|via)$/;
+  /^(?:appVersion|architecture|authType|bodyKind|cacheStatus|code|contentEncoding|debugLevel|deploymentMode|endpoint|errorClass|errorCode|errorKind|errorType|failurePhase|firstCharacterClass|gatewayServer|htmlMarker|kind|lastCharacterClass|mediaType|method|nodeVersion|operation|outcome|phase|platform|procedure|reason|resultKind|rpcEndpoint|runtime|runtimeType|server|serverName|serverVersion|side|status|timestamp|toolName|transport|trpcCode|type|via)$/;
 const SAFE_IDENTIFIER_KEY_PATTERN =
   /(?:batchId|continuationId|diagnosticId|spanId|Fingerprint|Hash|keyHashes)$/;
 const SAFE_ERROR_CODE_KEY_PATTERN = /^(?:code|errorCode|trpcCode)$/;
@@ -132,7 +132,7 @@ const replaceControlCharacters = (value: string) =>
     })
     .join('');
 
-const fingerprintString = (value: string) =>
+export const fingerprintString = (value: string) =>
   createHash('sha256').update(value).digest('hex').slice(0, 16);
 
 export const fingerprintToolsDebugBytes = (value: Uint8Array) =>
@@ -367,7 +367,7 @@ export const describeToolsDebugError = (error: unknown): ToolsDebugErrorMetadata
   };
 };
 
-const sanitizeSafeRecord = (value: unknown, key = '', depth = 0): unknown => {
+export const sanitizeSafeRecord = (value: unknown, key = '', depth = 0): unknown => {
   if (value === null || value === undefined) return value;
   if (SECRET_KEY_PATTERN.test(key) && !SAFE_SECRET_METADATA_KEY_PATTERN.test(key)) return undefined;
   if (PRIVATE_IDENTIFIER_KEY_PATTERN.test(key)) return fingerprintDebugIdentifier(value);

@@ -12,6 +12,8 @@ import { makeWorkerUtils } from 'graphile-worker';
 
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { MessageModel } from '@/database/models/message';
+import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
+import { describeToolsDebugError } from '@/libs/logger/toolsDebug';
 import { withConversationWriteLockOrThrow } from '@/server/services/conversationWriteLock';
 
 import {
@@ -98,6 +100,11 @@ const enqueueGraphileJobWithRecovery = async (
   }
 };
 
+const describeEnqueueDebugError = (error: unknown) => {
+  const trpcCode = error instanceof TRPCError ? error.code : undefined;
+  return { errorClass: describeToolsDebugError(error).errorClass, trpcCode };
+};
+
 export class ConversationGenerationService {
   constructor(
     private db: LobeChatDatabase,
@@ -106,30 +113,55 @@ export class ConversationGenerationService {
 
   enqueue = async (input: ConversationGenerationEnqueueInput) => {
     const parsed = ConversationGenerationEnqueueSchema.parse(input);
-    const unsupportedTool = await findUnsupportedConversationTool({
-      config: parsed.config,
-      db: this.db,
-      userId: this.userId,
+    logGenerationDebugSafe('enqueue_received', {
+      hasIdempotencyKey: Boolean(parsed.idempotencyKey),
+      kind: parsed.kind,
+      replaceActive: Boolean(parsed.replaceActive),
+      spanId: parsed.debugSpanId,
     });
-    if (unsupportedTool) {
-      throw new TRPCError({
-        code: 'UNPROCESSABLE_CONTENT',
-        message: `Durable generation deferred to the browser for "${unsupportedTool.identifier}": ${unsupportedTool.reason}`,
+    try {
+      const unsupportedTool = await findUnsupportedConversationTool({
+        config: parsed.config,
+        db: this.db,
+        userId: this.userId,
       });
-    }
-    await resolveConversationRuntimePayload({
-      db: this.db,
-      fetchOnClient: parsed.config.fetchOnClient,
-      provider: parsed.config.provider,
-      userId: this.userId,
-    });
+      if (unsupportedTool) {
+        logGenerationDebugSafe('enqueue_rejected', {
+          kind: parsed.kind,
+          reason: 'unsupported_tool',
+          spanId: parsed.debugSpanId,
+          trpcCode: 'UNPROCESSABLE_CONTENT',
+        });
+        throw new TRPCError({
+          code: 'UNPROCESSABLE_CONTENT',
+          message: `Durable generation deferred to the browser for "${unsupportedTool.identifier}": ${unsupportedTool.reason}`,
+        });
+      }
+      await resolveConversationRuntimePayload({
+        db: this.db,
+        fetchOnClient: parsed.config.fetchOnClient,
+        provider: parsed.config.provider,
+        userId: this.userId,
+      });
 
-    return withConversationWriteLockOrThrow(
-      this.db,
-      this.userId,
-      async (transaction) => this.enqueueInTransaction(transaction, parsed),
-      parsed.expectedConversationVersion,
-    );
+      return await withConversationWriteLockOrThrow(
+        this.db,
+        this.userId,
+        async (transaction) => this.enqueueInTransaction(transaction, parsed),
+        parsed.expectedConversationVersion,
+      );
+    } catch (error) {
+      // CONFLICT rejections are already reported by enqueueInTransaction with
+      // a precise reason; avoid duplicate enqueue_rejected events for them.
+      if (!(error instanceof TRPCError && error.code === 'CONFLICT')) {
+        logGenerationDebugSafe('enqueue_rejected', {
+          kind: parsed.kind,
+          spanId: parsed.debugSpanId,
+          ...describeEnqueueDebugError(error),
+        });
+      }
+      throw error;
+    }
   };
 
   enqueueInTransaction = async (
@@ -157,11 +189,23 @@ export class ConversationGenerationService {
           existing.config.model !== parsed.config.model ||
           existing.config.provider !== parsed.config.provider
         ) {
+          logGenerationDebugSafe('enqueue_rejected', {
+            kind: parsed.kind,
+            reason: 'idempotency_conflict',
+            spanId: parsed.debugSpanId,
+            trpcCode: 'CONFLICT',
+          });
           throw new TRPCError({
             code: 'CONFLICT',
             message: 'Generation idempotency key was already used for another request.',
           });
         }
+        logGenerationDebugSafe('enqueue_persisted', {
+          idempotentReplay: true,
+          kind: parsed.kind,
+          spanId: parsed.debugSpanId,
+          status: existing.status,
+        });
         return existing;
       }
     }
@@ -169,6 +213,12 @@ export class ConversationGenerationService {
     const messageModel = new MessageModel(transaction, this.userId);
     const active = await model.findActiveByLane(lane);
     if (active && !parsed.replaceActive) {
+      logGenerationDebugSafe('enqueue_rejected', {
+        kind: parsed.kind,
+        reason: 'lane_active',
+        spanId: parsed.debugSpanId,
+        trpcCode: 'CONFLICT',
+      });
       throw new TRPCError({
         code: 'CONFLICT',
         message: 'A generation is already running for this conversation.',
@@ -222,6 +272,18 @@ export class ConversationGenerationService {
     });
     const queued = await model.update(operation.id, { workerJobId });
     if (!queued) throw new Error('Conversation generation could not record its worker job.');
+
+    logGenerationDebugSafe('enqueue_persisted', {
+      idempotencyKeyHash: parsed.idempotencyKey
+        ? hashGenerationDebugValue(parsed.idempotencyKey)
+        : undefined,
+      idempotentReplay: false,
+      jobAdded: Boolean(workerJobId),
+      kind: parsed.kind,
+      laneGeneration,
+      laneHash: hashGenerationDebugValue(lane),
+      spanId: parsed.debugSpanId,
+    });
 
     return { ...queued, assistantMessageId, workerJobId };
   };
@@ -301,6 +363,16 @@ export const sweepPendingConversationGenerationJobs = async (db: LobeChatDatabas
       operationId: operation.id,
       userId: operation.userId,
     });
+    logGenerationDebugSafe('sweep_reenqueued', {
+      ageMs: operation.createdAt
+        ? Math.max(0, Date.now() - new Date(operation.createdAt).getTime())
+        : undefined,
+      jobAdded: Boolean(workerJobId),
+      kind: operation.kind,
+      operationHash: hashGenerationDebugValue(operation.id),
+      reason: 'pending_without_job',
+      status: operation.status,
+    });
     if (workerJobId) {
       await new ConversationGenerationModel(db, operation.userId).update(operation.id, {
         workerJobId,
@@ -355,6 +427,17 @@ export const sweepStaleConversationGenerationOperations = async (db: LobeChatDat
       },
       { jobKey: `${operation.id}:recovery:${pending.revision}` },
     );
+    logGenerationDebugSafe('sweep_reenqueued', {
+      ageMs: operation.startedAt
+        ? Math.max(0, Date.now() - new Date(operation.startedAt).getTime())
+        : undefined,
+      attempt: operation.attempt,
+      jobAdded: Boolean(workerJobId),
+      kind: operation.kind,
+      operationHash: hashGenerationDebugValue(operation.id),
+      reason: 'stale_processing',
+      status: 'processing',
+    });
     if (workerJobId) {
       await model.update(operation.id, { workerJobId });
     }

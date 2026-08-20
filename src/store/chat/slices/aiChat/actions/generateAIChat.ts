@@ -30,6 +30,11 @@ import {
 } from '@/helpers/durableConversationGeneration';
 import { buildHistorySummaryForRequest } from '@/helpers/memoryArchivePrompt';
 import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch';
+import {
+  createGenerationDebugSpanId,
+  hashGenerationDebugClientValue,
+  logGenerationDebugClientSafe,
+} from '@/libs/logger/generationDebugClient';
 import { chatService } from '@/services/chat';
 import {
   conversationGenerationService,
@@ -1316,9 +1321,20 @@ export const generateAIChat: StateCreator<
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     if (!accountMutationSnapshot) return;
 
+    const debugSpanId = createGenerationDebugSpanId();
     const chats = outChats ?? chatSelectors.mainAIChats(get());
     const anchor = resolveRetryAnchor(chats, messageId);
-    if (!anchor || get().messageRetryingIds.length > 0) return;
+    if (!anchor || get().messageRetryingIds.length > 0) {
+      logGenerationDebugClientSafe('regenerate_early_return', {
+        reason: !anchor ? 'noAnchor' : 'retrying',
+        spanId: debugSpanId,
+      });
+      return;
+    }
+    logGenerationDebugClientSafe('regenerate_started', {
+      messageIdHash: await hashGenerationDebugClientValue(anchor.message.id),
+      spanId: debugSpanId,
+    });
 
     const state = get();
     const activeId = state.activeId;
@@ -1349,7 +1365,13 @@ export const generateAIChat: StateCreator<
         'regenerate',
       );
     const expectedConversationVersion = await messageService.getConversationVersion();
-    if (!isCurrentConversation()) return;
+    if (!isCurrentConversation()) {
+      logGenerationDebugClientSafe('regenerate_early_return', {
+        reason: 'notCurrent',
+        spanId: debugSpanId,
+      });
+      return;
+    }
     const contextMessages = chats.slice(0, anchor.index + 1);
     const tailMessages = chats.slice(anchor.index + 1);
     const chatKey = messageMapKey(activeId, activeTopicId);
@@ -1564,6 +1586,7 @@ export const generateAIChat: StateCreator<
 
       const agentConfig = agentSelectors.currentAgentConfig(getAgentStoreState());
       const chatConfig = agentChatConfigSelectors.currentChatConfig(getAgentStoreState());
+      let durableEnqueueAttempted = false;
       const enableHistoryCompaction =
         !!activeTopicId &&
         get().activeSessionType !== 'group' &&
@@ -1580,6 +1603,7 @@ export const generateAIChat: StateCreator<
           nanoid(),
           anchor.message.id,
         );
+        durableEnqueueAttempted = true;
         const enqueueLaneKey = laneScopedClearKey(activeId, activeTopicId, threadId ?? null);
         set(
           (state) =>
@@ -1619,6 +1643,7 @@ export const generateAIChat: StateCreator<
               systemRole: agentSelectors.currentAgentSystemRole(getAgentStoreState()),
             }),
             conversationVersion: expectedConversationVersion,
+            debugSpanId,
             expectedConversationVersion,
             idempotencyKey: regenerateIdempotencyKey,
             kind: 'regenerate',
@@ -1643,9 +1668,21 @@ export const generateAIChat: StateCreator<
           if (operation) {
             await conversationGenerationService.cancel(operation.id).catch(() => undefined);
           }
+          logGenerationDebugClientSafe('regenerate_enqueue_settled', {
+            fellThroughToBrowser: false,
+            outcome: 'fenced_cancel',
+            recovered: Boolean(operation),
+            spanId: debugSpanId,
+          });
           return;
         }
         if (operation) {
+          logGenerationDebugClientSafe('regenerate_enqueue_settled', {
+            fellThroughToBrowser: false,
+            outcome: 'attached',
+            recovered: Boolean(operation),
+            spanId: debugSpanId,
+          });
           get().attachConversationGeneration({
             assistantMessageId: operation.assistantMessageId || undefined,
             clearGeneration: requestedClearFence,
@@ -1665,6 +1702,12 @@ export const generateAIChat: StateCreator<
         }
       }
 
+      logGenerationDebugClientSafe('regenerate_enqueue_settled', {
+        durableEnqueueAttempted,
+        fellThroughToBrowser: true,
+        outcome: 'browser_fallback',
+        spanId: debugSpanId,
+      });
       await get().internal_coreProcessMessage(contextMessages, anchor.message.id, {
         expectedConversationVersion,
         traceId,

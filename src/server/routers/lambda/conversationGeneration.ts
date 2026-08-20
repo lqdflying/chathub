@@ -2,10 +2,15 @@ import { ConversationGenerationEnqueueSchema } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
+import {
+  GENERATION_DEBUG_CLIENT_EVENTS,
+  isGenerationDebugEnabled,
+  logGenerationDebugSafe,
+} from '@/libs/logger/generationDebug';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { ConversationGenerationService } from '@/server/services/conversationGeneration/service';
 import { isDurableConversationGenerationEnabled } from '@/server/services/conversationGeneration/featureFlag';
+import { ConversationGenerationService } from '@/server/services/conversationGeneration/service';
 
 const conversationGenerationProcedure = authedProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -64,5 +69,33 @@ export const conversationGenerationRouter = router({
     .query(async ({ ctx, input }) => {
       await assertEnabled(ctx.userId);
       return ctx.conversationGenerationService.listEvents(input?.cursor ?? 0);
+    }),
+
+  /**
+   * Receives sanitized CHATHUB_GENERATION_DEBUG events captured on the client
+   * and re-emits them server-side so they reach the same Axiom stream as the
+   * server events. Gated by the server env switch; client fields are treated
+   * as untrusted and re-sanitized by the emitter before logging.
+   */
+  reportClientDebug: authedProcedure
+    .input(
+      z.object({
+        events: z
+          .array(
+            z.object({
+              event: z.enum(GENERATION_DEBUG_CLIENT_EVENTS),
+              fields: z.record(z.string(), z.unknown()).optional(),
+            }),
+          )
+          .min(1)
+          .max(50),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      if (!isGenerationDebugEnabled()) return { accepted: 0 };
+      for (const { event, fields } of input.events) {
+        logGenerationDebugSafe(event, { ...fields, side: 'client' });
+      }
+      return { accepted: input.events.length };
     }),
 });

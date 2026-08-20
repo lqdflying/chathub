@@ -36,6 +36,11 @@ export interface GlobalServerConfig {
    * @deprecated
    */
   enabledOAuthSSO?: boolean;
+  /**
+   * CHATHUB_GENERATION_DEBUG is active on the server, so the client emitter
+   * should report send-path diagnostics through reportClientDebug.
+   */
+  generationDebug?: boolean;
   image?: PartialDeep<UserImageConfig>;
   /**
    * @deprecated
