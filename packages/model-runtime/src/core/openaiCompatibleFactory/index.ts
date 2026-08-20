@@ -319,9 +319,11 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           );
         })();
 
-        const repairedInputMessages = dropFullyEmptyMessages(
-          repairOpenAIChatToolMessageSequence(payload.messages),
-        );
+        // Do NOT drop empty messages here: provider `handlePayload` adapters
+        // (e.g. MiniMax `reasoning` -> `reasoning_details`) have not run yet,
+        // so semantic fields would still be invisible to a emptiness check.
+        // The drop happens after normalization, below and in Responses mode.
+        const repairedInputMessages = repairOpenAIChatToolMessageSequence(payload.messages);
         let processedPayload: any = stripInternalChatPayloadFields({
           ...payload,
           messages: repairedInputMessages,

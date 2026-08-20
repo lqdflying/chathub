@@ -611,6 +611,58 @@ describe('executeConversationGeneration', () => {
     );
   });
 
+  it('does not double-encode the error type when it is already in the message', async () => {
+    const pending = {
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
+      id: 'cgo_error_dedupe',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    const processing = { ...pending, attempt: 1, status: 'processing' };
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing)
+      .mockResolvedValueOnce(processing);
+    modelMocks.claimForProcessing.mockResolvedValue(processing);
+    modelMocks.markForRetry.mockResolvedValue({
+      ...processing,
+      revision: 2,
+      status: 'pending',
+    });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: 'hello there', id: 'msg-user-1', role: 'user' }],
+      topics: [],
+    });
+    // Resolver fallback shape: the type is already embedded in the message.
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: { message: 'moonshot: ProviderBizError', type: 'ProviderBizError' },
+    });
+
+    await expect(
+      executeConversationGeneration({
+        db: {} as any,
+        operationId: pending.id,
+        userId: pending.userId,
+      }),
+    ).rejects.toThrow('moonshot: ProviderBizError');
+
+    expect(modelMocks.markForRetry).toHaveBeenCalledWith(
+      pending.id,
+      expect.objectContaining({
+        message: 'moonshot: ProviderBizError',
+        type: 'GenerationError',
+      }),
+      1,
+    );
+  });
+
   it('rethrows when claim misses a stale processing row', async () => {
     const stale = {
       heartbeatAt: new Date('2020-01-01T00:00:00.000Z'),

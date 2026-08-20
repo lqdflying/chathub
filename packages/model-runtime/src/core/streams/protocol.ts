@@ -192,19 +192,32 @@ const ERROR_CHUNK_PREFIX = '%FIRST_CHUNK_ERROR%: ';
 /**
  * Provider factories throw plain `ChatCompletionErrorPayload` objects
  * (`{ error, errorType, provider }`) rather than `Error` instances. The real
- * upstream message lives in `error.message`, so without this synthesis every
- * provider failure would surface as a generic fallback string.
+ * upstream message is nested inside `error`, but its depth varies by provider
+ * and SDK version:
+ *
+ *   - Moonshot / most OpenAI-compatible: `{ error: { message, type } }`
+ *   - OpenAI SDK `APIError` (via `handleOpenAIError`):
+ *     `{ error: { error: { message }, status } }` — the SDK wraps the body,
+ *     so the message sits one level deeper.
+ *
+ * Walk the nested `error` chain for the first non-empty string `message`
+ * instead of stopping at a single fixed depth; otherwise every wrapped
+ * provider failure would surface as a generic `provider: errorType` string.
  */
+const findNestedMessage = (value: unknown, depth = 0): string | undefined => {
+  if (!value || typeof value !== 'object' || depth > 4) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.message === 'string' && record.message.trim()) return record.message;
+  return findNestedMessage(record.error, depth + 1);
+};
+
 const resolveIteratorErrorMessage = (errorRecord: Record<string, unknown>): string => {
   if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
     return errorRecord.message;
   }
 
-  const nestedError = errorRecord.error;
-  if (nestedError && typeof nestedError === 'object') {
-    const nestedMessage = (nestedError as Record<string, unknown>).message;
-    if (typeof nestedMessage === 'string' && nestedMessage.trim()) return nestedMessage;
-  }
+  const nestedMessage = findNestedMessage(errorRecord.error);
+  if (nestedMessage) return nestedMessage;
 
   if (errorRecord.errorType !== undefined && errorRecord.errorType !== null) {
     const providerPrefix =

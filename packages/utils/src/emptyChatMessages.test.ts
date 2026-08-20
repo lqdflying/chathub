@@ -36,8 +36,62 @@ describe('dropFullyEmptyMessages', () => {
     expect(dropFullyEmptyMessages(messages)).toEqual(messages);
   });
 
+  it('keeps assistant messages that carry a legacy function_call', () => {
+    const messages = [
+      {
+        content: '',
+        function_call: { arguments: '{}', name: 'get_weather' },
+        role: 'assistant',
+      },
+    ];
+
+    expect(dropFullyEmptyMessages(messages)).toEqual(messages);
+  });
+
+  it('keeps reasoning-only assistant turns (MiniMax interleaved thinking)', () => {
+    const messages = [
+      {
+        content: '',
+        reasoning: { content: 'thinking about the answer' },
+        role: 'assistant',
+      },
+    ];
+
+    expect(dropFullyEmptyMessages(messages)).toEqual(messages);
+  });
+
+  it('keeps assistant turns carrying reasoning_content or reasoning_details', () => {
+    const messages = [
+      { content: '', reasoning_content: 'deep thought', role: 'assistant' },
+      {
+        content: '',
+        reasoning_details: [
+          { format: 'MiniMax-response-v1', text: 'thought', type: 'reasoning.text' },
+        ],
+        role: 'assistant',
+      },
+    ];
+
+    expect(dropFullyEmptyMessages(messages)).toEqual(messages);
+  });
+
+  it('drops assistant turns whose reasoning is blank', () => {
+    const messages = [
+      { content: '', reasoning: { content: '   ' }, role: 'assistant' },
+      { content: '', reasoning_content: '', role: 'assistant' },
+    ];
+
+    expect(dropFullyEmptyMessages(messages)).toEqual([]);
+  });
+
   it('never drops tool messages', () => {
     const messages = [{ content: '', role: 'tool', tool_call_id: 'call_1' }];
+
+    expect(dropFullyEmptyMessages(messages)).toEqual(messages);
+  });
+
+  it('never drops legacy function result messages', () => {
+    const messages = [{ content: '', name: 'get_weather', role: 'function' }];
 
     expect(dropFullyEmptyMessages(messages)).toEqual(messages);
   });
@@ -62,7 +116,10 @@ describe('dropFullyEmptyMessages', () => {
 
   it('keeps array content with non-text parts (image_url)', () => {
     const messages = [
-      { content: [{ image_url: { url: 'https://example.com/a.png' }, type: 'image_url' }], role: 'user' },
+      {
+        content: [{ image_url: { url: 'https://example.com/a.png' }, type: 'image_url' }],
+        role: 'user',
+      },
     ];
 
     expect(dropFullyEmptyMessages(messages)).toEqual(messages);

@@ -93,6 +93,32 @@ describe('createDeferredAsyncIterable', () => {
     expect(result.value).not.toContain('The upstream stream could not be opened.');
   });
 
+  it('surfaces the message from the double-nested OpenAI SDK APIError envelope', async () => {
+    // Production shape thrown by openaiCompatibleFactory `handleError` when the
+    // OpenAI SDK rejects: `{ error: { error: { message }, status }, errorType, provider }`.
+    const deferred = createDeferredAsyncIterable<string>(async () => {
+      throw {
+        endpoint: 'https://api.moonshot.cn/v1',
+        error: {
+          error: {
+            message: "the message at position 1 with role 'user' must not be empty",
+            type: 'invalid_request_error',
+          },
+          status: 400,
+        },
+        errorType: 'ProviderBizError',
+        provider: 'moonshot',
+      };
+    });
+    const result = await convertIterableToStream(deferred).getReader().read();
+
+    expect(result.done).toBe(false);
+    expect(result.value).toContain('%FIRST_CHUNK_ERROR%:');
+    expect(result.value).toContain("role 'user' must not be empty");
+    expect(result.value).not.toContain('moonshot: ProviderBizError');
+    expect(result.value).not.toContain('The upstream stream could not be opened.');
+  });
+
   it('falls back to provider and errorType when no message is available', async () => {
     const deferred = createDeferredAsyncIterable<string>(async () => {
       throw { error: {}, errorType: 'NoOpenAIAPIKey', provider: 'openai' };

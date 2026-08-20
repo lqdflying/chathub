@@ -528,6 +528,47 @@ describe('LobeOpenAICompatibleFactory', () => {
       ]);
     });
 
+    it('should keep legacy function_call turns and their function results', async () => {
+      const createSpy = vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 1,
+          prompt_tokens: 1,
+          total_tokens: 2,
+        },
+      } as any);
+
+      await instance.chat({
+        messages: [
+          { content: 'what is the weather?', role: 'user' },
+          {
+            content: '',
+            function_call: { arguments: '{"city":"Paris"}', name: 'get_weather' },
+            role: 'assistant',
+          },
+          { content: 'sunny', name: 'get_weather', role: 'function' },
+        ] as any,
+        model: 'private-model-id',
+        responseMode: 'json',
+        stream: false,
+      });
+
+      const requestMessages = createSpy.mock.calls[0][0].messages as any[];
+      expect(requestMessages.map((message) => message.role)).toEqual([
+        'user',
+        'assistant',
+        'function',
+      ]);
+      expect(requestMessages[1].function_call).toEqual({
+        arguments: '{"city":"Paris"}',
+        name: 'get_weather',
+      });
+    });
+
     it('should pass repaired messages and initialized diagnostics to custom clients', async () => {
       const createChatCompletionStream = vi.fn(() => new ReadableStream());
       const CustomClientRuntime = createOpenAICompatibleRuntime({
@@ -1104,6 +1145,39 @@ describe('LobeOpenAICompatibleFactory', () => {
         } catch (e) {
           expect(e).toEqual({ errorType: invalidErrorType });
         }
+      });
+
+      it('surfaces the real APIError message through the streaming SSE boundary', async () => {
+        // Production shape: the OpenAI SDK rejects with an APIError whose body is
+        // `{ error: { message, type } }`. `handleError` wraps it into
+        // `{ error: { error: { message }, status }, errorType, provider }`, which the
+        // deferred iterator must resolve back to the real upstream message instead of
+        // a generic `provider: errorType` string.
+        const apiError = new OpenAI.APIError(
+          400,
+          {
+            error: {
+              message: "the message at position 1 with role 'user' must not be empty",
+              type: 'invalid_request_error',
+            },
+            status: 400,
+          },
+          'Error message',
+          undefined,
+        );
+        vi.spyOn(instance['client'].chat.completions, 'create').mockRejectedValue(apiError);
+
+        const response = await instance.chat({
+          messages: [{ content: 'Hello', role: 'user' }],
+          model: 'mistralai/mistral-7b-instruct:free',
+          stream: true,
+        });
+
+        const text = await new Response(response.body).text();
+        expect(text).toContain("role 'user' must not be empty");
+        expect(text).toContain('event: error');
+        expect(text).not.toContain(`${provider}: ${bizErrorType}"`);
+        expect(text).not.toContain('The upstream stream could not be opened.');
       });
 
       it('should return bizErrorType with the cause when OpenAI.APIError is thrown with cause', async () => {

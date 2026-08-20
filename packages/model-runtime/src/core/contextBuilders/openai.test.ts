@@ -329,6 +329,30 @@ describe('convertOpenAIMessages', () => {
       tool_calls: messages[0].tool_calls,
     });
   });
+
+  it('should preserve reasoning_details for MiniMax interleaved thinking', async () => {
+    const reasoning_details = [
+      {
+        format: 'MiniMax-response-v1',
+        id: 'reasoning-text-0',
+        index: 0,
+        text: 'thinking about it',
+        type: 'reasoning.text',
+      },
+    ];
+    const messages = [
+      { content: '', reasoning_details, role: 'assistant' },
+      { content: 'Hi', role: 'user' },
+    ] as any;
+
+    const result = await convertOpenAIMessages(messages, 'minimax');
+
+    expect(result).toEqual([
+      { content: '', reasoning_details, role: 'assistant' },
+      { content: 'Hi', role: 'user' },
+    ]);
+    expect((result[0] as any).reasoning_details).toEqual(reasoning_details);
+  });
 });
 
 describe('convertOpenAIResponseInputs', () => {

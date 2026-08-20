@@ -1121,8 +1121,12 @@ const runSimpleCompletion = async (
   );
   const result = await consumeProtocolResponse(response);
   if (result.error) {
-    const detail = result.error.type ? ` [${result.error.type}]` : '';
-    throw new Error(`${result.error.message}${detail}`);
+    const { message, type } = result.error;
+    // When the stream resolver falls back to `provider: errorType`, the type is
+    // already embedded in the message; appending it again would double-encode it
+    // (e.g. `moonshot: ProviderBizError [ProviderBizError]`).
+    const detail = type && !message.includes(type) ? ` [${type}]` : '';
+    throw new Error(`${message}${detail}`);
   }
   return result.content.trim();
 };

@@ -76,6 +76,10 @@ export const convertOpenAIMessages = async (
       if (msg.tool_calls !== undefined) result.tool_calls = msg.tool_calls;
       if (msg.tool_call_id !== undefined) result.tool_call_id = msg.tool_call_id;
       if (msg.function_call !== undefined) result.function_call = msg.function_call;
+      // `reasoning_details` is the MiniMax interleaved-thinking field produced by
+      // the provider's `handlePayload`; it must be forwarded so multi-turn
+      // reasoning continuity survives the message conversion.
+      if (msg.reasoning_details !== undefined) result.reasoning_details = msg.reasoning_details;
 
       // `reasoning_content` is a DeepSeek/Moonshot-specific field. For the
       // `openaicompatible` provider (gpt-5.5 etc.), skip it entirely so it does

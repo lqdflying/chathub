@@ -55,6 +55,41 @@ describe('buildMinimaxOpenAIChatPayload', () => {
   });
 });
 
+describe('LobeMinimaxAI message pipeline', () => {
+  it('keeps reasoning-only assistant turns in the outbound request', async () => {
+    const instance = new LobeMinimaxAI({ apiKey: 'test-key' });
+    const createSpy = vi
+      .spyOn((instance as any).client.chat.completions, 'create')
+      .mockResolvedValue((async function* () {})() as any);
+
+    const response = await instance.chat({
+      messages: [
+        { content: 'first question', role: 'user' },
+        { content: '', reasoning: { content: 'thinking about it' }, role: 'assistant' },
+        { content: 'second question', role: 'user' },
+      ],
+      model: 'MiniMax-M2.5',
+      stream: true,
+    } as any);
+    // The SDK call is deferred until the response body is pulled.
+    await new Response(response.body).text();
+
+    const requestMessages = createSpy.mock.calls[0][0].messages as any[];
+    // The assistant turn carries semantics (MiniMax `reasoning_details` after
+    // handlePayload) and must not be dropped by empty-message filtering.
+    expect(requestMessages.map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
+    expect(requestMessages[1].reasoning_details).toEqual([
+      {
+        format: 'MiniMax-response-v1',
+        id: 'reasoning-text-0',
+        index: 0,
+        text: 'thinking about it',
+        type: 'reasoning.text',
+      },
+    ]);
+  });
+});
+
 describe('LobeMinimaxAI debug', () => {
   it('logs structured request summary with DEBUG_MINIMAX_CHAT_COMPLETION', async () => {
     const instance = new LobeMinimaxAI({ apiKey: 'test-key' });

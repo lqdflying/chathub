@@ -433,24 +433,38 @@ produces an empty string. Strict providers reject the whole request on any
 empty message content — Moonshot returns 400 `invalid_request_error`
 ("content must not be empty"); OpenAI and others behave the same.
 
-Three provider-agnostic defenses are in place:
+Three defenses are in place:
 
 - `executeTitle` (`src/server/services/conversationGeneration/execute.ts`)
   skips title generation and finalizes gracefully when no scoped message has
-  non-blank content, so no provider ever receives an empty conversation.
+  non-blank content, so no provider ever receives an empty conversation. Note
+  this finalizes the operation as `succeeded` without a title; a topic caught
+  by the message-binding race therefore stays untitled unless something else
+  triggers a rename (see the open product decision below).
 - `dropFullyEmptyMessages` (`packages/utils/src/emptyChatMessages.ts`) is
   applied in the shared OpenAI-compatible factory
   (`packages/model-runtime/src/core/openaiCompatibleFactory/index.ts`) for
-  both Chat Completions and Responses modes. It drops a message only when its
-  role is `user`/`assistant`/`system`, it has no `tool_calls`, and its
-  content is empty; `tool` messages are always kept so tool_call/tool_result
-  pairing survives.
+  both Chat Completions and Responses modes, but only **after** provider
+  normalization (`handlePayload`) so adapters have already translated
+  semantic fields. It drops a message only when its role is
+  `user`/`assistant`/`system`, it carries no semantic fields (`tool_calls`,
+  legacy `function_call`, `reasoning`/`reasoning_content`/`reasoning_details`),
+  and its content is empty; `tool` and `function` messages are always kept so
+  tool_call/tool_result and function_call/function pairing survive.
 - `enqueueIteratorError`
   (`packages/model-runtime/src/core/streams/protocol.ts`) synthesizes the real
-  upstream message from a thrown `ChatCompletionErrorPayload`
-  (`error.message`, falling back to `provider: errorType`) instead of the
-  generic fallback, and `runSimpleCompletion` appends the error type to the
-  thrown message so persisted operation errors carry the upstream detail.
+  upstream message from a thrown `ChatCompletionErrorPayload`. Provider
+  factories nest the message at varying depth (Moonshot `error.message`;
+  OpenAI SDK `APIError` wraps it as `error.error.message`), so the resolver
+  walks the nested `error` chain for the first non-empty string `message`,
+  falling back to `provider: errorType`. `runSimpleCompletion` appends the
+  error type to the thrown message only when it is not already present, so
+  persisted operation errors carry the upstream detail without double-encoding
+  the type.
+
+Open product decision: when the scoped transcript is not yet loadable, durable
+auto-title currently finalizes `succeeded` with no title (best effort). Whether
+it should instead retry until the transcript is bound is undecided.
 
 ## Startup schema repair
 
