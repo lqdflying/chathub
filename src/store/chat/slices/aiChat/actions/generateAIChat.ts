@@ -905,6 +905,18 @@ export const generateAIChat: StateCreator<
       ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
+    // Finalization must survive the user looking elsewhere: switching topics
+    // destroys nothing, so only account switches and destructive/cancel fences
+    // (Stop, clear, topic delete) may block persisting the finished reply.
+    const isPersistenceCurrent = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      isConversationClearFenceCurrent(
+        get(),
+        conversationContext.clearGeneration,
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId ?? null,
+      );
     if (!isCurrentConversation()) {
       return { content: '', isFunctionCall: false };
     }
@@ -1041,6 +1053,24 @@ export const generateAIChat: StateCreator<
           if (!isCurrentConversation()) return;
           get().appendContextExportSnapshot(snapshot);
         },
+        onAbort: async (text) => {
+          // An interrupted browser turn (Stop, lane rewind, lost tab) must not
+          // leave a permanent `...` placeholder row: persist whatever streamed
+          // so far, or drop the empty row so history never shows a dead bubble.
+          if (!isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) return;
+          if (text) {
+            await internal_updateMessageContent(messageId, text, {
+              conversationContext,
+              model,
+              provider,
+              reasoning: !!thinking ? { content: thinking, duration } : undefined,
+            }).catch(() => undefined);
+          } else {
+            await get()
+              .internal_deleteMessage(messageId)
+              .catch(() => undefined);
+          }
+        },
         toolCacheDebug: params?.toolCacheDebug,
         trace: {
           traceId: params?.traceId,
@@ -1050,8 +1080,11 @@ export const generateAIChat: StateCreator<
         },
         isWelcomeQuestion: params?.isWelcomeQuestion,
         onErrorHandle: async (error) => {
-          if (!isCurrentConversation()) return;
-          if (contextExportRequest) {
+          // Persist the failure even if the user navigated away, so the row does
+          // not stay a `...` placeholder; only the in-app surface (context
+          // snapshot + refresh) requires the conversation to still be active.
+          if (!isPersistenceCurrent()) return;
+          if (contextExportRequest && isCurrentConversation()) {
             get().appendContextExportSnapshot({
               ...contextExportRequest,
               error: `Provider request failed: ${String(error.type)}`,
@@ -1076,7 +1109,7 @@ export const generateAIChat: StateCreator<
           content,
           { traceId, observationId, toolCalls, reasoning, grounding, usage, speed },
         ) => {
-          if (!isCurrentConversation()) return;
+          if (!isPersistenceCurrent()) return;
           msgTraceId = traceId ?? undefined;
 
           // 等待所有图片上传完成
@@ -1093,7 +1126,7 @@ export const generateAIChat: StateCreator<
               console.error('Error waiting for image uploads:', error);
             }
           }
-          if (!isCurrentConversation()) return;
+          if (!isPersistenceCurrent()) return;
 
           let parsedToolCalls = toolCalls;
           if (parsedToolCalls && parsedToolCalls.length > 0) {
@@ -1122,7 +1155,6 @@ export const generateAIChat: StateCreator<
             traceId: traceId ?? undefined,
             conversationContext,
           });
-          if (!isCurrentConversation()) return;
           persistenceAmbiguous = finalization.persistenceAmbiguous;
           persistenceFailure = finalization.failure;
         },

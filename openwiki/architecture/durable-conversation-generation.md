@@ -287,7 +287,15 @@ hook bumps a resume nonce so SSE reconnects and `syncActive` runs. A first-load
 `pageshow` without `persisted` is ignored. If the visible conversation has a
 `LOADING_FLAT` assistant and `listActive()` has no matching job, `syncActive`
 refreshes messages (a job that finished while the user was away and was never
-attached). `reconcileConversationGeneration` refreshes the **operation’s**
+attached). `syncActive` also deletes **orphaned** `LOADING_FLAT` placeholders:
+assistant rows whose content is still the placeholder but which have no client
+loading id, no attached server operation, and a `createdAt` older than the
+5-minute grace window (`ORPHAN_PLACEHOLDER_GRACE_MS`). These are the remains of
+interrupted browser-fallback turns (Stop before any chunk, closed tab, or a
+pre-fix client that dropped a finished reply on navigation); without cleanup
+they render as a dead empty bubble forever. The grace window protects a live
+producer in another tab that may still finalize the row.
+`reconcileConversationGeneration` refreshes the **operation’s**
 session/topic, not whichever topic is currently visible.
 
 Title and translation use separate lanes, so their events can attach alongside
@@ -478,6 +486,44 @@ re-checks the transcript on each attempt and the topic eventually receives a
 title once message-to-topic binding lands. A transcript that is still empty
 after the final attempt finalizes the operation as `failed` with the
 transcript-empty error.
+
+### Browser-fallback reply lost after switching topics (empty bubble)
+
+Symptom: a turn that ran in the browser (durable generation deferred, e.g. a
+plugin with a browser-only runtime) completed — server logs show the stream
+finishing with dozens of chunks — yet when the user returns to the topic from
+history the assistant bubble is an empty white circle.
+
+Root cause: `internal_fetchAIChatMessage`
+(`src/store/chat/slices/aiChat/actions/generateAIChat.ts`) guarded its
+`onFinish` finalization with `isCurrentConversation()`, which includes
+`activeId`/`activeTopicId` equality. When the user switched topics while the
+stream was still running, the finished reply was discarded instead of
+persisted, leaving the assistant row permanently at `LOADING_FLAT`.
+`InterruptibleLoading` (`src/features/Conversation/Messages/Default.tsx`) then
+renders nothing for a stale, non-generating placeholder — the white circle.
+
+Fixes (browser turns now have the same navigation tolerance as durable turns):
+
+- `onFinish` and `onErrorHandle` persist under `isPersistenceCurrent()`:
+  account mutation snapshot + full resolved clear fence
+  (`isConversationClearFenceCurrent`). Navigation alone no longer blocks the
+  write; only account switches and destructive/cancel fences (Stop, clear,
+  topic delete) do. `internal_updateMessageContent` receives the captured
+  `conversationContext`, so its own guard also passes for a background
+  conversation.
+- `onAbort` (Stop, lane rewind, lost fetch) persists whatever text already
+  streamed via `internal_updateMessageContent`, or deletes the empty
+  placeholder row (`internal_deleteMessage`) when nothing arrived, so an
+  interrupted turn never leaves a permanent `...` row.
+- `syncActiveConversationGenerations` deletes orphaned stale placeholders
+  (see Client sync), which also repairs rows stuck by the pre-fix behavior the
+  next time the topic is opened.
+
+Tool-continuation loops still require the conversation to be visible
+(browser-fallback limitation): after navigation the persisted reply keeps its
+tool calls, but the client loop stops; durable turns are unaffected because
+the worker runs the loop server-side.
 
 ## Startup schema repair
 

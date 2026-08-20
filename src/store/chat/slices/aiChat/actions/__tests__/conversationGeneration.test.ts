@@ -1280,6 +1280,99 @@ describe('conversationGeneration store actions', () => {
     expect(refreshTopic).toHaveBeenCalled();
   });
 
+  it('deletes an orphaned stale loading placeholder left by an interrupted browser turn', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const internal_deleteMessage = vi.fn(async () => {});
+    const refreshMessages = vi.fn(async () => {});
+    const refreshTopic = vi.fn(async () => {});
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        internal_deleteMessage,
+        messagesMap: {
+          [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: [
+            {
+              content: LOADING_FLAT,
+              createdAt: Date.now() - 10 * 60 * 1000,
+              id: 'assistant-orphan',
+              role: 'assistant',
+            },
+          ],
+        },
+        refreshMessages,
+        refreshTopic,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(internal_deleteMessage).toHaveBeenCalledWith('assistant-orphan');
+    expect(refreshMessages).toHaveBeenCalled();
+  });
+
+  it('keeps a fresh loading placeholder that a live producer may still finalize', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const internal_deleteMessage = vi.fn(async () => {});
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        internal_deleteMessage,
+        messagesMap: {
+          [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: [
+            {
+              content: LOADING_FLAT,
+              createdAt: Date.now(),
+              id: 'assistant-fresh',
+              role: 'assistant',
+            },
+          ],
+        },
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(internal_deleteMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps a stale placeholder while its browser turn is still loading in this tab', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const internal_deleteMessage = vi.fn(async () => {});
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        chatLoadingIds: ['assistant-busy'],
+        internal_deleteMessage,
+        messagesMap: {
+          [messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)]: [
+            {
+              content: LOADING_FLAT,
+              createdAt: Date.now() - 10 * 60 * 1000,
+              id: 'assistant-busy',
+              role: 'assistant',
+            },
+          ],
+        },
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(internal_deleteMessage).not.toHaveBeenCalled();
+  });
+
   it('reconciles a finished operation into its own conversation after switching topics', async () => {
     vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValueOnce({
       id: 'cgo_one',

@@ -29,6 +29,10 @@ import type { ServerGenerationOperation } from '../../topic/initialState';
 
 const n = setNamespace('durableGeneration');
 
+// Orphaned `...` placeholders (interrupted browser turns) are only removed once
+// older than this, so a live producer in another tab can still finalize them.
+const ORPHAN_PLACEHOLDER_GRACE_MS = 5 * 60 * 1000;
+
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
@@ -740,10 +744,37 @@ export const conversationGeneration: StateCreator<
       await Promise.all([get().refreshMessages(), get().refreshTopic()]);
     } else {
       const visibleMessages = get().messagesMap[conversationKeyFor(activeId, activeTopicId)] || [];
+      const attachedAssistantIds = new Set(
+        attachedForCurrentLane
+          .map((operation) => operation.assistantMessageId)
+          .filter((id): id is string => !!id),
+      );
+      // A browser-run turn interrupted before producing content (Stop, closed
+      // tab, or a pre-fix client that dropped a finished reply) leaves a `...`
+      // row with no client loading id and no server operation, rendered as a
+      // dead empty bubble forever. Remove it once old enough that no live
+      // producer can still finalize it.
+      const orphanedPlaceholders = visibleMessages.filter(
+        (message) =>
+          message.role === 'assistant' &&
+          message.content === LOADING_FLAT &&
+          !get().chatLoadingIds.includes(message.id) &&
+          !attachedAssistantIds.has(message.id) &&
+          typeof message.createdAt === 'number' &&
+          Date.now() - message.createdAt > ORPHAN_PLACEHOLDER_GRACE_MS,
+      );
+      for (const placeholder of orphanedPlaceholders) {
+        await get()
+          .internal_deleteMessage(placeholder.id)
+          .catch(() => undefined);
+      }
       const hasLoadingPlaceholder = visibleMessages.some(
         (message) => message.role === 'assistant' && message.content === LOADING_FLAT,
       );
-      if (hasLoadingPlaceholder && activeOperationIds.size === 0) {
+      if (
+        orphanedPlaceholders.length > 0 ||
+        (hasLoadingPlaceholder && activeOperationIds.size === 0)
+      ) {
         await Promise.all([get().refreshMessages(), get().refreshTopic()]);
       }
     }

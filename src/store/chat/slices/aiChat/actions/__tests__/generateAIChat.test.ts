@@ -1813,6 +1813,106 @@ describe('chatMessage actions', () => {
       );
     });
 
+    it('persists the finalization even when the user navigated to another topic mid-stream', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish }) => {
+          // the user switches to another topic while the reply is streaming
+          useChatStore.setState({ activeTopicId: 'other-topic' });
+          await onFinish?.(TEST_CONTENT.AI_RESPONSE, {} as any);
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.updateMessage).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.objectContaining({ content: TEST_CONTENT.AI_RESPONSE }),
+        expect.anything(),
+      );
+    });
+
+    it('does not persist the finalization after the account switched mid-stream', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish }) => {
+          useUserStore.setState({ ownershipInvalidationGeneration: 1 });
+          await onFinish?.(TEST_CONTENT.AI_RESPONSE, {} as any);
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.updateMessage).not.toHaveBeenCalled();
+    });
+
+    it('persists partial content when an interrupted turn already streamed text', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onAbort }) => {
+          await onAbort?.('partial answer');
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.updateMessage).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.objectContaining({ content: 'partial answer' }),
+      );
+      expect(messageService.removeMessage).not.toHaveBeenCalled();
+    });
+
+    it('removes the placeholder when an interrupted turn streamed nothing', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onAbort }) => {
+          await onAbort?.('');
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.removeMessage).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      expect(messageService.updateMessage).not.toHaveBeenCalled();
+    });
+
     it('clears all stream loading indicators when finalization throws', async () => {
       const messages = [createMockMessage({ role: 'user' })];
       const toggleChatLoading = vi.fn().mockReturnValue(new AbortController());
