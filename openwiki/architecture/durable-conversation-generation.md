@@ -187,8 +187,11 @@ epoch (`session/topic:threadId|main`); **topic delete** bumps a **topic-scoped**
 tombstone that invalidates every lane in that topic. `cancelActiveDurableOpsInScope`
 lists active server operations via a quiet `listActive` call before detaching
 local attachments. Before that `listActive` await it also promotes every
-matching in-flight enqueue into the lane stop markers, so an operation that
-only becomes visible to the server after the snapshot is still fenced. Lane
+matching in-flight enqueue into the lane stop markers and tombstones every
+attached operation in scope under its own lane key, so an operation that only
+becomes visible to the server after the snapshot is still fenced — and an
+attached operation whose best-effort cancel fails or is lost cannot be
+reattached by a rediscovering sync. Lane
 stop markers record three fences per client lane key: cancelled operation ids,
 idempotency keys whose enqueue was still in flight at Stop time (tracked in
 `durableInFlightEnqueues` from send start until the response settles), and a
@@ -197,7 +200,13 @@ idempotency keys whose enqueue was still in flight at Stop time (tracked in
 in-flight enqueue with its **kind** — chat send/continue/regenerate, group
 supervisor/agent, translation, topic title, and memory compaction — and a lane
 Stop only fences chat-family entries, so pressing Stop on a reply never
-suppresses a concurrent title, translation, or compaction enqueue. Server lane
+suppresses a concurrent title, translation, or compaction enqueue. Memory
+compaction checks `isCurrentRequest()` immediately after its conversation
+version lookup — before registering its in-flight key — so a destructive
+clear/delete landing during that await prevents the enqueue entirely; if the
+destructive action lands during the enqueue await instead, the tombstone
+collects the tracked key and the post-enqueue stale path cancels the returned
+operation eagerly. Server lane
 generations are independent per
 lane (main vs portal thread vs group agent), so cutoffs are never projected as a
 single scalar onto a thread or topic key: a lane Stop writes only its own lane

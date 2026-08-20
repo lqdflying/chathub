@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
-import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import {
+  conversationGenerationService,
+  tryEnqueueConversationGeneration,
+} from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import { agentChatConfigSelectors, agentSelectors } from '@/store/agent/selectors';
@@ -28,13 +31,17 @@ vi.mock('@/helpers/durableConversationGeneration', () => ({
   isClientDurableConversationGenerationEnabled: vi.fn(() => durableMocks.enabled),
 }));
 vi.mock('@/services/conversationGeneration', () => ({
+  conversationGenerationService: {
+    cancel: vi.fn(async () => ({})),
+    listActive: vi.fn(async () => []),
+  },
   tryEnqueueConversationGeneration: vi.fn(),
 }));
 vi.mock('@/services/message', () => ({
-  messageService: { getConversationVersion: vi.fn() },
+  messageService: { getConversationVersion: vi.fn(), removeMessagesByAssistant: vi.fn() },
 }));
 vi.mock('@/services/topic', () => ({
-  topicService: { updateTopic: vi.fn() },
+  topicService: { removeTopic: vi.fn(), updateTopic: vi.fn() },
 }));
 vi.mock('@/utils/tokenizer', () => ({
   encodeAsync: vi.fn(async (text: string) => text.length),
@@ -193,6 +200,80 @@ describe('chat memory actions', () => {
     );
     expect(chatService.fetchPresetTaskResult).not.toHaveBeenCalled();
     expect(topicService.updateTopic).not.toHaveBeenCalled();
+  });
+
+  it('never enqueues when a destructive clear lands during the version lookup', async () => {
+    durableMocks.enabled = true;
+    let resolveVersion!: (version: number) => void;
+    vi.mocked(messageService.getConversationVersion).mockImplementation(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveVersion = resolve;
+        }),
+    );
+    vi.spyOn(useChatStore.getState(), 'refreshMessages').mockResolvedValue(undefined);
+    vi.spyOn(useChatStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    vi.spyOn(useChatStore.getState(), 'switchTopic').mockImplementation(() => {});
+
+    const compactionPromise = useChatStore.getState().triggerManualMemoryCompaction();
+    await vi.waitFor(() => {
+      expect(messageService.getConversationVersion).toHaveBeenCalled();
+    });
+
+    // The destructive snapshot happens while the version lookup is pending:
+    // the compaction key is not registered yet, so only the post-await stale
+    // check can prevent the enqueue.
+    await useChatStore.getState().clearMessage();
+    resolveVersion(7);
+    const result = await compactionPromise;
+
+    expect(result).toEqual({ reason: 'stale_request', status: 'ineligible' });
+    expect(tryEnqueueConversationGeneration).not.toHaveBeenCalled();
+    expect(useChatStore.getState().durableInFlightEnqueues).toEqual({});
+  });
+
+  it('cancels the late operation when a destructive clear lands during the enqueue await', async () => {
+    durableMocks.enabled = true;
+    let resolveEnqueue!: (operation: unknown) => void;
+    vi.mocked(tryEnqueueConversationGeneration).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEnqueue = resolve;
+        }),
+    );
+    vi.spyOn(useChatStore.getState(), 'refreshMessages').mockResolvedValue(undefined);
+    vi.spyOn(useChatStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    vi.spyOn(useChatStore.getState(), 'switchTopic').mockImplementation(() => {});
+    const attach = vi
+      .spyOn(useChatStore.getState(), 'attachConversationGeneration')
+      .mockImplementation(vi.fn());
+
+    const compactionPromise = useChatStore.getState().triggerManualMemoryCompaction();
+    await vi.waitFor(() => {
+      expect(tryEnqueueConversationGeneration).toHaveBeenCalled();
+    });
+
+    // The clear tombstone collects the tracked in-flight key; when the enqueue
+    // resolves afterwards, the stale path must cancel the orphaned operation.
+    await useChatStore.getState().clearMessage();
+    resolveEnqueue({
+      attempt: 0,
+      config: { model: 'summary-model', provider: 'summary-provider' },
+      id: 'operation-late',
+      kind: 'memory_compaction',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: TOPIC_ID,
+      userId: 'user-1',
+    });
+    const result = await compactionPromise;
+
+    expect(result).toEqual({ reason: 'stale_request', status: 'ineligible' });
+    expect(conversationGenerationService.cancel).toHaveBeenCalledWith('operation-late');
+    expect(attach).not.toHaveBeenCalled();
+    expect(useChatStore.getState().durableInFlightEnqueues).toEqual({});
   });
 
   it('does not compact below the configured high watermark', async () => {

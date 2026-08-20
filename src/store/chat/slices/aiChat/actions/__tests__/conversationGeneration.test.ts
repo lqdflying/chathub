@@ -508,6 +508,64 @@ describe('conversationGeneration store actions', () => {
     expect(cancel).not.toHaveBeenCalledWith('cgo_agent');
   });
 
+  it('tombstones an attached supervisor operation so a failed cancel cannot reattach via sync', async () => {
+    const cancel = vi
+      .spyOn(conversationGenerationService, 'cancel')
+      .mockRejectedValue(new Error('cancel lost'));
+    const listActive = vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValue([]);
+    const { result } = renderHook(() => useChatStore());
+    const topicKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+    const laneKey = `${topicKey}:main`;
+
+    await act(async () => {
+      result.current.attachConversationGeneration({
+        clearGeneration: 0,
+        generation: 0,
+        groupId: 'group-1',
+        kind: 'group_supervisor',
+        lane: 'lane-supervisor',
+        laneGeneration: 3,
+        operationId: 'cgo_supervisor',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        userScope: 'current',
+      });
+      await result.current.stopDurableConversationGeneration({ kind: 'group_supervisor' });
+    });
+
+    // The attached operation is tombstoned even though its cancel failed.
+    expect(
+      useChatStore.getState().conversationLaneStopMarkers[laneKey]?.stoppedOperationIds,
+    ).toContain('cgo_supervisor');
+    expect(
+      useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_supervisor,
+    ).toBeUndefined();
+
+    // A later sync rediscovers the still-processing supervisor operation: the
+    // marker fences it, sync re-cancels, and it is never reattached.
+    listActive.mockResolvedValue([
+      {
+        id: 'cgo_supervisor',
+        idempotencyKey: 'group-supervisor:group-1:3',
+        kind: 'group_supervisor',
+        lane: 'lane-supervisor',
+        laneGeneration: 3,
+        sessionId: TEST_IDS.SESSION_ID,
+        status: 'processing',
+        topicId: TEST_IDS.TOPIC_ID,
+      },
+    ] as any);
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(cancel).toHaveBeenCalledWith('cgo_supervisor');
+    expect(
+      useChatStore.getState().serverGenerationOperations[topicKey]?.cgo_supervisor,
+    ).toBeUndefined();
+  });
+
   it('cancels only durable operations whose assistant message is being deleted', async () => {
     const cancel = vi.spyOn(conversationGenerationService, 'cancel').mockResolvedValue({} as any);
     const { result } = renderHook(() => useChatStore());

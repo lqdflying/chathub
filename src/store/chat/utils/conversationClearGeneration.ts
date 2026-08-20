@@ -7,6 +7,11 @@ import type { ChatStore } from '@/store/chat/store';
 
 import { messageMapKey } from './messageMapKey';
 
+type AttachedOperationRef = Pick<
+  ChatStore['serverGenerationOperations'][string][string],
+  'lane' | 'laneGeneration' | 'operationId' | 'sessionId' | 'threadId' | 'topicId'
+>;
+
 export interface ConversationLaneStopMarker {
   /**
    * Per-server-lane generation cutoffs: server `operation.lane` -> max stopped
@@ -295,6 +300,36 @@ export const recordStoppedDurableOperationsInMarkers = (
       operations,
     ),
   };
+};
+
+/**
+ * Tombstones already-attached operations in a cancellation scope, each under
+ * its own lane key. A best-effort cancel that fails or is lost must not let a
+ * rediscovering sync reattach the operation — the marker fences it by id and
+ * lane cutoff. Callers filter the operations to their scope first.
+ */
+export const recordAttachedOperationsStopped = (
+  state: LaneStopMarkerState,
+  operations: Array<Pick<AttachedOperationRef, 'operationId'> & Partial<AttachedOperationRef>>,
+): LaneStopMarkerState => {
+  let conversationLaneStopMarkers = state.conversationLaneStopMarkers;
+
+  for (const operation of operations) {
+    if (!operation.sessionId) continue;
+    conversationLaneStopMarkers = applyStoppedOperationsToMarkerKey(
+      conversationLaneStopMarkers,
+      laneScopedClearKey(operation.sessionId, operation.topicId, operation.threadId ?? null),
+      [
+        {
+          lane: operation.lane,
+          laneGeneration: operation.laneGeneration,
+          operationId: operation.operationId,
+        },
+      ],
+    );
+  }
+
+  return { conversationLaneStopMarkers };
 };
 
 /**

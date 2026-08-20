@@ -22,7 +22,10 @@ import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableC
 import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
-import { tryEnqueueConversationGeneration } from '@/services/conversationGeneration';
+import {
+  conversationGenerationService,
+  tryEnqueueConversationGeneration,
+} from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
 import {
@@ -311,6 +314,12 @@ async function runCompactionFromStore(
     chatProvider
   ) {
     const expectedConversationVersion = await messageService.getConversationVersion();
+    // A destructive clear/delete may have installed its tombstone while the
+    // version lookup was pending — bail before registering the in-flight key so
+    // the enqueue never happens after the fence snapshot.
+    if (!isCurrentRequest()) {
+      return compactionResult('ineligible', { reason: 'stale_request' });
+    }
     const compactionFingerprint = createCompactionFingerprint({
       cursorId: topic.metadata?.historySummaryLastMessageId,
       messages: candidateMessages,
@@ -368,6 +377,12 @@ async function runCompactionFromStore(
       );
     }
     if (!isCurrentRequest()) {
+      // A destructive action landed during the enqueue await. Its tombstone
+      // collected the tracked key, but cancel the returned operation eagerly as
+      // a second guard instead of leaving a live server job behind.
+      if (operation) {
+        await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+      }
       return compactionResult('ineligible', { reason: 'stale_request' });
     }
     if (operation) {

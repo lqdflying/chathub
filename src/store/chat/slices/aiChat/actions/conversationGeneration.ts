@@ -16,6 +16,7 @@ import {
   isConversationLaneDurableGenerationStopped,
   isConversationTopicDurableGenerationStopped,
   isDurableIdempotencyKeyStopped,
+  recordAttachedOperationsStopped,
   recordInFlightEnqueuesForScope,
   recordStoppedDurableOperationsInMarkers,
   resolveConversationClearGeneration,
@@ -399,12 +400,14 @@ export const conversationGeneration: StateCreator<
 
   cancelActiveDurableOpsInScope: async (options) => {
     const state = get();
-    // Fence in-flight enqueues matching the scope BEFORE the first await: their
-    // server operations are invisible to the listActive snapshot below, so the
-    // marker is the only fence sync can use when they appear later.
+    // Fence in-flight enqueues AND already-attached operations matching the
+    // scope BEFORE the first await. In-flight server operations are invisible
+    // to the listActive snapshot below, and an attached operation whose
+    // best-effort cancel fails or is lost must stay fenced so a rediscovering
+    // sync cannot reattach it.
     set(
-      (current) =>
-        recordInFlightEnqueuesForScope(current, {
+      (current) => {
+        const withInFlight = recordInFlightEnqueuesForScope(current, {
           allConversations: options?.allConversations,
           allThreads: options?.allThreads,
           kinds: options?.kind
@@ -422,9 +425,18 @@ export const conversationGeneration: StateCreator<
           topicId: options?.allConversations
             ? undefined
             : (options?.topicId ?? state.activeTopicId ?? null),
-        }),
+        });
+        const attachedInScope = Object.values(current.serverGenerationOperations)
+          .flatMap((items) => Object.values(items))
+          .filter((operation) => matchesOperationScope(operation, options, current));
+
+        return recordAttachedOperationsStopped(
+          { conversationLaneStopMarkers: withInFlight.conversationLaneStopMarkers },
+          attachedInScope,
+        );
+      },
       false,
-      n('cancelActive/fenceInFlightEnqueues'),
+      n('cancelActive/fenceScopedOperations'),
     );
     try {
       const activeOps = (await conversationGenerationService.listActive({
