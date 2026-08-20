@@ -742,39 +742,48 @@ export const conversationGeneration: StateCreator<
     }
     if (detachedTerminal) {
       await Promise.all([get().refreshMessages(), get().refreshTopic()]);
-    } else {
-      const visibleMessages = get().messagesMap[conversationKeyFor(activeId, activeTopicId)] || [];
-      const attachedAssistantIds = new Set(
-        attachedForCurrentLane
-          .map((operation) => operation.assistantMessageId)
-          .filter((id): id is string => !!id),
-      );
-      // A browser-run turn interrupted before producing content (Stop, closed
-      // tab, or a pre-fix client that dropped a finished reply) leaves a `...`
-      // row with no client loading id and no server operation, rendered as a
-      // dead empty bubble forever. Remove it once old enough that no live
-      // producer can still finalize it.
-      const orphanedPlaceholders = visibleMessages.filter(
-        (message) =>
-          message.role === 'assistant' &&
-          message.content === LOADING_FLAT &&
-          !get().chatLoadingIds.includes(message.id) &&
-          !attachedAssistantIds.has(message.id) &&
-          typeof message.createdAt === 'number' &&
-          Date.now() - message.createdAt > ORPHAN_PLACEHOLDER_GRACE_MS,
-      );
-      for (const placeholder of orphanedPlaceholders) {
-        await get()
-          .internal_deleteMessage(placeholder.id)
-          .catch(() => undefined);
-      }
+    }
+
+    // Orphan cleanup runs whether or not something detached: the dead row may
+    // belong to the turn whose local operation was just detached above. A
+    // browser-run turn interrupted before producing content (Stop, closed tab,
+    // or a pre-fix client that dropped a finished reply on navigation) leaves a
+    // `...` row with no live producer, rendered as a dead empty bubble forever.
+    // Remove it once old enough that no live producer can still finalize it.
+    const visibleMessages = get().messagesMap[conversationKeyFor(activeId, activeTopicId)] || [];
+    const attachedAssistantIds = new Set(
+      Object.values(
+        get().serverGenerationOperations[conversationKeyFor(activeId, activeTopicId)] || {},
+      )
+        .filter((operation) => (operation.threadId ?? null) === visibleThreadId)
+        .map((operation) => operation.assistantMessageId)
+        .filter((id): id is string => !!id),
+    );
+    const orphanedPlaceholders = visibleMessages.filter(
+      (message) =>
+        message.role === 'assistant' &&
+        message.content === LOADING_FLAT &&
+        // a row carrying tool calls is a mid-tool turn, not a dead placeholder
+        !(message.tools && message.tools.length > 0) &&
+        !get().chatLoadingIds.includes(message.id) &&
+        !get().messageInToolsCallingIds.includes(message.id) &&
+        !get().toolCallingStreamIds[message.id] &&
+        !attachedAssistantIds.has(message.id) &&
+        typeof message.createdAt === 'number' &&
+        Date.now() - message.createdAt > ORPHAN_PLACEHOLDER_GRACE_MS,
+    );
+    for (const placeholder of orphanedPlaceholders) {
+      await get()
+        .internal_deleteMessage(placeholder.id)
+        .catch(() => undefined);
+    }
+    if (orphanedPlaceholders.length > 0) {
+      await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+    } else if (!detachedTerminal) {
       const hasLoadingPlaceholder = visibleMessages.some(
         (message) => message.role === 'assistant' && message.content === LOADING_FLAT,
       );
-      if (
-        orphanedPlaceholders.length > 0 ||
-        (hasLoadingPlaceholder && activeOperationIds.size === 0)
-      ) {
+      if (hasLoadingPlaceholder && activeOperationIds.size === 0) {
         await Promise.all([get().refreshMessages(), get().refreshTopic()]);
       }
     }
