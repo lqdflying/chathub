@@ -189,6 +189,34 @@ export const generateToolCallId = (index: number, functionName?: string) =>
 
 const ERROR_CHUNK_PREFIX = '%FIRST_CHUNK_ERROR%: ';
 
+/**
+ * Provider factories throw plain `ChatCompletionErrorPayload` objects
+ * (`{ error, errorType, provider }`) rather than `Error` instances. The real
+ * upstream message lives in `error.message`, so without this synthesis every
+ * provider failure would surface as a generic fallback string.
+ */
+const resolveIteratorErrorMessage = (errorRecord: Record<string, unknown>): string => {
+  if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
+    return errorRecord.message;
+  }
+
+  const nestedError = errorRecord.error;
+  if (nestedError && typeof nestedError === 'object') {
+    const nestedMessage = (nestedError as Record<string, unknown>).message;
+    if (typeof nestedMessage === 'string' && nestedMessage.trim()) return nestedMessage;
+  }
+
+  if (errorRecord.errorType !== undefined && errorRecord.errorType !== null) {
+    const providerPrefix =
+      typeof errorRecord.provider === 'string' && errorRecord.provider
+        ? `${errorRecord.provider}: `
+        : '';
+    return `${providerPrefix}${String(errorRecord.errorType)}`;
+  }
+
+  return 'The upstream stream could not be opened.';
+};
+
 const enqueueIteratorError = <T>(
   controller: ReadableStreamDefaultController<T>,
   iteratorError: unknown,
@@ -206,10 +234,7 @@ const enqueueIteratorError = <T>(
       const errorRecord = iteratorError as Record<string, unknown>;
       return {
         ...errorRecord,
-        message:
-          typeof errorRecord.message === 'string'
-            ? errorRecord.message
-            : 'The upstream stream could not be opened.',
+        message: resolveIteratorErrorMessage(errorRecord),
         name: typeof errorRecord.name === 'string' ? errorRecord.name : 'ProviderStreamError',
       };
     }

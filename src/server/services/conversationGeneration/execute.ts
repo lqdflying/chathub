@@ -1120,7 +1120,10 @@ const runSimpleCompletion = async (
     }),
   );
   const result = await consumeProtocolResponse(response);
-  if (result.error) throw new Error(result.error.message);
+  if (result.error) {
+    const detail = result.error.type ? ` [${result.error.type}]` : '';
+    throw new Error(`${result.error.message}${detail}`);
+  }
   return result.content.trim();
 };
 
@@ -1160,6 +1163,17 @@ const executeTitle = async (
     sessionId: operation.sessionId ?? undefined,
     topicId,
   });
+  // Without scoped messages (e.g. the title operation runs before messages are
+  // bound to the topic) the summary prompt degrades to an empty user message,
+  // which strict providers reject with a 400 ("content must not be empty").
+  // Skip title generation instead of sending an invalid request.
+  const hasTranscript = messages.some(
+    (message) => typeof message.content === 'string' && message.content.trim().length > 0,
+  );
+  if (!hasTranscript) {
+    await finalizeUnlessStopped(db, model, operation, options?.runSignal, options?.skipFinalize);
+    return;
+  }
   const payload = chainSummaryTitle(messages, operation.config.locale || 'en-US');
   const title = await runSimpleCompletion(db, operation, payload, options?.runSignal);
   const stopAfter = await shouldStopGeneration(db, model, operation, options?.runSignal);

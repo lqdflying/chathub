@@ -1,5 +1,5 @@
 import type { ChatModelCard } from '@lobechat/types';
-import { repairOpenAIChatToolMessageSequence } from '@lobechat/utils';
+import { dropFullyEmptyMessages, repairOpenAIChatToolMessageSequence } from '@lobechat/utils';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import debug from 'debug';
@@ -319,7 +319,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           );
         })();
 
-        const repairedInputMessages = repairOpenAIChatToolMessageSequence(payload.messages);
+        const repairedInputMessages = dropFullyEmptyMessages(
+          repairOpenAIChatToolMessageSequence(payload.messages),
+        );
         let processedPayload: any = stripInternalChatPayloadFields({
           ...payload,
           messages: repairedInputMessages,
@@ -381,8 +383,8 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         delete chatCompletionPayload.openAICompatCache;
         delete chatCompletionPayload.openAICompatResponsesParams;
 
-        const repairedProviderMessages = repairOpenAIChatToolMessageSequence(
-          chatCompletionPayload.messages,
+        const repairedProviderMessages = dropFullyEmptyMessages(
+          repairOpenAIChatToolMessageSequence(chatCompletionPayload.messages),
         );
         const messages = repairOpenAIChatToolMessageSequence(
           await convertOpenAIMessages(repairedProviderMessages, this.id),
@@ -1081,7 +1083,9 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         : payload;
       const repairedResponsePayload = {
         ...providerResponsePayload,
-        messages: repairOpenAIChatToolMessageSequence(providerResponsePayload.messages),
+        messages: dropFullyEmptyMessages(
+          repairOpenAIChatToolMessageSequence(providerResponsePayload.messages),
+        ),
       };
       const { messages, reasoning_effort, tools, reasoning, responseMode, ...res } =
         repairedResponsePayload;

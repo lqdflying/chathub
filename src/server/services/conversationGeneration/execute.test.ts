@@ -54,6 +54,11 @@ const aiChatMocks = vi.hoisted(() => ({
   getMessagesAndTopics: vi.fn(),
 }));
 
+const topicMocks = vi.hoisted(() => ({
+  findById: vi.fn(),
+  update: vi.fn(),
+}));
+
 const runtimeMocks = vi.hoisted(() => ({
   chat: vi.fn(),
   generateObject: vi.fn(),
@@ -97,7 +102,12 @@ vi.mock('@/database/models/message', () => ({
   },
 }));
 vi.mock('@/database/models/thread', () => ({ ThreadModel: class { findById = vi.fn(); } }));
-vi.mock('@/database/models/topic', () => ({ TopicModel: class {} }));
+vi.mock('@/database/models/topic', () => ({
+  TopicModel: class {
+    findById = topicMocks.findById;
+    update = topicMocks.update;
+  },
+}));
 vi.mock('@/database/models/user', () => ({ UserModel: { findById: vi.fn() } }));
 vi.mock('@/database/models/chunk', () => ({ ChunkModel: class {} }));
 vi.mock('@/server/services/aiChat', () => ({
@@ -206,6 +216,8 @@ describe('executeConversationGeneration', () => {
     modelMocks.isSupersededByLaneGeneration.mockResolvedValue(false);
     modelMocks.touchHeartbeat.mockResolvedValue({ status: 'processing' });
     aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
+    topicMocks.findById.mockResolvedValue(undefined);
+    topicMocks.update.mockResolvedValue(undefined);
     messageMocks.findById.mockResolvedValue(undefined);
     messageMocks.update.mockResolvedValue(undefined);
     messageMocks.updateMetadata.mockResolvedValue(undefined);
@@ -375,12 +387,23 @@ describe('executeConversationGeneration', () => {
       userId: 'user-1',
     };
     const processing = { ...pending, attempt: 1, status: 'processing' };
-    modelMocks.findById.mockResolvedValueOnce(pending).mockResolvedValueOnce(processing);
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing)
+      .mockResolvedValueOnce(processing);
     modelMocks.claimForProcessing.mockResolvedValue(processing);
     modelMocks.markForRetry.mockResolvedValue({
       ...processing,
       revision: 2,
       status: 'pending',
+    });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: 'hello there', id: 'msg-user-1', role: 'user' }],
+      topics: [],
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: { message: 'upstream rejected the request', type: 'StreamChunkError' },
     });
 
     await expect(
@@ -420,12 +443,23 @@ describe('executeConversationGeneration', () => {
       userId: 'user-1',
     };
     const processing = { ...pending, attempt: 8, status: 'processing' };
-    modelMocks.findById.mockResolvedValueOnce(pending).mockResolvedValueOnce(processing);
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing)
+      .mockResolvedValueOnce(processing);
     modelMocks.claimForProcessing.mockResolvedValue(processing);
     modelMocks.finalizeActive.mockResolvedValue({
       ...processing,
       revision: 2,
       status: 'failed',
+    });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: 'hello there', id: 'msg-user-1', role: 'user' }],
+      topics: [],
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: { message: 'upstream rejected the request', type: 'StreamChunkError' },
     });
 
     await executeConversationGeneration({
@@ -440,6 +474,140 @@ describe('executeConversationGeneration', () => {
       'failed',
       expect.objectContaining({ type: 'GenerationError' }),
       { attempt: 8, laneGeneration: 1 },
+    );
+  });
+
+  it('skips title generation without calling the model when the scoped transcript is empty', async () => {
+    const pending = {
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
+      id: 'cgo_empty_title',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    const processing = { ...pending, attempt: 1, status: 'processing' };
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing)
+      .mockResolvedValueOnce(processing);
+    modelMocks.claimForProcessing.mockResolvedValue(processing);
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...processing,
+      revision: 3,
+      status: 'succeeded',
+    });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
+
+    await executeConversationGeneration({
+      db: {} as any,
+      operationId: pending.id,
+      userId: pending.userId,
+    });
+
+    expect(runtimeMocks.chat).not.toHaveBeenCalled();
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      pending.id,
+      'succeeded',
+      undefined,
+      { attempt: 1, laneGeneration: 1 },
+    );
+  });
+
+  it('skips title generation when scoped messages only contain blank content', async () => {
+    const pending = {
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
+      id: 'cgo_blank_title',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    const processing = { ...pending, attempt: 1, status: 'processing' };
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing)
+      .mockResolvedValueOnce(processing);
+    modelMocks.claimForProcessing.mockResolvedValue(processing);
+    modelMocks.finalizeActive.mockResolvedValue({
+      ...processing,
+      revision: 3,
+      status: 'succeeded',
+    });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: '   ', id: 'msg-user-1', role: 'user' }],
+      topics: [],
+    });
+
+    await executeConversationGeneration({
+      db: {} as any,
+      operationId: pending.id,
+      userId: pending.userId,
+    });
+
+    expect(runtimeMocks.chat).not.toHaveBeenCalled();
+    expect(modelMocks.markForRetry).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the upstream error type in the persisted title failure', async () => {
+    const pending = {
+      attempt: 0,
+      config: { model: 'test-model', provider: 'test-provider', title: { topicId: 'topic-1' } },
+      id: 'cgo_error_type',
+      kind: 'topic_title',
+      lane: 'lane-1',
+      laneGeneration: 1,
+      revision: 0,
+      status: 'pending',
+      topicId: 'topic-1',
+      userId: 'user-1',
+    };
+    const processing = { ...pending, attempt: 1, status: 'processing' };
+    modelMocks.findById
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(processing)
+      .mockResolvedValueOnce(processing);
+    modelMocks.claimForProcessing.mockResolvedValue(processing);
+    modelMocks.markForRetry.mockResolvedValue({
+      ...processing,
+      revision: 2,
+      status: 'pending',
+    });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: 'hello there', id: 'msg-user-1', role: 'user' }],
+      topics: [],
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({
+      content: '',
+      error: { message: "the message at position 1 with role 'user' must not be empty", type: 'InvalidRequestError' },
+    });
+
+    await expect(
+      executeConversationGeneration({
+        db: {} as any,
+        operationId: pending.id,
+        userId: pending.userId,
+      }),
+    ).rejects.toThrow("the message at position 1 with role 'user' must not be empty [InvalidRequestError]");
+
+    expect(modelMocks.markForRetry).toHaveBeenCalledWith(
+      pending.id,
+      expect.objectContaining({
+        message: "the message at position 1 with role 'user' must not be empty [InvalidRequestError]",
+        type: 'GenerationError',
+      }),
+      1,
     );
   });
 

@@ -495,6 +495,39 @@ describe('LobeOpenAICompatibleFactory', () => {
       expect(requestMessages.every((message) => !('parentId' in message))).toBe(true);
     });
 
+    it('should drop fully-empty messages before sending them upstream', async () => {
+      const createSpy = vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 1,
+          prompt_tokens: 1,
+          total_tokens: 2,
+        },
+      } as any);
+
+      await instance.chat({
+        messages: [
+          { content: 'system prompt', role: 'system' },
+          { content: '', role: 'user' },
+          { content: '   ', role: 'assistant' },
+          { content: 'real question', role: 'user' },
+        ] as any,
+        model: 'private-model-id',
+        responseMode: 'json',
+        stream: false,
+      });
+
+      const requestMessages = createSpy.mock.calls[0][0].messages as any[];
+      expect(requestMessages.map((message) => [message.role, message.content])).toEqual([
+        ['system', 'system prompt'],
+        ['user', 'real question'],
+      ]);
+    });
+
     it('should pass repaired messages and initialized diagnostics to custom clients', async () => {
       const createChatCompletionStream = vi.fn(() => new ReadableStream());
       const CustomClientRuntime = createOpenAICompatibleRuntime({

@@ -72,6 +72,47 @@ describe('createDeferredAsyncIterable', () => {
     expect(result.value).toContain('InvalidProviderAPIKey');
     expect(result.value).toContain('openaicompatible');
   });
+
+  it('surfaces the nested upstream message from a ChatCompletionErrorPayload', async () => {
+    const deferred = createDeferredAsyncIterable<string>(async () => {
+      throw {
+        endpoint: 'https://api.moonshot.cn/v1',
+        error: {
+          message: "Invalid request: the message at position 1 with role 'user' must not be empty",
+          type: 'invalid_request_error',
+        },
+        errorType: 'MoonshotBizError',
+        provider: 'moonshot',
+      };
+    });
+    const result = await convertIterableToStream(deferred).getReader().read();
+
+    expect(result.done).toBe(false);
+    expect(result.value).toContain('%FIRST_CHUNK_ERROR%:');
+    expect(result.value).toContain("role 'user' must not be empty");
+    expect(result.value).not.toContain('The upstream stream could not be opened.');
+  });
+
+  it('falls back to provider and errorType when no message is available', async () => {
+    const deferred = createDeferredAsyncIterable<string>(async () => {
+      throw { error: {}, errorType: 'NoOpenAIAPIKey', provider: 'openai' };
+    });
+    const result = await convertIterableToStream(deferred).getReader().read();
+
+    expect(result.done).toBe(false);
+    expect(result.value).toContain('openai: NoOpenAIAPIKey');
+    expect(result.value).not.toContain('The upstream stream could not be opened.');
+  });
+
+  it('keeps the generic fallback for payloads without any detail', async () => {
+    const deferred = createDeferredAsyncIterable<string>(async () => {
+      throw {};
+    });
+    const result = await convertIterableToStream(deferred).getReader().read();
+
+    expect(result.done).toBe(false);
+    expect(result.value).toContain('The upstream stream could not be opened.');
+  });
 });
 
 describe('createSSEDataExtractor', () => {

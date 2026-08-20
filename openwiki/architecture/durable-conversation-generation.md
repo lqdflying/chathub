@@ -418,6 +418,40 @@ Debug env vars are process-wide; the Docker overlay does not strip them.
 Browser-only switches (`NEXT_PUBLIC_CHATHUB_DEBUG`, `?replacement_debug=1`)
 are unchanged.
 
+## Troubleshooting
+
+### Empty title payload rejected by the provider
+
+Symptom: `topic_title` operations fail with a generic
+`The upstream stream could not be opened.` error, and the debug
+`requestPayload` shows a user message with `content: ""`.
+
+Root cause: `chainSummaryTitle` joins the scoped messages into one user
+message. When `loadScopedMessages` returns no rows (for example the title
+operation runs before messages are bound to the topic scope), the join
+produces an empty string. Strict providers reject the whole request on any
+empty message content — Moonshot returns 400 `invalid_request_error`
+("content must not be empty"); OpenAI and others behave the same.
+
+Three provider-agnostic defenses are in place:
+
+- `executeTitle` (`src/server/services/conversationGeneration/execute.ts`)
+  skips title generation and finalizes gracefully when no scoped message has
+  non-blank content, so no provider ever receives an empty conversation.
+- `dropFullyEmptyMessages` (`packages/utils/src/emptyChatMessages.ts`) is
+  applied in the shared OpenAI-compatible factory
+  (`packages/model-runtime/src/core/openaiCompatibleFactory/index.ts`) for
+  both Chat Completions and Responses modes. It drops a message only when its
+  role is `user`/`assistant`/`system`, it has no `tool_calls`, and its
+  content is empty; `tool` messages are always kept so tool_call/tool_result
+  pairing survives.
+- `enqueueIteratorError`
+  (`packages/model-runtime/src/core/streams/protocol.ts`) synthesizes the real
+  upstream message from a thrown `ChatCompletionErrorPayload`
+  (`error.message`, falling back to `provider: errorType`) instead of the
+  generic fallback, and `runSimpleCompletion` appends the error type to the
+  thrown message so persisted operation errors carry the upstream detail.
+
 ## Startup schema repair
 
 `ensureConversationGenerationOperations.cjs` runs after Drizzle migrations on
