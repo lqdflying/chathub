@@ -29,11 +29,7 @@ import type { ModelCacheSupportState } from '../../types/cacheDiagnostics';
 import { AgentRuntimeErrorType, ILobeAgentRuntimeErrorType } from '../../types/error';
 import { CreateImagePayload, CreateImageResponse } from '../../types/image';
 import { AgentRuntimeError } from '../../utils/createError';
-import {
-  createChunkDebugTap,
-  debugRequestPayload,
-  debugResponse,
-} from '../../utils/debugStream';
+import { createChunkDebugTap, debugRequestPayload, debugResponse } from '../../utils/debugStream';
 import { desensitizeUrl } from '../../utils/desensitizeUrl';
 import { getModelPropertyWithFallback } from '../../utils/getFallbackModelProperty';
 import { getModelPricing } from '../../utils/getModelPricing';
@@ -388,8 +384,14 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         const repairedProviderMessages = dropFullyEmptyMessages(
           repairOpenAIChatToolMessageSequence(chatCompletionPayload.messages),
         );
-        const messages = repairOpenAIChatToolMessageSequence(
-          await convertOpenAIMessages(repairedProviderMessages, this.id),
+        // Second drop pass on the converted (final) representation: conversion
+        // can strip semantic fields for some providers (e.g. `openaicompatible`
+        // drops `reasoning_content`), turning a kept turn into an empty message
+        // that strict providers reject with a 400.
+        const messages = dropFullyEmptyMessages(
+          repairOpenAIChatToolMessageSequence(
+            await convertOpenAIMessages(repairedProviderMessages, this.id),
+          ),
         );
         chatCompletionPayload.messages = repairedProviderMessages;
         const openAICompatCache =
@@ -783,10 +785,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           user: options?.user,
         };
         await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
-        const res = await this.client.chat.completions.create(
-          requestPayload,
-          { headers: options?.headers, signal: options?.signal },
-        );
+        const res = await this.client.chat.completions.create(requestPayload, {
+          headers: options?.headers,
+          signal: options?.signal,
+        });
 
         const toolCalls = res.choices[0].message.tool_calls!;
 
@@ -858,10 +860,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           user: options?.user,
         };
         await options?.onRequestPrepared?.(requestPayload, { apiMode: 'responses' });
-        const res = await this.client!.responses.create(
-          requestPayload,
-          { headers: options?.headers, signal: options?.signal },
-        );
+        const res = await this.client!.responses.create(requestPayload, {
+          headers: options?.headers,
+          signal: options?.signal,
+        });
 
         const text = res.output_text;
         log('received structured output from Responses API, length: %d', text?.length || 0);
@@ -887,10 +889,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         user: options?.user,
       };
       await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
-      const res = await this.client.chat.completions.create(
-        requestPayload,
-        { headers: options?.headers, signal: options?.signal },
-      );
+      const res = await this.client.chat.completions.create(requestPayload, {
+        headers: options?.headers,
+        signal: options?.signal,
+      });
       const text = res.choices[0].message.content!;
 
       log('received structured output from Chat Completions API, length: %d', text?.length || 0);
@@ -1509,10 +1511,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           user: options?.user,
         };
         await options?.onRequestPrepared?.(requestPayload, { apiMode: 'responses' });
-        const res = await this.client.responses.create(
-          requestPayload,
-          { headers: options?.headers, signal: options?.signal },
-        );
+        const res = await this.client.responses.create(requestPayload, {
+          headers: options?.headers,
+          signal: options?.signal,
+        });
 
         const functionCalls = res.output?.filter((item: any) => item.type === 'function_call');
 
@@ -1547,10 +1549,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         user: options?.user,
       };
       await options?.onRequestPrepared?.(requestPayload, { apiMode: 'chatCompletion' });
-      const res = await this.client.chat.completions.create(
-        requestPayload,
-        { headers: options?.headers, signal: options?.signal },
-      );
+      const res = await this.client.chat.completions.create(requestPayload, {
+        headers: options?.headers,
+        signal: options?.signal,
+      });
 
       const toolCalls = res.choices[0].message.tool_calls!;
 

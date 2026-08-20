@@ -456,28 +456,47 @@ Three defenses are in place:
   `executeTitle` in a guard: on any error it re-checks the stop state and, if
   still active, hands the title off to a fresh dedicated `topic_title`
   operation (`handoffInlineTitle`, idempotency key `<chatOpId>:title-handoff`,
-  inheriting model/provider/locale/thread/conversationVersion). A busy title
-  lane or enqueue failure is logged and the chat reply still succeeds.
+  inheriting model/provider/locale/thread/conversationVersion). The handoff is
+  **durable**, not best-effort: it enqueues through the public version-locked
+  path, and a `CONFLICT` is treated as "already covered" only after verifying
+  the active lane owner is itself a `topic_title` operation. Any other enqueue
+  failure persists a pending `topic_title` row with no worker job
+  (`persistPendingTitleMarker`), which the pending sweeper re-enqueues, so the
+  guaranteed title survives a failed inline enqueue. Only a cleared/advanced
+  conversation (`ConversationWriteRejectedError`) legitimately drops it. The
+  chat reply always succeeds regardless of the handoff outcome.
 - `dropFullyEmptyMessages` (`packages/utils/src/emptyChatMessages.ts`) is
   applied in the shared OpenAI-compatible factory
-  (`packages/model-runtime/src/core/openaiCompatibleFactory/index.ts`) for
-  both Chat Completions and Responses modes, but only **after** provider
-  normalization (`handlePayload`) so adapters have already translated
-  semantic fields. It drops a message only when its role is
-  `user`/`assistant`/`system`, it carries no semantic fields (`tool_calls`,
-  legacy `function_call`, `reasoning`/`reasoning_content`/`reasoning_details`),
-  and its content is empty; `tool` and `function` messages are always kept so
-  tool_call/tool_result and function_call/function pairing survive.
+  (`packages/model-runtime/src/core/openaiCompatibleFactory/index.ts`) for Chat
+  Completions, but only **after** provider normalization (`handlePayload`) so
+  adapters have already translated semantic fields. It drops a message only when
+  its role is `user`/`assistant`/`system`/`developer` (`developer` is the
+  o-series / GPT-5 rename of `system` applied by `pruneReasoningPayload`), it
+  carries no semantic fields (`tool_calls`, legacy `function_call`,
+  `reasoning`/`reasoning_content`/`reasoning_details`), and its content is
+  empty; `tool` and `function` messages are always kept so tool_call/tool_result
+  and function_call/function pairing survive. Because conversion can itself
+  strip semantic fields for some providers (e.g. `openaicompatible` drops
+  `reasoning_content`), the factory runs a second drop pass on the final
+  converted representation. Responses mode sanitizes separately in
+  `convertOpenAIResponseInputs`
+  (`packages/model-runtime/src/core/contextBuilders/openai.ts`), which drops
+  fully-empty textual input items after conversion but never drops
+  `function_call` / `function_call_output` items.
 - `enqueueIteratorError`
   (`packages/model-runtime/src/core/streams/protocol.ts`) synthesizes the real
   upstream message from a thrown `ChatCompletionErrorPayload`. Provider
   factories nest the message at varying depth (Moonshot `error.message`;
   OpenAI SDK `APIError` wraps it as `error.error.message`), so the resolver
   walks the nested `error` chain for the first non-empty string `message`,
-  falling back to `provider: errorType`. `runSimpleCompletion` appends the
-  error type to the thrown message only when it is not already present, so
-  persisted operation errors carry the upstream detail without double-encoding
-  the type.
+  falling back to `provider: errorType`. When a simple completion
+  (title/translation/compaction) fails upstream, `runSimpleCompletion` throws a
+  typed `UpstreamCompletionError` carrying the full structured stream error
+  (provider, errorType, HTTP status, raw body); `toError` persists that
+  structured body on the operation so operators can tell which upstream
+  rejected the request, not just the human-readable message. The message appends
+  the error type only when it is not already present, so persisted operation
+  errors carry the upstream detail without double-encoding the type.
 
 Product decision (resolved): when the scoped transcript is not yet loadable,
 durable auto-title is **guaranteed**, not best-effort. `executeTitle` throws a

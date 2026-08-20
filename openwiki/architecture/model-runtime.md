@@ -85,6 +85,26 @@ not ChatHub's terminal-event parser. ChatHub's SSE heartbeats keep only the
 downstream browser connection active and cannot extend the upstream provider
 request.
 
+### Responses input sanitation and legacy function calls
+
+`convertOpenAIResponseInputs`
+(`packages/model-runtime/src/core/contextBuilders/openai.ts`) translates Chat
+Completions history into Responses `input` items. Two guards keep the final
+Responses request well-formed:
+
+- Fully-empty textual items (an `EasyInputMessage` whose role is
+  `user`/`assistant`/`system`/`developer` and whose content is an empty string
+  or an empty part list) are dropped after conversion, because strict providers
+  reject a Responses request that contains an empty message. Items carrying
+  `function_call`, `function_call_output`, or reasoning are never dropped.
+- Legacy Chat Completions function calling (an assistant `function_call` plus
+  `function` result messages, which predate `tool_calls` and carry no call ids)
+  is translated into paired Responses `function_call` / `function_call_output`
+  items sharing a deterministic call id (`legacy_fc_N`, stable for the same
+  message sequence so prompt-cache prefixes are unaffected). Without this, a
+  legacy turn would serialize as an empty assistant item followed by a `user`
+  item, losing the call/result pairing.
+
 ### Fixed OpenAI-compatible catalog
 
 The `openaicompatible` provider intentionally uses a fixed, non-editable model list instead of exposing arbitrary model fetching. Its chat catalog clones `gpt-5.6-sol` and `gpt-5.5` from the native OpenAI model bank, preserves their option settings, and disables the native-search ability so search remains an explicit compatible-provider option. Both compatible chat cards override the native `1_050_000`-token context window with the shared `258_000`-token compatibility limit while retaining the `128_000` maximum output. The override is provider-scoped and therefore controls token estimates and automatic context-compaction watermarks only when the active provider is `openaicompatible`. Repository reads reapply the fixed context limit after merging saved model rows, so stale database values from older releases cannot restore the native window. `gpt-image-2` remains the fixed image model.

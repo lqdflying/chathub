@@ -56,9 +56,7 @@ export const convertOpenAIMessages = async (
         normalizedContent = rawContent;
       } else if (Array.isArray(rawContent)) {
         normalizedContent = await Promise.all(
-          rawContent.map((c) =>
-            convertMessageContent(c as OpenAI.ChatCompletionContentPart),
-          ),
+          rawContent.map((c) => convertMessageContent(c as OpenAI.ChatCompletionContentPart)),
         );
       } else {
         normalizedContent = rawContent;
@@ -158,6 +156,42 @@ async function toResponseInputContentAsync(
   ) as OpenAI.Responses.ResponseInputMessageContentList;
 }
 
+/**
+ * Responses easy-input messages are `{ role, content }` objects without a
+ * `type` field; every semantic item (`function_call`, `function_call_output`,
+ * `reasoning`) carries one. After conversion, a textual message whose content
+ * is blank must be dropped — strict Responses gateways reject empty input
+ * messages with a 400. This is the final-representation guard: it catches
+ * turns that only became empty during conversion (e.g. a reasoning-only
+ * assistant whose reasoning is intentionally not serialized for
+ * `openaicompatible`). Semantic items are never dropped here, so
+ * function-call/output pairing survives intact.
+ */
+const hasResponseMessageContent = (content: unknown): boolean => {
+  if (typeof content === 'string') return content.trim().length > 0;
+  if (Array.isArray(content)) {
+    return content.some((part) => {
+      if (!part || typeof part !== 'object') return false;
+      const record = part as Record<string, unknown>;
+      if (record.type === 'input_text' || record.type === 'text') {
+        return typeof record.text === 'string' && record.text.trim().length > 0;
+      }
+      // non-text parts (input_image, ...) still count as content
+      return typeof record.type === 'string';
+    });
+  }
+  return content !== null && content !== undefined;
+};
+
+const dropEmptyResponseInputItems = (
+  items: OpenAI.Responses.ResponseInputItem[],
+): OpenAI.Responses.ResponseInputItem[] =>
+  items.filter((item) => {
+    const record = item as Record<string, unknown>;
+    if (record.type !== undefined) return true;
+    return hasResponseMessageContent(record.content);
+  });
+
 export const convertOpenAIResponseInputs = async (
   messages: OpenAIChatMessage[],
   provider?: string,
@@ -166,6 +200,14 @@ export const convertOpenAIResponseInputs = async (
   // historical reasoning must not be serialized into the upstream `input` — it
   // perturbs the Responses cache prefix and strict gateways reject it.
   const skipReasoningContent = provider === 'openaicompatible';
+
+  // Legacy Chat Completions function calling predates `tool_calls` and carries
+  // no call ids. Translate each assistant `function_call` / `function` result
+  // pair into Responses `function_call` / `function_call_output` items sharing
+  // a deterministic call id (stable for the same message sequence, so prompt
+  // cache prefixes are unaffected).
+  const pendingLegacyFunctionCallIds: string[] = [];
+  let legacyFunctionCallCounter = 0;
 
   const groups = await Promise.all(
     messages.map(async (message): Promise<OpenAI.Responses.ResponseInputItem[]> => {
@@ -205,6 +247,48 @@ export const convertOpenAIResponseInputs = async (
         return items;
       }
 
+      // Legacy assistant function_call turn (no modern tool_calls). Emit a
+      // Responses function_call item and remember its call id for the matching
+      // `function` result message.
+      if (message.role === 'assistant' && message.function_call) {
+        const assistantText = toResponseAssistantTextContent(message.content);
+        if (assistantText.trim().length > 0) {
+          items.push({
+            content: assistantText,
+            role: 'assistant',
+          } as OpenAI.Responses.EasyInputMessage);
+        }
+
+        const legacyCall = message.function_call;
+        const callId = `legacy_fc_${legacyFunctionCallCounter++}`;
+        pendingLegacyFunctionCallIds.push(callId);
+        items.push({
+          arguments: legacyCall.arguments ?? '',
+          call_id: callId,
+          name: legacyCall.name ?? 'unknown_function',
+          type: 'function_call',
+        });
+
+        return items;
+      }
+
+      // Legacy function result message: pair it with the nearest preceding
+      // legacy function_call item.
+      if (message.role === 'function') {
+        const callId =
+          pendingLegacyFunctionCallIds.shift() ?? `legacy_fc_${legacyFunctionCallCounter++}`;
+        items.push({
+          call_id: callId,
+          output:
+            typeof message.content === 'string'
+              ? message.content
+              : JSON.stringify(message.content ?? ''),
+          type: 'function_call_output',
+        } as OpenAI.Responses.ResponseFunctionToolCallOutputItem);
+
+        return items;
+      }
+
       if (message.role === 'tool') {
         items.push({
           call_id: message.tool_call_id,
@@ -216,6 +300,17 @@ export const convertOpenAIResponseInputs = async (
       }
 
       if (message.role === 'system') {
+        items.push({
+          content: message.content,
+          role: 'developer',
+        } as OpenAI.Responses.EasyInputMessage);
+        return items;
+      }
+
+      // `developer` is the o-series / gpt-5 system role produced by
+      // `pruneReasoningPayload`; Responses understands it natively. Without
+      // this branch it would fall through to the user default below.
+      if (message.role === 'developer') {
         items.push({
           content: message.content,
           role: 'developer',
@@ -243,7 +338,7 @@ export const convertOpenAIResponseInputs = async (
     }),
   );
 
-  return groups.flat();
+  return dropEmptyResponseInputItems(groups.flat());
 };
 
 export const pruneReasoningPayload = (payload: ChatStreamPayload) => {

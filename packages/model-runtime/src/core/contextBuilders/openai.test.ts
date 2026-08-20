@@ -672,6 +672,172 @@ describe('convertOpenAIResponseInputs', () => {
     expect((result[1] as any).tool_calls).toBeUndefined();
     expect((result[1] as any).reasoning).toBeUndefined();
   });
+
+  it('should drop fully-empty textual items from the final Responses input', async () => {
+    // Regression (P1): blank system turns renamed to `developer` by
+    // `pruneReasoningPayload` (gpt-5-mini) and blank user turns used to
+    // serialize as empty input messages, which strict Responses gateways
+    // reject with a 400. The final representation must contain no empty
+    // textual items.
+    const messages: OpenAIChatMessage[] = [
+      { content: '', role: 'developer' } as any,
+      { content: '   ', role: 'user' },
+      { content: '', role: 'assistant' },
+      { content: 'hi', role: 'user' },
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([{ content: 'hi', role: 'user' }]);
+  });
+
+  it('should drop a reasoning-only assistant whose reasoning is not serialized (openaicompatible)', async () => {
+    // Regression (P1): the pre-conversion filter keeps a reasoning-only
+    // assistant turn, but `openaicompatible` intentionally strips historical
+    // reasoning — the turn would serialize as an empty assistant message.
+    const messages: OpenAIChatMessage[] = [
+      { content: 'q', role: 'user' },
+      { content: '', reasoning: { content: 'thinking' }, role: 'assistant' },
+      { content: 'next', role: 'user' },
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages, 'openaicompatible');
+
+    expect(result).toEqual([
+      { content: 'q', role: 'user' },
+      { content: 'next', role: 'user' },
+    ]);
+  });
+
+  it('should keep the reasoning item and drop the empty assistant shell for reasoning-serializing providers', async () => {
+    const messages: OpenAIChatMessage[] = [
+      { content: 'q', role: 'user' },
+      { content: '', reasoning: { content: 'thinking' }, role: 'assistant' },
+      { content: 'next', role: 'user' },
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages, 'openai');
+
+    expect(result).toEqual([
+      { content: 'q', role: 'user' },
+      { summary: [{ text: 'thinking', type: 'summary_text' }], type: 'reasoning' },
+      { content: 'next', role: 'user' },
+    ]);
+  });
+
+  it('should translate legacy function_call/function pairs into paired Responses items', async () => {
+    // Regression: legacy Chat Completions function calling used to fall
+    // through to an empty assistant item plus a user item, losing the
+    // call/result relationship and tripping empty-message validation.
+    const messages: OpenAIChatMessage[] = [
+      { content: 'q', role: 'user' },
+      {
+        content: '',
+        function_call: { arguments: '{"city":"SF"}', name: 'get_weather' },
+        role: 'assistant',
+      } as any,
+      { content: 'sunny', name: 'get_weather', role: 'function' } as any,
+      { content: 'next', role: 'user' },
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toHaveLength(4);
+    expect(result[0]).toEqual({ content: 'q', role: 'user' });
+    expect(result[1]).toMatchObject({
+      arguments: '{"city":"SF"}',
+      name: 'get_weather',
+      type: 'function_call',
+    });
+    const callId = (result[1] as any).call_id;
+    expect(typeof callId).toBe('string');
+    expect(callId.length).toBeGreaterThan(0);
+    expect(result[2]).toEqual({ call_id: callId, output: 'sunny', type: 'function_call_output' });
+    expect(result[3]).toEqual({ content: 'next', role: 'user' });
+    // No empty textual items may survive the conversion.
+    for (const item of result) {
+      const record = item as Record<string, unknown>;
+      if (record.type === undefined) {
+        expect(typeof record.content === 'string' && record.content.trim().length > 0).toBe(true);
+      }
+    }
+  });
+
+  it('should preserve assistant text before a legacy function_call item', async () => {
+    const messages: OpenAIChatMessage[] = [
+      {
+        content: 'Let me check the weather.',
+        function_call: { arguments: '{}', name: 'get_weather' },
+        role: 'assistant',
+      } as any,
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([
+      { content: 'Let me check the weather.', role: 'assistant' },
+      {
+        arguments: '{}',
+        call_id: (result[1] as any).call_id,
+        name: 'get_weather',
+        type: 'function_call',
+      },
+    ]);
+  });
+
+  it('should emit deterministic legacy call ids for the same message sequence', async () => {
+    // Prompt-cache prefixes must stay stable across identical replays.
+    const messages: OpenAIChatMessage[] = [
+      { content: 'q', role: 'user' },
+      {
+        content: '',
+        function_call: { arguments: '{}', name: 'a' },
+        role: 'assistant',
+      } as any,
+      { content: 'r1', role: 'function' } as any,
+      {
+        content: '',
+        function_call: { arguments: '{}', name: 'b' },
+        role: 'assistant',
+      } as any,
+      { content: 'r2', role: 'function' } as any,
+    ];
+
+    const first = await convertOpenAIResponseInputs(messages);
+    const second = await convertOpenAIResponseInputs(messages);
+
+    expect(second).toEqual(first);
+    const callIds = first
+      .filter((item) => (item as any).type === 'function_call')
+      .map((item) => (item as any).call_id);
+    expect(callIds).toHaveLength(2);
+    expect(new Set(callIds).size).toBe(2);
+    // Outputs pair with the nearest preceding legacy call, in order.
+    const outputs = first
+      .filter((item) => (item as any).type === 'function_call_output')
+      .map((item) => (item as any).call_id);
+    expect(outputs).toEqual(callIds);
+  });
+
+  it('should never drop function_call_output items even with empty output', async () => {
+    const messages: OpenAIChatMessage[] = [
+      {
+        content: '',
+        tool_calls: [
+          { id: 'call_1', type: 'function', function: { name: 'noop', arguments: '{}' } },
+        ],
+        role: 'assistant',
+      },
+      { content: '', role: 'tool', tool_call_id: 'call_1' },
+    ];
+
+    const result = await convertOpenAIResponseInputs(messages);
+
+    expect(result).toEqual([
+      { arguments: '{}', call_id: 'call_1', name: 'noop', type: 'function_call' },
+      { call_id: 'call_1', output: '', type: 'function_call_output' },
+    ]);
+  });
 });
 
 describe('convertImageUrlToFile', () => {

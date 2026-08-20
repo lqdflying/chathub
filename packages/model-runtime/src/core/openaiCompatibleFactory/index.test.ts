@@ -184,10 +184,9 @@ describe('LobeOpenAICompatibleFactory', () => {
         },
       );
 
-      expect(onRequestPrepared).toHaveBeenCalledWith(
-        createSpy.mock.calls[0][0],
-        { apiMode: 'chatCompletion' },
-      );
+      expect(onRequestPrepared).toHaveBeenCalledWith(createSpy.mock.calls[0][0], {
+        apiMode: 'chatCompletion',
+      });
       expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('headers');
       expect(onRequestPrepared.mock.calls[0][0]).not.toHaveProperty('signal');
       expect(createSpy.mock.calls[0][1]).toMatchObject({ signal });
@@ -567,6 +566,82 @@ describe('LobeOpenAICompatibleFactory', () => {
         arguments: '{"city":"Paris"}',
         name: 'get_weather',
       });
+    });
+
+    it('should drop empty developer messages from the final Chat Completions payload', async () => {
+      // Regression (P1): `pruneReasoningPayload` renames blank system turns to
+      // `developer` for gpt-5-mini class models; the final payload must not
+      // carry the empty turn upstream.
+      const createSpy = vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue({
+        choices: [],
+        created: 123,
+        id: 'private-response-id',
+        model: 'private-model-id',
+        object: 'chat.completion',
+        usage: {
+          completion_tokens: 1,
+          prompt_tokens: 1,
+          total_tokens: 2,
+        },
+      } as any);
+
+      await instance.chat({
+        messages: [
+          { content: '', role: 'developer' },
+          { content: 'hi', role: 'user' },
+        ] as any,
+        model: 'private-model-id',
+        responseMode: 'json',
+        stream: false,
+      });
+
+      const requestMessages = createSpy.mock.calls[0][0].messages as any[];
+      expect(requestMessages.map((message) => [message.role, message.content])).toEqual([
+        ['user', 'hi'],
+      ]);
+    });
+
+    it('should drop turns that only become empty during conversion (openaicompatible reasoning)', async () => {
+      // Regression (P1): the pre-conversion filter keeps a reasoning-only
+      // assistant turn, but `openaicompatible` strips `reasoning_content`
+      // during conversion. The second drop pass must remove the resulting
+      // empty assistant message instead of sending it upstream.
+      const LobeOpenAICompat = createOpenAICompatibleRuntime({
+        baseURL: 'https://api.test.com/v1',
+        provider: ModelProvider.OpenAICompatible,
+      });
+      const compatInstance = new LobeOpenAICompat({ apiKey: 'test' });
+      const createSpy = vi
+        .spyOn(compatInstance['client'].chat.completions, 'create')
+        .mockResolvedValue({
+          choices: [],
+          created: 123,
+          id: 'private-response-id',
+          model: 'private-model-id',
+          object: 'chat.completion',
+          usage: {
+            completion_tokens: 1,
+            prompt_tokens: 1,
+            total_tokens: 2,
+          },
+        } as any);
+
+      await compatInstance.chat({
+        messages: [
+          { content: 'q', role: 'user' },
+          { content: '', reasoning_content: 'thinking', role: 'assistant' },
+          { content: 'next', role: 'user' },
+        ] as any,
+        model: 'gpt-5.5',
+        responseMode: 'json',
+        stream: false,
+      });
+
+      const requestMessages = createSpy.mock.calls[0][0].messages as any[];
+      expect(requestMessages.map((message) => [message.role, message.content])).toEqual([
+        ['user', 'q'],
+        ['user', 'next'],
+      ]);
     });
 
     it('should pass repaired messages and initialized diagnostics to custom clients', async () => {
@@ -1575,6 +1650,130 @@ describe('LobeOpenAICompatibleFactory', () => {
             type: 'terminal_error',
           }),
         );
+      });
+
+      it('should not send empty textual items in the final Responses input', async () => {
+        // Regression (P1): a blank system turn renamed to `developer`
+        // (gpt-5.5 class) used to serialize as an empty user/developer input
+        // message, which strict Responses gateways reject with a 400.
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const createSpy = vi.spyOn(inst['client'].responses, 'create').mockResolvedValue({
+          created_at: 123,
+          error: null,
+          id: 'private-response-id',
+          object: 'response',
+          output: [],
+          status: 'completed',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        } as any);
+
+        const response = await inst.chat({
+          messages: [
+            { content: '', role: 'developer' },
+            { content: '   ', role: 'user' },
+            { content: 'hi', role: 'user' },
+          ] as any,
+          model: 'gpt-5.5',
+          responseMode: 'json',
+          stream: false,
+        });
+        await response.json();
+
+        const input = createSpy.mock.calls[0][0].input as any[];
+        expect(input).toEqual([{ content: 'hi', role: 'user' }]);
+      });
+
+      it('should pair legacy function_call history into Responses function items', async () => {
+        // Regression: legacy Chat Completions function calling used to become
+        // an empty assistant item followed by a user item in Responses mode.
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAI,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const createSpy = vi.spyOn(inst['client'].responses, 'create').mockResolvedValue({
+          created_at: 123,
+          error: null,
+          id: 'private-response-id',
+          object: 'response',
+          output: [],
+          status: 'completed',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        } as any);
+
+        const response = await inst.chat({
+          messages: [
+            { content: 'q', role: 'user' },
+            {
+              content: '',
+              function_call: { arguments: '{"city":"SF"}', name: 'get_weather' },
+              role: 'assistant',
+            },
+            { content: 'sunny', name: 'get_weather', role: 'function' },
+          ] as any,
+          model: 'gpt-5.5',
+          responseMode: 'json',
+          stream: false,
+        });
+        await response.json();
+
+        const input = createSpy.mock.calls[0][0].input as any[];
+        expect(input).toHaveLength(3);
+        expect(input[0]).toEqual({ content: 'q', role: 'user' });
+        expect(input[1]).toMatchObject({
+          arguments: '{"city":"SF"}',
+          name: 'get_weather',
+          type: 'function_call',
+        });
+        expect(input[2]).toEqual({
+          call_id: input[1].call_id,
+          output: 'sunny',
+          type: 'function_call_output',
+        });
+      });
+
+      it('should drop reasoning-only assistants from openaicompatible Responses input', async () => {
+        // Regression (P1): `openaicompatible` strips historical reasoning, so
+        // a reasoning-only turn must not survive as an empty assistant item.
+        const LobeMockProviderUseResponses = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: ModelProvider.OpenAICompatible,
+        });
+        const inst = new LobeMockProviderUseResponses({ apiKey: 'test' });
+        const createSpy = vi.spyOn(inst['client'].responses, 'create').mockResolvedValue({
+          created_at: 123,
+          error: null,
+          id: 'private-response-id',
+          object: 'response',
+          output: [],
+          status: 'completed',
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        } as any);
+
+        const response = await inst.chat({
+          messages: [
+            { content: 'q', role: 'user' },
+            { content: '', reasoning: { content: 'thinking' }, role: 'assistant' },
+            { content: 'next', role: 'user' },
+          ] as any,
+          model: 'gpt-5.5',
+          responseMode: 'json',
+          stream: false,
+        });
+        await response.json();
+
+        const input = createSpy.mock.calls[0][0].input as any[];
+        expect(input).toEqual([
+          { content: 'q', role: 'user' },
+          { content: 'next', role: 'user' },
+        ]);
       });
 
       it('should classify a Responses stream that closes without a terminal event', async () => {

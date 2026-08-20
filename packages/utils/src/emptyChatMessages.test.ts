@@ -14,6 +14,20 @@ describe('dropFullyEmptyMessages', () => {
     expect(dropFullyEmptyMessages(messages)).toEqual([{ content: 'hello', role: 'user' }]);
   });
 
+  it('drops empty developer messages (o-series / gpt-5 system rename)', () => {
+    const messages = [
+      { content: '', role: 'developer' },
+      { content: '   ', role: 'developer' },
+      { content: 'real instructions', role: 'developer' },
+      { content: 'hi', role: 'user' },
+    ];
+
+    expect(dropFullyEmptyMessages(messages)).toEqual([
+      { content: 'real instructions', role: 'developer' },
+      { content: 'hi', role: 'user' },
+    ]);
+  });
+
   it('keeps messages with non-empty string content', () => {
     const messages = [
       { content: 'a question', role: 'user' },

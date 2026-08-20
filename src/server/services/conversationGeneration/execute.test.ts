@@ -1,9 +1,15 @@
 /** @vitest-environment node */
+import { LOADING_FLAT } from '@lobechat/const';
+import { TRPCError } from '@trpc/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { LOADING_FLAT } from '@lobechat/const';
 import { UserModel } from '@/database/models/user';
-import { getConversationVersion } from '@/server/services/conversationWriteLock';
+import {
+  ConversationWriteRejectedError,
+  getConversationVersion,
+  withConversationWriteLockOrThrow,
+} from '@/server/services/conversationWriteLock';
+
 import {
   CONVERSATION_GENERATION_TURN_COMPLETE,
   excludeOwnedAssistantMessages,
@@ -15,15 +21,19 @@ import {
 } from './execute';
 import { buildConversationChatPayload } from './payload';
 import { consumeProtocolResponse } from './stream';
-import { executeConversationToolStep, resolveConversationToolHttpMcp } from './tools';
 import * as toolDiagnostics from './toolDiagnostics';
+import { executeConversationToolStep, resolveConversationToolHttpMcp } from './tools';
 
 const modelMocks = vi.hoisted(() => ({
   appendSupervisorChildMessageId: vi.fn(),
   bumpRevision: vi.fn(),
   claimForProcessing: vi.fn(),
+  create: vi.fn(),
   finalizeActive: vi.fn(),
+  findActiveByLane: vi.fn(),
   findById: vi.fn(),
+  findByIdempotencyKey: vi.fn(),
+  findMaxLaneGeneration: vi.fn(),
   insertEvent: vi.fn(),
   isSupersededByLaneGeneration: vi.fn(),
   markForRetry: vi.fn(),
@@ -65,11 +75,13 @@ const runtimeMocks = vi.hoisted(() => ({
 }));
 
 const serviceMocks = vi.hoisted(() => ({
+  enqueue: vi.fn(),
   enqueueInTransaction: vi.fn(),
 }));
 
 vi.mock('./service', () => ({
   ConversationGenerationService: class {
+    enqueue = serviceMocks.enqueue;
     enqueueInTransaction = serviceMocks.enqueueInTransaction;
   },
 }));
@@ -79,8 +91,12 @@ vi.mock('@/database/models/conversationGeneration', () => ({
     appendSupervisorChildMessageId = modelMocks.appendSupervisorChildMessageId;
     bumpRevision = modelMocks.bumpRevision;
     claimForProcessing = modelMocks.claimForProcessing;
+    create = modelMocks.create;
     finalizeActive = modelMocks.finalizeActive;
+    findActiveByLane = modelMocks.findActiveByLane;
     findById = modelMocks.findById;
+    findByIdempotencyKey = modelMocks.findByIdempotencyKey;
+    findMaxLaneGeneration = modelMocks.findMaxLaneGeneration;
     insertEvent = modelMocks.insertEvent;
     isSupersededByLaneGeneration = modelMocks.isSupersededByLaneGeneration;
     markForRetry = modelMocks.markForRetry;
@@ -111,7 +127,11 @@ vi.mock('@/database/models/message', () => ({
     updateMetadata = messageMocks.updateMetadata;
   },
 }));
-vi.mock('@/database/models/thread', () => ({ ThreadModel: class { findById = vi.fn(); } }));
+vi.mock('@/database/models/thread', () => ({
+  ThreadModel: class {
+    findById = vi.fn();
+  },
+}));
 vi.mock('@/database/models/topic', () => ({
   TopicModel: class {
     findById = topicMocks.findById;
@@ -204,7 +224,9 @@ describe('conversation generation workflow guards', () => {
     expect(resolveChatResumeAction({ content: 'done', tools: [{ id: 'call-1' }] })).toBe(
       'continue-tools',
     );
-    expect(resolveChatResumeAction({ content: 'checkpointed partial', tools: [] })).toBe('generate');
+    expect(resolveChatResumeAction({ content: 'checkpointed partial', tools: [] })).toBe(
+      'generate',
+    );
     expect(
       resolveChatResumeAction({
         content: 'final answer',
@@ -316,9 +338,7 @@ describe('executeConversationGeneration', () => {
 
   it('clears tracked supervisor children when cancelling before claim', async () => {
     const child = { content: LOADING_FLAT, id: 'child-pending' };
-    messageMocks.findById.mockImplementation(async (id) =>
-      id === child.id ? child : undefined,
-    );
+    messageMocks.findById.mockImplementation(async (id) => (id === child.id ? child : undefined));
     messageMocks.update.mockImplementation(async (id, value) => {
       if (id === child.id) Object.assign(child, value);
     });
@@ -611,7 +631,10 @@ describe('executeConversationGeneration', () => {
     });
     vi.mocked(consumeProtocolResponse).mockResolvedValue({
       content: '',
-      error: { message: "the message at position 1 with role 'user' must not be empty", type: 'InvalidRequestError' },
+      error: {
+        message: "the message at position 1 with role 'user' must not be empty",
+        type: 'InvalidRequestError',
+      },
     });
 
     await expect(
@@ -620,12 +643,15 @@ describe('executeConversationGeneration', () => {
         operationId: pending.id,
         userId: pending.userId,
       }),
-    ).rejects.toThrow("the message at position 1 with role 'user' must not be empty [InvalidRequestError]");
+    ).rejects.toThrow(
+      "the message at position 1 with role 'user' must not be empty [InvalidRequestError]",
+    );
 
     expect(modelMocks.markForRetry).toHaveBeenCalledWith(
       pending.id,
       expect.objectContaining({
-        message: "the message at position 1 with role 'user' must not be empty [InvalidRequestError]",
+        message:
+          "the message at position 1 with role 'user' must not be empty [InvalidRequestError]",
         type: 'GenerationError',
       }),
       1,
@@ -775,6 +801,21 @@ describe('executeConversationGeneration chat resume', () => {
     runtimeMocks.chat.mockResolvedValue(new Response());
   });
 
+  const buildOperation = (overrides: Record<string, unknown> = {}) => ({
+    assistantMessageId: assistant.id,
+    attempt: 0,
+    config: { model: 'test-model', provider: 'test-provider' },
+    id: 'cgo_test_operation',
+    kind: 'chat',
+    lane: 'lane-1',
+    laneGeneration: 1,
+    revision: 0,
+    sessionId: 'session-1',
+    status: 'pending',
+    userId: 'user-1',
+    ...overrides,
+  });
+
   it('does not treat a checkpointed partial as success and calls the model again', async () => {
     const row = {
       assistantMessageId: assistant.id,
@@ -875,7 +916,7 @@ describe('executeConversationGeneration chat resume', () => {
     // The title scope has no transcript yet (message-binding race).
     aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
     topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
-    serviceMocks.enqueueInTransaction.mockResolvedValue({ id: 'cgo_title_handoff' });
+    serviceMocks.enqueue.mockResolvedValue({ id: 'cgo_title_handoff' });
 
     await runOperation(row);
 
@@ -887,9 +928,8 @@ describe('executeConversationGeneration chat resume', () => {
       expect.objectContaining({ attempt: 1 }),
     );
     expect(modelMocks.markForRetry).not.toHaveBeenCalled();
-    // The title is handed off to a dedicated operation for bounded retry.
-    expect(serviceMocks.enqueueInTransaction).toHaveBeenCalledWith(
-      expect.anything(),
+    // The title is handed off through the public, version-locked enqueue path.
+    expect(serviceMocks.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
           model: 'test-model',
@@ -901,6 +941,175 @@ describe('executeConversationGeneration chat resume', () => {
         sessionId: 'session-1',
         topicId: 'topic-1',
       }),
+    );
+  });
+
+  it('persists a pending title marker when the handoff enqueue fails, so the sweeper retries it', async () => {
+    const row = buildOperation({
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        title: { force: true, topicId: 'topic-1' },
+      },
+      kind: 'chat',
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'the answer' });
+    // Empty transcript makes the inline title throw, triggering the handoff.
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    serviceMocks.enqueue.mockRejectedValueOnce(new Error('worker queue unavailable'));
+    vi.mocked(withConversationWriteLockOrThrow).mockImplementationOnce(
+      async (_db, _userId, callback) => callback({} as any),
+    );
+    modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
+
+    await runOperation(row);
+
+    // The chat reply still succeeds; the title must not be silently lost.
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.objectContaining({ attempt: 1 }),
+    );
+    // A durable pending marker is created so the pending sweeper re-enqueues it.
+    expect(modelMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: `${row.id}:title-handoff`,
+        kind: 'topic_title',
+        laneGeneration: 1,
+        topicId: 'topic-1',
+      }),
+    );
+  });
+
+  it('skips the handoff marker when a CONFLICT means an active topic_title already covers the lane', async () => {
+    const row = buildOperation({
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        title: { force: true, topicId: 'topic-1' },
+      },
+      kind: 'chat',
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'the answer' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    serviceMocks.enqueue.mockRejectedValueOnce(
+      new TRPCError({ code: 'CONFLICT', message: 'active operation exists' }),
+    );
+    modelMocks.findActiveByLane.mockResolvedValueOnce(buildOperation({ kind: 'topic_title' }));
+
+    await runOperation(row);
+
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.objectContaining({ attempt: 1 }),
+    );
+    // The title is already covered by an active operation: no marker needed.
+    expect(modelMocks.create).not.toHaveBeenCalled();
+  });
+
+  it('persists the handoff marker when a CONFLICT active operation is not a topic_title', async () => {
+    const row = buildOperation({
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        title: { force: true, topicId: 'topic-1' },
+      },
+      kind: 'chat',
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'the answer' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    serviceMocks.enqueue.mockRejectedValueOnce(
+      new TRPCError({ code: 'CONFLICT', message: 'active operation exists' }),
+    );
+    // First findActiveByLane call (CONFLICT verification) sees a non-title owner;
+    // the marker's own lane check then finds no active title operation.
+    modelMocks.findActiveByLane
+      .mockResolvedValueOnce(buildOperation({ kind: 'chat' }))
+      .mockResolvedValueOnce(undefined);
+    vi.mocked(withConversationWriteLockOrThrow).mockImplementationOnce(
+      async (_db, _userId, callback) => callback({} as any),
+    );
+    modelMocks.findMaxLaneGeneration.mockResolvedValue(0);
+
+    await runOperation(row);
+
+    expect(modelMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: `${row.id}:title-handoff`,
+        kind: 'topic_title',
+      }),
+    );
+  });
+
+  it('does not persist a handoff marker when the conversation was cleared', async () => {
+    const row = buildOperation({
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        title: { force: true, topicId: 'topic-1' },
+      },
+      kind: 'chat',
+    });
+    vi.mocked(consumeProtocolResponse).mockResolvedValue({ content: 'the answer' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    serviceMocks.enqueue.mockRejectedValueOnce(new ConversationWriteRejectedError());
+
+    await runOperation(row);
+
+    expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
+      row.id,
+      'succeeded',
+      undefined,
+      expect.objectContaining({ attempt: 1 }),
+    );
+    expect(modelMocks.create).not.toHaveBeenCalled();
+  });
+
+  it('preserves the structured upstream error body when a simple completion fails', async () => {
+    const upstreamError = {
+      body: { error: { status: 400 }, provider: 'moonshot' },
+      message: 'moonshot: empty message rejected',
+      type: 'ProviderBizError',
+    };
+    vi.mocked(consumeProtocolResponse).mockResolvedValueOnce({
+      content: '',
+      error: upstreamError,
+    });
+    // A topic_title operation exercises the runSimpleCompletion path.
+    const row = buildOperation({
+      assistantMessageId: undefined,
+      config: {
+        model: 'test-model',
+        provider: 'test-provider',
+        title: { force: true, topicId: 'topic-1' },
+      },
+      kind: 'topic_title',
+      topicId: 'topic-1',
+    });
+    topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
+    aiChatMocks.getMessagesAndTopics.mockResolvedValue({
+      messages: [{ content: 'hello there', id: 'msg-user-1', role: 'user' }],
+      topics: [],
+    });
+
+    // The retryable upstream failure is rethrown for Graphile backoff.
+    await expect(runOperation(row)).rejects.toThrow();
+
+    expect(modelMocks.markForRetry).toHaveBeenCalledWith(
+      row.id,
+      expect.objectContaining({
+        body: upstreamError.body,
+        message: 'moonshot: empty message rejected [ProviderBizError]',
+        type: 'GenerationError',
+      }),
+      1,
     );
   });
 
@@ -1334,8 +1543,9 @@ describe('executeConversationGeneration supervisor children', () => {
 
     await runOperation({ ...row, attempt: 8 });
 
-    const continuationConfig = vi.mocked(buildConversationChatPayload).mock.calls.at(-1)?.[0]
-      ?.config;
+    const continuationConfig = vi
+      .mocked(buildConversationChatPayload)
+      .mock.calls.at(-1)?.[0]?.config;
     expect(vi.mocked(buildConversationChatPayload).mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(continuationConfig).toMatchObject({
       model: 'member-model',
@@ -1641,9 +1851,7 @@ describe('executeConversationGeneration tool continuation ids', () => {
 
     expect(created[0]?.error).toMatchObject({ type: 'GenerationError' });
     expect(assistant.error).toBeUndefined();
-    expect(assistant.tools).toEqual([
-      expect.objectContaining({ id: 'call-1' }),
-    ]);
+    expect(assistant.tools).toEqual([expect.objectContaining({ id: 'call-1' })]);
     expect(modelMocks.finalizeActive).toHaveBeenCalledWith(
       row.id,
       'failed',

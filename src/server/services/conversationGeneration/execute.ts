@@ -13,12 +13,17 @@ import {
 import type {
   ChatToolPayload,
   ChatTopicMetadata,
+  ConversationGenerationEnqueueInput,
   ConversationGenerationError,
   ConversationGenerationOperation,
   ToolCacheDebugMetadata,
   UIChatMessage,
 } from '@lobechat/types';
-import { isActiveConversationGenerationStatus } from '@lobechat/types';
+import {
+  buildConversationGenerationLane,
+  isActiveConversationGenerationStatus,
+} from '@lobechat/types';
+import { TRPCError } from '@trpc/server';
 
 import { AgentModel } from '@/database/models/agent';
 import { ChatGroupModel } from '@/database/models/chatGroup';
@@ -78,8 +83,8 @@ import {
 import { loadConversationRuntimeState, resolveConversationRuntimePayload } from './credentials';
 import { buildConversationChatPayload } from './payload';
 import {
-  createConversationRuntimeChatOptions,
   type ConversationRuntimeChatOptionsInput,
+  createConversationRuntimeChatOptions,
 } from './runtimeChatOptions';
 import { ConversationGenerationService } from './service';
 import { consumeProtocolResponse } from './stream';
@@ -129,11 +134,45 @@ export const shouldGenerateConversationTitle = ({
   title?: string | null;
 }) => !isWelcomeQuestion && (Boolean(force) || !title?.trim());
 
-const toError = (error: unknown): ConversationGenerationError => ({
-  body: error instanceof Error ? { name: error.name } : undefined,
-  message: error instanceof Error ? error.message : String(error),
-  type: error instanceof ConversationWriteRejectedError ? 'ConversationCleared' : 'GenerationError',
-});
+const toError = (error: unknown): ConversationGenerationError => {
+  // Upstream completion failures carry the full structured stream error
+  // (provider, errorType, HTTP status, raw body); persist it so operators can
+  // tell which upstream rejected the request, not just the human message.
+  if (error instanceof UpstreamCompletionError) {
+    return {
+      body: error.upstream.body ?? { name: error.name },
+      message: error.message,
+      type: 'GenerationError',
+    };
+  }
+  return {
+    body: error instanceof Error ? { name: error.name } : undefined,
+    message: error instanceof Error ? error.message : String(error),
+    type:
+      error instanceof ConversationWriteRejectedError ? 'ConversationCleared' : 'GenerationError',
+  };
+};
+
+/**
+ * A simple completion (title / translation / compaction) failed upstream.
+ * Carries the complete structured stream error so `toError` can persist the
+ * provider, upstream error type, HTTP status, and raw body alongside the
+ * deduplicated human-readable message.
+ */
+export class UpstreamCompletionError extends Error {
+  readonly upstream: { body?: unknown; message: string; type: string };
+
+  constructor(upstream: { body?: unknown; message: string; type: string }) {
+    const { message, type } = upstream;
+    // When the stream resolver falls back to `provider: errorType`, the type
+    // is already embedded in the message; appending it again would
+    // double-encode it (e.g. `moonshot: ProviderBizError [ProviderBizError]`).
+    const detail = type && !message.includes(type) ? ` [${type}]` : '';
+    super(`${message}${detail}`);
+    this.name = 'UpstreamCompletionError';
+    this.upstream = upstream;
+  }
+}
 
 /**
  * The topic transcript is not loadable yet (usually the message-binding race).
@@ -249,12 +288,7 @@ export const executeConversationGeneration = async ({
       }
     }
   } catch (error) {
-    const stopReason = await shouldStopGeneration(
-      db,
-      model,
-      claimed,
-      runAbortController.signal,
-    );
+    const stopReason = await shouldStopGeneration(db, model, claimed, runAbortController.signal);
     if (stopReason) {
       await finalizeIfStopped(model, claimed, stopReason, db);
       if (stopReason === 'retrying') throw error;
@@ -364,12 +398,7 @@ const finalize = async (
 };
 
 type ConversationGenerationStopReason =
-  | 'cancelled'
-  | 'conversation_cleared'
-  | 'retrying'
-  | 'sibling_stop'
-  | 'superseded'
-  | 'terminal';
+  'cancelled' | 'conversation_cleared' | 'retrying' | 'sibling_stop' | 'superseded' | 'terminal';
 
 export type ConversationExecutionOutcome = {
   assistantMessageId?: string;
@@ -557,12 +586,17 @@ const executeChat = async (
       message: 'Conversation history was cleared before generation finished.',
       type: 'ConversationCleared',
     };
-    if (!options?.skipFinalize) await finalize(model, operation, 'interrupted', error, db, operation.assistantMessageId);
+    if (!options?.skipFinalize)
+      await finalize(model, operation, 'interrupted', error, db, operation.assistantMessageId);
     else {
       await clearUnfinishedPlaceholders(db, operation.userId, [operation.assistantMessageId]);
       await annotateAssistantError(db, operation.userId, operation.assistantMessageId, error);
     }
-    return { assistantMessageId: operation.assistantMessageId ?? undefined, error, status: 'interrupted' };
+    return {
+      assistantMessageId: operation.assistantMessageId ?? undefined,
+      error,
+      status: 'interrupted',
+    };
   }
 
   await updateOperation(model, operation, { phase: 'model' });
@@ -697,7 +731,8 @@ const executeChat = async (
         return finishChatStop(db, model, operation, assistantId, stopReason, options?.skipFinalize);
       }
 
-      const currentAssistant = (await messageModel.findById(assistantId)) as UIChatMessage | undefined;
+      const currentAssistant = (await messageModel.findById(assistantId)) as
+        UIChatMessage | undefined;
       const resumeAction = resolveChatResumeAction(currentAssistant);
       if (resumeAction === 'complete') break;
 
@@ -758,7 +793,8 @@ const executeChat = async (
             error: result.error as any,
             reasoning: result.reasoning ?? undefined,
           });
-          if (!options?.skipFinalize) await finalize(model, operation, 'failed', result.error, db, assistantId);
+          if (!options?.skipFinalize)
+            await finalize(model, operation, 'failed', result.error, db, assistantId);
           return { assistantMessageId: assistantId, error: result.error, status: 'failed' };
         }
 
@@ -803,7 +839,8 @@ const executeChat = async (
         phase: 'tools',
       });
 
-      const assistantMessage = ((await messageModel.findById(assistantId)) || currentAssistant) as UIChatMessage;
+      const assistantMessage = ((await messageModel.findById(assistantId)) ||
+        currentAssistant) as UIChatMessage;
       let shouldContinue = true;
       toolDiagnosticSequence += 1;
       const toolBatch = createConversationToolBatchCorrelation(
@@ -1067,7 +1104,10 @@ const injectRag = async (
         const resolved = await resolveRagEmbeddingConfig(db, operation.userId);
         if (!resolved.config || !resolved.fingerprint) return messages;
         const embeddings = await new RagEmbeddingService(resolved.config).embed(query, 'query');
-        const { chunks, stats } = await new ChunkModel(db, operation.userId).semanticSearchForChatWithStats({
+        const { chunks, stats } = await new ChunkModel(
+          db,
+          operation.userId,
+        ).semanticSearchForChatWithStats({
           embedding: embeddings[0],
           fileIds: fileIds.length > 0 ? fileIds : undefined,
           fingerprint: resolved.fingerprint,
@@ -1098,7 +1138,9 @@ const injectRag = async (
           phase: 'client_prompt_preparation',
         });
         return messages.map((item) =>
-          item.id === lastUser.id ? { ...item, content: `${item.content}\n\n${prompt}`.trim() } : item,
+          item.id === lastUser.id
+            ? { ...item, content: `${item.content}\n\n${prompt}`.trim() }
+            : item,
         );
       } catch (error) {
         logKnowledgeDebugSafe('retrieval_settled', {
@@ -1144,12 +1186,7 @@ const runSimpleCompletion = async (
   );
   const result = await consumeProtocolResponse(response);
   if (result.error) {
-    const { message, type } = result.error;
-    // When the stream resolver falls back to `provider: errorType`, the type is
-    // already embedded in the message; appending it again would double-encode it
-    // (e.g. `moonshot: ProviderBizError [ProviderBizError]`).
-    const detail = type && !message.includes(type) ? ` [${type}]` : '';
-    throw new Error(`${message}${detail}`);
+    throw new UpstreamCompletionError(result.error);
   }
   return result.content.trim();
 };
@@ -1158,8 +1195,14 @@ const runSimpleCompletion = async (
  * The inline title pass inside a chat operation must never fail or retry the
  * completed chat reply. When it cannot run (transcript race or provider error),
  * hand the title off to a dedicated `topic_title` operation whose own bounded
- * retry loop owns the title lifecycle. Best effort: a busy title lane or any
- * enqueue failure is logged and the chat reply still succeeds.
+ * retry loop owns the title lifecycle.
+ *
+ * The handoff is durable, not best-effort: it enqueues through the public,
+ * version-locked path so a cleared conversation is rejected rather than titled,
+ * and if that enqueue fails it persists a pending `topic_title` operation row
+ * (no worker job) that the 15s pending sweeper re-enqueues. The only outcomes
+ * are therefore a live title operation or a legitimately cleared conversation —
+ * never a silently dropped title.
  */
 const handoffInlineTitle = async (
   db: LobeChatDatabase,
@@ -1168,30 +1211,114 @@ const handoffInlineTitle = async (
 ) => {
   const topicId = operation.config.title?.topicId;
   if (!topicId) return;
+
+  const titleConfig = {
+    isWelcomeQuestion: operation.config.isWelcomeQuestion,
+    locale: operation.config.locale,
+    model: operation.config.model,
+    provider: operation.config.provider,
+    title: { force: operation.config.title?.force, topicId },
+  };
+  const input: ConversationGenerationEnqueueInput = {
+    config: titleConfig,
+    conversationVersion: operation.conversationVersion ?? undefined,
+    expectedConversationVersion: operation.conversationVersion ?? undefined,
+    idempotencyKey: `${operation.id}:title-handoff`,
+    kind: 'topic_title',
+    sessionId: operation.sessionId ?? undefined,
+    threadId: operation.threadId ?? undefined,
+    topicId,
+  };
+
   try {
-    await new ConversationGenerationService(db, operation.userId).enqueueInTransaction(db, {
-      config: {
-        isWelcomeQuestion: operation.config.isWelcomeQuestion,
-        locale: operation.config.locale,
-        model: operation.config.model,
-        provider: operation.config.provider,
-        title: { force: operation.config.title?.force, topicId },
-      },
-      conversationVersion: operation.conversationVersion ?? undefined,
-      idempotencyKey: `${operation.id}:title-handoff`,
-      kind: 'topic_title',
-      sessionId: operation.sessionId ?? undefined,
-      threadId: operation.threadId ?? undefined,
-      topicId,
-    });
-  } catch (handoffError) {
-    console.warn('[conversation-generation] inline title handoff skipped', {
-      error: error instanceof Error ? error.message : String(error),
-      handoffError: handoffError instanceof Error ? handoffError.message : String(handoffError),
-      operationId: operation.id,
-      topicId,
-    });
+    // Public path: tool check + credential resolution + version-locked write.
+    await new ConversationGenerationService(db, operation.userId).enqueue(input);
+    return; // a durable topic_title operation now owns the title
+  } catch (enqueueError) {
+    // The conversation was cleared/advanced while the chat ran: the transcript
+    // this title would summarize no longer belongs to a live conversation.
+    if (enqueueError instanceof ConversationWriteRejectedError) return;
+
+    // A generation already owns the title lane. That covers the title only if
+    // it is itself a topic_title operation; verify before treating it as done.
+    if (enqueueError instanceof TRPCError && enqueueError.code === 'CONFLICT') {
+      const lane = buildConversationGenerationLane({
+        kind: 'topic_title',
+        sessionId: operation.sessionId,
+        threadId: operation.threadId,
+        topicId,
+        userId: operation.userId,
+      });
+      const active = await new ConversationGenerationModel(db, operation.userId).findActiveByLane(
+        lane,
+      );
+      if (active && active.kind === 'topic_title') return;
+    }
+
+    // Any other failure must not silently drop the guaranteed title. Persist a
+    // pending operation row without a worker job; the pending sweeper
+    // re-enqueues it, so the title survives this enqueue failure.
+    try {
+      await persistPendingTitleMarker(db, operation, topicId, titleConfig);
+    } catch (markerError) {
+      if (markerError instanceof ConversationWriteRejectedError) return;
+      console.error('[conversation-generation] inline title handoff could not be made durable', {
+        enqueueError: enqueueError instanceof Error ? enqueueError.message : String(enqueueError),
+        error: error instanceof Error ? error.message : String(error),
+        markerError: markerError instanceof Error ? markerError.message : String(markerError),
+        operationId: operation.id,
+        topicId,
+      });
+    }
   }
+};
+
+/**
+ * Durable fallback for the inline title handoff: create a pending `topic_title`
+ * operation row with no worker job. The pending sweeper
+ * (`sweepPendingConversationGenerationJobs`) re-enqueues any pending operation
+ * missing a job, so the title survives a failed inline enqueue. Idempotent via
+ * the handoff idempotency key and the lane-active check.
+ */
+const persistPendingTitleMarker = async (
+  db: LobeChatDatabase,
+  operation: ConversationGenerationOperation,
+  topicId: string,
+  config: ConversationGenerationOperation['config'],
+) => {
+  const idempotencyKey = `${operation.id}:title-handoff`;
+  await withConversationWriteLockOrThrow(
+    db,
+    operation.userId,
+    async (transaction) => {
+      const model = new ConversationGenerationModel(transaction, operation.userId);
+      const existing = await model.findByIdempotencyKey(idempotencyKey);
+      if (existing) return; // already handed off
+      const lane = buildConversationGenerationLane({
+        kind: 'topic_title',
+        sessionId: operation.sessionId,
+        threadId: operation.threadId,
+        topicId,
+        userId: operation.userId,
+      });
+      const active = await model.findActiveByLane(lane);
+      if (active) return; // a title operation already owns the lane
+      const laneGeneration = (await model.findMaxLaneGeneration(lane)) + 1;
+      // `workerJobId` intentionally left null: the pending sweeper re-enqueues.
+      await model.create({
+        config,
+        conversationVersion: operation.conversationVersion ?? undefined,
+        idempotencyKey,
+        kind: 'topic_title',
+        lane,
+        laneGeneration,
+        sessionId: operation.sessionId,
+        threadId: operation.threadId,
+        topicId,
+      });
+    },
+    operation.conversationVersion ?? undefined,
+  );
 };
 
 const executeTitle = async (
@@ -1263,25 +1390,42 @@ const executeTranslation = async (
   const model = new ConversationGenerationModel(db, operation.userId);
   const translation = operation.config.translation;
   if (!translation) {
-    await finalize(model, operation, 'failed', {
-      message: 'Translation target is missing.',
-      type: 'InvalidOperation',
-    }, db);
+    await finalize(
+      model,
+      operation,
+      'failed',
+      {
+        message: 'Translation target is missing.',
+        type: 'InvalidOperation',
+      },
+      db,
+    );
     return;
   }
   await updateOperation(model, operation, { phase: 'translating' });
   const messageModel = new MessageModel(db, operation.userId);
   const message = await messageModel.findById(translation.messageId);
   if (!message?.content) {
-    await finalize(model, operation, 'failed', {
-      message: 'Source message was not found.',
-      type: 'InvalidOperation',
-    }, db);
+    await finalize(
+      model,
+      operation,
+      'failed',
+      {
+        message: 'Source message was not found.',
+        type: 'InvalidOperation',
+      },
+      db,
+    );
     return;
   }
   const from =
     translation.from ||
-    (await runSimpleCompletion(db, operation, chainLangDetect(message.content), options?.runSignal));
+    (await runSimpleCompletion(
+      db,
+      operation,
+      chainLangDetect(message.content),
+      options?.runSignal,
+    ));
   const content = await runSimpleCompletion(
     db,
     operation,
@@ -1313,10 +1457,16 @@ const executeTts = async (
   const model = new ConversationGenerationModel(db, operation.userId);
   const tts = operation.config.tts;
   if (!tts) {
-    await finalize(model, operation, 'failed', {
-      message: 'TTS target is missing.',
-      type: 'InvalidOperation',
-    }, db);
+    await finalize(
+      model,
+      operation,
+      'failed',
+      {
+        message: 'TTS target is missing.',
+        type: 'InvalidOperation',
+      },
+      db,
+    );
     return;
   }
   await updateOperation(model, operation, { phase: 'synthesizing' });
@@ -1337,11 +1487,17 @@ const executeCompaction = async (
   const model = new ConversationGenerationModel(db, operation.userId);
   const compaction = operation.config.compaction;
   if (!operation.topicId || operation.groupId || operation.threadId || !compaction) {
-    await finalize(model, operation, 'interrupted', {
-      message:
-        'Background compaction requires a planned regular-topic snapshot; the client must re-plan it.',
-      type: 'CompactionInvalidated',
-    }, db);
+    await finalize(
+      model,
+      operation,
+      'interrupted',
+      {
+        message:
+          'Background compaction requires a planned regular-topic snapshot; the client must re-plan it.',
+        type: 'CompactionInvalidated',
+      },
+      db,
+    );
     return;
   }
   await updateOperation(model, operation, { phase: 'compacting' });
@@ -1363,10 +1519,16 @@ const executeCompaction = async (
     candidateMessages.length !== compaction.candidateMessageIds.length ||
     initialFingerprint !== compaction.expectedFingerprint
   ) {
-    await finalize(model, operation, 'interrupted', {
-      message: 'Compaction input changed before summarization started.',
-      type: 'CompactionInvalidated',
-    }, db);
+    await finalize(
+      model,
+      operation,
+      'interrupted',
+      {
+        message: 'Compaction input changed before summarization started.',
+        type: 'CompactionInvalidated',
+      },
+      db,
+    );
     return;
   }
 
@@ -1447,10 +1609,16 @@ const executeCompaction = async (
     operation.conversationVersion ?? undefined,
   );
   if (!persisted) {
-    await finalize(model, operation, 'interrupted', {
-      message: 'Compaction input was invalidated before the summary could be persisted.',
-      type: 'CompactionInvalidated',
-    }, db);
+    await finalize(
+      model,
+      operation,
+      'interrupted',
+      {
+        message: 'Compaction input was invalidated before the summary could be persisted.',
+        type: 'CompactionInvalidated',
+      },
+      db,
+    );
     return;
   }
 
@@ -1530,10 +1698,16 @@ const executeSupervisor = async (
   const model = new ConversationGenerationModel(db, operation.userId);
   const groupId = operation.groupId;
   if (!groupId) {
-    await finalize(model, operation, 'failed', {
-      message: 'Group is missing for supervisor generation.',
-      type: 'InvalidOperation',
-    }, db);
+    await finalize(
+      model,
+      operation,
+      'failed',
+      {
+        message: 'Group is missing for supervisor generation.',
+        type: 'InvalidOperation',
+      },
+      db,
+    );
     return;
   }
 
@@ -1652,7 +1826,14 @@ const executeSupervisor = async (
 
   const runAgentDecision = async (
     child: {
-      agent: { id?: string | null; model?: string | null; plugins?: string[] | null; provider?: string | null; systemRole?: string | null; title?: string | null };
+      agent: {
+        id?: string | null;
+        model?: string | null;
+        plugins?: string[] | null;
+        provider?: string | null;
+        systemRole?: string | null;
+        title?: string | null;
+      };
       assistantId: string;
       decision: { id: string; instruction?: string; target?: string };
     },
@@ -1663,7 +1844,8 @@ const executeSupervisor = async (
     if (!agentId) return { status: 'succeeded' } as ConversationExecutionOutcome;
     const groupChatSystemPrompt = buildGroupChatSystemPrompt({
       agentId,
-      baseSystemRole: composeSystemRole(generalInstruction, child.agent.systemRole || undefined) || '',
+      baseSystemRole:
+        composeSystemRole(generalInstruction, child.agent.systemRole || undefined) || '',
       groupMembers: [
         { id: 'user', title: userName },
         ...availableAgents
@@ -1857,7 +2039,10 @@ const executeSupervisor = async (
       groupId,
       topicId: operation.topicId ?? undefined,
     });
-    if (round > 0 && shouldAvoidSupervisorDecision(messages, group?.config?.maxResponseInRow, false)) {
+    if (
+      round > 0 &&
+      shouldAvoidSupervisorDecision(messages, group?.config?.maxResponseInRow, false)
+    ) {
       break;
     }
 

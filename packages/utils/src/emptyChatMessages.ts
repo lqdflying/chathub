@@ -9,7 +9,10 @@ export interface EmptyChatMessageCandidate {
   tool_calls?: unknown[];
 }
 
-const DROPPABLE_EMPTY_ROLES = new Set(['assistant', 'system', 'user']);
+// `developer` is the o-series / gpt-5 rename of `system` applied by
+// `pruneReasoningPayload` before this filter runs; a blank one must be
+// droppable exactly like the role it replaced.
+const DROPPABLE_EMPTY_ROLES = new Set(['assistant', 'developer', 'system', 'user']);
 
 const hasMessageContent = (content: unknown): boolean => {
   if (typeof content === 'string') return content.trim().length > 0;
@@ -58,9 +61,9 @@ const hasSemanticFields = (message: EmptyChatMessageCandidate): boolean => {
  * Strict providers reject the whole request when any message carries no
  * content (Moonshot: 400 "content must not be empty"; OpenAI and others
  * behave the same). A message is dropped only when its role is
- * user/assistant/system, it carries no semantic fields (`tool_calls`,
- * `function_call`, `reasoning*`), and its content is empty — `tool`
- * messages are always kept so tool_call/tool_result pairing survives.
+ * user/assistant/system/developer, it carries no semantic fields
+ * (`tool_calls`, `function_call`, `reasoning*`), and its content is empty —
+ * `tool` messages are always kept so tool_call/tool_result pairing survives.
  *
  * Must run only after provider normalization (`handlePayload`), because
  * adapters translate semantic fields into their outbound schema first.

@@ -11,7 +11,7 @@ import type {
 } from './cacheDiagnostics';
 import { MessageToolCall, MessageToolCallChunk } from './toolsCalling';
 
-export type LLMRoleType = 'user' | 'system' | 'assistant' | 'function' | 'tool';
+export type LLMRoleType = 'user' | 'system' | 'developer' | 'assistant' | 'function' | 'tool';
 
 export type ChatResponseFormat =
   | { type: 'json_object' }
@@ -60,6 +60,8 @@ export type UserMessageContentPart =
 
 export interface OpenAIChatMessage {
   content: string | UserMessageContentPart[];
+  /** Legacy Chat Completions function calling (pre-`tool_calls`). */
+  function_call?: { arguments?: string; name?: string };
   name?: string;
   reasoning?: {
     content?: string;
