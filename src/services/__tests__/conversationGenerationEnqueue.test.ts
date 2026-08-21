@@ -131,6 +131,26 @@ describe('tryEnqueueConversationGeneration', () => {
     expect(byKey).not.toHaveBeenCalled();
   });
 
+  it('returns a structured deferral from a successful enqueue response', async () => {
+    vi.spyOn(conversationGenerationService, 'enqueue').mockResolvedValue({
+      deferred: true,
+      reason: 'unsupported_tool',
+      toolName: 'lobe-image-designer',
+    });
+
+    await expect(
+      tryEnqueueConversationGeneration({
+        config: { model: 'gpt-4o', provider: 'openai' } as any,
+        kind: 'chat',
+        sessionId: 's1',
+      }),
+    ).resolves.toEqual({
+      deferred: true,
+      reason: 'unsupported_tool',
+      toolName: 'lobe-image-designer',
+    });
+  });
+
   it('does not treat a generic UNPROCESSABLE_CONTENT as a durable deferral', async () => {
     const listActive = vi
       .spyOn(conversationGenerationService, 'listActive')

@@ -10,6 +10,7 @@ import {
   withConversationWriteLockOrThrow,
 } from '@/server/services/conversationWriteLock';
 
+import { titleTranscriptRetryDelayMs } from './constants';
 import {
   CONVERSATION_GENERATION_TURN_COMPLETE,
   excludeOwnedAssistantMessages,
@@ -76,6 +77,7 @@ const runtimeMocks = vi.hoisted(() => ({
 
 const serviceMocks = vi.hoisted(() => ({
   enqueue: vi.fn(),
+  enqueueConversationGenerationJob: vi.fn(),
   enqueueInTransaction: vi.fn(),
 }));
 const generationDebugMocks = vi.hoisted(() => ({
@@ -92,6 +94,7 @@ vi.mock('./service', () => ({
     enqueue = serviceMocks.enqueue;
     enqueueInTransaction = serviceMocks.enqueueInTransaction;
   },
+  enqueueConversationGenerationJob: serviceMocks.enqueueConversationGenerationJob,
 }));
 
 vi.mock('@/database/models/conversationGeneration', () => ({
@@ -249,6 +252,7 @@ describe('conversation generation workflow guards', () => {
 describe('executeConversationGeneration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    serviceMocks.enqueueConversationGenerationJob.mockResolvedValue('job-delayed');
     modelMocks.update.mockResolvedValue({ revision: 1, status: 'cancelled' });
     modelMocks.bumpRevision.mockResolvedValue({ revision: 1, status: 'cancelled' });
     modelMocks.finalizeActive.mockResolvedValue({ revision: 1, status: 'cancelled' });
@@ -542,13 +546,11 @@ describe('executeConversationGeneration', () => {
     topicMocks.findById.mockResolvedValue({ id: 'topic-1', title: '' });
     aiChatMocks.getMessagesAndTopics.mockResolvedValue({ messages: [], topics: [] });
 
-    await expect(
-      executeConversationGeneration({
-        db: {} as any,
-        operationId: pending.id,
-        userId: pending.userId,
-      }),
-    ).rejects.toThrow('Topic transcript is empty');
+    await executeConversationGeneration({
+      db: {} as any,
+      operationId: pending.id,
+      userId: pending.userId,
+    });
 
     expect(runtimeMocks.chat).not.toHaveBeenCalled();
     expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
@@ -566,6 +568,15 @@ describe('executeConversationGeneration', () => {
       }),
       1,
     );
+    expect(serviceMocks.enqueueConversationGenerationJob).toHaveBeenCalledWith(
+      expect.anything(),
+      { operationId: pending.id, userId: pending.userId },
+      expect.objectContaining({
+        jobKey: `${pending.id}:title-empty:1`,
+        runAt: expect.any(Date),
+      }),
+    );
+    expect(modelMocks.update).toHaveBeenCalledWith(pending.id, { workerJobId: 'job-delayed' });
     expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
       'execute_transcript_loaded',
       expect.objectContaining({
@@ -616,13 +627,11 @@ describe('executeConversationGeneration', () => {
       topics: [],
     });
 
-    await expect(
-      executeConversationGeneration({
-        db: {} as any,
-        operationId: pending.id,
-        userId: pending.userId,
-      }),
-    ).rejects.toThrow('Topic transcript is empty');
+    await executeConversationGeneration({
+      db: {} as any,
+      operationId: pending.id,
+      userId: pending.userId,
+    });
 
     expect(runtimeMocks.chat).not.toHaveBeenCalled();
     expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
@@ -630,6 +639,14 @@ describe('executeConversationGeneration', () => {
       pending.id,
       expect.objectContaining({ type: 'GenerationError' }),
       1,
+    );
+    expect(serviceMocks.enqueueConversationGenerationJob).toHaveBeenCalledWith(
+      expect.anything(),
+      { operationId: pending.id, userId: pending.userId },
+      expect.objectContaining({
+        jobKey: `${pending.id}:title-empty:1`,
+        runAt: expect.any(Date),
+      }),
     );
   });
 
@@ -2121,5 +2138,14 @@ describe('executeConversationGeneration dangling assistant pointer', () => {
       }),
       expect.anything(),
     );
+  });
+});
+
+describe('titleTranscriptRetryDelayMs', () => {
+  it('backs off in seconds, not Graphile milliseconds', () => {
+    expect(titleTranscriptRetryDelayMs(1)).toBe(1000);
+    expect(titleTranscriptRetryDelayMs(2)).toBe(2000);
+    expect(titleTranscriptRetryDelayMs(3)).toBe(4000);
+    expect(titleTranscriptRetryDelayMs(8)).toBe(8000);
   });
 });

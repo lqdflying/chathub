@@ -238,9 +238,12 @@ Generation-debug semantics:
   `lastTranscriptUserHash` (last user message in the loaded transcript). A
   hash mismatch proves a transcript/binding race. `transcriptCount=0` on a
   title job is an empty load, not a missing worker.
-- `execute_retrying` fires when `markForRetry` succeeds (Graphile still owns
-  the job). `errorClass` names the throw (for example
-  `TitleTranscriptEmptyError`). Do not treat it as `sweep_reenqueued`.
+- `execute_retrying` fires when `markForRetry` succeeds. For empty title
+  transcripts ChatHub then schedules a delayed Graphile job (seconds, not
+  20–50ms) and does **not** rethrow, so Graphile's default retry is not the
+  backoff. Other retryable errors still rethrow so Graphile owns the job.
+  `errorClass` names the throw (for example `TitleTranscriptEmptyError`). Do
+  not treat it as `sweep_reenqueued`.
 - `execute_settled` is terminal only; retries do not emit it.
 - `regenerate_early_return` names the guard that made Regenerate a no-op
   (`reason=noAnchor|retrying|notCurrent`).

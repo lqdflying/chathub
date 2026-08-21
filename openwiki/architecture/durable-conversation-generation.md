@@ -101,11 +101,13 @@ The response includes `operationId`. If `operationId` is absent, the existing
 browser `internal_execAgentRuntime` path still runs.
 
 `fetchOnClient` providers without a server-reachable API key, unsupported
-browser-only tools (`UNPROCESSABLE_CONTENT`), and a disabled flag all drop
-durable enqueue. The user message is still saved and the connected-tab runtime
-runs. Prompt-only builtins with an empty `api` (Artifacts / `lobe-artifacts`)
-are **not** deferred: they only inject a system role, which the worker already
-includes. `tryEnqueue` recovers a lane only by `idempotencyKey` after a transport
+browser-only tools, and a disabled flag all drop durable enqueue. The user
+message is still saved and the connected-tab runtime runs. Enqueue returns a
+structured `{ deferred: true, reason }` result for expected browser fallbacks
+instead of throwing `UNPROCESSABLE_CONTENT` / `PRECONDITION_FAILED`, so V1 /
+regenerate / group paths do not dump tRPC handler stacks. Prompt-only builtins
+with an empty `api` (Artifacts / `lobe-artifacts`) are **not** deferred: they
+only inject a system role, which the worker already includes. `tryEnqueue` recovers a lane only by `idempotencyKey` after a transport
 failure, and never after a typed `CONFLICT`, credential miss, or capability
 miss. It must not attach a previous chat job as if it were the new request.
 

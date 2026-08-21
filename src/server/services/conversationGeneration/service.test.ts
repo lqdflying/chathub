@@ -1,8 +1,10 @@
 /** @vitest-environment node */
 import { LOADING_FLAT } from '@lobechat/const';
+import { TRPCError } from '@trpc/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE } from './constants';
+import { resolveConversationRuntimePayload } from './credentials';
 import {
   ConversationGenerationService,
   sweepPendingConversationGenerationJobs,
@@ -1058,5 +1060,50 @@ describe('CHATHUB_GENERATION_DEBUG instrumentation', () => {
         String(prefix).startsWith('[chathub-generation-debug:'),
       ),
     ).toBe(false);
+  });
+});
+
+describe('ConversationGenerationService.enqueue deferral', () => {
+  const input = {
+    config: { model: 'gpt-4o', provider: 'openai' },
+    kind: 'chat' as const,
+    sessionId: 's1',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    toolMocks.findUnsupportedConversationTool.mockResolvedValue(undefined);
+    vi.mocked(resolveConversationRuntimePayload).mockResolvedValue({} as any);
+  });
+
+  it('returns a structured unsupported_tool deferral instead of throwing', async () => {
+    toolMocks.findUnsupportedConversationTool.mockResolvedValue({
+      identifier: 'lobe-code-interpreter',
+      reason: 'browser runtime required',
+    });
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').enqueue(input),
+    ).resolves.toEqual({
+      deferred: true,
+      reason: 'unsupported_tool',
+      toolName: 'lobe-code-interpreter',
+    });
+  });
+
+  it('returns a structured fetch_on_client deferral instead of throwing', async () => {
+    vi.mocked(resolveConversationRuntimePayload).mockRejectedValue(
+      new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'No server-reachable credentials were found for provider "openai".',
+      }),
+    );
+
+    await expect(
+      new ConversationGenerationService({} as any, 'user-1').enqueue(input),
+    ).resolves.toEqual({
+      deferred: true,
+      reason: 'fetch_on_client',
+    });
   });
 });

@@ -51,6 +51,7 @@ const getWorkerUtils = async () => {
 
 interface EnqueueGraphileJobOptions {
   jobKey?: string;
+  runAt?: Date;
 }
 
 const readGraphileJobId = (result: unknown, fallback: string) => {
@@ -66,11 +67,13 @@ const enqueueGraphileJobInDatabase = async (
   options: EnqueueGraphileJobOptions = {},
 ) => {
   const jobKey = options.jobKey ?? payload.operationId;
+  const runAt = options.runAt ? options.runAt.toISOString() : null;
   const result = await database.execute(sql`
     SELECT (graphile_worker.add_job(
       ${CONVERSATION_GENERATION_TASK},
       ${JSON.stringify(payload)}::json,
       job_key := ${jobKey},
+      run_at := COALESCE(${runAt}::timestamptz, now()),
       max_attempts := ${CONVERSATION_GENERATION_MAX_ATTEMPTS}
     )).id::text AS "workerJobId"
   `);
@@ -91,6 +94,7 @@ const enqueueGraphileJobWithRecovery = async (
       const job = await utils.addJob(CONVERSATION_GENERATION_TASK, payload, {
         jobKey,
         maxAttempts: CONVERSATION_GENERATION_MAX_ATTEMPTS,
+        runAt: options.runAt,
       });
       return String(job.id);
     } catch (fallbackError) {
@@ -134,19 +138,32 @@ export class ConversationGenerationService {
           kind: parsed.kind,
           reason: 'unsupported_tool',
           spanId: parsed.debugSpanId,
-          trpcCode: 'UNPROCESSABLE_CONTENT',
+          toolName: unsupportedTool.identifier,
         });
-        throw new TRPCError({
-          code: 'UNPROCESSABLE_CONTENT',
-          message: `Durable generation deferred to the browser for "${unsupportedTool.identifier}": ${unsupportedTool.reason}`,
-        });
+        return {
+          deferred: true,
+          reason: 'unsupported_tool',
+          toolName: unsupportedTool.identifier,
+        };
       }
-      await resolveConversationRuntimePayload({
-        db: this.db,
-        fetchOnClient: parsed.config.fetchOnClient,
-        provider: parsed.config.provider,
-        userId: this.userId,
-      });
+      try {
+        await resolveConversationRuntimePayload({
+          db: this.db,
+          fetchOnClient: parsed.config.fetchOnClient,
+          provider: parsed.config.provider,
+          userId: this.userId,
+        });
+      } catch (error) {
+        if (error instanceof TRPCError && error.code === 'PRECONDITION_FAILED') {
+          logGenerationDebugSafe('enqueue_rejected', {
+            kind: parsed.kind,
+            reason: 'fetch_on_client',
+            spanId: parsed.debugSpanId,
+          });
+          return { deferred: true, reason: 'fetch_on_client' };
+        }
+        throw error;
+      }
 
       return await withConversationWriteLockOrThrow(
         this.db,
@@ -156,11 +173,8 @@ export class ConversationGenerationService {
       );
     } catch (error) {
       // Precise reasons are already logged at the throw site (lane/idempotency
-      // CONFLICT, unsupported_tool UNPROCESSABLE_CONTENT). Skip a second event.
-      if (!(
-        error instanceof TRPCError &&
-        (error.code === 'CONFLICT' || error.code === 'UNPROCESSABLE_CONTENT')
-      )) {
+      // CONFLICT). Expected browser deferrals return structured results above.
+      if (!(error instanceof TRPCError && error.code === 'CONFLICT')) {
         logGenerationDebugSafe('enqueue_rejected', {
           kind: parsed.kind,
           spanId: parsed.debugSpanId,

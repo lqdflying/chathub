@@ -10,6 +10,9 @@ export const CONVERSATION_GENERATION_STALE_PROCESSING_MS = 90_000;
 export const CONVERSATION_GENERATION_MAX_ATTEMPTS = 8;
 export const CONVERSATION_GENERATION_MAX_TOOL_TURNS = 8;
 export const CONVERSATION_GENERATION_MAX_SUPERVISOR_ROUNDS = 8;
+/** ChatHub backoff for empty title transcripts: 1s, 2s, 4s, then cap at 8s. */
+export const titleTranscriptRetryDelayMs = (attempt: number) =>
+  Math.min(8000, 1000 * 2 ** Math.max(0, attempt - 1));
 // Drain unmarked terminal jobs so leftover LOADING_FLAT rows can be cleared
 // after a crash between the terminal status write and placeholder cleanup.
 export const CONVERSATION_GENERATION_CLEANUP_PAGE_SIZE = 100;

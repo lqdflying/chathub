@@ -216,16 +216,24 @@ export const tryEnqueueConversationGeneration = async (
   input: ConversationGenerationEnqueueInput,
 ): Promise<ConversationGenerationEnqueueResult | undefined> => {
   try {
-    const operation = (await conversationGenerationService.enqueue(
-      input,
-    )) as ConversationGenerationOperation;
+    const result = await conversationGenerationService.enqueue(input);
+    if (isConversationGenerationDeferred(result)) {
+      logGenerationDebugClientSafe('enqueue_client_settled', {
+        kind: input.kind,
+        outcome: 'deferred',
+        reason: result.reason,
+        spanId: input.debugSpanId,
+        toolName: result.toolName,
+      });
+      return result;
+    }
     logGenerationDebugClientSafe('enqueue_client_settled', {
       kind: input.kind,
       outcome: 'ok',
       spanId: input.debugSpanId,
-      status: operation?.status,
+      status: result?.status,
     });
-    return operation;
+    return result;
   } catch (error) {
     const errorClass = error instanceof Error ? error.name : typeof error;
     const trpcCode =

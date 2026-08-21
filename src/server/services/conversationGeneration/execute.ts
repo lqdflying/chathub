@@ -80,6 +80,7 @@ import {
   CONVERSATION_GENERATION_MAX_SUPERVISOR_ROUNDS,
   CONVERSATION_GENERATION_MAX_TOOL_TURNS,
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
+  titleTranscriptRetryDelayMs,
 } from './constants';
 import { loadConversationRuntimeState, resolveConversationRuntimePayload } from './credentials';
 import {
@@ -91,7 +92,7 @@ import {
   type ConversationRuntimeChatOptionsInput,
   createConversationRuntimeChatOptions,
 } from './runtimeChatOptions';
-import { ConversationGenerationService } from './service';
+import { ConversationGenerationService, enqueueConversationGenerationJob } from './service';
 import { consumeProtocolResponse } from './stream';
 import { loadConversationThreadMessages } from './threadScope';
 import {
@@ -363,6 +364,21 @@ export const executeConversationGeneration = async ({
           kind: claimed.kind,
           operationHash: hashGenerationDebugValue(claimed.id),
         });
+        if (error instanceof TitleTranscriptEmptyError) {
+          const delayMs = titleTranscriptRetryDelayMs(claimed.attempt);
+          const workerJobId = await enqueueConversationGenerationJob(
+            db,
+            { operationId: claimed.id, userId: claimed.userId },
+            {
+              jobKey: `${claimed.id}:title-empty:${claimed.attempt}`,
+              runAt: new Date(Date.now() + delayMs),
+            },
+          );
+          if (workerJobId) {
+            await model.update(claimed.id, { workerJobId });
+          }
+          return;
+        }
         throw error instanceof Error ? error : new Error(String(error));
       }
     }
@@ -1462,8 +1478,9 @@ const executeTitle = async (
   // Without scoped messages the summary prompt degrades to an empty user message,
   // which strict providers reject with a 400 ("content must not be empty"). This
   // usually means the title operation raced ahead of message-to-topic binding.
-  // Throw so the bounded retry mechanism re-runs the job once the transcript is
-  // available, rather than finalizing succeeded and leaving the topic untitled.
+  // Throw so the catch path can markForRetry with ChatHub backoff (seconds)
+  // instead of Graphile's default 20–50ms retry. The worker job is re-queued
+  // with run_at, so Graphile does not own the delay.
   const hasTranscript = messages.some(
     (message) => typeof message.content === 'string' && message.content.trim().length > 0,
   );
