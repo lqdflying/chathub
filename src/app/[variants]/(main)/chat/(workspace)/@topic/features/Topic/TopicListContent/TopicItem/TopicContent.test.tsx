@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import TopicContent from './TopicContent';
 
 const openTopicInNewWindow = vi.fn();
+let topicLoading = false;
 
 vi.stubGlobal('React', React);
 
@@ -57,7 +58,10 @@ vi.mock('@/store/chat', () => ({
 }));
 
 vi.mock('@/store/chat/selectors', () => ({
-  topicSelectors: { isTopicLoading: () => () => false },
+  topicSelectors: {
+    getTopicById: () => () => undefined,
+    isTopicLoading: () => () => topicLoading,
+  },
 }));
 
 vi.mock('@/store/global', () => ({
@@ -71,6 +75,7 @@ vi.mock('@/store/global/selectors', () => ({
 
 describe('TopicContent', () => {
   it('shows the exact localized last-activity timestamp', () => {
+    topicLoading = false;
     const lastActivityAt = new Date(2026, 6, 29, 14, 35).getTime();
     const { container } = render(
       <TopicContent id="topic-id" lastActivityAt={lastActivityAt} title="Azure costs" />,
@@ -81,5 +86,16 @@ describe('TopicContent', () => {
     expect(time?.textContent).toBe('Jul 29, 2026, 2:35 PM');
     expect(time?.getAttribute('dateTime')).toBe(new Date(lastActivityAt).toISOString());
     expect(time?.textContent).not.toContain('ago');
+  });
+
+  it('marks the topic icon as generating while the conversation is loading', () => {
+    topicLoading = true;
+    const { container } = render(<TopicContent id="topic-id" title="Azure costs" />);
+
+    const icon = container.querySelector('button');
+
+    expect(icon?.getAttribute('aria-busy')).toBe('true');
+    expect(icon?.getAttribute('aria-label')).toBe('generating');
+    expect(icon?.getAttribute('title')).toBe('generating');
   });
 });

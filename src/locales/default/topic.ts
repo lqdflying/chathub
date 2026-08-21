@@ -13,6 +13,7 @@ export default {
   duplicateLoading: '话题复制中...',
   duplicateSuccess: '话题复制成功',
   favorite: '收藏',
+  generating: '生成中...',
   groupMode: {
     ascMessages: '按消息总数顺序',
     byTime: '按时间分组',

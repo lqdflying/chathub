@@ -1,19 +1,34 @@
 import { Icon, Tag, Text } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
-import { MessageSquareDashed } from 'lucide-react';
+import { LucideLoader2, MessageSquareDashed } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { useChatStore } from '@/store/chat';
+import { topicSelectors } from '@/store/chat/selectors';
+
 const DefaultContent = memo(() => {
   const { t } = useTranslation('topic');
-
   const theme = useTheme();
+  const isLoading = useChatStore(topicSelectors.isTopicLoading());
 
   return (
     <Flexbox align={'center'} gap={8} horizontal>
-      <Flexbox align={'center'} height={24} justify={'center'} width={24}>
-        <Icon color={theme.colorTextDescription} icon={MessageSquareDashed} />
+      <Flexbox
+        align={'center'}
+        aria-busy={isLoading}
+        aria-label={isLoading ? t('generating') : undefined}
+        height={24}
+        justify={'center'}
+        width={24}
+      >
+        <Icon
+          color={theme.colorTextDescription}
+          icon={isLoading ? LucideLoader2 : MessageSquareDashed}
+          spin={isLoading}
+          title={isLoading ? t('generating') : undefined}
+        />
       </Flexbox>
       <Text ellipsis={{ rows: 1 }} style={{ margin: 0 }}>
         {t('defaultTitle')}

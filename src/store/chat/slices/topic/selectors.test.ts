@@ -1,6 +1,7 @@
 import { t } from 'i18next';
 import { describe, expect, it } from 'vitest';
 
+import { LOADING_FLAT } from '@/const/message';
 import { ChatStore } from '@/store/chat';
 import { initialState } from '@/store/chat/initialState';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -117,6 +118,123 @@ describe('topicSelectors', () => {
         activeId: 'test',
         serverGenerationOperations: {
           [messageMapKey('test', 'topic1')]: {},
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(false);
+    });
+
+    it('returns true while a browser generation lane is loading for the topic', () => {
+      const state = merge(initialStore, {
+        activeId: 'test',
+        chatLoadingLaneByMessageId: {
+          'assistant-1': `${messageMapKey('test', 'topic1')}:main`,
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
+      expect(topicSelectors.isTopicLoading('topic2')(state)).toBe(false);
+    });
+
+    it('returns true while the default topic send is in flight', () => {
+      const state = merge(initialStore, {
+        activeId: 'test',
+        mainSendMessageOperations: {
+          [messageMapKey('test', null)]: { isLoading: true },
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading()(state)).toBe(true);
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(false);
+    });
+
+    it('returns true while a deferred browser placeholder is still LOADING_FLAT', () => {
+      const mapKey = messageMapKey('test', 'topic1');
+      const state = merge(initialStore, {
+        activeId: 'test',
+        deferredBrowserGenerationLanes: {
+          [`${mapKey}:main`]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: LOADING_FLAT,
+              id: 'assistant-deferred',
+              role: 'assistant',
+            },
+          ],
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
+    });
+
+    it('returns true while a deferred topic is waiting to resume tools', () => {
+      const mapKey = messageMapKey('test', 'topic1');
+      const state = merge(initialStore, {
+        activeId: 'test',
+        deferredBrowserGenerationLanes: {
+          [`${mapKey}:main`]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: 'calling tools',
+              id: 'assistant-deferred',
+              role: 'assistant',
+              tools: [{ id: 'call-1', identifier: 'lobe-code-interpreter', type: 'builtin' }],
+            },
+          ],
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
+    });
+
+    it('returns true while a plugin call is running in the topic', () => {
+      const mapKey = messageMapKey('test', 'topic1');
+      const state = merge(initialStore, {
+        activeId: 'test',
+        messagesMap: {
+          [mapKey]: [
+            { id: 'assistant-1', role: 'assistant' },
+            { id: 'tool-1', parentId: 'assistant-1', role: 'tool' },
+          ],
+        },
+        pluginApiLoadingIds: ['tool-1'],
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
+      expect(topicSelectors.isTopicLoading('topic2')(state)).toBe(false);
+    });
+
+    it('returns false after a deferred reply has finished without leftover tools', () => {
+      const mapKey = messageMapKey('test', 'topic1');
+      const state = merge(initialStore, {
+        activeId: 'test',
+        deferredBrowserGenerationLanes: {
+          [`${mapKey}:main`]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'kagi',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: 'done',
+              id: 'assistant-deferred',
+              role: 'assistant',
+            },
+          ],
         },
       });
 

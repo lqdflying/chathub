@@ -651,6 +651,12 @@ How that is implemented:
   calls when the row has `tools` and no tool results; it never toggles loading
   off a leftover `LOADING_FLAT` row. Deleting the topic aborts and clears those
   deferred lanes.
+- `topicSelectors.isTopicLoading` drives the spinning icon on the topic list.
+  It is true for durable `serverGenerationOperations`, in-flight browser
+  `chatLoadingLaneByMessageId` / plugin / tool / reasoning / RAG / search
+  workflow ids in that topic’s `messagesMap`, a deferred browser lane that is
+  still `LOADING_FLAT` or waiting to resume tools, and `mainSendMessageOperations`
+  while the send RPC is in flight. Topic CRUD still uses `topicLoadingIds`.
 - `syncActiveConversationGenerations` still deletes orphaned stale placeholders
   (see Client sync), which also repairs rows stuck by the pre-fix behavior the
   next time the topic is opened.
@@ -685,7 +691,7 @@ High-signal suites:
 - `scripts/migrateServerDB/ensureConversationGenerationOperations.test.ts`
 - `scripts/migrateServerDB/dockerfileRuntimeDeps.test.ts`
 - `src/hooks/useConversationGenerationSync.test.tsx`
-- `src/store/chat/slices/message/selectors.test.ts`
+- `src/store/chat/slices/topic/selectors.test.ts`
 - `src/features/Conversation/Messages/Default.test.tsx`
 - `packages/database/src/models/__tests__/conversationGeneration.cas.test.ts`
 

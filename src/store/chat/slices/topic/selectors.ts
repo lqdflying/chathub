@@ -1,9 +1,11 @@
 import { t } from 'i18next';
 
+import { LOADING_FLAT } from '@/const/message';
 import { ChatTopic, ChatTopicSummary, GroupedTopic } from '@/types/topic';
 import { getTopicActivityTimestamp, groupTopicsByTime } from '@/utils/client/topic';
 
 import { ChatStoreState } from '../../initialState';
+import { deferredBrowserGenerationLaneKeysForTopic } from '../../utils/deferredBrowserGeneration';
 import { messageMapKey } from '../../utils/messageMapKey';
 
 const sortTopicsByActivity = (topics: ChatTopic[]): ChatTopic[] =>
@@ -54,12 +56,91 @@ const isCreatingTopic = (s: ChatStoreState) => s.creatingTopic;
 const isUndefinedTopics = (s: ChatStoreState) => !currentTopics(s);
 const isInSearchMode = (s: ChatStoreState) => s.inSearchingMode;
 const isSearchingTopic = (s: ChatStoreState) => s.isSearchingTopic;
-const isTopicLoading =
-  (topicId: string) =>
-  (s: ChatStoreState): boolean => {
-    const operations = s.serverGenerationOperations[messageMapKey(s.activeId, topicId)];
 
-    return s.topicLoadingIds.includes(topicId) || Object.keys(operations || {}).length > 0;
+const hasActiveToolStream = (s: ChatStoreState, messageId: string): boolean => {
+  const flags = s.toolCallingStreamIds?.[messageId];
+  return Array.isArray(flags) && flags.some(Boolean);
+};
+
+const topicHasPendingToolLoop = (
+  s: ChatStoreState,
+  mapKey: string,
+  assistantMessageId: string,
+): boolean => {
+  const messages = s.messagesMap[mapKey] || [];
+  const assistant = messages.find((message) => message.id === assistantMessageId);
+  if (!assistant?.tools?.length) return false;
+
+  return !messages.some(
+    (message) => message.role === 'tool' && message.parentId === assistantMessageId,
+  );
+};
+
+const isDeferredBrowserTopicBusy = (
+  s: ChatStoreState,
+  topicId: string | null,
+  mapKey: string,
+): boolean => {
+  const laneKeys = deferredBrowserGenerationLaneKeysForTopic(
+    s.deferredBrowserGenerationLanes,
+    s.activeId,
+    topicId,
+  );
+
+  return laneKeys.some((laneKey) => {
+    const lane = s.deferredBrowserGenerationLanes[laneKey];
+    if (!lane) return false;
+
+    const assistantId = lane.assistantMessageId;
+    if (s.chatLoadingIds.includes(assistantId)) return true;
+    if (s.messageInToolsCallingIds.includes(assistantId)) return true;
+    if (hasActiveToolStream(s, assistantId)) return true;
+
+    const assistant = (s.messagesMap[mapKey] || []).find((message) => message.id === assistantId);
+    if (assistant?.content === LOADING_FLAT) return true;
+
+    return topicHasPendingToolLoop(s, mapKey, assistantId);
+  });
+};
+
+/**
+ * True while this topic still has in-flight work: CRUD, a durable server job,
+ * browser-fallback generation, tool/plugin calls, or a leftover loading
+ * placeholder. The topic list uses this to spin the item icon.
+ */
+const isTopicLoading =
+  (topicId?: string | null) =>
+  (s: ChatStoreState): boolean => {
+    const resolvedTopicId = topicId ?? null;
+    if (resolvedTopicId && s.topicLoadingIds.includes(resolvedTopicId)) return true;
+
+    const mapKey = messageMapKey(s.activeId, resolvedTopicId);
+    const operations = s.serverGenerationOperations[mapKey];
+    if (Object.keys(operations || {}).length > 0) return true;
+    if (s.mainSendMessageOperations[mapKey]?.isLoading) return true;
+
+    const lanePrefix = `${mapKey}:`;
+    if (
+      Object.values(s.chatLoadingLaneByMessageId || {}).some((laneKey) =>
+        laneKey.startsWith(lanePrefix),
+      )
+    ) {
+      return true;
+    }
+
+    if (isDeferredBrowserTopicBusy(s, resolvedTopicId, mapKey)) return true;
+
+    const loadingIds = new Set([
+      ...(s.chatLoadingIds || []),
+      ...(s.pluginApiLoadingIds || []),
+      ...(s.messageInToolsCallingIds || []),
+      ...(s.reasoningLoadingIds || []),
+      ...(s.messageRAGLoadingIds || []),
+      ...(s.searchWorkflowLoadingIds || []),
+    ]);
+    if (loadingIds.size === 0) return false;
+
+    return (s.messagesMap[mapKey] || []).some((message) => loadingIds.has(message.id));
   };
 
 const groupedTopicsSelector = (s: ChatStoreState): GroupedTopic[] => {

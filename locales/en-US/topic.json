@@ -13,6 +13,7 @@
   "duplicateLoading": "Copying Topic...",
   "duplicateSuccess": "Topic Copied Successfully",
   "favorite": "Favorite",
+  "generating": "Generating...",
   "groupMode": {
     "ascMessages": "Sort by Total Messages Ascending",
     "byTime": "Group by Time",

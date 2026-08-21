@@ -186,16 +186,19 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
       }}
     >
       <ActionIcon
+        aria-busy={isLoading}
+        aria-label={isLoading ? t('generating') : t('favorite')}
         color={fav && !isLoading ? theme.colorWarning : undefined}
         fill={fav && !isLoading ? theme.colorWarning : 'transparent'}
         icon={isLoading ? LucideLoader2 : Star}
         onClick={(e) => {
           e.stopPropagation();
-          if (!id) return;
+          if (!id || isLoading) return;
           favoriteTopic(id, !fav);
         }}
         size={'small'}
         spin={isLoading}
+        title={isLoading ? t('generating') : undefined}
       />
       {!editing ? (
         title === LOADING_FLAT ? (
