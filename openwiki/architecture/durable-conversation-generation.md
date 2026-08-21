@@ -553,7 +553,12 @@ Semantics that matter when reading the stream:
   `invalidate_preserved` (plugin/RAG/search/chat loading kept, not aborted) →
   `rag_retrieve_settled(outcome=ok|empty)` and/or `builtin_tool_settled`
   (`visible=false`, `sessionHash`/`topicHash` of the left conversation) →
-  `tool_loop_continue`. `rag_retrieve_settled(outcome=hard_cancelled)` is Stop
+  `tool_loop_continue`. During retrieve, `deferred_lane_left` must have
+  `producerAlive=true` (assistant is on `chatLoadingIds`, or the user RAG row
+  is in `messageRAGLoadingIds`). `producerAlive=false` with a later
+  `rag_retrieve_settled(ok)` is the empty-Reference-Source hang: retrieval
+  finished but the placeholder was treated as a dead `LOADING_FLAT` row.
+  `rag_retrieve_settled(outcome=hard_cancelled)` is Stop
   / account switch, not leave. `message_persist_skipped(reason=not_visible)`
   should be rare after persist-context inference; `hard_cancelled` is Stop.
   `still_producing` on return with `toolsCalling=false`,
@@ -693,7 +698,11 @@ Product contract for deferred browser turns:
   successful MCP **or builtin** result as `cancelled` just because the topic
   is inactive, and always clear `messageInToolsCallingIds` in `finally`.
   Knowledge Base / RAG retrieval uses the same hard-cancel fence (account +
-  clear generation), not `activeTopicId`. Continue the model immediately via
+  clear generation), not `activeTopicId`. Browser-fallback RAG also puts the
+  **assistant** on `chatLoadingIds` for the whole retrieve + model path, so
+  leave-topic `producerAlive` stays true and `InterruptibleLoading` does not
+  collapse the placeholder into a white circle under Reference Source.
+  Continue the model immediately via
   `triggerAIMessage` with the original `conversationContext`. On return,
   `resume_model` only if that continue was skipped and tools already have
   results with no follow-up assistant.

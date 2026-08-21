@@ -93,7 +93,54 @@ describe('deferredBrowserGeneration helpers', () => {
     ).toBe(true);
   });
 
-  it('finds a deferred lane for a session and topic', () => {
+    it('treats in-flight Knowledge Base retrieval as an alive deferred producer', () => {
+      const key = deferredBrowserGenerationLaneKey('session', 'topic', null);
+      const mapKey = messageMapKey('session', 'topic');
+      expect(
+        isDeferredLaneProducerAlive(
+          {
+            chatLoadingIds: [],
+            deferredBrowserGenerationLanes: {
+              [key]: {
+                assistantMessageId: 'assistant',
+                reason: 'unsupported_tool',
+                toolName: 'lobe-code-interpreter',
+              },
+            },
+            messageInToolsCallingIds: [],
+            messageRAGLoadingIds: ['user'],
+            messagesMap: {
+              [mapKey]: [{ id: 'user' }, { id: 'assistant' }],
+            },
+            toolCallingStreamIds: {},
+          },
+          'assistant',
+        ),
+      ).toBe(true);
+      expect(
+        isDeferredLaneProducerAlive(
+          {
+            chatLoadingIds: [],
+            deferredBrowserGenerationLanes: {
+              [key]: {
+                assistantMessageId: 'assistant',
+                reason: 'unsupported_tool',
+                toolName: 'lobe-code-interpreter',
+              },
+            },
+            messageInToolsCallingIds: [],
+            messageRAGLoadingIds: ['other-user'],
+            messagesMap: {
+              [mapKey]: [{ id: 'user' }, { id: 'assistant' }],
+            },
+            toolCallingStreamIds: {},
+          },
+          'assistant',
+        ),
+      ).toBe(false);
+    });
+
+    it('finds a deferred lane for a session and topic', () => {
     const key = deferredBrowserGenerationLaneKey('session', 'topic', null);
     const lanes = {
       [key]: {

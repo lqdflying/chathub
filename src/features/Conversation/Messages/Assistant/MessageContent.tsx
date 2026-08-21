@@ -56,10 +56,10 @@ export const AssistantMessageContent = memo<
       {isIntentUnderstanding ? (
         <IntentUnderstanding />
       ) : (
-        content && (
+        (content || generating) && (
           <DefaultMessage
             addIdOnDOM={false}
-            content={content}
+            content={content || LOADING_FLAT}
             id={id}
             isToolCallGenerating={isToolCallGenerating}
             {...props}

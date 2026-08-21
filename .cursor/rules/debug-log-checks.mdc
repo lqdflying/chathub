@@ -267,7 +267,11 @@ Generation-debug semantics:
   `invalidate_preserved` on leave should keep plugin/RAG/search/chat-loading
   counts for the deferred conversation (`preserved*Count>=1` with matching
   `aborted*Count` only for other topics). `rag_retrieve_settled` on the same
-  `spanId` is `ok`/`empty` after leave; `hard_cancelled` is Stop. Join builtin
+  `spanId` is `ok`/`empty` after leave; `hard_cancelled` is Stop. Leave during
+  retrieve must log `deferred_lane_left(producerAlive=true)` because the
+  assistant stays on `chatLoadingIds` (or the user RAG row stays in
+  `messageRAGLoadingIds`). `producerAlive=false` plus `rag_retrieve_settled(ok)`
+  is the empty-Reference-Source hang. Join builtin
   search with `builtin_tool_settled` (`toolName=lobe-web-browsing`,
   `visible=false`, hashed session/topic of the **left** conversation — not
   the topic you clicked). `message_persist_skipped(reason=not_visible)` after

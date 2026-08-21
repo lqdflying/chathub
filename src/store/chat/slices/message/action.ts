@@ -799,19 +799,28 @@ export const chatMessage: StateCreator<
 
   internal_updateMessageRAG: async (id, data) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    const requestedGeneration = get().conversationClearGeneration;
-    const requestedSessionId = get().activeId;
-    const requestedTopicId = get().activeTopicId;
-    if (!accountMutationSnapshot || !requestedSessionId) return;
-    const isCurrentRequest = () =>
+    if (!accountMutationSnapshot) return;
+
+    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
+    const requestedClearGeneration = get().conversationClearGeneration;
+    const isPersistenceCurrent = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === requestedSessionId &&
-      get().activeTopicId === requestedTopicId;
-    const { refreshMessages } = get();
+      get().conversationClearGeneration === requestedClearGeneration;
+    if (!isPersistenceCurrent()) return;
 
     await messageService.updateMessageRAG(id, data);
-    if (isCurrentRequest()) await refreshMessages();
+    if (!isPersistenceCurrent()) return;
+
+    await get().refreshMessages(
+      mapHit
+        ? {
+            clearGeneration: requestedClearGeneration,
+            generation: get().conversationNavigationGeneration,
+            sessionId: mapHit.sessionId,
+            topicId: mapHit.topicId,
+          }
+        : undefined,
+    );
   },
 
   // the internal process method of the AI message

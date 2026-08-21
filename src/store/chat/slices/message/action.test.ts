@@ -39,6 +39,7 @@ vi.mock('@/services/message', () => ({
     removeMessagesByAssistant: vi.fn(),
     updateMessage: vi.fn(),
     updateMessageError: vi.fn(),
+    updateMessageRAG: vi.fn(),
   },
 }));
 vi.mock('@/services/topic', () => ({
@@ -1068,6 +1069,54 @@ describe('chatMessage actions', () => {
       ]);
       expect(useChatStore.getState().messagesMap[chatKey][0].error).toBeUndefined();
       expect(useChatStore.getState().messageLoadingIds).toEqual([]);
+    });
+  });
+
+  describe('internal_updateMessageRAG', () => {
+    it('refreshes the owning conversation after persist, even when another topic is active', async () => {
+      const refreshMessages = vi.fn(() => Promise.resolve());
+      useUserStore.setState({
+        isUserStateInit: true,
+        ownershipInvalidationGeneration: 0,
+        userStateScope: 'current',
+      });
+      vi.spyOn(authSelectors, 'currentUserScope').mockReturnValue('current');
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'other-topic',
+        conversationClearGeneration: 0,
+        conversationNavigationGeneration: 0,
+        messagesMap: {
+          [messageMapKey('session-id', 'topic-id')]: [
+            {
+              id: 'assistant-id',
+              role: 'assistant',
+              sessionId: 'session-id',
+              topicId: 'topic-id',
+            } as UIChatMessage,
+          ],
+        },
+        refreshMessages,
+      });
+
+      await act(async () => {
+        await result.current.internal_updateMessageRAG('assistant-id', {
+          fileChunks: [{ id: 'chunk-1', similarity: 0.9 }],
+          ragQueryId: 'query-1',
+        });
+      });
+
+      expect(messageService.updateMessageRAG).toHaveBeenCalledWith('assistant-id', {
+        fileChunks: [{ id: 'chunk-1', similarity: 0.9 }],
+        ragQueryId: 'query-1',
+      });
+      expect(refreshMessages).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'session-id',
+          topicId: 'topic-id',
+        }),
+      );
     });
   });
 

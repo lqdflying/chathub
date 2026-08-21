@@ -1721,6 +1721,61 @@ describe('generateAIChatV2 actions', () => {
       expect(useChatStore.getState().knowledgeBaseContextTokens).toEqual({});
       expect(useChatStore.getState().chatLoadingIds).toEqual([]);
     });
+
+    it('keeps the assistant in chatLoadingIds while Knowledge Base retrieval runs', async () => {
+      act(() => {
+        useChatStore.setState({
+          internal_execAgentRuntime: realExecAgentRuntime,
+          internal_updateMessageRAG: vi.fn(async () => undefined),
+        });
+      });
+
+      const { result } = renderHook(() => useChatStore());
+      const userMessage = {
+        content: TEST_CONTENT.RAG_QUERY,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+      } as UIChatMessage;
+      let loadingDuringRetrieve: string[] = [];
+      vi.spyOn(result.current, 'internal_retrieveChunks').mockImplementation(async () => {
+        loadingDuringRetrieve = [...useChatStore.getState().chatLoadingIds];
+        return {
+          chunks: [{ id: 'chunk-1', similarity: 0.88, text: 'retrieved context' }] as any,
+          diagnosticId: undefined,
+          queryId: 'query-1',
+          retrieval: {
+            candidateCount: 5,
+            candidateLimit: 24,
+            eligibleCount: 2,
+            minimumSimilarity: 0.2,
+            resultLimit: 8,
+            selectedCount: 1,
+            selectedScores: [0.88],
+            strategy: 'cosine',
+          },
+          rewriteQuery: TEST_CONTENT.RAG_QUERY,
+          scope: { directFileCount: 1, expandedFileCount: 2, knowledgeBaseCount: 1 },
+        };
+      });
+      vi.spyOn(result.current, 'internal_fetchAIChatMessage').mockResolvedValue({
+        content: 'answer',
+        isFunctionCall: false,
+      });
+
+      await act(async () => {
+        await result.current.internal_execAgentRuntime({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages: [userMessage],
+          ragQuery: TEST_CONTENT.RAG_QUERY,
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+      });
+
+      expect(loadingDuringRetrieve).toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      expect(useChatStore.getState().chatLoadingIds).toEqual([]);
+    });
   });
 
   describe('error handling', () => {

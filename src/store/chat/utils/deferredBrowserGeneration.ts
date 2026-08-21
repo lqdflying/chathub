@@ -92,12 +92,31 @@ export const isDeferredLaneProducerAlive = (
   state: Pick<
     ChatAIChatState,
     'chatLoadingIds' | 'messageInToolsCallingIds' | 'toolCallingStreamIds'
-  >,
+  > & {
+    deferredBrowserGenerationLanes?: ChatAIChatState['deferredBrowserGenerationLanes'];
+    messageRAGLoadingIds?: string[];
+    messagesMap?: Record<string, Array<{ id: string; parentId?: string | null }> | undefined>;
+  },
   assistantMessageId: string,
-): boolean =>
-  state.chatLoadingIds.includes(assistantMessageId) ||
-  state.messageInToolsCallingIds.includes(assistantMessageId) ||
-  hasActiveToolCallingStream(state.toolCallingStreamIds?.[assistantMessageId]);
+): boolean => {
+  if (
+    state.chatLoadingIds.includes(assistantMessageId) ||
+    state.messageInToolsCallingIds.includes(assistantMessageId) ||
+    hasActiveToolCallingStream(state.toolCallingStreamIds?.[assistantMessageId])
+  ) {
+    return true;
+  }
+
+  // RAG loading is tracked on the user row, not the assistant placeholder.
+  const ragIds = state.messageRAGLoadingIds;
+  if (!ragIds?.length) return false;
+
+  const protectedIds = collectDeferredBrowserGenerationProtectedIds(
+    state.deferredBrowserGenerationLanes,
+    state.messagesMap,
+  );
+  return ragIds.some((id) => protectedIds.has(id));
+};
 
 export const isDeferredBrowserLaneAssistant = (
   lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,

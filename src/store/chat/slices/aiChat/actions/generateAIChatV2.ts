@@ -1068,6 +1068,7 @@ export const generateAIChatV2: StateCreator<
       triggerToolCalls,
       refreshMessages,
       internal_updateMessageRAG,
+      internal_toggleChatLoading,
     } = get();
 
     // create a new array to avoid the original messages array change
@@ -1085,6 +1086,18 @@ export const generateAIChatV2: StateCreator<
         : params.contextExportRequest;
     let runtimeParams = contextExportRequest ? { ...params, contextExportRequest } : params;
 
+    // Retrieval is tracked on the user row; leave-topic then looks like a dead
+    // LOADING_FLAT assistant (empty bubble under Reference Source). Keep the
+    // assistant in chatLoadingIds for RAG + the model fetch. Fetch still turns
+    // loading off in its own finally.
+    internal_toggleChatLoading(
+      true,
+      assistantId,
+      n('execAgentRuntime(start)', { messageId: assistantId }),
+      conversationContext.threadId ?? null,
+      conversationContext,
+    );
+    try {
     // go into RAG flow if there is ragQuery flag
     if (ragQuery) {
       let diagnosticId: string | undefined;
@@ -1391,6 +1404,15 @@ export const generateAIChatV2: StateCreator<
 
     if (!params.threadId && !params.inPortalThread) {
       void Promise.resolve(get().triggerMessageCountMemoryCompaction()).catch(console.error);
+    }
+    } finally {
+      internal_toggleChatLoading(
+        false,
+        assistantId,
+        n('execAgentRuntime(end)', { messageId: assistantId }),
+        conversationContext.threadId ?? null,
+        conversationContext,
+      );
     }
   },
 
