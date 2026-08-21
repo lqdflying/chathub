@@ -130,6 +130,26 @@ describe('tryEnqueueConversationGeneration', () => {
     ).resolves.toBeUndefined();
     expect(byKey).not.toHaveBeenCalled();
   });
+
+  it('does not treat a generic UNPROCESSABLE_CONTENT as a durable deferral', async () => {
+    const listActive = vi
+      .spyOn(conversationGenerationService, 'listActive')
+      .mockResolvedValue([{ id: 'cgo_stale', kind: 'chat', status: 'processing' }] as any);
+    vi.spyOn(conversationGenerationService, 'enqueue').mockRejectedValue(
+      Object.assign(new TRPCClientError('Payload failed validation'), {
+        data: { code: 'UNPROCESSABLE_CONTENT' },
+      }),
+    );
+
+    await expect(
+      tryEnqueueConversationGeneration({
+        config: { model: 'gpt-4o', provider: 'openai' } as any,
+        kind: 'chat',
+        sessionId: 's1',
+      }),
+    ).resolves.toBeUndefined();
+    expect(listActive).not.toHaveBeenCalled();
+  });
 });
 
 describe('waitForConversationGeneration', () => {

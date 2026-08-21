@@ -89,6 +89,18 @@ export interface CreateAssistantMessageServerResponse {
 /** Why durable enqueue was skipped so the client can run a browser-fallback lane. */
 export type ConversationGenerationDeferReason = 'unsupported_tool' | 'fetch_on_client';
 
+/** Structured enqueue result when the client should run the browser-fallback path. */
+export interface ConversationGenerationDeferred {
+  deferred: true;
+  reason: ConversationGenerationDeferReason;
+  toolName?: string;
+}
+
+export const isConversationGenerationDeferred = (
+  value: unknown,
+): value is ConversationGenerationDeferred =>
+  Boolean(value && typeof value === 'object' && 'deferred' in value && (value as { deferred?: unknown }).deferred === true);
+
 export interface SendMessageServerResponse {
   /** Reserved server-generated ID. The assistant row is created after pre-send compaction. */
   assistantMessageId: string;

@@ -8,6 +8,7 @@ import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
@@ -150,8 +151,8 @@ describe('chatMessage actions', () => {
     it('keeps deferred browser-fallback loading controllers across a topic switch', () => {
       const controller = new AbortController();
       const abortSpy = vi.spyOn(controller, 'abort');
-      const conversationKey = messageMapKey('session-id', 'topic-id');
-      const laneKey = 'session-id:topic-id:';
+      const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+      const laneKey = conversationKey;
       useChatStore.setState({
         activeId: 'session-id',
         activeTopicId: 'topic-id',

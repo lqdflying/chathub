@@ -996,6 +996,7 @@ export const chatTopic: StateCreator<
       sessionId: requestedContainerId,
       topicId: requestedTopicId,
     });
+    get().internal_abortDeferredBrowserLanesForTopic(requestedContainerId, requestedTopicId);
 
     if (requestedActiveTopicId === requestedTopicId) {
       const operationKey = messageMapKey(requestedContainerId, requestedTopicId);

@@ -74,6 +74,7 @@ import {
   trackDurableEnqueue,
   untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
@@ -427,9 +428,19 @@ export const generateAIChat: StateCreator<
       ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
+    const isPersistenceCurrent = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      isConversationClearFenceCurrent(
+        get(),
+        conversationContext.clearGeneration,
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId ?? null,
+      );
     const expectedConversationVersion =
       params?.expectedConversationVersion ?? (await messageService.getConversationVersion());
-    if (!isCurrentConversation()) return;
+    if (!isPersistenceCurrent()) return;
+    if (!isCurrentConversation() && !isClientDurableConversationGenerationEnabled()) return;
 
     // create a new array to avoid the original messages array change
     const messages = [...originalMessages];
@@ -551,6 +562,9 @@ export const generateAIChat: StateCreator<
       }
     }
 
+    if (!isPersistenceCurrent()) return;
+    if (!isCurrentConversation() && !pendingDeferral) return;
+
     let fileChunks: MessageSemanticSearchChunk[] | undefined;
     let ragQueryId;
     let knowledgeBasePromptTokens = 0;
@@ -583,7 +597,8 @@ export const generateAIChat: StateCreator<
           // should skip the last content
           messages.map((m) => m.content).slice(0, messages.length - 1),
         );
-        if (!isCurrentConversation()) return;
+        if (!isPersistenceCurrent()) return;
+        if (!isCurrentConversation() && !pendingDeferral) return;
 
         diagnosticId = retrievalDiagnosticId;
 
@@ -610,7 +625,8 @@ export const generateAIChat: StateCreator<
         const { countMode, promptTokens } =
           await countKnowledgeBasePromptTokens(knowledgeBaseQAContext);
         knowledgeBasePromptTokens = promptTokens;
-        if (!isCurrentConversation()) return;
+        if (!isPersistenceCurrent()) return;
+        if (!isCurrentConversation() && !pendingDeferral) return;
         failurePhase = 'message_metadata';
         const summary = createKnowledgeBaseSummary({
           countMode,
@@ -699,6 +715,7 @@ export const generateAIChat: StateCreator<
         assistantMessageId: assistantId,
         reason: pendingDeferral.reason,
         sessionId: conversationContext.sessionId,
+        threadId: conversationContext.threadId,
         toolName: pendingDeferral.toolName,
         topicId: conversationContext.topicId,
       });
@@ -755,7 +772,7 @@ export const generateAIChat: StateCreator<
         await chatService.fetchPresetTaskResult({
           params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
           onFinish: async (_, { toolCalls, usage }) => {
-            if (!isCurrentConversation()) return;
+            if (!isPersistenceCurrent()) return;
             if (toolCalls && toolCalls.length > 0) {
               get().internal_toggleToolCallingStreaming(assistantId, undefined);
               // update tools calling
@@ -776,7 +793,7 @@ export const generateAIChat: StateCreator<
           },
           abortController,
           onMessageHandle: async (chunk) => {
-            if (!isCurrentConversation()) return;
+            if (!isPersistenceCurrent()) return;
             if (chunk.type === 'tool_calls') {
               get().internal_toggleSearchWorkflow(false, assistantId);
               get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
@@ -796,7 +813,7 @@ export const generateAIChat: StateCreator<
             }
           },
           onErrorHandle: async (error) => {
-            if (!isCurrentConversation()) return;
+            if (!isPersistenceCurrent()) return;
             isError = true;
             await messageService.updateMessageError(assistantId, error);
             if (isCurrentConversation()) await refreshMessages(conversationContext);
@@ -945,9 +962,10 @@ export const generateAIChat: StateCreator<
         conversationContext.threadId ?? null,
       );
     const isDeferredBrowserLane = () => {
-      const conversationKey = messageMapKey(
+      const conversationKey = deferredBrowserGenerationLaneKey(
         conversationContext.sessionId,
         conversationContext.topicId,
+        conversationContext.threadId,
       );
       return (
         get().deferredBrowserGenerationLanes[conversationKey]?.assistantMessageId === messageId
@@ -1094,16 +1112,8 @@ export const generateAIChat: StateCreator<
           // An interrupted browser turn (Stop, lane rewind, lost tab) must not
           // leave a permanent `...` placeholder row: persist whatever streamed
           // so far, or drop the empty row so history never shows a dead bubble.
-          // Deferred browser-fallback lanes are different: a topic switch aborts
-          // with the same MESSAGE_CANCEL_FLAT as Stop, so keep the placeholder
-          // and let switch-back sync refresh/finalize it.
+          // Topic switch no longer aborts deferred lanes, so this path is Stop.
           if (!isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) return;
-          const conversationKey = messageMapKey(
-            conversationContext.sessionId,
-            conversationContext.topicId,
-          );
-          const deferredLane = get().deferredBrowserGenerationLanes[conversationKey];
-          const isDeferredLane = deferredLane?.assistantMessageId === messageId;
           if (text) {
             await internal_updateMessageContent(messageId, text, {
               conversationContext,
@@ -1111,7 +1121,7 @@ export const generateAIChat: StateCreator<
               provider,
               reasoning: !!thinking ? { content: thinking, duration } : undefined,
             }).catch(() => undefined);
-          } else if (!isDeferredLane) {
+          } else {
             await get()
               .internal_deleteMessage(messageId)
               .catch(() => undefined);
@@ -1710,14 +1720,33 @@ export const generateAIChat: StateCreator<
           // it or falling through to a legacy regeneration.
           if (operation) {
             await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+            logGenerationDebugClientSafe('regenerate_enqueue_settled', {
+              fellThroughToBrowser: false,
+              outcome: 'fenced_cancel',
+              recovered: true,
+              spanId: debugSpanId,
+            });
+            return;
           }
-          logGenerationDebugClientSafe('regenerate_enqueue_settled', {
-            fellThroughToBrowser: false,
-            outcome: 'fenced_cancel',
-            recovered: Boolean(operation),
-            spanId: debugSpanId,
-          });
-          return;
+          if (
+            !isConversationGenerationDeferred(enqueueResult) ||
+            !isConversationClearFenceCurrent(
+              get(),
+              requestedClearFence,
+              activeId,
+              activeTopicId,
+              requestedFenceThreadId,
+              'regenerate',
+            )
+          ) {
+            logGenerationDebugClientSafe('regenerate_enqueue_settled', {
+              fellThroughToBrowser: false,
+              outcome: 'fenced_cancel',
+              recovered: false,
+              spanId: debugSpanId,
+            });
+            return;
+          }
         }
         if (operation) {
           logGenerationDebugClientSafe('regenerate_enqueue_settled', {
@@ -1752,6 +1781,13 @@ export const generateAIChat: StateCreator<
         spanId: debugSpanId,
       });
       await get().internal_coreProcessMessage(contextMessages, anchor.message.id, {
+        conversationContext: {
+          clearGeneration: requestedClearFence,
+          generation: get().conversationNavigationGeneration,
+          sessionId: activeId,
+          threadId: threadId ?? null,
+          topicId: activeTopicId,
+        },
         expectedConversationVersion,
         traceId,
         ragQuery: get().internal_shouldUseRAG() ? anchor.message.content : undefined,

@@ -10,6 +10,7 @@ import type {
 export interface DeferredBrowserGenerationLane {
   assistantMessageId: string;
   reason: ConversationGenerationDeferReason;
+  threadId?: string | null;
   toolName?: string;
 }
 
@@ -39,8 +40,10 @@ export interface ChatAIChatState {
   conversationLaneStopMarkers: Record<string, ConversationLaneStopMarker>;
   /**
    * Browser-fallback chat lanes that durable enqueue rejected (unsupported tool
-   * or client-only credentials). Keyed by `messageMapKey(sessionId, topicId)`.
-   * Topic switch must not abort these producers; sync finalizes leftovers.
+   * or client-only credentials). Keyed by
+   * `laneScopedClearKey(sessionId, topicId, threadId)`. Topic switch must not
+   * abort these producers; sync resumes leftover tool loops and clears the
+   * marker only after persist.
    */
   deferredBrowserGenerationLanes: Record<string, DeferredBrowserGenerationLane>;
   /**

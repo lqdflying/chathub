@@ -63,6 +63,7 @@ import {
   trackDurableEnqueue,
   untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
 import { getSessionStoreState } from '@/store/session';
@@ -571,6 +572,7 @@ export const generateAIChatV2: StateCreator<
         assistantMessageId: data.assistantMessageId,
         reason: data.deferReason,
         sessionId: conversationContext.sessionId,
+        threadId: conversationContext.threadId,
         toolName: data.deferredToolName,
         topicId: data.topicId,
       });
@@ -853,7 +855,11 @@ export const generateAIChatV2: StateCreator<
           outcome: 'error',
           spanId: debugSpanId,
         });
-        const conversationKey = messageMapKey(conversationContext.sessionId, data.topicId);
+        const conversationKey = deferredBrowserGenerationLaneKey(
+          conversationContext.sessionId,
+          data.topicId,
+          conversationContext.threadId,
+        );
         const deferred = get().deferredBrowserGenerationLanes[conversationKey];
         if (isAbort && deferred && isPersistenceCurrent()) {
           await get()

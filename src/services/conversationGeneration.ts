@@ -1,11 +1,11 @@
 import type {
-  ConversationGenerationDeferReason,
+  ConversationGenerationDeferred,
   ConversationGenerationEnqueueInput,
   ConversationGenerationEvent,
   ConversationGenerationOperation,
   ConversationGenerationStreamEvent,
 } from '@lobechat/types';
-import { isActiveConversationGenerationStatus } from '@lobechat/types';
+import { isActiveConversationGenerationStatus, isConversationGenerationDeferred as isDeferredResult } from '@lobechat/types';
 import { TRPCClientError } from '@trpc/client';
 
 import { CHATHUB_ACCOUNT_SCOPE_HEADER } from '@/const/auth';
@@ -130,24 +130,21 @@ class ConversationGenerationClient {
 
 export const conversationGenerationService = new ConversationGenerationClient();
 
-export interface ConversationGenerationDeferred {
-  deferred: true;
-  reason: ConversationGenerationDeferReason;
-  toolName?: string;
-}
+export type { ConversationGenerationDeferred } from '@lobechat/types';
 
 export type ConversationGenerationEnqueueResult =
   ConversationGenerationOperation | ConversationGenerationDeferred;
 
 export const isConversationGenerationDeferred = (
   value: ConversationGenerationEnqueueResult | undefined,
-): value is ConversationGenerationDeferred =>
-  Boolean(value && typeof value === 'object' && 'deferred' in value && value.deferred === true);
+): value is ConversationGenerationDeferred => isDeferredResult(value);
 
 export const asConversationGenerationOperation = (
   value: ConversationGenerationEnqueueResult | undefined,
 ): ConversationGenerationOperation | undefined =>
   isConversationGenerationDeferred(value) ? undefined : value;
+
+const DURABLE_DEFERRAL_MESSAGE_PREFIX = 'Durable generation deferred to the browser';
 
 const extractDeferredToolName = (message: string) => {
   const match = message.match(/Durable generation deferred to the browser for "([^"]+)"/);
@@ -163,10 +160,7 @@ export const describeConversationGenerationDeferral = (
       ? (error.data as { code?: string } | undefined)?.code
       : undefined;
 
-  if (
-    trpcCode === 'UNPROCESSABLE_CONTENT' ||
-    message.includes('Durable generation deferred to the browser')
-  ) {
+  if (message.includes(DURABLE_DEFERRAL_MESSAGE_PREFIX)) {
     return {
       deferred: true,
       reason: 'unsupported_tool',

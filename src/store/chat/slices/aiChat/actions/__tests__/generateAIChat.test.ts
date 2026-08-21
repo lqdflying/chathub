@@ -9,6 +9,7 @@ import { messageService } from '@/services/message';
 import { ragService } from '@/services/rag';
 import { agentChatConfigSelectors } from '@/store/agent/selectors';
 import { aiChatSelectors, chatSelectors } from '@/store/chat/selectors';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -1841,6 +1842,103 @@ describe('chatMessage actions', () => {
       );
     });
 
+    it('does not abort a deferred lane on invalidate and still persists onFinish', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+      const conversationKey = deferredBrowserGenerationLaneKey(
+        TEST_IDS.SESSION_ID,
+        TEST_IDS.TOPIC_ID,
+        null,
+      );
+      let releaseStream: (() => Promise<void>) | undefined;
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish }) => {
+          await new Promise<void>((resolve) => {
+            releaseStream = async () => {
+              await onFinish?.(TEST_CONTENT.AI_RESPONSE, {} as any);
+              resolve();
+            };
+          });
+        },
+      );
+
+      const fetchPromise = result.current.internal_fetchAIChatMessage({
+        messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+        messages,
+        model: 'gpt-4o-mini',
+        provider: 'openai',
+      });
+
+      await waitFor(() => {
+        expect(useChatStore.getState().chatLoadingIds).toContain(TEST_IDS.ASSISTANT_MESSAGE_ID);
+      });
+
+      const laneKey = useChatStore.getState().chatLoadingLaneByMessageId[TEST_IDS.ASSISTANT_MESSAGE_ID];
+      const controller = laneKey
+        ? useChatStore.getState().chatLoadingAbortControllersByLane[laneKey]
+        : undefined;
+      const abortSpy = controller ? vi.spyOn(controller, 'abort') : vi.fn();
+
+      act(() => {
+        useChatStore.getState().internal_markDurableLaneDeferred({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          reason: 'unsupported_tool',
+          sessionId: TEST_IDS.SESSION_ID,
+          toolName: 'lobe-code-interpreter',
+          topicId: TEST_IDS.TOPIC_ID,
+        });
+        useChatStore.getState().internal_invalidateConversation();
+      });
+
+      expect(abortSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toBeDefined();
+
+      await act(async () => {
+        await releaseStream?.();
+        await fetchPromise;
+      });
+
+      expect(messageService.updateMessage).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.objectContaining({ content: TEST_CONTENT.AI_RESPONSE }),
+        expect.anything(),
+      );
+    });
+
+    it('persists a function-call skeleton off-screen so switch-back can resume tools', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+      const toolCalls = [
+        { function: { arguments: '{}', name: 'lobe-code-interpreter' }, id: 'call-1', type: 'function' },
+      ];
+
+      useChatStore.setState({
+        internal_transformToolCalls: vi.fn().mockReturnValue(toolCalls),
+      });
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onFinish }) => {
+          useChatStore.setState({ activeTopicId: 'other-topic' });
+          await onFinish?.('', { toolCalls } as any);
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.updateMessage).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.objectContaining({ tools: expect.any(Array) }),
+        expect.anything(),
+      );
+    });
+
     it('does not persist the finalization after the account switched mid-stream', async () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [createMockMessage({ role: 'user' })];
@@ -1913,10 +2011,14 @@ describe('chatMessage actions', () => {
       expect(messageService.updateMessage).not.toHaveBeenCalled();
     });
 
-    it('keeps an empty deferred-lane placeholder after abort so switch-back can finalize it', async () => {
+    it('deletes an empty deferred-lane placeholder after Stop', async () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [createMockMessage({ role: 'user' })];
-      const conversationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+      const conversationKey = deferredBrowserGenerationLaneKey(
+        TEST_IDS.SESSION_ID,
+        TEST_IDS.TOPIC_ID,
+        null,
+      );
 
       act(() => {
         useChatStore.setState({
@@ -1947,7 +2049,7 @@ describe('chatMessage actions', () => {
         });
       });
 
-      expect(messageService.removeMessage).not.toHaveBeenCalled();
+      expect(messageService.removeMessage).toHaveBeenCalledWith(TEST_IDS.ASSISTANT_MESSAGE_ID);
       expect(messageService.updateMessage).not.toHaveBeenCalled();
     });
 

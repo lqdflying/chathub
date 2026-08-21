@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { conversationGenerationService } from '@/services/conversationGeneration';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import { useChatStore } from '../../../../store';
@@ -1373,12 +1374,17 @@ describe('conversationGeneration store actions', () => {
     expect(internal_deleteMessage).not.toHaveBeenCalled();
   });
 
-  it('finalizes a deferred browser-fallback placeholder on switch-back without waiting for the orphan grace window', async () => {
+  it('keeps a leftover LOADING_FLAT deferred placeholder instead of blanking it into a white circle', async () => {
     vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
     const internal_deleteMessage = vi.fn(async () => {});
     const refreshMessages = vi.fn(async () => {});
     const refreshTopic = vi.fn(async () => {});
-    const conversationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+    const mapKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
 
     act(() => {
       useChatStore.setState({
@@ -1393,7 +1399,7 @@ describe('conversationGeneration store actions', () => {
         },
         internal_deleteMessage,
         messagesMap: {
-          [conversationKey]: [
+          [mapKey]: [
             {
               content: LOADING_FLAT,
               createdAt: Date.now(),
@@ -1412,15 +1418,107 @@ describe('conversationGeneration store actions', () => {
     });
 
     expect(internal_deleteMessage).not.toHaveBeenCalled();
-    expect(refreshMessages).toHaveBeenCalled();
-    expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toBeUndefined();
+    expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toEqual(
+      expect.objectContaining({ assistantMessageId: 'assistant-deferred' }),
+    );
     expect(useChatStore.getState().chatLoadingIds).not.toContain('assistant-deferred');
+  });
+
+  it('clears the deferred marker after persist already wrote non-LOADING_FLAT content', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+    const mapKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: 'persisted reply',
+              createdAt: Date.now(),
+              id: 'assistant-deferred',
+              role: 'assistant',
+            },
+          ],
+        },
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toBeUndefined();
+  });
+
+  it('resumes triggerToolCalls on switch-back when the deferred row has tools and no results', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const triggerToolCalls = vi.fn(async () => {});
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+    const mapKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: '',
+              createdAt: Date.now(),
+              id: 'assistant-deferred',
+              role: 'assistant',
+              tools: [{ id: 'call-1', identifier: 'lobe-code-interpreter', type: 'builtin' }],
+            },
+          ],
+        },
+        triggerToolCalls,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(triggerToolCalls).toHaveBeenCalledWith(
+      'assistant-deferred',
+      expect.objectContaining({ threadId: undefined }),
+    );
   });
 
   it('does not finalize a deferred placeholder while its browser producer is still loading', async () => {
     vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
     const refreshMessages = vi.fn(async () => {});
-    const conversationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+    const mapKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
 
     act(() => {
       useChatStore.setState({
@@ -1435,7 +1533,7 @@ describe('conversationGeneration store actions', () => {
           },
         },
         messagesMap: {
-          [conversationKey]: [
+          [mapKey]: [
             {
               content: LOADING_FLAT,
               createdAt: Date.now(),

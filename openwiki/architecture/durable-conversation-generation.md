@@ -621,42 +621,45 @@ persisted, leaving the assistant row permanently at `LOADING_FLAT`.
 `InterruptibleLoading` (`src/features/Conversation/Messages/Default.tsx`) then
 renders nothing for a stale, non-generating placeholder — the white circle.
 
-Fixes (browser turns now have the same navigation tolerance as durable turns):
+Product contract for deferred browser turns:
 
-- `onFinish` and `onErrorHandle` persist under `isPersistenceCurrent()`:
-  account mutation snapshot + full resolved clear fence
-  (`isConversationClearFenceCurrent`). Navigation alone no longer blocks the
-  write; only account switches and destructive/cancel fences (Stop, clear,
-  topic delete) do. `internal_updateMessageContent` receives the captured
-  `conversationContext`, so its own guard also passes for a background
-  conversation.
-- `onAbort` (Stop, lane rewind, lost fetch) persists whatever text already
-  streamed via `internal_updateMessageContent`, or deletes the empty
-  placeholder row (`internal_deleteMessage`) when nothing arrived, so an
-  interrupted turn never leaves a permanent `...` row. Deferred browser-fallback
-  lanes (`deferReason=unsupported_tool|fetch_on_client`) keep an empty
-  placeholder instead of deleting it: topic switch uses the same
-  `MESSAGE_CANCEL_FLAT` abort as Stop, so deleting would drop the reply that is
-  still running off-screen.
-- Topic switch (`internal_invalidateConversation`) does not abort AbortControllers
-  or strip `chatLoadingIds` for deferred browser-fallback lanes, so the stream
-  can finish in the background. `onMessageHandle` applies chunks under
-  `isPersistenceCurrent()`, and `internal_toggleChatLoading(false)` uses the
-  stored lane for the assistant id so off-screen finalization clears the right
-  producer.
+- Persist the first assistant off-screen under `isPersistenceCurrent()`
+  (account snapshot + clear fence). Navigation alone does not block the write.
+- Resume tool loops (`triggerToolCalls`) only when the user **returns** to the
+  topic. Do not run code-interpreter / image-gen while the topic is hidden.
+- Stop with no text still **deletes** the empty row. Topic switch does not
+  abort deferred producers, so `onAbort` is Stop / lost fetch, not Leave.
+- Finalize never blanks leftover `LOADING_FLAT` into a white circle. Sync
+  clears the deferred marker only after persist wrote real content, or resumes
+  a pending tool skeleton.
+
+How that is implemented:
+
+- `onFinish`, `onMessageHandle`, and `onErrorHandle` persist under
+  `isPersistenceCurrent()`. `internal_updateMessageContent` receives the
+  captured `conversationContext`.
+- Topic switch (`internal_invalidateConversation`) does not abort
+  AbortControllers or strip `chatLoadingIds` for deferred browser-fallback
+  lanes. Deferred lanes are keyed by
+  `laneScopedClearKey(sessionId, topicId, threadId)`.
 - `sendMessageInServer` returns `deferReason` / `deferredToolName` on the RPC
   success path (it does not throw). The client stores that marker in
-  `deferredBrowserGenerationLanes` and `syncActiveConversationGenerations`
-  finalizes leftover `LOADING_FLAT` rows for that marker on switch-back without
-  waiting for the 5-minute orphan sweep.
-- `syncActiveConversationGenerations` deletes orphaned stale placeholders
+  `deferredBrowserGenerationLanes`.
+- `syncActiveConversationGenerations` on switch-back resumes leftover tool
+  calls when the row has `tools` and no tool results; it never toggles loading
+  off a leftover `LOADING_FLAT` row. Deleting the topic aborts and clears those
+  deferred lanes.
+- `syncActiveConversationGenerations` still deletes orphaned stale placeholders
   (see Client sync), which also repairs rows stuck by the pre-fix behavior the
   next time the topic is opened.
 
+Switch during the **send RPC** (marker not created yet) remains a known gap:
+`mainSendMessageOperations` are always aborted on invalidate.
+
 Tool-continuation loops still require the conversation to be visible
-(browser-fallback limitation): after navigation the persisted reply keeps its
-tool calls, but the client loop stops; durable turns are unaffected because
-the worker runs the loop server-side.
+(browser-fallback limitation): the worker does not execute
+`lobe-code-interpreter` / `lobe-image-designer`. Durable turns that the worker
+does support are unaffected because the worker runs the loop server-side.
 
 ## Startup schema repair
 

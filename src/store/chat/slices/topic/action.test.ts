@@ -9,6 +9,7 @@ import { chatService } from '@/services/chat';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { systemAgentSelectors } from '@/store/user/selectors';
@@ -914,6 +915,41 @@ describe('topic action', () => {
       expect(topicService.removeTopic).toHaveBeenCalledWith(topicId);
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
+    });
+
+    it('aborts a preserved deferred browser producer for the deleted topic', async () => {
+      const topicId = 'topic-deferred';
+      const activeId = 'test-session-id';
+      const conversationKey = deferredBrowserGenerationLaneKey(activeId, topicId, null);
+      const controller = new AbortController();
+      const abortSpy = vi.spyOn(controller, 'abort');
+      const { result } = renderHook(() => useChatStore());
+
+      await act(async () => {
+        useChatStore.setState({
+          activeId,
+          activeTopicId: topicId,
+          chatLoadingAbortControllersByLane: { [conversationKey]: controller },
+          chatLoadingIds: ['deferred-assistant'],
+          chatLoadingLaneByMessageId: { 'deferred-assistant': conversationKey },
+          deferredBrowserGenerationLanes: {
+            [conversationKey]: {
+              assistantMessageId: 'deferred-assistant',
+              reason: 'unsupported_tool',
+              toolName: 'lobe-code-interpreter',
+            },
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.removeTopic(topicId);
+      });
+
+      expect(abortSpy).toHaveBeenCalled();
+      expect(
+        useChatStore.getState().deferredBrowserGenerationLanes[conversationKey],
+      ).toBeUndefined();
     });
 
     it('cancels detached server ops and tombstones scoped clear when deleting an inactive topic', async () => {

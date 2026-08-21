@@ -1,4 +1,4 @@
-import { LOADING_FLAT } from '@lobechat/const';
+import { LOADING_FLAT, MESSAGE_CANCEL_FLAT } from '@lobechat/const';
 import {
   ConversationGenerationChatFamilyKinds,
   type ConversationGenerationDeferReason,
@@ -26,6 +26,10 @@ import {
   recordStoppedDurableOperationsInMarkers,
   resolveConversationClearGeneration,
 } from '@/store/chat/utils/conversationClearGeneration';
+import {
+  deferredBrowserGenerationLaneKey,
+  deferredBrowserGenerationLaneKeysForTopic,
+} from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { setNamespace } from '@/utils/storeDebug';
@@ -77,6 +81,10 @@ export interface ConversationGenerationAction {
   cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => Promise<void>;
   detachConversationGeneration: (operationId: string, conversationKey?: string) => void;
   detachDurableOps: (options?: ConversationGenerationScope) => void;
+  internal_abortDeferredBrowserLanesForTopic: (
+    sessionId: string,
+    topicId?: string | null,
+  ) => void;
   internal_clearDurableLaneDeferred: (conversationKey: string) => void;
   internal_finalizeDeferredLanePlaceholder: (conversationKey: string) => Promise<void>;
   internal_markDurableGenerating: (id: string, loading: boolean) => void;
@@ -84,6 +92,7 @@ export interface ConversationGenerationAction {
     assistantMessageId: string;
     reason: ConversationGenerationDeferReason;
     sessionId: string;
+    threadId?: string | null;
     toolName?: string;
     topicId?: string | null;
   }) => void;
@@ -647,15 +656,16 @@ export const conversationGeneration: StateCreator<
     assistantMessageId,
     reason,
     sessionId,
+    threadId,
     toolName,
     topicId,
   }) => {
-    const conversationKey = conversationKeyFor(sessionId, topicId);
+    const conversationKey = deferredBrowserGenerationLaneKey(sessionId, topicId, threadId);
     set(
       (state) => ({
         deferredBrowserGenerationLanes: {
           ...state.deferredBrowserGenerationLanes,
-          [conversationKey]: { assistantMessageId, reason, toolName },
+          [conversationKey]: { assistantMessageId, reason, threadId: threadId ?? null, toolName },
         },
       }),
       false,
@@ -683,6 +693,31 @@ export const conversationGeneration: StateCreator<
     );
   },
 
+  internal_abortDeferredBrowserLanesForTopic: (sessionId, topicId) => {
+    const keys = deferredBrowserGenerationLaneKeysForTopic(
+      get().deferredBrowserGenerationLanes,
+      sessionId,
+      topicId,
+    );
+    if (keys.length === 0) return;
+
+    const ids = new Set<string>();
+    for (const key of keys) {
+      const assistantMessageId = get().deferredBrowserGenerationLanes[key]?.assistantMessageId;
+      if (assistantMessageId) ids.add(assistantMessageId);
+    }
+    for (const messageId of ids) {
+      const laneKey = get().chatLoadingLaneByMessageId[messageId];
+      if (laneKey) {
+        get().chatLoadingAbortControllersByLane[laneKey]?.abort(MESSAGE_CANCEL_FLAT);
+      }
+      get().internal_toggleChatLoading(false, messageId, n('deferredLane/abortTopic') as string);
+    }
+    for (const key of keys) {
+      get().internal_clearDurableLaneDeferred(key);
+    }
+  },
+
   internal_finalizeDeferredLanePlaceholder: async (conversationKey) => {
     const deferred = get().deferredBrowserGenerationLanes[conversationKey];
     if (!deferred) return;
@@ -694,13 +729,14 @@ export const conversationGeneration: StateCreator<
       return;
     }
 
-    get().internal_markDurableGenerating(deferred.assistantMessageId, false);
-    get().internal_toggleChatLoading(
-      false,
-      deferred.assistantMessageId,
-      n('deferredLane/finalize') as string,
+    // Never clear loading on a leftover LOADING_FLAT row: that is the white
+    // circle. Only drop the marker after persist wrote real content.
+    const mapKey = conversationKeyFor(get().activeId, get().activeTopicId);
+    const message = (get().messagesMap[mapKey] || []).find(
+      (item) => item.id === deferred.assistantMessageId && item.role === 'assistant',
     );
-    await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+    if (!message || message.content === LOADING_FLAT) return;
+
     get().internal_clearDurableLaneDeferred(conversationKey);
     void hashGenerationDebugClientValue(deferred.assistantMessageId).then((messageHash) => {
       logGenerationDebugClientSafe('deferred_placeholder_finalized', {
@@ -928,7 +964,11 @@ export const conversationGeneration: StateCreator<
       }
     }
 
-    const currentConversationKey = conversationKeyFor(activeId, activeTopicId);
+    const currentConversationKey = deferredBrowserGenerationLaneKey(
+      activeId,
+      activeTopicId,
+      visibleThreadId,
+    );
     const deferredLane = get().deferredBrowserGenerationLanes[currentConversationKey];
     if (deferredLane) {
       const deferredMessage = visibleMessages.find(
@@ -939,14 +979,26 @@ export const conversationGeneration: StateCreator<
         get().messageInToolsCallingIds.includes(deferredLane.assistantMessageId) ||
         Boolean(get().toolCallingStreamIds[deferredLane.assistantMessageId]) ||
         attachedAssistantIds.has(deferredLane.assistantMessageId);
-      if (!deferredStillProducing && deferredMessage?.content === LOADING_FLAT) {
-        await get().internal_finalizeDeferredLanePlaceholder(currentConversationKey);
+      const hasPendingTools =
+        Boolean(deferredMessage?.tools && deferredMessage.tools.length > 0) &&
+        !visibleMessages.some(
+          (message) =>
+            message.role === 'tool' && message.parentId === deferredLane.assistantMessageId,
+        );
+      if (!deferredStillProducing && hasPendingTools) {
+        get().internal_toggleMessageInToolsCalling(true, deferredLane.assistantMessageId);
+        await get()
+          .triggerToolCalls(deferredLane.assistantMessageId, {
+            inPortalThread: Boolean(get().portalThreadId),
+            threadId: visibleThreadId ?? undefined,
+          })
+          .catch(console.error);
       } else if (
         !deferredStillProducing &&
         deferredMessage &&
         deferredMessage.content !== LOADING_FLAT
       ) {
-        get().internal_clearDurableLaneDeferred(currentConversationKey);
+        await get().internal_finalizeDeferredLanePlaceholder(currentConversationKey);
       }
     }
 

@@ -735,11 +735,12 @@ describe('generateAIChatV2 actions', () => {
 
         expect(
           useChatStore.getState().deferredBrowserGenerationLanes[
-            messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+            `${messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)}:main`
           ],
         ).toEqual({
           assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
           reason: 'unsupported_tool',
+          threadId: null,
           toolName: 'lobe-image-designer',
         });
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();

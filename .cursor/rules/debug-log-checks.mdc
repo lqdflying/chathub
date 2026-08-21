@@ -248,7 +248,9 @@ Generation-debug semantics:
   of stale `...` placeholder rows. A browser-fallback send that durable enqueue
   rejected must show `send_rpc_settled(hasOperationId=false, deferReason=…)`
   plus client `deferred_lane_marked`. After the user returns to the topic,
-  `deferred_placeholder_finalized` means sync cleared the leftover loader.
+  `deferred_placeholder_finalized` means persist already wrote content and
+  sync cleared the deferred marker. It must not fire for leftover
+  `LOADING_FLAT` rows.
 
 Tool-call failures:
 

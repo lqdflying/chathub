@@ -31,6 +31,7 @@ import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
   asConversationGenerationOperation,
   conversationGenerationService,
+  isConversationGenerationDeferred,
   tryEnqueueConversationGeneration,
   waitForConversationGeneration,
 } from '@/services/conversationGeneration';
@@ -634,8 +635,9 @@ export const chatAiGroupChat: StateCreator<
           // was in flight: cancel the orphaned operation instead of attaching.
           if (operation) {
             await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+            return;
           }
-          return;
+          if (!isConversationGenerationDeferred(enqueueResult)) return;
         }
         if (operation) {
           get().attachConversationGeneration({
@@ -1062,8 +1064,19 @@ export const chatAiGroupChat: StateCreator<
             // was in flight: cancel the orphaned operation instead of attaching.
             if (operation) {
               await conversationGenerationService.cancel(operation.id).catch(() => undefined);
+              return;
             }
-            return;
+            if (!isConversationGenerationDeferred(enqueueResult)) return;
+          }
+          if (isConversationGenerationDeferred(enqueueResult) && assistantId) {
+            get().internal_markDurableLaneDeferred({
+              assistantMessageId: assistantId,
+              reason: enqueueResult.reason,
+              sessionId: requestedSessionId,
+              threadId: null,
+              toolName: enqueueResult.toolName,
+              topicId: activeTopicId,
+            });
           }
           if (operation) {
             get().attachConversationGeneration({
@@ -1122,6 +1135,13 @@ export const chatAiGroupChat: StateCreator<
         if (assistantId) {
           const { isFunctionCall, persistenceAmbiguous, persistenceFailure } =
             await internal_fetchAIChatMessage({
+              conversationContext: {
+                clearGeneration: requestedClearFence,
+                generation: get().conversationNavigationGeneration,
+                sessionId: requestedSessionId,
+                threadId: null,
+                topicId: activeTopicId,
+              },
               messages: messagesForAPI,
               messageId: assistantId,
               model: agentModel,
