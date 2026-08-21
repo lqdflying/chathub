@@ -946,6 +946,52 @@ describe('ChatPluginAction', () => {
       // Verify that messages were not refreshed
       expect(useChatStore.getState().text2image).not.toHaveBeenCalled();
     });
+
+    it('keeps a builtin tool result when the user leaves the topic', async () => {
+      const payload = {
+        apiName: 'text2image',
+        arguments: JSON.stringify({ key: 'value' }),
+      } as ChatToolPayload;
+      const messageId = 'builtin-tool-message';
+      const toolResponse = JSON.stringify({ abc: 'data' });
+      const deferred = createDeferred<string>();
+      const updateMessageContent = vi.fn();
+      const text2image = vi.fn().mockResolvedValue(true);
+
+      useToolStore.setState({
+        transformApiArgumentsToAiState: vi.fn().mockReturnValue(deferred.promise),
+      });
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        conversationClearGeneration: 0,
+        internal_togglePluginApiCalling: vi.fn().mockReturnValue(new AbortController()),
+        internal_updateMessageContent: updateMessageContent,
+        messagesMap: {
+          [messageMapKey('session-id', 'topic-id')]: [
+            { id: 'assistant', role: 'assistant', sessionId: 'session-id', topicId: 'topic-id' } as UIChatMessage,
+            {
+              id: messageId,
+              parentId: 'assistant',
+              role: 'tool',
+              sessionId: 'session-id',
+              topicId: 'topic-id',
+            } as UIChatMessage,
+          ],
+        },
+        text2image,
+      });
+
+      const invokePromise = useChatStore.getState().invokeBuiltinTool(messageId, payload);
+      useChatStore.setState({ activeTopicId: 'other-topic' });
+      deferred.resolve(toolResponse);
+
+      await expect(invokePromise).resolves.toMatchObject({
+        shouldContinue: true,
+      });
+      expect(updateMessageContent).toHaveBeenCalled();
+      expect(text2image).toHaveBeenCalled();
+    });
   });
 
   describe('invokeMarkdownTypePlugin', () => {

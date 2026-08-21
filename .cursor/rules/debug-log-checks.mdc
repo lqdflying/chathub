@@ -253,10 +253,10 @@ Generation-debug semantics:
   before the batch started and there was no deferred lane),
   `session_changed` / `not_visible` (continue gated after tools finished).
   `no_resumable_tool` with `cancelledCount>=1` and `completedCount=0` right
-  after a persisted MCP result on leave is the abort-on-switch regression
-  (topic switch must not abort deferred-assistant tool controllers or rewrite
-  the persist as cancelled). Outcome counts (`completedCount`,
-  `cancelledCount`) are hashes-free.
+  after a persisted MCP **or builtin** result on leave is the abort-on-switch
+  regression (topic switch must not abort deferred-conversation tool
+  controllers, RAG loading, or rewrite a persist as cancelled). Outcome counts
+  (`completedCount`, `cancelledCount`) are hashes-free.
   `deferred_lane_resumed(outcome=still_producing)` now includes
   `chatLoading` / `toolsCalling` / `streamActive` / `pendingModelContinue` /
   `pendingTools` so a leaked tools-calling flag is visible without dumping

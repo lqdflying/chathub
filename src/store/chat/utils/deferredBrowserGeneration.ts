@@ -2,6 +2,11 @@ import type { ChatAIChatState } from '../slices/aiChat/initialState';
 import { laneScopedClearKey } from './conversationClearGeneration';
 import { messageMapKey } from './messageMapKey';
 
+const conversationMapKeyFromLaneKey = (laneKey: string): string => {
+  const boundary = laneKey.lastIndexOf(']:');
+  return boundary < 0 ? laneKey : laneKey.slice(0, boundary + 1);
+};
+
 export const deferredBrowserGenerationLaneKey = (
   sessionId: string,
   topicId?: string | null,
@@ -19,8 +24,9 @@ export const collectDeferredBrowserGenerationMessageIds = (
 };
 
 /**
- * Assistant ids plus in-flight tool rows whose parent is a deferred assistant.
- * Topic switch must not abort those MCP/plugin controllers.
+ * Every message in a deferred browser-fallback conversation, including the
+ * user row (RAG / KB search), the assistant, and in-flight tool children.
+ * Topic switch must not abort those producers.
  */
 export const collectDeferredBrowserGenerationProtectedIds = (
   lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,
@@ -29,9 +35,14 @@ export const collectDeferredBrowserGenerationProtectedIds = (
   const ids = collectDeferredBrowserGenerationMessageIds(lanes);
   if (ids.size === 0 || !messagesMap) return ids;
 
-  for (const messages of Object.values(messagesMap)) {
+  const deferredMapKeys = new Set(
+    Object.keys(lanes || {}).map((laneKey) => conversationMapKeyFromLaneKey(laneKey)),
+  );
+
+  for (const [mapKey, messages] of Object.entries(messagesMap)) {
+    const inDeferredConversation = deferredMapKeys.has(mapKey);
     for (const message of messages || []) {
-      if (message.parentId && ids.has(message.parentId)) {
+      if (inDeferredConversation || (message.parentId && ids.has(message.parentId))) {
         ids.add(message.id);
       }
     }

@@ -452,24 +452,25 @@ export const chatPlugin: StateCreator<
 
     const { internal_togglePluginApiCalling } = get();
     const messageResource = resolvePluginMessageResource(get(), id);
+    const conversationContext = createResourceConversationContext(messageResource, get());
     const params = JSON.parse(payload.arguments);
+    const invocationGeneration = get().conversationClearGeneration;
     const abortController = internal_togglePluginApiCalling(
       true,
       id,
       n('invokeBuiltinTool/start') as string,
     );
-    const invocationIsCurrent = () =>
-      isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource) &&
-      !abortController?.signal.aborted;
+    const isHardCancelled = () =>
+      isToolBatchHardCancelled(get(), accountMutationSnapshot, invocationGeneration);
 
     try {
       let data;
       try {
         data = await useToolStore
           .getState()
-          .transformApiArgumentsToAiState(payload.apiName, params, invocationIsCurrent);
+          .transformApiArgumentsToAiState(payload.apiName, params, () => !isHardCancelled());
       } catch (error) {
-        if (!invocationIsCurrent()) {
+        if (isHardCancelled()) {
           return { data: undefined, outcome: 'cancelled', shouldContinue: false };
         }
 
@@ -492,8 +493,10 @@ export const chatPlugin: StateCreator<
         });
       }
 
-      if (!invocationIsCurrent()) {
-        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      if (isHardCancelled()) {
+        return data
+          ? { data, shouldContinue: false }
+          : { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
       if (!data) {
@@ -504,9 +507,13 @@ export const chatPlugin: StateCreator<
         };
       }
 
-      await get().internal_updateMessageContent(id, data);
-      if (!invocationIsCurrent()) {
-        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      if (conversationContext) {
+        await get().internal_updateMessageContent(id, data, { conversationContext });
+      } else {
+        await get().internal_updateMessageContent(id, data);
+      }
+      if (isHardCancelled()) {
+        return { data, shouldContinue: false };
       }
 
       // run tool api call
@@ -538,8 +545,14 @@ export const chatPlugin: StateCreator<
       }
 
       const actionResult = await action(id, content, undefined, diagnosticId);
-      if (!invocationIsCurrent()) {
-        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      if (isHardCancelled()) {
+        return {
+          data:
+            actionResult && typeof actionResult === 'object' && 'data' in actionResult
+              ? actionResult.data
+              : data,
+          shouldContinue: false,
+        };
       }
 
       if (

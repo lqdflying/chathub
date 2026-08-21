@@ -43,7 +43,7 @@ import {
   markConversationTopicDurableGenerationStopped,
 } from '@/store/chat/utils/conversationClearGeneration';
 import { collectDeferredBrowserGenerationProtectedIds } from '@/store/chat/utils/deferredBrowserGeneration';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
 import { useToolStore } from '@/store/tool';
@@ -822,34 +822,62 @@ export const chatMessage: StateCreator<
   internal_updateMessageError: async (id, error) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
-    const requestedSessionId = get().activeId;
-    const requestedTopicId = get().activeTopicId;
+    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
+    const requestedSessionId = mapHit?.sessionId || get().activeId;
+    const requestedTopicId = mapHit?.topicId ?? get().activeTopicId;
     if (!accountMutationSnapshot || !requestedSessionId) return;
     const isCurrentRequest = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === requestedSessionId &&
-      get().activeTopicId === requestedTopicId;
+      get().conversationClearGeneration === requestedGeneration;
+    const dispatchContext =
+      mapHit && mapHit.mapKey !== messageMapKey(get().activeId, get().activeTopicId)
+        ? { sessionId: mapHit.sessionId, topicId: mapHit.topicId }
+        : undefined;
 
-    get().internal_dispatchMessage({ id, type: 'updateMessage', value: { error } });
+    get().internal_dispatchMessage({ id, type: 'updateMessage', value: { error } }, dispatchContext);
     await messageService.updateMessage(id, { error });
-    if (isCurrentRequest()) await get().refreshMessages();
+    if (isCurrentRequest()) {
+      await get().refreshMessages(
+        dispatchContext
+          ? {
+              clearGeneration: requestedGeneration,
+              generation: get().conversationNavigationGeneration,
+              sessionId: requestedSessionId,
+              topicId: requestedTopicId,
+            }
+          : undefined,
+      );
+    }
   },
 
   internal_updateMessagePluginError: async (id, error) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     const requestedGeneration = get().conversationClearGeneration;
-    const requestedSessionId = get().activeId;
-    const requestedTopicId = get().activeTopicId;
+    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
+    const requestedSessionId = mapHit?.sessionId || get().activeId;
+    const requestedTopicId = mapHit?.topicId ?? get().activeTopicId;
     if (!accountMutationSnapshot || !requestedSessionId) return;
     const isCurrentRequest = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === requestedSessionId &&
-      get().activeTopicId === requestedTopicId;
+      get().conversationClearGeneration === requestedGeneration;
+    const dispatchContext =
+      mapHit && mapHit.mapKey !== messageMapKey(get().activeId, get().activeTopicId)
+        ? { sessionId: mapHit.sessionId, topicId: mapHit.topicId }
+        : undefined;
 
     await messageService.updateMessagePluginError(id, error);
-    if (isCurrentRequest()) await get().refreshMessages();
+    if (isCurrentRequest()) {
+      await get().refreshMessages(
+        dispatchContext
+          ? {
+              clearGeneration: requestedGeneration,
+              generation: get().conversationNavigationGeneration,
+              sessionId: requestedSessionId,
+              topicId: requestedTopicId,
+            }
+          : undefined,
+      );
+    }
   },
 
   internal_updateMessageContent: async (id, content, extra) => {
@@ -857,7 +885,18 @@ export const chatMessage: StateCreator<
     if (!accountMutationSnapshot) return { persistenceAmbiguous: false };
 
     const { internal_dispatchMessage, refreshMessages, internal_transformToolCalls } = get();
-    const conversationContext = extra?.conversationContext;
+    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
+    const activeMapKey = messageMapKey(get().activeId, get().activeTopicId);
+    const inferredContext =
+      mapHit && mapHit.mapKey !== activeMapKey && mapHit.sessionId
+        ? {
+            clearGeneration: get().conversationClearGeneration,
+            generation: get().conversationNavigationGeneration,
+            sessionId: mapHit.sessionId,
+            topicId: mapHit.topicId,
+          }
+        : undefined;
+    const conversationContext = extra?.conversationContext ?? inferredContext;
     const dispatchContext = conversationContext
       ? { sessionId: conversationContext.sessionId, topicId: conversationContext.topicId }
       : undefined;
@@ -1278,7 +1317,9 @@ export const chatMessage: StateCreator<
     }
 
     get().internal_cancelAllSupervisorDecisions();
-    useToolStore.setState({ builtinToolLoading: {} });
+    if (preserveMessageIds.size === 0) {
+      useToolStore.setState({ builtinToolLoading: {} });
+    }
     const preservedLoading = preserveChatLoadingLaneMapsForMessages(get(), preserveMessageIds);
     const preservedPluginControllers = Object.fromEntries(
       Object.entries(get().pluginApiAbortControllers).filter(([messageId]) =>
@@ -1295,6 +1336,9 @@ export const chatMessage: StateCreator<
       preserveMessageIds.has(messageId),
     );
     const preservedSearchIds = get().searchWorkflowLoadingIds.filter((messageId) =>
+      preserveMessageIds.has(messageId),
+    );
+    const preservedRagIds = get().messageRAGLoadingIds.filter((messageId) =>
       preserveMessageIds.has(messageId),
     );
     const preservedToolCallingStreamIds = Object.fromEntries(
@@ -1324,9 +1368,7 @@ export const chatMessage: StateCreator<
           preservedToolsCallingIds.length > 0
             ? state.messageInToolsCallingIdsAbortController
             : undefined,
-        // clear RAG loading too, or an id orphaned mid-retrieval leaves the
-        // avatar spinner stuck across topic switches (clearMessage clears it)
-        messageRAGLoadingIds: [],
+        messageRAGLoadingIds: preservedRagIds,
         pluginApiAbortControllers: preservedPluginControllers,
         pluginApiLoadingIds: preservedPluginLoadingIds,
         reasoningLoadingIds: preservedReasoningIds,

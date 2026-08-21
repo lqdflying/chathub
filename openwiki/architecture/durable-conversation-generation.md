@@ -669,11 +669,13 @@ Product contract for deferred browser turns:
   (account snapshot + clear fence). Navigation alone does not block the write.
 - Keep a started tool batch alive after leave: do not abort in-flight plugin
   controllers whose parent is a deferred assistant, do not rewrite a
-  successful MCP result as `cancelled` just because the topic is inactive,
-  and always clear `messageInToolsCallingIds` in `finally`. Continue the
-  model immediately via `triggerAIMessage` with the original
-  `conversationContext`. On return, `resume_model` only if that continue
-  was skipped and tools already have results with no follow-up assistant.
+  successful MCP **or builtin** result as `cancelled` just because the topic
+  is inactive, and always clear `messageInToolsCallingIds` in `finally`.
+  Knowledge Base / RAG retrieval uses the same hard-cancel fence (account +
+  clear generation), not `activeTopicId`. Continue the model immediately via
+  `triggerAIMessage` with the original `conversationContext`. On return,
+  `resume_model` only if that continue was skipped and tools already have
+  results with no follow-up assistant.
 - Stop with no text still **deletes** the empty row. Topic switch does not
   abort deferred producers, so `onAbort` is Stop / lost fetch, not Leave.
 - Finalize never blanks leftover `LOADING_FLAT` into a white circle. Sync
@@ -688,7 +690,8 @@ How that is implemented:
 - Topic switch (`internal_invalidateConversation`) does not abort
   AbortControllers or strip `chatLoadingIds` for deferred browser-fallback
   lanes, including `pluginApiAbortControllers` keyed by **tool** message ids
-  whose `parentId` is that deferred assistant. Deferred lanes are keyed by
+  and `messageRAGLoadingIds` for user rows in that conversation. Deferred
+  lanes are keyed by
   `laneScopedClearKey(sessionId, topicId, threadId)`.
 - `sendMessageInServer` returns `deferReason` / `deferredToolName` on the RPC
   success path (it does not throw). The client stores that marker in

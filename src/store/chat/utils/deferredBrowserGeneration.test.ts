@@ -8,6 +8,7 @@ import {
   isDeferredBrowserLaneAssistant,
   isDeferredLaneProducerAlive,
 } from './deferredBrowserGeneration';
+import { messageMapKey } from './messageMapKey';
 
 describe('deferredBrowserGeneration helpers', () => {
   it('treats an empty tool-calling stream array as idle', () => {
@@ -46,8 +47,9 @@ describe('deferredBrowserGeneration helpers', () => {
     ).toBe(false);
   });
 
-  it('protects in-flight tool rows whose parent is a deferred assistant', () => {
+  it('protects every message in a deferred conversation, including RAG user rows', () => {
     const key = deferredBrowserGenerationLaneKey('session', 'topic', null);
+    const mapKey = messageMapKey('session', 'topic');
     expect(
       collectDeferredBrowserGenerationProtectedIds(
         {
@@ -58,14 +60,17 @@ describe('deferredBrowserGeneration helpers', () => {
           },
         },
         {
-          'session_topic': [
+          [mapKey]: [
+            { id: 'user' },
             { id: 'assistant' },
             { id: 'tavily-tool', parentId: 'assistant' },
+          ],
+          [messageMapKey('other-session', 'other-topic')]: [
             { id: 'other-tool', parentId: 'other-assistant' },
           ],
         },
       ),
-    ).toEqual(new Set(['assistant', 'tavily-tool']));
+    ).toEqual(new Set(['assistant', 'user', 'tavily-tool']));
   });
 
   it('matches a deferred lane by conversation key and assistant id', () => {

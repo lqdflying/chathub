@@ -38,3 +38,21 @@ export const parseMessageMapKey = (mapKey: string): MessageMapContext | undefine
     topicId,
   };
 };
+
+export const findMessageInMessagesMap = <T extends { id: string }>(
+  messagesMap: Record<string, T[] | undefined> | undefined,
+  messageId: string,
+): { mapKey: string; message: T; sessionId: string; topicId: string | null } | undefined => {
+  for (const [mapKey, messages] of Object.entries(messagesMap || {})) {
+    const message = messages?.find((item) => item.id === messageId);
+    if (!message) continue;
+
+    const parsed = parseMessageMapKey(mapKey);
+    return {
+      mapKey,
+      message,
+      sessionId: parsed?.sessionId ?? '',
+      topicId: parsed?.topicId ?? null,
+    };
+  }
+};

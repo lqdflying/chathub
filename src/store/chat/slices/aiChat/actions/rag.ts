@@ -16,9 +16,8 @@ import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { ChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
-import type { ConversationContext } from '@/store/chat/types';
 import { toggleBooleanList } from '@/store/chat/utils';
-import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
 import { ChatSemanticSearchChunk } from '@/types/chunk';
@@ -79,6 +78,28 @@ export interface ChatRAGAction {
 const knowledgeIds = () => agentSelectors.currentKnowledgeIds(useAgentStore.getState());
 const hasEnabledKnowledge = () => agentSelectors.hasEnabledKnowledge(useAgentStore.getState());
 
+const ragRetrievalSeqByMessageId = new Map<string, number>();
+
+const userFilesFromMessages = (
+  messages: Array<{ fileList?: Array<{ id: string }> | null; role?: string }> | undefined,
+) =>
+  (messages || [])
+    .filter((message) => message.role === 'user' && message.fileList && message.fileList.length > 0)
+    .flatMap((message) => message.fileList || [])
+    .map((file) => file.id);
+
+const createRagDispatchContext = (
+  hit:
+    | {
+        sessionId: string;
+        topicId: string | null;
+      }
+    | undefined,
+) => {
+  if (!hit?.sessionId) return;
+  return { sessionId: hit.sessionId, topicId: hit.topicId };
+};
+
 export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [], ChatRAGAction> = (
   set,
   get,
@@ -118,19 +139,28 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
     }
 
     const requestedGeneration = get().conversationClearGeneration;
-    const requestedSessionId = get().activeId;
-    const requestedTopicId = get().activeTopicId;
-    const isCurrentRequest = () =>
-      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === requestedSessionId &&
-      get().activeTopicId === requestedTopicId &&
-      !!chatSelectors.getMessageById(id)(get());
-    if (!isCurrentRequest()) {
+    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
+    const isRagHardCancelled = () =>
+      !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
+      get().conversationClearGeneration !== requestedGeneration;
+    const hasMessage = () =>
+      Boolean(
+        chatSelectors.getMessageById(id)(get()) || findMessageInMessagesMap(get().messagesMap, id),
+      );
+    const isRagRequestAlive = () => !isRagHardCancelled() && hasMessage();
+    if (!isRagRequestAlive()) {
       return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
     }
 
+    const retrievalSeq = (ragRetrievalSeqByMessageId.get(id) ?? 0) + 1;
+    ragRetrievalSeqByMessageId.set(id, retrievalSeq);
     get().internal_toggleMessageRAGLoading(true, id);
+    const knowledge = knowledgeIds();
+    const fileIds = knowledge.fileIds.concat(
+      mapHit
+        ? userFilesFromMessages(get().messagesMap[mapHit.mapKey])
+        : chatSelectors.currentUserFiles(get()).map((file) => file.id),
+    );
 
     try {
       const status = await ragProviderService.getStatus();
@@ -138,7 +168,9 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
         throw new Error('RAG retrieval is unavailable. Configure a RAG Provider in Settings.');
       }
 
-      const message = chatSelectors.getMessageById(id)(get());
+      const message =
+        chatSelectors.getMessageById(id)(get()) ||
+        findMessageInMessagesMap(get().messagesMap, id)?.message;
 
       // 1. get the rewrite query
       let rewriteQuery = message?.ragQuery as string | undefined;
@@ -147,22 +179,21 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
       // we need to rewrite the user message to get better results
       if (!message?.ragQuery && messages.length > 0) {
         rewriteQuery = await get().internal_rewriteQuery(id, userQuery, messages);
-        if (!isCurrentRequest()) {
+        if (!isRagRequestAlive()) {
           return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
         }
       }
 
       // 2. retrieve chunks from semantic search
-      const files = chatSelectors.currentUserFiles(get()).map((f) => f.id);
       const result = await ragService.semanticSearchForChat({
-        fileIds: knowledgeIds().fileIds.concat(files),
-        knowledgeIds: knowledgeIds().knowledgeBaseIds,
+        fileIds,
+        knowledgeIds: knowledge.knowledgeBaseIds,
         messageId: id,
         rewriteQuery: rewriteQuery || userQuery,
         userQuery,
       });
 
-      if (!isCurrentRequest()) {
+      if (!isRagRequestAlive()) {
         return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
       }
 
@@ -175,12 +206,9 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
         scope: result.scope ?? emptyScopeStats(),
       };
     } finally {
-      // Only clear the flag if this is still the current request. The orphan
-      // case (invalidated mid-retrieval) is now handled by
-      // internal_invalidateConversation clearing messageRAGLoadingIds; keeping
-      // the guard here prevents a stale request A from clearing the loading flag
-      // of a newer request B that reused the same message id after invalidation.
-      if (isCurrentRequest()) get().internal_toggleMessageRAGLoading(false, id);
+      if (ragRetrievalSeqByMessageId.get(id) === retrievalSeq && !isRagHardCancelled()) {
+        get().internal_toggleMessageRAGLoading(false, id);
+      }
     }
   },
   internal_rewriteQuery: async (id, content, messages) => {
@@ -188,15 +216,17 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
     if (!accountMutationSnapshot) return content;
 
     const requestedGeneration = get().conversationClearGeneration;
-    const requestedSessionId = get().activeId;
-    const requestedTopicId = get().activeTopicId;
-    const isCurrentRequest = () =>
-      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
-      get().conversationClearGeneration === requestedGeneration &&
-      get().activeId === requestedSessionId &&
-      get().activeTopicId === requestedTopicId &&
-      !!chatSelectors.getMessageById(id)(get());
-    if (!isCurrentRequest()) return content;
+    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
+    const dispatchContext = createRagDispatchContext(mapHit);
+    const isRagHardCancelled = () =>
+      !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
+      get().conversationClearGeneration !== requestedGeneration;
+    const hasMessage = () =>
+      Boolean(
+        chatSelectors.getMessageById(id)(get()) || findMessageInMessagesMap(get().messagesMap, id),
+      );
+    const isRagRequestAlive = () => !isRagHardCancelled() && hasMessage();
+    if (!isRagRequestAlive()) return content;
 
     let rewriteQuery = content;
 
@@ -216,25 +246,28 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
     let ragQuery = '';
     await chatService.fetchPresetTaskResult({
       onFinish: async (text) => {
-        if (!isCurrentRequest()) return;
+        if (!isRagRequestAlive()) return;
         rewriteQuery = text;
       },
 
       onMessageHandle: (chunk) => {
-        if (!isCurrentRequest()) return;
+        if (!isRagRequestAlive()) return;
         if (chunk.type !== 'text') return;
         ragQuery += chunk.text;
 
-        get().internal_dispatchMessage({
-          id,
-          type: 'updateMessage',
-          value: { ragQuery },
-        });
+        get().internal_dispatchMessage(
+          {
+            id,
+            type: 'updateMessage',
+            value: { ragQuery },
+          },
+          dispatchContext,
+        );
       },
       params: rewriteQueryParams,
     });
 
-    return isCurrentRequest() ? rewriteQuery : content;
+    return isRagRequestAlive() ? rewriteQuery : content;
   },
   internal_setKnowledgeBaseContextTokens: (conversationContext, tokens) => {
     const key = messageMapKey(conversationContext.sessionId, conversationContext.topicId);

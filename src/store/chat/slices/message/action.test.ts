@@ -230,6 +230,38 @@ describe('chatMessage actions', () => {
       expect(useChatStore.getState().pluginApiAbortControllers['other-tool']).toBeUndefined();
     });
 
+    it('keeps deferred RAG loading ids across a topic switch', () => {
+      const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'deferred-assistant',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        messageRAGLoadingIds: ['deferred-user', 'other-user'],
+        messagesMap: {
+          [messageMapKey('session-id', 'topic-id')]: [
+            { id: 'deferred-user', role: 'user' } as UIChatMessage,
+            { id: 'deferred-assistant', role: 'assistant' } as UIChatMessage,
+          ],
+          [messageMapKey('other-session', 'other-topic')]: [
+            { id: 'other-user', role: 'user' } as UIChatMessage,
+          ],
+        },
+      });
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      expect(useChatStore.getState().messageRAGLoadingIds).toEqual(['deferred-user']);
+    });
+
     it('clears the RAG loading ids so a stuck avatar spinner cannot survive a switch', () => {
       useChatStore.setState({ chatLoadingIds: ['m1'], messageRAGLoadingIds: ['m1'] });
       const { result } = renderHook(() => useChatStore());

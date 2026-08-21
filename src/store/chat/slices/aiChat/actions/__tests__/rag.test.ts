@@ -8,6 +8,7 @@ import { ragProviderService } from '@/services/ragProvider';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { chatSelectors } from '@/store/chat/selectors';
+import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { systemAgentSelectors } from '@/store/user/selectors';
 import { QueryRewriteSystemAgent } from '@/types/user/settings';
 
@@ -271,6 +272,52 @@ describe('chatRAG actions', () => {
         resolveB(searchResult);
         await bDone;
       });
+      expect(useChatStore.getState().messageRAGLoadingIds).toEqual([]);
+    });
+
+    it('returns retrieved chunks after the user leaves the topic', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'rag-user';
+      const mapKey = messageMapKey('session-id', 'topic-id');
+
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        conversationClearGeneration: 0,
+        messagesMap: {
+          [mapKey]: [{ id: messageId, ragQuery: 'q', role: 'user' } as UIChatMessage],
+        },
+      });
+      vi.spyOn(chatSelectors, 'getMessageById').mockReturnValue(() => undefined);
+      vi.spyOn(agentSelectors, 'currentKnowledgeIds').mockReturnValue({
+        fileIds: [],
+        knowledgeBaseIds: ['kb-1'],
+      });
+      (ragService.semanticSearchForChat as Mock).mockImplementation(async () => {
+        useChatStore.setState({ activeTopicId: 'other-topic' });
+        return {
+          chunks: [{ id: 'chunk-1' }],
+          queryId: 'query-id',
+          retrieval: {
+            candidateCount: 1,
+            candidateLimit: 24,
+            eligibleCount: 1,
+            minimumSimilarity: 0.2,
+            resultLimit: 8,
+            selectedCount: 1,
+            selectedScores: [0.9],
+            strategy: 'cosine',
+          },
+          scope: { directFileCount: 0, expandedFileCount: 1, knowledgeBaseCount: 1 },
+        };
+      });
+
+      const retrieved = await act(async () => {
+        return await result.current.internal_retrieveChunks(messageId, 'user-query', []);
+      });
+
+      expect(retrieved.chunks).toEqual([{ id: 'chunk-1' }]);
+      expect(retrieved.queryId).toBe('query-id');
       expect(useChatStore.getState().messageRAGLoadingIds).toEqual([]);
     });
 
