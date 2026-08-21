@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { mutate } from 'swr';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { ToolsRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
@@ -260,6 +261,69 @@ describe('chatMessage actions', () => {
       });
 
       expect(useChatStore.getState().messageRAGLoadingIds).toEqual(['deferred-user']);
+    });
+
+    it('logs preserved vs aborted in-flight ids for a deferred topic switch', () => {
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
+      const deferredToolController = new AbortController();
+      const otherToolController = new AbortController();
+      const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        chatLoadingIds: ['deferred-assistant', 'other-assistant'],
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'deferred-assistant',
+            reason: 'unsupported_tool',
+            spanId: 'gd_invalidate_span',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        messageRAGLoadingIds: ['deferred-user', 'other-user'],
+        messagesMap: {
+          [messageMapKey('session-id', 'topic-id')]: [
+            { id: 'deferred-user', role: 'user' } as UIChatMessage,
+            { id: 'deferred-assistant', role: 'assistant' } as UIChatMessage,
+            {
+              id: 'deferred-tavily',
+              parentId: 'deferred-assistant',
+              role: 'tool',
+            } as UIChatMessage,
+          ],
+        },
+        pluginApiAbortControllers: {
+          'deferred-tavily': deferredToolController,
+          'other-tool': otherToolController,
+        },
+        searchWorkflowLoadingIds: ['other-search'],
+      });
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'invalidate_preserved',
+        expect.objectContaining({
+          abortedChatCount: 1,
+          abortedPluginCount: 1,
+          abortedRagCount: 1,
+          abortedSearchCount: 1,
+          assistantMessageId: 'deferred-assistant',
+          deferredLaneCount: 1,
+          preservedChatCount: 1,
+          preservedPluginCount: 1,
+          preservedRagCount: 1,
+          preservedSearchCount: 0,
+          sessionId: 'session-id',
+          spanId: 'gd_invalidate_span',
+          topicId: 'topic-id',
+        }),
+      );
     });
 
     it('clears the RAG loading ids so a stuck avatar spinner cannot survive a switch', () => {
@@ -1051,6 +1115,66 @@ describe('chatMessage actions', () => {
       });
 
       expect(result.current.refreshMessages).toHaveBeenCalled();
+    });
+
+    it('logs message_persist_skipped as hard_cancelled for a stale conversation generation', async () => {
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
+      const updateSpy = vi.spyOn(messageService, 'updateMessage');
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({ conversationClearGeneration: 4 });
+
+      await act(async () => {
+        await result.current.internal_updateMessageContent('message-id', 'search results', {
+          conversationContext: {
+            clearGeneration: 1,
+            generation: 0,
+            sessionId: 'session-id',
+            topicId: 'topic-id',
+          },
+        });
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'message_persist_skipped',
+        expect.objectContaining({
+          reason: 'hard_cancelled',
+        }),
+      );
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not log message_persist_skipped when persisting a left-topic map row', async () => {
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
+      const updateSpy = vi.spyOn(messageService, 'updateMessage');
+      const { result } = renderHook(() => useChatStore());
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'other-topic',
+        conversationClearGeneration: 0,
+        messagesMap: {
+          [messageMapKey('session-id', 'topic-id')]: [
+            {
+              id: 'left-topic-message',
+              role: 'tool',
+              sessionId: 'session-id',
+              topicId: 'topic-id',
+            } as UIChatMessage,
+          ],
+        },
+      });
+
+      await act(async () => {
+        await result.current.internal_updateMessageContent('left-topic-message', 'search results');
+      });
+
+      expect(logSpy).not.toHaveBeenCalledWith('message_persist_skipped', expect.anything());
+      expect(updateSpy).toHaveBeenCalledWith('left-topic-message', {
+        content: 'search results',
+      });
     });
 
     it('retries a classified assistant finalization with the same payload and diagnostic ID', async () => {

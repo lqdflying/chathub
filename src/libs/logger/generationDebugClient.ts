@@ -29,7 +29,10 @@ export type GenerationDebugClientEvent =
   | 'event_applied_terminal'
   | 'event_dropped'
   | 'exec_runtime_settled'
+  | 'invalidate_preserved'
+  | 'message_persist_skipped'
   | 'orphan_deleted'
+  | 'rag_retrieve_settled'
   | 'regenerate_early_return'
   | 'regenerate_enqueue_settled'
   | 'regenerate_started'
@@ -221,6 +224,9 @@ export type DeferredGenerationLaneDebugEvent =
   | 'deferred_lane_marked'
   | 'deferred_lane_resumed'
   | 'deferred_placeholder_finalized'
+  | 'invalidate_preserved'
+  | 'message_persist_skipped'
+  | 'rag_retrieve_settled'
   | 'tool_loop_continue'
   | 'tool_loop_continue_skipped';
 

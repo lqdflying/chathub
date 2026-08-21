@@ -176,14 +176,21 @@ Leave/return for one hashed topic (browser-fallback background turn):
                           'deferred_lane_resumed', 'deferred_lane_aborted',
                           'deferred_placeholder_finalized', 'sync_summary',
                           'topic_busy_changed', 'builtin_tool_settled',
+                          'invalidate_preserved', 'rag_retrieve_settled',
+                          'message_persist_skipped',
                           'send_rpc_settled', 'browser_path_started')
 | extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
 | extend spanId=tostring(payload.spanId), topicHash=tostring(payload.topicHash),
   outcome=tostring(payload.outcome), reason=tostring(payload.reason),
   eventType=tostring(payload.type), producerAlive=tobool(payload.producerAlive),
-  stillCurrent=tobool(payload.stillCurrent)
+  stillCurrent=tobool(payload.stillCurrent),
+  chunkCount=tolong(payload.chunkCount),
+  visible=tobool(payload.visible),
+  preservedPluginCount=tolong(payload.preservedPluginCount),
+  abortedPluginCount=tolong(payload.abortedPluginCount)
 | project _time, debug_event, spanId, topicHash, outcome, reason, eventType,
-  producerAlive, stillCurrent
+  producerAlive, stillCurrent, chunkCount, visible, preservedPluginCount,
+  abortedPluginCount
 | sort by _time asc
 ```
 
@@ -257,6 +264,15 @@ Generation-debug semantics:
   regression (topic switch must not abort deferred-conversation tool
   controllers, RAG loading, or rewrite a persist as cancelled). Outcome counts
   (`completedCount`, `cancelledCount`) are hashes-free.
+  `invalidate_preserved` on leave should keep plugin/RAG/search/chat-loading
+  counts for the deferred conversation (`preserved*Count>=1` with matching
+  `aborted*Count` only for other topics). `rag_retrieve_settled` on the same
+  `spanId` is `ok`/`empty` after leave; `hard_cancelled` is Stop. Join builtin
+  search with `builtin_tool_settled` (`toolName=lobe-web-browsing`,
+  `visible=false`, hashed session/topic of the **left** conversation — not
+  the topic you clicked). `message_persist_skipped(reason=not_visible)` after
+  leave is the persist-context regression; `hard_cancelled` is Stop / account
+  switch.
   `deferred_lane_resumed(outcome=still_producing)` now includes
   `chatLoading` / `toolsCalling` / `streamActive` / `pendingModelContinue` /
   `pendingTools` so a leaked tools-calling flag is visible without dumping

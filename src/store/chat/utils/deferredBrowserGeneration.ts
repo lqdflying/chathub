@@ -60,6 +60,19 @@ export const deferredBrowserGenerationLaneKeysForTopic = (
   return Object.keys(lanes || {}).filter((key) => key.startsWith(prefix));
 };
 
+export const findDeferredBrowserGenerationLaneForConversation = (
+  lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,
+  sessionId?: string | null,
+  topicId?: string | null,
+):
+  | { key: string; lane: NonNullable<ChatAIChatState['deferredBrowserGenerationLanes']>[string] }
+  | undefined => {
+  if (!sessionId) return undefined;
+  const key = deferredBrowserGenerationLaneKeysForTopic(lanes, sessionId, topicId)[0];
+  if (!key || !lanes?.[key]) return undefined;
+  return { key, lane: lanes[key] };
+};
+
 export const findDeferredBrowserGenerationLaneByAssistantId = (
   lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,
   assistantMessageId: string,

@@ -8,6 +8,7 @@ import {
 } from '@lobechat/types';
 import { StateCreator } from 'zustand/vanilla';
 
+import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { chatService } from '@/services/chat';
 import { ragService } from '@/services/rag';
 import { ragProviderService } from '@/services/ragProvider';
@@ -16,7 +17,12 @@ import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { ChatStore } from '@/store/chat';
 import { chatSelectors } from '@/store/chat/selectors';
+import type { ConversationContext } from '@/store/chat/types';
 import { toggleBooleanList } from '@/store/chat/utils';
+import {
+  findDeferredBrowserGenerationLaneByAssistantId,
+  findDeferredBrowserGenerationLaneForConversation,
+} from '@/store/chat/utils/deferredBrowserGeneration';
 import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useUserStore } from '@/store/user';
 import { systemAgentSelectors } from '@/store/user/selectors';
@@ -100,6 +106,50 @@ const createRagDispatchContext = (
   return { sessionId: hit.sessionId, topicId: hit.topicId };
 };
 
+const logRagRetrieveSettled = (
+  state: ChatStore,
+  input: {
+    chunkCount: number;
+    errorType?: string;
+    hasRewriteQuery: boolean;
+    mapHit?: ReturnType<typeof findMessageInMessagesMap>;
+    messageId: string;
+    outcome: 'empty' | 'error' | 'hard_cancelled' | 'ok';
+  },
+) => {
+  try {
+    const sessionId = input.mapHit?.sessionId ?? state.activeId;
+    const topicId = input.mapHit?.topicId ?? state.activeTopicId;
+    const assistantMessageId = input.mapHit?.message.parentId || input.messageId;
+    const match =
+      findDeferredBrowserGenerationLaneByAssistantId(
+        state.deferredBrowserGenerationLanes,
+        assistantMessageId,
+      ) ??
+      findDeferredBrowserGenerationLaneForConversation(
+        state.deferredBrowserGenerationLanes,
+        sessionId,
+        topicId,
+      );
+    void logDeferredGenerationLane('rag_retrieve_settled', {
+      assistantMessageId,
+      chunkCount: input.chunkCount,
+      errorType: input.errorType,
+      hasRewriteQuery: input.hasRewriteQuery,
+      outcome: input.outcome,
+      sessionId,
+      spanId: match?.lane.spanId,
+      topicId,
+      visible: Boolean(
+        input.mapHit &&
+          input.mapHit.mapKey === messageMapKey(state.activeId, state.activeTopicId),
+      ),
+    }).catch(() => undefined);
+  } catch {
+    // Diagnostics must never interrupt RAG.
+  }
+};
+
 export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [], ChatRAGAction> = (
   set,
   get,
@@ -134,81 +184,105 @@ export const chatRag: StateCreator<ChatStore, [['zustand/devtools', never]], [],
 
   internal_retrieveChunks: async (id, userQuery, messages) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    if (!accountMutationSnapshot) {
-      return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
-    }
-
-    const requestedGeneration = get().conversationClearGeneration;
     const mapHit = findMessageInMessagesMap(get().messagesMap, id);
-    const isRagHardCancelled = () =>
-      !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
-      get().conversationClearGeneration !== requestedGeneration;
-    const hasMessage = () =>
-      Boolean(
-        chatSelectors.getMessageById(id)(get()) || findMessageInMessagesMap(get().messagesMap, id),
-      );
-    const isRagRequestAlive = () => !isRagHardCancelled() && hasMessage();
-    if (!isRagRequestAlive()) {
-      return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
-    }
-
-    const retrievalSeq = (ragRetrievalSeqByMessageId.get(id) ?? 0) + 1;
-    ragRetrievalSeqByMessageId.set(id, retrievalSeq);
-    get().internal_toggleMessageRAGLoading(true, id);
-    const knowledge = knowledgeIds();
-    const fileIds = knowledge.fileIds.concat(
-      mapHit
-        ? userFilesFromMessages(get().messagesMap[mapHit.mapKey])
-        : chatSelectors.currentUserFiles(get()).map((file) => file.id),
-    );
+    let chunkCount = 0;
+    let hasRewriteQuery = false;
+    let outcome: 'empty' | 'error' | 'hard_cancelled' | 'ok' = 'hard_cancelled';
+    let errorType: string | undefined;
 
     try {
-      const status = await ragProviderService.getStatus();
-      if (!status.configured) {
-        throw new Error('RAG retrieval is unavailable. Configure a RAG Provider in Settings.');
+      if (!accountMutationSnapshot) {
+        return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
       }
 
-      const message =
-        chatSelectors.getMessageById(id)(get()) ||
-        findMessageInMessagesMap(get().messagesMap, id)?.message;
-
-      // 1. get the rewrite query
-      let rewriteQuery = message?.ragQuery as string | undefined;
-
-      // if there is no ragQuery and there is a chat history
-      // we need to rewrite the user message to get better results
-      if (!message?.ragQuery && messages.length > 0) {
-        rewriteQuery = await get().internal_rewriteQuery(id, userQuery, messages);
-        if (!isRagRequestAlive()) {
-          return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
-        }
-      }
-
-      // 2. retrieve chunks from semantic search
-      const result = await ragService.semanticSearchForChat({
-        fileIds,
-        knowledgeIds: knowledge.knowledgeBaseIds,
-        messageId: id,
-        rewriteQuery: rewriteQuery || userQuery,
-        userQuery,
-      });
-
+      const requestedGeneration = get().conversationClearGeneration;
+      const isRagHardCancelled = () =>
+        !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
+        get().conversationClearGeneration !== requestedGeneration;
+      const hasMessage = () =>
+        Boolean(
+          chatSelectors.getMessageById(id)(get()) || findMessageInMessagesMap(get().messagesMap, id),
+        );
+      const isRagRequestAlive = () => !isRagHardCancelled() && hasMessage();
       if (!isRagRequestAlive()) {
         return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
       }
 
-      return {
-        chunks: result.chunks,
-        diagnosticId: result.diagnosticId,
-        queryId: result.queryId,
-        retrieval: result.retrieval ?? emptyRetrievalStats(),
-        rewriteQuery,
-        scope: result.scope ?? emptyScopeStats(),
-      };
-    } finally {
-      if (ragRetrievalSeqByMessageId.get(id) === retrievalSeq && !isRagHardCancelled()) {
-        get().internal_toggleMessageRAGLoading(false, id);
+      const retrievalSeq = (ragRetrievalSeqByMessageId.get(id) ?? 0) + 1;
+      ragRetrievalSeqByMessageId.set(id, retrievalSeq);
+      get().internal_toggleMessageRAGLoading(true, id);
+      const knowledge = knowledgeIds();
+      const fileIds = knowledge.fileIds.concat(
+        mapHit
+          ? userFilesFromMessages(get().messagesMap[mapHit.mapKey])
+          : chatSelectors.currentUserFiles(get()).map((file) => file.id),
+      );
+
+      try {
+        const status = await ragProviderService.getStatus();
+        if (!status.configured) {
+          throw new Error('RAG retrieval is unavailable. Configure a RAG Provider in Settings.');
+        }
+
+        const message =
+          chatSelectors.getMessageById(id)(get()) ||
+          findMessageInMessagesMap(get().messagesMap, id)?.message;
+
+        // 1. get the rewrite query
+        let rewriteQuery = message?.ragQuery as string | undefined;
+
+        // if there is no ragQuery and there is a chat history
+        // we need to rewrite the user message to get better results
+        if (!message?.ragQuery && messages.length > 0) {
+          rewriteQuery = await get().internal_rewriteQuery(id, userQuery, messages);
+          if (!isRagRequestAlive()) {
+            return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
+          }
+        }
+
+        hasRewriteQuery = Boolean(rewriteQuery);
+
+        // 2. retrieve chunks from semantic search
+        const result = await ragService.semanticSearchForChat({
+          fileIds,
+          knowledgeIds: knowledge.knowledgeBaseIds,
+          messageId: id,
+          rewriteQuery: rewriteQuery || userQuery,
+          userQuery,
+        });
+
+        if (!isRagRequestAlive()) {
+          return { chunks: [], retrieval: emptyRetrievalStats(), scope: emptyScopeStats() };
+        }
+
+        chunkCount = result.chunks.length;
+        outcome = chunkCount === 0 ? 'empty' : 'ok';
+        return {
+          chunks: result.chunks,
+          diagnosticId: result.diagnosticId,
+          queryId: result.queryId,
+          retrieval: result.retrieval ?? emptyRetrievalStats(),
+          rewriteQuery,
+          scope: result.scope ?? emptyScopeStats(),
+        };
+      } catch (error) {
+        outcome = 'error';
+        errorType = error instanceof Error ? error.name : 'Error';
+        throw error;
+      } finally {
+        if (ragRetrievalSeqByMessageId.get(id) === retrievalSeq && !isRagHardCancelled()) {
+          get().internal_toggleMessageRAGLoading(false, id);
+        }
       }
+    } finally {
+      logRagRetrieveSettled(get(), {
+        chunkCount,
+        errorType,
+        hasRewriteQuery,
+        mapHit: mapHit ?? findMessageInMessagesMap(get().messagesMap, id),
+        messageId: id,
+        outcome,
+      });
     }
   },
   internal_rewriteQuery: async (id, content, messages) => {

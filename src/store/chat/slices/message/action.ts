@@ -23,6 +23,7 @@ import isEqual from 'fast-deep-equal';
 import { SWRResponse, mutate } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
+import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { mutateAccountSWR, useClientDataSWR } from '@/libs/swr';
 import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { messageService } from '@/services/message';
@@ -42,7 +43,12 @@ import {
   markAllDurableGenerationsStopped,
   markConversationTopicDurableGenerationStopped,
 } from '@/store/chat/utils/conversationClearGeneration';
-import { collectDeferredBrowserGenerationProtectedIds } from '@/store/chat/utils/deferredBrowserGeneration';
+import {
+  collectDeferredBrowserGenerationProtectedIds,
+  deferredBrowserGenerationLaneKeysForTopic,
+  findDeferredBrowserGenerationLaneByAssistantId,
+  findDeferredBrowserGenerationLaneForConversation,
+} from '@/store/chat/utils/deferredBrowserGeneration';
 import { findMessageInMessagesMap, messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -72,6 +78,11 @@ const hasProtectedLoadingWork = (
   state.pluginApiLoadingIds.length > 0 ||
   state.reasoningLoadingIds.length > 0 ||
   state.searchWorkflowLoadingIds.length > 0;
+
+const countPreservedAndAborted = (ids: string[], preserveMessageIds: Set<string>) => {
+  const preservedCount = ids.filter((id) => preserveMessageIds.has(id)).length;
+  return { abortedCount: ids.length - preservedCount, preservedCount };
+};
 
 const n = setNamespace('m');
 
@@ -882,10 +893,45 @@ export const chatMessage: StateCreator<
 
   internal_updateMessageContent: async (id, content, extra) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
-    if (!accountMutationSnapshot) return { persistenceAmbiguous: false };
+    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
+    const logPersistSkipped = (reason: 'hard_cancelled' | 'not_visible') => {
+      try {
+        const state = get();
+        const sessionId =
+          extra?.conversationContext?.sessionId ?? mapHit?.sessionId ?? state.activeId;
+        const topicId = extra?.conversationContext?.topicId ?? mapHit?.topicId ?? state.activeTopicId;
+        const assistantMessageId = mapHit?.message.parentId || id;
+        const match =
+          findDeferredBrowserGenerationLaneByAssistantId(
+            state.deferredBrowserGenerationLanes,
+            assistantMessageId,
+          ) ??
+          findDeferredBrowserGenerationLaneForConversation(
+            state.deferredBrowserGenerationLanes,
+            sessionId,
+            topicId,
+          );
+        void logDeferredGenerationLane('message_persist_skipped', {
+          assistantMessageId,
+          reason,
+          sessionId,
+          spanId: match?.lane.spanId,
+          topicId,
+          visible: Boolean(
+            mapHit && mapHit.mapKey === messageMapKey(state.activeId, state.activeTopicId),
+          ),
+        }).catch(() => undefined);
+      } catch {
+        // Diagnostics must never interrupt persistence.
+      }
+    };
+
+    if (!accountMutationSnapshot) {
+      logPersistSkipped('hard_cancelled');
+      return { persistenceAmbiguous: false };
+    }
 
     const { internal_dispatchMessage, refreshMessages, internal_transformToolCalls } = get();
-    const mapHit = findMessageInMessagesMap(get().messagesMap, id);
     const activeMapKey = messageMapKey(get().activeId, get().activeTopicId);
     const inferredContext =
       mapHit && mapHit.mapKey !== activeMapKey && mapHit.sessionId
@@ -910,7 +956,13 @@ export const chatMessage: StateCreator<
       (conversationContext
         ? true
         : get().activeId === requestedSessionId && get().activeTopicId === requestedTopicId);
-    if (!isCurrentRequest()) return { persistenceAmbiguous: false };
+    if (!isCurrentRequest()) {
+      const hardCancelled =
+        !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
+        get().conversationClearGeneration !== requestedClearGeneration;
+      logPersistSkipped(hardCancelled ? 'hard_cancelled' : 'not_visible');
+      return { persistenceAmbiguous: false };
+    }
 
     const tools = extra?.toolCalls ? internal_transformToolCalls(extra.toolCalls) : undefined;
     const update: UpdateMessageParams = {
@@ -1266,12 +1318,15 @@ export const chatMessage: StateCreator<
 
   internal_invalidateConversation: () => {
     const {
+      chatLoadingIds,
       chatLoadingIdsAbortController,
       deferredBrowserGenerationLanes,
       mainSendMessageOperations,
       messageInToolsCallingIdsAbortController,
+      messageRAGLoadingIds,
       pluginApiAbortControllers,
       reasoningLoadingIdsAbortController,
+      searchWorkflowLoadingIds,
       searchWorkflowLoadingIdsAbortController,
       threadTitleSummaryOperations,
       topicTitleSummaryOperations,
@@ -1280,6 +1335,46 @@ export const chatMessage: StateCreator<
       deferredBrowserGenerationLanes,
       get().messagesMap,
     );
+    const pluginIds = Object.keys(pluginApiAbortControllers);
+    const pluginCounts = countPreservedAndAborted(pluginIds, preserveMessageIds);
+    const ragCounts = countPreservedAndAborted(messageRAGLoadingIds, preserveMessageIds);
+    const searchCounts = countPreservedAndAborted(searchWorkflowLoadingIds, preserveMessageIds);
+    const chatCounts = countPreservedAndAborted(chatLoadingIds, preserveMessageIds);
+    const laneKeys = deferredBrowserGenerationLaneKeysForTopic(
+      deferredBrowserGenerationLanes,
+      get().activeId,
+      get().activeTopicId,
+    );
+    const firstLane = laneKeys[0] ? deferredBrowserGenerationLanes[laneKeys[0]] : undefined;
+    if (
+      laneKeys.length > 0 ||
+      pluginIds.length > 0 ||
+      messageRAGLoadingIds.length > 0 ||
+      searchWorkflowLoadingIds.length > 0 ||
+      chatLoadingIds.length > 0
+    ) {
+      void logDeferredGenerationLane('invalidate_preserved', {
+        abortedChatCount: chatCounts.abortedCount,
+        abortedPluginCount: pluginCounts.abortedCount,
+        abortedRagCount: ragCounts.abortedCount,
+        abortedSearchCount: searchCounts.abortedCount,
+        assistantMessageId:
+          firstLane?.assistantMessageId ??
+          chatLoadingIds[0] ??
+          pluginIds[0] ??
+          messageRAGLoadingIds[0] ??
+          searchWorkflowLoadingIds[0] ??
+          'none',
+        deferredLaneCount: laneKeys.length,
+        preservedChatCount: chatCounts.preservedCount,
+        preservedPluginCount: pluginCounts.preservedCount,
+        preservedRagCount: ragCounts.preservedCount,
+        preservedSearchCount: searchCounts.preservedCount,
+        sessionId: get().activeId,
+        spanId: firstLane?.spanId,
+        topicId: get().activeTopicId,
+      }).catch(() => undefined);
+    }
 
     abortChatLoadingLanesExceptMessageIds(get(), preserveMessageIds);
 

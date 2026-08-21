@@ -14,6 +14,7 @@ import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
 import { chatSelectors } from '@/store/chat/selectors';
 import { useChatStore } from '@/store/chat/store';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
 import { useUserStore } from '@/store/user';
@@ -949,14 +950,19 @@ describe('ChatPluginAction', () => {
 
     it('keeps a builtin tool result when the user leaves the topic', async () => {
       const payload = {
-        apiName: 'text2image',
-        arguments: JSON.stringify({ key: 'value' }),
+        apiName: 'search',
+        arguments: JSON.stringify({ query: 'weather' }),
+        identifier: 'lobe-web-browsing',
       } as ChatToolPayload;
       const messageId = 'builtin-tool-message';
       const toolResponse = JSON.stringify({ abc: 'data' });
       const deferred = createDeferred<string>();
       const updateMessageContent = vi.fn();
-      const text2image = vi.fn().mockResolvedValue(true);
+      const search = vi.fn().mockResolvedValue(true);
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
+      const laneKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
 
       useToolStore.setState({
         transformApiArgumentsToAiState: vi.fn().mockReturnValue(deferred.promise),
@@ -965,6 +971,14 @@ describe('ChatPluginAction', () => {
         activeId: 'session-id',
         activeTopicId: 'topic-id',
         conversationClearGeneration: 0,
+        deferredBrowserGenerationLanes: {
+          [laneKey]: {
+            assistantMessageId: 'assistant',
+            reason: 'unsupported_tool',
+            spanId: 'gd_builtin_span',
+            toolName: 'lobe-image-designer',
+          },
+        },
         internal_togglePluginApiCalling: vi.fn().mockReturnValue(new AbortController()),
         internal_updateMessageContent: updateMessageContent,
         messagesMap: {
@@ -979,7 +993,7 @@ describe('ChatPluginAction', () => {
             } as UIChatMessage,
           ],
         },
-        text2image,
+        search,
       });
 
       const invokePromise = useChatStore.getState().invokeBuiltinTool(messageId, payload);
@@ -990,7 +1004,20 @@ describe('ChatPluginAction', () => {
         shouldContinue: true,
       });
       expect(updateMessageContent).toHaveBeenCalled();
-      expect(text2image).toHaveBeenCalled();
+      expect(search).toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        'builtin_tool_settled',
+        expect.objectContaining({
+          assistantMessageId: 'assistant',
+          operation: 'search',
+          outcome: 'completed',
+          sessionId: 'session-id',
+          spanId: 'gd_builtin_span',
+          toolName: 'lobe-web-browsing',
+          topicId: 'topic-id',
+          visible: false,
+        }),
+      );
     });
   });
 

@@ -471,8 +471,9 @@ actually added for an operation row. `CHATHUB_GENERATION_DEBUG` closes that gap.
   carried as `generation.debugSpanId` through `AiSendMessageServerSchema` /
   `ConversationGenerationEnqueueSchema` into the server enqueue events.
   Browser-fallback deferrals store that same `spanId` on
-  `deferredBrowserGenerationLanes` so `deferred_lane_*`, `topic_busy_changed`,
-  `builtin_tool_settled`, and client `tool_batch_*` (`generationSpanId`) can
+  `deferredBrowserGenerationLanes` so   `deferred_lane_*`, `topic_busy_changed`,
+  `builtin_tool_settled`, `invalidate_preserved`, `rag_retrieve_settled`,
+  `message_persist_skipped`, and client `tool_batch_*` (`generationSpanId`) can
   join one leave/return turn. Identifiers are `sessionHash` / `topicHash` /
   `threadHash` / `messageHash` (sha256-16); raw ids never appear.
 
@@ -480,7 +481,7 @@ Event coverage:
 
 | Layer  | Events                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | Client | `send_started`, `send_rpc_settled` (`stillCurrent`, `topicChangedDuringRpc`), `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started` (`skipped`/`reason=notCurrent` when the send RPC returned after the user left and there was no deferral), `exec_runtime_settled` (`stillCurrent`), `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `deferred_lane_marked`, `deferred_lane_left` (`type=navigation\|visibility`, `producerAlive`), `deferred_lane_resumed` (`outcome=resume_tools\|resume_model\|finalize\|still_producing\|loading_flat`; `still_producing` also has `chatLoading` / `toolsCalling` / `streamActive` / `pendingModelContinue` / `pendingTools`), `deferred_lane_aborted` (`type=stop\|topic_delete\|clear`), `deferred_placeholder_finalized`, `tool_loop_continue` / `tool_loop_continue_skipped` (`reason=batch_gated\|not_alive\|no_tools\|no_resumable_tool\|session_changed\|not_visible`, plus outcome counts), `topic_busy_changed` (idle→busy / busy→idle only), `builtin_tool_settled` (code interpreter), `sync_summary` (`reason` trigger, `deferredLaneCount`, `resumedTools`, `resumedModel`), `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
+  | Client | `send_started`, `send_rpc_settled` (`stillCurrent`, `topicChangedDuringRpc`), `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started` (`skipped`/`reason=notCurrent` when the send RPC returned after the user left and there was no deferral), `exec_runtime_settled` (`stillCurrent`), `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `deferred_lane_marked`, `deferred_lane_left` (`type=navigation\|visibility`, `producerAlive`), `deferred_lane_resumed` (`outcome=resume_tools\|resume_model\|finalize\|still_producing\|loading_flat`; `still_producing` also has `chatLoading` / `toolsCalling` / `streamActive` / `pendingModelContinue` / `pendingTools`), `deferred_lane_aborted` (`type=stop\|topic_delete\|clear`), `deferred_placeholder_finalized`, `tool_loop_continue` / `tool_loop_continue_skipped` (`reason=batch_gated\|not_alive\|no_tools\|no_resumable_tool\|session_changed\|not_visible`, plus outcome counts), `topic_busy_changed` (idle→busy / busy→idle only), `builtin_tool_settled` (`toolName` / `operation`, using the tool's conversation + deferred `spanId`, not the topic you clicked), `invalidate_preserved` (plugin / RAG / search / chat-loading kept vs aborted counts), `rag_retrieve_settled` (`ok` / `hard_cancelled` / `empty` / `error` plus `chunkCount`), `message_persist_skipped` (`reason=hard_cancelled` / `not_visible`), `sync_summary` (`reason` trigger, `deferredLaneCount`, `resumedTools`, `resumedModel`), `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
 | Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled`               |
 
 Semantics that matter when reading the stream:
@@ -548,6 +549,13 @@ Semantics that matter when reading the stream:
   `batch_gated` = topic not visible and no deferred lane). On leave,
   `no_resumable_tool` plus `cancelledCount` right after a persisted MCP
   result is the abort-on-switch regression, not a healthy skip.
+  A healthy off-screen RAG / builtin / persist path on the same `spanId` is
+  `invalidate_preserved` (plugin/RAG/search/chat loading kept, not aborted) →
+  `rag_retrieve_settled(outcome=ok|empty)` and/or `builtin_tool_settled`
+  (`visible=false`, `sessionHash`/`topicHash` of the left conversation) →
+  `tool_loop_continue`. `rag_retrieve_settled(outcome=hard_cancelled)` is Stop
+  / account switch, not leave. `message_persist_skipped(reason=not_visible)`
+  should be rare after persist-context inference; `hard_cancelled` is Stop.
   `still_producing` on return with `toolsCalling=false`,
   `pendingModelContinue=true`, and no earlier `tool_loop_continue` is the
   leftover hang that `resume_model` covers.
@@ -557,9 +565,22 @@ Semantics that matter when reading the stream:
   idle mounts are silent. Boolean flags: `sendRpc`, `durableJob`,
   `deferredLane`, `producing`, `tools`, `topicCrud`.
 - `builtin_tool_settled` is generation-debug (not tools-debug) so a Pyodide
-  CORS/`AbortError` on a deferred lane is visible when only
-  `CHATHUB_GENERATION_DEBUG` is on. `outcome=error` means `success: false`
-  from the interpreter; `outcome=failed` is a JS throw (`errorClass`).
+  CORS/`AbortError` or an off-screen web search is visible when only
+  `CHATHUB_GENERATION_DEBUG` is on. It is emitted from `invokeBuiltinTool`
+  for every builtin (`toolName` = identifier, `operation` = apiName) and
+  uses the **tool message's** conversation plus that assistant's deferred
+  `spanId`, not `activeTopicId`. `outcome` is `completed` / `skipped` /
+  `cancelled` / `failed` / `error`. `visible=false` is expected after leave.
+- `invalidate_preserved` fires on topic/session switch when anything was
+  in flight. Compare `preservedPluginCount` vs `abortedPluginCount` (and the
+  RAG / search / chat-loading counterparts). Aborted plugin/RAG on a deferred
+  lane is the abort-on-switch regression.
+- `rag_retrieve_settled` distinguishes `ok` (chunkCount>0), `empty` (0 chunks
+  found), `hard_cancelled` (Stop / account switch), and `error`. Leave is not
+  `hard_cancelled`.
+- `message_persist_skipped` names why `internal_updateMessageContent` returned
+  before writing: `hard_cancelled` (Stop / account) vs `not_visible` (should
+  be rare after inactive-map persist inference).
 - Sanitization is identical to tools debug: free-form strings are fingerprinted
   (`{hash,length,type}`), safe labels/identifiers pass through, secret-keyed
   fields are dropped, records are capped at 16 KiB. Message content never

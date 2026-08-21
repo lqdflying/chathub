@@ -250,6 +250,32 @@ const logToolLoopContinue = (
   }).catch(() => undefined);
 };
 
+const logBuiltinToolSettled = (
+  state: ChatStore,
+  toolMessageId: string,
+  payload: { apiName?: string; identifier?: string },
+  outcome: string,
+) => {
+  const resource = resolvePluginMessageResource(state, toolMessageId);
+  const assistantMessageId = resource?.message.parentId || toolMessageId;
+  const match = findDeferredBrowserGenerationLaneByAssistantId(
+    state.deferredBrowserGenerationLanes,
+    assistantMessageId,
+  );
+
+  void logDeferredGenerationLane('builtin_tool_settled', {
+    assistantMessageId,
+    operation: payload.apiName,
+    outcome,
+    sessionId: resource?.sessionId ?? state.activeId,
+    spanId: match?.lane.spanId,
+    threadId: match?.lane.threadId,
+    toolName: payload.identifier || payload.apiName,
+    topicId: resource?.topicId ?? state.activeTopicId,
+    visible: isPluginMessageResourceActive(state, resource),
+  }).catch(() => undefined);
+};
+
 const createResourceDispatchContext = (
   state: ChatStore,
   resource: PluginMessageResource | undefined,
@@ -447,6 +473,7 @@ export const chatPlugin: StateCreator<
   invokeBuiltinTool: async (id, payload, diagnosticId) => {
     const accountMutationSnapshot = captureAccountMutationSnapshot(useUserStore.getState());
     if (!accountMutationSnapshot) {
+      logBuiltinToolSettled(get(), id, payload, 'cancelled');
       return { data: undefined, outcome: 'cancelled', shouldContinue: false };
     }
 
@@ -462,6 +489,7 @@ export const chatPlugin: StateCreator<
     );
     const isHardCancelled = () =>
       isToolBatchHardCancelled(get(), accountMutationSnapshot, invocationGeneration);
+    let settledOutcome: string | undefined;
 
     try {
       let data;
@@ -471,6 +499,7 @@ export const chatPlugin: StateCreator<
           .transformApiArgumentsToAiState(payload.apiName, params, () => !isHardCancelled());
       } catch (error) {
         if (isHardCancelled()) {
+          settledOutcome = 'cancelled';
           return { data: undefined, outcome: 'cancelled', shouldContinue: false };
         }
 
@@ -494,12 +523,14 @@ export const chatPlugin: StateCreator<
       }
 
       if (isHardCancelled()) {
+        settledOutcome = 'cancelled';
         return data
           ? { data, shouldContinue: false }
           : { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
       if (!data) {
+        settledOutcome = 'skipped';
         return {
           data: undefined,
           outcome: 'skipped',
@@ -513,6 +544,7 @@ export const chatPlugin: StateCreator<
         await get().internal_updateMessageContent(id, data);
       }
       if (isHardCancelled()) {
+        settledOutcome = 'cancelled';
         return { data, shouldContinue: false };
       }
 
@@ -521,6 +553,7 @@ export const chatPlugin: StateCreator<
       // @ts-ignore
       const { [payload.apiName]: action } = get();
       if (!action) {
+        settledOutcome = 'skipped';
         return {
           data: undefined,
           outcome: 'skipped',
@@ -537,6 +570,7 @@ export const chatPlugin: StateCreator<
       }
 
       if (!content) {
+        settledOutcome = 'skipped';
         return {
           data: undefined,
           outcome: 'skipped',
@@ -546,6 +580,7 @@ export const chatPlugin: StateCreator<
 
       const actionResult = await action(id, content, undefined, diagnosticId);
       if (isHardCancelled()) {
+        settledOutcome = 'cancelled';
         return {
           data:
             actionResult && typeof actionResult === 'object' && 'data' in actionResult
@@ -561,18 +596,26 @@ export const chatPlugin: StateCreator<
         'data' in actionResult &&
         'outcome' in actionResult
       ) {
-        return actionResult as ToolInvocationResult;
+        const invocation = actionResult as ToolInvocationResult;
+        settledOutcome = invocation.outcome ?? 'completed';
+        return invocation;
       }
 
       const updatedMessage = getPluginMessageById(get(), id);
       const diagnosticError = updatedMessage?.error ?? updatedMessage?.pluginError;
 
+      settledOutcome = diagnosticError
+        ? 'failed'
+        : actionResult === undefined
+          ? 'skipped'
+          : 'completed';
       return {
         data: diagnosticError ?? updatedMessage?.content,
-        outcome: diagnosticError ? 'failed' : actionResult === undefined ? 'skipped' : 'completed',
+        outcome: settledOutcome as ToolInvocationResult['outcome'],
         shouldContinue: actionResult === true,
       };
     } finally {
+      logBuiltinToolSettled(get(), id, payload, settledOutcome ?? 'error');
       if (abortController) {
         internal_togglePluginApiCalling(
           false,

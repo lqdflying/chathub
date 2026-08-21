@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   collectDeferredBrowserGenerationProtectedIds,
   deferredBrowserGenerationLaneKey,
+  findDeferredBrowserGenerationLaneForConversation,
   hasActiveToolCallingStream,
   hasPendingModelContinue,
   isDeferredBrowserLaneAssistant,
@@ -90,5 +91,25 @@ describe('deferredBrowserGeneration helpers', () => {
         'assistant',
       ),
     ).toBe(true);
+  });
+
+  it('finds a deferred lane for a session and topic', () => {
+    const key = deferredBrowserGenerationLaneKey('session', 'topic', null);
+    const lanes = {
+      [key]: {
+        assistantMessageId: 'assistant',
+        reason: 'unsupported_tool',
+        spanId: 'gd_span',
+        toolName: 'lobe-image-designer',
+      },
+    };
+
+    expect(findDeferredBrowserGenerationLaneForConversation(lanes, 'session', 'topic')).toEqual({
+      key,
+      lane: lanes[key],
+    });
+    expect(
+      findDeferredBrowserGenerationLaneForConversation(lanes, 'other', 'topic'),
+    ).toBeUndefined();
   });
 });

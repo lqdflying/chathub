@@ -2,12 +2,14 @@ import { UIChatMessage } from '@lobechat/types';
 import { act, renderHook } from '@testing-library/react';
 import { Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { chatService } from '@/services/chat';
 import { ragService } from '@/services/rag';
 import { ragProviderService } from '@/services/ragProvider';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { chatSelectors } from '@/store/chat/selectors';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { systemAgentSelectors } from '@/store/user/selectors';
 import { QueryRewriteSystemAgent } from '@/types/user/settings';
@@ -319,6 +321,111 @@ describe('chatRAG actions', () => {
       expect(retrieved.chunks).toEqual([{ id: 'chunk-1' }]);
       expect(retrieved.queryId).toBe('query-id');
       expect(useChatStore.getState().messageRAGLoadingIds).toEqual([]);
+    });
+
+    it('logs rag_retrieve_settled with chunk count after an off-screen retrieve', async () => {
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'rag-user';
+      const mapKey = messageMapKey('session-id', 'topic-id');
+      const laneKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'other-topic',
+        conversationClearGeneration: 0,
+        deferredBrowserGenerationLanes: {
+          [laneKey]: {
+            assistantMessageId: 'deferred-assistant',
+            reason: 'unsupported_tool',
+            spanId: 'gd_rag_span',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [{ id: messageId, ragQuery: 'q', role: 'user' } as UIChatMessage],
+        },
+      });
+      vi.spyOn(chatSelectors, 'getMessageById').mockReturnValue(() => undefined);
+      vi.spyOn(agentSelectors, 'currentKnowledgeIds').mockReturnValue({
+        fileIds: [],
+        knowledgeBaseIds: ['kb-1'],
+      });
+      (ragService.semanticSearchForChat as Mock).mockResolvedValue({
+        chunks: [{ id: 'chunk-1' }, { id: 'chunk-2' }],
+        queryId: 'query-id',
+        retrieval: {
+          candidateCount: 2,
+          candidateLimit: 24,
+          eligibleCount: 2,
+          minimumSimilarity: 0.2,
+          resultLimit: 8,
+          selectedCount: 2,
+          selectedScores: [0.9, 0.8],
+          strategy: 'cosine',
+        },
+        scope: { directFileCount: 0, expandedFileCount: 1, knowledgeBaseCount: 1 },
+      });
+
+      await act(async () => {
+        await result.current.internal_retrieveChunks(messageId, 'user-query', []);
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'rag_retrieve_settled',
+        expect.objectContaining({
+          chunkCount: 2,
+          hasRewriteQuery: true,
+          outcome: 'ok',
+          sessionId: 'session-id',
+          spanId: 'gd_rag_span',
+          topicId: 'topic-id',
+          visible: false,
+        }),
+      );
+    });
+
+    it('logs rag_retrieve_settled as hard_cancelled after Stop', async () => {
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
+      const { result } = renderHook(() => useChatStore());
+      const messageId = 'rag-user';
+      const mapKey = messageMapKey('session-id', 'topic-id');
+
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        conversationClearGeneration: 0,
+        messagesMap: {
+          [mapKey]: [{ id: messageId, ragQuery: 'q', role: 'user' } as UIChatMessage],
+        },
+      });
+      vi.spyOn(chatSelectors, 'getMessageById').mockReturnValue(
+        () => ({ id: messageId, ragQuery: 'q' }) as UIChatMessage,
+      );
+      vi.spyOn(agentSelectors, 'currentKnowledgeIds').mockReturnValue({
+        fileIds: [],
+        knowledgeBaseIds: [],
+      });
+      (ragService.semanticSearchForChat as Mock).mockImplementation(async () => {
+        useChatStore.setState({ conversationClearGeneration: 1 });
+        return { chunks: [{ id: 'chunk-1' }] };
+      });
+
+      await act(async () => {
+        await result.current.internal_retrieveChunks(messageId, 'user-query', []);
+      });
+
+      expect(logSpy).toHaveBeenCalledWith(
+        'rag_retrieve_settled',
+        expect.objectContaining({
+          chunkCount: 0,
+          outcome: 'hard_cancelled',
+        }),
+      );
     });
 
     it('stops before query rewriting when the RAG provider is unavailable', async () => {
