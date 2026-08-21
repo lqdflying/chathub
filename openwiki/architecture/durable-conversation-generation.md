@@ -471,10 +471,14 @@ Event coverage:
 | Layer  | Events                                                                                          |
 | ------ | ----------------------------------------------------------------------------------------------- |
 | Client | `send_started`, `send_rpc_settled`, `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started`, `exec_runtime_settled`, `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `sync_summary`, `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
-| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_settled` |
+| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled` |
 
 Semantics that matter when reading the stream:
 
+- `enqueue_rejected` is also emitted from `sendMessageInServer` when durable
+  enqueue is dropped before `ConversationGenerationService.enqueue` runs
+  (`reason=unsupported_tool` with `toolName`, or `reason=fetch_on_client`).
+  Those sends share the client `spanId` and then take the browser path.
 - `enqueue_persisted.jobAdded` is always true on the transactional send path —
   a failed SQL `add_job` rolls the enqueue back (the client then sees an RPC
   error). The reachable `jobAdded=false` signal is `sweep_reenqueued`: the
@@ -497,10 +501,20 @@ Semantics that matter when reading the stream:
   throttled to one per operation+reason while `done`/`error` drops are always
   logged. `event_applied_terminal` is the positive end-to-end proof that a
   terminal event reached and was applied by the browser.
-- `execute_transcript_loaded` records `parentUserHash` (content fingerprint of
-  the triggering user message) and `lastTranscriptUserHash` (last user message
-  actually loaded). A mismatch proves a transcript/binding race — the worker
-  answered a different user turn than intended.
+- `execute_transcript_loaded` is emitted from `loadScopedMessages` for chat,
+  title, compaction, and supervisor loads. It records `transcriptCount`,
+  `omitSessionFilter`, `persistedSessionNull`, `hasTopicId`, plus
+  `parentUserHash` (content fingerprint of the triggering user message) and
+  `lastTranscriptUserHash` (last user message actually loaded). A hash
+  mismatch proves a transcript/binding race — the worker answered a different
+  user turn than intended. `transcriptCount=0` with `omitSessionFilter=true`
+  is the empty-title load, not a missing job.
+- `execute_retrying` fires when `markForRetry` succeeds. Graphile still owns
+  that job; `errorClass` names the throw (for example
+  `TitleTranscriptEmptyError`). `sweep_reenqueued` is a different path (null
+  `workerJobId` or stale-heartbeat recovery).
+- `execute_settled` is terminal only (`succeeded` / `cancelled` / `failed` /
+  `interrupted`); retries do not emit it.
 - Sanitization is identical to tools debug: free-form strings are fingerprinted
   (`{hash,length,type}`), safe labels/identifiers pass through, secret-keyed
   fields are dropped, records are capped at 16 KiB. Message content never

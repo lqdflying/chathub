@@ -48,6 +48,22 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       vi.stubEnv('CHATHUB_GENERATION_DEBUG', '1');
     });
 
+    it('emits execute_retrying with the typed event name', () => {
+      logGenerationDebugSafe('execute_retrying', {
+        attempt: 1,
+        errorClass: 'TitleTranscriptEmptyError',
+        kind: 'topic_title',
+      });
+
+      const [prefix, serializedRecord] = consoleLogSpy.mock.calls[0];
+      expect(prefix).toBe(`[${GENERATION_DEBUG_NAMESPACE}:execute_retrying]`);
+      expect(JSON.parse(serializedRecord as string)).toMatchObject({
+        attempt: 1,
+        errorClass: 'TitleTranscriptEmptyError',
+        kind: 'topic_title',
+      });
+    });
+
     it('emits the prefixed-JSON line format with server-side defaults', () => {
       logGenerationDebugSafe('enqueue_persisted', { jobAdded: true, kind: 'chat' });
 

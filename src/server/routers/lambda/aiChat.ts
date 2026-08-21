@@ -16,6 +16,7 @@ import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { idGenerator } from '@/database/utils/idGenerator';
 import { pino } from '@/libs/logger';
+import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { initModelRuntimeWithUserPayload } from '@/server/modules/ModelRuntime';
@@ -250,6 +251,15 @@ export const aiChatRouter = router({
             userId: ctx.userId,
           })
         : undefined;
+      if (unsupportedTool) {
+        logGenerationDebugSafe('enqueue_rejected', {
+          kind: 'chat',
+          reason: 'unsupported_tool',
+          spanId: requestedDurableGeneration?.debugSpanId,
+          toolName: unsupportedTool.identifier,
+          trpcCode: 'UNPROCESSABLE_CONTENT',
+        });
+      }
       let durableGeneration = unsupportedTool ? undefined : requestedDurableGeneration;
       if (durableGeneration) {
         try {
@@ -261,6 +271,12 @@ export const aiChatRouter = router({
           });
         } catch (error) {
           if (!(error instanceof TRPCError) || error.code !== 'PRECONDITION_FAILED') throw error;
+          logGenerationDebugSafe('enqueue_rejected', {
+            kind: 'chat',
+            reason: 'fetch_on_client',
+            spanId: requestedDurableGeneration?.debugSpanId,
+            trpcCode: 'PRECONDITION_FAILED',
+          });
           durableGeneration = undefined;
         }
       }

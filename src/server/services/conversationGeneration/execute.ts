@@ -354,6 +354,12 @@ export const executeConversationGeneration = async ({
           revision: pending.revision,
           type: 'status',
         });
+        logGenerationDebugSafe('execute_retrying', {
+          attempt: claimed.attempt,
+          errorClass: error instanceof Error ? error.name : 'Error',
+          kind: claimed.kind,
+          operationHash: hashGenerationDebugValue(claimed.id),
+        });
         throw error instanceof Error ? error : new Error(String(error));
       }
     }
@@ -549,19 +555,56 @@ const finalizeUnlessStopped = async (
   return null;
 };
 
+const hashMessageContentForDebug = (content: unknown): string => {
+  try {
+    return hashGenerationDebugValue(
+      typeof content === 'string' ? content : JSON.stringify(content),
+    );
+  } catch {
+    return 'unavailable';
+  }
+};
+
 const loadScopedMessages = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
   params: { groupId?: string; sessionId?: string; topicId?: string },
 ) => {
+  const omitSessionFilter = Boolean(params.topicId);
+  const persistedSessionId = toPersistedConversationSessionId(params.sessionId);
   const aiChat = new AiChatService(db, operation.userId);
   const { messages } = await aiChat.getMessagesAndTopics({
     groupId: params.groupId,
-    omitSessionFilter: Boolean(params.topicId),
-    sessionId: toPersistedConversationSessionId(params.sessionId),
+    omitSessionFilter,
+    sessionId: persistedSessionId,
     topicId: params.topicId,
   });
-  return loadConversationThreadMessages(db, operation.userId, messages, operation.threadId);
+  const scoped = await loadConversationThreadMessages(
+    db,
+    operation.userId,
+    messages,
+    operation.threadId,
+  );
+  logGenerationDebugSafe('execute_transcript_loaded', {
+    hasTopicId: Boolean(params.topicId),
+    kind: operation.kind,
+    lastTranscriptUserHash: (() => {
+      const lastUser = [...scoped].reverse().find((message) => message.role === 'user');
+      return lastUser ? hashMessageContentForDebug(lastUser.content) : undefined;
+    })(),
+    omitSessionFilter,
+    operationHash: hashGenerationDebugValue(operation.id),
+    parentUserHash: (() => {
+      if (!operation.userMessageId) return undefined;
+      const parentUser = scoped.find(
+        (message) => message.id === operation.userMessageId && message.role === 'user',
+      );
+      return parentUser ? hashMessageContentForDebug(parentUser.content) : undefined;
+    })(),
+    persistedSessionNull: persistedSessionId === undefined,
+    transcriptCount: scoped.length,
+  });
+  return scoped;
 };
 
 const loadGeneralInstruction = async (db: LobeChatDatabase, userId: string) => {
@@ -615,16 +658,6 @@ const finishChatStop = async (
   return { ...outcomeFromStopReason(stopReason), assistantMessageId: assistantId };
 };
 
-const hashMessageContentForDebug = (content: unknown): string => {
-  try {
-    return hashGenerationDebugValue(
-      typeof content === 'string' ? content : JSON.stringify(content),
-    );
-  } catch {
-    return 'unavailable';
-  }
-};
-
 const executeChat = async (
   db: LobeChatDatabase,
   operation: ConversationGenerationOperation,
@@ -666,22 +699,6 @@ const executeChat = async (
     groupId: operation.groupId ?? undefined,
     sessionId: operation.sessionId ?? undefined,
     topicId: operation.topicId ?? undefined,
-  });
-  logGenerationDebugSafe('execute_transcript_loaded', {
-    kind: operation.kind,
-    lastTranscriptUserHash: (() => {
-      const lastUser = [...messages].reverse().find((message) => message.role === 'user');
-      return lastUser ? hashMessageContentForDebug(lastUser.content) : undefined;
-    })(),
-    operationHash: hashGenerationDebugValue(operation.id),
-    parentUserHash: (() => {
-      if (!operation.userMessageId) return undefined;
-      const parentUser = messages.find(
-        (message) => message.id === operation.userMessageId && message.role === 'user',
-      );
-      return parentUser ? hashMessageContentForDebug(parentUser.content) : undefined;
-    })(),
-    transcriptCount: messages.length,
   });
   if (!operation.assistantMessageId) {
     throw new Error('Assistant message is missing for conversation generation');

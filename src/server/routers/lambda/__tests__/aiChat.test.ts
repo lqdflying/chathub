@@ -14,7 +14,13 @@ const durableMocks = vi.hoisted(() => ({
   findByIdempotencyKey: vi.fn(),
   findUnsupportedConversationTool: vi.fn(),
 }));
+const generationDebugMocks = vi.hoisted(() => ({
+  logGenerationDebugSafe: vi.fn(),
+}));
 
+vi.mock('@/libs/logger/generationDebug', () => ({
+  logGenerationDebugSafe: generationDebugMocks.logGenerationDebugSafe,
+}));
 vi.mock('@/database/core/db-adaptor', () => ({
   getServerDB: vi.fn(),
 }));
@@ -299,13 +305,21 @@ describe('aiChatRouter', () => {
     expect(mockCreateMessage).toHaveBeenCalledTimes(1);
     expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
     expect(result.operationId).toBeUndefined();
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'enqueue_rejected',
+      expect.objectContaining({
+        kind: 'chat',
+        reason: 'unsupported_tool',
+        toolName: 'lobe-image-designer',
+        trpcCode: 'UNPROCESSABLE_CONTENT',
+      }),
+    );
   });
 
   it('falls back to browser generation when server credentials are missing', async () => {
     const { TRPCError } = await import('@trpc/server');
-    const { resolveConversationRuntimePayload } = await import(
-      '@/server/services/conversationGeneration/credentials'
-    );
+    const { resolveConversationRuntimePayload } =
+      await import('@/server/services/conversationGeneration/credentials');
     vi.mocked(isDurableConversationGenerationEnabled).mockResolvedValue(true);
     vi.mocked(resolveConversationRuntimePayload).mockRejectedValueOnce(
       new TRPCError({
@@ -333,6 +347,14 @@ describe('aiChatRouter', () => {
     expect(mockCreateMessage).toHaveBeenCalledTimes(1);
     expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
     expect(result.operationId).toBeUndefined();
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'enqueue_rejected',
+      expect.objectContaining({
+        kind: 'chat',
+        reason: 'fetch_on_client',
+        trpcCode: 'PRECONDITION_FAILED',
+      }),
+    );
   });
 
   it('creates the reserved assistant placeholder after validating its parent context', async () => {

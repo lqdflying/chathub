@@ -150,10 +150,15 @@ Generation debug (durable send path):
   deliveredCount=tolong(payload.deliveredCount),
   eventType=tostring(payload.type),
   parentUserHash=tostring(payload.parentUserHash),
-  lastTranscriptUserHash=tostring(payload.lastTranscriptUserHash)
+  lastTranscriptUserHash=tostring(payload.lastTranscriptUserHash),
+  toolName=tostring(payload.toolName),
+  transcriptCount=tolong(payload.transcriptCount),
+  omitSessionFilter=tobool(payload.omitSessionFilter),
+  persistedSessionNull=tobool(payload.persistedSessionNull)
 | project _time, spanId, side, debug_event, kind, outcome, reason, trpcCode,
   errorClass, jobAdded, operationHash, queueAgeMs, deliveredCount, eventType,
-  parentUserHash, lastTranscriptUserHash
+  parentUserHash, lastTranscriptUserHash, toolName, transcriptCount,
+  omitSessionFilter, persistedSessionNull
 | sort by _time asc
 ```
 
@@ -197,6 +202,11 @@ Generation-debug semantics:
   `enqueue_persisted(jobAdded=true)` → `job_received` → `execute_started` →
   `execute_settled(outcome=succeeded)` → `event_applied_terminal` (client),
   all sharing one `spanId` where present.
+- `send_rpc_settled(hasOperationId=false)` on a send that requested durable
+  work must pair with server `enqueue_rejected` on the same `spanId`.
+  `reason=unsupported_tool` includes `toolName`; `reason=fetch_on_client` is a
+  missing server-reachable credential. Absence of that pair means the
+  send-path drop was silent.
 - `enqueue_persisted(jobAdded=false)` does not occur on the transactional send
   path (a failed SQL add rolls the enqueue back); the false path lives in
   `sweep_reenqueued`, where it means an operation row exists but no Graphile
@@ -221,10 +231,17 @@ Generation-debug semantics:
   the smoking gun for "server finished but the reply never appeared".
   `event_applied_terminal` is the positive counterpart proving end-to-end
   delivery of a terminal event.
-- `execute_transcript_loaded` carries `parentUserHash` (content hash of the
-  triggering user message) and `lastTranscriptUserHash` (last user message in
-  the loaded transcript). A mismatch between the two proves a transcript/
-  binding race (the worker answered a different user turn than intended).
+- `execute_transcript_loaded` is emitted from `loadScopedMessages` for chat,
+  title, compaction, and supervisor loads. It carries `transcriptCount`,
+  `omitSessionFilter`, `persistedSessionNull`, `hasTopicId`, plus
+  `parentUserHash` (content hash of the triggering user message) and
+  `lastTranscriptUserHash` (last user message in the loaded transcript). A
+  hash mismatch proves a transcript/binding race. `transcriptCount=0` on a
+  title job is an empty load, not a missing worker.
+- `execute_retrying` fires when `markForRetry` succeeds (Graphile still owns
+  the job). `errorClass` names the throw (for example
+  `TitleTranscriptEmptyError`). Do not treat it as `sweep_reenqueued`.
+- `execute_settled` is terminal only; retries do not emit it.
 - `regenerate_early_return` names the guard that made Regenerate a no-op
   (`reason=noAnchor|retrying|notCurrent`).
 - `sync_summary` reports per-sync counts; `orphan_deleted` records the cleanup
@@ -327,4 +344,4 @@ docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG
 - Image: one image submission should show `submission_accepted`, `batch_persisted`, `dispatch_started`, paired `async_route_started`/`async_route_settled`, provider events, transform/upload events, and terminal `task_status_settled`. Safe records may show provider hashes, dimensions, status/media metadata, counts, and keyed hashes, but provider labels, prompts, image URLs/data, response bodies, user/database IDs, credentials, headers/cookies, arbitrary error messages, stacks, and environment values must never be raw.
 - Tool lifecycle: every local batch should have `tool_batch_started`, one `tool_completion_reported` per expected call, and `tool_batch_settled`. `resultCount + failureCount` should equal `toolCallCount`. Provider-native tools are `delegated`/`handed_off`; ChatHub built-ins are `builtin`.
 - Cache: every enabled request should have one `request` followed by one `usage`, `usage_missing`, or `terminal_error` for the same `requestHash`. `cachedTokens=0` is an explicit zero only when the provider reported it. Missing cache counters or `cacheStatus=not_reported` are unavailable telemetry, not misses.
-- Generation: every durable send/regenerate should show one `enqueue_persisted` with `jobAdded=true`, then `job_received`, one `execute_started` and one `execute_settled` for the same `operationHash`, and a client `event_applied_terminal` for the same `operationHash` when the browser was open. Client `send_*`/`regenerate_*`/`sync_summary` events with the same `spanId` bracket the server events. One `worker_started` should appear per container boot. Identifiers appear only as sha256-16 hashes; message content, session/topic ids, and error messages must never be raw.
+- Generation: every durable send/regenerate should show one `enqueue_persisted` with `jobAdded=true`, then `job_received`, one `execute_started` and one `execute_settled` for the same `operationHash`, and a client `event_applied_terminal` for the same `operationHash` when the browser was open. Client `send_*`/`regenerate_*`/`sync_summary` events with the same `spanId` bracket the server events. A send that requested durable work but stayed in the browser must show `send_rpc_settled(hasOperationId=false)` paired with server `enqueue_rejected` on that `spanId`. Title empty-transcript retries emit `execute_retrying` rather than `execute_settled`. One `worker_started` should appear per container boot. Identifiers appear only as sha256-16 hashes; message content, session/topic ids, and error messages must never be raw.

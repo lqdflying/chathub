@@ -52,6 +52,7 @@ export type GenerationDebugEvent =
   | 'enqueue_persisted'
   | 'enqueue_received'
   | 'enqueue_rejected'
+  | 'execute_retrying'
   | 'execute_settled'
   | 'execute_skipped'
   | 'execute_started'

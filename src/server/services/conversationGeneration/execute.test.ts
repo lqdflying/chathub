@@ -78,7 +78,15 @@ const serviceMocks = vi.hoisted(() => ({
   enqueue: vi.fn(),
   enqueueInTransaction: vi.fn(),
 }));
+const generationDebugMocks = vi.hoisted(() => ({
+  hashGenerationDebugValue: vi.fn((value: string) => `hash:${value}`),
+  logGenerationDebugSafe: vi.fn(),
+}));
 
+vi.mock('@/libs/logger/generationDebug', () => ({
+  hashGenerationDebugValue: generationDebugMocks.hashGenerationDebugValue,
+  logGenerationDebugSafe: generationDebugMocks.logGenerationDebugSafe,
+}));
 vi.mock('./service', () => ({
   ConversationGenerationService: class {
     enqueue = serviceMocks.enqueue;
@@ -557,6 +565,24 @@ describe('executeConversationGeneration', () => {
         type: 'GenerationError',
       }),
       1,
+    );
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'execute_transcript_loaded',
+      expect.objectContaining({
+        hasTopicId: true,
+        kind: 'topic_title',
+        omitSessionFilter: true,
+        persistedSessionNull: true,
+        transcriptCount: 0,
+      }),
+    );
+    expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
+      'execute_retrying',
+      expect.objectContaining({
+        attempt: 1,
+        errorClass: 'TitleTranscriptEmptyError',
+        kind: 'topic_title',
+      }),
     );
   });
 
