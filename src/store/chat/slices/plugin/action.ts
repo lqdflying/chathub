@@ -158,6 +158,33 @@ const isPluginMessageResourceActive = (
   resource: PluginMessageResource | undefined,
 ): boolean => !resource || resource.mapKey === messageMapKey(state.activeId, state.activeTopicId);
 
+const isToolBatchAlive = (
+  state: ChatStore,
+  accountMutationSnapshot: AccountMutationSnapshot,
+  resource: PluginMessageResource | undefined,
+  invocationGeneration: number,
+): boolean =>
+  isPluginMutationCurrent(state, accountMutationSnapshot, resource) &&
+  state.conversationClearGeneration === invocationGeneration;
+
+const shouldResumeModelAfterTools = (
+  state: ChatStore,
+  assistantResource: PluginMessageResource,
+  alive: boolean,
+): boolean => {
+  if (!alive) return false;
+  if (isPluginMessageResourceActive(state, assistantResource)) return true;
+  if (
+    !findDeferredBrowserGenerationLaneByAssistantId(
+      state.deferredBrowserGenerationLanes,
+      assistantResource.messageId,
+    )
+  ) {
+    return false;
+  }
+  return state.activeId === assistantResource.sessionId;
+};
+
 const createResourceDispatchContext = (
   state: ChatStore,
   resource: PluginMessageResource | undefined,
@@ -249,6 +276,7 @@ export interface ChatPluginAction {
   reInvokeToolMessage: (id: string) => Promise<void>;
   triggerAIMessage: (params: {
     contextExportCaptureId?: string;
+    conversationContext?: ConversationContext;
     expectedConversationVersion?: number;
     parentId?: string;
     traceId?: string;
@@ -467,17 +495,15 @@ export const chatPlugin: StateCreator<
         shouldContinue: actionResult === true,
       };
     } finally {
-      if (invocationIsCurrent()) {
-        if (abortController) {
-          internal_togglePluginApiCalling(
-            false,
-            id,
-            n('invokeBuiltinTool/end') as string,
-            abortController,
-          );
-        } else {
-          internal_togglePluginApiCalling(false, id, n('invokeBuiltinTool/end') as string);
-        }
+      if (abortController) {
+        internal_togglePluginApiCalling(
+          false,
+          id,
+          n('invokeBuiltinTool/end') as string,
+          abortController,
+        );
+      } else {
+        internal_togglePluginApiCalling(false, id, n('invokeBuiltinTool/end') as string);
       }
     }
   },
@@ -575,6 +601,7 @@ export const chatPlugin: StateCreator<
 
   triggerAIMessage: async ({
     contextExportCaptureId,
+    conversationContext,
     expectedConversationVersion,
     parentId,
     traceId,
@@ -594,13 +621,20 @@ export const chatPlugin: StateCreator<
     // which breaks byte-identical prompt-cache prefixes.
     const chats = inPortalThread
       ? threadSelectors.portalAIChats(get())
-      : chatSelectors.mainAIChats(get());
+      : conversationContext
+        ? chatSelectors.conversationAIChats(
+            conversationContext.sessionId,
+            conversationContext.topicId,
+            conversationContext.threadId,
+          )(get())
+        : chatSelectors.mainAIChats(get());
 
     await internal_coreProcessMessage(chats, parentId ?? chats.at(-1)!.id, {
       contextExportCaptureId,
+      conversationContext,
       expectedConversationVersion,
       traceId,
-      threadId,
+      threadId: threadId ?? conversationContext?.threadId ?? undefined,
       inPortalThread,
       inSearchWorkflow,
       isToolContinuation: true,
@@ -651,20 +685,27 @@ export const chatPlugin: StateCreator<
 
     const invocationGeneration = get().conversationClearGeneration;
     const assistantResource = resolvePluginMessageResource(get(), assistantId);
-    const invocationIsCurrent = () =>
-      isPluginMutationCurrent(get(), accountMutationSnapshot, assistantResource) &&
-      get().conversationClearGeneration === invocationGeneration &&
-      isPluginMessageResourceActive(get(), assistantResource);
-    if (!assistantResource || !invocationIsCurrent()) return;
+    const invocationIsAlive = () =>
+      isToolBatchAlive(get(), accountMutationSnapshot, assistantResource, invocationGeneration);
+    const canRunToolBatch = () =>
+      invocationIsAlive() &&
+      (isPluginMessageResourceActive(get(), assistantResource) ||
+        Boolean(
+          findDeferredBrowserGenerationLaneByAssistantId(
+            get().deferredBrowserGenerationLanes,
+            assistantId,
+          ),
+        ));
+    if (!assistantResource || !canRunToolBatch()) return;
     const message = assistantResource.message;
     if (!message.tools) return;
     const resolvedConversationVersion =
       expectedConversationVersion ?? (await messageService.getConversationVersion());
-    if (!invocationIsCurrent()) return;
+    if (!invocationIsAlive()) return;
 
     const { cacheContinuationEnabled, toolLifecycleEnabled } =
       await toolTelemetryService.getCapabilities();
-    if (!invocationIsCurrent()) return;
+    if (!invocationIsAlive()) return;
 
     const collectToolCorrelation = cacheContinuationEnabled || toolLifecycleEnabled;
     const deferredLane = findDeferredBrowserGenerationLaneByAssistantId(
@@ -688,7 +729,7 @@ export const chatPlugin: StateCreator<
       const runtimeType = toolLifecycleEnabled
         ? resolveToolDiagnosticRuntimeType(payload)
         : undefined;
-      if (!invocationIsCurrent()) {
+      if (!invocationIsAlive()) {
         return {
           data: undefined,
           diagnosticId,
@@ -713,7 +754,7 @@ export const chatPlugin: StateCreator<
       const id = await get().internal_createMessage(toolMessage, {
         expectedConversationVersion: resolvedConversationVersion,
       });
-      if (!invocationIsCurrent()) {
+      if (!invocationIsAlive()) {
         return {
           data: undefined,
           diagnosticId,
@@ -741,7 +782,7 @@ export const chatPlugin: StateCreator<
           toolCorrelation,
           diagnosticId,
         );
-        if (!invocationIsCurrent()) {
+        if (!invocationIsAlive()) {
           return {
             data: undefined,
             diagnosticId,
@@ -777,7 +818,7 @@ export const chatPlugin: StateCreator<
           data: undefined,
           diagnosticId,
           id,
-          outcome: !invocationIsCurrent() || isAbortError(error) ? 'cancelled' : 'failed',
+          outcome: !invocationIsAlive() || isAbortError(error) ? 'cancelled' : 'failed',
           payload,
           runtimeType,
         };
@@ -785,11 +826,9 @@ export const chatPlugin: StateCreator<
     });
 
     const settledResults = await Promise.allSettled(messagePools).finally(async () => {
-      if (invocationIsCurrent()) {
-        await get().internal_toggleMessageInToolsCalling(false, assistantId);
-      }
+      await get().internal_toggleMessageInToolsCalling(false, assistantId);
     });
-    if (!invocationIsCurrent()) return;
+    if (!invocationIsAlive()) return;
 
     const completedResults = settledResults.flatMap((result, index): ToolBatchExecutionResult[] => {
       if (result.status === 'fulfilled') return [result.value];
@@ -863,13 +902,18 @@ export const chatPlugin: StateCreator<
 
     // only default type tool calls should trigger AI message
     if (!latestCompletedTool) return;
-    if (!invocationIsCurrent()) return;
+    if (!shouldResumeModelAfterTools(get(), assistantResource, invocationIsAlive())) return;
 
+    const continuationContext = createResourceConversationContext(assistantResource, get());
     const traceId = chatSelectors.getTraceIdByMessageId(latestCompletedTool.id)(get());
 
     await get().triggerAIMessage({
       contextExportCaptureId,
+      conversationContext: continuationContext
+        ? { ...continuationContext, threadId: threadId ?? continuationContext.threadId ?? null }
+        : undefined,
       expectedConversationVersion: resolvedConversationVersion,
+      parentId: latestCompletedTool.id,
       traceId,
       threadId,
       inPortalThread,
@@ -1080,17 +1124,15 @@ export const chatPlugin: StateCreator<
 
       data = '';
     } finally {
-      if (invocationIsCurrent()) {
-        if (abortController) {
-          internal_togglePluginApiCalling(
-            false,
-            id,
-            n('fetchPlugin/end') as string,
-            abortController,
-          );
-        } else {
-          internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
-        }
+      if (abortController) {
+        internal_togglePluginApiCalling(
+          false,
+          id,
+          n('fetchPlugin/end') as string,
+          abortController,
+        );
+      } else {
+        internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string);
       }
     }
 
@@ -1281,9 +1323,7 @@ export const chatPlugin: StateCreator<
         outcome: wasCancelled ? 'cancelled' : 'failed',
       };
     } finally {
-      if (invocationIsCurrent()) {
-        internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string, abortController);
-      }
+      internal_togglePluginApiCalling(false, id, n('fetchPlugin/end') as string, abortController);
     }
   },
 

@@ -63,7 +63,10 @@ import {
   trackDurableEnqueue,
   untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
-import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
+import {
+  deferredBrowserGenerationLaneKey,
+  isDeferredBrowserLaneAssistant,
+} from '@/store/chat/utils/deferredBrowserGeneration';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
 import { getSessionStoreState } from '@/store/session';
@@ -1041,6 +1044,16 @@ export const generateAIChatV2: StateCreator<
         conversationContext.topicId,
         conversationContext.threadId ?? null,
       );
+    const isDeferredLaneAssistant = (assistantMessageId: string) =>
+      isDeferredBrowserLaneAssistant(
+        get().deferredBrowserGenerationLanes,
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId,
+        assistantMessageId,
+      );
+    const shouldRunToolLoop = (assistantMessageId: string) =>
+      isCurrentConversation() || isDeferredLaneAssistant(assistantMessageId);
     const expectedConversationVersion =
       params.expectedConversationVersion ?? (await messageService.getConversationVersion());
     if (!isPersistenceCurrent()) return;
@@ -1322,7 +1335,7 @@ export const generateAIChatV2: StateCreator<
       if (isToolsCalling) {
         get().internal_toggleMessageInToolsCalling(true, assistantId);
         await refreshMessages(conversationContext);
-        if (!isCurrentConversation()) return;
+        if (!shouldRunToolLoop(assistantId)) return;
         await triggerToolCalls(assistantId, {
           contextExportCaptureId: params.contextExportCaptureId,
           expectedConversationVersion,
@@ -1356,7 +1369,7 @@ export const generateAIChatV2: StateCreator<
       }
     }
     const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
-    if (!isCurrentConversation()) return;
+    if (!shouldRunToolLoop(assistantId)) return;
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
@@ -1367,7 +1380,7 @@ export const generateAIChatV2: StateCreator<
 
       get().internal_toggleMessageInToolsCalling(true, assistantId);
       await refreshMessages(conversationContext);
-      if (!isCurrentConversation()) return;
+      if (!shouldRunToolLoop(assistantId)) return;
       await triggerToolCalls(assistantId, {
         contextExportCaptureId: params.contextExportCaptureId,
         expectedConversationVersion,

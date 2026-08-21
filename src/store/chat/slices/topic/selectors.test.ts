@@ -199,6 +199,39 @@ describe('topicSelectors', () => {
       expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
     });
 
+    it('returns true while a deferred topic has tool results but no follow-up assistant', () => {
+      const mapKey = messageMapKey('test', 'topic1');
+      const state = merge(initialStore, {
+        activeId: 'test',
+        deferredBrowserGenerationLanes: {
+          [`${mapKey}:main`]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: 'searching',
+              id: 'assistant-deferred',
+              role: 'assistant',
+              tools: [{ id: 'call-1', identifier: 'tavily', type: 'mcp' }],
+            },
+            {
+              content: '{"ok":true}',
+              id: 'tool-deferred',
+              parentId: 'assistant-deferred',
+              role: 'tool',
+            },
+          ],
+        },
+      });
+
+      expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(true);
+      expect(topicSelectors.topicBusyFlags('topic1')(state).deferredLane).toBe(true);
+    });
+
     it('returns true while a plugin call is running in the topic', () => {
       const mapKey = messageMapKey('test', 'topic1');
       const state = merge(initialStore, {

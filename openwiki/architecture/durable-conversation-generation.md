@@ -480,7 +480,7 @@ Event coverage:
 
 | Layer  | Events                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | Client | `send_started`, `send_rpc_settled` (`stillCurrent`, `topicChangedDuringRpc`), `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started` (`skipped`/`reason=notCurrent` when the send RPC returned after the user left and there was no deferral), `exec_runtime_settled` (`stillCurrent`), `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `deferred_lane_marked`, `deferred_lane_left` (`type=navigation\|visibility`, `producerAlive`), `deferred_lane_resumed` (`outcome=resume_tools\|finalize\|still_producing\|loading_flat`), `deferred_lane_aborted` (`type=stop\|topic_delete\|clear`), `deferred_placeholder_finalized`, `topic_busy_changed` (idle→busy / busy→idle only), `builtin_tool_settled` (code interpreter), `sync_summary` (`reason` trigger, `deferredLaneCount`, `resumedTools`), `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
+  | Client | `send_started`, `send_rpc_settled` (`stillCurrent`, `topicChangedDuringRpc`), `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started` (`skipped`/`reason=notCurrent` when the send RPC returned after the user left and there was no deferral), `exec_runtime_settled` (`stillCurrent`), `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `deferred_lane_marked`, `deferred_lane_left` (`type=navigation\|visibility`, `producerAlive`), `deferred_lane_resumed` (`outcome=resume_tools\|resume_model\|finalize\|still_producing\|loading_flat`), `deferred_lane_aborted` (`type=stop\|topic_delete\|clear`), `deferred_placeholder_finalized`, `topic_busy_changed` (idle→busy / busy→idle only), `builtin_tool_settled` (code interpreter), `sync_summary` (`reason` trigger, `deferredLaneCount`, `resumedTools`), `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
 | Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled`               |
 
 Semantics that matter when reading the stream:
@@ -529,14 +529,14 @@ Semantics that matter when reading the stream:
   when durable enqueue is rejected for a browser-only tool; `deferred_lane_left`
   when the user switches topic/session/thread or hides the tab while that
   marker exists (`producerAlive` says whether the tab is still generating);
-  `deferred_lane_resumed` when they return (`resume_tools` / `finalize` /
-  `still_producing` / `loading_flat`); `deferred_lane_aborted` for Stop /
+  `deferred_lane_resumed` when they return (`resume_tools` / `resume_model` /
+  `finalize` / `still_producing` / `loading_flat`); `deferred_lane_aborted` for Stop /
   topic delete / clear. `sync_summary.reason` is
   `initial` / `topic_change` / `session_change` / `thread_change` /
   `visibility`. A healthy off-screen browser turn is
   `send_rpc_settled(deferReason=unsupported_tool)` → `deferred_lane_marked` →
   `deferred_lane_left(producerAlive=true)` → `deferred_lane_resumed` →
-  `deferred_placeholder_finalized` or `resume_tools`.
+  `deferred_placeholder_finalized` or `resume_tools` / `resume_model`.
   `send_rpc_settled(stillCurrent=false, topicChangedDuringRpc=true)` without
   a later `deferred_lane_marked` is the known send-RPC race.
 - `topic_busy_changed` is transition-only (the topic-list spinner). Initial
@@ -653,13 +653,16 @@ Product contract for deferred browser turns:
 
 - Persist the first assistant off-screen under `isPersistenceCurrent()`
   (account snapshot + clear fence). Navigation alone does not block the write.
-- Resume tool loops (`triggerToolCalls`) only when the user **returns** to the
-  topic. Do not run code-interpreter / image-gen while the topic is hidden.
+- Keep a started tool batch alive after leave: do not rewrite a successful MCP
+  result as `cancelled`, and always clear `messageInToolsCallingIds` in
+  `finally`. Continue the model in the same tab when the session is still
+  active; on return, `resume_model` if tools already have results and there is
+  no follow-up assistant.
 - Stop with no text still **deletes** the empty row. Topic switch does not
   abort deferred producers, so `onAbort` is Stop / lost fetch, not Leave.
 - Finalize never blanks leftover `LOADING_FLAT` into a white circle. Sync
-  clears the deferred marker only after persist wrote real content, or resumes
-  a pending tool skeleton.
+  clears the deferred marker only after persist wrote real content, resumes a
+  pending tool skeleton, or resumes a pending model continue.
 
 How that is implemented:
 
@@ -674,15 +677,17 @@ How that is implemented:
   success path (it does not throw). The client stores that marker in
   `deferredBrowserGenerationLanes`.
 - `syncActiveConversationGenerations` on switch-back resumes leftover tool
-  calls when the row has `tools` and no tool results; it never toggles loading
-  off a leftover `LOADING_FLAT` row. Deleting the topic aborts and clears those
-  deferred lanes.
+  calls when the row has `tools` and no tool results, and resumes the model
+  when tool results exist but there is no follow-up assistant. It never
+  toggles loading off a leftover `LOADING_FLAT` row. Deleting the topic aborts
+  and clears those deferred lanes.
 - `topicSelectors.isTopicLoading` drives the spinning icon on the topic list.
   It is true for durable `serverGenerationOperations`, in-flight browser
   `chatLoadingLaneByMessageId` / plugin / tool / reasoning / RAG / search
   workflow ids in that topic’s `messagesMap`, a deferred browser lane that is
-  still `LOADING_FLAT` or waiting to resume tools, and `mainSendMessageOperations`
-  while the send RPC is in flight. Topic CRUD still uses `topicLoadingIds`.
+  still `LOADING_FLAT`, waiting to resume tools, or waiting for a model
+  continue after tool results, and `mainSendMessageOperations` while the send
+  RPC is in flight. Topic CRUD still uses `topicLoadingIds`.
 - `syncActiveConversationGenerations` still deletes orphaned stale placeholders
   (see Client sync), which also repairs rows stuck by the pre-fix behavior the
   next time the topic is opened.
@@ -690,10 +695,13 @@ How that is implemented:
 Switch during the **send RPC** (marker not created yet) remains a known gap:
 `mainSendMessageOperations` are always aborted on invalidate.
 
-Tool-continuation loops still require the conversation to be visible
-(browser-fallback limitation): the worker does not execute
-`lobe-code-interpreter` / `lobe-image-designer`. Durable turns that the worker
-does support are unaffected because the worker runs the loop server-side.
+Browser-fallback tool loops no longer require the conversation to stay visible
+for HTTP MCP / default tools: leaving the topic does not cancel a successful
+tool result, does not leak `messageInToolsCallingIds`, and either continues the
+model in the same tab (same session) or resumes it with `resume_model` when
+you return. Code interpreter / image-designer still cannot run on the Graphile
+worker; the connected tab is the producer for those turns. Durable worker
+turns are unaffected because the worker already runs the loop server-side.
 
 ## Startup schema repair
 

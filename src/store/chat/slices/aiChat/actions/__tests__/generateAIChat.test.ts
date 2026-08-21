@@ -1645,6 +1645,57 @@ describe('chatMessage actions', () => {
         expect.any(Object),
       );
     });
+
+    it('runs tool calls for a deferred browser lane after the user leaves during fetch', async () => {
+      act(() => {
+        useChatStore.setState({ internal_coreProcessMessage: realCoreProcessMessage });
+      });
+      const userMessage = createMockMessage({
+        content: TEST_CONTENT.USER_MESSAGE,
+        id: TEST_IDS.USER_MESSAGE_ID,
+        role: 'user',
+      });
+      const conversationKey = deferredBrowserGenerationLaneKey(
+        TEST_IDS.SESSION_ID,
+        TEST_IDS.TOPIC_ID,
+        null,
+      );
+      const state = useChatStore.getState();
+      vi.spyOn(state, 'internal_fetchAIChatMessage').mockImplementation(async () => {
+        useChatStore.setState({ activeTopicId: 'other-topic' });
+        return {
+          content: '',
+          isFunctionCall: true,
+          persistenceAmbiguous: false,
+        };
+      });
+      vi.spyOn(state, 'refreshMessages').mockResolvedValue(undefined);
+      const triggerToolCalls = vi.spyOn(state, 'triggerToolCalls').mockResolvedValue(undefined);
+      vi.spyOn(messageService, 'createMessage').mockResolvedValue(TEST_IDS.ASSISTANT_MESSAGE_ID);
+
+      act(() => {
+        useChatStore.setState({
+          deferredBrowserGenerationLanes: {
+            [conversationKey]: {
+              assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+              reason: 'unsupported_tool',
+              toolName: 'lobe-image-designer',
+            },
+          },
+        });
+      });
+
+      await act(async () => {
+        await useChatStore
+          .getState()
+          .internal_coreProcessMessage([userMessage], TEST_IDS.USER_MESSAGE_ID);
+      });
+
+      expect(triggerToolCalls).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.any(Object),
+      );
+    });
   });
 
   describe('internal_fetchAIChatMessage', () => {

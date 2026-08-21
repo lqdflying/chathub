@@ -30,6 +30,8 @@ import {
 import {
   deferredBrowserGenerationLaneKey,
   deferredBrowserGenerationLaneKeysForTopic,
+  hasActiveToolCallingStream,
+  hasPendingModelContinue,
   isDeferredLaneProducerAlive,
 } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -783,11 +785,7 @@ export const conversationGeneration: StateCreator<
   internal_finalizeDeferredLanePlaceholder: async (conversationKey) => {
     const deferred = get().deferredBrowserGenerationLanes[conversationKey];
     if (!deferred) return;
-    if (
-      get().chatLoadingIds.includes(deferred.assistantMessageId) ||
-      get().messageInToolsCallingIds.includes(deferred.assistantMessageId) ||
-      get().toolCallingStreamIds[deferred.assistantMessageId]
-    ) {
+    if (isDeferredLaneProducerAlive(get(), deferred.assistantMessageId)) {
       return;
     }
 
@@ -1000,7 +998,7 @@ export const conversationGeneration: StateCreator<
         !(message.tools && message.tools.length > 0) &&
         !get().chatLoadingIds.includes(message.id) &&
         !get().messageInToolsCallingIds.includes(message.id) &&
-        !get().toolCallingStreamIds[message.id] &&
+        !hasActiveToolCallingStream(get().toolCallingStreamIds[message.id]) &&
         !attachedAssistantIds.has(message.id) &&
         typeof message.createdAt === 'number' &&
         Date.now() - message.createdAt > ORPHAN_PLACEHOLDER_GRACE_MS,
@@ -1041,9 +1039,7 @@ export const conversationGeneration: StateCreator<
         (message) => message.id === deferredLane.assistantMessageId && message.role === 'assistant',
       );
       const deferredStillProducing =
-        get().chatLoadingIds.includes(deferredLane.assistantMessageId) ||
-        get().messageInToolsCallingIds.includes(deferredLane.assistantMessageId) ||
-        Boolean(get().toolCallingStreamIds[deferredLane.assistantMessageId]) ||
+        isDeferredLaneProducerAlive(get(), deferredLane.assistantMessageId) ||
         attachedAssistantIds.has(deferredLane.assistantMessageId);
       const hasPendingTools =
         Boolean(deferredMessage?.tools && deferredMessage.tools.length > 0) &&
@@ -1051,6 +1047,10 @@ export const conversationGeneration: StateCreator<
           (message) =>
             message.role === 'tool' && message.parentId === deferredLane.assistantMessageId,
         );
+      const pendingModelContinue = hasPendingModelContinue(
+        visibleMessages,
+        deferredLane.assistantMessageId,
+      );
       const resumeFields = {
         assistantMessageId: deferredLane.assistantMessageId,
         reason: deferredLane.reason,
@@ -1070,6 +1070,36 @@ export const conversationGeneration: StateCreator<
         await get()
           .triggerToolCalls(deferredLane.assistantMessageId, {
             inPortalThread: Boolean(get().portalThreadId),
+            threadId: visibleThreadId ?? undefined,
+          })
+          .catch(console.error);
+      } else if (!deferredStillProducing && pendingModelContinue) {
+        const lastTool = [...visibleMessages]
+          .reverse()
+          .find(
+            (message) =>
+              message.role === 'tool' && message.parentId === deferredLane.assistantMessageId,
+          );
+        await logDeferredGenerationLane('deferred_lane_resumed', {
+          ...resumeFields,
+          outcome: 'resume_model',
+        });
+        await get()
+          .triggerAIMessage({
+            conversationContext: {
+              clearGeneration: resolveConversationClearGeneration(
+                get(),
+                activeId,
+                activeTopicId,
+                visibleThreadId,
+              ),
+              generation: get().conversationNavigationGeneration,
+              sessionId: activeId,
+              threadId: visibleThreadId,
+              topicId: activeTopicId,
+            },
+            inPortalThread: Boolean(get().portalThreadId),
+            parentId: lastTool?.id,
             threadId: visibleThreadId ?? undefined,
           })
           .catch(console.error);

@@ -78,6 +78,7 @@ import {
 import {
   deferredBrowserGenerationLaneKey,
   deferredBrowserGenerationLaneKeysForTopic,
+  isDeferredBrowserLaneAssistant,
   isDeferredLaneProducerAlive,
 } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -467,6 +468,16 @@ export const generateAIChat: StateCreator<
         conversationContext.topicId,
         conversationContext.threadId ?? null,
       );
+    const isDeferredLaneAssistant = (assistantMessageId: string) =>
+      isDeferredBrowserLaneAssistant(
+        get().deferredBrowserGenerationLanes,
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId,
+        assistantMessageId,
+      );
+    const shouldRunToolLoop = (assistantMessageId: string) =>
+      isCurrentConversation() || isDeferredLaneAssistant(assistantMessageId);
     const expectedConversationVersion =
       params?.expectedConversationVersion ?? (await messageService.getConversationVersion());
     if (!isPersistenceCurrent()) return;
@@ -875,7 +886,7 @@ export const generateAIChat: StateCreator<
       if (isToolsCalling) {
         get().internal_toggleMessageInToolsCalling(true, assistantId);
         await refreshMessages(conversationContext);
-        if (!isCurrentConversation()) return;
+        if (!shouldRunToolLoop(assistantId)) return;
         await triggerToolCalls(assistantId, {
           contextExportCaptureId: params?.contextExportCaptureId,
           expectedConversationVersion,
@@ -908,7 +919,7 @@ export const generateAIChat: StateCreator<
       }
     }
     const { isFunctionCall, persistenceAmbiguous, persistenceFailure } = fetchResult;
-    if (!isCurrentConversation()) return;
+    if (!shouldRunToolLoop(assistantId)) return;
 
     // 5. if it's the function call message, trigger the function method
     if (isFunctionCall) {
@@ -923,7 +934,7 @@ export const generateAIChat: StateCreator<
       } catch {
         // Persistence is confirmed; revalidation must not block execution.
       }
-      if (!isCurrentConversation()) return;
+      if (!shouldRunToolLoop(assistantId)) return;
       await triggerToolCalls(assistantId, {
         contextExportCaptureId: params?.contextExportCaptureId,
         expectedConversationVersion,

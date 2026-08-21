@@ -6,7 +6,10 @@ import { ChatTopic, ChatTopicSummary, GroupedTopic } from '@/types/topic';
 import { getTopicActivityTimestamp, groupTopicsByTime } from '@/utils/client/topic';
 
 import { ChatStoreState } from '../../initialState';
-import { deferredBrowserGenerationLaneKeysForTopic } from '../../utils/deferredBrowserGeneration';
+import {
+  deferredBrowserGenerationLaneKeysForTopic,
+  hasPendingModelContinue,
+} from '../../utils/deferredBrowserGeneration';
 import { messageMapKey } from '../../utils/messageMapKey';
 
 const sortTopicsByActivity = (topics: ChatTopic[]): ChatTopic[] =>
@@ -100,7 +103,10 @@ const isDeferredBrowserTopicBusy = (
     const assistant = (s.messagesMap[mapKey] || []).find((message) => message.id === assistantId);
     if (assistant?.content === LOADING_FLAT) return true;
 
-    return topicHasPendingToolLoop(s, mapKey, assistantId);
+    return (
+      topicHasPendingToolLoop(s, mapKey, assistantId) ||
+      hasPendingModelContinue(s.messagesMap[mapKey] || [], assistantId)
+    );
   });
 };
 

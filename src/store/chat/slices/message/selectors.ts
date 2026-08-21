@@ -101,6 +101,14 @@ const mainAIChats = (s: ChatStoreState): UIChatMessage[] => {
 const mainTopicAIChats = (s: ChatStoreState): UIChatMessage[] =>
   activeBaseChats(s).filter((message) => !message.threadId);
 
+const conversationAIChats =
+  (sessionId: string, topicId?: string | null, threadId?: string | null) =>
+  (s: ChatStoreState): UIChatMessage[] => {
+    const messages = getBaseChatsByKey(messageMapKey(sessionId, topicId))(s);
+    if (threadId) return messages.filter((message) => message.threadId === threadId);
+    return messages.filter((message) => !message.threadId);
+  };
+
 const mainAIChatsWithHistoryConfig = (s: ChatStoreState): UIChatMessage[] => {
   const chats = mainAIChats(s);
   const agentState = useAgentStore.getState();
@@ -337,6 +345,7 @@ export const chatSelectors = {
   isToolApiNameShining,
   isToolCallStreaming,
   latestMessage,
+  conversationAIChats,
   mainAIChats,
   mainAIChatsMessageString,
   mainAIChatsWithHistoryConfig,

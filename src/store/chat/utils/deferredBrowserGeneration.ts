@@ -39,17 +39,47 @@ export const findDeferredBrowserGenerationLaneByAssistantId = (
   return undefined;
 };
 
+export const hasActiveToolCallingStream = (streamFlags: boolean[] | undefined): boolean =>
+  Array.isArray(streamFlags) && streamFlags.some(Boolean);
+
 export const isDeferredLaneProducerAlive = (
   state: Pick<
     ChatAIChatState,
     'chatLoadingIds' | 'messageInToolsCallingIds' | 'toolCallingStreamIds'
   >,
   assistantMessageId: string,
+): boolean =>
+  state.chatLoadingIds.includes(assistantMessageId) ||
+  state.messageInToolsCallingIds.includes(assistantMessageId) ||
+  hasActiveToolCallingStream(state.toolCallingStreamIds?.[assistantMessageId]);
+
+export const isDeferredBrowserLaneAssistant = (
+  lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,
+  sessionId: string,
+  topicId: string | null | undefined,
+  threadId: string | null | undefined,
+  assistantMessageId: string,
+): boolean =>
+  lanes?.[deferredBrowserGenerationLaneKey(sessionId, topicId, threadId)]?.assistantMessageId ===
+  assistantMessageId;
+
+/**
+ * True when the assistant already has tool result rows but no follow-up
+ * assistant whose parent is one of those tools. That is the "Tavily returned,
+ * model never continued" hang.
+ */
+export const hasPendingModelContinue = (
+  messages: Array<{ id: string; parentId?: string | null; role?: string }>,
+  assistantMessageId: string,
 ): boolean => {
-  const streamFlags = state.toolCallingStreamIds?.[assistantMessageId];
-  return (
-    state.chatLoadingIds.includes(assistantMessageId) ||
-    state.messageInToolsCallingIds.includes(assistantMessageId) ||
-    (Array.isArray(streamFlags) && streamFlags.some(Boolean))
+  const toolIds = messages
+    .filter((message) => message.role === 'tool' && message.parentId === assistantMessageId)
+    .map((message) => message.id);
+  if (toolIds.length === 0) return false;
+
+  const toolIdSet = new Set(toolIds);
+  return !messages.some(
+    (message) =>
+      message.role === 'assistant' && Boolean(message.parentId) && toolIdSet.has(message.parentId!),
   );
 };

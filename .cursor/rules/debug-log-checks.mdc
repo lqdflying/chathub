@@ -238,7 +238,8 @@ Generation-debug semantics:
   `send_rpc_settled(hasOperationId=false, deferReason=…)` plus client
   `deferred_lane_marked` with the same `spanId`. After the user leaves that
   topic, `deferred_lane_left(producerAlive=true)` should appear; after they
-  return, `deferred_lane_resumed` then either `resume_tools` or
+  return, `deferred_lane_resumed` then either `resume_tools`, `resume_model`
+  (tools already have results, no follow-up assistant), or
   `deferred_placeholder_finalized`. `sync_summary.reason` names why sync ran
   (`topic_change` / `visibility` / …). `topic_busy_changed(outcome=busy)`
   should bracket the topic-list spinner for that hashed topic.

@@ -6,6 +6,7 @@ import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
 import { chatSelectors, threadSelectors } from '@/store/chat/selectors';
 import { useChatStore } from '@/store/chat/store';
+import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 vi.mock('@/components/AntdStaticMethods', () => ({
@@ -211,10 +212,14 @@ describe('MCP tool-result persistence recovery', () => {
 
     expect(preSlicedSelector).not.toHaveBeenCalled();
     expect(coreProcessMessage).toHaveBeenCalledWith(chats, 'tool-result', {
+      conversationContext: undefined,
+      contextExportCaptureId: undefined,
+      expectedConversationVersion: undefined,
       inPortalThread: undefined,
       inSearchWorkflow: undefined,
       isToolContinuation: true,
       threadId: undefined,
+      toolCacheDebug: undefined,
       traceId: 'trace-id',
     });
   });
@@ -237,10 +242,14 @@ describe('MCP tool-result persistence recovery', () => {
 
     expect(preSlicedSelector).not.toHaveBeenCalled();
     expect(coreProcessMessage).toHaveBeenCalledWith(chats, 'thread-tool', {
+      conversationContext: undefined,
+      contextExportCaptureId: undefined,
+      expectedConversationVersion: undefined,
       inPortalThread: true,
       inSearchWorkflow: undefined,
       isToolContinuation: true,
       threadId: 'thread-id',
+      toolCacheDebug: undefined,
       traceId: 'trace-id',
     });
   });
@@ -359,28 +368,16 @@ describe('MCP tool-result persistence recovery', () => {
     expect(invokeTool).toHaveBeenCalledTimes(2);
     expect(toggleToolsCalling).toHaveBeenCalledWith(false, assistantId);
     expect(triggerAIMessage).toHaveBeenCalledTimes(1);
-    expect(triggerAIMessage).toHaveBeenCalledWith({
-      contextExportCaptureId: undefined,
-      expectedConversationVersion: undefined,
-      inPortalThread: undefined,
-      inSearchWorkflow: undefined,
-      threadId: undefined,
-      toolCacheDebug: expect.objectContaining({
-        batchId: expect.stringMatching(/^tb_[\w-]{20}$/),
-        continuationId: expect.stringMatching(/^tc_[\w-]{20}$/),
-        failureCount: 1,
-        resultCount: 1,
-        toolCallCount: 2,
-        toolCallSetHash: expect.stringMatching(/^[\da-f]{16}$/),
-        toolResults: expect.arrayContaining([
-          expect.objectContaining({
-            truncated: false,
-            valueHash: expect.stringMatching(/^[\da-f]{16}$/),
-          }),
-        ]),
+    expect(triggerAIMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationContext: expect.objectContaining({
+          sessionId: 'session-id',
+          topicId: 'topic-id',
+        }),
+        parentId: 'tool-message-2',
+        traceId: 'trace-id',
       }),
-      traceId: 'trace-id',
-    });
+    );
     expect(reportToolCompletion).toHaveBeenCalledTimes(2);
     expect(reportToolCompletion).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -466,7 +463,7 @@ describe('MCP tool-result persistence recovery', () => {
 
     await toolBatchPromise;
 
-    expect(toggleToolsCalling).not.toHaveBeenCalled();
+    expect(toggleToolsCalling).toHaveBeenCalledWith(false, assistantId);
     expect(triggerAIMessage).not.toHaveBeenCalled();
   });
 
@@ -525,15 +522,15 @@ describe('MCP tool-result persistence recovery', () => {
 
     await useChatStore.getState().triggerToolCalls(assistantId);
 
-    expect(triggerAIMessage).toHaveBeenCalledWith({
-      contextExportCaptureId: undefined,
-      expectedConversationVersion: undefined,
-      inPortalThread: undefined,
-      inSearchWorkflow: undefined,
-      threadId: undefined,
-      toolCacheDebug: undefined,
-      traceId: 'trace-id',
-    });
+    expect(triggerAIMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationContext: expect.objectContaining({
+          sessionId: 'session-id',
+        }),
+        parentId: toolMessageId,
+        traceId: 'trace-id',
+      }),
+    );
 
     triggerAIMessage.mockClear();
     useChatStore.setState({
@@ -616,15 +613,16 @@ describe('MCP tool-result persistence recovery', () => {
     expect(invokeTool).toHaveBeenCalledWith(toolMessageId, toolPayload, undefined, undefined);
     expect(reportToolBatch).not.toHaveBeenCalled();
     expect(reportToolCompletion).not.toHaveBeenCalled();
-    expect(triggerAIMessage).toHaveBeenCalledWith({
-      contextExportCaptureId: undefined,
-      expectedConversationVersion: undefined,
-      inPortalThread: undefined,
-      inSearchWorkflow: undefined,
-      threadId: undefined,
-      toolCacheDebug: undefined,
-      traceId: 'trace-id',
-    });
+    expect(triggerAIMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationContext: expect.objectContaining({
+          sessionId: 'session-id',
+          topicId: 'topic-id',
+        }),
+        parentId: toolMessageId,
+        traceId: 'trace-id',
+      }),
+    );
   });
 
   it('preserves cache continuation metadata without lifecycle telemetry', async () => {
@@ -704,22 +702,24 @@ describe('MCP tool-result persistence recovery', () => {
     );
     expect(reportToolBatch).not.toHaveBeenCalled();
     expect(reportToolCompletion).not.toHaveBeenCalled();
-    expect(triggerAIMessage).toHaveBeenCalledWith({
-      contextExportCaptureId: undefined,
-      expectedConversationVersion: undefined,
-      inPortalThread: undefined,
-      inSearchWorkflow: undefined,
-      threadId: undefined,
-      toolCacheDebug: expect.objectContaining({
-        batchId: expect.stringMatching(/^tb_[\w-]{20}$/),
-        continuationId: expect.stringMatching(/^tc_[\w-]{20}$/),
-        failureCount: 0,
-        resultCount: 1,
-        toolCallCount: 1,
-        toolResults: [expect.any(Object)],
+    expect(triggerAIMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationContext: expect.objectContaining({
+          sessionId: 'session-id',
+          topicId: 'topic-id',
+        }),
+        parentId: toolMessageId,
+        toolCacheDebug: expect.objectContaining({
+          batchId: expect.stringMatching(/^tb_[\w-]{20}$/),
+          continuationId: expect.stringMatching(/^tc_[\w-]{20}$/),
+          failureCount: 0,
+          resultCount: 1,
+          toolCallCount: 1,
+          toolResults: [expect.any(Object)],
+        }),
+        traceId: 'trace-id',
       }),
-      traceId: 'trace-id',
-    });
+    );
   });
 
   it('reports a persisted built-in search error instead of its boolean control result', async () => {
@@ -874,6 +874,71 @@ describe('MCP tool-result persistence recovery', () => {
     );
     expect(JSON.stringify(reportToolCompletion.mock.calls)).not.toContain(
       'private Python execution failure',
+    );
+  });
+
+  it('continues the model after MCP tools finish on a deferred browser lane in the same session', async () => {
+    const assistantId = 'assistant-deferred-mcp';
+    const toolMessageId = 'tool-message-deferred-mcp';
+    const toolPayload = {
+      apiName: 'tavily_search',
+      arguments: '{"query":"azure regions"}',
+      id: 'tool-deferred-mcp',
+      identifier: 'tavily',
+      type: 'mcp',
+    } as const;
+    const assistantMessage = {
+      content: 'searching',
+      id: assistantId,
+      role: 'assistant',
+      sessionId: 'session-id',
+      tools: [toolPayload],
+      topicId: 'topic-id',
+    } as UIChatMessage;
+    const triggerAIMessage = vi.fn();
+    const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+
+    vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
+      cacheContinuationEnabled: false,
+      toolLifecycleEnabled: false,
+    });
+    vi.spyOn(chatSelectors, 'getTraceIdByMessageId').mockReturnValue(
+      vi.fn().mockReturnValue('trace-id'),
+    );
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'other-topic',
+      deferredBrowserGenerationLanes: {
+        [conversationKey]: {
+          assistantMessageId: assistantId,
+          reason: 'unsupported_tool',
+          toolName: 'lobe-image-designer',
+        },
+      },
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      internal_invokeDifferentTypePlugin: vi.fn().mockResolvedValue({
+        data: '{"ok":true}',
+        outcome: 'completed',
+      }),
+      internal_toggleMessageInToolsCalling: vi.fn().mockResolvedValue(undefined),
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage],
+        [messageMapKey('session-id', 'other-topic')]: [],
+      },
+      triggerAIMessage,
+    });
+
+    await useChatStore.getState().triggerToolCalls(assistantId);
+
+    expect(triggerAIMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationContext: expect.objectContaining({
+          sessionId: 'session-id',
+          topicId: 'topic-id',
+        }),
+        parentId: toolMessageId,
+      }),
     );
   });
 });
