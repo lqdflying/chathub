@@ -539,7 +539,10 @@ describe('fetchSSE', () => {
 
       await fetchSSE('/', { onAbort: mockOnAbort, responseAnimation: 'fadeIn' });
 
-      expect(mockOnAbort).toHaveBeenCalledWith('Hello');
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        'Hello',
+        expect.objectContaining({ errorKind: 'abort' }),
+      );
     });
 
     it('should call onAbort when MESSAGE_CANCEL_FLAT is thrown', async () => {
@@ -554,7 +557,58 @@ describe('fetchSSE', () => {
 
       await fetchSSE('/', { onAbort: mockOnAbort, responseAnimation: 'fadeIn' });
 
-      expect(mockOnAbort).toHaveBeenCalledWith('Hello');
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        'Hello',
+        expect.objectContaining({ errorKind: 'abort' }),
+      );
+    });
+
+    it('should call onAbort when Safari Load failed is thrown', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+
+      (fetchEventSource as any).mockImplementationOnce(
+        (url: string, options: FetchEventSourceInit) => {
+          options.onmessage!({ event: 'text', data: JSON.stringify('Hello') } as any);
+          options.onerror!(new TypeError('Load failed'));
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onErrorHandle: mockOnErrorHandle,
+        responseAnimation: 'fadeIn',
+      });
+
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        'Hello',
+        expect.objectContaining({ errorClass: 'TypeError', errorKind: 'webkit_load_failed' }),
+      );
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
+    });
+
+    it('should call onAbort when Chromium Failed to fetch is thrown', async () => {
+      const mockOnAbort = vi.fn();
+      const mockOnErrorHandle = vi.fn();
+
+      (fetchEventSource as any).mockImplementationOnce(
+        (url: string, options: FetchEventSourceInit) => {
+          options.onmessage!({ event: 'text', data: JSON.stringify('Hello') } as any);
+          options.onerror!(new TypeError('Failed to fetch'));
+        },
+      );
+
+      await fetchSSE('/', {
+        onAbort: mockOnAbort,
+        onErrorHandle: mockOnErrorHandle,
+        responseAnimation: 'fadeIn',
+      });
+
+      expect(mockOnAbort).toHaveBeenCalledWith(
+        'Hello',
+        expect.objectContaining({ errorClass: 'TypeError', errorKind: 'failed_to_fetch' }),
+      );
+      expect(mockOnErrorHandle).not.toHaveBeenCalled();
     });
   });
 

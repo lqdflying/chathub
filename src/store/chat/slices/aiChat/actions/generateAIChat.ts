@@ -1056,6 +1056,7 @@ export const generateAIChat: StateCreator<
     let thinking = '';
     let thinkingStartAt: number;
     let duration: number;
+    let streamOutcome: 'abort' | 'error' | 'ok' = 'ok';
     // to upload image
     const uploadTasks: Map<string, Promise<{ id?: string; url?: string }>> = new Map();
 
@@ -1152,11 +1153,29 @@ export const generateAIChat: StateCreator<
           if (!isCurrentConversation()) return;
           get().appendContextExportSnapshot(snapshot);
         },
-        onAbort: async (text) => {
+        onAbort: async (text, interrupt) => {
           // An interrupted browser turn (Stop, lane rewind, lost tab) must not
           // leave a permanent `...` placeholder row: persist whatever streamed
           // so far, or drop the empty row so history never shows a dead bubble.
-          // Topic switch no longer aborts deferred lanes, so this path is Stop.
+          // Topic switch no longer aborts deferred lanes, so this path is Stop
+          // or a WebKit/Chromium fetch interrupt (`Load failed` / `Failed to fetch`).
+          streamOutcome = 'abort';
+          const conversationKey = deferredBrowserGenerationLaneKey(
+            conversationContext.sessionId,
+            conversationContext.topicId,
+            conversationContext.threadId,
+          );
+          logGenerationDebugClientSafe('fetch_stream_interrupted', {
+            classifiedAs: 'abort',
+            errorClass: interrupt?.errorClass,
+            errorKind: interrupt?.errorKind ?? 'abort',
+            hasOutput: Boolean(text),
+            outputChars: text.length,
+            signalAborted: abortController?.signal.aborted === true,
+            spanId: get().deferredBrowserGenerationLanes[conversationKey]?.spanId,
+            stillCurrent: isCurrentConversation(),
+            visible: typeof document === 'undefined' ? true : document.visibilityState === 'visible',
+          });
           if (!isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) return;
           if (text) {
             await internal_updateMessageContent(messageId, text, {
@@ -1183,6 +1202,25 @@ export const generateAIChat: StateCreator<
           // Persist the failure even if the user navigated away, so the row does
           // not stay a `...` placeholder; only the in-app surface (context
           // snapshot + refresh) requires the conversation to still be active.
+          streamOutcome = 'error';
+          const conversationKey = deferredBrowserGenerationLaneKey(
+            conversationContext.sessionId,
+            conversationContext.topicId,
+            conversationContext.threadId,
+          );
+          logGenerationDebugClientSafe('fetch_stream_error', {
+            classifiedAs: 'error',
+            errorClass:
+              error.body && typeof error.body === 'object'
+                ? (error.body as { name?: string }).name
+                : undefined,
+            errorKind: 'other',
+            hasOutput: Boolean(output),
+            outputChars: output.length,
+            spanId: get().deferredBrowserGenerationLanes[conversationKey]?.spanId,
+            stillCurrent: isCurrentConversation(),
+            visible: typeof document === 'undefined' ? true : document.visibilityState === 'visible',
+          });
           if (!isPersistenceCurrent()) return;
           if (contextExportRequest && isCurrentConversation()) {
             get().appendContextExportSnapshot({
@@ -1384,6 +1422,19 @@ export const generateAIChat: StateCreator<
         },
       });
     } finally {
+      if (params?.isToolContinuation) {
+        const conversationKey = deferredBrowserGenerationLaneKey(
+          conversationContext.sessionId,
+          conversationContext.topicId,
+          conversationContext.threadId,
+        );
+        logGenerationDebugClientSafe('exec_runtime_settled', {
+          kind: 'continue',
+          outcome: streamOutcome,
+          spanId: get().deferredBrowserGenerationLanes[conversationKey]?.spanId,
+          stillCurrent: isCurrentConversation(),
+        });
+      }
       if (isPersistenceCurrent()) {
         internal_toggleToolCallingStreaming(messageId, undefined);
         internal_toggleChatReasoning(

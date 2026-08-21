@@ -97,7 +97,10 @@ Details: tables, sweeper, heartbeats, lane generation, attach fences — see
 ### 3. Tab producer (browser-fallback)
 
 Used when enqueue reason is `unsupported_tool` or `fetch_on_client`. Typical
-`toolName` values: `lobe-code-interpreter`, `lobe-image-designer`, `kagi`.
+`toolName` values: `lobe-image-designer`, `kagi`, non-HTTP MCP. Enabling Code
+Interpreter (`lobe-code-interpreter`) does **not** defer the turn; the worker
+stubs it at invoke time with `shouldContinue: true` so search-only replies stay
+on Graphile.
 
 Prompt-only builtins with an empty `api` (Artifacts / `lobe-artifacts`) are
 **not** deferred: the worker already injects the system prompt.
@@ -126,7 +129,7 @@ sequenceDiagram
   participant Tab as Same tab runtime
   participant API as ChatHub server
 
-  U->>UI: Send (KB + code interpreter)
+  U->>UI: Send (KB + DALL·E chat tool)
   UI->>API: enqueue
   API-->>UI: deferred unsupported_tool
   UI->>Tab: mark deferred lane, execAgentRuntime
@@ -222,10 +225,22 @@ Join one turn on `spanId` (`gd_…`). Never log message text.
 **Healthy durable send:**
 `send_started` → `send_rpc_settled(hasOperationId=true)` → `enqueue_persisted`
 → `execute_started` / `execute_settled` → client `event_applied_terminal`.
+Search-only with Code Interpreter enabled must **not** be
+`enqueue_rejected` / `toolName=lobe-code-interpreter`.
 
 **Healthy browser-fallback send:**
 `enqueue_rejected(unsupported_tool)` → `deferred_lane_marked` →
 `browser_path_started` → work → `exec_runtime_settled(ok)`.
+
+**Healthy leftover tab stream death (Safari `Load failed`):**
+`fetch_stream_interrupted(errorKind=webkit_load_failed, classifiedAs=abort)`
+on the continue `spanId`. Must **not** be `fetch_stream_error` /
+`UnknownChatFetchError`. Continue fetches also emit
+`exec_runtime_settled(kind=continue)`.
+
+**Worker actually called Code Interpreter:**
+`browser_tool_stubbed(toolName=lobe-code-interpreter, shouldContinue=true)`
+then the model continue.
 
 **Healthy leave during RAG:**
 `deferred_lane_left(producerAlive=true)` + `rag_retrieve_settled(ok|empty)`
@@ -269,7 +284,10 @@ Copy-paste APL: **`.cursor/rules/debug-log-checks.mdc`**.
 When adding a tool, retrieval step, or send-path gate:
 
 1. Decide the **producer**: can Graphile run it with server-reachable
-   credentials and no browser API? If no, it defers the **whole turn**.
+   credentials and no browser API? If the tool is only *enabled* but the
+   worker can stub a continueable result (Code Interpreter), keep the turn on
+   Graphile. If the whole turn needs a browser API (DALL·E, Kagi, stdio MCP),
+   defer the **whole turn**.
 2. Capture `conversationContext` at start; thread it through every await.
 3. On leave, keep AbortControllers and loading ids for protected messages.
 4. When the step settles, continue the model immediately if the deferred lane

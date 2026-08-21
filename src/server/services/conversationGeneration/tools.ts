@@ -19,6 +19,7 @@ import {
   formatFixedMemoryEntries,
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
+import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { mcpService } from '@/server/services/mcp';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
 import { SearchService } from '@/server/services/search';
@@ -331,6 +332,17 @@ export const invokeConversationTool = async ({
     };
   }
 
+  if (identifier === CodeInterpreterIdentifier) {
+    return {
+      content: JSON.stringify({
+        error: 'Code Interpreter requires a connected browser for this conversation.',
+      }),
+      inputHash,
+      shouldContinue: true,
+      success: false,
+    };
+  }
+
   if (identifier === SkillLoaderManifest.identifier) {
     const skillIdentifier = typeof args.name === 'string' ? args.name : '';
     const skill = skillIdentifier
@@ -562,6 +574,16 @@ export const executeConversationToolStep = async ({
               payload,
               userId,
             });
+      if (
+        payload.identifier === CodeInterpreterIdentifier ||
+        payload.identifier === DalleManifest.identifier
+      ) {
+        logGenerationDebugSafe('browser_tool_stubbed', {
+          operationHash: hashGenerationDebugValue(operationId),
+          shouldContinue: result.shouldContinue,
+          toolName: payload.identifier,
+        });
+      }
       const messageId = await persistConversationToolMessage({
         assistantMessage,
         db: database,
@@ -614,7 +636,10 @@ export const findUnsupportedConversationTool = async ({
     // system role. The worker already includes that prompt; the UI renders
     // the tagged model output. They do not need a browser runtime.
     if (builtin && (builtin.manifest.api?.length ?? 0) === 0) continue;
-    if (identifier === DalleManifest.identifier || identifier === CodeInterpreterIdentifier) {
+    // Code Interpreter is often always-on. Presence must not defer the whole
+    // turn: the worker stubs it at invoke time (`shouldContinue: true`).
+    if (identifier === CodeInterpreterIdentifier) continue;
+    if (identifier === DalleManifest.identifier) {
       return {
         identifier,
         reason: 'This tool currently requires the browser execution runtime.',

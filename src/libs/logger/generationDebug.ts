@@ -36,6 +36,8 @@ export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'event_applied_terminal',
   'event_dropped',
   'exec_runtime_settled',
+  'fetch_stream_error',
+  'fetch_stream_interrupted',
   'invalidate_preserved',
   'message_persist_skipped',
   'orphan_deleted',
@@ -61,6 +63,7 @@ export type GenerationDebugEvent =
   // Client-side events, re-emitted by reportClientDebug with side:'client'.
   | (typeof GENERATION_DEBUG_CLIENT_EVENTS)[number]
   // Server-side events.
+  | 'browser_tool_stubbed'
   | 'enqueue_persisted'
   | 'enqueue_received'
   | 'enqueue_rejected'

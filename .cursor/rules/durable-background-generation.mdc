@@ -21,9 +21,14 @@ Log checks: **`.cursor/rules/debug-log-checks.mdc`**.
 | Graphile worker | Durable enqueue succeeded (`operationId`) | Yes |
 | Browser-fallback deferred lane | Enqueue returned `{ deferred: true }` (`unsupported_tool`, `fetch_on_client`) | **No** — the tab is the producer |
 
-Do not fake a server result for browser-only tools (code interpreter, DALL·E /
-image-designer chat tools, Kagi, non-HTTP MCP). Save the user message, mark
-`deferredBrowserGenerationLanes`, run `internal_execAgentRuntime` in the tab.
+Do not fake a server result for tools that still need the browser for the
+**whole turn** (DALL·E / image-designer chat tools, Kagi, non-HTTP MCP). Save
+the user message, mark `deferredBrowserGenerationLanes`, run
+`internal_execAgentRuntime` in the tab.
+
+**Do not** add Code Interpreter to the enqueue defer list just because it is
+enabled. Treat it like Artifacts at enqueue; the worker stubs a failed tool
+result with `shouldContinue: true` if the model actually calls it.
 
 ## Leave is not Stop
 

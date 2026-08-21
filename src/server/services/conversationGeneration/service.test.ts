@@ -1078,7 +1078,7 @@ describe('ConversationGenerationService.enqueue deferral', () => {
 
   it('returns a structured unsupported_tool deferral instead of throwing', async () => {
     toolMocks.findUnsupportedConversationTool.mockResolvedValue({
-      identifier: 'lobe-code-interpreter',
+      identifier: 'lobe-image-designer',
       reason: 'browser runtime required',
     });
 
@@ -1087,7 +1087,7 @@ describe('ConversationGenerationService.enqueue deferral', () => {
     ).resolves.toEqual({
       deferred: true,
       reason: 'unsupported_tool',
-      toolName: 'lobe-code-interpreter',
+      toolName: 'lobe-image-designer',
     });
   });
 

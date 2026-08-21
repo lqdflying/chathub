@@ -273,6 +273,35 @@ describe('executeConversationToolStep', () => {
     );
   });
 
+  it('stubs code interpreter with a continueable tool result', async () => {
+    const result = await executeConversationToolStep({
+      assistantMessage,
+      attempt: 1,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload({
+        apiName: 'python',
+        identifier: CodeInterpreterIdentifier,
+      }),
+      userId: 'user-1',
+    });
+
+    expect(result).toMatchObject({
+      messageId: 'tool-message-1',
+      shouldContinue: true,
+      success: false,
+    });
+    expect(result.content).toContain('connected browser');
+    expect(pluginMocks.findById).not.toHaveBeenCalled();
+    expect(generationMocks.updateStep).toHaveBeenCalledWith(
+      'step-1',
+      expect.objectContaining({
+        result: expect.objectContaining({ shouldContinue: true, success: false }),
+        status: 'succeeded',
+      }),
+    );
+  });
+
   it('replays a persisted MCP error as a failed result', async () => {
     pluginMocks.findById.mockResolvedValue({
       customParams: { mcp: { type: 'http', url: 'https://mcp.example.test' } },
@@ -444,7 +473,7 @@ describe('findUnsupportedConversationTool', () => {
     ).resolves.toMatchObject({ identifier: DalleManifest.identifier });
   });
 
-  it('defers the code interpreter to the browser', async () => {
+  it('allows the code interpreter on enqueue and stubs it at invoke time', async () => {
     await expect(
       findUnsupportedConversationTool({
         config: {
@@ -455,7 +484,21 @@ describe('findUnsupportedConversationTool', () => {
         db: {} as any,
         userId: 'user-1',
       }),
-    ).resolves.toMatchObject({ identifier: CodeInterpreterIdentifier });
+    ).resolves.toBeUndefined();
+  });
+
+  it('still defers image generation when code interpreter is also enabled', async () => {
+    await expect(
+      findUnsupportedConversationTool({
+        config: {
+          model: 'model-1',
+          plugins: [CodeInterpreterIdentifier, DalleManifest.identifier],
+          provider: 'provider-1',
+        },
+        db: {} as any,
+        userId: 'user-1',
+      }),
+    ).resolves.toMatchObject({ identifier: DalleManifest.identifier });
   });
 
   it('allows prompt-only artifacts on the durable worker', async () => {

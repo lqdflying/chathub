@@ -2039,6 +2039,36 @@ describe('chatMessage actions', () => {
       expect(messageService.removeMessage).not.toHaveBeenCalled();
     });
 
+    it('persists partial content when Safari Load failed interrupts the stream', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onAbort }) => {
+          await onAbort?.('partial weather', {
+            errorClass: 'TypeError',
+            errorKind: 'webkit_load_failed',
+          });
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          params: { isToolContinuation: true },
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.updateMessage).toHaveBeenCalledWith(
+        TEST_IDS.ASSISTANT_MESSAGE_ID,
+        expect.objectContaining({ content: 'partial weather' }),
+      );
+      expect(messageService.updateMessageError).not.toHaveBeenCalled();
+    });
+
     it('removes the placeholder when an interrupted turn streamed nothing', async () => {
       const { result } = renderHook(() => useChatStore());
       const messages = [createMockMessage({ role: 'user' })];

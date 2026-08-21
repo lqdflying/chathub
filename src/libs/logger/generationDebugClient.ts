@@ -29,6 +29,8 @@ export type GenerationDebugClientEvent =
   | 'event_applied_terminal'
   | 'event_dropped'
   | 'exec_runtime_settled'
+  | 'fetch_stream_error'
+  | 'fetch_stream_interrupted'
   | 'invalidate_preserved'
   | 'message_persist_skipped'
   | 'orphan_deleted'

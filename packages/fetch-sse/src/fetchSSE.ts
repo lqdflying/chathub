@@ -20,6 +20,50 @@ import { getMessageError } from './parseError';
 
 type SSEFinishType = 'done' | 'error' | 'abort';
 
+export type ChatStreamInterruptKind =
+  | 'abort'
+  | 'failed_to_fetch'
+  | 'other'
+  | 'webkit_load_failed';
+
+export interface ChatStreamInterruptInfo {
+  errorClass?: string;
+  errorKind: ChatStreamInterruptKind;
+}
+
+const interruptMessage = (error: unknown) => {
+  if (typeof error === 'string') return error;
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message?: unknown }).message ?? '');
+  }
+  return '';
+};
+
+const interruptName = (error: unknown) => {
+  if (error && typeof error === 'object' && 'name' in error) {
+    return String((error as { name?: unknown }).name ?? '');
+  }
+  return '';
+};
+
+export const classifyChatStreamFetchError = (error: unknown): ChatStreamInterruptKind => {
+  if (error === MESSAGE_CANCEL_FLAT) return 'abort';
+  const normalized = interruptMessage(error).toLowerCase();
+  if (normalized === 'load failed') return 'webkit_load_failed';
+  if (normalized === 'failed to fetch') return 'failed_to_fetch';
+  if (interruptName(error) === 'AbortError' || normalized === 'aborterror') return 'abort';
+  return 'other';
+};
+
+export const isChatStreamNetworkInterrupt = (error: unknown) =>
+  classifyChatStreamFetchError(error) !== 'other';
+
+export const describeChatStreamInterrupt = (error: unknown): ChatStreamInterruptInfo => ({
+  errorClass: interruptName(error) || (error instanceof Error ? error.constructor.name : undefined),
+  errorKind: classifyChatStreamFetchError(error),
+});
+
 export type OnFinishHandler = (
   text: string,
   context: {
@@ -76,7 +120,7 @@ interface MessageToolCallsChunk {
 
 export interface FetchSSEOptions {
   fetcher?: typeof fetch;
-  onAbort?: (text: string) => Promise<void>;
+  onAbort?: (text: string, interrupt?: ChatStreamInterruptInfo) => Promise<void>;
   onContextSnapshot?: (snapshot: ContextExportRequestSnapshot) => void;
   onErrorHandle?: (error: ChatMessageError) => void;
   onFinish?: OnFinishHandler;
@@ -281,9 +325,9 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
     headers: options.headers as Record<string, string>,
     method: options.method,
     onerror: (error) => {
-      if (error === MESSAGE_CANCEL_FLAT || (error as TypeError).name === 'AbortError') {
+      if (isChatStreamNetworkInterrupt(error)) {
         finishedType = 'abort';
-        options?.onAbort?.(output);
+        options?.onAbort?.(output, describeChatStreamInterrupt(error));
         textController.stopAnimation();
       } else {
         finishedType = 'error';

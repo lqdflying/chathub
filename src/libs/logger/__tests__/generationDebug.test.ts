@@ -89,6 +89,8 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
           'tool_loop_continue',
           'tool_loop_continue_skipped',
           'topic_busy_changed',
+          'fetch_stream_error',
+          'fetch_stream_interrupted',
         ]),
       );
     });
@@ -130,6 +132,35 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
       expect(record.unexpectedFreeText).not.toBe('PRIVATE_MESSAGE_CONTENT');
       expect(record.unexpectedFreeText).toMatchObject({ type: 'string' });
       expect(consoleLogSpy.mock.calls[0][1]).not.toContain('PRIVATE_MESSAGE_CONTENT');
+    });
+
+    it('keeps deferReason, classifiedAs, and errorKind as readable labels', () => {
+      logGenerationDebugSafe('send_rpc_settled', {
+        classifiedAs: 'abort',
+        deferReason: 'unsupported_tool',
+        errorKind: 'webkit_load_failed',
+        kind: 'continue',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record.classifiedAs).toBe('abort');
+      expect(record.deferReason).toBe('unsupported_tool');
+      expect(record.errorKind).toBe('webkit_load_failed');
+      expect(record.kind).toBe('continue');
+    });
+
+    it('emits browser_tool_stubbed with a readable toolName', () => {
+      logGenerationDebugSafe('browser_tool_stubbed', {
+        shouldContinue: true,
+        toolName: 'lobe-code-interpreter',
+      });
+
+      const [prefix, serializedRecord] = consoleLogSpy.mock.calls[0];
+      expect(prefix).toBe(`[${GENERATION_DEBUG_NAMESPACE}:browser_tool_stubbed]`);
+      expect(JSON.parse(serializedRecord as string)).toMatchObject({
+        shouldContinue: true,
+        toolName: 'lobe-code-interpreter',
+      });
     });
 
     it('drops secret-keyed fields entirely', () => {

@@ -417,6 +417,7 @@ export const generateAIChatV2: StateCreator<
         hasOperationId: Boolean(data.operationId),
         isCreateNewTopic: Boolean(data.isCreateNewTopic),
         outcome: 'ok',
+        reason: data.deferReason,
         spanId: debugSpanId,
         stillCurrent: isCurrentConversation(),
         toolName: data.deferredToolName,
