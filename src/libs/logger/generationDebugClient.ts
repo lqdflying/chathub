@@ -42,6 +42,8 @@ export type GenerationDebugClientEvent =
   | 'sse_client_stream_ended'
   | 'sse_client_stream_failed'
   | 'sync_summary'
+  | 'tool_loop_continue'
+  | 'tool_loop_continue_skipped'
   | 'topic_busy_changed';
 
 export type TopicBusyFlags = {
@@ -218,7 +220,9 @@ export type DeferredGenerationLaneDebugEvent =
   | 'deferred_lane_left'
   | 'deferred_lane_marked'
   | 'deferred_lane_resumed'
-  | 'deferred_placeholder_finalized';
+  | 'deferred_placeholder_finalized'
+  | 'tool_loop_continue'
+  | 'tool_loop_continue_skipped';
 
 const hashOptionalDebugValue = async (value?: string | null): Promise<string | undefined> => {
   if (!value) return undefined;

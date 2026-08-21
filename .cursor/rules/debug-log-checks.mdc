@@ -243,6 +243,17 @@ Generation-debug semantics:
   `deferred_placeholder_finalized`. `sync_summary.reason` names why sync ran
   (`topic_change` / `visibility` / …). `topic_busy_changed(outcome=busy)`
   should bracket the topic-list spinner for that hashed topic.
+- After a successful MCP/tool batch, look for `tool_loop_continue` on the same
+  `spanId`. Absence plus `tool_loop_continue_skipped` is the stall:
+  `reason=no_resumable_tool` (results cancelled/empty), `batch_gated` (left
+  before the batch started and there was no deferred lane),
+  `session_changed` / `not_visible` (continue gated after tools finished).
+  Outcome counts (`completedCount`, `cancelledCount`) are hashes-free.
+  `deferred_lane_resumed(outcome=still_producing)` now includes
+  `chatLoading` / `toolsCalling` / `streamActive` / `pendingModelContinue` /
+  `pendingTools` so a leaked tools-calling flag is visible without dumping
+  message ids. `sync_summary.resumedModel` is true when return sync itself
+  called `triggerAIMessage`.
 - `enqueue_persisted(jobAdded=false)` does not occur on the transactional send
   path (a failed SQL add rolls the enqueue back); the false path lives in
   `sweep_reenqueued`, where it means an operation row exists but no Graphile
@@ -284,7 +295,8 @@ Generation-debug semantics:
 - `regenerate_early_return` names the guard that made Regenerate a no-op
   (`reason=noAnchor|retrying|notCurrent`).
 - `sync_summary` reports per-sync counts plus `reason` (`topic_change` /
-  `visibility` / …), `deferredLaneCount`, and `resumedTools`. `orphan_deleted`
+  `visibility` / …), `deferredLaneCount`, `resumedTools`, and `resumedModel`.
+  `orphan_deleted`
   records the cleanup of stale `...` placeholder rows. Join leave/return with
   `deferred_lane_*` on the same `spanId` as `send_rpc_settled`.
   `deferred_placeholder_finalized` means persist already wrote content and

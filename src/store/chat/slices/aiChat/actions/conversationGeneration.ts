@@ -1033,14 +1033,19 @@ export const conversationGeneration: StateCreator<
     );
     const deferredLaneCount = Object.keys(get().deferredBrowserGenerationLanes).length;
     let resumedTools = false;
+    let resumedModel = false;
     const deferredLane = get().deferredBrowserGenerationLanes[currentConversationKey];
     if (deferredLane) {
       const deferredMessage = visibleMessages.find(
         (message) => message.id === deferredLane.assistantMessageId && message.role === 'assistant',
       );
+      const chatLoading = get().chatLoadingIds.includes(deferredLane.assistantMessageId);
+      const toolsCalling = get().messageInToolsCallingIds.includes(deferredLane.assistantMessageId);
+      const streamFlags = get().toolCallingStreamIds?.[deferredLane.assistantMessageId];
+      const streamActive = hasActiveToolCallingStream(streamFlags);
+      const attached = attachedAssistantIds.has(deferredLane.assistantMessageId);
       const deferredStillProducing =
-        isDeferredLaneProducerAlive(get(), deferredLane.assistantMessageId) ||
-        attachedAssistantIds.has(deferredLane.assistantMessageId);
+        isDeferredLaneProducerAlive(get(), deferredLane.assistantMessageId) || attached;
       const hasPendingTools =
         Boolean(deferredMessage?.tools && deferredMessage.tools.length > 0) &&
         !visibleMessages.some(
@@ -1080,6 +1085,7 @@ export const conversationGeneration: StateCreator<
             (message) =>
               message.role === 'tool' && message.parentId === deferredLane.assistantMessageId,
           );
+        resumedModel = true;
         await logDeferredGenerationLane('deferred_lane_resumed', {
           ...resumeFields,
           outcome: 'resume_model',
@@ -1116,7 +1122,14 @@ export const conversationGeneration: StateCreator<
       } else {
         await logDeferredGenerationLane('deferred_lane_resumed', {
           ...resumeFields,
+          attached,
+          chatLoading,
           outcome: deferredStillProducing ? 'still_producing' : 'loading_flat',
+          pendingModelContinue,
+          pendingTools: hasPendingTools,
+          streamActive,
+          streamFlagCount: Array.isArray(streamFlags) ? streamFlags.length : 0,
+          toolsCalling,
         });
       }
     }
@@ -1132,6 +1145,7 @@ export const conversationGeneration: StateCreator<
       fencedCancelCount,
       orphanDeleted: orphanedPlaceholders.length,
       reason: input?.reason,
+      resumedModel,
       resumedTools,
       topicHash,
     });

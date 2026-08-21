@@ -1630,6 +1630,70 @@ describe('conversationGeneration store actions', () => {
     );
   });
 
+  it('emits still_producing producer flags when the deferred lane is still in tools calling', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const logSpy = vi.spyOn(generationDebugClient, 'logDeferredGenerationLane').mockResolvedValue();
+    const triggerAIMessage = vi.fn(async () => {});
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+    const mapKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        messageInToolsCallingIds: ['assistant-deferred'],
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            spanId: 'gd_0123456789abcdef',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: 'searching',
+              createdAt: Date.now(),
+              id: 'assistant-deferred',
+              role: 'assistant',
+              tools: [{ id: 'call-1', identifier: 'tavily', type: 'mcp' }],
+            },
+            {
+              content: '{"ok":true}',
+              createdAt: Date.now(),
+              id: 'tool-deferred',
+              parentId: 'assistant-deferred',
+              role: 'tool',
+            },
+          ],
+        },
+        triggerAIMessage,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations({ reason: 'topic_change' });
+    });
+
+    expect(triggerAIMessage).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      'deferred_lane_resumed',
+      expect.objectContaining({
+        chatLoading: false,
+        outcome: 'still_producing',
+        pendingModelContinue: true,
+        pendingTools: false,
+        streamActive: false,
+        toolsCalling: true,
+      }),
+    );
+  });
+
   it('emits deferred_lane_left for a live producer without clearing the marker', () => {
     const logSpy = vi.spyOn(generationDebugClient, 'logDeferredGenerationLane').mockResolvedValue();
     const conversationKey = deferredBrowserGenerationLaneKey(

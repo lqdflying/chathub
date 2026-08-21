@@ -49,6 +49,8 @@ export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'sse_client_stream_ended',
   'sse_client_stream_failed',
   'sync_summary',
+  'tool_loop_continue',
+  'tool_loop_continue_skipped',
   'topic_busy_changed',
 ] as const;
 

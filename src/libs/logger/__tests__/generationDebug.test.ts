@@ -83,6 +83,8 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
           'deferred_lane_aborted',
           'deferred_lane_left',
           'deferred_lane_resumed',
+          'tool_loop_continue',
+          'tool_loop_continue_skipped',
           'topic_busy_changed',
         ]),
       );

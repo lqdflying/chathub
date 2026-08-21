@@ -1,6 +1,7 @@
 import { ChatToolPayload, UIChatMessage, createToolResultDebugSummary } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { mcpService } from '@/services/mcp';
 import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
@@ -897,6 +898,9 @@ describe('MCP tool-result persistence recovery', () => {
     } as UIChatMessage;
     const triggerAIMessage = vi.fn();
     const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+    const logSpy = vi
+      .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+      .mockResolvedValue();
 
     vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
       cacheContinuationEnabled: false,
@@ -938,6 +942,14 @@ describe('MCP tool-result persistence recovery', () => {
           topicId: 'topic-id',
         }),
         parentId: toolMessageId,
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(
+      'tool_loop_continue',
+      expect.objectContaining({
+        completedCount: 1,
+        hasDeferredLane: true,
+        visible: false,
       }),
     );
   });

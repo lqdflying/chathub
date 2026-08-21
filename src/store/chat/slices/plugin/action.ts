@@ -21,6 +21,7 @@ import { t } from 'i18next';
 import { nanoid } from 'nanoid';
 import { StateCreator } from 'zustand/vanilla';
 
+import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { findRPCResponseError } from '@/libs/trpc/client/toolsResponse';
 import { chatService } from '@/services/chat';
 import { mcpService } from '@/services/mcp';
@@ -183,6 +184,71 @@ const shouldResumeModelAfterTools = (
     return false;
   }
   return state.activeId === assistantResource.sessionId;
+};
+
+const countToolLoopOutcomes = (results: ToolBatchExecutionResult[]) => {
+  let cancelledCount = 0;
+  let completedCount = 0;
+  let failedCount = 0;
+  let persistenceFailedCount = 0;
+  let skippedCount = 0;
+
+  for (const { outcome } of results) {
+    switch (outcome) {
+      case 'cancelled': {
+        cancelledCount += 1;
+        break;
+      }
+      case 'completed':
+      case 'handed_off': {
+        completedCount += 1;
+        break;
+      }
+      case 'persistence_failed': {
+        persistenceFailedCount += 1;
+        break;
+      }
+      case 'skipped': {
+        skippedCount += 1;
+        break;
+      }
+      default: {
+        failedCount += 1;
+      }
+    }
+  }
+
+  return {
+    cancelledCount,
+    completedCount,
+    failedCount,
+    persistenceFailedCount,
+    skippedCount,
+  };
+};
+
+const logToolLoopContinue = (
+  event: 'tool_loop_continue' | 'tool_loop_continue_skipped',
+  assistantId: string,
+  state: ChatStore,
+  fields: Record<string, unknown>,
+) => {
+  const deferredLane = findDeferredBrowserGenerationLaneByAssistantId(
+    state.deferredBrowserGenerationLanes,
+    assistantId,
+  );
+  const resource = resolvePluginMessageResource(state, assistantId);
+
+  void logDeferredGenerationLane(event, {
+    assistantMessageId: assistantId,
+    hasDeferredLane: Boolean(deferredLane),
+    sameSession: !resource?.sessionId || state.activeId === resource.sessionId,
+    sessionId: resource?.sessionId ?? state.activeId,
+    spanId: deferredLane?.lane.spanId,
+    topicId: resource?.topicId ?? state.activeTopicId,
+    visible: isPluginMessageResourceActive(state, resource),
+    ...fields,
+  }).catch(() => undefined);
 };
 
 const createResourceDispatchContext = (
@@ -696,16 +762,36 @@ export const chatPlugin: StateCreator<
             assistantId,
           ),
         ));
-    if (!assistantResource || !canRunToolBatch()) return;
+    if (!assistantResource || !canRunToolBatch()) {
+      logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
+        reason: !invocationIsAlive() || !assistantResource ? 'not_alive' : 'batch_gated',
+      });
+      return;
+    }
     const message = assistantResource.message;
-    if (!message.tools) return;
+    if (!message.tools) {
+      logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
+        reason: 'no_tools',
+      });
+      return;
+    }
     const resolvedConversationVersion =
       expectedConversationVersion ?? (await messageService.getConversationVersion());
-    if (!invocationIsAlive()) return;
+    if (!invocationIsAlive()) {
+      logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
+        reason: 'not_alive',
+      });
+      return;
+    }
 
     const { cacheContinuationEnabled, toolLifecycleEnabled } =
       await toolTelemetryService.getCapabilities();
-    if (!invocationIsAlive()) return;
+    if (!invocationIsAlive()) {
+      logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
+        reason: 'not_alive',
+      });
+      return;
+    }
 
     const collectToolCorrelation = cacheContinuationEnabled || toolLifecycleEnabled;
     const deferredLane = findDeferredBrowserGenerationLaneByAssistantId(
@@ -828,7 +914,6 @@ export const chatPlugin: StateCreator<
     const settledResults = await Promise.allSettled(messagePools).finally(async () => {
       await get().internal_toggleMessageInToolsCalling(false, assistantId);
     });
-    if (!invocationIsAlive()) return;
 
     const completedResults = settledResults.flatMap((result, index): ToolBatchExecutionResult[] => {
       if (result.status === 'fulfilled') return [result.value];
@@ -844,6 +929,14 @@ export const chatPlugin: StateCreator<
         },
       ];
     });
+    const outcomeCounts = countToolLoopOutcomes(completedResults);
+    if (!invocationIsAlive()) {
+      logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
+        reason: 'not_alive',
+        ...outcomeCounts,
+      });
+      return;
+    }
     let settledToolCacheDebug: ToolCacheDebugMetadata | undefined;
     if (toolCorrelation) {
       const successfulOutcomes = new Set<ToolDiagnosticTerminalOutcome>([
@@ -901,8 +994,33 @@ export const chatPlugin: StateCreator<
     );
 
     // only default type tool calls should trigger AI message
-    if (!latestCompletedTool) return;
-    if (!shouldResumeModelAfterTools(get(), assistantResource, invocationIsAlive())) return;
+    if (!latestCompletedTool) {
+      logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
+        reason: 'no_resumable_tool',
+        ...outcomeCounts,
+      });
+      return;
+    }
+    if (!shouldResumeModelAfterTools(get(), assistantResource, invocationIsAlive())) {
+      const visible = isPluginMessageResourceActive(get(), assistantResource);
+      const deferred = findDeferredBrowserGenerationLaneByAssistantId(
+        get().deferredBrowserGenerationLanes,
+        assistantId,
+      );
+      logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
+        reason:
+          !visible && deferred && get().activeId !== assistantResource.sessionId
+            ? 'session_changed'
+            : 'not_visible',
+        ...outcomeCounts,
+      });
+      return;
+    }
+
+    logToolLoopContinue('tool_loop_continue', assistantId, get(), {
+      parentPresent: Boolean(latestCompletedTool.id),
+      ...outcomeCounts,
+    });
 
     const continuationContext = createResourceConversationContext(assistantResource, get());
     const traceId = chatSelectors.getTraceIdByMessageId(latestCompletedTool.id)(get());

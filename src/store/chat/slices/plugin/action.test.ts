@@ -8,6 +8,7 @@ import { ChatToolPayload, MessageToolCall, UIChatMessage } from '@lobechat/types
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { toolTelemetryService } from '@/services/toolTelemetry';
@@ -567,6 +568,9 @@ describe('ChatPluginAction', () => {
         ],
       } as UIChatMessage;
       const internalCreateMessage = vi.fn();
+      const logSpy = vi
+        .spyOn(generationDebugClient, 'logDeferredGenerationLane')
+        .mockResolvedValue();
 
       useChatStore.setState({
         activeId: 'active-session',
@@ -581,6 +585,10 @@ describe('ChatPluginAction', () => {
 
       expect(messageService.getConversationVersion).not.toHaveBeenCalled();
       expect(internalCreateMessage).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith(
+        'tool_loop_continue_skipped',
+        expect.objectContaining({ reason: 'batch_gated' }),
+      );
     });
   });
 
