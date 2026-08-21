@@ -1,0 +1,75 @@
+---
+description: Claude-like background chat — Leave is not Stop; Graphile vs browser-fallback; do not abort deferred producers
+alwaysApply: true
+---
+
+# Durable background generation (Claude-like)
+
+Goal: after Send, the user can switch topics (PC) or tap Back (mobile) and
+the turn still runs — tools, Knowledge Base / RAG, then the model summary —
+without coming back first. That is the Claude.ai-like contract.
+
+Full lesson: **`openwiki/architecture/claude-like-background-generation.md`**.
+Internals: **`openwiki/architecture/durable-conversation-generation.md`**.
+User-facing: GitHub Wiki **Background Conversation Generation**.
+Log checks: **`.cursor/rules/debug-log-checks.mdc`**.
+
+## Two producers
+
+| Path | When | Survives close-tab? |
+|------|------|---------------------|
+| Graphile worker | Durable enqueue succeeded (`operationId`) | Yes |
+| Browser-fallback deferred lane | Enqueue returned `{ deferred: true }` (`unsupported_tool`, `fetch_on_client`) | **No** — the tab is the producer |
+
+Do not fake a server result for browser-only tools (code interpreter, DALL·E /
+image-designer chat tools, Kagi, non-HTTP MCP). Save the user message, mark
+`deferredBrowserGenerationLanes`, run `internal_execAgentRuntime` in the tab.
+
+## Leave is not Stop
+
+| Action | Durable job | Browser-fallback lane |
+|--------|-------------|------------------------|
+| Topic switch / mobile Back / hide tab | Keep running | Keep running in **this** tab |
+| Stop, retry, rewind, clear, account switch, topic delete | Cancel / fence | Abort + clear marker |
+| Close tab / kill PWA | Job keeps running | **Stops** |
+
+Never abort deferred `chatLoadingIds`, plugin controllers, `messageRAGLoadingIds`,
+or rewrite a successful tool result as `cancelled` just because `activeTopicId`
+changed. Hard-cancel only on account mutation + `conversationClearGeneration`.
+
+## Persistence vs visibility
+
+- **`isPersistenceCurrent()`** (account + clear fence) — may persist / continue
+  the model after leave.
+- **`isCurrentConversation()`** (includes `activeTopicId`) — UI refresh, attach,
+  context-export only.
+
+Pass captured `conversationContext` into fetch, tool continue, RAG persist, and
+`internal_updateMessageContent`. Infer inactive-map context when missing.
+
+## Invariants that have already broken in prod
+
+- After tools/RAG, call `triggerAIMessage` / `tool_loop_continue` **immediately**
+  with the original `conversationContext`. Return-sync `resume_model` is backup.
+- RAG retrieve must put the **assistant** on `chatLoadingIds` for the whole
+  retrieve + model path. Otherwise leave logs `producerAlive=false` and
+  `InterruptibleLoading` hides the Reference Source row (empty white bubble).
+- `isDeferredLaneProducerAlive` includes user-row RAG loading in that
+  conversation, not only assistant `chatLoadingIds`.
+- Do not gate `onFinish` / tool persist on `isCurrentConversation()`.
+- Enqueue browser-only tools as structured `{ deferred: true, reason }`, not a
+  thrown `UNPROCESSABLE_CONTENT`.
+- HTTP MCP OAuth procedures must pass `oauthContext` or token refresh is dead.
+
+## Do not
+
+- Treat navigation as `AbortController.abort('not fc')` / `MESSAGE_CANCEL_FLAT`
+  for a deferred lane.
+- Toggle loading off a leftover `LOADING_FLAT` row in return-sync finalize.
+- Put chat generation on `async_tasks` or Redis. PostgreSQL + Graphile only.
+- Import the client AI-infra Zustand store into the worker (breaks `next build`).
+- Claim a browser-fallback turn survived closing the tab.
+
+When adding a tool or a send-path gate, name which producer it uses and add a
+targeted test for **leave during that step** plus an Axiom event on the send
+`spanId`.

@@ -68,6 +68,14 @@ Prefer `vi.spyOn` over `vi.mock` when testing stores.
 
 Use `createStyles` from `antd-style`. Avoid inline styles or plain CSS modules.
 
+## Durable background generation
+
+Leave-topic is not Stop. Graphile Worker owns durable turns; the open tab owns
+browser-fallback turns (`unsupported_tool` / `fetch_on_client`). Follow
+**`.cursor/rules/durable-background-generation.mdc`** and the OpenWiki lesson
+`openwiki/architecture/claude-like-background-generation.md` before changing
+send, stop, invalidate, RAG retrieve, or tool continuation.
+
 ## Provider-specific model options
 
 When adding **per-model extension toggles** (gear menu), **extendParams**, or a **new provider option panel**, follow the docs-first workflow in **`provider-model-options.mdc`** (same `.cursor/rules/` folder): official API → model bank → types → service → runtime → UI → i18n → tests.

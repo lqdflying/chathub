@@ -104,6 +104,14 @@ When forking or rebranding, these files are commonly missed:
 | `packages/const/src/url.ts` | `PLUGINS_INDEX_URL`, `AGENTS_INDEX_GITHUB`, etc. |
 | `src/envs/app.ts` | `ASSISTANT_INDEX_URL`, `PLUGINS_INDEX_URL` npm registries |
 
+## Durable background generation (Claude-like)
+
+Leave a topic is not Stop. Server Graphile jobs survive closing the tab;
+browser-fallback tools (code interpreter, image-designer, Kagi, non-HTTP MCP)
+keep running only while that tab stays open. Contract and pitfalls:
+**`.cursor/rules/durable-background-generation.mdc`**. Lesson:
+`openwiki/architecture/claude-like-background-generation.md`.
+
 ## MCP OAuth 2.1
 
 For MCP plugins with OAuth authentication (auto-discovery, redirect_uri, token exchange, callback flow): **`.cursor/rules/mcp-oauth.mdc`**. The `redirect_uri` must always be `${window.location.origin}/oauth/mcp-callback` — the app's own callback URL.

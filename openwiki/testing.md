@@ -26,6 +26,11 @@ High-signal tests are colocated with the runtime and service code. For example:
 - `packages/context-engine/src/processors/__tests__/PlaceholderVariables.test.ts`
 - `src/services/chat/contextEngineering.test.ts`
 - `src/server/sitemap.test.ts`
+- `src/store/chat/slices/aiChat/actions/__tests__/generateAIChatV2.test.ts`
+- `src/store/chat/slices/aiChat/actions/__tests__/conversationGeneration.test.ts`
+
+Leave-during-RAG/tools/stream changes belong in those last two suites. See
+[Claude-like background generation](architecture/claude-like-background-generation.md).
 
 ## Vitest DOM environments
 

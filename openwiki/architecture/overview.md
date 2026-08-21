@@ -172,7 +172,10 @@ provider fallback chain. See [Knowledge Base and Vector RAG](knowledge-base-rag.
 before changing file ingestion, vector storage, or semantic retrieval.
 
 Topic and session generation now run as a PostgreSQL-backed durable worker
-rather than a browser-orchestrated stream. See
+rather than a browser-orchestrated stream. Some installed tools still force
+the connected tab to be the producer. See
+[Claude-like background generation](claude-like-background-generation.md)
+for the product contract, then
 [Durable conversation generation](durable-conversation-generation.md) before
 changing send/stop, tool continuation, or Graphile Worker bootstrap.
 

@@ -5,6 +5,11 @@ SSE, navigating elsewhere, or restarting a container does not cancel in-flight
 work. Explicit Stop and destructive history actions such as retry, rewind,
 delete, and clear cancel the matching work.
 
+End-to-end lesson (Claude.ai-like leave-and-keep-going, two producers, RAG /
+tool pitfalls):
+[Claude-like background generation](claude-like-background-generation.md).
+Agent contract: `.cursor/rules/durable-background-generation.mdc`.
+
 User-facing workflow notes live in the GitHub Wiki:
 [Background Conversation Generation](https://github.com/lqdflying/chathub/wiki/Background-Conversation-Generation).
 

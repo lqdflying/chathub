@@ -201,6 +201,10 @@ document nearest-neighbor candidates.
 ## Chat retrieval and transient context
 
 When enabled Knowledge is attached to an assistant, chat RAG remains automatic.
+On a browser-fallback send (durable enqueue deferred), retrieve must keep the
+assistant on `chatLoadingIds` for the whole retrieve + model path so leaving
+the topic does not look like a dead producer. See
+[Claude-like background generation](claude-like-background-generation.md).
 If the current message has history and no cached RAG query, the internal query
 rewrite model first produces the semantic-search query. There is no user-facing
 per-document embedding switch or per-message retrieval tool: parsing starts
