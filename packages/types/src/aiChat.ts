@@ -86,9 +86,19 @@ export interface CreateAssistantMessageServerResponse {
   messages: UIChatMessage[];
 }
 
+/** Why durable enqueue was skipped so the client can run a browser-fallback lane. */
+export type ConversationGenerationDeferReason = 'unsupported_tool' | 'fetch_on_client';
+
 export interface SendMessageServerResponse {
   /** Reserved server-generated ID. The assistant row is created after pre-send compaction. */
   assistantMessageId: string;
+  /**
+   * Present when durable enqueue was skipped and the client should own finalization
+   * on the browser path (for example a browser-only plugin).
+   */
+  deferReason?: ConversationGenerationDeferReason;
+  /** Plugin identifier when `deferReason` is `unsupported_tool`. */
+  deferredToolName?: string;
   isCreateNewTopic: boolean;
   messages: UIChatMessage[];
   /** Present when durable server-side generation was enqueued. */

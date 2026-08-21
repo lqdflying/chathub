@@ -125,6 +125,7 @@ export const resetTestEnvironment = () => {
       conversationNavigationGeneration: 0,
       conversationScopedClearGenerations: {},
       durableInFlightEnqueues: {},
+      deferredBrowserGenerationLanes: {},
       messageRetryingIds: [],
       messagesMap: {},
       portalThreadId: undefined,

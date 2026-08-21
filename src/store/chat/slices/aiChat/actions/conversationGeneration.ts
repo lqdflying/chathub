@@ -1,6 +1,7 @@
 import { LOADING_FLAT } from '@lobechat/const';
 import {
   ConversationGenerationChatFamilyKinds,
+  type ConversationGenerationDeferReason,
   type ConversationGenerationEvent,
   type ConversationGenerationKind,
   type ConversationGenerationOperation,
@@ -76,7 +77,16 @@ export interface ConversationGenerationAction {
   cancelAndDetachDurableOps: (options?: ConversationGenerationScope) => Promise<void>;
   detachConversationGeneration: (operationId: string, conversationKey?: string) => void;
   detachDurableOps: (options?: ConversationGenerationScope) => void;
+  internal_clearDurableLaneDeferred: (conversationKey: string) => void;
+  internal_finalizeDeferredLanePlaceholder: (conversationKey: string) => Promise<void>;
   internal_markDurableGenerating: (id: string, loading: boolean) => void;
+  internal_markDurableLaneDeferred: (input: {
+    assistantMessageId: string;
+    reason: ConversationGenerationDeferReason;
+    sessionId: string;
+    toolName?: string;
+    topicId?: string | null;
+  }) => void;
   reconcileConversationGeneration: (
     operationId: string,
   ) => Promise<ConversationGenerationOperation | undefined>;
@@ -633,6 +643,74 @@ export const conversationGeneration: StateCreator<
     );
   },
 
+  internal_markDurableLaneDeferred: ({
+    assistantMessageId,
+    reason,
+    sessionId,
+    toolName,
+    topicId,
+  }) => {
+    const conversationKey = conversationKeyFor(sessionId, topicId);
+    set(
+      (state) => ({
+        deferredBrowserGenerationLanes: {
+          ...state.deferredBrowserGenerationLanes,
+          [conversationKey]: { assistantMessageId, reason, toolName },
+        },
+      }),
+      false,
+      n('deferredLane/mark', { conversationKey, reason }),
+    );
+    void hashGenerationDebugClientValue(assistantMessageId).then((messageHash) => {
+      logGenerationDebugClientSafe('deferred_lane_marked', {
+        messageHash,
+        reason,
+        toolName,
+      });
+    });
+  },
+
+  internal_clearDurableLaneDeferred: (conversationKey) => {
+    set(
+      (state) => {
+        if (!state.deferredBrowserGenerationLanes[conversationKey]) return state;
+        const deferredBrowserGenerationLanes = { ...state.deferredBrowserGenerationLanes };
+        delete deferredBrowserGenerationLanes[conversationKey];
+        return { deferredBrowserGenerationLanes };
+      },
+      false,
+      n('deferredLane/clear', { conversationKey }),
+    );
+  },
+
+  internal_finalizeDeferredLanePlaceholder: async (conversationKey) => {
+    const deferred = get().deferredBrowserGenerationLanes[conversationKey];
+    if (!deferred) return;
+    if (
+      get().chatLoadingIds.includes(deferred.assistantMessageId) ||
+      get().messageInToolsCallingIds.includes(deferred.assistantMessageId) ||
+      get().toolCallingStreamIds[deferred.assistantMessageId]
+    ) {
+      return;
+    }
+
+    get().internal_markDurableGenerating(deferred.assistantMessageId, false);
+    get().internal_toggleChatLoading(
+      false,
+      deferred.assistantMessageId,
+      n('deferredLane/finalize') as string,
+    );
+    await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+    get().internal_clearDurableLaneDeferred(conversationKey);
+    void hashGenerationDebugClientValue(deferred.assistantMessageId).then((messageHash) => {
+      logGenerationDebugClientSafe('deferred_placeholder_finalized', {
+        messageHash,
+        reason: deferred.reason,
+        toolName: deferred.toolName,
+      });
+    });
+  },
+
   reconcileConversationGeneration: async (operationId) => {
     const existingAttached = findAttachedOperation(get().serverGenerationOperations, operationId);
     if (
@@ -847,6 +925,28 @@ export const conversationGeneration: StateCreator<
       );
       if (hasLoadingPlaceholder && activeOperationIds.size === 0) {
         await Promise.all([get().refreshMessages(), get().refreshTopic()]);
+      }
+    }
+
+    const currentConversationKey = conversationKeyFor(activeId, activeTopicId);
+    const deferredLane = get().deferredBrowserGenerationLanes[currentConversationKey];
+    if (deferredLane) {
+      const deferredMessage = visibleMessages.find(
+        (message) => message.id === deferredLane.assistantMessageId && message.role === 'assistant',
+      );
+      const deferredStillProducing =
+        get().chatLoadingIds.includes(deferredLane.assistantMessageId) ||
+        get().messageInToolsCallingIds.includes(deferredLane.assistantMessageId) ||
+        Boolean(get().toolCallingStreamIds[deferredLane.assistantMessageId]) ||
+        attachedAssistantIds.has(deferredLane.assistantMessageId);
+      if (!deferredStillProducing && deferredMessage?.content === LOADING_FLAT) {
+        await get().internal_finalizeDeferredLanePlaceholder(currentConversationKey);
+      } else if (
+        !deferredStillProducing &&
+        deferredMessage &&
+        deferredMessage.content !== LOADING_FLAT
+      ) {
+        get().internal_clearDurableLaneDeferred(currentConversationKey);
       }
     }
 

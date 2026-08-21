@@ -24,6 +24,8 @@ const GENERATION_DEBUG_MAX_RECORD_BYTES = 16 * 1024;
 
 export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'browser_path_started',
+  'deferred_lane_marked',
+  'deferred_placeholder_finalized',
   'durable_attach',
   'durable_attach_skipped',
   'enqueue_client_settled',

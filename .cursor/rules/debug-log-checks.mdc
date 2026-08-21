@@ -245,7 +245,10 @@ Generation-debug semantics:
 - `regenerate_early_return` names the guard that made Regenerate a no-op
   (`reason=noAnchor|retrying|notCurrent`).
 - `sync_summary` reports per-sync counts; `orphan_deleted` records the cleanup
-  of stale `...` placeholder rows.
+  of stale `...` placeholder rows. A browser-fallback send that durable enqueue
+  rejected must show `send_rpc_settled(hasOperationId=false, deferReason=…)`
+  plus client `deferred_lane_marked`. After the user returns to the topic,
+  `deferred_placeholder_finalized` means sync cleared the leftover loader.
 
 Tool-call failures:
 

@@ -29,6 +29,7 @@ import {
 import { formatSupervisorTodoContent } from '@/helpers/supervisorTodos';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
+  asConversationGenerationOperation,
   conversationGenerationService,
   tryEnqueueConversationGeneration,
   waitForConversationGeneration,
@@ -603,9 +604,9 @@ export const chatAiGroupChat: StateCreator<
           false,
           n('supervisor/trackDurableEnqueue'),
         );
-        let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+        let enqueueResult: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>> | undefined;
         try {
-          operation = await tryEnqueueConversationGeneration({
+          enqueueResult = await tryEnqueueConversationGeneration({
             config: {
               locale: globalHelpers.getCurrentLanguage(),
               model: groupConfig.orchestratorModel,
@@ -627,6 +628,7 @@ export const chatAiGroupChat: StateCreator<
             n('supervisor/untrackDurableEnqueue'),
           );
         }
+        const operation = asConversationGenerationOperation(enqueueResult);
         if (!isCurrentConversation()) {
           // A destructive action (e.g. topic delete) landed while the enqueue
           // was in flight: cancel the orphaned operation instead of attaching.
@@ -1014,9 +1016,10 @@ export const chatAiGroupChat: StateCreator<
             false,
             n('groupAgent/trackDurableEnqueue'),
           );
-          let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+          let enqueueResult:
+            Awaited<ReturnType<typeof tryEnqueueConversationGeneration>> | undefined;
           try {
-            operation = await tryEnqueueConversationGeneration({
+            enqueueResult = await tryEnqueueConversationGeneration({
               agentId,
               assistantMessageId: assistantId,
               config: {
@@ -1053,6 +1056,7 @@ export const chatAiGroupChat: StateCreator<
               n('groupAgent/untrackDurableEnqueue'),
             );
           }
+          const operation = asConversationGenerationOperation(enqueueResult);
           if (!isCurrentConversation()) {
             // A destructive action (e.g. topic delete) landed while the enqueue
             // was in flight: cancel the orphaned operation instead of attaching.

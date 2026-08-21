@@ -147,6 +147,37 @@ describe('chatMessage actions', () => {
       expect(cancel).not.toHaveBeenCalled();
     });
 
+    it('keeps deferred browser-fallback loading controllers across a topic switch', () => {
+      const controller = new AbortController();
+      const abortSpy = vi.spyOn(controller, 'abort');
+      const conversationKey = messageMapKey('session-id', 'topic-id');
+      const laneKey = 'session-id:topic-id:';
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        chatLoadingAbortControllersByLane: { [laneKey]: controller },
+        chatLoadingIds: ['deferred-assistant'],
+        chatLoadingIdsAbortController: controller,
+        chatLoadingLaneByMessageId: { 'deferred-assistant': laneKey },
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'deferred-assistant',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+      });
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      expect(abortSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().chatLoadingIds).toEqual(['deferred-assistant']);
+      expect(useChatStore.getState().chatLoadingAbortControllersByLane[laneKey]).toBe(controller);
+    });
+
     it('clears the RAG loading ids so a stuck avatar spinner cannot survive a switch', () => {
       useChatStore.setState({ chatLoadingIds: ['m1'], messageRAGLoadingIds: ['m1'] });
       const { result } = renderHook(() => useChatStore());

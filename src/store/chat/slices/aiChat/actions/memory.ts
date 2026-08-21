@@ -23,6 +23,7 @@ import { estimateContextUsageAsync } from '@/helpers/estimateContextUsageAsync';
 import { getModelContextWindowTokens } from '@/helpers/modelContextWindowTokens';
 import { chatService } from '@/services/chat';
 import {
+  asConversationGenerationOperation,
   conversationGenerationService,
   tryEnqueueConversationGeneration,
 } from '@/services/conversationGeneration';
@@ -358,9 +359,9 @@ async function runCompactionFromStore(
       false,
       'memoryCompaction/trackDurableEnqueue',
     );
-    let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+    let enqueueResult: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>> | undefined;
     try {
-      operation = await tryEnqueueConversationGeneration({
+      enqueueResult = await tryEnqueueConversationGeneration({
         config: {
           compaction: {
             candidateMessageIds: candidateMessages.map(({ id }) => id),
@@ -394,6 +395,7 @@ async function runCompactionFromStore(
         'memoryCompaction/untrackDurableEnqueue',
       );
     }
+    const operation = asConversationGenerationOperation(enqueueResult);
     if (!isCurrentRequest()) {
       // A destructive action landed during the enqueue await. Its tombstone
       // collected the tracked key, but cancel the returned operation eagerly as

@@ -37,7 +37,10 @@ import {
 } from '@/libs/logger/generationDebugClient';
 import { chatService } from '@/services/chat';
 import {
+  type ConversationGenerationDeferred,
+  asConversationGenerationOperation,
   conversationGenerationService,
+  isConversationGenerationDeferred,
   tryEnqueueConversationGeneration,
 } from '@/services/conversationGeneration';
 import { messageService } from '@/services/message';
@@ -267,6 +270,7 @@ export interface AIGenerateAction {
     id?: string,
     action?: Action,
     scopeThreadId?: string | null,
+    laneContext?: { sessionId?: string; topicId?: string | null },
   ) => AbortController | undefined;
   internal_toggleMessageInToolsCalling: (
     loading: boolean,
@@ -456,6 +460,8 @@ export const generateAIChat: StateCreator<
       topicSummary: activeTopic?.historySummary,
     });
 
+    let pendingDeferral: ConversationGenerationDeferred | undefined;
+
     if (isClientDurableConversationGenerationEnabled() && model && provider) {
       const enqueueIdempotencyKey = conversationGenerationIdempotencyKey(
         params?.isToolContinuation ? 'continue' : 'chat',
@@ -475,9 +481,9 @@ export const generateAIChat: StateCreator<
         false,
         n('coreProcessMessage/trackDurableEnqueue'),
       );
-      let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+      let enqueueResult: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>> | undefined;
       try {
-        operation = await tryEnqueueConversationGeneration({
+        enqueueResult = await tryEnqueueConversationGeneration({
           config: buildDurableConversationConfig({
             activatedSkillIds: params?.activatedSkillIds,
             agentConfig: { ...agentConfig, model, provider },
@@ -520,6 +526,10 @@ export const generateAIChat: StateCreator<
           n('coreProcessMessage/untrackDurableEnqueue'),
         );
       }
+      if (isConversationGenerationDeferred(enqueueResult)) {
+        pendingDeferral = enqueueResult;
+      }
+      const operation = asConversationGenerationOperation(enqueueResult);
       if (operation && isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) {
         get().attachConversationGeneration({
           assistantMessageId: operation.assistantMessageId || undefined,
@@ -683,7 +693,17 @@ export const generateAIChat: StateCreator<
       expectedConversationVersion,
     });
 
-    if (!assistantId || !isCurrentConversation()) return;
+    if (!assistantId) return;
+    if (pendingDeferral) {
+      get().internal_markDurableLaneDeferred({
+        assistantMessageId: assistantId,
+        reason: pendingDeferral.reason,
+        sessionId: conversationContext.sessionId,
+        toolName: pendingDeferral.toolName,
+        topicId: conversationContext.topicId,
+      });
+    }
+    if (!isCurrentConversation() && !pendingDeferral) return;
 
     // 3. place a search with the search working model if this model is not support tool use
     const aiInfraStoreState = getAiInfraStoreState();
@@ -721,6 +741,7 @@ export const generateAIChat: StateCreator<
         assistantId,
         n('generateMessage(start)', { messageId: assistantId, messages }),
         conversationContext.threadId ?? null,
+        conversationContext,
       );
 
       get().internal_toggleSearchWorkflow(true, assistantId);
@@ -790,11 +811,12 @@ export const generateAIChat: StateCreator<
           assistantId,
           n('generateMessage(start)', { messageId: assistantId, messages }),
           conversationContext.threadId ?? null,
+          conversationContext,
         );
         get().internal_toggleSearchWorkflow(false, assistantId);
       }
 
-      if (!isCurrentConversation()) return;
+      if (!isCurrentConversation() && !pendingDeferral) return;
 
       // if there is error, then stop
       if (isError) return;
@@ -922,7 +944,16 @@ export const generateAIChat: StateCreator<
         conversationContext.topicId,
         conversationContext.threadId ?? null,
       );
-    if (!isCurrentConversation()) {
+    const isDeferredBrowserLane = () => {
+      const conversationKey = messageMapKey(
+        conversationContext.sessionId,
+        conversationContext.topicId,
+      );
+      return (
+        get().deferredBrowserGenerationLanes[conversationKey]?.assistantMessageId === messageId
+      );
+    };
+    if (!isCurrentConversation() && !isDeferredBrowserLane()) {
       return { content: '', isFunctionCall: false };
     }
 
@@ -931,6 +962,7 @@ export const generateAIChat: StateCreator<
       messageId,
       n('generateMessage(start)', { messageId, messages }),
       conversationContext.threadId ?? null,
+      conversationContext,
     );
 
     const agentStoreState = getAgentStoreState();
@@ -1062,7 +1094,16 @@ export const generateAIChat: StateCreator<
           // An interrupted browser turn (Stop, lane rewind, lost tab) must not
           // leave a permanent `...` placeholder row: persist whatever streamed
           // so far, or drop the empty row so history never shows a dead bubble.
+          // Deferred browser-fallback lanes are different: a topic switch aborts
+          // with the same MESSAGE_CANCEL_FLAT as Stop, so keep the placeholder
+          // and let switch-back sync refresh/finalize it.
           if (!isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot)) return;
+          const conversationKey = messageMapKey(
+            conversationContext.sessionId,
+            conversationContext.topicId,
+          );
+          const deferredLane = get().deferredBrowserGenerationLanes[conversationKey];
+          const isDeferredLane = deferredLane?.assistantMessageId === messageId;
           if (text) {
             await internal_updateMessageContent(messageId, text, {
               conversationContext,
@@ -1070,7 +1111,7 @@ export const generateAIChat: StateCreator<
               provider,
               reasoning: !!thinking ? { content: thinking, duration } : undefined,
             }).catch(() => undefined);
-          } else {
+          } else if (!isDeferredLane) {
             await get()
               .internal_deleteMessage(messageId)
               .catch(() => undefined);
@@ -1164,7 +1205,7 @@ export const generateAIChat: StateCreator<
           persistenceFailure = finalization.failure;
         },
         onMessageHandle: async (chunk) => {
-          if (!isCurrentConversation()) return;
+          if (!isPersistenceCurrent()) return;
           switch (chunk.type) {
             case 'grounding': {
               // if there is no citations, then stop
@@ -1289,7 +1330,7 @@ export const generateAIChat: StateCreator<
         },
       });
     } finally {
-      if (isCurrentConversation()) {
+      if (isPersistenceCurrent()) {
         internal_toggleToolCallingStreaming(messageId, undefined);
         internal_toggleChatReasoning(
           false,
@@ -1301,6 +1342,7 @@ export const generateAIChat: StateCreator<
           messageId,
           n('generateMessage(end)') as string,
           conversationContext.threadId ?? null,
+          conversationContext,
         );
       }
     }
@@ -1614,9 +1656,9 @@ export const generateAIChat: StateCreator<
           false,
           n('retryMessage/trackDurableEnqueue'),
         );
-        let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+        let enqueueResult: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>> | undefined;
         try {
-          operation = await tryEnqueueConversationGeneration({
+          enqueueResult = await tryEnqueueConversationGeneration({
             config: buildDurableConversationConfig({
               agentConfig: {
                 ...agentConfig,
@@ -1661,6 +1703,7 @@ export const generateAIChat: StateCreator<
             n('retryMessage/untrackDurableEnqueue'),
           );
         }
+        const operation = asConversationGenerationOperation(enqueueResult);
         if (!isCurrentConversation()) {
           // A destructive action (e.g. topic delete) landed while the enqueue
           // was in flight: cancel the orphaned operation instead of attaching
@@ -1765,9 +1808,15 @@ export const generateAIChat: StateCreator<
   },
 
   // ----- Loading ------- //
-  internal_toggleChatLoading: (loading, id, action, scopeThreadId = null) => {
+  internal_toggleChatLoading: (loading, id, action, scopeThreadId = null, laneContext) => {
     const { activeId, activeTopicId } = get();
-    const laneKey = laneScopedClearKey(activeId, activeTopicId, scopeThreadId ?? null);
+    const computedLaneKey = laneScopedClearKey(
+      laneContext?.sessionId ?? activeId,
+      laneContext?.topicId ?? activeTopicId,
+      scopeThreadId ?? null,
+    );
+    const storedLaneKey = !loading && id ? get().chatLoadingLaneByMessageId[id] : undefined;
+    const laneKey = storedLaneKey ?? computedLaneKey;
 
     if (loading) {
       window.addEventListener('beforeunload', preventLeavingFn);

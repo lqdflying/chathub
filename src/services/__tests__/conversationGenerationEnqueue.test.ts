@@ -1,7 +1,11 @@
 import { TRPCClientError } from '@trpc/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { conversationGenerationService, tryEnqueueConversationGeneration, waitForConversationGeneration } from '../conversationGeneration';
+import {
+  conversationGenerationService,
+  tryEnqueueConversationGeneration,
+  waitForConversationGeneration,
+} from '../conversationGeneration';
 
 vi.mock('@/libs/trpc/client', () => ({
   lambdaClient: {
@@ -36,8 +40,54 @@ describe('tryEnqueueConversationGeneration', () => {
         sessionId: 's1',
         topicId: 't1',
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({
+      deferred: true,
+      reason: 'unsupported_tool',
+    });
     expect(listActive).not.toHaveBeenCalled();
+  });
+
+  it('returns a fetch_on_client deferral after PRECONDITION_FAILED', async () => {
+    vi.spyOn(conversationGenerationService, 'enqueue').mockRejectedValue(
+      Object.assign(
+        new TRPCClientError('No server-reachable credentials were found for provider "openai".'),
+        { data: { code: 'PRECONDITION_FAILED' } },
+      ),
+    );
+
+    await expect(
+      tryEnqueueConversationGeneration({
+        config: { model: 'gpt-4o', provider: 'openai' } as any,
+        kind: 'chat',
+        sessionId: 's1',
+      }),
+    ).resolves.toEqual({
+      deferred: true,
+      reason: 'fetch_on_client',
+    });
+  });
+
+  it('extracts the deferred tool name from UNPROCESSABLE_CONTENT', async () => {
+    vi.spyOn(conversationGenerationService, 'enqueue').mockRejectedValue(
+      Object.assign(
+        new TRPCClientError(
+          'Durable generation deferred to the browser for "lobe-code-interpreter": browser runtime required',
+        ),
+        { data: { code: 'UNPROCESSABLE_CONTENT' } },
+      ),
+    );
+
+    await expect(
+      tryEnqueueConversationGeneration({
+        config: { model: 'gpt-4o', provider: 'openai' } as any,
+        kind: 'chat',
+        sessionId: 's1',
+      }),
+    ).resolves.toEqual({
+      deferred: true,
+      reason: 'unsupported_tool',
+      toolName: 'lobe-code-interpreter',
+    });
   });
 
   it('recovers only by idempotency key after a transport failure', async () => {

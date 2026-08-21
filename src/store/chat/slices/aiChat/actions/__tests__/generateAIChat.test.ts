@@ -1913,6 +1913,44 @@ describe('chatMessage actions', () => {
       expect(messageService.updateMessage).not.toHaveBeenCalled();
     });
 
+    it('keeps an empty deferred-lane placeholder after abort so switch-back can finalize it', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const messages = [createMockMessage({ role: 'user' })];
+      const conversationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+      act(() => {
+        useChatStore.setState({
+          activeId: TEST_IDS.SESSION_ID,
+          activeTopicId: TEST_IDS.TOPIC_ID,
+          deferredBrowserGenerationLanes: {
+            [conversationKey]: {
+              assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+              reason: 'unsupported_tool',
+              toolName: 'lobe-code-interpreter',
+            },
+          },
+        });
+      });
+
+      vi.spyOn(chatService, 'createAssistantMessageStream').mockImplementation(
+        async ({ onAbort }) => {
+          await onAbort?.('');
+        },
+      );
+
+      await act(async () => {
+        await result.current.internal_fetchAIChatMessage({
+          messageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages,
+          model: 'gpt-4o-mini',
+          provider: 'openai',
+        });
+      });
+
+      expect(messageService.removeMessage).not.toHaveBeenCalled();
+      expect(messageService.updateMessage).not.toHaveBeenCalled();
+    });
+
     it('clears all stream loading indicators when finalization throws', async () => {
       const messages = [createMockMessage({ role: 'user' })];
       const toggleChatLoading = vi.fn().mockReturnValue(new AbortController());
@@ -1954,6 +1992,10 @@ describe('chatMessage actions', () => {
         TEST_IDS.ASSISTANT_MESSAGE_ID,
         expect.any(String),
         null,
+        expect.objectContaining({
+          sessionId: TEST_IDS.SESSION_ID,
+          topicId: TEST_IDS.TOPIC_ID,
+        }),
       );
       expect(toggleChatReasoning).toHaveBeenLastCalledWith(
         false,

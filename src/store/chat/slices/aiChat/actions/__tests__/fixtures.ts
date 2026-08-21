@@ -59,6 +59,7 @@ export const createMockChatConfig = (overrides = {}) => ({
 export const createMockStoreState = (overrides = {}) => ({
   activeId: TEST_IDS.SESSION_ID,
   activeTopicId: TEST_IDS.TOPIC_ID,
+  deferredBrowserGenerationLanes: {},
   chatLoadingIds: [],
   chatLoadingIdsAbortController: undefined,
   chatLoadingAbortControllersByLane: {},

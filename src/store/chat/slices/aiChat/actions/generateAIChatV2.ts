@@ -56,6 +56,7 @@ import type { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import {
   bumpLaneScopedClearGeneration,
+  isConversationClearFenceCurrent,
   laneScopedClearKey,
   markConversationLaneDurableGenerationStopped,
   resolveConversationClearGeneration,
@@ -208,6 +209,15 @@ export const generateAIChatV2: StateCreator<
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
     const isSameAccount = () =>
       isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot);
+    const isPersistenceCurrent = () =>
+      isSameAccount() &&
+      isConversationClearFenceCurrent(
+        get(),
+        conversationContext.clearGeneration,
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId ?? null,
+      );
 
     const fileIdList = files?.map((f) => f.id);
 
@@ -398,11 +408,13 @@ export const generateAIChatV2: StateCreator<
         abortController,
       );
       logGenerationDebugClientSafe('send_rpc_settled', {
+        deferReason: data.deferReason,
         hasAssistantMessageId: Boolean(data.assistantMessageId),
         hasOperationId: Boolean(data.operationId),
         isCreateNewTopic: Boolean(data.isCreateNewTopic),
         outcome: 'ok',
         spanId: debugSpanId,
+        toolName: data.deferredToolName,
       });
 
       // Persist the server rows into the conversation that sent them even if the
@@ -554,6 +566,16 @@ export const generateAIChatV2: StateCreator<
 
     if (!data) return;
 
+    if (data.deferReason && data.assistantMessageId && isSameAccount()) {
+      get().internal_markDurableLaneDeferred({
+        assistantMessageId: data.assistantMessageId,
+        reason: data.deferReason,
+        sessionId: conversationContext.sessionId,
+        toolName: data.deferredToolName,
+        topicId: data.topicId,
+      });
+    }
+
     if (isSameAccount() && isCurrentConversation()) {
       //  update assistant update to make it rerank
       getSessionStoreState().triggerSessionUpdate(conversationContext.sessionId);
@@ -660,7 +682,7 @@ export const generateAIChatV2: StateCreator<
       }
     }
 
-    if (!isCurrentConversation()) return;
+    if (!isCurrentConversation() && !data.deferReason) return;
 
     logGenerationDebugClientSafe('browser_path_started', {
       hasTopicId: Boolean(data.topicId),
@@ -750,7 +772,8 @@ export const generateAIChatV2: StateCreator<
       );
       try {
         await get().triggerTokenThresholdMemoryCompaction(compactionController);
-        if (compactionController.signal.aborted || !isCurrentConversation()) return;
+        if (compactionController.signal.aborted || (!isCurrentConversation() && !data.deferReason))
+          return;
 
         let placeholderMessages: UIChatMessage[];
         try {
@@ -784,7 +807,7 @@ export const generateAIChatV2: StateCreator<
           }
           return;
         }
-        if (!isCurrentConversation()) return;
+        if (!isCurrentConversation() && !data.deferReason) return;
 
         get().internal_refreshAiChat({
           messages: placeholderMessages,
@@ -823,11 +846,20 @@ export const generateAIChatV2: StateCreator<
     } catch (e) {
       console.error(e);
       if (browserRuntimeStarted) {
+        const isAbort =
+          e instanceof Error && (e.name === 'AbortError' || e.message.includes('aborted'));
         logGenerationDebugClientSafe('exec_runtime_settled', {
           errorClass: e instanceof Error ? e.name : typeof e,
           outcome: 'error',
           spanId: debugSpanId,
         });
+        const conversationKey = messageMapKey(conversationContext.sessionId, data.topicId);
+        const deferred = get().deferredBrowserGenerationLanes[conversationKey];
+        if (isAbort && deferred && isPersistenceCurrent()) {
+          await get()
+            .refreshMessages(conversationContext)
+            .catch(() => undefined);
+        }
       }
     } finally {
       if (activeContextExportCaptureId && isCurrentConversation()) {
@@ -956,9 +988,18 @@ export const generateAIChatV2: StateCreator<
       ) === conversationContext.clearGeneration &&
       get().activeId === conversationContext.sessionId &&
       (get().activeTopicId ?? null) === (conversationContext.topicId ?? null);
+    const isPersistenceCurrent = () =>
+      isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) &&
+      isConversationClearFenceCurrent(
+        get(),
+        conversationContext.clearGeneration,
+        conversationContext.sessionId,
+        conversationContext.topicId,
+        conversationContext.threadId ?? null,
+      );
     const expectedConversationVersion =
       params.expectedConversationVersion ?? (await messageService.getConversationVersion());
-    if (!isCurrentConversation()) return;
+    if (!isPersistenceCurrent()) return;
     const {
       assistantMessageId: assistantId,
       userMessageId,
@@ -1006,7 +1047,7 @@ export const generateAIChatV2: StateCreator<
           // should skip the last content
           messages.map((m) => m.content).slice(0, messages.length - 1),
         );
-        if (!isCurrentConversation()) return;
+        if (!isPersistenceCurrent()) return;
 
         diagnosticId = retrievalDiagnosticId;
 
@@ -1033,7 +1074,7 @@ export const generateAIChatV2: StateCreator<
         const { countMode, promptTokens } =
           await countKnowledgeBasePromptTokens(knowledgeBaseQAContext);
         knowledgeBasePromptTokens = promptTokens;
-        if (!isCurrentConversation()) return;
+        if (!isPersistenceCurrent()) return;
         failurePhase = 'message_metadata';
         const summary = createKnowledgeBaseSummary({
           countMode,
@@ -1153,6 +1194,7 @@ export const generateAIChatV2: StateCreator<
         assistantId,
         n('generateMessage(start)', { messageId: assistantId, messages }),
         conversationContext.threadId ?? null,
+        conversationContext,
       );
 
       get().internal_toggleSearchWorkflow(true, assistantId);
@@ -1166,7 +1208,7 @@ export const generateAIChatV2: StateCreator<
         await chatService.fetchPresetTaskResult({
           params: { messages, model, provider, plugins: [WebBrowsingManifest.identifier] },
           onFinish: async (_, { toolCalls, usage }) => {
-            if (!isCurrentConversation()) return;
+            if (!isPersistenceCurrent()) return;
             if (toolCalls && toolCalls.length > 0) {
               get().internal_toggleToolCallingStreaming(assistantId, undefined);
               // update tools calling
@@ -1187,7 +1229,7 @@ export const generateAIChatV2: StateCreator<
           },
           abortController,
           onMessageHandle: async (chunk) => {
-            if (!isCurrentConversation()) return;
+            if (!isPersistenceCurrent()) return;
             if (chunk.type === 'tool_calls') {
               get().internal_toggleSearchWorkflow(false, assistantId);
               get().internal_toggleToolCallingStreaming(assistantId, chunk.isAnimationActives);
@@ -1207,7 +1249,7 @@ export const generateAIChatV2: StateCreator<
             }
           },
           onErrorHandle: async (error) => {
-            if (!isCurrentConversation()) return;
+            if (!isPersistenceCurrent()) return;
             isError = true;
             await messageService.updateMessageError(assistantId, error);
             if (isCurrentConversation()) await refreshMessages(conversationContext);
@@ -1222,11 +1264,12 @@ export const generateAIChatV2: StateCreator<
           assistantId,
           n('generateMessage(start)', { messageId: assistantId, messages }),
           conversationContext.threadId ?? null,
+          conversationContext,
         );
         get().internal_toggleSearchWorkflow(false, assistantId);
       }
 
-      if (!isCurrentConversation()) return;
+      if (!isPersistenceCurrent()) return;
 
       // if there is error, then stop
       if (isError) return;

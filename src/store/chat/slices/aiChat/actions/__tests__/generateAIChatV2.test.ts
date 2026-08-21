@@ -703,6 +703,48 @@ describe('generateAIChatV2 actions', () => {
         expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
       });
 
+      it('marks a deferred browser-fallback lane when send RPC skips durable enqueue', async () => {
+        vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
+        vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(
+          () => () => false,
+        );
+        (aiChatService.sendMessageInServer as Mock).mockResolvedValueOnce({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          deferReason: 'unsupported_tool',
+          deferredToolName: 'lobe-image-designer',
+          isCreateNewTopic: false,
+          messages: [
+            {
+              content: TEST_CONTENT.USER_MESSAGE,
+              id: TEST_IDS.USER_MESSAGE_ID,
+              role: 'user',
+              sessionId: TEST_IDS.SESSION_ID,
+              topicId: TEST_IDS.TOPIC_ID,
+            },
+          ],
+          topicId: TEST_IDS.TOPIC_ID,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+
+        const { result } = renderHook(() => useChatStore());
+
+        await act(async () => {
+          await result.current.sendMessage({ message: TEST_CONTENT.USER_MESSAGE });
+        });
+
+        expect(
+          useChatStore.getState().deferredBrowserGenerationLanes[
+            messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID)
+          ],
+        ).toEqual({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          reason: 'unsupported_tool',
+          toolName: 'lobe-image-designer',
+        });
+        expect(result.current.internal_execAgentRuntime).toHaveBeenCalled();
+      });
+
       it('attaches a durable server operation and skips the browser runtime', async () => {
         vi.mocked(isClientDurableConversationGenerationEnabled).mockReturnValue(true);
         vi.spyOn(aiProviderSelectors, 'isProviderFetchOnClient').mockImplementation(

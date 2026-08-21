@@ -433,15 +433,15 @@ it does not work around a missing `tslib`.
 `src/instrumentation.ts` calls `bootstrapDebug()` before starting the worker.
 Debug env vars are process-wide; the Docker overlay does not strip them.
 
-| Switch                        | Worker wiring                                                                                                                                         |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs.                                                                  |
+| Switch                        | Worker wiring                                                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CHATHUB_DEBUG` / `LOG_LEVEL` | Pino level for tRPC. Worker lifecycle uses `[conversation-generation]` console logs.                                                                   |
 | `CHATHUB_GENERATION_DEBUG`    | Send-path diagnostics for this engine itself: client send/attach/sync decisions re-emitted via `reportClientDebug`, plus enqueue/sweep/execute events. |
-| `CHATHUB_TOOLS_DEBUG`         | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`.                  |
-| `DEBUG_*_CACHE`               | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`. |
-| `CHATHUB_KNOWLEDGE_DEBUG`     | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`.                                 |
-| `CHATHUB_IMAGE_DEBUG`         | Unchanged. Image workspace uses `async_tasks`, not this worker.                                                                                       |
-| `DEBUG_*_CHAT_COMPLETION`     | Provider factories read `process.env` at call time.                                                                                                   |
+| `CHATHUB_TOOLS_DEBUG`         | MCP HTTP tools log through `mcpService`. Chat tool turns emit `tool_batch_*` / `tool_completion_reported` from `toolDiagnostics.ts`.                   |
+| `DEBUG_*_CACHE`               | `createConversationRuntimeChatOptions` passes `cacheDiagnostics` and `trustedPromptCacheKey` into `runtime.chat`, matching `/webapi/chat/[provider]`.  |
+| `CHATHUB_KNOWLEDGE_DEBUG`     | `injectRag` emits retrieval / vector-search / prompt-injection events; embeddings still log in `RagEmbeddingService`.                                  |
+| `CHATHUB_IMAGE_DEBUG`         | Unchanged. Image workspace uses `async_tasks`, not this worker.                                                                                        |
+| `DEBUG_*_CHAT_COMPLETION`     | Provider factories read `process.env` at call time.                                                                                                    |
 
 Browser-only switches (`NEXT_PUBLIC_CHATHUB_DEBUG`, `?replacement_debug=1`)
 are unchanged.
@@ -471,10 +471,10 @@ actually added for an operation row. `CHATHUB_GENERATION_DEBUG` closes that gap.
 
 Event coverage:
 
-| Layer  | Events                                                                                          |
-| ------ | ----------------------------------------------------------------------------------------------- |
+| Layer  | Events                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Client | `send_started`, `send_rpc_settled`, `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started`, `exec_runtime_settled`, `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `sync_summary`, `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
-| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled` |
+| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled`               |
 
 Semantics that matter when reading the stream:
 
@@ -633,7 +633,22 @@ Fixes (browser turns now have the same navigation tolerance as durable turns):
 - `onAbort` (Stop, lane rewind, lost fetch) persists whatever text already
   streamed via `internal_updateMessageContent`, or deletes the empty
   placeholder row (`internal_deleteMessage`) when nothing arrived, so an
-  interrupted turn never leaves a permanent `...` row.
+  interrupted turn never leaves a permanent `...` row. Deferred browser-fallback
+  lanes (`deferReason=unsupported_tool|fetch_on_client`) keep an empty
+  placeholder instead of deleting it: topic switch uses the same
+  `MESSAGE_CANCEL_FLAT` abort as Stop, so deleting would drop the reply that is
+  still running off-screen.
+- Topic switch (`internal_invalidateConversation`) does not abort AbortControllers
+  or strip `chatLoadingIds` for deferred browser-fallback lanes, so the stream
+  can finish in the background. `onMessageHandle` applies chunks under
+  `isPersistenceCurrent()`, and `internal_toggleChatLoading(false)` uses the
+  stored lane for the assistant id so off-screen finalization clears the right
+  producer.
+- `sendMessageInServer` returns `deferReason` / `deferredToolName` on the RPC
+  success path (it does not throw). The client stores that marker in
+  `deferredBrowserGenerationLanes` and `syncActiveConversationGenerations`
+  finalizes leftover `LOADING_FLAT` rows for that marker on switch-back without
+  waiting for the 5-minute orphan sweep.
 - `syncActiveConversationGenerations` deletes orphaned stale placeholders
   (see Client sync), which also repairs rows stuck by the pre-fix behavior the
   next time the topic is opened.

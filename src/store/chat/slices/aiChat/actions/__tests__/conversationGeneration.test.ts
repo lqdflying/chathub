@@ -1373,6 +1373,90 @@ describe('conversationGeneration store actions', () => {
     expect(internal_deleteMessage).not.toHaveBeenCalled();
   });
 
+  it('finalizes a deferred browser-fallback placeholder on switch-back without waiting for the orphan grace window', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const internal_deleteMessage = vi.fn(async () => {});
+    const refreshMessages = vi.fn(async () => {});
+    const refreshTopic = vi.fn(async () => {});
+    const conversationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        internal_deleteMessage,
+        messagesMap: {
+          [conversationKey]: [
+            {
+              content: LOADING_FLAT,
+              createdAt: Date.now(),
+              id: 'assistant-deferred',
+              role: 'assistant',
+            },
+          ],
+        },
+        refreshMessages,
+        refreshTopic,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(internal_deleteMessage).not.toHaveBeenCalled();
+    expect(refreshMessages).toHaveBeenCalled();
+    expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toBeUndefined();
+    expect(useChatStore.getState().chatLoadingIds).not.toContain('assistant-deferred');
+  });
+
+  it('does not finalize a deferred placeholder while its browser producer is still loading', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const refreshMessages = vi.fn(async () => {});
+    const conversationKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        chatLoadingIds: ['assistant-deferred'],
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+        messagesMap: {
+          [conversationKey]: [
+            {
+              content: LOADING_FLAT,
+              createdAt: Date.now(),
+              id: 'assistant-deferred',
+              role: 'assistant',
+            },
+          ],
+        },
+        refreshMessages,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations();
+    });
+
+    expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toEqual(
+      expect.objectContaining({ assistantMessageId: 'assistant-deferred' }),
+    );
+  });
+
   it('reconciles a finished operation into its own conversation after switching topics', async () => {
     vi.spyOn(conversationGenerationService, 'getOperation').mockResolvedValueOnce({
       id: 'cgo_one',

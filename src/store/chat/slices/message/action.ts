@@ -34,12 +34,15 @@ import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import {
   abortAllChatLoadingLanes,
+  abortChatLoadingLanesExceptMessageIds,
   clearChatLoadingLaneMaps,
+  preserveChatLoadingLaneMapsForMessages,
 } from '@/store/chat/utils/chatLoadingLanes';
 import {
   markAllDurableGenerationsStopped,
   markConversationTopicDurableGenerationStopped,
 } from '@/store/chat/utils/conversationClearGeneration';
+import { collectDeferredBrowserGenerationMessageIds } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -1224,6 +1227,7 @@ export const chatMessage: StateCreator<
   internal_invalidateConversation: () => {
     const {
       chatLoadingIdsAbortController,
+      deferredBrowserGenerationLanes,
       mainSendMessageOperations,
       messageInToolsCallingIdsAbortController,
       pluginApiAbortControllers,
@@ -1232,15 +1236,31 @@ export const chatMessage: StateCreator<
       threadTitleSummaryOperations,
       topicTitleSummaryOperations,
     } = get();
+    const preserveMessageIds = collectDeferredBrowserGenerationMessageIds(
+      deferredBrowserGenerationLanes,
+    );
 
-    abortAllChatLoadingLanes(get());
+    abortChatLoadingLanesExceptMessageIds(get(), preserveMessageIds);
 
-    chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
-    messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
-    reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
-    searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    if (preserveMessageIds.size === 0) {
+      chatLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+    } else {
+      if (!get().messageInToolsCallingIds.some((messageId) => preserveMessageIds.has(messageId))) {
+        messageInToolsCallingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      }
+      if (!get().reasoningLoadingIds.some((messageId) => preserveMessageIds.has(messageId))) {
+        reasoningLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      }
+      if (!get().searchWorkflowLoadingIds.some((messageId) => preserveMessageIds.has(messageId))) {
+        searchWorkflowLoadingIdsAbortController?.abort(MESSAGE_CANCEL_FLAT);
+      }
+    }
 
-    for (const abortController of Object.values(pluginApiAbortControllers)) {
+    for (const [messageId, abortController] of Object.entries(pluginApiAbortControllers)) {
+      if (preserveMessageIds.has(messageId)) continue;
       abortController.abort(MESSAGE_CANCEL_FLAT);
     }
 
@@ -1257,6 +1277,29 @@ export const chatMessage: StateCreator<
 
     get().internal_cancelAllSupervisorDecisions();
     useToolStore.setState({ builtinToolLoading: {} });
+    const preservedLoading = preserveChatLoadingLaneMapsForMessages(get(), preserveMessageIds);
+    const preservedPluginControllers = Object.fromEntries(
+      Object.entries(get().pluginApiAbortControllers).filter(([messageId]) =>
+        preserveMessageIds.has(messageId),
+      ),
+    );
+    const preservedPluginLoadingIds = get().pluginApiLoadingIds.filter((messageId) =>
+      preserveMessageIds.has(messageId),
+    );
+    const preservedToolsCallingIds = get().messageInToolsCallingIds.filter((messageId) =>
+      preserveMessageIds.has(messageId),
+    );
+    const preservedReasoningIds = get().reasoningLoadingIds.filter((messageId) =>
+      preserveMessageIds.has(messageId),
+    );
+    const preservedSearchIds = get().searchWorkflowLoadingIds.filter((messageId) =>
+      preserveMessageIds.has(messageId),
+    );
+    const preservedToolCallingStreamIds = Object.fromEntries(
+      Object.entries(get().toolCallingStreamIds).filter(([messageId]) =>
+        preserveMessageIds.has(messageId),
+      ),
+    );
     get().detachDurableOps({
       allThreads: true,
       sessionId: get().activeId,
@@ -1265,7 +1308,7 @@ export const chatMessage: StateCreator<
     const invalidatedGenerationOperationKey = messageMapKey(get().activeId, get().activeTopicId);
     set(
       (state) => ({
-        ...clearChatLoadingLaneMaps(),
+        ...(preserveMessageIds.size > 0 ? preservedLoading : clearChatLoadingLaneMaps()),
         ...clearTitleSummaryOperations(state),
         conversationNavigationGeneration: state.conversationNavigationGeneration + 1,
         creatingThreadId: undefined,
@@ -1274,24 +1317,29 @@ export const chatMessage: StateCreator<
         isCreatingThreadMessage: false,
         mainSendMessageOperations: {},
         messageLoadingIds: [],
-        messageInToolsCallingIds: [],
-        messageInToolsCallingIdsAbortController: undefined,
+        messageInToolsCallingIds: preservedToolsCallingIds,
+        messageInToolsCallingIdsAbortController:
+          preservedToolsCallingIds.length > 0
+            ? state.messageInToolsCallingIdsAbortController
+            : undefined,
         // clear RAG loading too, or an id orphaned mid-retrieval leaves the
         // avatar spinner stuck across topic switches (clearMessage clears it)
         messageRAGLoadingIds: [],
-        pluginApiAbortControllers: {},
-        pluginApiLoadingIds: [],
-        reasoningLoadingIds: [],
-        reasoningLoadingIdsAbortController: undefined,
-        searchWorkflowLoadingIds: [],
-        searchWorkflowLoadingIdsAbortController: undefined,
+        pluginApiAbortControllers: preservedPluginControllers,
+        pluginApiLoadingIds: preservedPluginLoadingIds,
+        reasoningLoadingIds: preservedReasoningIds,
+        reasoningLoadingIdsAbortController:
+          preservedReasoningIds.length > 0 ? state.reasoningLoadingIdsAbortController : undefined,
+        searchWorkflowLoadingIds: preservedSearchIds,
+        searchWorkflowLoadingIdsAbortController:
+          preservedSearchIds.length > 0 ? state.searchWorkflowLoadingIdsAbortController : undefined,
         serverGenerationOperations: Object.fromEntries(
           Object.entries(state.serverGenerationOperations).filter(
             ([operationKey]) => operationKey !== invalidatedGenerationOperationKey,
           ),
         ),
         threadMessageSendingId: undefined,
-        toolCallingStreamIds: {},
+        toolCallingStreamIds: preservedToolCallingStreamIds,
       }),
       false,
       n('invalidateConversation'),

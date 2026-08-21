@@ -17,6 +17,8 @@
 
 export type GenerationDebugClientEvent =
   | 'browser_path_started'
+  | 'deferred_lane_marked'
+  | 'deferred_placeholder_finalized'
   | 'durable_attach'
   | 'durable_attach_skipped'
   | 'enqueue_client_settled'

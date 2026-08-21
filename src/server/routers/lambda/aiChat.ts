@@ -244,6 +244,8 @@ export const aiChatRouter = router({
 
       const durableEnabled = await isDurableConversationGenerationEnabled(ctx.userId);
       const requestedDurableGeneration = durableEnabled ? input.generation : undefined;
+      let deferReason: SendMessageServerResponse['deferReason'];
+      let deferredToolName: string | undefined;
       const unsupportedTool = requestedDurableGeneration
         ? await findUnsupportedConversationTool({
             config: requestedDurableGeneration.config,
@@ -252,6 +254,8 @@ export const aiChatRouter = router({
           })
         : undefined;
       if (unsupportedTool) {
+        deferReason = 'unsupported_tool';
+        deferredToolName = unsupportedTool.identifier;
         logGenerationDebugSafe('enqueue_rejected', {
           kind: 'chat',
           reason: 'unsupported_tool',
@@ -271,6 +275,7 @@ export const aiChatRouter = router({
           });
         } catch (error) {
           if (!(error instanceof TRPCError) || error.code !== 'PRECONDITION_FAILED') throw error;
+          deferReason = 'fetch_on_client';
           logGenerationDebugSafe('enqueue_rejected', {
             kind: 'chat',
             reason: 'fetch_on_client',
@@ -432,6 +437,8 @@ export const aiChatRouter = router({
 
       return {
         assistantMessageId: writeResult.assistantMessageId,
+        deferReason,
+        deferredToolName,
         isCreateNewTopic: writeResult.isCreateNewTopic,
         messages,
         operation: writeResult.operation,

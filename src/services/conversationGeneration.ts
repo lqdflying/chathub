@@ -1,4 +1,5 @@
 import type {
+  ConversationGenerationDeferReason,
   ConversationGenerationEnqueueInput,
   ConversationGenerationEvent,
   ConversationGenerationOperation,
@@ -129,6 +130,61 @@ class ConversationGenerationClient {
 
 export const conversationGenerationService = new ConversationGenerationClient();
 
+export interface ConversationGenerationDeferred {
+  deferred: true;
+  reason: ConversationGenerationDeferReason;
+  toolName?: string;
+}
+
+export type ConversationGenerationEnqueueResult =
+  ConversationGenerationOperation | ConversationGenerationDeferred;
+
+export const isConversationGenerationDeferred = (
+  value: ConversationGenerationEnqueueResult | undefined,
+): value is ConversationGenerationDeferred =>
+  Boolean(value && typeof value === 'object' && 'deferred' in value && value.deferred === true);
+
+export const asConversationGenerationOperation = (
+  value: ConversationGenerationEnqueueResult | undefined,
+): ConversationGenerationOperation | undefined =>
+  isConversationGenerationDeferred(value) ? undefined : value;
+
+const extractDeferredToolName = (message: string) => {
+  const match = message.match(/Durable generation deferred to the browser for "([^"]+)"/);
+  return match?.[1];
+};
+
+export const describeConversationGenerationDeferral = (
+  error: unknown,
+): ConversationGenerationDeferred | undefined => {
+  const message = error instanceof Error ? error.message : String(error);
+  const trpcCode =
+    error instanceof TRPCClientError
+      ? (error.data as { code?: string } | undefined)?.code
+      : undefined;
+
+  if (
+    trpcCode === 'UNPROCESSABLE_CONTENT' ||
+    message.includes('Durable generation deferred to the browser')
+  ) {
+    return {
+      deferred: true,
+      reason: 'unsupported_tool',
+      toolName: extractDeferredToolName(message),
+    };
+  }
+
+  if (
+    trpcCode === 'PRECONDITION_FAILED' ||
+    message.includes('Durable background generation requires a provider API key') ||
+    message.includes('No server-reachable credentials were found')
+  ) {
+    return { deferred: true, reason: 'fetch_on_client' };
+  }
+
+  return undefined;
+};
+
 const isNonRecoverableEnqueueError = (error: unknown) => {
   if (error instanceof TRPCClientError) {
     const code = (error.data as { code?: string } | undefined)?.code;
@@ -164,7 +220,7 @@ const recoverByIdempotencyKey = async (input: ConversationGenerationEnqueueInput
 
 export const tryEnqueueConversationGeneration = async (
   input: ConversationGenerationEnqueueInput,
-): Promise<ConversationGenerationOperation | undefined> => {
+): Promise<ConversationGenerationEnqueueResult | undefined> => {
   try {
     const operation = (await conversationGenerationService.enqueue(
       input,
@@ -182,6 +238,19 @@ export const tryEnqueueConversationGeneration = async (
       error instanceof TRPCClientError
         ? (error.data as { code?: string } | undefined)?.code
         : undefined;
+    const deferral = describeConversationGenerationDeferral(error);
+    if (deferral) {
+      logGenerationDebugClientSafe('enqueue_client_settled', {
+        errorClass,
+        kind: input.kind,
+        outcome: 'deferred',
+        reason: deferral.reason,
+        spanId: input.debugSpanId,
+        toolName: deferral.toolName,
+        trpcCode,
+      });
+      return deferral;
+    }
     if (isNonRecoverableEnqueueError(error)) {
       logGenerationDebugClientSafe('enqueue_client_settled', {
         errorClass,

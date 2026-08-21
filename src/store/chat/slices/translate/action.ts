@@ -9,6 +9,7 @@ import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableC
 import { supportLocales } from '@/locales/resources';
 import { chatService } from '@/services/chat';
 import {
+  asConversationGenerationOperation,
   conversationGenerationService,
   tryEnqueueConversationGeneration,
 } from '@/services/conversationGeneration';
@@ -127,9 +128,9 @@ export const chatTranslate: StateCreator<
         false,
         n('translateMessage/trackDurableEnqueue'),
       );
-      let operation: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>>;
+      let enqueueResult: Awaited<ReturnType<typeof tryEnqueueConversationGeneration>> | undefined;
       try {
-        operation = await tryEnqueueConversationGeneration({
+        enqueueResult = await tryEnqueueConversationGeneration({
           config: {
             locale: globalHelpers.getCurrentLanguage(),
             model: translationSetting.model,
@@ -149,6 +150,7 @@ export const chatTranslate: StateCreator<
           n('translateMessage/untrackDurableEnqueue'),
         );
       }
+      const operation = asConversationGenerationOperation(enqueueResult);
       if (!isCurrentRequest()) {
         // A destructive action (e.g. topic delete) landed while the enqueue was
         // in flight: cancel the orphaned operation instead of attaching.

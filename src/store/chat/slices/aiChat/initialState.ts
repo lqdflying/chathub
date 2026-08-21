@@ -1,9 +1,17 @@
+import type { ConversationGenerationDeferReason } from '@lobechat/types';
+
 import type { ChatInputEditor } from '@/features/ChatInput';
 
 import type {
   ConversationLaneStopMarker,
   DurableInFlightEnqueue,
 } from '../../utils/conversationClearGeneration';
+
+export interface DeferredBrowserGenerationLane {
+  assistantMessageId: string;
+  reason: ConversationGenerationDeferReason;
+  toolName?: string;
+}
 
 export interface MainSendMessageOperation {
   abortController?: AbortController | null;
@@ -29,6 +37,12 @@ export interface ChatAIChatState {
   chatLoadingLaneByMessageId: Record<string, string>;
   /** Lane/topic keys marked stopped until a replacement durable operation supersedes them. */
   conversationLaneStopMarkers: Record<string, ConversationLaneStopMarker>;
+  /**
+   * Browser-fallback chat lanes that durable enqueue rejected (unsupported tool
+   * or client-only credentials). Keyed by `messageMapKey(sessionId, topicId)`.
+   * Topic switch must not abort these producers; sync finalizes leftovers.
+   */
+  deferredBrowserGenerationLanes: Record<string, DeferredBrowserGenerationLane>;
   /**
    * Durable enqueue requests currently in flight, keyed by client lane key. Stop
    * promotes matching entries into the lane stop marker so an operation that only
@@ -82,6 +96,7 @@ export const initialAiChatState: ChatAIChatState = {
   chatLoadingIds: [],
   chatLoadingLaneByMessageId: {},
   conversationLaneStopMarkers: {},
+  deferredBrowserGenerationLanes: {},
   durableInFlightEnqueues: {},
   inputFiles: [],
   inputMessage: '',

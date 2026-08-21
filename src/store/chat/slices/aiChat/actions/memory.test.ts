@@ -30,13 +30,17 @@ vi.mock('@/services/chat', () => ({
 vi.mock('@/helpers/durableConversationGeneration', () => ({
   isClientDurableConversationGenerationEnabled: vi.fn(() => durableMocks.enabled),
 }));
-vi.mock('@/services/conversationGeneration', () => ({
-  conversationGenerationService: {
-    cancel: vi.fn(async () => ({})),
-    listActive: vi.fn(async () => []),
-  },
-  tryEnqueueConversationGeneration: vi.fn(),
-}));
+vi.mock('@/services/conversationGeneration', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/conversationGeneration')>();
+  return {
+    ...actual,
+    conversationGenerationService: {
+      cancel: vi.fn(async () => ({})),
+      listActive: vi.fn(async () => []),
+    },
+    tryEnqueueConversationGeneration: vi.fn(),
+  };
+});
 vi.mock('@/services/message', () => ({
   messageService: { getConversationVersion: vi.fn(), removeMessagesByAssistant: vi.fn() },
 }));

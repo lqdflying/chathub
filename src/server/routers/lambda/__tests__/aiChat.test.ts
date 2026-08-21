@@ -305,6 +305,8 @@ describe('aiChatRouter', () => {
     expect(mockCreateMessage).toHaveBeenCalledTimes(1);
     expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
     expect(result.operationId).toBeUndefined();
+    expect(result.deferReason).toBe('unsupported_tool');
+    expect(result.deferredToolName).toBe('lobe-image-designer');
     expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
       'enqueue_rejected',
       expect.objectContaining({
@@ -347,6 +349,7 @@ describe('aiChatRouter', () => {
     expect(mockCreateMessage).toHaveBeenCalledTimes(1);
     expect(durableMocks.enqueueInTransaction).not.toHaveBeenCalled();
     expect(result.operationId).toBeUndefined();
+    expect(result.deferReason).toBe('fetch_on_client');
     expect(generationDebugMocks.logGenerationDebugSafe).toHaveBeenCalledWith(
       'enqueue_rejected',
       expect.objectContaining({
