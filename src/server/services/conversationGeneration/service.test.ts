@@ -736,6 +736,30 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     expect(result).toMatchObject({ id: 'operation-new', workerJobId: '42' });
   });
 
+  it('persists inbox sessionId as undefined so message queries match IS NULL rows', async () => {
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '45' }]) };
+    modelMocks.create.mockImplementation(async (value) => ({
+      ...value,
+      attempt: 0,
+      id: 'operation-inbox',
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    }));
+
+    await new ConversationGenerationService(db as any, 'user-1').enqueueInTransaction(db as any, {
+      ...input,
+      sessionId: 'inbox',
+    });
+
+    expect(modelMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: undefined,
+      }),
+    );
+    expect(modelMocks.create.mock.calls[0][0].lane).toContain(':session:inbox:');
+  });
+
   it('cancels and advances the lane generation when replacement is requested', async () => {
     const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '43' }]) };
     modelMocks.findActiveByLane.mockResolvedValue({

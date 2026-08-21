@@ -103,9 +103,19 @@ browser `internal_execAgentRuntime` path still runs.
 `fetchOnClient` providers without a server-reachable API key, unsupported
 browser-only tools (`UNPROCESSABLE_CONTENT`), and a disabled flag all drop
 durable enqueue. The user message is still saved and the connected-tab runtime
-runs. `tryEnqueue` recovers a lane only by `idempotencyKey` after a transport
+runs. Prompt-only builtins with an empty `api` (Artifacts / `lobe-artifacts`)
+are **not** deferred: they only inject a system role, which the worker already
+includes. `tryEnqueue` recovers a lane only by `idempotencyKey` after a transport
 failure, and never after a typed `CONFLICT`, credential miss, or capability
 miss. It must not attach a previous chat job as if it were the new request.
+
+Inbox chat messages are stored with `sessionId IS NULL`. Enqueue persists
+`sessionId` through `toPersistedConversationSessionId`, mapping `'inbox'`,
+empty, and null to `undefined` so `MessageModel.matchSession` uses `IS NULL`.
+Lanes still use the public inbox id (`session:{sessionId|inbox}`).
+`loadScopedMessages` queries with that normalized session id, and when
+`topicId` is present it sets `omitSessionFilter` so already-persisted
+`'inbox'` operation rows still load the transcript.
 
 Context Export arms a one-shot browser capture. While that capture is armed,
 the send skips durable enqueue so the existing preview still records the
@@ -144,12 +154,17 @@ runner uses `noHandleSignals`: `SIGTERM`/`SIGINT` clear the sweeper and await
 and propagates its exit status.
 
 Each worker attempt claims `pending → processing` with compare-and-set guards.
-Retryable failures return the row to `pending`, clear `workerJobId` so the
-sweeper can re-enqueue if Graphile does not retry, and are rethrown so Graphile
-applies backoff. Heartbeats cover the whole operation: a missed heartbeat
-(no matching `processing` row/attempt) aborts the local run and feeds
-`shouldStopGeneration`. Checkpoint/final writes require the same attempt and
-lane generation. A terminal row is never rewritten by a late worker.
+Retryable failures return the row to `pending` but **leave `workerJobId` set**.
+Graphile still owns that job (`jobKey` = operation id, `maxAttempts` = 8) and
+will retry it. Clearing the id made `listPendingWithoutJob` re-enqueue a
+second job while Graphile still held the first. The sweeper only re-enqueues
+rows whose `workerJobId` is null. Stale `processing` recovery
+(`requeueStaleProcessing`) still clears `workerJobId` because the heartbeat is
+dead and recovery uses a distinct `jobKey`. Heartbeats cover the whole
+operation: a missed heartbeat (no matching `processing` row/attempt) aborts
+the local run and feeds `shouldStopGeneration`. Checkpoint/final writes
+require the same attempt and lane generation. A terminal row is never rewritten
+by a late worker.
 
 ## Lane replacement
 
@@ -345,7 +360,8 @@ reports completion (including thrown failures) to tool diagnostics with
 diagnostics match the SDK family the worker actually calls.
 
 The worker currently supports builtin web browsing, fixed Memory, activated
-skills, and HTTP MCP. Image generation, code interpreter, non-HTTP MCP, and
+skills, HTTP MCP, and prompt-only builtins with an empty `api` (Artifacts /
+`lobe-artifacts`). Image generation, code interpreter, non-HTTP MCP, and
 unknown plugin runtimes are capability-gated before durable enqueue, so the
 existing browser runtime handles the whole conversation rather than receiving a
 fake server success. Pre-send compaction also stays on the client because it

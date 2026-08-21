@@ -22,6 +22,7 @@ export class AiChatService {
     current?: number;
     groupId?: string;
     includeTopic?: boolean;
+    omitSessionFilter?: boolean;
     pageSize?: number;
     sessionId?: string;
     topicId?: string;

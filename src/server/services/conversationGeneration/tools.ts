@@ -22,6 +22,7 @@ import {
 import { mcpService } from '@/server/services/mcp';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
 import { SearchService } from '@/server/services/search';
+import { builtinTools } from '@/tools';
 import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import { DalleManifest } from '@/tools/dalle';
 import { MemoryApiName, MemoryManifest } from '@/tools/memory';
@@ -600,6 +601,11 @@ export const findUnsupportedConversationTool = async ({
   const pluginIds = [...new Set(config.plugins || [])];
   for (const identifier of pluginIds) {
     if (allowedBuiltins.has(identifier)) continue;
+    const builtin = builtinTools.find((tool) => tool.identifier === identifier);
+    // Prompt-only builtins (empty api, e.g. lobe-artifacts) only inject a
+    // system role. The worker already includes that prompt; the UI renders
+    // the tagged model output. They do not need a browser runtime.
+    if (builtin && (builtin.manifest.api?.length ?? 0) === 0) continue;
     if (identifier === DalleManifest.identifier || identifier === CodeInterpreterIdentifier) {
       return {
         identifier,

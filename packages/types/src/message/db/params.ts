@@ -12,6 +12,8 @@ import { UIChatMessage } from '../ui';
 export interface QueryMessageParams {
   current?: number;
   groupId?: string | null;
+  /** When true, do not constrain `messages.sessionId` (topic ids are unique per user). */
+  omitSessionFilter?: boolean;
   pageSize?: number;
   sessionId?: string | null;
   topicId?: string | null;

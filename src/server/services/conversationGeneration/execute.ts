@@ -82,6 +82,7 @@ import {
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
 } from './constants';
 import { loadConversationRuntimeState, resolveConversationRuntimePayload } from './credentials';
+import { toPersistedConversationSessionId } from './inboxSession';
 import { buildConversationChatPayload } from './payload';
 import {
   type ConversationRuntimeChatOptionsInput,
@@ -554,7 +555,12 @@ const loadScopedMessages = async (
   params: { groupId?: string; sessionId?: string; topicId?: string },
 ) => {
   const aiChat = new AiChatService(db, operation.userId);
-  const { messages } = await aiChat.getMessagesAndTopics(params);
+  const { messages } = await aiChat.getMessagesAndTopics({
+    groupId: params.groupId,
+    omitSessionFilter: Boolean(params.topicId),
+    sessionId: toPersistedConversationSessionId(params.sessionId),
+    topicId: params.topicId,
+  });
   return loadConversationThreadMessages(db, operation.userId, messages, operation.threadId);
 };
 
@@ -1573,8 +1579,9 @@ const executeCompaction = async (
   await updateOperation(model, operation, { phase: 'compacting' });
   const aiChat = new AiChatService(db, operation.userId);
   const { messages } = await aiChat.getMessagesAndTopics({
-    sessionId: operation.sessionId ?? undefined,
-    topicId: operation.topicId,
+    omitSessionFilter: Boolean(operation.topicId),
+    sessionId: toPersistedConversationSessionId(operation.sessionId),
+    topicId: operation.topicId ?? undefined,
   });
   const messagesById = new Map(messages.map((message) => [message.id, message]));
   const candidateMessages = compaction.candidateMessageIds

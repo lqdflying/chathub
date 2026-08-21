@@ -35,7 +35,7 @@ const collectStrings = (node: unknown) => {
 };
 
 describe('ConversationGenerationModel compare-and-set guards', () => {
-  it('clears workerJobId when a processing attempt is returned to pending', async () => {
+  it('returns a processing attempt to pending without clearing workerJobId', async () => {
     const { db, returning, set } = createUpdateDb();
     returning.mockResolvedValue([{ id: 'cgo_retry', status: 'pending' }]);
     const model = new ConversationGenerationModel(db as any, 'user-1');
@@ -45,6 +45,25 @@ describe('ConversationGenerationModel compare-and-set guards', () => {
       { message: 'upstream failed', type: 'GenerationError' },
       3,
     );
+
+    const patch = set.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(patch).toEqual(
+      expect.objectContaining({
+        status: 'pending',
+      }),
+    );
+    expect(patch).not.toHaveProperty('workerJobId');
+  });
+
+  it('clears workerJobId when stale processing recovery requeues the row', async () => {
+    const { db, returning, set } = createUpdateDb();
+    returning.mockResolvedValue([{ id: 'cgo_stale', status: 'pending' }]);
+    const model = new ConversationGenerationModel(db as any, 'user-1');
+
+    await model.requeueStaleProcessing('cgo_stale', new Date('2026-08-01T00:00:00.000Z'), {
+      message: 'stale heartbeat',
+      type: 'GenerationError',
+    });
 
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({

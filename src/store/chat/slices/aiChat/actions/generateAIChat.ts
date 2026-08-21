@@ -1754,15 +1754,13 @@ export const generateAIChat: StateCreator<
         error,
       );
     } finally {
-      if (isCurrentConversation()) {
-        set(
-          {
-            messageRetryingIds: get().messageRetryingIds.filter((id) => id !== anchor.message.id),
-          },
-          false,
-          n('retryMessage/end'),
-        );
-      }
+      set(
+        {
+          messageRetryingIds: get().messageRetryingIds.filter((id) => id !== anchor.message.id),
+        },
+        false,
+        n('retryMessage/end'),
+      );
     }
   },
 

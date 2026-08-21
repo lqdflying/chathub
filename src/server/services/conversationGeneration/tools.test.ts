@@ -2,9 +2,10 @@
 import type { ChatToolPayload, UIChatMessage } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ArtifactsManifest } from '@/tools/artifacts';
+import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import { DalleManifest } from '@/tools/dalle';
 import { MemoryApiName, MemoryManifest } from '@/tools/memory';
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import { WebBrowsingApiName, WebBrowsingManifest } from '@/tools/web-browsing';
 
 import { executeConversationToolStep, findUnsupportedConversationTool } from './tools';
@@ -432,6 +433,20 @@ describe('findUnsupportedConversationTool', () => {
         userId: 'user-1',
       }),
     ).resolves.toMatchObject({ identifier: CodeInterpreterIdentifier });
+  });
+
+  it('allows prompt-only artifacts on the durable worker', async () => {
+    await expect(
+      findUnsupportedConversationTool({
+        config: {
+          model: 'model-1',
+          plugins: [ArtifactsManifest.identifier],
+          provider: 'provider-1',
+        },
+        db: {} as any,
+        userId: 'user-1',
+      }),
+    ).resolves.toBeUndefined();
   });
 
   it('allows HTTP MCP and defers non-HTTP plugins', async () => {

@@ -2461,6 +2461,29 @@ describe('chatMessage actions', () => {
         expect(messageService.rewindMessages).toHaveBeenCalledWith(['assistant-2']);
       });
 
+      it('clears the retry lock after switching conversation', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const messages = [
+          createMockMessage({ id: 'user-1', role: 'user' }),
+          createMockMessage({ id: 'assistant-1', parentId: 'user-1', role: 'assistant' }),
+        ];
+        const key = chatSelectors.currentChatKey(useChatStore.getState() as any);
+        vi.mocked(messageService.rewindMessages).mockImplementationOnce(async () => {
+          useChatStore.setState({ activeId: 'other-session', activeTopicId: undefined });
+          return { messageIds: [], threadIds: [] };
+        });
+
+        act(() => {
+          useChatStore.setState({ messagesMap: { [key]: messages } });
+        });
+
+        await act(async () => {
+          await result.current.internal_resendMessage('assistant-1');
+        });
+
+        expect(useChatStore.getState().messageRetryingIds).toEqual([]);
+      });
+
       it('routes a retained group user message without creating a duplicate', async () => {
         const { result } = renderHook(() => useChatStore());
         const user = createMockMessage({

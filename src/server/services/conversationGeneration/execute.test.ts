@@ -544,6 +544,12 @@ describe('executeConversationGeneration', () => {
 
     expect(runtimeMocks.chat).not.toHaveBeenCalled();
     expect(modelMocks.finalizeActive).not.toHaveBeenCalled();
+    expect(aiChatMocks.getMessagesAndTopics).toHaveBeenCalledWith(
+      expect.objectContaining({
+        omitSessionFilter: true,
+        topicId: 'topic-1',
+      }),
+    );
     expect(modelMocks.markForRetry).toHaveBeenCalledWith(
       pending.id,
       expect.objectContaining({

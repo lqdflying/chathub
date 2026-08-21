@@ -29,6 +29,7 @@ import {
   CONVERSATION_GENERATION_TASK,
 } from './constants';
 import { resolveConversationRuntimePayload } from './credentials';
+import { toPersistedConversationSessionId } from './inboxSession';
 import { findUnsupportedConversationTool } from './tools';
 
 let workerUtilsPromise: Promise<Awaited<ReturnType<typeof makeWorkerUtils>>> | undefined;
@@ -151,9 +152,12 @@ export class ConversationGenerationService {
         parsed.expectedConversationVersion,
       );
     } catch (error) {
-      // CONFLICT rejections are already reported by enqueueInTransaction with
-      // a precise reason; avoid duplicate enqueue_rejected events for them.
-      if (!(error instanceof TRPCError && error.code === 'CONFLICT')) {
+      // Precise reasons are already logged at the throw site (lane/idempotency
+      // CONFLICT, unsupported_tool UNPROCESSABLE_CONTENT). Skip a second event.
+      if (!(
+        error instanceof TRPCError &&
+        (error.code === 'CONFLICT' || error.code === 'UNPROCESSABLE_CONTENT')
+      )) {
         logGenerationDebugSafe('enqueue_rejected', {
           kind: parsed.kind,
           spanId: parsed.debugSpanId,
@@ -169,11 +173,12 @@ export class ConversationGenerationService {
     input: ConversationGenerationEnqueueInput,
   ) => {
     const parsed = ConversationGenerationEnqueueSchema.parse(input);
+    const persistedSessionId = toPersistedConversationSessionId(parsed.sessionId);
     const lane = buildConversationGenerationLane({
       agentId: parsed.agentId,
       groupId: parsed.groupId,
       kind: parsed.kind,
-      sessionId: parsed.sessionId,
+      sessionId: persistedSessionId,
       targetId: parsed.config.targetId,
       threadId: parsed.threadId,
       topicId: parsed.topicId,
@@ -242,7 +247,7 @@ export class ConversationGenerationService {
         groupId: parsed.groupId,
         parentId: parsed.parentMessageId || parsed.userMessageId,
         role: 'assistant',
-        sessionId: parsed.sessionId ?? parsed.groupId ?? '',
+        sessionId: persistedSessionId ?? parsed.groupId ?? null,
         threadId: parsed.threadId,
         topicId: parsed.topicId,
       });
@@ -260,7 +265,7 @@ export class ConversationGenerationService {
       lane,
       laneGeneration,
       parentMessageId: parsed.parentMessageId,
-      sessionId: parsed.sessionId,
+      sessionId: persistedSessionId,
       threadId: parsed.threadId,
       topicId: parsed.topicId,
       userMessageId: parsed.userMessageId,

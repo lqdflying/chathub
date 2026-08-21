@@ -15,21 +15,21 @@ import {
   embeddings,
   fileChunks,
   files,
-  messagePlugins,
   messageGroups,
+  messagePlugins,
   messageQueries,
   messageQueryChunks,
   messageTTS,
   messageTranslates,
   messages,
   messagesFiles,
-  sessions,
   sessionGroups,
+  sessions,
   threads,
   topics,
-  users,
   userInstalledPlugins,
   userSettings,
+  users,
 } from '../../schemas';
 import { LobeChatDatabase } from '../../type';
 import { MessageModel } from '../message';
@@ -209,6 +209,28 @@ describe('MessageModel', () => {
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('1');
       expect(result[1].id).toBe('2');
+    });
+
+    it('should include named-session topic rows when omitSessionFilter is set', async () => {
+      const sessionId = 'session-named';
+      await serverDB.insert(sessions).values([{ id: sessionId, userId }]);
+      const topicId = 'topic-named';
+      await serverDB.insert(topics).values([{ id: topicId, sessionId, userId }]);
+      await serverDB.insert(messages).values([
+        {
+          id: 'named-1',
+          userId,
+          role: 'user',
+          sessionId,
+          topicId,
+          content: 'named session message',
+        },
+      ]);
+
+      await expect(messageModel.query({ topicId })).resolves.toHaveLength(0);
+      const result = await messageModel.query({ omitSessionFilter: true, topicId });
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('named-1');
     });
 
     it('should filter messages by groupId and expose group metadata', async () => {
@@ -1102,12 +1124,7 @@ describe('MessageModel', () => {
         .where(eq(messages.userId, userId))
         .orderBy(messages.messageOrder);
 
-      expect(internalRows.map(({ id }) => id)).toEqual([
-        'turn-z',
-        'reply-z',
-        'turn-a',
-        'reply-a',
-      ]);
+      expect(internalRows.map(({ id }) => id)).toEqual(['turn-z', 'reply-z', 'turn-a', 'reply-a']);
     });
   });
 
@@ -1656,41 +1673,37 @@ describe('MessageModel', () => {
       expect(
         await serverDB.select().from(messageGroups).where(eq(messageGroups.userId, userId)),
       ).toHaveLength(0);
-      expect(await serverDB.select().from(messages).where(eq(messages.userId, '456'))).toHaveLength(1);
-      expect(await serverDB.select().from(sessions).where(eq(sessions.userId, userId))).toHaveLength(1);
+      expect(await serverDB.select().from(messages).where(eq(messages.userId, '456'))).toHaveLength(
+        1,
+      );
+      expect(
+        await serverDB.select().from(sessions).where(eq(sessions.userId, userId)),
+      ).toHaveLength(1);
       expect(
         await serverDB.select().from(sessionGroups).where(eq(sessionGroups.userId, userId)),
       ).toHaveLength(1);
       expect(await serverDB.select().from(files).where(eq(files.userId, userId))).toHaveLength(1);
-      expect(await serverDB.select().from(embeddings).where(eq(embeddings.userId, userId))).toHaveLength(1);
-      const preservedAgents = await serverDB
-        .select()
-        .from(agents)
-        .where(eq(agents.userId, userId));
+      expect(
+        await serverDB.select().from(embeddings).where(eq(embeddings.userId, userId)),
+      ).toHaveLength(1);
+      const preservedAgents = await serverDB.select().from(agents).where(eq(agents.userId, userId));
       expect(preservedAgents).toHaveLength(1);
       expect(preservedAgents[0]).toMatchObject({
         id: 'history-agent',
         systemRole: 'Preserved assistant role',
       });
       expect(
-        await serverDB
-          .select()
-          .from(agentsToSessions)
-          .where(eq(agentsToSessions.userId, userId)),
+        await serverDB.select().from(agentsToSessions).where(eq(agentsToSessions.userId, userId)),
       ).toHaveLength(1);
       expect(
-        await serverDB
-          .select()
-          .from(chatGroups)
-          .where(eq(chatGroups.userId, userId)),
+        await serverDB.select().from(chatGroups).where(eq(chatGroups.userId, userId)),
       ).toHaveLength(1);
       expect(
-        await serverDB
-          .select()
-          .from(chatGroupsAgents)
-          .where(eq(chatGroupsAgents.userId, userId)),
+        await serverDB.select().from(chatGroupsAgents).where(eq(chatGroupsAgents.userId, userId)),
       ).toHaveLength(1);
-      expect(await serverDB.select().from(userSettings).where(eq(userSettings.id, userId))).toHaveLength(1);
+      expect(
+        await serverDB.select().from(userSettings).where(eq(userSettings.id, userId)),
+      ).toHaveLength(1);
       expect(
         await serverDB
           .select()
@@ -1750,10 +1763,7 @@ describe('MessageModel', () => {
 
     it('persists and recovers only the matching invocation result', async () => {
       await expect(
-        messageModel.beginMCPResultInvocation(
-          'mcp-tool-message',
-          'mi_12345678901234567890',
-        ),
+        messageModel.beginMCPResultInvocation('mcp-tool-message', 'mi_12345678901234567890'),
       ).resolves.toBe(true);
       await expect(
         messageModel.persistMCPResult(
@@ -1776,16 +1786,10 @@ describe('MessageModel', () => {
     });
 
     it('does not let a second invocation steal a pending MCP result', async () => {
-      await messageModel.beginMCPResultInvocation(
-        'mcp-tool-message',
-        'mi_11111111111111111111',
-      );
+      await messageModel.beginMCPResultInvocation('mcp-tool-message', 'mi_11111111111111111111');
 
       await expect(
-        messageModel.beginMCPResultInvocation(
-          'mcp-tool-message',
-          'mi_22222222222222222222',
-        ),
+        messageModel.beginMCPResultInvocation('mcp-tool-message', 'mi_22222222222222222222'),
       ).resolves.toBe(false);
 
       await expect(

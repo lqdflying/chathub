@@ -18,7 +18,20 @@ import {
 } from '@lobechat/types';
 import type { HeatmapsProps } from '@lobehub/charts';
 import dayjs from 'dayjs';
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, like, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  like,
+  or,
+  sql,
+} from 'drizzle-orm';
 
 import { merge } from '@/utils/merge';
 import { today } from '@/utils/time';
@@ -67,7 +80,14 @@ export class MessageModel {
 
   // **************** Query *************** //
   query = async (
-    { current = 0, pageSize = 1000, sessionId, topicId, groupId }: QueryMessageParams = {},
+    {
+      current = 0,
+      pageSize = 1000,
+      sessionId,
+      topicId,
+      groupId,
+      omitSessionFilter,
+    }: QueryMessageParams = {},
     options: {
       postProcessUrl?: (path: string | null, file: { fileType: string }) => Promise<string>;
     } = {},
@@ -129,7 +149,7 @@ export class MessageModel {
       .where(
         and(
           eq(messages.userId, this.userId),
-          this.matchSession(sessionId),
+          omitSessionFilter ? undefined : this.matchSession(sessionId),
           this.matchTopic(topicId),
           this.matchGroup(groupId),
         ),
