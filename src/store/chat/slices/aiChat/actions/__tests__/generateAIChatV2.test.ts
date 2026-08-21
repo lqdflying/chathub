@@ -740,6 +740,7 @@ describe('generateAIChatV2 actions', () => {
         ).toEqual({
           assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
           reason: 'unsupported_tool',
+          spanId: expect.stringMatching(/^gd_[\da-f]+$/),
           threadId: null,
           toolName: 'lobe-image-designer',
         });

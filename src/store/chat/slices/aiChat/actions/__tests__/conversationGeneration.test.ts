@@ -2,6 +2,7 @@ import { LOADING_FLAT } from '@lobechat/const';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as generationDebugClient from '@/libs/logger/generationDebugClient';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -1508,6 +1509,142 @@ describe('conversationGeneration store actions', () => {
       'assistant-deferred',
       expect.objectContaining({ threadId: undefined }),
     );
+  });
+
+  it('emits deferred_lane_resumed with resume_tools on switch-back', async () => {
+    vi.spyOn(conversationGenerationService, 'listActive').mockResolvedValueOnce([] as any);
+    const logSpy = vi.spyOn(generationDebugClient, 'logDeferredGenerationLane').mockResolvedValue();
+    const triggerToolCalls = vi.fn(async () => {});
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+    const mapKey = messageMapKey(TEST_IDS.SESSION_ID, TEST_IDS.TOPIC_ID);
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            spanId: 'gd_0123456789abcdef',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+        messagesMap: {
+          [mapKey]: [
+            {
+              content: '',
+              createdAt: Date.now(),
+              id: 'assistant-deferred',
+              role: 'assistant',
+              tools: [{ id: 'call-1', identifier: 'lobe-code-interpreter', type: 'builtin' }],
+            },
+          ],
+        },
+        triggerToolCalls,
+      });
+    });
+
+    await act(async () => {
+      await useChatStore.getState().syncActiveConversationGenerations({ reason: 'topic_change' });
+    });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'deferred_lane_resumed',
+      expect.objectContaining({
+        outcome: 'resume_tools',
+        spanId: 'gd_0123456789abcdef',
+        toolName: 'lobe-code-interpreter',
+      }),
+    );
+  });
+
+  it('emits deferred_lane_left for a live producer without clearing the marker', () => {
+    const logSpy = vi.spyOn(generationDebugClient, 'logDeferredGenerationLane').mockResolvedValue();
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        chatLoadingIds: ['assistant-deferred'],
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            spanId: 'gd_0123456789abcdef',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+      });
+    });
+
+    act(() => {
+      useChatStore.getState().internal_notifyDeferredLanesLeft({
+        sessionId: TEST_IDS.SESSION_ID,
+        topicId: TEST_IDS.TOPIC_ID,
+        type: 'navigation',
+      });
+    });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'deferred_lane_left',
+      expect.objectContaining({
+        producerAlive: true,
+        spanId: 'gd_0123456789abcdef',
+        type: 'navigation',
+      }),
+    );
+    expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toBeDefined();
+  });
+
+  it('emits deferred_lane_aborted when a topic delete clears deferred lanes', () => {
+    const logSpy = vi.spyOn(generationDebugClient, 'logDeferredGenerationLane').mockResolvedValue();
+    const conversationKey = deferredBrowserGenerationLaneKey(
+      TEST_IDS.SESSION_ID,
+      TEST_IDS.TOPIC_ID,
+      null,
+    );
+
+    act(() => {
+      useChatStore.setState({
+        activeId: TEST_IDS.SESSION_ID,
+        activeTopicId: TEST_IDS.TOPIC_ID,
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'assistant-deferred',
+            reason: 'unsupported_tool',
+            spanId: 'gd_0123456789abcdef',
+            toolName: 'lobe-code-interpreter',
+          },
+        },
+      });
+    });
+
+    act(() => {
+      useChatStore.getState().internal_abortDeferredBrowserLanesForTopic(
+        TEST_IDS.SESSION_ID,
+        TEST_IDS.TOPIC_ID,
+        'topic_delete',
+      );
+    });
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'deferred_lane_aborted',
+      expect.objectContaining({
+        spanId: 'gd_0123456789abcdef',
+        type: 'topic_delete',
+      }),
+    );
+    expect(useChatStore.getState().deferredBrowserGenerationLanes[conversationKey]).toBeUndefined();
   });
 
   it('does not finalize a deferred placeholder while its browser producer is still loading', async () => {

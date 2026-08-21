@@ -26,3 +26,30 @@ export const deferredBrowserGenerationLaneKeysForTopic = (
   const prefix = `${messageMapKey(sessionId, topicId)}:`;
   return Object.keys(lanes || {}).filter((key) => key.startsWith(prefix));
 };
+
+export const findDeferredBrowserGenerationLaneByAssistantId = (
+  lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,
+  assistantMessageId: string,
+):
+  | { key: string; lane: NonNullable<ChatAIChatState['deferredBrowserGenerationLanes']>[string] }
+  | undefined => {
+  for (const [key, lane] of Object.entries(lanes || {})) {
+    if (lane.assistantMessageId === assistantMessageId) return { key, lane };
+  }
+  return undefined;
+};
+
+export const isDeferredLaneProducerAlive = (
+  state: Pick<
+    ChatAIChatState,
+    'chatLoadingIds' | 'messageInToolsCallingIds' | 'toolCallingStreamIds'
+  >,
+  assistantMessageId: string,
+): boolean => {
+  const streamFlags = state.toolCallingStreamIds?.[assistantMessageId];
+  return (
+    state.chatLoadingIds.includes(assistantMessageId) ||
+    state.messageInToolsCallingIds.includes(assistantMessageId) ||
+    (Array.isArray(streamFlags) && streamFlags.some(Boolean))
+  );
+};

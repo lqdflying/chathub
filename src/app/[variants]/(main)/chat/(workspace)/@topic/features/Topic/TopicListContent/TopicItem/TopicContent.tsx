@@ -11,7 +11,7 @@ import {
   Trash,
   Wand2,
 } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
@@ -19,6 +19,7 @@ import BubblesLoading from '@/components/BubblesLoading';
 import { LOADING_FLAT } from '@/const/message';
 import TopicSummaryViewer from '@/features/TopicSummaryViewer';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { reportTopicBusyChanged } from '@/libs/logger/generationDebugClient';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 import { useGlobalStore } from '@/store/global';
@@ -75,6 +76,25 @@ const TopicContent = memo<TopicContentProps>(({ id, title, fav, lastActivityAt, 
     topicSelectors.isTopicLoading(id)(s),
   ]);
   const { styles, theme } = useStyles();
+
+  useEffect(() => {
+    try {
+      const state = useChatStore.getState?.();
+      const flags = state
+        ? topicSelectors.topicBusyFlags(id)(state)
+        : {
+            deferredLane: false,
+            durableJob: false,
+            producing: isLoading,
+            sendRpc: false,
+            tools: false,
+            topicCrud: false,
+          };
+      reportTopicBusyChanged(id, isLoading, flags);
+    } catch {
+      // Diagnostics must never break the topic list.
+    }
+  }, [id, isLoading]);
 
   const activityTime = lastActivityAt ? new Date(lastActivityAt) : undefined;
   const activityLabel = activityTime

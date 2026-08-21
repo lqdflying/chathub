@@ -34,6 +34,10 @@ const correlationSchema = z.object({
   batchId: batchIdSchema.optional(),
   continuationId: continuationIdSchema.optional(),
   failureCount: z.number().int().nonnegative().max(100).optional(),
+  generationSpanId: z
+    .string()
+    .regex(/^gd_[\da-f]{16,64}$/i)
+    .optional(),
   resultCount: z.number().int().nonnegative().max(100).optional(),
   toolCallCount: z.number().int().positive().max(100),
   toolCallSetHash: hashSchema,

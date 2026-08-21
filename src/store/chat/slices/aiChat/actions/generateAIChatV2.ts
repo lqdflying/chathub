@@ -415,7 +415,10 @@ export const generateAIChatV2: StateCreator<
         isCreateNewTopic: Boolean(data.isCreateNewTopic),
         outcome: 'ok',
         spanId: debugSpanId,
+        stillCurrent: isCurrentConversation(),
         toolName: data.deferredToolName,
+        topicChangedDuringRpc:
+          (get().activeTopicId ?? null) !== (activeTopicId ?? null) || get().activeId !== activeId,
       });
 
       // Persist the server rows into the conversation that sent them even if the
@@ -458,6 +461,9 @@ export const generateAIChatV2: StateCreator<
         errorClass: error instanceof Error ? error.name : typeof error,
         outcome: 'error',
         spanId: debugSpanId,
+        stillCurrent: isCurrentConversation(),
+        topicChangedDuringRpc:
+          (get().activeTopicId ?? null) !== (activeTopicId ?? null) || get().activeId !== activeId,
         trpcCode:
           error instanceof TRPCClientError
             ? (error.data as { code?: string } | undefined)?.code
@@ -572,6 +578,7 @@ export const generateAIChatV2: StateCreator<
         assistantMessageId: data.assistantMessageId,
         reason: data.deferReason,
         sessionId: conversationContext.sessionId,
+        spanId: debugSpanId,
         threadId: conversationContext.threadId,
         toolName: data.deferredToolName,
         topicId: data.topicId,
@@ -684,11 +691,21 @@ export const generateAIChatV2: StateCreator<
       }
     }
 
-    if (!isCurrentConversation() && !data.deferReason) return;
+    if (!isCurrentConversation() && !data.deferReason) {
+      logGenerationDebugClientSafe('browser_path_started', {
+        hasTopicId: Boolean(data.topicId),
+        reason: 'notCurrent',
+        skipped: true,
+        spanId: debugSpanId,
+        stillCurrent: false,
+      });
+      return;
+    }
 
     logGenerationDebugClientSafe('browser_path_started', {
       hasTopicId: Boolean(data.topicId),
       spanId: debugSpanId,
+      stillCurrent: isCurrentConversation(),
     });
 
     // The current server only returns persisted user history here. Keep filtering the
@@ -774,8 +791,18 @@ export const generateAIChatV2: StateCreator<
       );
       try {
         await get().triggerTokenThresholdMemoryCompaction(compactionController);
-        if (compactionController.signal.aborted || (!isCurrentConversation() && !data.deferReason))
+        if (compactionController.signal.aborted || (!isCurrentConversation() && !data.deferReason)) {
+          if (!compactionController.signal.aborted) {
+            logGenerationDebugClientSafe('browser_path_started', {
+              hasTopicId: Boolean(data.topicId),
+              reason: 'notCurrent',
+              skipped: true,
+              spanId: debugSpanId,
+              stillCurrent: false,
+            });
+          }
           return;
+        }
 
         let placeholderMessages: UIChatMessage[];
         try {
@@ -809,7 +836,16 @@ export const generateAIChatV2: StateCreator<
           }
           return;
         }
-        if (!isCurrentConversation() && !data.deferReason) return;
+        if (!isCurrentConversation() && !data.deferReason) {
+          logGenerationDebugClientSafe('browser_path_started', {
+            hasTopicId: Boolean(data.topicId),
+            reason: 'notCurrent',
+            skipped: true,
+            spanId: debugSpanId,
+            stillCurrent: false,
+          });
+          return;
+        }
 
         get().internal_refreshAiChat({
           messages: placeholderMessages,
@@ -836,6 +872,7 @@ export const generateAIChatV2: StateCreator<
       logGenerationDebugClientSafe('exec_runtime_settled', {
         outcome: 'ok',
         spanId: debugSpanId,
+        stillCurrent: isCurrentConversation(),
       });
       if (!isCurrentConversation()) return;
 
@@ -854,6 +891,7 @@ export const generateAIChatV2: StateCreator<
           errorClass: e instanceof Error ? e.name : typeof e,
           outcome: 'error',
           spanId: debugSpanId,
+          stillCurrent: isCurrentConversation(),
         });
         const conversationKey = deferredBrowserGenerationLaneKey(
           conversationContext.sessionId,

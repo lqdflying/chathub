@@ -27,6 +27,7 @@ import {
   isClientDurableConversationGenerationEnabled,
 } from '@/helpers/durableConversationGeneration';
 import { formatSupervisorTodoContent } from '@/helpers/supervisorTodos';
+import { createGenerationDebugSpanId } from '@/libs/logger/generationDebugClient';
 import { composeSystemRole } from '@/services/chat/composeSystemRole';
 import {
   asConversationGenerationOperation,
@@ -1020,6 +1021,7 @@ export const chatAiGroupChat: StateCreator<
           );
           let enqueueResult:
             Awaited<ReturnType<typeof tryEnqueueConversationGeneration>> | undefined;
+          const debugSpanId = createGenerationDebugSpanId();
           try {
             enqueueResult = await tryEnqueueConversationGeneration({
               agentId,
@@ -1045,6 +1047,7 @@ export const chatAiGroupChat: StateCreator<
               conversationVersion: resolvedConversationVersion,
               expectedConversationVersion: resolvedConversationVersion,
               groupId,
+              debugSpanId,
               idempotencyKey: agentIdempotencyKey,
               kind: 'group_agent',
               replaceActive: true,
@@ -1073,6 +1076,7 @@ export const chatAiGroupChat: StateCreator<
               assistantMessageId: assistantId,
               reason: enqueueResult.reason,
               sessionId: requestedSessionId,
+              spanId: debugSpanId,
               threadId: null,
               toolName: enqueueResult.toolName,
               topicId: activeTopicId,

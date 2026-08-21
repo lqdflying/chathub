@@ -239,6 +239,14 @@ describe('topicSelectors', () => {
       });
 
       expect(topicSelectors.isTopicLoading('topic1')(state)).toBe(false);
+      expect(topicSelectors.topicBusyFlags('topic1')(state)).toEqual({
+        deferredLane: false,
+        durableJob: false,
+        producing: false,
+        sendRpc: false,
+        tools: false,
+        topicCrud: false,
+      });
     });
   });
 

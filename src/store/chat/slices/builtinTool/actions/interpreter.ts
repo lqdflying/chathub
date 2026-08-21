@@ -8,11 +8,13 @@ import pMap from 'p-map';
 import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
+import { logDeferredGenerationLane } from '@/libs/logger/generationDebugClient';
 import { useClientDataSWR } from '@/libs/swr';
 import { fileService } from '@/services/file';
 import { pythonService } from '@/services/python';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
+import { findDeferredBrowserGenerationLaneByAssistantId } from '@/store/chat/utils/deferredBrowserGeneration';
 import { useFileStore } from '@/store/file';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
@@ -58,6 +60,38 @@ export const codeInterpreterSlice: StateCreator<
     const invocationIsCurrent = () => get().conversationClearGeneration === invocationGeneration;
 
     get().toggleInterpreterExecuting(id, true);
+
+    const logSettled = (
+      outcome: 'cancelled' | 'error' | 'failed' | 'ok',
+      extras?: { error?: unknown; result?: CodeInterpreterResponse },
+    ) => {
+      try {
+        const toolMessage = chatSelectors.getMessageById?.(id)?.(get());
+        const assistantMessageId = toolMessage?.parentId || id;
+        const match = findDeferredBrowserGenerationLaneByAssistantId(
+          get().deferredBrowserGenerationLanes,
+          assistantMessageId,
+        );
+        void logDeferredGenerationLane('builtin_tool_settled', {
+          assistantMessageId,
+          errorClass:
+            extras?.error instanceof Error
+              ? extras.error.name
+              : extras?.error
+                ? 'Error'
+                : undefined,
+          hasOutput: Boolean(extras?.result?.output?.length),
+          outcome,
+          sessionId: get().activeId,
+          spanId: match?.lane.spanId,
+          threadId: match?.lane.threadId,
+          toolName: CodeInterpreterIdentifier,
+          topicId: get().activeTopicId,
+        });
+      } catch {
+        // Diagnostics must never interrupt code interpreter.
+      }
+    };
 
     try {
       // Gather any files the conversation produced so the code can read them.
@@ -134,6 +168,7 @@ export const codeInterpreterSlice: StateCreator<
         }
       }
 
+      logSettled(result?.success === false ? 'error' : 'ok', { result });
       return {
         data: result,
         outcome: 'completed',
@@ -149,6 +184,7 @@ export const codeInterpreterSlice: StateCreator<
       const serializedError = serializePluginError(error);
       await get().updatePluginState(id, { error: serializedError });
 
+      logSettled('failed', { error });
       return {
         data: serializedError,
         outcome: 'failed',

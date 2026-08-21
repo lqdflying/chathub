@@ -1,10 +1,11 @@
 import { Icon, Tag, Text } from '@lobehub/ui';
 import { useTheme } from 'antd-style';
 import { LucideLoader2, MessageSquareDashed } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Flexbox } from 'react-layout-kit';
 
+import { reportTopicBusyChanged } from '@/libs/logger/generationDebugClient';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 
@@ -12,6 +13,25 @@ const DefaultContent = memo(() => {
   const { t } = useTranslation('topic');
   const theme = useTheme();
   const isLoading = useChatStore(topicSelectors.isTopicLoading());
+
+  useEffect(() => {
+    try {
+      const state = useChatStore.getState?.();
+      const flags = state
+        ? topicSelectors.topicBusyFlags()(state)
+        : {
+            deferredLane: false,
+            durableJob: false,
+            producing: isLoading,
+            sendRpc: false,
+            tools: false,
+            topicCrud: false,
+          };
+      reportTopicBusyChanged(null, isLoading, flags);
+    } catch {
+      // Diagnostics must never break the topic list.
+    }
+  }, [isLoading]);
 
   return (
     <Flexbox align={'center'} gap={8} horizontal>

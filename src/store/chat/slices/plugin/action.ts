@@ -32,6 +32,7 @@ import { captureAccountMutationSnapshot, isAccountMutationCurrent } from '@/stor
 import { ChatStore } from '@/store/chat/store';
 import type { ConversationContext } from '@/store/chat/types';
 import { resolveConversationClearGeneration } from '@/store/chat/utils/conversationClearGeneration';
+import { findDeferredBrowserGenerationLaneByAssistantId } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey, parseMessageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useToolStore } from '@/store/tool';
 import { pluginSelectors } from '@/store/tool/selectors';
@@ -666,11 +667,16 @@ export const chatPlugin: StateCreator<
     if (!invocationIsCurrent()) return;
 
     const collectToolCorrelation = cacheContinuationEnabled || toolLifecycleEnabled;
+    const deferredLane = findDeferredBrowserGenerationLaneByAssistantId(
+      get().deferredBrowserGenerationLanes,
+      assistantId,
+    );
     const toolCorrelation: ToolCacheDebugMetadata | undefined = collectToolCorrelation
       ? {
           ...createToolCallSetCorrelation(message.tools.map((tool) => tool.id)),
           batchId: `tb_${nanoid(20)}`,
           continuationId: `tc_${nanoid(20)}`,
+          ...(deferredLane?.lane.spanId ? { generationSpanId: deferredLane.lane.spanId } : {}),
         }
       : undefined;
     if (toolLifecycleEnabled && toolCorrelation) {

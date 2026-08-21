@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  GENERATION_DEBUG_CLIENT_EVENTS,
   GENERATION_DEBUG_NAMESPACE,
   hashGenerationDebugValue,
   isGenerationDebugEnabled,
@@ -62,6 +63,29 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
         errorClass: 'TitleTranscriptEmptyError',
         kind: 'topic_title',
       });
+    });
+
+    it('keeps leave/return outcome labels readable', () => {
+      logGenerationDebugSafe('deferred_lane_resumed', {
+        outcome: 'resume_tools',
+        spanId: 'gd_0123456789abcdef',
+      });
+
+      const record = JSON.parse(consoleLogSpy.mock.calls[0][1] as string);
+      expect(record.outcome).toBe('resume_tools');
+      expect(record.spanId).toBe('gd_0123456789abcdef');
+    });
+
+    it('includes the Claude-like leave/return client events in the report allowlist', () => {
+      expect(GENERATION_DEBUG_CLIENT_EVENTS).toEqual(
+        expect.arrayContaining([
+          'builtin_tool_settled',
+          'deferred_lane_aborted',
+          'deferred_lane_left',
+          'deferred_lane_resumed',
+          'topic_busy_changed',
+        ]),
+      );
     });
 
     it('emits the prefixed-JSON line format with server-side defaults', () => {

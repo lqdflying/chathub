@@ -21,7 +21,15 @@ export const useConversationGenerationSync = () => {
   const portalThreadId = useChatStore((s) => s.portalThreadId);
   const applyEvent = useChatStore((s) => s.applyConversationGenerationEvent);
   const syncActive = useChatStore((s) => s.syncActiveConversationGenerations);
+  const notifyDeferredLanesLeft = useChatStore((s) => s.internal_notifyDeferredLanesLeft);
   const previousUserId = useRef(userId);
+  const navigationRef = useRef<{
+    portalThreadId?: string | null;
+    sessionId?: string;
+    threadId?: string | null;
+    topicId?: string | null;
+    userId?: string;
+  } | null>(null);
   const [resumeNonce, setResumeNonce] = useState(0);
 
   useEffect(() => {
@@ -31,6 +39,17 @@ export const useConversationGenerationSync = () => {
 
   useEffect(() => {
     const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        const state = useChatStore.getState();
+        const activeSessionId = useSessionStore.getState().activeId;
+        if (activeSessionId) {
+          state.internal_notifyDeferredLanesLeft({
+            sessionId: activeSessionId,
+            topicId: state.activeTopicId,
+            type: 'visibility',
+          });
+        }
+      }
       if (document.visibilityState === 'visible') setResumeNonce((value) => value + 1);
     };
     const onPageShow = (event: Event) => {
@@ -49,8 +68,49 @@ export const useConversationGenerationSync = () => {
 
   useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled()) return;
-    void syncActive().catch(console.error);
-  }, [sessionId, syncActive, topicId, userId, activeThreadId, portalThreadId, resumeNonce]);
+    const previous = navigationRef.current;
+    let reason: 'initial' | 'session_change' | 'thread_change' | 'topic_change' | 'visibility' =
+      'initial';
+    if (previous) {
+      if (previous.userId !== userId) reason = 'initial';
+      else if (previous.sessionId !== sessionId) reason = 'session_change';
+      else if (previous.topicId !== topicId) reason = 'topic_change';
+      else if (previous.threadId !== activeThreadId || previous.portalThreadId !== portalThreadId) {
+        reason = 'thread_change';
+      } else {
+        reason = 'visibility';
+      }
+
+      if (
+        previous.sessionId &&
+        (reason === 'session_change' || reason === 'topic_change' || reason === 'thread_change')
+      ) {
+        notifyDeferredLanesLeft({
+          sessionId: previous.sessionId,
+          threadId: reason === 'thread_change' ? previous.threadId : undefined,
+          topicId: previous.topicId,
+          type: 'navigation',
+        });
+      }
+    }
+    navigationRef.current = {
+      portalThreadId,
+      sessionId,
+      threadId: activeThreadId,
+      topicId,
+      userId,
+    };
+    void syncActive({ reason }).catch(console.error);
+  }, [
+    activeThreadId,
+    notifyDeferredLanesLeft,
+    portalThreadId,
+    resumeNonce,
+    sessionId,
+    syncActive,
+    topicId,
+    userId,
+  ]);
 
   useEffect(() => {
     if (!isClientDurableConversationGenerationEnabled() || !userId) return;

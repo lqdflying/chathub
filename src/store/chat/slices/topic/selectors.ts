@@ -1,6 +1,7 @@
 import { t } from 'i18next';
 
 import { LOADING_FLAT } from '@/const/message';
+import type { TopicBusyFlags } from '@/libs/logger/generationDebugClient';
 import { ChatTopic, ChatTopicSummary, GroupedTopic } from '@/types/topic';
 import { getTopicActivityTimestamp, groupTopicsByTime } from '@/utils/client/topic';
 
@@ -103,6 +104,41 @@ const isDeferredBrowserTopicBusy = (
   });
 };
 
+const topicHasMessageIn = (s: ChatStoreState, mapKey: string, ids: readonly string[]): boolean => {
+  if (ids.length === 0) return false;
+  const idSet = new Set(ids);
+  return (s.messagesMap[mapKey] || []).some((message) => idSet.has(message.id));
+};
+
+const topicBusyFlags =
+  (topicId?: string | null) =>
+  (s: ChatStoreState): TopicBusyFlags => {
+    const resolvedTopicId = topicId ?? null;
+    const mapKey = messageMapKey(s.activeId, resolvedTopicId);
+    const lanePrefix = `${mapKey}:`;
+
+    return {
+      deferredLane: isDeferredBrowserTopicBusy(s, resolvedTopicId, mapKey),
+      durableJob: Object.keys(s.serverGenerationOperations[mapKey] || {}).length > 0,
+      producing:
+        Object.values(s.chatLoadingLaneByMessageId || {}).some((laneKey) =>
+          laneKey.startsWith(lanePrefix),
+        ) ||
+        topicHasMessageIn(s, mapKey, [
+          ...(s.chatLoadingIds || []),
+          ...(s.reasoningLoadingIds || []),
+          ...(s.messageRAGLoadingIds || []),
+        ]),
+      sendRpc: Boolean(s.mainSendMessageOperations[mapKey]?.isLoading),
+      tools: topicHasMessageIn(s, mapKey, [
+        ...(s.pluginApiLoadingIds || []),
+        ...(s.messageInToolsCallingIds || []),
+        ...(s.searchWorkflowLoadingIds || []),
+      ]),
+      topicCrud: Boolean(resolvedTopicId && s.topicLoadingIds.includes(resolvedTopicId)),
+    };
+  };
+
 /**
  * True while this topic still has in-flight work: CRUD, a durable server job,
  * browser-fallback generation, tool/plugin calls, or a leftover loading
@@ -111,36 +147,15 @@ const isDeferredBrowserTopicBusy = (
 const isTopicLoading =
   (topicId?: string | null) =>
   (s: ChatStoreState): boolean => {
-    const resolvedTopicId = topicId ?? null;
-    if (resolvedTopicId && s.topicLoadingIds.includes(resolvedTopicId)) return true;
-
-    const mapKey = messageMapKey(s.activeId, resolvedTopicId);
-    const operations = s.serverGenerationOperations[mapKey];
-    if (Object.keys(operations || {}).length > 0) return true;
-    if (s.mainSendMessageOperations[mapKey]?.isLoading) return true;
-
-    const lanePrefix = `${mapKey}:`;
-    if (
-      Object.values(s.chatLoadingLaneByMessageId || {}).some((laneKey) =>
-        laneKey.startsWith(lanePrefix),
-      )
-    ) {
-      return true;
-    }
-
-    if (isDeferredBrowserTopicBusy(s, resolvedTopicId, mapKey)) return true;
-
-    const loadingIds = new Set([
-      ...(s.chatLoadingIds || []),
-      ...(s.pluginApiLoadingIds || []),
-      ...(s.messageInToolsCallingIds || []),
-      ...(s.reasoningLoadingIds || []),
-      ...(s.messageRAGLoadingIds || []),
-      ...(s.searchWorkflowLoadingIds || []),
-    ]);
-    if (loadingIds.size === 0) return false;
-
-    return (s.messagesMap[mapKey] || []).some((message) => loadingIds.has(message.id));
+    const flags = topicBusyFlags(topicId)(s);
+    return (
+      flags.topicCrud ||
+      flags.durableJob ||
+      flags.sendRpc ||
+      flags.producing ||
+      flags.deferredLane ||
+      flags.tools
+    );
   };
 
 const groupedTopicsSelector = (s: ChatStoreState): GroupedTopic[] => {
@@ -177,4 +192,7 @@ export const topicSelectors = {
   isTopicLoading,
   isUndefinedTopics,
   searchTopics,
+  topicBusyFlags,
 };
+
+export type { TopicBusyFlags };

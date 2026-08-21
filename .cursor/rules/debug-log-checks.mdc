@@ -152,13 +152,38 @@ Generation debug (durable send path):
   parentUserHash=tostring(payload.parentUserHash),
   lastTranscriptUserHash=tostring(payload.lastTranscriptUserHash),
   toolName=tostring(payload.toolName),
+  topicHash=tostring(payload.topicHash),
+  stillCurrent=tobool(payload.stillCurrent),
+  producerAlive=tobool(payload.producerAlive),
+  deferredLaneCount=tolong(payload.deferredLaneCount),
+  resumedTools=tobool(payload.resumedTools),
   transcriptCount=tolong(payload.transcriptCount),
   omitSessionFilter=tobool(payload.omitSessionFilter),
   persistedSessionNull=tobool(payload.persistedSessionNull)
 | project _time, spanId, side, debug_event, kind, outcome, reason, trpcCode,
   errorClass, jobAdded, operationHash, queueAgeMs, deliveredCount, eventType,
-  parentUserHash, lastTranscriptUserHash, toolName, transcriptCount,
+  parentUserHash, lastTranscriptUserHash, toolName, topicHash, stillCurrent,
+  producerAlive, deferredLaneCount, resumedTools, transcriptCount,
   omitSessionFilter, persistedSessionNull
+| sort by _time asc
+```
+
+Leave/return for one hashed topic (browser-fallback background turn):
+
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-generation-debug'
+  and ['debug_event'] in ('deferred_lane_marked', 'deferred_lane_left',
+                          'deferred_lane_resumed', 'deferred_lane_aborted',
+                          'deferred_placeholder_finalized', 'sync_summary',
+                          'topic_busy_changed', 'builtin_tool_settled',
+                          'send_rpc_settled', 'browser_path_started')
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend spanId=tostring(payload.spanId), topicHash=tostring(payload.topicHash),
+  outcome=tostring(payload.outcome), reason=tostring(payload.reason),
+  eventType=tostring(payload.type), producerAlive=tobool(payload.producerAlive),
+  stillCurrent=tobool(payload.stillCurrent)
+| project _time, debug_event, spanId, topicHash, outcome, reason, eventType,
+  producerAlive, stillCurrent
 | sort by _time asc
 ```
 
@@ -206,7 +231,17 @@ Generation-debug semantics:
   work must pair with server `enqueue_rejected` on the same `spanId`.
   `reason=unsupported_tool` includes `toolName`; `reason=fetch_on_client` is a
   missing server-reachable credential. Absence of that pair means the
-  send-path drop was silent.
+  send-path drop was silent. `stillCurrent=false` / `topicChangedDuringRpc=true`
+  means the user left during the send RPC (the known marker-not-created-yet
+  race when `deferred_lane_marked` is also missing).
+- A browser-fallback send that durable enqueue rejected must show
+  `send_rpc_settled(hasOperationId=false, deferReason=…)` plus client
+  `deferred_lane_marked` with the same `spanId`. After the user leaves that
+  topic, `deferred_lane_left(producerAlive=true)` should appear; after they
+  return, `deferred_lane_resumed` then either `resume_tools` or
+  `deferred_placeholder_finalized`. `sync_summary.reason` names why sync ran
+  (`topic_change` / `visibility` / …). `topic_busy_changed(outcome=busy)`
+  should bracket the topic-list spinner for that hashed topic.
 - `enqueue_persisted(jobAdded=false)` does not occur on the transactional send
   path (a failed SQL add rolls the enqueue back); the false path lives in
   `sweep_reenqueued`, where it means an operation row exists but no Graphile
@@ -247,10 +282,10 @@ Generation-debug semantics:
 - `execute_settled` is terminal only; retries do not emit it.
 - `regenerate_early_return` names the guard that made Regenerate a no-op
   (`reason=noAnchor|retrying|notCurrent`).
-- `sync_summary` reports per-sync counts; `orphan_deleted` records the cleanup
-  of stale `...` placeholder rows. A browser-fallback send that durable enqueue
-  rejected must show `send_rpc_settled(hasOperationId=false, deferReason=…)`
-  plus client `deferred_lane_marked`. After the user returns to the topic,
+- `sync_summary` reports per-sync counts plus `reason` (`topic_change` /
+  `visibility` / …), `deferredLaneCount`, and `resumedTools`. `orphan_deleted`
+  records the cleanup of stale `...` placeholder rows. Join leave/return with
+  `deferred_lane_*` on the same `spanId` as `send_rpc_settled`.
   `deferred_placeholder_finalized` means persist already wrote content and
   sync cleared the deferred marker. It must not fire for leftover
   `LOADING_FLAT` rows.
@@ -280,11 +315,12 @@ Tool batch outcomes:
 | extend batchId=tostring(payload.batchId),
   continuationId=tostring(payload.continuationId),
   diagnosticId=tostring(payload.diagnosticId),
+  generationSpanId=tostring(payload.generationSpanId),
   runtimeType=tostring(payload.runtimeType), outcome=tostring(payload.outcome),
   toolCallCount=tolong(payload.toolCallCount), resultCount=tolong(payload.resultCount),
   failureCount=tolong(payload.failureCount)
-| project _time, debug_event, batchId, continuationId, diagnosticId, runtimeType,
-  outcome, toolCallCount, resultCount, failureCount
+| project _time, debug_event, batchId, continuationId, diagnosticId, generationSpanId,
+  runtimeType, outcome, toolCallCount, resultCount, failureCount
 | sort by _time desc | take 50
 ```
 

@@ -470,12 +470,17 @@ actually added for an operation row. `CHATHUB_GENERATION_DEBUG` closes that gap.
 - Correlation: each send/regenerate creates a client `spanId` (`gd_...`),
   carried as `generation.debugSpanId` through `AiSendMessageServerSchema` /
   `ConversationGenerationEnqueueSchema` into the server enqueue events.
+  Browser-fallback deferrals store that same `spanId` on
+  `deferredBrowserGenerationLanes` so `deferred_lane_*`, `topic_busy_changed`,
+  `builtin_tool_settled`, and client `tool_batch_*` (`generationSpanId`) can
+  join one leave/return turn. Identifiers are `sessionHash` / `topicHash` /
+  `threadHash` / `messageHash` (sha256-16); raw ids never appear.
 
 Event coverage:
 
 | Layer  | Events                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Client | `send_started`, `send_rpc_settled`, `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started`, `exec_runtime_settled`, `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `sync_summary`, `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
+  | Client | `send_started`, `send_rpc_settled` (`stillCurrent`, `topicChangedDuringRpc`), `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started` (`skipped`/`reason=notCurrent` when the send RPC returned after the user left and there was no deferral), `exec_runtime_settled` (`stillCurrent`), `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `deferred_lane_marked`, `deferred_lane_left` (`type=navigation\|visibility`, `producerAlive`), `deferred_lane_resumed` (`outcome=resume_tools\|finalize\|still_producing\|loading_flat`), `deferred_lane_aborted` (`type=stop\|topic_delete\|clear`), `deferred_placeholder_finalized`, `topic_busy_changed` (idle→busy / busy→idle only), `builtin_tool_settled` (code interpreter), `sync_summary` (`reason` trigger, `deferredLaneCount`, `resumedTools`), `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
 | Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled`               |
 
 Semantics that matter when reading the stream:
@@ -520,6 +525,27 @@ Semantics that matter when reading the stream:
   `workerJobId` or stale-heartbeat recovery).
 - `execute_settled` is terminal only (`succeeded` / `cancelled` / `failed` /
   `interrupted`); retries do not emit it.
+- Claude-like leave/return (browser-fallback turns): `deferred_lane_marked`
+  when durable enqueue is rejected for a browser-only tool; `deferred_lane_left`
+  when the user switches topic/session/thread or hides the tab while that
+  marker exists (`producerAlive` says whether the tab is still generating);
+  `deferred_lane_resumed` when they return (`resume_tools` / `finalize` /
+  `still_producing` / `loading_flat`); `deferred_lane_aborted` for Stop /
+  topic delete / clear. `sync_summary.reason` is
+  `initial` / `topic_change` / `session_change` / `thread_change` /
+  `visibility`. A healthy off-screen browser turn is
+  `send_rpc_settled(deferReason=unsupported_tool)` → `deferred_lane_marked` →
+  `deferred_lane_left(producerAlive=true)` → `deferred_lane_resumed` →
+  `deferred_placeholder_finalized` or `resume_tools`.
+  `send_rpc_settled(stillCurrent=false, topicChangedDuringRpc=true)` without
+  a later `deferred_lane_marked` is the known send-RPC race.
+- `topic_busy_changed` is transition-only (the topic-list spinner). Initial
+  idle mounts are silent. Boolean flags: `sendRpc`, `durableJob`,
+  `deferredLane`, `producing`, `tools`, `topicCrud`.
+- `builtin_tool_settled` is generation-debug (not tools-debug) so a Pyodide
+  CORS/`AbortError` on a deferred lane is visible when only
+  `CHATHUB_GENERATION_DEBUG` is on. `outcome=error` means `success: false`
+  from the interpreter; `outcome=failed` is a JS throw (`errorClass`).
 - Sanitization is identical to tools debug: free-form strings are fingerprinted
   (`{hash,length,type}`), safe labels/identifiers pass through, secret-keyed
   fields are dropped, records are capped at 16 KiB. Message content never

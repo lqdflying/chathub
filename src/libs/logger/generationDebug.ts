@@ -24,7 +24,11 @@ const GENERATION_DEBUG_MAX_RECORD_BYTES = 16 * 1024;
 
 export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'browser_path_started',
+  'builtin_tool_settled',
+  'deferred_lane_aborted',
+  'deferred_lane_left',
   'deferred_lane_marked',
+  'deferred_lane_resumed',
   'deferred_placeholder_finalized',
   'durable_attach',
   'durable_attach_skipped',
@@ -45,6 +49,7 @@ export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'sse_client_stream_ended',
   'sse_client_stream_failed',
   'sync_summary',
+  'topic_busy_changed',
 ] as const;
 
 export type GenerationDebugEvent =

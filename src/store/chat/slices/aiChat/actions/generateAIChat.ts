@@ -33,6 +33,7 @@ import { isModelNativeSearchDisabledProvider } from '@/helpers/modelNativeSearch
 import {
   createGenerationDebugSpanId,
   hashGenerationDebugClientValue,
+  logDeferredGenerationLane,
   logGenerationDebugClientSafe,
 } from '@/libs/logger/generationDebugClient';
 import { chatService } from '@/services/chat';
@@ -74,7 +75,11 @@ import {
   trackDurableEnqueue,
   untrackDurableEnqueue,
 } from '@/store/chat/utils/conversationClearGeneration';
-import { deferredBrowserGenerationLaneKey } from '@/store/chat/utils/deferredBrowserGeneration';
+import {
+  deferredBrowserGenerationLaneKey,
+  deferredBrowserGenerationLaneKeysForTopic,
+  isDeferredLaneProducerAlive,
+} from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getFileStoreState } from '@/store/file/store';
 import { globalHelpers } from '@/store/global/helpers';
@@ -377,6 +382,31 @@ export const generateAIChat: StateCreator<
 
     await get().stopDurableConversationGeneration(options);
 
+    const deferredKeys = isThreadScopedStop
+      ? [
+          laneScopedClearKey(activeId, activeTopicId, threadId),
+        ].filter((key) => get().deferredBrowserGenerationLanes[key])
+      : deferredBrowserGenerationLaneKeysForTopic(
+          get().deferredBrowserGenerationLanes,
+          activeId,
+          activeTopicId,
+        );
+    for (const key of deferredKeys) {
+      const lane = get().deferredBrowserGenerationLanes[key];
+      if (!lane) continue;
+      void logDeferredGenerationLane('deferred_lane_aborted', {
+        assistantMessageId: lane.assistantMessageId,
+        producerAlive: isDeferredLaneProducerAlive(get(), lane.assistantMessageId),
+        reason: lane.reason,
+        sessionId: activeId,
+        spanId: lane.spanId,
+        threadId: lane.threadId,
+        toolName: lane.toolName,
+        topicId: activeTopicId,
+        type: 'stop',
+      });
+    }
+
     const laneKey = laneScopedClearKey(activeId, activeTopicId, threadId);
     const laneController = get().chatLoadingAbortControllersByLane[laneKey];
     if (laneController) {
@@ -472,6 +502,7 @@ export const generateAIChat: StateCreator<
     });
 
     let pendingDeferral: ConversationGenerationDeferred | undefined;
+    const debugSpanId = createGenerationDebugSpanId();
 
     if (isClientDurableConversationGenerationEnabled() && model && provider) {
       const enqueueIdempotencyKey = conversationGenerationIdempotencyKey(
@@ -518,6 +549,7 @@ export const generateAIChat: StateCreator<
           }),
           conversationVersion: expectedConversationVersion,
           expectedConversationVersion,
+          debugSpanId,
           idempotencyKey: enqueueIdempotencyKey,
           kind: params?.isToolContinuation ? 'continue' : 'chat',
           parentMessageId: userMessageId,
@@ -715,6 +747,7 @@ export const generateAIChat: StateCreator<
         assistantMessageId: assistantId,
         reason: pendingDeferral.reason,
         sessionId: conversationContext.sessionId,
+        spanId: debugSpanId,
         threadId: conversationContext.threadId,
         toolName: pendingDeferral.toolName,
         topicId: conversationContext.topicId,

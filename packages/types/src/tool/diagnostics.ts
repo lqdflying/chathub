@@ -8,6 +8,7 @@ export interface ToolCallSetCorrelation {
   batchId?: string;
   continuationId?: string;
   failureCount?: number;
+  generationSpanId?: string;
   resultCount?: number;
   toolCallCount: number;
   toolCallSetHash: string;

@@ -10,6 +10,8 @@ import type {
 export interface DeferredBrowserGenerationLane {
   assistantMessageId: string;
   reason: ConversationGenerationDeferReason;
+  /** Client generation-debug span (`gd_…`) for leave/return/tool join. */
+  spanId?: string;
   threadId?: string | null;
   toolName?: string;
 }

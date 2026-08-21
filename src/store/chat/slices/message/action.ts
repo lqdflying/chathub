@@ -426,6 +426,7 @@ export const chatMessage: StateCreator<
       sessionId: activeId,
       topicId: activeTopicId,
     });
+    get().internal_abortDeferredBrowserLanesForTopic(activeId, activeTopicId, 'clear');
 
     // Check if this is a group session - use activeSessionType if available, otherwise check session store
     let isGroupSession = activeSessionType === 'group';

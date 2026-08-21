@@ -17,7 +17,11 @@
 
 export type GenerationDebugClientEvent =
   | 'browser_path_started'
+  | 'builtin_tool_settled'
+  | 'deferred_lane_aborted'
+  | 'deferred_lane_left'
   | 'deferred_lane_marked'
+  | 'deferred_lane_resumed'
   | 'deferred_placeholder_finalized'
   | 'durable_attach'
   | 'durable_attach_skipped'
@@ -37,7 +41,17 @@ export type GenerationDebugClientEvent =
   | 'sse_client_reset_replay'
   | 'sse_client_stream_ended'
   | 'sse_client_stream_failed'
-  | 'sync_summary';
+  | 'sync_summary'
+  | 'topic_busy_changed';
+
+export type TopicBusyFlags = {
+  deferredLane: boolean;
+  durableJob: boolean;
+  producing: boolean;
+  sendRpc: boolean;
+  tools: boolean;
+  topicCrud: boolean;
+};
 
 const CLIENT_DEBUG_STORAGE_KEY = 'chathub.generationDebug';
 const CLIENT_DEBUG_MAX_EVENTS_PER_FLUSH = 20;
@@ -195,5 +209,93 @@ export const logGenerationDebugClientSafe = (
     }
   } catch {
     // Diagnostics must never interrupt the send path.
+  }
+};
+
+export type DeferredGenerationLaneDebugEvent =
+  | 'builtin_tool_settled'
+  | 'deferred_lane_aborted'
+  | 'deferred_lane_left'
+  | 'deferred_lane_marked'
+  | 'deferred_lane_resumed'
+  | 'deferred_placeholder_finalized';
+
+const hashOptionalDebugValue = async (value?: string | null): Promise<string | undefined> => {
+  if (!value) return undefined;
+  return hashGenerationDebugClientValue(value);
+};
+
+/**
+ * Hashes identifiers then emits a deferred-lane lifecycle record. Callers must
+ * not pass raw session/topic/message ids in `fields`.
+ */
+export const logDeferredGenerationLane = async (
+  event: DeferredGenerationLaneDebugEvent,
+  input: {
+    assistantMessageId: string;
+    sessionId?: string | null;
+    spanId?: string;
+    threadId?: string | null;
+    topicId?: string | null;
+  } & Record<string, unknown>,
+) => {
+  try {
+    const { assistantMessageId, sessionId, threadId, topicId, ...fields } = input;
+    const [messageHash, sessionHash, topicHash, threadHash] = await Promise.all([
+      hashGenerationDebugClientValue(assistantMessageId),
+      hashOptionalDebugValue(sessionId),
+      hashOptionalDebugValue(topicId),
+      hashOptionalDebugValue(threadId),
+    ]);
+    logGenerationDebugClientSafe(event, {
+      ...fields,
+      messageHash,
+      sessionHash,
+      threadHash,
+      topicHash,
+    });
+  } catch {
+    // Diagnostics must never interrupt the send path.
+  }
+};
+
+const lastTopicBusy = new Map<string, boolean>();
+
+/** Test-only: drop remembered topic busy/idle transitions. */
+export const resetTopicBusyDebugState = () => {
+  lastTopicBusy.clear();
+};
+
+/**
+ * Emit `topic_busy_changed` only when the topic list spinner would start or
+ * stop. Initial idle observations are silent so mounting the list does not
+ * flood Axiom.
+ */
+export const reportTopicBusyChanged = (
+  topicId: string | null | undefined,
+  busy: boolean,
+  flags: TopicBusyFlags,
+) => {
+  try {
+    const key = topicId ?? '__default__';
+    const previous = lastTopicBusy.get(key);
+    if (previous === undefined) {
+      lastTopicBusy.set(key, busy);
+      if (!busy) return;
+    } else if (previous === busy) {
+      return;
+    } else {
+      lastTopicBusy.set(key, busy);
+    }
+
+    void hashOptionalDebugValue(topicId).then((topicHash) => {
+      logGenerationDebugClientSafe('topic_busy_changed', {
+        ...flags,
+        outcome: busy ? 'busy' : 'idle',
+        topicHash,
+      });
+    });
+  } catch {
+    // Diagnostics must never interrupt the topic list.
   }
 };
