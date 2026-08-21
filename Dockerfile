@@ -122,7 +122,6 @@ COPY packages/model-bank/package.json         packages/model-bank/
 COPY packages/model-runtime/package.json      packages/model-runtime/
 COPY packages/obervability-otel/package.json  packages/obervability-otel/
 COPY packages/prompts/package.json            packages/prompts/
-COPY packages/python-interpreter/package.json packages/python-interpreter/
 COPY packages/ssrf-safe-fetch/package.json    packages/ssrf-safe-fetch/
 COPY packages/types/package.json              packages/types/
 COPY packages/utils/package.json              packages/utils/

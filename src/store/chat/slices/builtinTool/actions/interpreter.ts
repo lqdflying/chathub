@@ -9,14 +9,13 @@ import { SWRResponse } from 'swr';
 import { StateCreator } from 'zustand/vanilla';
 
 import { useClientDataSWR } from '@/libs/swr';
+import { lambdaClient } from '@/libs/trpc/client';
 import { fileService } from '@/services/file';
-import { pythonService } from '@/services/python';
 import { chatSelectors } from '@/store/chat/selectors';
 import { ChatStore } from '@/store/chat/store';
 import { useFileStore } from '@/store/file';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/selectors';
-import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 import { setNamespace } from '@/utils/storeDebug';
 
 import { serializePluginError } from './helpers';
@@ -60,78 +59,25 @@ export const codeInterpreterSlice: StateCreator<
     get().toggleInterpreterExecuting(id, true);
 
     try {
-      // Gather any files the conversation produced so the code can read them.
-      // Done INSIDE the try so a failed fetch / malformed content can't leave the
-      // executing flag stuck; individual failures are skipped, not fatal.
-      // TODO: only load the files the AI actually references.
-      const files: File[] = [];
-      const pushFromUrl = async (url: string, name: string) => {
-        try {
-          const res = await fetch(url);
-          // skip a 404/expired URL instead of saving the error page as an input
-          if (!res.ok) return;
-          files.push(new File([await res.blob()], name));
-        } catch {
-          // skip a file that can't be fetched
-        }
-      };
-      for (const message of chatSelectors.mainDisplayChats(get())) {
-        for (const file of message.fileList ?? []) await pushFromUrl(file.url, file.name);
-        for (const image of message.imageList ?? []) await pushFromUrl(image.url, image.alt);
-        for (const tool of message.tools ?? []) {
-          if (tool.identifier !== CodeInterpreterIdentifier) continue;
-          const toolMessage = chatSelectors.getMessageByToolCallId(tool.id)(get());
-          if (!toolMessage?.content) continue;
-          let priorFiles: CodeInterpreterResponse['files'];
-          try {
-            priorFiles = (JSON.parse(toolMessage.content) as CodeInterpreterResponse).files;
-          } catch {
-            continue; // skip a tool message with malformed content
-          }
-          for (const file of priorFiles ?? []) {
-            if (!file.fileId) continue;
-            // per-file so one stale/deleted id can't suppress the later valid files
-            try {
-              const item = await fileService.getFile(file.fileId);
-              await pushFromUrl(item.url, file.filename);
-            } catch {
-              // skip a stale/deleted file
-            }
-          }
-        }
-      }
-
+      const message = chatSelectors.getMessageById(id)(get());
       if (!invocationIsCurrent()) {
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
-      const result = await pythonService.runPython(params.code, params.packages, files);
+      const result = await lambdaClient.codeInterpreter.run.mutate({
+        code: params.code,
+        groupId: message?.groupId,
+        packages: params.packages,
+        sessionId: message?.sessionId ?? get().activeId,
+        topicId: message?.topicId ?? get().activeTopicId,
+      });
       if (!invocationIsCurrent()) {
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
-      if (result?.files) {
-        // don't persist the raw File objects (they serialize to `{}`); keep the
-        // blob previewUrl only for this session's immediate display, then
-        // uploadInterpreterFiles swaps in a durable fileId
-        const persistable = {
-          ...result,
-          files: result.files.map((file) => ({ ...file, data: undefined })),
-        };
-        await get().internal_updateMessageContent(id, JSON.stringify(persistable));
-        if (!invocationIsCurrent()) {
-          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-        }
-
-        await get().uploadInterpreterFiles(id, result.files, invocationGeneration);
-        if (!invocationIsCurrent()) {
-          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-        }
-      } else {
-        await get().internal_updateMessageContent(id, JSON.stringify(result));
-        if (!invocationIsCurrent()) {
-          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-        }
+      await get().internal_updateMessageContent(id, JSON.stringify(result));
+      if (!invocationIsCurrent()) {
+        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
       return {
@@ -144,8 +90,6 @@ export const codeInterpreterSlice: StateCreator<
         return { data: undefined, outcome: 'cancelled', shouldContinue: false };
       }
 
-      // plain object, not the Error instance — an Error loses `message` on the
-      // jsonb write (non-enumerable) and the UI would only see `{name}`
       const serializedError = serializePluginError(error);
       await get().updatePluginState(id, { error: serializedError });
 
@@ -209,7 +153,6 @@ export const codeInterpreterSlice: StateCreator<
         }
       } catch (error) {
         console.error('Failed to upload CodeInterpreter file:', error);
-        // clear the dead blob previewUrl so a reload doesn't show a broken image
         if (invocationIsCurrent()) {
           await get().updateInterpreterFileItem(id, (draft) => {
             if (draft.files?.[index]) draft.files[index].previewUrl = undefined;

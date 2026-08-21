@@ -1,4 +1,13 @@
-import { PythonResult } from '@lobechat/python-interpreter';
+export interface PythonOutput {
+  data: string;
+  type: 'stdout' | 'stderr';
+}
+
+export interface PythonResult {
+  output?: PythonOutput[];
+  result?: string;
+  success: boolean;
+}
 
 export interface CodeInterpreterParams {
   code: string;

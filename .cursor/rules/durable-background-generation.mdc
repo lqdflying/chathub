@@ -27,8 +27,9 @@ the user message, mark `deferredBrowserGenerationLanes`, run
 `internal_execAgentRuntime` in the tab.
 
 **Do not** add Code Interpreter to the enqueue defer list just because it is
-enabled. Treat it like Artifacts at enqueue; the worker stubs a failed tool
-result with `shouldContinue: true` if the model actually calls it.
+enabled. Treat it like Artifacts at enqueue; Graphile runs Python on the
+DifySandbox sidecar (`shouldContinue: true` even on `not_configured` or
+program errors). DALL·E stays stubbed with `shouldContinue: false`.
 
 ## Leave is not Stop
 

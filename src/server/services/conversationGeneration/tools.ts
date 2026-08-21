@@ -20,6 +20,7 @@ import {
   updateFixedMemoryEntry,
 } from '@/helpers/assistantMemory';
 import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
+import { runCodeInterpreter } from '@/server/services/codeInterpreter';
 import { mcpService } from '@/server/services/mcp';
 import { McpOAuthService } from '@/server/services/mcp/oauth';
 import { SearchService } from '@/server/services/search';
@@ -275,9 +276,9 @@ const invokeMemoryTool = async ({
 
 export const invokeConversationTool = async ({
   assistantMessage,
-  attempt,
   db,
   inputHash,
+  operationId,
   payload,
   userId,
 }: {
@@ -285,6 +286,7 @@ export const invokeConversationTool = async ({
   attempt: number;
   db: LobeChatDatabase;
   inputHash: string;
+  operationId?: string;
   payload: ChatToolPayload;
   userId: string;
 }): Promise<ConversationToolInvocationResult> => {
@@ -333,13 +335,24 @@ export const invokeConversationTool = async ({
   }
 
   if (identifier === CodeInterpreterIdentifier) {
+    const packages = Array.isArray(args.packages)
+      ? args.packages.filter((item: unknown): item is string => typeof item === 'string')
+      : [];
+    const result = await runCodeInterpreter({
+      code: typeof args.code === 'string' ? args.code : '',
+      db,
+      groupId: assistantMessage.groupId,
+      operationHash: operationId ? hashGenerationDebugValue(operationId) : undefined,
+      packages,
+      sessionId: assistantMessage.sessionId,
+      topicId: assistantMessage.topicId,
+      userId,
+    });
     return {
-      content: JSON.stringify({
-        error: 'Code Interpreter requires a connected browser for this conversation.',
-      }),
+      content: JSON.stringify(result),
       inputHash,
       shouldContinue: true,
-      success: false,
+      success: result.success !== false,
     };
   }
 
@@ -571,13 +584,11 @@ export const executeConversationToolStep = async ({
               attempt,
               db: database as LobeChatDatabase,
               inputHash,
+              operationId,
               payload,
               userId,
             });
-      if (
-        payload.identifier === CodeInterpreterIdentifier ||
-        payload.identifier === DalleManifest.identifier
-      ) {
+      if (payload.identifier === DalleManifest.identifier) {
         logGenerationDebugSafe('browser_tool_stubbed', {
           operationHash: hashGenerationDebugValue(operationId),
           shouldContinue: result.shouldContinue,
@@ -637,7 +648,7 @@ export const findUnsupportedConversationTool = async ({
     // the tagged model output. They do not need a browser runtime.
     if (builtin && (builtin.manifest.api?.length ?? 0) === 0) continue;
     // Code Interpreter is often always-on. Presence must not defer the whole
-    // turn: the worker stubs it at invoke time (`shouldContinue: true`).
+    // turn: Graphile runs it on the DifySandbox sidecar at invoke time.
     if (identifier === CodeInterpreterIdentifier) continue;
     if (identifier === DalleManifest.identifier) {
       return {

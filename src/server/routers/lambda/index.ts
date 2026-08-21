@@ -9,6 +9,7 @@ import { aiModelRouter } from './aiModel';
 import { aiProviderRouter } from './aiProvider';
 import { apiKeyRouter } from './apiKey';
 import { chunkRouter } from './chunk';
+import { codeInterpreterRouter } from './codeInterpreter';
 import { comfyuiRouter } from './comfyui';
 import { configRouter } from './config';
 import { conversationGenerationRouter } from './conversationGeneration';
@@ -42,6 +43,7 @@ export const lambdaRouter = router({
   aiProvider: aiProviderRouter,
   apiKey: apiKeyRouter,
   chunk: chunkRouter,
+  codeInterpreter: codeInterpreterRouter,
   comfyui: comfyuiRouter,
   config: configRouter,
   conversationGeneration: conversationGenerationRouter,

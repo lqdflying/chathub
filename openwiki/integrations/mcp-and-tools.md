@@ -307,51 +307,31 @@ For built-in Tools Hub features, also check:
 
 ## Code Interpreter runtime
 
-The `lobe-code-interpreter` builtin runs Python **client-side** via Pyodide in a
-Web Worker (`packages/python-interpreter`); there is no server execution path.
+The `lobe-code-interpreter` builtin runs Python on a **DifySandbox sibling**
+over HTTP (`langgenius/dify-sandbox:0.2.15`). The ChatHub image is distroless
+and has no CPython. User-facing setup:
+[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
 
-- **Lifecycle** — `src/services/python.ts` owns a single worker. Runs are
-  **serialized** onto it (a promise-chain queue) so concurrent tool calls can't
-  race the shared Pyodide global. Each run is raced against a 60s timeout; on
-  timeout or an infrastructure error the worker is **terminated** and dropped so
-  the next run recreates a fresh one (a runaway `while True` can't poison later
-  runs). `createPythonWorker()` returns `{ RemoteInterpreter, worker }` so the
-  service controls that lifecycle.
-- **Output bounds** — the worker caps total stdout/stderr and the return value
-  before the result crosses Comlink and is persisted, with truncation markers; the
-  renderer cap is defense-in-depth.
-- **Package preparation order** — `prepareEnvironment(code, packages)` (worker)
-  runs BEFORE upload/exec, in ONE conditional sequence:
-  1. **Direct references** (`pkg @ https://…`) are partitioned out and
-     installed FIRST via micropip with `reinstall=True` — micropip's default
-     `reinstall=False` would silently keep an already-present copy, and the
-     import auto-loader in step 2 would otherwise install a distribution copy
-     for the matching import name. The Python filter in step 3 additionally
-     treats `req.url` as unsatisfied by definition, as defense in depth.
-  2. `loadPackagesFromImports(code)` loads the code's imports from the
-     configured Pyodide distribution at lockfile-compatible versions (normally
-     fetched lazily from the CDN index and browser-cacheable — "available at a
-     compatible version", not preinstalled or inherently offline).
-  3. Ordinary name/specifier requirements: any requested name present in
-     `pyodide.lockfile.packages` loads from the distribution, then a
-     Python-side check (`packaging.Requirement` + `importlib.metadata`) drops
-     requirements the installed environment already satisfies — only the
-     unsatisfied remainder reaches `micropip.install`.
-     "Bundled-first" applies to step 3's ordinary requirements only. The overall
-     invariant: micropip must never resolve an unpinned name Pyodide bundles
-     (e.g. `jsonschema` → PyPI latest → native `rpds-py>=0.25` with no wasm
-     wheel), and a requested direct artifact must never lose to a distribution
-     copy. A "Can't find a pure Python 3 wheel" failure is wrapped in an explicit
-     Pyodide-compatibility error; the tool's systemRole/param description steer
-     the model away from listing or pinning bundled packages.
-- **Persistence & files** — result `File` objects and blob URLs are not persisted;
-  generated files are uploaded and the message keeps a durable `fileId` (blob
-  previews are revoked on unmount, cleared on upload failure). Conversation input
-  files loaded into the sandbox are fetched per file (a stale id or non-OK
-  response is skipped, not fatal) and written under `/mnt/data` by a sanitized
-  basename (no path traversal). The runtime is `sandbox="allow-scripts"` only
-  (opaque origin); a storage shim keeps CDN-loaded libraries from crashing on
-  `localStorage` access.
+- **Contract** — `POST /v1/sandbox/run` with `X-Api-Key`, body
+  `{ language: "python3", code, preload, enable_network }`. HTTP 200 + envelope
+  `code === 0` is transport OK; `data.error` is an execution failure. Isolation
+  is seccomp + chroot. There is no file-upload API.
+- **ChatHub client** — `src/server/services/codeInterpreter/` wraps user code
+  (files under `/mnt/data`, `MPLBACKEND=Agg`, sentinel + base64 outputs),
+  gathers conversation files from Postgres, and uploads results with the server
+  file service. Graphile `invokeConversationTool` and leftover client
+  `interpreter.ts` both call `runCodeInterpreter` (the client via tRPC
+  `codeInterpreter.run`).
+- **Enqueue** — Code Interpreter stays off the defer list. Presence must not
+  force the whole turn onto the tab. Unset `CODE_INTERPRETER_SANDBOX_URL`
+  returns `not_configured` (`shouldContinue: true`). There is no Pyodide
+  fallback.
+- **Packages** — operator-installed via the sandbox `/dependencies` volume /
+  dependencies update API. The tool `packages` argument is counted for debug
+  only.
+- **Debug** — `sandbox_run_started` / `sandbox_run_settled` on
+  `CHATHUB_GENERATION_DEBUG`. Never log code, stdout, or filenames.
+  `browser_tool_stubbed` is DALL·E only.
 
 MCP HTTP tools invoked during durable conversation generation run inside
 Graphile Worker via `src/server/services/conversationGeneration/tools.ts`,

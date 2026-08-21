@@ -33,6 +33,7 @@ const searchMocks = vi.hoisted(() => ({
 const pluginMocks = vi.hoisted(() => ({ findById: vi.fn() }));
 const skillMocks = vi.hoisted(() => ({ findById: vi.fn() }));
 const mcpMocks = vi.hoisted(() => ({ callTool: vi.fn() }));
+const codeInterpreterMocks = vi.hoisted(() => ({ runCodeInterpreter: vi.fn() }));
 
 vi.mock('@/database/models/conversationGeneration', () => ({
   ConversationGenerationModel: class {
@@ -64,6 +65,9 @@ vi.mock('@/database/models/skill', () => ({
   },
 }));
 vi.mock('@/server/services/mcp', () => ({ mcpService: { callTool: mcpMocks.callTool } }));
+vi.mock('@/server/services/codeInterpreter', () => ({
+  runCodeInterpreter: codeInterpreterMocks.runCodeInterpreter,
+}));
 vi.mock('@/server/services/mcp/oauth', () => ({
   McpOAuthService: class {
     getOAuthToken = vi.fn().mockResolvedValue(undefined);
@@ -111,6 +115,10 @@ describe('executeConversationToolStep', () => {
       content: '{"error":"search failed"}',
       state: { results: [] },
       success: false,
+    });
+    codeInterpreterMocks.runCodeInterpreter.mockResolvedValue({
+      output: [{ data: 'ok', type: 'stdout' }],
+      success: true,
     });
   });
 
@@ -273,7 +281,7 @@ describe('executeConversationToolStep', () => {
     );
   });
 
-  it('stubs code interpreter with a continueable tool result', async () => {
+  it('runs code interpreter on the sidecar and continues the model', async () => {
     const result = await executeConversationToolStep({
       assistantMessage,
       attempt: 1,
@@ -281,6 +289,7 @@ describe('executeConversationToolStep', () => {
       operationId: 'operation-1',
       payload: payload({
         apiName: 'python',
+        arguments: '{"code":"print(1)","packages":[]}',
         identifier: CodeInterpreterIdentifier,
       }),
       userId: 'user-1',
@@ -289,14 +298,23 @@ describe('executeConversationToolStep', () => {
     expect(result).toMatchObject({
       messageId: 'tool-message-1',
       shouldContinue: true,
-      success: false,
+      success: true,
     });
-    expect(result.content).toContain('connected browser');
+    expect(result.content).toContain('"success":true');
+    expect(result.content).not.toContain('connected browser');
+    expect(codeInterpreterMocks.runCodeInterpreter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'print(1)',
+        sessionId: 'session-1',
+        topicId: 'topic-1',
+        userId: 'user-1',
+      }),
+    );
     expect(pluginMocks.findById).not.toHaveBeenCalled();
     expect(generationMocks.updateStep).toHaveBeenCalledWith(
       'step-1',
       expect.objectContaining({
-        result: expect.objectContaining({ shouldContinue: true, success: false }),
+        result: expect.objectContaining({ shouldContinue: true, success: true }),
         status: 'succeeded',
       }),
     );
@@ -473,7 +491,7 @@ describe('findUnsupportedConversationTool', () => {
     ).resolves.toMatchObject({ identifier: DalleManifest.identifier });
   });
 
-  it('allows the code interpreter on enqueue and stubs it at invoke time', async () => {
+  it('allows the code interpreter on enqueue for the sidecar runtime', async () => {
     await expect(
       findUnsupportedConversationTool({
         config: {

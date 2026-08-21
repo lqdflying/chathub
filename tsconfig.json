@@ -41,7 +41,6 @@
     ".temp",
     "e2e",
     "packages/obervability-otel",
-    "packages/python-interpreter",
     "packages/ssrf-safe-fetch",
     "packages/web-crawler",
     "packages/utils/src/client/sanitize.ts",

@@ -151,16 +151,37 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
 
     it('emits browser_tool_stubbed with a readable toolName', () => {
       logGenerationDebugSafe('browser_tool_stubbed', {
-        shouldContinue: true,
-        toolName: 'lobe-code-interpreter',
+        shouldContinue: false,
+        toolName: 'lobe-image-designer',
       });
 
       const [prefix, serializedRecord] = consoleLogSpy.mock.calls[0];
       expect(prefix).toBe(`[${GENERATION_DEBUG_NAMESPACE}:browser_tool_stubbed]`);
       expect(JSON.parse(serializedRecord as string)).toMatchObject({
-        shouldContinue: true,
-        toolName: 'lobe-code-interpreter',
+        shouldContinue: false,
+        toolName: 'lobe-image-designer',
       });
+    });
+
+    it('emits sandbox_run_settled with counts and no code or stdout', () => {
+      logGenerationDebugSafe('sandbox_run_settled', {
+        fileInCount: 2,
+        fileOutCount: 1,
+        httpStatus: 200,
+        outcome: 'ok',
+        stdoutChars: 12,
+      });
+
+      const [prefix, serializedRecord] = consoleLogSpy.mock.calls[0];
+      expect(prefix).toBe(`[${GENERATION_DEBUG_NAMESPACE}:sandbox_run_settled]`);
+      expect(JSON.parse(serializedRecord as string)).toMatchObject({
+        fileInCount: 2,
+        fileOutCount: 1,
+        httpStatus: 200,
+        outcome: 'ok',
+        stdoutChars: 12,
+      });
+      expect(serializedRecord).not.toContain('print');
     });
 
     it('drops secret-keyed fields entirely', () => {

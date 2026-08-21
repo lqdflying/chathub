@@ -47,7 +47,7 @@ turns, the **tab** is Claude’s “server.”
 | Constraint | Consequence |
 |------------|-------------|
 | Self-hosted Docker + PostgreSQL only | Jobs live in Graphile’s `graphile_worker` schema + ChatHub operation tables. No Redis, no `async_tasks` for chat. |
-| Some tools need the browser (Pyodide, image-designer canvas, Kagi, stdio MCP) | Worker must **refuse** those tools rather than invent a result. The client saves the user row and runs `internal_execAgentRuntime`. |
+| Some tools need the browser (image-designer canvas, Kagi, stdio MCP) | Worker must **refuse** those tools rather than invent a result. The client saves the user row and runs `internal_execAgentRuntime`. Code Interpreter is **not** in this set: Graphile calls the DifySandbox sidecar. |
 | Next.js `next build` | Worker code must not import the client AI-infra Zustand store (React hooks in a server graph). |
 | Multi-tab / mobile Back / PWA | Leave, hide, and Stop are different fences. Navigation bumps `conversationNavigationGeneration`. Stop / clear / account switch bump `conversationClearGeneration` (lane- or topic-scoped). |
 
@@ -98,9 +98,8 @@ Details: tables, sweeper, heartbeats, lane generation, attach fences — see
 
 Used when enqueue reason is `unsupported_tool` or `fetch_on_client`. Typical
 `toolName` values: `lobe-image-designer`, `kagi`, non-HTTP MCP. Enabling Code
-Interpreter (`lobe-code-interpreter`) does **not** defer the turn; the worker
-stubs it at invoke time with `shouldContinue: true` so search-only replies stay
-on Graphile.
+Interpreter (`lobe-code-interpreter`) does **not** defer the turn; Graphile
+runs it on the DifySandbox sidecar (`sandbox_run_settled`) and continues.
 
 Prompt-only builtins with an empty `api` (Artifacts / `lobe-artifacts`) are
 **not** deferred: the worker already injects the system prompt.
@@ -239,8 +238,8 @@ on the continue `spanId`. Must **not** be `fetch_stream_error` /
 `exec_runtime_settled(kind=continue)`.
 
 **Worker actually called Code Interpreter:**
-`browser_tool_stubbed(toolName=lobe-code-interpreter, shouldContinue=true)`
-then the model continue.
+`sandbox_run_settled(outcome=ok|error|timeout|unavailable|not_configured)`
+then the model continue. CI must **not** emit `browser_tool_stubbed`.
 
 **Healthy leave during RAG:**
 `deferred_lane_left(producerAlive=true)` + `rag_retrieve_settled(ok|empty)`
@@ -285,7 +284,7 @@ When adding a tool, retrieval step, or send-path gate:
 
 1. Decide the **producer**: can Graphile run it with server-reachable
    credentials and no browser API? If the tool is only *enabled* but the
-   worker can stub a continueable result (Code Interpreter), keep the turn on
+   worker can run it (Code Interpreter on DifySandbox), keep the turn on
    Graphile. If the whole turn needs a browser API (DALL·E, Kagi, stdio MCP),
    defer the **whole turn**.
 2. Capture `conversationContext` at start; thread it through every await.

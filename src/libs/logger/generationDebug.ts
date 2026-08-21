@@ -74,6 +74,8 @@ export type GenerationDebugEvent =
   | 'execute_transcript_loaded'
   | 'job_malformed'
   | 'job_received'
+  | 'sandbox_run_settled'
+  | 'sandbox_run_started'
   | 'sse_closed'
   | 'sse_opened'
   | 'sse_poll_failed'

@@ -37,6 +37,8 @@ services:
     depends_on:
       chathub-db:
         condition: service_healthy
+      code-interpreter:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgres://user:password@chathub-db:5432/postgres
       - DATABASE_DRIVER=node
@@ -63,6 +65,9 @@ services:
       # RAG_EMBEDDING_API_KEY=...
       # Privacy-safe Knowledge Base lifecycle diagnostics:
       # CHATHUB_KNOWLEDGE_DEBUG=1 # or verbose
+      # Code Interpreter sidecar (must match code-interpreter API_KEY):
+      - CODE_INTERPRETER_SANDBOX_URL=http://code-interpreter:8194
+      - CODE_INTERPRETER_SANDBOX_API_KEY=<your-sandbox-api-key>
     ports:
       - '3210:3210'
 
@@ -79,9 +84,27 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  code-interpreter:
+    image: langgenius/dify-sandbox:0.2.15
+    restart: always
+    environment:
+      - API_KEY=<your-sandbox-api-key>
+      - GIN_MODE=release
+      - WORKER_TIMEOUT=60
+      - ENABLE_NETWORK=true
+    volumes:
+      - ./data/code-interpreter/dependencies:/dependencies
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8194/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    # No host port — ChatHub reaches it on the Compose network only.
 ```
 
-Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see the [Docker deployment wiki](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades).
+Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see the [Docker deployment wiki](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades). Code Interpreter Python runs in the `code-interpreter` sibling ([wiki](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)); omit that service, the `chathub` `depends_on` entry, and the two `CODE_INTERPRETER_*` variables if you do not need it.
 
 ---
 
@@ -156,7 +179,7 @@ ChatHub's built-in Moonshot route is `https://api.moonshot.cn/v1`. The global Ki
 - **Memory and context compaction** — Topic-level auto/manual compaction, assistant-level cross-session memory with periodic LLM rollup. [Details →](https://github.com/lqdflying/chathub/wiki/Memory-and-Context-Compaction)
 - **Knowledge Base vector RAG** — Dedicated external embeddings, pgvector HNSW search, document-only ingestion, and explicit provider readiness. [Details →](https://github.com/lqdflying/chathub/wiki/Knowledge-Base-and-RAG)
 - **MCP OAuth** — Auto-discovery via RFC 9728 / RFC 8414. Paste a server URL, authorize, done. Tokens stored server-side. [Details →](https://github.com/lqdflying/chathub/wiki/MCP-OAuth)
-- **Background conversation generation** — Chat replies, server-capable tool turns (web browsing, fixed Memory, HTTP MCP), group supervisor decisions, topic titles, translation, and guarded background memory compaction continue after you close the tab or navigate elsewhere. **Stop** and destructive history actions cancel matching work. Browser-only provider keys and image/code-interpreter/non-HTTP MCP tools fall back to the connected-tab runtime for that send. Armed Context Export also uses the browser path so the capture still records. Requires a server-reachable provider API key for true background work (`FEATURE_FLAGS=-durable_conversation_generation` to disable). [Wiki →](https://github.com/lqdflying/chathub/wiki/Background-Conversation-Generation)
+- **Background conversation generation** — Chat replies, server-capable tool turns (web browsing, Code Interpreter on the DifySandbox sidecar, fixed Memory, HTTP MCP), group supervisor decisions, topic titles, translation, and guarded background memory compaction continue after you close the tab or navigate elsewhere. **Stop** and destructive history actions cancel matching work. Browser-only provider keys and image/non-HTTP MCP tools fall back to the connected-tab runtime for that send. Armed Context Export also uses the browser path so the capture still records. Requires a server-reachable provider API key for true background work (`FEATURE_FLAGS=-durable_conversation_generation` to disable). [Wiki →](https://github.com/lqdflying/chathub/wiki/Background-Conversation-Generation)
 
 ---
 

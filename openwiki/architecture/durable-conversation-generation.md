@@ -369,11 +369,12 @@ reports completion (including thrown failures) to tool diagnostics with
 `runtimePayload.runtimeProvider` (not the raw gateway id) so `DEBUG_*_CACHE`
 diagnostics match the SDK family the worker actually calls.
 
-The worker currently supports builtin web browsing, fixed Memory, activated
-skills, HTTP MCP, and prompt-only builtins with an empty `api` (Artifacts /
-`lobe-artifacts`). Enabling Code Interpreter does not block enqueue: if the
-model actually calls it, the worker persists a short JSON error that the tool
-needs a connected browser and continues the model (`shouldContinue: true`).
+The worker currently supports builtin web browsing, Code Interpreter
+(DifySandbox sidecar), fixed Memory, activated skills, HTTP MCP, and
+prompt-only builtins with an empty `api` (Artifacts / `lobe-artifacts`).
+Enabling Code Interpreter does not block enqueue. If the model calls it, the
+worker posts to `POST /v1/sandbox/run` and continues (`shouldContinue: true`)
+even when the sidecar is unset (`not_configured`) or the program fails.
 Image generation (DALL·E / image-designer chat tools), non-HTTP MCP, and
 unknown plugin runtimes are still capability-gated before durable enqueue, so
 the existing browser runtime handles the whole conversation rather than
@@ -490,7 +491,7 @@ Event coverage:
 | Layer  | Events                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
   | Client | `send_started`, `send_rpc_settled` (`stillCurrent`, `topicChangedDuringRpc`, readable `deferReason` / `reason`), `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started` (`skipped`/`reason=notCurrent` when the send RPC returned after the user left and there was no deferral), `exec_runtime_settled` (`stillCurrent`; `kind=continue` on post-tool model fetches), `fetch_stream_interrupted` (`errorKind=webkit_load_failed\|failed_to_fetch\|abort`, `classifiedAs=abort`, `hasOutput`, `outputChars`, `signalAborted`), `fetch_stream_error` (`classifiedAs=error`), `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `deferred_lane_marked`, `deferred_lane_left` (`type=navigation\|visibility`, `producerAlive`), `deferred_lane_resumed` (`outcome=resume_tools\|resume_model\|finalize\|still_producing\|loading_flat`; `still_producing` also has `chatLoading` / `toolsCalling` / `streamActive` / `pendingModelContinue` / `pendingTools`), `deferred_lane_aborted` (`type=stop\|topic_delete\|clear`), `deferred_placeholder_finalized`, `tool_loop_continue` / `tool_loop_continue_skipped` (`reason=batch_gated\|not_alive\|no_tools\|no_resumable_tool\|session_changed\|not_visible`, plus outcome counts), `topic_busy_changed` (idle→busy / busy→idle only), `builtin_tool_settled` (`toolName` / `operation`, using the tool's conversation + deferred `spanId`, not the topic you clicked), `invalidate_preserved` (plugin / RAG / search / chat-loading kept vs aborted counts), `rag_retrieve_settled` (`ok` / `hard_cancelled` / `empty` / `error` plus `chunkCount`), `message_persist_skipped` (`reason=hard_cancelled` / `not_visible`), `sync_summary` (`reason` trigger, `deferredLaneCount`, `resumedTools`, `resumedModel`), `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
-| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `browser_tool_stubbed` (`toolName`, `shouldContinue`, `operationHash`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled`               |
+| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sandbox_run_started` / `sandbox_run_settled` (`outcome`, `httpStatus`, `exitCode`, counts; never code/stdout/filenames), `browser_tool_stubbed` (`toolName`, `shouldContinue`, `operationHash`; DALL·E only), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_retrying`, `execute_settled`               |
 
 Semantics that matter when reading the stream:
 
@@ -577,8 +578,8 @@ Semantics that matter when reading the stream:
 - `topic_busy_changed` is transition-only (the topic-list spinner). Initial
   idle mounts are silent. Boolean flags: `sendRpc`, `durableJob`,
   `deferredLane`, `producing`, `tools`, `topicCrud`.
-- `builtin_tool_settled` is generation-debug (not tools-debug) so a Pyodide
-  CORS/`AbortError` or an off-screen web search is visible when only
+- `builtin_tool_settled` is generation-debug (not tools-debug) so an
+  off-screen web search or leftover-tab builtin is visible when only
   `CHATHUB_GENERATION_DEBUG` is on. It is emitted from `invokeBuiltinTool`
   for every builtin (`toolName` = identifier, `operation` = apiName) and
   uses the **tool message's** conversation plus that assistant's deferred
