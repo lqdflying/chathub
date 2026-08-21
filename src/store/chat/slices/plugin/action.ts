@@ -159,21 +159,20 @@ const isPluginMessageResourceActive = (
   resource: PluginMessageResource | undefined,
 ): boolean => !resource || resource.mapKey === messageMapKey(state.activeId, state.activeTopicId);
 
-const isToolBatchAlive = (
+const isToolBatchHardCancelled = (
   state: ChatStore,
   accountMutationSnapshot: AccountMutationSnapshot,
-  resource: PluginMessageResource | undefined,
   invocationGeneration: number,
 ): boolean =>
-  isPluginMutationCurrent(state, accountMutationSnapshot, resource) &&
-  state.conversationClearGeneration === invocationGeneration;
+  !isAccountMutationCurrent(useUserStore.getState(), accountMutationSnapshot) ||
+  state.conversationClearGeneration !== invocationGeneration;
 
 const shouldResumeModelAfterTools = (
   state: ChatStore,
   assistantResource: PluginMessageResource,
-  alive: boolean,
+  hardCancelled: boolean,
 ): boolean => {
-  if (!alive) return false;
+  if (hardCancelled) return false;
   if (isPluginMessageResourceActive(state, assistantResource)) return true;
   if (
     !findDeferredBrowserGenerationLaneByAssistantId(
@@ -751,10 +750,10 @@ export const chatPlugin: StateCreator<
 
     const invocationGeneration = get().conversationClearGeneration;
     const assistantResource = resolvePluginMessageResource(get(), assistantId);
-    const invocationIsAlive = () =>
-      isToolBatchAlive(get(), accountMutationSnapshot, assistantResource, invocationGeneration);
+    const invocationIsHardCancelled = () =>
+      isToolBatchHardCancelled(get(), accountMutationSnapshot, invocationGeneration);
     const canRunToolBatch = () =>
-      invocationIsAlive() &&
+      !invocationIsHardCancelled() &&
       (isPluginMessageResourceActive(get(), assistantResource) ||
         Boolean(
           findDeferredBrowserGenerationLaneByAssistantId(
@@ -764,7 +763,8 @@ export const chatPlugin: StateCreator<
         ));
     if (!assistantResource || !canRunToolBatch()) {
       logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
-        reason: !invocationIsAlive() || !assistantResource ? 'not_alive' : 'batch_gated',
+        reason:
+          !assistantResource || invocationIsHardCancelled() ? 'not_alive' : 'batch_gated',
       });
       return;
     }
@@ -777,7 +777,7 @@ export const chatPlugin: StateCreator<
     }
     const resolvedConversationVersion =
       expectedConversationVersion ?? (await messageService.getConversationVersion());
-    if (!invocationIsAlive()) {
+    if (invocationIsHardCancelled()) {
       logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
         reason: 'not_alive',
       });
@@ -786,7 +786,7 @@ export const chatPlugin: StateCreator<
 
     const { cacheContinuationEnabled, toolLifecycleEnabled } =
       await toolTelemetryService.getCapabilities();
-    if (!invocationIsAlive()) {
+    if (invocationIsHardCancelled()) {
       logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
         reason: 'not_alive',
       });
@@ -815,7 +815,7 @@ export const chatPlugin: StateCreator<
       const runtimeType = toolLifecycleEnabled
         ? resolveToolDiagnosticRuntimeType(payload)
         : undefined;
-      if (!invocationIsAlive()) {
+      if (invocationIsHardCancelled()) {
         return {
           data: undefined,
           diagnosticId,
@@ -840,7 +840,7 @@ export const chatPlugin: StateCreator<
       const id = await get().internal_createMessage(toolMessage, {
         expectedConversationVersion: resolvedConversationVersion,
       });
-      if (!invocationIsAlive()) {
+      if (invocationIsHardCancelled()) {
         return {
           data: undefined,
           diagnosticId,
@@ -868,7 +868,14 @@ export const chatPlugin: StateCreator<
           toolCorrelation,
           diagnosticId,
         );
-        if (!invocationIsAlive()) {
+        const invocationResult =
+          rawInvocationResult &&
+          typeof rawInvocationResult === 'object' &&
+          'data' in rawInvocationResult
+            ? rawInvocationResult
+            : { data: rawInvocationResult };
+        const hasResumableData = Boolean(invocationResult.data);
+        if (invocationIsHardCancelled() && !hasResumableData) {
           return {
             data: undefined,
             diagnosticId,
@@ -879,12 +886,6 @@ export const chatPlugin: StateCreator<
           };
         }
 
-        const invocationResult =
-          rawInvocationResult &&
-          typeof rawInvocationResult === 'object' &&
-          'data' in rawInvocationResult
-            ? rawInvocationResult
-            : { data: rawInvocationResult };
         const updatedMessage = getPluginMessageById(get(), id);
         const outcome =
           invocationResult.outcome ??
@@ -897,14 +898,14 @@ export const chatPlugin: StateCreator<
           outcome,
           payload,
           runtimeType,
-          shouldContinue: invocationResult.shouldContinue,
+          shouldContinue: invocationIsHardCancelled() ? false : invocationResult.shouldContinue,
         };
       } catch (error) {
         return {
           data: undefined,
           diagnosticId,
           id,
-          outcome: !invocationIsAlive() || isAbortError(error) ? 'cancelled' : 'failed',
+          outcome: invocationIsHardCancelled() || isAbortError(error) ? 'cancelled' : 'failed',
           payload,
           runtimeType,
         };
@@ -930,7 +931,7 @@ export const chatPlugin: StateCreator<
       ];
     });
     const outcomeCounts = countToolLoopOutcomes(completedResults);
-    if (!invocationIsAlive()) {
+    if (invocationIsHardCancelled()) {
       logToolLoopContinue('tool_loop_continue_skipped', assistantId, get(), {
         reason: 'not_alive',
         ...outcomeCounts,
@@ -1001,7 +1002,7 @@ export const chatPlugin: StateCreator<
       });
       return;
     }
-    if (!shouldResumeModelAfterTools(get(), assistantResource, invocationIsAlive())) {
+    if (!shouldResumeModelAfterTools(get(), assistantResource, invocationIsHardCancelled())) {
       const visible = isPluginMessageResourceActive(get(), assistantResource);
       const deferred = findDeferredBrowserGenerationLaneByAssistantId(
         get().deferredBrowserGenerationLanes,
@@ -1333,11 +1334,14 @@ export const chatPlugin: StateCreator<
     const { internal_togglePluginApiCalling, internal_constructToolsCallingContext } = get();
     let data: string = '';
     const diagnosticId = requestedDiagnosticId || `td_${nanoid(20)}`;
+    const invocationGeneration = get().conversationClearGeneration;
     const abortController = internal_togglePluginApiCalling(
       true,
       id,
       n('fetchPlugin/start') as string,
     );
+    const isHardCancelled = () =>
+      isToolBatchHardCancelled(get(), accountMutationSnapshot, invocationGeneration);
     const invocationIsCurrent = () =>
       isPluginMutationCurrent(get(), accountMutationSnapshot, messageResource) &&
       !abortController?.signal.aborted;
@@ -1366,11 +1370,12 @@ export const chatPlugin: StateCreator<
         topicId: context?.topicId,
       });
 
-      if (!invocationIsCurrent()) {
-        return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+      if (!result) {
+        if (isHardCancelled() || abortController?.signal.aborted) {
+          return { data: undefined, outcome: 'cancelled', shouldContinue: false };
+        }
+        return { data: undefined, outcome: 'skipped' };
       }
-
-      if (!result) return { data: undefined, outcome: 'skipped' };
 
       data = result.content;
 
@@ -1378,15 +1383,12 @@ export const chatPlugin: StateCreator<
 
       switch (result.persistence) {
         case 'persisted': {
-          if (!invocationIsCurrent()) {
-            return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-          }
           dispatchPluginMessage(get(), messageResource, {
             id,
             type: 'updateMessage',
             value: { content: data },
           });
-          return { data };
+          return isHardCancelled() ? { data, shouldContinue: false } : { data };
         }
 
         case 'superseded': {
@@ -1394,20 +1396,21 @@ export const chatPlugin: StateCreator<
         }
 
         case 'failed': {
-          if (!invocationIsCurrent()) {
-            return { data: undefined, outcome: 'cancelled', shouldContinue: false };
-          }
           dispatchPluginMessage(get(), messageResource, {
             id,
             type: 'updateMessage',
             value: { content: data },
           });
-          const { notification } = await import('@/components/AntdStaticMethods');
-          notification.warning({
-            description: t('mcpResultPersistence.description', { ns: 'error' }),
-            message: t('mcpResultPersistence.title', { ns: 'error' }),
-          });
-          return { data, outcome: 'persistence_failed' };
+          if (!isHardCancelled()) {
+            const { notification } = await import('@/components/AntdStaticMethods');
+            notification.warning({
+              description: t('mcpResultPersistence.description', { ns: 'error' }),
+              message: t('mcpResultPersistence.title', { ns: 'error' }),
+            });
+          }
+          return isHardCancelled()
+            ? { data, outcome: 'persistence_failed', shouldContinue: false }
+            : { data, outcome: 'persistence_failed' };
         }
       }
     } catch (error) {

@@ -953,4 +953,121 @@ describe('MCP tool-result persistence recovery', () => {
       }),
     );
   });
+
+  it('keeps a persisted MCP result when the user leaves after the RPC returns', async () => {
+    const abortController = new AbortController();
+    const toolResult = '{"ok":true}';
+    const dispatchMessage = vi.fn();
+    vi.spyOn(mcpService, 'invokeMcpToolCall').mockImplementation(async () => {
+      abortController.abort();
+      useChatStore.setState({ activeTopicId: 'other-topic' });
+      return { content: toolResult, persistence: 'persisted' };
+    });
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      conversationClearGeneration: 0,
+      internal_constructToolsCallingContext: vi.fn().mockReturnValue({ topicId: 'topic-id' }),
+      internal_dispatchMessage: dispatchMessage,
+      internal_togglePluginApiCalling: vi.fn().mockReturnValue(abortController),
+    });
+
+    await expect(
+      useChatStore.getState().invokeMCPTypePlugin('message-id', payload),
+    ).resolves.toEqual({ data: toolResult });
+
+    expect(dispatchMessage).toHaveBeenCalledWith(
+      {
+        id: 'message-id',
+        type: 'updateMessage',
+        value: { content: toolResult },
+      },
+      expect.objectContaining({
+        sessionId: 'session-id',
+        topicId: 'topic-id',
+      }),
+    );
+  });
+
+  it('continues the model when the user leaves the topic while MCP is in flight', async () => {
+    const assistantId = 'assistant-leave-during-mcp';
+    const toolMessageId = 'tool-message-leave-during-mcp';
+    const toolPayload = {
+      apiName: 'tavily_search',
+      arguments: '{"query":"azure regions"}',
+      id: 'tool-leave-during-mcp',
+      identifier: 'tavily',
+      type: 'mcp',
+    } as const;
+    const assistantMessage = {
+      content: 'searching',
+      id: assistantId,
+      role: 'assistant',
+      sessionId: 'session-id',
+      tools: [toolPayload],
+      topicId: 'topic-id',
+    } as UIChatMessage;
+    const triggerAIMessage = vi.fn();
+    const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+    const deferredInvocation = createDeferred<{
+      data: string;
+      outcome: 'completed';
+    }>();
+
+    vi.mocked(toolTelemetryService.getCapabilities).mockResolvedValue({
+      cacheContinuationEnabled: false,
+      toolLifecycleEnabled: false,
+    });
+    vi.spyOn(chatSelectors, 'getTraceIdByMessageId').mockReturnValue(
+      vi.fn().mockReturnValue('trace-id'),
+    );
+
+    useChatStore.setState({
+      activeId: 'session-id',
+      activeTopicId: 'topic-id',
+      conversationClearGeneration: 0,
+      deferredBrowserGenerationLanes: {
+        [conversationKey]: {
+          assistantMessageId: assistantId,
+          reason: 'unsupported_tool',
+          toolName: 'lobe-image-designer',
+        },
+      },
+      internal_createMessage: vi.fn().mockResolvedValue(toolMessageId),
+      internal_invokeDifferentTypePlugin: vi.fn().mockReturnValue(deferredInvocation.promise),
+      internal_toggleMessageInToolsCalling: vi.fn().mockResolvedValue(undefined),
+      messagesMap: {
+        [messageMapKey('session-id', 'topic-id')]: [assistantMessage],
+        [messageMapKey('session-id', 'other-topic')]: [],
+      },
+      triggerAIMessage,
+    });
+
+    const toolBatchPromise = useChatStore.getState().triggerToolCalls(assistantId);
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().internal_invokeDifferentTypePlugin).toHaveBeenCalledOnce();
+    });
+
+    useChatStore.setState((state) => ({
+      activeTopicId: 'other-topic',
+      conversationNavigationGeneration: state.conversationNavigationGeneration + 1,
+    }));
+    deferredInvocation.resolve({
+      data: '{"ok":true}',
+      outcome: 'completed',
+    });
+
+    await toolBatchPromise;
+
+    expect(triggerAIMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationContext: expect.objectContaining({
+          sessionId: 'session-id',
+          topicId: 'topic-id',
+        }),
+        parentId: toolMessageId,
+      }),
+    );
+  });
 });

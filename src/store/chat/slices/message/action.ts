@@ -42,7 +42,7 @@ import {
   markAllDurableGenerationsStopped,
   markConversationTopicDurableGenerationStopped,
 } from '@/store/chat/utils/conversationClearGeneration';
-import { collectDeferredBrowserGenerationMessageIds } from '@/store/chat/utils/deferredBrowserGeneration';
+import { collectDeferredBrowserGenerationProtectedIds } from '@/store/chat/utils/deferredBrowserGeneration';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useSessionStore } from '@/store/session';
 import { sessionSelectors } from '@/store/session/selectors';
@@ -1237,8 +1237,9 @@ export const chatMessage: StateCreator<
       threadTitleSummaryOperations,
       topicTitleSummaryOperations,
     } = get();
-    const preserveMessageIds = collectDeferredBrowserGenerationMessageIds(
+    const preserveMessageIds = collectDeferredBrowserGenerationProtectedIds(
       deferredBrowserGenerationLanes,
+      get().messagesMap,
     );
 
     abortChatLoadingLanesExceptMessageIds(get(), preserveMessageIds);

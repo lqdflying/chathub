@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  collectDeferredBrowserGenerationProtectedIds,
   deferredBrowserGenerationLaneKey,
   hasActiveToolCallingStream,
   hasPendingModelContinue,
@@ -43,6 +44,28 @@ describe('deferredBrowserGeneration helpers', () => {
         'assistant',
       ),
     ).toBe(false);
+  });
+
+  it('protects in-flight tool rows whose parent is a deferred assistant', () => {
+    const key = deferredBrowserGenerationLaneKey('session', 'topic', null);
+    expect(
+      collectDeferredBrowserGenerationProtectedIds(
+        {
+          [key]: {
+            assistantMessageId: 'assistant',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        {
+          'session_topic': [
+            { id: 'assistant' },
+            { id: 'tavily-tool', parentId: 'assistant' },
+            { id: 'other-tool', parentId: 'other-assistant' },
+          ],
+        },
+      ),
+    ).toEqual(new Set(['assistant', 'tavily-tool']));
   });
 
   it('matches a deferred lane by conversation key and assistant id', () => {

@@ -179,6 +179,57 @@ describe('chatMessage actions', () => {
       expect(useChatStore.getState().chatLoadingAbortControllersByLane[laneKey]).toBe(controller);
     });
 
+    it('keeps deferred browser-fallback plugin abort controllers across a topic switch', () => {
+      const deferredToolController = new AbortController();
+      const otherToolController = new AbortController();
+      const deferredAbortSpy = vi.spyOn(deferredToolController, 'abort');
+      const otherAbortSpy = vi.spyOn(otherToolController, 'abort');
+      const conversationKey = deferredBrowserGenerationLaneKey('session-id', 'topic-id', null);
+      useChatStore.setState({
+        activeId: 'session-id',
+        activeTopicId: 'topic-id',
+        deferredBrowserGenerationLanes: {
+          [conversationKey]: {
+            assistantMessageId: 'deferred-assistant',
+            reason: 'unsupported_tool',
+            toolName: 'lobe-image-designer',
+          },
+        },
+        messagesMap: {
+          [messageMapKey('session-id', 'topic-id')]: [
+            { id: 'deferred-assistant', role: 'assistant' } as UIChatMessage,
+            {
+              id: 'deferred-tavily',
+              parentId: 'deferred-assistant',
+              role: 'tool',
+            } as UIChatMessage,
+          ],
+          [messageMapKey('other-session', 'other-topic')]: [
+            { id: 'other-assistant', role: 'assistant' } as UIChatMessage,
+            { id: 'other-tool', parentId: 'other-assistant', role: 'tool' } as UIChatMessage,
+          ],
+        },
+        pluginApiAbortControllers: {
+          'deferred-tavily': deferredToolController,
+          'other-tool': otherToolController,
+        },
+        pluginApiLoadingIds: ['deferred-tavily', 'other-tool'],
+      });
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_invalidateConversation();
+      });
+
+      expect(deferredAbortSpy).not.toHaveBeenCalled();
+      expect(otherAbortSpy).toHaveBeenCalled();
+      expect(useChatStore.getState().pluginApiLoadingIds).toEqual(['deferred-tavily']);
+      expect(useChatStore.getState().pluginApiAbortControllers['deferred-tavily']).toBe(
+        deferredToolController,
+      );
+      expect(useChatStore.getState().pluginApiAbortControllers['other-tool']).toBeUndefined();
+    });
+
     it('clears the RAG loading ids so a stuck avatar spinner cannot survive a switch', () => {
       useChatStore.setState({ chatLoadingIds: ['m1'], messageRAGLoadingIds: ['m1'] });
       const { result } = renderHook(() => useChatStore());

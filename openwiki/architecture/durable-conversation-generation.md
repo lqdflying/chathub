@@ -535,14 +535,22 @@ Semantics that matter when reading the stream:
   `initial` / `topic_change` / `session_change` / `thread_change` /
   `visibility`. A healthy off-screen browser turn is
   `send_rpc_settled(deferReason=unsupported_tool)` → `deferred_lane_marked` →
-  `deferred_lane_left(producerAlive=true)` → `deferred_lane_resumed` →
-  `deferred_placeholder_finalized` or `resume_tools` / `resume_model`.
-  After MCP/tools settle, a healthy continue is `tool_loop_continue` (then
-  `triggerAIMessage` / a new assistant). `tool_loop_continue_skipped` names why
+  `deferred_lane_left(producerAlive=true)` → `tool_loop_continue`
+  (`visible=false`) without waiting for return. `deferred_lane_resumed` on
+  return is `still_producing` if that continue already started, or
+  `resume_tools` / `resume_model` / `deferred_placeholder_finalized` only as
+  backup.
+  The healthy off-screen path after MCP is `call_tool_complete` (or client
+  persist) → `tool_loop_continue` while you are still on the other topic
+  (`visible=false` is expected). `resume_model` on return is only a backup
+  if that continue was skipped. `tool_loop_continue_skipped` names why
   the model did not start (`no_resumable_tool` = cancelled/empty results;
-  `batch_gated` = topic not visible and no deferred lane). `still_producing`
-  on return with `toolsCalling=false`, `pendingModelContinue=true`, and no
-  later `tool_loop_continue` is the MCP-success-then-stall hang.
+  `batch_gated` = topic not visible and no deferred lane). On leave,
+  `no_resumable_tool` plus `cancelledCount` right after a persisted MCP
+  result is the abort-on-switch regression, not a healthy skip.
+  `still_producing` on return with `toolsCalling=false`,
+  `pendingModelContinue=true`, and no earlier `tool_loop_continue` is the
+  leftover hang that `resume_model` covers.
   `send_rpc_settled(stillCurrent=false, topicChangedDuringRpc=true)` without
   a later `deferred_lane_marked` is the known send-RPC race.
 - `topic_busy_changed` is transition-only (the topic-list spinner). Initial
@@ -659,11 +667,13 @@ Product contract for deferred browser turns:
 
 - Persist the first assistant off-screen under `isPersistenceCurrent()`
   (account snapshot + clear fence). Navigation alone does not block the write.
-- Keep a started tool batch alive after leave: do not rewrite a successful MCP
-  result as `cancelled`, and always clear `messageInToolsCallingIds` in
-  `finally`. Continue the model in the same tab when the session is still
-  active; on return, `resume_model` if tools already have results and there is
-  no follow-up assistant.
+- Keep a started tool batch alive after leave: do not abort in-flight plugin
+  controllers whose parent is a deferred assistant, do not rewrite a
+  successful MCP result as `cancelled` just because the topic is inactive,
+  and always clear `messageInToolsCallingIds` in `finally`. Continue the
+  model immediately via `triggerAIMessage` with the original
+  `conversationContext`. On return, `resume_model` only if that continue
+  was skipped and tools already have results with no follow-up assistant.
 - Stop with no text still **deletes** the empty row. Topic switch does not
   abort deferred producers, so `onAbort` is Stop / lost fetch, not Leave.
 - Finalize never blanks leftover `LOADING_FLAT` into a white circle. Sync
@@ -677,7 +687,8 @@ How that is implemented:
   captured `conversationContext`.
 - Topic switch (`internal_invalidateConversation`) does not abort
   AbortControllers or strip `chatLoadingIds` for deferred browser-fallback
-  lanes. Deferred lanes are keyed by
+  lanes, including `pluginApiAbortControllers` keyed by **tool** message ids
+  whose `parentId` is that deferred assistant. Deferred lanes are keyed by
   `laneScopedClearKey(sessionId, topicId, threadId)`.
 - `sendMessageInServer` returns `deferReason` / `deferredToolName` on the RPC
   success path (it does not throw). The client stores that marker in
@@ -703,9 +714,10 @@ Switch during the **send RPC** (marker not created yet) remains a known gap:
 
 Browser-fallback tool loops no longer require the conversation to stay visible
 for HTTP MCP / default tools: leaving the topic does not cancel a successful
-tool result, does not leak `messageInToolsCallingIds`, and either continues the
-model in the same tab (same session) or resumes it with `resume_model` when
-you return. Code interpreter / image-designer still cannot run on the Graphile
+tool result, does not leak `messageInToolsCallingIds`, and continues the
+model in the same tab immediately (`tool_loop_continue`, possibly
+`visible=false`). `resume_model` on return is only if that continue was
+skipped. Code interpreter / image-designer still cannot run on the Graphile
 worker; the connected tab is the producer for those turns. Durable worker
 turns are unaffected because the worker already runs the loop server-side.
 

@@ -237,18 +237,26 @@ Generation-debug semantics:
 - A browser-fallback send that durable enqueue rejected must show
   `send_rpc_settled(hasOperationId=false, deferReason=…)` plus client
   `deferred_lane_marked` with the same `spanId`. After the user leaves that
-  topic, `deferred_lane_left(producerAlive=true)` should appear; after they
-  return, `deferred_lane_resumed` then either `resume_tools`, `resume_model`
-  (tools already have results, no follow-up assistant), or
-  `deferred_placeholder_finalized`. `sync_summary.reason` names why sync ran
-  (`topic_change` / `visibility` / …). `topic_busy_changed(outcome=busy)`
-  should bracket the topic-list spinner for that hashed topic.
+  topic, `deferred_lane_left(producerAlive=true)` should appear. The healthy
+  off-screen path is then `tool_loop_continue` (`visible=false` is OK) on the
+  same `spanId` **before** they return. After they return,
+  `deferred_lane_resumed` is `still_producing` if that continue already
+  started, or `resume_model` / `resume_tools` /
+  `deferred_placeholder_finalized` only as a backup. `sync_summary.reason`
+  names why sync ran (`topic_change` / `visibility` / …).
+  `topic_busy_changed(outcome=busy)` should bracket the topic-list spinner
+  for that hashed topic.
 - After a successful MCP/tool batch, look for `tool_loop_continue` on the same
-  `spanId`. Absence plus `tool_loop_continue_skipped` is the stall:
+  `spanId` even while the user is on another topic. Absence plus
+  `tool_loop_continue_skipped` is the stall:
   `reason=no_resumable_tool` (results cancelled/empty), `batch_gated` (left
   before the batch started and there was no deferred lane),
   `session_changed` / `not_visible` (continue gated after tools finished).
-  Outcome counts (`completedCount`, `cancelledCount`) are hashes-free.
+  `no_resumable_tool` with `cancelledCount>=1` and `completedCount=0` right
+  after a persisted MCP result on leave is the abort-on-switch regression
+  (topic switch must not abort deferred-assistant tool controllers or rewrite
+  the persist as cancelled). Outcome counts (`completedCount`,
+  `cancelledCount`) are hashes-free.
   `deferred_lane_resumed(outcome=still_producing)` now includes
   `chatLoading` / `toolsCalling` / `streamActive` / `pendingModelContinue` /
   `pendingTools` so a leaked tools-calling flag is visible without dumping

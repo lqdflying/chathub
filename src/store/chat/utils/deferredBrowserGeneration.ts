@@ -18,6 +18,28 @@ export const collectDeferredBrowserGenerationMessageIds = (
   return ids;
 };
 
+/**
+ * Assistant ids plus in-flight tool rows whose parent is a deferred assistant.
+ * Topic switch must not abort those MCP/plugin controllers.
+ */
+export const collectDeferredBrowserGenerationProtectedIds = (
+  lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,
+  messagesMap?: Record<string, Array<{ id: string; parentId?: string | null }> | undefined>,
+): Set<string> => {
+  const ids = collectDeferredBrowserGenerationMessageIds(lanes);
+  if (ids.size === 0 || !messagesMap) return ids;
+
+  for (const messages of Object.values(messagesMap)) {
+    for (const message of messages || []) {
+      if (message.parentId && ids.has(message.parentId)) {
+        ids.add(message.id);
+      }
+    }
+  }
+
+  return ids;
+};
+
 export const deferredBrowserGenerationLaneKeysForTopic = (
   lanes: ChatAIChatState['deferredBrowserGenerationLanes'] | undefined,
   sessionId: string,
