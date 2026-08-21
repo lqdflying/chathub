@@ -1,7 +1,6 @@
 /** @vitest-environment node */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { LOADING_FLAT } from '@lobechat/const';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   annotateAssistantError,
@@ -204,10 +203,31 @@ describe('conversation generation crash recovery helpers', () => {
     const created = await ensureOwnedAssistantPlaceholder({} as any, operation, 'asst-1');
 
     expect(messageMocks.create).toHaveBeenCalledWith(
-      expect.objectContaining({ content: LOADING_FLAT, role: 'assistant' }),
+      expect.objectContaining({
+        content: LOADING_FLAT,
+        role: 'assistant',
+        sessionId: 'session-1',
+      }),
       'asst-1',
     );
     expect(created).toMatchObject({ id: 'asst-1' });
+  });
+
+  it('recreates inbox placeholders with sessionId null, never empty string', async () => {
+    messageMocks.findById.mockResolvedValueOnce(undefined);
+    messageMocks.create.mockResolvedValue({ content: LOADING_FLAT, id: 'asst-inbox' });
+
+    await ensureOwnedAssistantPlaceholder(
+      {} as any,
+      { ...operation, groupId: null, sessionId: 'inbox' },
+      'asst-inbox',
+    );
+
+    expect(messageMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: null }),
+      'asst-inbox',
+    );
+    expect(messageMocks.create.mock.calls[0][0].sessionId).not.toBe('');
   });
 
   it('creates the assistant row before assigning the operation pointer', async () => {

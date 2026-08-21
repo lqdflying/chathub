@@ -82,7 +82,10 @@ import {
   CONVERSATION_GENERATION_STALE_PROCESSING_MS,
 } from './constants';
 import { loadConversationRuntimeState, resolveConversationRuntimePayload } from './credentials';
-import { toPersistedConversationSessionId } from './inboxSession';
+import {
+  toPersistedConversationMessageSessionId,
+  toPersistedConversationSessionId,
+} from './inboxSession';
 import { buildConversationChatPayload } from './payload';
 import {
   type ConversationRuntimeChatOptionsInput,
@@ -1008,7 +1011,10 @@ const executeChat = async (
                 parentId: assistantId,
                 plugin: tool,
                 role: 'tool',
-                sessionId: operation.sessionId ?? operation.groupId ?? '',
+                sessionId: toPersistedConversationMessageSessionId(
+                  operation.sessionId,
+                  operation.groupId,
+                ),
                 threadId: operation.threadId ?? undefined,
                 tool_call_id: tool.id,
                 topicId: operation.topicId ?? undefined,
@@ -1051,7 +1057,10 @@ const executeChat = async (
             groupId: operation.groupId ?? undefined,
             parentId: previousAssistantId,
             role: 'assistant',
-            sessionId: operation.sessionId ?? operation.groupId ?? '',
+            sessionId: toPersistedConversationMessageSessionId(
+              operation.sessionId,
+              operation.groupId,
+            ),
             threadId: operation.threadId ?? undefined,
             topicId: operation.topicId ?? undefined,
           },
@@ -1842,7 +1851,7 @@ const executeSupervisor = async (
       fromProvider: group?.config?.orchestratorProvider || operation.config.provider,
       groupId,
       role: 'supervisor',
-      sessionId: operation.sessionId ?? groupId,
+      sessionId: toPersistedConversationMessageSessionId(operation.sessionId, groupId),
       topicId: operation.topicId ?? undefined,
     });
     await emit(model, operation, 'snapshot', { phase: 'tools', todos });
@@ -1901,7 +1910,7 @@ const executeSupervisor = async (
           fromProvider: agent.provider || operation.config.provider,
           groupId,
           role: 'assistant',
-          sessionId: operation.sessionId ?? groupId,
+          sessionId: toPersistedConversationMessageSessionId(operation.sessionId, groupId),
           targetId: decision.target,
           topicId: operation.topicId ?? undefined,
         },

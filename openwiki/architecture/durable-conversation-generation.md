@@ -112,6 +112,9 @@ miss. It must not attach a previous chat job as if it were the new request.
 Inbox chat messages are stored with `sessionId IS NULL`. Enqueue persists
 `sessionId` through `toPersistedConversationSessionId`, mapping `'inbox'`,
 empty, and null to `undefined` so `MessageModel.matchSession` uses `IS NULL`.
+Assistant placeholders, tool rows, and supervisor children use
+`toPersistedConversationMessageSessionId` (same mapping, `null` instead of
+`''`) so inbox writes round-trip through `query({ sessionId: undefined })`.
 Lanes still use the public inbox id (`session:{sessionId|inbox}`).
 `loadScopedMessages` queries with that normalized session id, and when
 `topicId` is present it sets `omitSessionFilter` so already-persisted

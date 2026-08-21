@@ -760,6 +760,30 @@ describe('ConversationGenerationService.enqueueInTransaction', () => {
     expect(modelMocks.create.mock.calls[0][0].lane).toContain(':session:inbox:');
   });
 
+  it('persists inbox assistant placeholders with sessionId null, never empty string', async () => {
+    const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '46' }]) };
+    messageMocks.create.mockResolvedValue({ id: 'asst-inbox' });
+    modelMocks.create.mockImplementation(async (value) => ({
+      ...value,
+      attempt: 0,
+      id: 'operation-inbox-chat',
+      revision: 0,
+      status: 'pending',
+      userId: 'user-1',
+    }));
+
+    await new ConversationGenerationService(db as any, 'user-1').enqueueInTransaction(db as any, {
+      ...input,
+      kind: 'chat',
+      sessionId: 'inbox',
+    });
+
+    expect(messageMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'assistant', sessionId: null }),
+    );
+    expect(messageMocks.create.mock.calls[0][0].sessionId).not.toBe('');
+  });
+
   it('cancels and advances the lane generation when replacement is requested', async () => {
     const db = { execute: vi.fn().mockResolvedValue([{ workerJobId: '43' }]) };
     modelMocks.findActiveByLane.mockResolvedValue({

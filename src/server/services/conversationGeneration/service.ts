@@ -29,7 +29,10 @@ import {
   CONVERSATION_GENERATION_TASK,
 } from './constants';
 import { resolveConversationRuntimePayload } from './credentials';
-import { toPersistedConversationSessionId } from './inboxSession';
+import {
+  toPersistedConversationMessageSessionId,
+  toPersistedConversationSessionId,
+} from './inboxSession';
 import { findUnsupportedConversationTool } from './tools';
 
 let workerUtilsPromise: Promise<Awaited<ReturnType<typeof makeWorkerUtils>>> | undefined;
@@ -247,7 +250,7 @@ export class ConversationGenerationService {
         groupId: parsed.groupId,
         parentId: parsed.parentMessageId || parsed.userMessageId,
         role: 'assistant',
-        sessionId: persistedSessionId ?? parsed.groupId ?? null,
+        sessionId: toPersistedConversationMessageSessionId(parsed.sessionId, parsed.groupId),
         threadId: parsed.threadId,
         topicId: parsed.topicId,
       });

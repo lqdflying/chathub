@@ -13,3 +13,9 @@ export const toPersistedConversationSessionId = (sessionId?: string | null) => {
   if (!sessionId || sessionId === INBOX_SESSION_ID) return undefined;
   return sessionId;
 };
+
+/** Message inserts: inbox/`''` become SQL NULL, matching `MessageModel.matchSession`. */
+export const toPersistedConversationMessageSessionId = (
+  sessionId?: string | null,
+  groupId?: string | null,
+) => toPersistedConversationSessionId(sessionId) ?? (groupId || null);

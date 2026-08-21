@@ -317,9 +317,32 @@ describe('executeConversationToolStep', () => {
     expect(messageMocks.create).toHaveBeenCalledWith(
       expect.objectContaining({
         content: '{"error":"search failed"}',
+        sessionId: 'session-1',
         tool_call_id: 'tool-call-1',
       }),
     );
+  });
+
+  it('persists inbox tool rows with sessionId null so queries match IS NULL', async () => {
+    await executeConversationToolStep({
+      assistantMessage: { ...assistantMessage, groupId: undefined, sessionId: '' },
+      attempt: 1,
+      db: {} as any,
+      operationId: 'operation-1',
+      payload: payload({
+        apiName: WebBrowsingApiName.search,
+        identifier: WebBrowsingManifest.identifier,
+      }),
+      userId: 'user-1',
+    });
+
+    expect(messageMocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: null,
+        tool_call_id: 'tool-call-1',
+      }),
+    );
+    expect(messageMocks.create.mock.calls[0][0].sessionId).not.toBe('');
   });
 
   it('updates an existing tool message instead of creating a duplicate', async () => {

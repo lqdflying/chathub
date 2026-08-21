@@ -30,6 +30,8 @@ import { SkillLoaderApiName, SkillLoaderManifest } from '@/tools/skills';
 import { WebBrowsingApiName, WebBrowsingManifest } from '@/tools/web-browsing';
 import { WebBrowsingExecutionRuntime } from '@/tools/web-browsing/ExecutionRuntime';
 
+import { toPersistedConversationMessageSessionId } from './inboxSession';
+
 const searchRuntime = new WebBrowsingExecutionRuntime({ searchService: new SearchService() });
 
 const hashInput = (value: unknown) =>
@@ -145,7 +147,10 @@ const persistConversationToolMessage = async ({
         ? (result.state as Record<string, any>)
         : undefined,
     role: 'tool',
-    sessionId: assistantMessage.sessionId ?? assistantMessage.groupId ?? '',
+    sessionId: toPersistedConversationMessageSessionId(
+      assistantMessage.sessionId,
+      assistantMessage.groupId,
+    ),
     threadId: assistantMessage.threadId,
     tool_call_id: payload.id,
     topicId: assistantMessage.topicId,
@@ -371,7 +376,10 @@ export const invokeConversationTool = async ({
         parentId: assistantMessage.id,
         plugin: payload,
         role: 'tool',
-        sessionId: assistantMessage.sessionId ?? assistantMessage.groupId ?? '',
+        sessionId: toPersistedConversationMessageSessionId(
+          assistantMessage.sessionId,
+          assistantMessage.groupId,
+        ),
         threadId: assistantMessage.threadId,
         tool_call_id: payload.id,
         topicId: assistantMessage.topicId,

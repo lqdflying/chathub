@@ -10,11 +10,11 @@ import type {
 import { ConversationGenerationModel } from '@/database/models/conversationGeneration';
 import { MessageModel } from '@/database/models/message';
 
+import { toPersistedConversationMessageSessionId } from './inboxSession';
+
 type ConversationDb = LobeChatDatabase | Transaction;
 
-export const listOperationAssistantIds = (
-  operation?: ConversationGenerationOperation | null,
-) => [
+export const listOperationAssistantIds = (operation?: ConversationGenerationOperation | null) => [
   operation?.assistantMessageId,
   ...(operation?.config?.supervisorChildMessageIds || []),
 ];
@@ -36,9 +36,7 @@ export const clearUnfinishedPlaceholders = async (
   messageIds: Array<string | null | undefined>,
 ) => {
   const ids = [
-    ...new Set(
-      messageIds.filter((id): id is string => typeof id === 'string' && id.length > 0),
-    ),
+    ...new Set(messageIds.filter((id): id is string => typeof id === 'string' && id.length > 0)),
   ];
   if (ids.length === 0) return;
   const messageModel = new MessageModel(db, userId);
@@ -70,9 +68,7 @@ export const clearOperationPlaceholders = async (
   operation: ConversationGenerationOperation,
   extraMessageIds: Array<string | null | undefined> = [],
 ) => {
-  const latest = await new ConversationGenerationModel(db, operation.userId).findById(
-    operation.id,
-  );
+  const latest = await new ConversationGenerationModel(db, operation.userId).findById(operation.id);
   await clearUnfinishedPlaceholders(db, operation.userId, [
     ...listOperationAssistantIds(latest ?? operation),
     ...extraMessageIds,
@@ -83,9 +79,7 @@ export const resolveLatestAssistantMessageId = async (
   db: ConversationDb,
   operation: ConversationGenerationOperation,
 ) => {
-  const latest = await new ConversationGenerationModel(db, operation.userId).findById(
-    operation.id,
-  );
+  const latest = await new ConversationGenerationModel(db, operation.userId).findById(operation.id);
   return latest?.assistantMessageId ?? operation.assistantMessageId ?? undefined;
 };
 
@@ -106,7 +100,7 @@ export const ensureOwnedAssistantPlaceholder = async (
       groupId: operation.groupId ?? undefined,
       parentId: operation.parentMessageId ?? operation.userMessageId ?? undefined,
       role: 'assistant',
-      sessionId: operation.sessionId ?? operation.groupId ?? '',
+      sessionId: toPersistedConversationMessageSessionId(operation.sessionId, operation.groupId),
       targetId: operation.config.targetId,
       threadId: operation.threadId ?? undefined,
       topicId: operation.topicId ?? undefined,
@@ -184,7 +178,10 @@ export const finalizeOperationWithCleanup = async ({
   error?: ConversationGenerationError;
   extraMessageIds?: Array<string | null | undefined>;
   operation: ConversationGenerationOperation;
-  status: Extract<ConversationGenerationStatus, 'succeeded' | 'cancelled' | 'failed' | 'interrupted'>;
+  status: Extract<
+    ConversationGenerationStatus,
+    'succeeded' | 'cancelled' | 'failed' | 'interrupted'
+  >;
 }) => {
   return withConversationDbTransaction(db, async (trx) => {
     const model = new ConversationGenerationModel(trx, operation.userId);

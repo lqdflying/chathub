@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   resolveConversationInboxSessionId,
+  toPersistedConversationMessageSessionId,
   toPersistedConversationSessionId,
 } from './inboxSession';
 
@@ -27,5 +28,21 @@ describe('toPersistedConversationSessionId', () => {
 
   it('keeps a named session id', () => {
     expect(toPersistedConversationSessionId('sess-1')).toBe('sess-1');
+  });
+});
+
+describe('toPersistedConversationMessageSessionId', () => {
+  it('stores inbox, empty, and null as null so MessageModel.matchSession uses IS NULL', () => {
+    expect(toPersistedConversationMessageSessionId()).toBeNull();
+    expect(toPersistedConversationMessageSessionId(null)).toBeNull();
+    expect(toPersistedConversationMessageSessionId('')).toBeNull();
+    expect(toPersistedConversationMessageSessionId(INBOX_SESSION_ID)).toBeNull();
+  });
+
+  it('keeps a named session id and falls back to groupId only when session is inbox-null', () => {
+    expect(toPersistedConversationMessageSessionId('sess-1', 'group-1')).toBe('sess-1');
+    expect(toPersistedConversationMessageSessionId(undefined, 'group-1')).toBe('group-1');
+    expect(toPersistedConversationMessageSessionId(INBOX_SESSION_ID, undefined)).toBeNull();
+    expect(toPersistedConversationMessageSessionId('', '')).toBeNull();
   });
 });
