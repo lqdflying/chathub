@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 
 import { getServerDB } from '@/database/core/db-adaptor';
+import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 import { createLambdaContext } from '@/libs/trpc/lambda/context';
 import { CONVERSATION_GENERATION_SSE_HEARTBEAT_MS } from '@/server/services/conversationGeneration/constants';
 import { isDurableConversationGenerationEnabled } from '@/server/services/conversationGeneration/featureFlag';
@@ -33,10 +34,13 @@ export const GET = async (req: NextRequest) => {
   }
 
   if (!(await isDurableConversationGenerationEnabled(ctx.userId))) {
-    return new Response(JSON.stringify({ message: 'Durable conversation generation is disabled.' }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 404,
-    });
+    return new Response(
+      JSON.stringify({ message: 'Durable conversation generation is disabled.' }),
+      {
+        headers: { 'Content-Type': 'application/json' },
+        status: 404,
+      },
+    );
   }
 
   const db = await getServerDB();
@@ -49,12 +53,26 @@ export const GET = async (req: NextRequest) => {
     start(controller) {
       let closed = false;
       let heartbeat = Date.now();
+      let deliveredCount = 0;
+      let closeReason: 'abort' | 'error' = 'abort';
+
+      logGenerationDebugSafe('sse_opened', { cursor });
+
+      const onAbort = () => {
+        closeReason = 'abort';
+        close();
+      };
 
       const close = () => {
         if (closed) return;
         closed = true;
         clearInterval(timer);
-        req.signal.removeEventListener('abort', close);
+        req.signal.removeEventListener('abort', onAbort);
+        logGenerationDebugSafe('sse_closed', {
+          cursor,
+          deliveredCount,
+          reason: closeReason,
+        });
         try {
           controller.close();
         } catch {
@@ -73,6 +91,7 @@ export const GET = async (req: NextRequest) => {
         try {
           const page = await service.listEvents(cursor);
           if (page.reset) {
+            logGenerationDebugSafe('sse_reset', { cursor });
             writeSse(controller, { data: { reset: true }, type: 'reset' });
             const replay = await service.listEvents(0);
             for (const event of replay.events) {
@@ -82,6 +101,7 @@ export const GET = async (req: NextRequest) => {
                 type: event.type,
               });
             }
+            deliveredCount += replay.events.length;
             cursor = replay.cursor;
           } else {
             for (const event of page.events) {
@@ -91,6 +111,7 @@ export const GET = async (req: NextRequest) => {
                 type: event.type,
               });
             }
+            deliveredCount += page.events.length;
             cursor = page.cursor;
           }
           if (Date.now() - heartbeat >= CONVERSATION_GENERATION_SSE_HEARTBEAT_MS) {
@@ -99,6 +120,9 @@ export const GET = async (req: NextRequest) => {
           }
         } catch (error) {
           if (closed) return;
+          logGenerationDebugSafe('sse_poll_failed', {
+            errorType: error instanceof Error ? error.name : typeof error,
+          });
           writeSse(controller, {
             data: {
               message: error instanceof Error ? error.message : 'Event stream failed',
@@ -114,7 +138,7 @@ export const GET = async (req: NextRequest) => {
       }, 750);
       void poll();
 
-      req.signal.addEventListener('abort', close);
+      req.signal.addEventListener('abort', onAbort);
     },
   });
 

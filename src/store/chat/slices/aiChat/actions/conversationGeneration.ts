@@ -37,6 +37,38 @@ const n = setNamespace('durableGeneration');
 // older than this, so a live producer in another tab can still finalize them.
 const ORPHAN_PLACEHOLDER_GRACE_MS = 5 * 60 * 1000;
 
+// Snapshot events for an active-but-detached operation arrive every ~1.5s via
+// SSE/poll; log only the first drop per operation+reason so a long detached
+// window produces one event, not a flood. Terminal drops are always logged.
+const droppedSnapshotLogKeys = new Set<string>();
+const DROPPED_SNAPSHOT_LOG_MAX_KEYS = 100;
+
+const logEventDropped = (
+  operationId: string,
+  reason: 'not_attached' | 'stale_revision',
+  type: string,
+  revision?: number,
+) => {
+  const isTerminal = type === 'done' || type === 'error';
+  const key = `${operationId}:${reason}`;
+  if (!isTerminal) {
+    if (droppedSnapshotLogKeys.has(key)) return;
+    if (droppedSnapshotLogKeys.size >= DROPPED_SNAPSHOT_LOG_MAX_KEYS)
+      droppedSnapshotLogKeys.clear();
+    droppedSnapshotLogKeys.add(key);
+  } else {
+    droppedSnapshotLogKeys.delete(key);
+  }
+  void hashGenerationDebugClientValue(operationId).then((operationHash) => {
+    logGenerationDebugClientSafe('event_dropped', {
+      operationHash,
+      reason,
+      revision,
+      type,
+    });
+  });
+};
+
 export interface ConversationGenerationAction {
   applyConversationGenerationEvent: (event: ConversationGenerationEvent) => void;
   attachConversationGeneration: (operation: ServerGenerationOperation) => void;
@@ -244,8 +276,15 @@ export const conversationGeneration: StateCreator<
   applyConversationGenerationEvent: (event) => {
     const state = get();
     const attached = findAttachedOperation(state.serverGenerationOperations, event.operationId);
+    if (!attached) {
+      logEventDropped(event.operationId, 'not_attached', event.type);
+      return;
+    }
     if (!shouldApplyAttachedOperation(attached, state)) return;
-    if (attached?.revision !== undefined && event.revision <= attached.revision) return;
+    if (attached.revision !== undefined && event.revision <= attached.revision) {
+      logEventDropped(event.operationId, 'stale_revision', event.type, event.revision);
+      return;
+    }
 
     set(
       (current) => ({
@@ -347,6 +386,12 @@ export const conversationGeneration: StateCreator<
     }
 
     if (event.type === 'done' || event.type === 'error') {
+      void hashGenerationDebugClientValue(event.operationId).then((operationHash) => {
+        logGenerationDebugClientSafe('event_applied_terminal', {
+          operationHash,
+          type: event.type,
+        });
+      });
       if (assistantMessageId) {
         get().internal_markDurableGenerating(assistantMessageId, false);
       }

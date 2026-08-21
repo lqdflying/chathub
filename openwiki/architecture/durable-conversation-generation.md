@@ -454,8 +454,8 @@ Event coverage:
 
 | Layer  | Events                                                                                          |
 | ------ | ----------------------------------------------------------------------------------------------- |
-| Client | `send_started`, `send_rpc_settled`, `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started`, `exec_runtime_settled`, `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `sync_summary`, `orphan_deleted` |
-| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `execute_started`, `execute_skipped`, `execute_transcript_loaded`, `execute_settled` |
+| Client | `send_started`, `send_rpc_settled`, `send_recovery`, `send_failure_ui`, `durable_attach`, `durable_attach_skipped`, `browser_path_started`, `exec_runtime_settled`, `enqueue_client_settled`, `regenerate_started`, `regenerate_early_return`, `regenerate_enqueue_settled`, `sync_summary`, `orphan_deleted`, `event_dropped`, `event_applied_terminal`, `sse_client_stream_ended`, `sse_client_stream_failed`, `sse_client_poll_failed`, `sse_client_reset_replay` |
+| Server | `enqueue_received`, `enqueue_rejected`, `enqueue_persisted` (`jobAdded`), `sweep_reenqueued` (`jobAdded`), `worker_started`, `worker_start_failed`, `worker_stopped`, `job_received` (`queueAgeMs`), `job_malformed`, `sweep_failed`, `sse_opened`, `sse_closed` (`deliveredCount`, `reason`), `sse_reset`, `sse_poll_failed`, `execute_started` (`queueAgeMs`), `execute_skipped`, `execute_transcript_loaded`, `execute_settled` |
 
 Semantics that matter when reading the stream:
 
@@ -464,6 +464,23 @@ Semantics that matter when reading the stream:
   error). The reachable `jobAdded=false` signal is `sweep_reenqueued`: the
   operation row exists, but neither the SQL insert nor the worker-utils
   fallback could add a job; the sweeper retries on its next pass.
+- Worker lifecycle: `worker_started` fires once per container boot from
+  `startConversationGenerationWorker`; a boot showing `worker_start_failed`
+  (or no `worker_started`) means the Graphile runner never came up and no job
+  will run until restart. `job_malformed` covers payloads dropped for missing
+  `operationId`/`userId`; `sweep_failed` names the failing sweeper phase.
+- Queue latency: `job_received.queueAgeMs` (Graphile `run_at` → claim) and
+  `execute_started.queueAgeMs` (operation `createdAt` → claim) separate queue
+  backlog from stuck execution.
+- Delivery: the SSE route (`webapi/conversation-generation/stream`) brackets
+  each connection with `sse_opened`/`sse_closed` and counts delivered events;
+  the client hook reports reconnect episodes (`sse_client_stream_ended` /
+  `sse_client_stream_failed`), throttled poll failures, and cursor-reset
+  replays. `event_dropped` in `applyConversationGenerationEvent` names why an
+  event was not applied (`not_attached`, `stale_revision`); snapshot drops are
+  throttled to one per operation+reason while `done`/`error` drops are always
+  logged. `event_applied_terminal` is the positive end-to-end proof that a
+  terminal event reached and was applied by the browser.
 - `execute_transcript_loaded` records `parentUserHash` (content fingerprint of
   the triggering user message) and `lastTranscriptUserHash` (last user message
   actually loaded). A mismatch proves a transcript/binding race — the worker

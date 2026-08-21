@@ -1,6 +1,7 @@
-import { run, type Runner, type Task } from 'graphile-worker';
+import { type Runner, type Task, run } from 'graphile-worker';
 
 import { getServerDB } from '@/database/core/db-adaptor';
+import { hashGenerationDebugValue, logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 
 import {
   CONVERSATION_GENERATION_SWEEP_INTERVAL_MS,
@@ -33,12 +34,24 @@ export const shouldStartConversationGenerationWorker = () => {
   return true;
 };
 
-const handleConversationGenerationJob: Task = async (payload) => {
+const handleConversationGenerationJob: Task = async (payload, helpers) => {
   const { operationId, userId } = (payload || {}) as {
     operationId?: string;
     userId?: string;
   };
-  if (!operationId || !userId) return;
+  if (!operationId || !userId) {
+    logGenerationDebugSafe('job_malformed', {
+      hasOperationId: Boolean(operationId),
+      hasUserId: Boolean(userId),
+    });
+    return;
+  }
+
+  const runAt = helpers?.job?.run_at ? new Date(helpers.job.run_at).getTime() : undefined;
+  logGenerationDebugSafe('job_received', {
+    operationHash: hashGenerationDebugValue(operationId),
+    queueAgeMs: runAt ? Math.max(0, Date.now() - runAt) : undefined,
+  });
 
   const db = await getServerDB();
   await executeConversationGeneration({ db, operationId, userId });
@@ -81,6 +94,7 @@ export const stopConversationGenerationWorker = async () => {
     const runner = await globalState.__chathubConversationGenerationWorker?.catch(() => undefined);
     if (runner) await runner.stop();
     globalState.__chathubConversationGenerationWorker = undefined;
+    logGenerationDebugSafe('worker_stopped', {});
   })();
 
   try {
@@ -114,6 +128,10 @@ export const startConversationGenerationSweeper = () => {
 
   const sweepTimer = setInterval(() => {
     void runConversationGenerationSweep().catch((error) => {
+      logGenerationDebugSafe('sweep_failed', {
+        errorType: error instanceof Error ? error.name : typeof error,
+        phase: 'periodic',
+      });
       console.error('[conversation-generation] periodic sweep failed', error);
     });
   }, CONVERSATION_GENERATION_SWEEP_INTERVAL_MS);
@@ -121,6 +139,10 @@ export const startConversationGenerationSweeper = () => {
   globalState.__chathubConversationGenerationSweeper = sweepTimer;
 
   void runConversationGenerationSweep().catch((error) => {
+    logGenerationDebugSafe('sweep_failed', {
+      errorType: error instanceof Error ? error.name : typeof error,
+      phase: 'initial',
+    });
     console.error('[conversation-generation] initial sweep failed', error);
   });
 };
@@ -136,7 +158,7 @@ export const startConversationGenerationWorker = async (): Promise<Runner | unde
 
   globalState.__chathubConversationGenerationWorker = (async () => {
     try {
-      return await run({
+      const runner = await run({
         concurrency: parseConcurrency(),
         connectionString: process.env.DATABASE_URL,
         noHandleSignals: true,
@@ -145,7 +167,12 @@ export const startConversationGenerationWorker = async (): Promise<Runner | unde
           [CONVERSATION_GENERATION_TASK]: handleConversationGenerationJob,
         },
       });
+      logGenerationDebugSafe('worker_started', { concurrency: parseConcurrency() });
+      return runner;
     } catch (error) {
+      logGenerationDebugSafe('worker_start_failed', {
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
       console.error('[conversation-generation] worker failed to start', error);
       globalState.__chathubConversationGenerationWorker = undefined;
       return undefined;

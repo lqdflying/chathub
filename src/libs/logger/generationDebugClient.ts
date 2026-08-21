@@ -20,6 +20,8 @@ export type GenerationDebugClientEvent =
   | 'durable_attach'
   | 'durable_attach_skipped'
   | 'enqueue_client_settled'
+  | 'event_applied_terminal'
+  | 'event_dropped'
   | 'exec_runtime_settled'
   | 'orphan_deleted'
   | 'regenerate_early_return'
@@ -29,6 +31,10 @@ export type GenerationDebugClientEvent =
   | 'send_recovery'
   | 'send_rpc_settled'
   | 'send_started'
+  | 'sse_client_poll_failed'
+  | 'sse_client_reset_replay'
+  | 'sse_client_stream_ended'
+  | 'sse_client_stream_failed'
   | 'sync_summary';
 
 const CLIENT_DEBUG_STORAGE_KEY = 'chathub.generationDebug';

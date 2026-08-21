@@ -27,6 +27,8 @@ export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'durable_attach',
   'durable_attach_skipped',
   'enqueue_client_settled',
+  'event_applied_terminal',
+  'event_dropped',
   'exec_runtime_settled',
   'orphan_deleted',
   'regenerate_early_return',
@@ -36,6 +38,10 @@ export const GENERATION_DEBUG_CLIENT_EVENTS = [
   'send_recovery',
   'send_rpc_settled',
   'send_started',
+  'sse_client_poll_failed',
+  'sse_client_reset_replay',
+  'sse_client_stream_ended',
+  'sse_client_stream_failed',
   'sync_summary',
 ] as const;
 
@@ -50,7 +56,17 @@ export type GenerationDebugEvent =
   | 'execute_skipped'
   | 'execute_started'
   | 'execute_transcript_loaded'
-  | 'sweep_reenqueued';
+  | 'job_malformed'
+  | 'job_received'
+  | 'sse_closed'
+  | 'sse_opened'
+  | 'sse_poll_failed'
+  | 'sse_reset'
+  | 'sweep_failed'
+  | 'sweep_reenqueued'
+  | 'worker_start_failed'
+  | 'worker_started'
+  | 'worker_stopped';
 
 export const GENERATION_DEBUG_NAMESPACE = 'chathub-generation-debug';
 

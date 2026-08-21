@@ -257,6 +257,9 @@ export const executeConversationGeneration = async ({
     kind: claimed.kind,
     laneGeneration: claimed.laneGeneration,
     operationHash: hashGenerationDebugValue(claimed.id),
+    queueAgeMs: claimed.createdAt
+      ? Math.max(0, Date.now() - new Date(claimed.createdAt).getTime())
+      : undefined,
   });
 
   if (

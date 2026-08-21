@@ -146,11 +146,31 @@ Generation debug (durable send path):
   reason=tostring(payload.reason), trpcCode=tostring(payload.trpcCode),
   errorClass=tostring(payload.errorClass), jobAdded=tobool(payload.jobAdded),
   operationHash=tostring(payload.operationHash),
+  queueAgeMs=tolong(payload.queueAgeMs),
+  deliveredCount=tolong(payload.deliveredCount),
+  eventType=tostring(payload.type),
   parentUserHash=tostring(payload.parentUserHash),
   lastTranscriptUserHash=tostring(payload.lastTranscriptUserHash)
 | project _time, spanId, side, debug_event, kind, outcome, reason, trpcCode,
-  errorClass, jobAdded, operationHash, parentUserHash, lastTranscriptUserHash
+  errorClass, jobAdded, operationHash, queueAgeMs, deliveredCount, eventType,
+  parentUserHash, lastTranscriptUserHash
 | sort by _time asc
+```
+
+Worker health and delivery failures at a glance:
+
+```apl
+['chathub'] | where ['debug_namespace'] == 'chathub-generation-debug'
+  and ['debug_event'] in ('worker_started', 'worker_start_failed',
+                          'worker_stopped', 'job_malformed', 'sweep_failed',
+                          'sse_poll_failed', 'sse_client_stream_failed',
+                          'sse_client_poll_failed', 'event_dropped')
+| extend payload=parse_json(extract("(\\{.*\\})$", 1, ['message']))
+| extend reason=tostring(payload.reason), errorType=tostring(payload.errorType),
+  operationHash=tostring(payload.operationHash),
+  eventType=tostring(payload.type)
+| project _time, debug_event, reason, errorType, operationHash, eventType
+| sort by _time desc | take 50
 ```
 
 Follow one send/regenerate end to end by client span:
@@ -174,12 +194,33 @@ Generation-debug semantics:
   `conversationGeneration.reportClientDebug`, which re-sanitizes and re-emits.
 - A healthy durable send is: `send_started` → `send_rpc_settled(outcome=ok,
   hasOperationId=true)` → `durable_attach` (client) → `enqueue_received` →
-  `enqueue_persisted(jobAdded=true)` → `execute_started` →
-  `execute_settled(outcome=succeeded)`, all sharing one `spanId` where present.
+  `enqueue_persisted(jobAdded=true)` → `job_received` → `execute_started` →
+  `execute_settled(outcome=succeeded)` → `event_applied_terminal` (client),
+  all sharing one `spanId` where present.
 - `enqueue_persisted(jobAdded=false)` does not occur on the transactional send
   path (a failed SQL add rolls the enqueue back); the false path lives in
   `sweep_reenqueued`, where it means an operation row exists but no Graphile
   job could be added — the sweeper will retry on its next pass.
+- Worker health: `worker_started` appears once per container boot; its absence
+  with `worker_start_failed` means the Graphile runner never came up and no
+  job will run until restart. `job_malformed` means a queued payload lacked
+  `operationId`/`userId` and was dropped. `sweep_failed` names the failing
+  sweep phase (`initial`/`periodic`).
+- Queue latency: `job_received.queueAgeMs` measures Graphile claim delay;
+  `execute_started.queueAgeMs` measures operation-row age at claim. Large
+  values with a healthy worker mean queue backlog, not a stuck job.
+- Delivery: `sse_opened`/`sse_closed` bracket each server SSE connection
+  (`deliveredCount` counts events written, `reason=abort|error`); `sse_reset`
+  marks a cursor reset + replay. Client-side `sse_client_stream_ended` /
+  `sse_client_stream_failed` mark reconnect episodes, `sse_client_poll_failed`
+  is throttled to the first failure per episode, and
+  `sse_client_reset_replay` reports replayed event counts.
+- Client drops: `event_dropped(reason=not_attached|stale_revision)` means the
+  browser received an event it could not apply. Snapshot drops are throttled
+  to one per operation+reason; `done`/`error` drops are always logged and are
+  the smoking gun for "server finished but the reply never appeared".
+  `event_applied_terminal` is the positive counterpart proving end-to-end
+  delivery of a terminal event.
 - `execute_transcript_loaded` carries `parentUserHash` (content hash of the
   triggering user message) and `lastTranscriptUserHash` (last user message in
   the loaded transcript). A mismatch between the two proves a transcript/
@@ -286,4 +327,4 @@ docker exec lobe-chat sh -c 'cat /proc/1/environ | tr "\0" "\n" | grep -E "DEBUG
 - Image: one image submission should show `submission_accepted`, `batch_persisted`, `dispatch_started`, paired `async_route_started`/`async_route_settled`, provider events, transform/upload events, and terminal `task_status_settled`. Safe records may show provider hashes, dimensions, status/media metadata, counts, and keyed hashes, but provider labels, prompts, image URLs/data, response bodies, user/database IDs, credentials, headers/cookies, arbitrary error messages, stacks, and environment values must never be raw.
 - Tool lifecycle: every local batch should have `tool_batch_started`, one `tool_completion_reported` per expected call, and `tool_batch_settled`. `resultCount + failureCount` should equal `toolCallCount`. Provider-native tools are `delegated`/`handed_off`; ChatHub built-ins are `builtin`.
 - Cache: every enabled request should have one `request` followed by one `usage`, `usage_missing`, or `terminal_error` for the same `requestHash`. `cachedTokens=0` is an explicit zero only when the provider reported it. Missing cache counters or `cacheStatus=not_reported` are unavailable telemetry, not misses.
-- Generation: every durable send/regenerate should show one `enqueue_persisted` with `jobAdded=true`, then one `execute_started` and one `execute_settled` for the same `operationHash`. Client `send_*`/`regenerate_*`/`sync_summary` events with the same `spanId` bracket the server events. Identifiers appear only as sha256-16 hashes; message content, session/topic ids, and error messages must never be raw.
+- Generation: every durable send/regenerate should show one `enqueue_persisted` with `jobAdded=true`, then `job_received`, one `execute_started` and one `execute_settled` for the same `operationHash`, and a client `event_applied_terminal` for the same `operationHash` when the browser was open. Client `send_*`/`regenerate_*`/`sync_summary` events with the same `spanId` bracket the server events. One `worker_started` should appear per container boot. Identifiers appear only as sha256-16 hashes; message content, session/topic ids, and error messages must never be raw.

@@ -4,6 +4,7 @@ import type { ConversationGenerationStreamEvent } from '@lobechat/types';
 import { useEffect, useRef, useState } from 'react';
 
 import { isClientDurableConversationGenerationEnabled } from '@/helpers/durableConversationGeneration';
+import { logGenerationDebugClientSafe } from '@/libs/logger/generationDebugClient';
 import { conversationGenerationService } from '@/services/conversationGeneration';
 import { useChatStore } from '@/store/chat';
 import { useSessionStore } from '@/store/session';
@@ -59,6 +60,7 @@ export const useConversationGenerationSync = () => {
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let pollInFlight = false;
+    let pollFailedLogged = false;
     let reconnectAttempts = 0;
     let connecting = false;
 
@@ -78,6 +80,9 @@ export const useConversationGenerationSync = () => {
         if (typeof event.id === 'number') persistCursor(event.id);
       }
       persistCursor(replay.cursor);
+      logGenerationDebugClientSafe('sse_client_reset_replay', {
+        eventCount: replay.events.length,
+      });
     };
 
     const handleEvent = (event: ConversationGenerationStreamEvent) => {
@@ -101,6 +106,7 @@ export const useConversationGenerationSync = () => {
         .listEvents(cursor)
         .then(async (page) => {
           if (abortController.signal.aborted) return;
+          pollFailedLogged = false;
           if (page.reset) {
             await replayFromStart();
             return;
@@ -109,6 +115,14 @@ export const useConversationGenerationSync = () => {
           persistCursor(page.cursor);
         })
         .catch((error) => {
+          // Poll runs every 2s; log only the first failure per episode so a
+          // sustained outage produces one event, not a flood.
+          if (!pollFailedLogged) {
+            pollFailedLogged = true;
+            logGenerationDebugClientSafe('sse_client_poll_failed', {
+              errorType: error instanceof Error ? error.name : typeof error,
+            });
+          }
           if (process.env.NODE_ENV !== 'production') {
             console.warn('[conversation-generation] poll failed', error);
           }
@@ -142,6 +156,7 @@ export const useConversationGenerationSync = () => {
         .then(() => {
           connecting = false;
           if (abortController.signal.aborted) return;
+          logGenerationDebugClientSafe('sse_client_stream_ended', { reconnectAttempts });
           startPoll();
           const delay = Math.min(250 * 2 ** reconnectAttempts, SSE_RECONNECT_MAX_MS);
           reconnectAttempts += 1;
@@ -151,9 +166,13 @@ export const useConversationGenerationSync = () => {
             connect();
           }, delay);
         })
-        .catch(() => {
+        .catch((error) => {
           connecting = false;
           if (abortController.signal.aborted) return;
+          logGenerationDebugClientSafe('sse_client_stream_failed', {
+            errorType: error instanceof Error ? error.name : typeof error,
+            reconnectAttempts,
+          });
           startPoll();
           const delay = Math.min(250 * 2 ** reconnectAttempts, SSE_RECONNECT_MAX_MS);
           reconnectAttempts += 1;
