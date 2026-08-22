@@ -14,6 +14,7 @@ export const codeInterpreterRouter = router({
         groupId: z.string().max(128).nullish(),
         packages: z.array(z.string().max(256)).max(50).optional(),
         sessionId: z.string().max(128).nullish(),
+        threadId: z.string().max(128).nullish(),
         topicId: z.string().max(128).nullish(),
       }),
     )
@@ -24,6 +25,7 @@ export const codeInterpreterRouter = router({
         groupId: input.groupId,
         packages: input.packages,
         sessionId: input.sessionId,
+        threadId: input.threadId,
         topicId: input.topicId,
         userId: ctx.userId,
       });

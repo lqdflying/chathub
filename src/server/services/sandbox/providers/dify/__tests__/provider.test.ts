@@ -23,6 +23,9 @@ vi.mock('@/envs/codeInterpreter', () => ({
     get CODE_INTERPRETER_TIMEOUT() {
       return Number(process.env.CODE_INTERPRETER_TIMEOUT ?? 60_000);
     },
+    get SANDBOX_PROVIDER() {
+      return process.env.SANDBOX_PROVIDER ?? 'dify';
+    },
   },
 }));
 
@@ -31,9 +34,9 @@ vi.mock('@/libs/logger/generationDebug', () => ({
   logGenerationDebugSafe: vi.fn(),
 }));
 
+import { SandboxError } from '../../../types';
 import { CI_FILES_SENTINEL_PREFIX } from '../envelope';
-import { CodeInterpreterSandboxService } from '../sandbox';
-import { CodeInterpreterSandboxError } from '../types';
+import { DifySandboxProvider } from '../provider';
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -41,7 +44,10 @@ const jsonResponse = (body: unknown, status = 200) =>
     status,
   });
 
-describe('CodeInterpreterSandboxService', () => {
+const run = (provider: DifySandboxProvider, code = 'print(1)') =>
+  provider.run({ code, files: [], language: 'python3' });
+
+describe('DifySandboxProvider', () => {
   beforeEach(() => {
     process.env.CODE_INTERPRETER_SANDBOX_URL = 'http://code-interpreter:8194';
     process.env.CODE_INTERPRETER_SANDBOX_API_KEY = 'sandbox-secret';
@@ -71,11 +77,7 @@ describe('CodeInterpreterSandboxService', () => {
       });
     });
 
-    const result = await new CodeInterpreterSandboxService().run({
-      code: 'print(1)',
-      files: [],
-      packageCount: 0,
-    });
+    const result = await run(new DifySandboxProvider());
 
     expect(result.success).toBe(true);
     expect(result.stdout).toBe('ok');
@@ -98,7 +100,7 @@ describe('CodeInterpreterSandboxService', () => {
 
   it('throws not_configured when the sandbox URL is unset', async () => {
     delete process.env.CODE_INTERPRETER_SANDBOX_URL;
-    await expect(new CodeInterpreterSandboxService().run({ code: 'print(1)', files: [] })).rejects.toMatchObject({
+    await expect(run(new DifySandboxProvider())).rejects.toMatchObject({
       code: 'NotConfigured',
       outcome: 'not_configured',
     });
@@ -107,11 +109,9 @@ describe('CodeInterpreterSandboxService', () => {
 
   it('maps HTTP 401 and 503', async () => {
     fetchMock.mockResolvedValueOnce(new Response('', { status: 401 }));
-    await expect(new CodeInterpreterSandboxService().run({ code: 'print(1)', files: [] })).rejects.toBeInstanceOf(
-      CodeInterpreterSandboxError,
-    );
+    await expect(run(new DifySandboxProvider())).rejects.toBeInstanceOf(SandboxError);
     fetchMock.mockResolvedValueOnce(new Response('', { status: 503 }));
-    await expect(new CodeInterpreterSandboxService().run({ code: 'print(1)', files: [] })).rejects.toMatchObject({
+    await expect(run(new DifySandboxProvider())).rejects.toMatchObject({
       code: 'Unavailable',
       httpStatus: 503,
     });
@@ -121,7 +121,7 @@ describe('CodeInterpreterSandboxService', () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ code: 0, data: { error: '', stdout: 'partial' }, message: 'success' }),
     );
-    const result = await new CodeInterpreterSandboxService().run({ code: 'print(1)', files: [] });
+    const result = await run(new DifySandboxProvider());
     expect(result.success).toBe(false);
     expect(result.outcome).toBe('error');
     expect(result.stdout).toBe('partial');

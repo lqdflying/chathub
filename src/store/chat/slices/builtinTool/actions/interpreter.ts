@@ -69,6 +69,7 @@ export const codeInterpreterSlice: StateCreator<
         groupId: message?.groupId,
         packages: params.packages,
         sessionId: message?.sessionId ?? get().activeId,
+        threadId: message?.threadId ?? get().activeThreadId,
         topicId: message?.topicId ?? get().activeTopicId,
       });
       if (!invocationIsCurrent()) {

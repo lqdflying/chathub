@@ -169,6 +169,7 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
         fileOutCount: 1,
         httpStatus: 200,
         outcome: 'ok',
+        provider: 'dify',
         stdoutChars: 12,
       });
 
@@ -179,6 +180,7 @@ describe('CHATHUB_GENERATION_DEBUG emitter', () => {
         fileOutCount: 1,
         httpStatus: 200,
         outcome: 'ok',
+        provider: 'dify',
         stdoutChars: 12,
       });
       expect(serializedRecord).not.toContain('print');

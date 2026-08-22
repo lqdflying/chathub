@@ -2,48 +2,27 @@ import { codeInterpreterEnv } from '@/envs/codeInterpreter';
 import { logGenerationDebugSafe } from '@/libs/logger/generationDebug';
 
 import {
+  SandboxError,
+  type SandboxOutcome,
+  type SandboxProvider,
+  type SandboxRunInput,
+  type SandboxRunResult,
+} from '../../types';
+import {
   createSandboxEnvelopeToken,
   parseSandboxEnvelope,
   wrapSandboxPython,
-  type SandboxInputFile,
-  type SandboxOutputFile,
 } from './envelope';
-import {
-  CodeInterpreterSandboxError,
-  type CodeInterpreterSandboxOutcome,
-  type DifySandboxRunResponse,
-} from './types';
-
-export interface CodeInterpreterSandboxRunInput {
-  code: string;
-  files: SandboxInputFile[];
-  operationHash?: string;
-  packageCount?: number;
-}
-
-export interface CodeInterpreterSandboxRunResult {
-  durationMs: number;
-  exitCode?: number;
-  files: SandboxOutputFile[];
-  httpStatus?: number;
-  outcome: CodeInterpreterSandboxOutcome;
-  stderr: string;
-  stdout: string;
-  success: boolean;
-}
+import type { DifySandboxRunResponse } from './types';
 
 const RUN_PATH = '/v1/sandbox/run';
-
-/** True when a DifySandbox sibling is configured for this deployment. */
-export const isCodeInterpreterSandboxConfigured = () =>
-  !!codeInterpreterEnv.CODE_INTERPRETER_SANDBOX_URL;
 
 const truncateChars = (value: string, maxChars: number) => {
   if (value.length <= maxChars) return value;
   return `${value.slice(0, maxChars)}\n…[output truncated]`;
 };
 
-const classifyFetchError = (error: unknown): CodeInterpreterSandboxError => {
+const classifyFetchError = (error: unknown): SandboxError => {
   const name = error instanceof Error ? error.name : '';
   const message = error instanceof Error ? error.message : String(error);
   const timedOut =
@@ -52,18 +31,16 @@ const classifyFetchError = (error: unknown): CodeInterpreterSandboxError => {
     message.toLowerCase().includes('timeout') ||
     message.toLowerCase().includes('timed out');
   if (timedOut) {
-    return new CodeInterpreterSandboxError(
+    return new SandboxError(
       'Timeout',
       `Code Interpreter sandbox timed out after ${codeInterpreterEnv.CODE_INTERPRETER_TIMEOUT}ms.`,
     );
   }
-  return new CodeInterpreterSandboxError(
-    'Unavailable',
-    'Code Interpreter sandbox is unreachable.',
-  );
+  return new SandboxError('Unavailable', 'Code Interpreter sandbox is unreachable.');
 };
 
-export class CodeInterpreterSandboxService {
+export class DifySandboxProvider implements SandboxProvider {
+  readonly id = 'dify';
   private apiKey?: string;
   private baseUrl?: string;
   private maxFileBytes: number;
@@ -83,17 +60,23 @@ export class CodeInterpreterSandboxService {
     this.maxStdoutChars = codeInterpreterEnv.CODE_INTERPRETER_MAX_STDOUT_CHARS;
   }
 
-  async run(input: CodeInterpreterSandboxRunInput): Promise<CodeInterpreterSandboxRunResult> {
+  isConfigured() {
+    return !!this.baseUrl;
+  }
+
+  async run(input: SandboxRunInput): Promise<SandboxRunResult> {
     const startedAt = Date.now();
     const fileInCount = input.files.length;
     const packageCount = input.packageCount ?? 0;
     const operationHash = input.operationHash;
+    const timeoutMs = input.timeoutMs ?? this.timeout;
 
     logGenerationDebugSafe('sandbox_run_started', {
       fileInCount,
       operationHash,
       packageCount,
-      timeoutMs: this.timeout,
+      provider: this.id,
+      timeoutMs,
     });
 
     if (!this.baseUrl) {
@@ -105,19 +88,24 @@ export class CodeInterpreterSandboxService {
         operationHash,
         outcome: 'not_configured',
         packageCount,
+        provider: this.id,
         stdoutChars: 0,
-        timeoutMs: this.timeout,
+        timeoutMs,
       });
-      throw new CodeInterpreterSandboxError(
-        'NotConfigured',
-        'CODE_INTERPRETER_SANDBOX_URL is not set',
-      );
+      throw new SandboxError('NotConfigured', 'CODE_INTERPRETER_SANDBOX_URL is not set');
+    }
+
+    if (input.language !== 'python3') {
+      throw new SandboxError('ExecutionFailed', 'DifySandbox only supports python3.');
     }
 
     const token = createSandboxEnvelopeToken();
     const wrapped = wrapSandboxPython({
       code: input.code,
-      files: input.files,
+      files: input.files.map((file) => ({
+        contentBase64: Buffer.from(file.content).toString('base64'),
+        filename: file.filename,
+      })),
       maxFileBytes: this.maxFileBytes,
       token,
     });
@@ -127,7 +115,7 @@ export class CodeInterpreterSandboxService {
       response = await fetch(`${this.baseUrl}${RUN_PATH}`, {
         body: JSON.stringify({
           code: wrapped,
-          enable_network: true,
+          enable_network: input.enableNetwork !== false,
           language: 'python3',
           preload: '',
         }),
@@ -136,7 +124,7 @@ export class CodeInterpreterSandboxService {
           ...(this.apiKey ? { 'X-Api-Key': this.apiKey } : {}),
         },
         method: 'POST',
-        signal: AbortSignal.timeout(this.timeout),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       const classified = classifyFetchError(error);
@@ -147,8 +135,9 @@ export class CodeInterpreterSandboxService {
         operationHash,
         outcome: classified.outcome,
         packageCount,
+        provider: this.id,
         stdoutChars: 0,
-        timeoutMs: this.timeout,
+        timeoutMs,
       });
       throw classified;
     }
@@ -165,10 +154,11 @@ export class CodeInterpreterSandboxService {
         operationHash,
         outcome: 'error',
         packageCount,
+        provider: this.id,
         stdoutChars: 0,
-        timeoutMs: this.timeout,
+        timeoutMs,
       });
-      throw new CodeInterpreterSandboxError(
+      throw new SandboxError(
         'Unauthorized',
         'Code Interpreter sandbox rejected the API key.',
         { httpStatus },
@@ -184,14 +174,14 @@ export class CodeInterpreterSandboxService {
         operationHash,
         outcome: 'unavailable',
         packageCount,
+        provider: this.id,
         stdoutChars: 0,
-        timeoutMs: this.timeout,
+        timeoutMs,
       });
-      throw new CodeInterpreterSandboxError(
-        'Unavailable',
-        'Code Interpreter sandbox is unavailable.',
-        { httpStatus, outcome: 'unavailable' },
-      );
+      throw new SandboxError('Unavailable', 'Code Interpreter sandbox is unavailable.', {
+        httpStatus,
+        outcome: 'unavailable',
+      });
     }
 
     if (!response.ok) {
@@ -203,10 +193,11 @@ export class CodeInterpreterSandboxService {
         operationHash,
         outcome: 'error',
         packageCount,
+        provider: this.id,
         stdoutChars: 0,
-        timeoutMs: this.timeout,
+        timeoutMs,
       });
-      throw new CodeInterpreterSandboxError(
+      throw new SandboxError(
         'ExecutionFailed',
         `Code Interpreter sandbox returned HTTP ${httpStatus}.`,
         { httpStatus },
@@ -225,10 +216,11 @@ export class CodeInterpreterSandboxService {
         operationHash,
         outcome: 'error',
         packageCount,
+        provider: this.id,
         stdoutChars: 0,
-        timeoutMs: this.timeout,
+        timeoutMs,
       });
-      throw new CodeInterpreterSandboxError(
+      throw new SandboxError(
         'ExecutionFailed',
         'Code Interpreter sandbox returned a non-JSON body.',
         { httpStatus },
@@ -246,14 +238,13 @@ export class CodeInterpreterSandboxService {
         operationHash,
         outcome: 'error',
         packageCount,
+        provider: this.id,
         stdoutChars: 0,
-        timeoutMs: this.timeout,
+        timeoutMs,
       });
-      throw new CodeInterpreterSandboxError(
-        'ExecutionFailed',
-        'Code Interpreter sandbox rejected the run.',
-        { httpStatus },
-      );
+      throw new SandboxError('ExecutionFailed', 'Code Interpreter sandbox rejected the run.', {
+        httpStatus,
+      });
     }
 
     const envelope = parseSandboxEnvelope({
@@ -265,7 +256,7 @@ export class CodeInterpreterSandboxService {
     const stderr = truncateChars(payload.data?.error?.trim() ?? '', this.maxStdoutChars);
     const stdout = truncateChars(envelope.stdout, this.maxStdoutChars);
     const success = envelope.wrapperPresent && envelope.success && !stderr;
-    const outcome: CodeInterpreterSandboxOutcome = success ? 'ok' : 'error';
+    const outcome: SandboxOutcome = success ? 'ok' : 'error';
 
     logGenerationDebugSafe('sandbox_run_settled', {
       durationMs,
@@ -276,8 +267,9 @@ export class CodeInterpreterSandboxService {
       operationHash,
       outcome,
       packageCount,
+      provider: this.id,
       stdoutChars: stdout.length,
-      timeoutMs: this.timeout,
+      timeoutMs,
     });
 
     return {

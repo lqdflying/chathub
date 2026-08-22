@@ -66,6 +66,7 @@ services:
       # Privacy-safe Knowledge Base lifecycle diagnostics:
       # CHATHUB_KNOWLEDGE_DEBUG=1 # or verbose
       # Code Interpreter sidecar (must match code-interpreter API_KEY):
+      - SANDBOX_PROVIDER=dify
       - CODE_INTERPRETER_SANDBOX_URL=http://code-interpreter:8194
       - CODE_INTERPRETER_SANDBOX_API_KEY=<your-sandbox-api-key>
     ports:
@@ -104,7 +105,7 @@ services:
     # No host port — ChatHub reaches it on the Compose network only.
 ```
 
-Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see the [Docker deployment wiki](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades). Code Interpreter Python runs in the `code-interpreter` sibling ([wiki](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)); omit that service, the `chathub` `depends_on` entry, and the two `CODE_INTERPRETER_*` variables if you do not need it.
+Database migrations run automatically on container startup. For upgrade procedures, volume management, and migration troubleshooting, see the [Docker deployment wiki](https://github.com/lqdflying/chathub/wiki/Docker-Deployment-and-Upgrades). Code Interpreter Python runs in the `code-interpreter` sibling ([wiki](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox)); omit that service, the `chathub` `depends_on` entry, and the `SANDBOX_PROVIDER` / `CODE_INTERPRETER_*` variables if you do not need it.
 
 ---
 

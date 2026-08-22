@@ -1,12 +1,18 @@
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { CodeInterpreterResponse } from '@lobechat/types';
 
-import { gatherConversationSandboxFiles, persistSandboxOutputFiles } from './files';
-import { CodeInterpreterSandboxService } from './sandbox';
-import { CodeInterpreterSandboxError } from './types';
+import {
+  CodeInterpreterSandboxError,
+  gatherConversationSandboxFiles,
+  getSandboxProvider,
+  persistSandboxOutputFiles,
+} from '@/server/services/sandbox';
 
-export { CodeInterpreterSandboxService, isCodeInterpreterSandboxConfigured } from './sandbox';
-export { CodeInterpreterSandboxError, type CodeInterpreterSandboxOutcome } from './types';
+export {
+  CodeInterpreterSandboxError,
+  type CodeInterpreterSandboxOutcome,
+  isSandboxConfigured as isCodeInterpreterSandboxConfigured,
+} from '@/server/services/sandbox';
 
 const MAX_ERROR_CHARS = 100_000;
 
@@ -17,6 +23,7 @@ export interface RunCodeInterpreterParams {
   operationHash?: string;
   packages?: string[];
   sessionId?: string | null;
+  threadId?: string | null;
   topicId?: string | null;
   userId: string;
 }
@@ -48,6 +55,7 @@ export const runCodeInterpreter = async ({
   operationHash,
   packages = [],
   sessionId,
+  threadId,
   topicId,
   userId,
 }: RunCodeInterpreterParams): Promise<CodeInterpreterResponse> => {
@@ -58,14 +66,16 @@ export const runCodeInterpreter = async ({
     db,
     groupId,
     sessionId,
+    threadId,
     topicId,
     userId,
   });
 
   try {
-    const result = await new CodeInterpreterSandboxService().run({
+    const result = await getSandboxProvider().run({
       code,
       files,
+      language: 'python3',
       operationHash,
       packageCount,
     });

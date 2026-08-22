@@ -86,6 +86,7 @@ const assistantMessage = {
   id: 'assistant-1',
   role: 'assistant',
   sessionId: 'session-1',
+  threadId: 'thread-1',
   topicId: 'topic-1',
 } as UIChatMessage;
 
@@ -306,6 +307,7 @@ describe('executeConversationToolStep', () => {
       expect.objectContaining({
         code: 'print(1)',
         sessionId: 'session-1',
+        threadId: 'thread-1',
         topicId: 'topic-1',
         userId: 'user-1',
       }),

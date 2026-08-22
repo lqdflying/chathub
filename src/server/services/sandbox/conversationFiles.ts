@@ -8,17 +8,19 @@ import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
 import { codeInterpreterEnv } from '@/envs/codeInterpreter';
 import { toPersistedConversationSessionId } from '@/server/services/conversationGeneration/inboxSession';
+import { loadConversationThreadMessages } from '@/server/services/conversationGeneration/threadScope';
 import { FileService } from '@/server/services/file';
 import { createUploadTarget } from '@/server/services/file/uploadTarget';
 import { CodeInterpreterIdentifier } from '@/tools/code-interpreter';
 
-import type { SandboxInputFile, SandboxOutputFile } from './envelope';
+import type { SandboxFile } from './types';
 
-const MAX_GATHER_MESSAGES = 200;
+export const SANDBOX_GATHER_PAGE_SIZE = 1000;
+export const SANDBOX_GATHER_MAX_PAGES = 50;
 
 const basename = (filename: string) => filename.replaceAll('\\', '/').split('/').pop() || filename;
 
-export const gatherConversationSandboxFiles = async ({
+const loadConversationMessages = async ({
   db,
   groupId,
   sessionId,
@@ -30,19 +32,53 @@ export const gatherConversationSandboxFiles = async ({
   sessionId?: string | null;
   topicId?: string | null;
   userId: string;
-}): Promise<SandboxInputFile[]> => {
+}): Promise<UIChatMessage[]> => {
   const messageModel = new MessageModel(db, userId);
+  const messages: UIChatMessage[] = [];
+
+  for (let current = 0; current < SANDBOX_GATHER_MAX_PAGES; current += 1) {
+    const page = (await messageModel.query({
+      current,
+      groupId: groupId || undefined,
+      pageSize: SANDBOX_GATHER_PAGE_SIZE,
+      sessionId: toPersistedConversationSessionId(sessionId),
+      topicId: topicId || undefined,
+    })) as UIChatMessage[];
+    messages.push(...page);
+    if (page.length < SANDBOX_GATHER_PAGE_SIZE) break;
+  }
+
+  return messages;
+};
+
+export const gatherConversationSandboxFiles = async ({
+  db,
+  groupId,
+  sessionId,
+  threadId,
+  topicId,
+  userId,
+}: {
+  db: LobeChatDatabase;
+  groupId?: string | null;
+  sessionId?: string | null;
+  threadId?: string | null;
+  topicId?: string | null;
+  userId: string;
+}): Promise<SandboxFile[]> => {
   const fileModel = new FileModel(db, userId);
   const fileService = new FileService(db, userId);
   const maxFileBytes = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_BYTES;
   const maxFileCount = codeInterpreterEnv.CODE_INTERPRETER_MAX_FILE_COUNT;
 
-  const messages = (await messageModel.query({
-    groupId: groupId || undefined,
-    pageSize: MAX_GATHER_MESSAGES,
-    sessionId: toPersistedConversationSessionId(sessionId),
-    topicId: topicId || undefined,
-  })) as UIChatMessage[];
+  const messages = await loadConversationMessages({
+    db,
+    groupId,
+    sessionId,
+    topicId,
+    userId,
+  });
+  const scoped = await loadConversationThreadMessages(db, userId, messages, threadId);
 
   const pending: Array<{ filename: string; id: string }> = [];
   const seen = new Set<string>();
@@ -52,7 +88,8 @@ export const gatherConversationSandboxFiles = async ({
     pending.push({ filename: basename(filename || id), id });
   };
 
-  for (const message of messages) {
+  for (let index = scoped.length - 1; index >= 0; index -= 1) {
+    const message = scoped[index];
     for (const file of message.fileList ?? []) push(file.id, file.name);
     for (const image of message.imageList ?? []) push(image.id, image.alt);
     if (message.role !== 'tool') continue;
@@ -68,7 +105,7 @@ export const gatherConversationSandboxFiles = async ({
     }
   }
 
-  const files: SandboxInputFile[] = [];
+  const files: SandboxFile[] = [];
   for (const item of pending) {
     try {
       const record = await fileModel.findById(item.id);
@@ -76,7 +113,7 @@ export const gatherConversationSandboxFiles = async ({
       const bytes = await fileService.getFileByteArray(record.url);
       if (!bytes || bytes.byteLength === 0 || bytes.byteLength > maxFileBytes) continue;
       files.push({
-        contentBase64: Buffer.from(bytes).toString('base64'),
+        content: new Uint8Array(bytes),
         filename: basename(record.name || item.filename),
       });
     } catch {
@@ -93,7 +130,7 @@ export const persistSandboxOutputFiles = async ({
   userId,
 }: {
   db: LobeChatDatabase;
-  files: SandboxOutputFile[];
+  files: SandboxFile[];
   userId: string;
 }): Promise<CodeInterpreterFileItem[]> => {
   const fileModel = new FileModel(db, userId);

@@ -6,7 +6,7 @@ import {
   wrapSandboxPython,
 } from '../envelope';
 
-describe('Code Interpreter sandbox envelope', () => {
+describe('Dify sandbox envelope', () => {
   it('embeds user code and input files as base64, not raw source', () => {
     const wrapped = wrapSandboxPython({
       code: 'print("secret-source")',

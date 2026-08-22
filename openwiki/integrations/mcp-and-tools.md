@@ -307,21 +307,27 @@ For built-in Tools Hub features, also check:
 
 ## Code Interpreter runtime
 
-The `lobe-code-interpreter` builtin runs Python on a **DifySandbox sibling**
-over HTTP (`langgenius/dify-sandbox:0.2.15`). The ChatHub image is distroless
-and has no CPython. User-facing setup:
+The `lobe-code-interpreter` builtin runs Python through a **sandbox provider**
+(DifySandbox today). Architecture:
+[Sandbox providers](../architecture/sandbox-providers.md).
+The ChatHub image is distroless and has no CPython. User-facing setup:
 [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
 
-- **Contract** — `POST /v1/sandbox/run` with `X-Api-Key`, body
+- **Provider** — `SANDBOX_PROVIDER` defaults to `dify`.
+  `src/server/services/sandbox/providers/dify/` owns
+  `POST /v1/sandbox/run` with `X-Api-Key`, body
   `{ language: "python3", code, preload, enable_network }`. HTTP 200 + envelope
   `code === 0` is transport OK; `data.error` is an execution failure. Isolation
-  is seccomp + chroot. There is no file-upload API.
-- **ChatHub client** — `src/server/services/codeInterpreter/` wraps user code
-  (files under `/mnt/data`, `MPLBACKEND=Agg`, sentinel + base64 outputs),
-  gathers conversation files from Postgres, and uploads results with the server
-  file service. Graphile `invokeConversationTool` and leftover client
+  is seccomp + chroot. There is no file-upload API; the Dify provider wraps
+  files into the Python string.
+- **ChatHub adapter** — `src/server/services/codeInterpreter/` gathers
+  conversation files (paginated, newest-first, thread-scoped), calls
+  `getSandboxProvider().run()`, and uploads results with the server file
+  service. Graphile `invokeConversationTool` and leftover client
   `interpreter.ts` both call `runCodeInterpreter` (the client via tRPC
   `codeInterpreter.run`).
+- **Thread scope** — a portal-thread run uses that thread (plus its main
+  prefix). A main-topic run excludes portal-thread files.
 - **Enqueue** — Code Interpreter stays off the defer list. Presence must not
   force the whole turn onto the tab. Unset `CODE_INTERPRETER_SANDBOX_URL`
   returns `not_configured` (`shouldContinue: true`). There is no Pyodide
@@ -330,8 +336,8 @@ and has no CPython. User-facing setup:
   dependencies update API. The tool `packages` argument is counted for debug
   only.
 - **Debug** — `sandbox_run_started` / `sandbox_run_settled` on
-  `CHATHUB_GENERATION_DEBUG`. Never log code, stdout, or filenames.
-  `browser_tool_stubbed` is DALL·E only.
+  `CHATHUB_GENERATION_DEBUG` (includes `provider`). Never log code, stdout, or
+  filenames. `browser_tool_stubbed` is DALL·E only.
 
 MCP HTTP tools invoked during durable conversation generation run inside
 Graphile Worker via `src/server/services/conversationGeneration/tools.ts`,

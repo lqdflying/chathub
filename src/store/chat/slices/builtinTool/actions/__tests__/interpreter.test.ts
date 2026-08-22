@@ -33,6 +33,7 @@ vi.mock('@/store/chat/selectors', () => ({
   chatSelectors: {
     getMessageById: vi.fn(() => () => ({
       sessionId: 'session-1',
+      threadId: 'thread-1',
       topicId: 'topic-1',
     })),
     getMessageByToolCallId: vi.fn(() => () => undefined),
@@ -97,6 +98,7 @@ describe('code interpreter actions', () => {
       groupId: undefined,
       packages: [],
       sessionId: 'session-1',
+      threadId: 'thread-1',
       topicId: 'topic-1',
     });
     expect(executionResult).toEqual({

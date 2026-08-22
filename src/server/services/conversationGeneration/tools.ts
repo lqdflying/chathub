@@ -345,6 +345,7 @@ export const invokeConversationTool = async ({
       operationHash: operationId ? hashGenerationDebugValue(operationId) : undefined,
       packages,
       sessionId: assistantMessage.sessionId,
+      threadId: assistantMessage.threadId,
       topicId: assistantMessage.topicId,
       userId,
     });
