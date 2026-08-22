@@ -76,6 +76,13 @@ browser-fallback turns (`unsupported_tool` / `fetch_on_client`). Follow
 `openwiki/architecture/claude-like-background-generation.md` before changing
 send, stop, invalidate, RAG retrieve, or tool continuation.
 
+## Code Interpreter prompts
+
+Builtin `systemRole` stays general sandbox contract. Special tasks go on the
+assistant prompt plus sidecar `python-requirements.txt`, not a ChatHub prompt
+change. There is no topic system-prompt field. Follow
+**`.cursor/rules/code-interpreter-prompt.mdc`**.
+
 ## Provider-specific model options
 
 When adding **per-model extension toggles** (gear menu), **extendParams**, or a **new provider option panel**, follow the docs-first workflow in **`provider-model-options.mdc`** (same `.cursor/rules/` folder): official API → model bank → types → service → runtime → UI → i18n → tests.

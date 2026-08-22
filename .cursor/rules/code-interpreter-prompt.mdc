@@ -1,0 +1,41 @@
+---
+description: Code Interpreter product prompt stays general; special tasks use assistant prompt + sandbox requirements, not a ChatHub builtin prompt change
+alwaysApply: true
+---
+
+# Code Interpreter prompt layering
+
+Do **not** bake operator-specific jobs (Excel SOP, OpenAI SDK, etc.) into the
+builtin Code Interpreter prompt. That prompt is product-level sandbox
+contract. It already follows this design — do not “fix” it by assuming
+packages are installed.
+
+## Layers
+
+| Layer | Where | What belongs there |
+| --- | --- | --- |
+| Product / builtin tool | `src/tools/code-interpreter/index.ts` `systemRole` | How the sandbox works: 60s timeout, files in cwd by basename, matplotlib Agg, prefer pandas/openpyxl/reportlab/docx/pptx/odfpy **when installed**, no per-request pip, `packages` is advisory |
+| Sidecar packages | Host `python-requirements.txt` on `/dependencies` | Makes `import` succeed. Recreate `code-interpreter`. Guest Python cannot `pip install` (seccomp) |
+| Assistant prompt | Agent Setting → system role | Standing specialty for **that** assistant (e.g. “`openai` is installed; use it for SDK experiments”) |
+| User general instruction | Settings | All chats for that account |
+| Topic | **No topic system-prompt field** | Title + compaction `historySummary` only. Use a dedicated assistant, a Skill, or the user message |
+| Skills | `load_skill` | Reusable task bundle without a ChatHub release |
+
+## Do not
+
+- Change the builtin prompt because one host installed extra PyPI packages.
+- Claim the LLM can auto-install missing packages (`packages` is debug-only).
+- Inject ChatHub LLM keys into guest Python. `OPENAI_API_KEY` on lobe-chat is
+  **not** in the sandbox; network SDKs need sidecar env or a user-supplied key
+  plus `ENABLE_NETWORK=true`.
+- Invent a topic prompt. `topics.metadata` has no instruction field.
+
+## Files vs Knowledge Base
+
+Any **chat attachment** on that topic (not Excel-only) is copied into the
+sandbox under size/count caps. Knowledge Base files are MarkItDown/RAG only
+unless also attached to the message.
+
+User-facing sidecar setup:
+[Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
+Maintainer note: `openwiki/architecture/sandbox-providers.md`.

@@ -25,7 +25,7 @@ When writing or updating an **implementation plan** (e.g. Cursor Plan mode / `Cr
 
 ## Project context
 
-Overview, stack, naming, wiki workflow: **`.cursor/rules/project.mdc`**. Per-model API toggles (extendParams): **`.cursor/rules/provider-model-options.mdc`**. Commands and test constraints: **`.cursor/rules/commands.mdc`**. MCP management UI patterns: **`.cursor/rules/mcp-management-ui.mdc`**. Claude-like leave-and-keep-going generation: **`.cursor/rules/durable-background-generation.mdc`**.
+Overview, stack, naming, wiki workflow: **`.cursor/rules/project.mdc`**. Per-model API toggles (extendParams): **`.cursor/rules/provider-model-options.mdc`**. Commands and test constraints: **`.cursor/rules/commands.mdc`**. MCP management UI patterns: **`.cursor/rules/mcp-management-ui.mdc`**. Claude-like leave-and-keep-going generation: **`.cursor/rules/durable-background-generation.mdc`**. Code Interpreter product prompt vs assistant/sidecar packages: **`.cursor/rules/code-interpreter-prompt.mdc`**.
 
 Every non-trivial change must follow **`.cursor/rules/documentation-policy.mdc`**.
 User-facing workflows, settings, controls, deployment, configuration, diagnostics,

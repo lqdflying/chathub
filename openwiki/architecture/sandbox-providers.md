@@ -90,5 +90,22 @@ microVM **inside** `run()` without changing Code Interpreter or Graphile.
 ChatHub remains distroless Node; that backend would be a sibling process, not
 an in-process libkrun embed.
 
+## Prompt layering
+
+The builtin Code Interpreter `systemRole`
+(`src/tools/code-interpreter/index.ts`) is **product-level sandbox contract**
+only: timeout, cwd files by basename, matplotlib Agg, prefer office/data
+libraries **when installed**, no per-request pip. Do not add operator-specific
+jobs (Excel SOP, OpenAI SDK, …) there.
+
+| Need | Where |
+| --- | --- |
+| Extra PyPI imports | Sidecar `/dependencies/python-requirements.txt`, then recreate |
+| Standing specialty | That assistant’s system prompt (Agent Setting) |
+| One-off task | User message or a Skill — topics have **no** system-prompt field |
+| ChatHub LLM API keys | Stay on the ChatHub container; they are **not** injected into guest Python |
+
+Agent rule: `.cursor/rules/code-interpreter-prompt.mdc`.
+
 User-facing setup:
 [Code Interpreter Sandbox](https://github.com/lqdflying/chathub/wiki/Code-Interpreter-Sandbox).
